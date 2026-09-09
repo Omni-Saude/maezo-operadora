@@ -998,7 +998,28 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             return marcador_monkeypatch
         return None
 
+    def instrucoes_do_modulo(bloco: list[ast.stmt]) -> list[ast.stmt]:
+        instrucoes: list[ast.stmt] = []
+        for no in bloco:
+            instrucoes.append(no)
+            filhos: list[ast.stmt] = []
+            if isinstance(no, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+                filhos.extend([*no.body, *no.orelse])
+            elif isinstance(no, (ast.With, ast.AsyncWith)):
+                filhos.extend(no.body)
+            elif isinstance(no, (ast.Try, ast.TryStar)):
+                filhos.extend([*no.body, *no.orelse, *no.finalbody])
+                for handler in no.handlers:
+                    filhos.extend(handler.body)
+            elif isinstance(no, ast.Match):
+                for caso in no.cases:
+                    filhos.extend(caso.body)
+            if filhos:
+                instrucoes.extend(instrucoes_do_modulo(filhos))
+        return instrucoes
+
     funcoes = {no.name: no for no in arvore.body if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    instrucoes_modulo = instrucoes_do_modulo(arvore.body)
     importacoes_pytest = [
         alias
         for no in arvore.body
@@ -1037,7 +1058,7 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
                 for alias in no.names
             )
         )
-        for no in arvore.body
+        for no in instrucoes_modulo
     )
 
     def fixture_nomeada_monkeypatch(no: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -1058,7 +1079,7 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
     monkeypatch_sombreado_no_modulo = any(
         vincula_nome_no_modulo(no, "monkeypatch")
         or (isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef)) and fixture_nomeada_monkeypatch(no))
-        for no in arvore.body
+        for no in instrucoes_modulo
     )
 
     def chamada_parametriza_monkeypatch(decorador: ast.expr) -> bool:
@@ -1085,33 +1106,40 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             return any(item.value == "monkeypatch" for item in nomes.elts)
         return True
 
-    def decorador_preserva_monkeypatch(decorador: ast.expr) -> bool:
-        if isinstance(decorador, ast.Attribute):
-            return (
-                isinstance(decorador.value, ast.Attribute)
-                and isinstance(decorador.value.value, ast.Name)
-                and decorador.value.value.id == "pytest"
-                and decorador.value.attr == "mark"
-                and decorador.attr != "parametrize"
+    def marca_pytest_preserva_monkeypatch(expressao: ast.expr, *, permite_container: bool) -> bool:
+        if isinstance(expressao, (ast.List, ast.Tuple)):
+            return permite_container and all(
+                marca_pytest_preserva_monkeypatch(item, permite_container=False) for item in expressao.elts
             )
-        if isinstance(decorador, ast.Call):
-            if chamada_parametriza_monkeypatch(decorador):
+        if isinstance(expressao, ast.Attribute):
+            return (
+                isinstance(expressao.value, ast.Attribute)
+                and isinstance(expressao.value.value, ast.Name)
+                and expressao.value.value.id == "pytest"
+                and expressao.value.attr == "mark"
+                and expressao.attr != "parametrize"
+            )
+        if isinstance(expressao, ast.Call):
+            if chamada_parametriza_monkeypatch(expressao):
                 return False
-            if isinstance(decorador.func, ast.Attribute) and decorador.func.attr == "parametrize":
+            if isinstance(expressao.func, ast.Attribute) and expressao.func.attr == "parametrize":
                 return (
-                    isinstance(decorador.func.value, ast.Attribute)
-                    and isinstance(decorador.func.value.value, ast.Name)
-                    and decorador.func.value.value.id == "pytest"
-                    and decorador.func.value.attr == "mark"
+                    isinstance(expressao.func.value, ast.Attribute)
+                    and isinstance(expressao.func.value.value, ast.Name)
+                    and expressao.func.value.value.id == "pytest"
+                    and expressao.func.value.attr == "mark"
                 )
-            return decorador_preserva_monkeypatch(decorador.func)
+            return marca_pytest_preserva_monkeypatch(expressao.func, permite_container=False)
         return False
 
-    parametriza_monkeypatch_no_modulo = any(
+    vinculos_pytestmark = [no for no in instrucoes_modulo if vincula_nome_no_modulo(no, "pytestmark")]
+    marcas_modulo_preservam_monkeypatch = all(
         isinstance(no, ast.Assign)
-        and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in no.targets)
-        and any(chamada_parametriza_monkeypatch(candidate) for candidate in ast.walk(no.value))
-        for no in arvore.body
+        and len(no.targets) == 1
+        and isinstance(no.targets[0], ast.Name)
+        and no.targets[0].id == "pytestmark"
+        and marca_pytest_preserva_monkeypatch(no.value, permite_container=True)
+        for no in vinculos_pytestmark
     )
 
     parametros_monkeypatch: dict[ast.FunctionDef | ast.AsyncFunctionDef, set[str]] = {
@@ -1119,9 +1147,12 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
             {"monkeypatch"}
             if not pytest_sombreado_no_modulo
             and not monkeypatch_sombreado_no_modulo
-            and not parametriza_monkeypatch_no_modulo
+            and marcas_modulo_preservam_monkeypatch
             and no.name.startswith("test_")
-            and all(decorador_preserva_monkeypatch(decorador) for decorador in no.decorator_list)
+            and all(
+                marca_pytest_preserva_monkeypatch(decorador, permite_container=False)
+                for decorador in no.decorator_list
+            )
             else set()
         )
         for no in funcoes.values()

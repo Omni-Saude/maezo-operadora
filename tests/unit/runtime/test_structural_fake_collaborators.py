@@ -326,6 +326,52 @@ def test_install(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    ("declaration", "module_mark", "trusted"),
+    [
+        (
+            'override_receiver = pytest.mark.parametrize("monkeypatch", [Recorder()])',
+            "override_receiver",
+            False,
+        ),
+        (
+            'override_receiver = pytest.mark.parametrize("monkeypatch", [Recorder()])',
+            "[pytest.mark.anyio, override_receiver]",
+            False,
+        ),
+        (
+            'def resolve_mark(): return pytest.mark.parametrize("monkeypatch", [Recorder()])',
+            "resolve_mark()",
+            False,
+        ),
+        ("", "pytest.mark.anyio", True),
+        (
+            "",
+            '[pytest.mark.anyio, pytest.mark.parametrize("other", [1])]',
+            True,
+        ),
+    ],
+)
+def test_module_mark_requires_wholly_known_safe_expression(declaration, module_mark, trusted):
+    parameters = "monkeypatch, other" if 'parametrize("other"' in module_mark else "monkeypatch"
+    source = f"""import http.client as wire
+import pytest
+class Specimen:
+    def close(self): pass
+class Recorder:
+    def setattr(self, target, attribute, replacement): return replacement
+{declaration}
+pytestmark = {module_mark}
+def test_install({parameters}):
+    monkeypatch.setattr(wire, "HTTPConnection", Specimen)
+"""
+    findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+    if trusted:
+        assert findings == []
+    else:
+        assert any("DmnTransport.close" in finding for finding in findings)
+
+
+@pytest.mark.parametrize(
     "replacement",
     [
         "Recorder().setattr",
