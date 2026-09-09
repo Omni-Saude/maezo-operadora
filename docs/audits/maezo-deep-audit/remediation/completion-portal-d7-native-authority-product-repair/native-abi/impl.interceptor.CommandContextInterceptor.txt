@@ -1,0 +1,244 @@
+Compiled from "CommandContextInterceptor.java"
+public class org.cibseven.bpm.engine.impl.interceptor.CommandContextInterceptor extends org.cibseven.bpm.engine.impl.interceptor.CommandInterceptor {
+  private static final org.cibseven.bpm.engine.impl.cmd.CommandLogger LOG;
+
+  protected org.cibseven.bpm.engine.impl.interceptor.CommandContextFactory commandContextFactory;
+
+  protected org.cibseven.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl processEngineConfiguration;
+
+  protected boolean alwaysOpenNew;
+
+  public org.cibseven.bpm.engine.impl.interceptor.CommandContextInterceptor();
+    Code:
+       0: aload_0
+       1: invokespecial #17                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandInterceptor."<init>":()V
+       4: return
+
+  public org.cibseven.bpm.engine.impl.interceptor.CommandContextInterceptor(org.cibseven.bpm.engine.impl.interceptor.CommandContextFactory, org.cibseven.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl);
+    Code:
+       0: aload_0
+       1: invokespecial #17                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandInterceptor."<init>":()V
+       4: aload_0
+       5: aload_1
+       6: putfield      #22                 // Field commandContextFactory:Lorg/cibseven/bpm/engine/impl/interceptor/CommandContextFactory;
+       9: aload_0
+      10: aload_2
+      11: putfield      #24                 // Field processEngineConfiguration:Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      14: return
+
+  public org.cibseven.bpm.engine.impl.interceptor.CommandContextInterceptor(org.cibseven.bpm.engine.impl.interceptor.CommandContextFactory, org.cibseven.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl, boolean);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: invokespecial #27                 // Method "<init>":(Lorg/cibseven/bpm/engine/impl/interceptor/CommandContextFactory;Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;)V
+       6: aload_0
+       7: iload_3
+       8: putfield      #29                 // Field alwaysOpenNew:Z
+      11: return
+
+  public <T> T execute(org.cibseven.bpm.engine.impl.interceptor.Command<T>);
+    Code:
+       0: aconst_null
+       1: astore_2
+       2: aload_0
+       3: getfield      #29                 // Field alwaysOpenNew:Z
+       6: ifne          27
+       9: invokestatic  #40                 // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      12: astore_3
+      13: aload_3
+      14: ifnull        27
+      17: aload_0
+      18: aload_3
+      19: invokevirtual #44                 // Method isFromSameEngine:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;)Z
+      22: ifeq          27
+      25: aload_3
+      26: astore_2
+      27: invokestatic  #52                 // Method org/cibseven/bpm/engine/impl/context/ProcessEngineContextImpl.consume:()Z
+      30: istore_3
+      31: aload_2
+      32: ifnonnull     39
+      35: iconst_1
+      36: goto          40
+      39: iconst_0
+      40: istore        4
+      42: iload         4
+      44: ifne          51
+      47: iload_3
+      48: ifeq          55
+      51: iconst_1
+      52: goto          56
+      55: iconst_0
+      56: istore        5
+      58: new           #54                 // class org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext
+      61: dup
+      62: aload_1
+      63: aload_0
+      64: getfield      #24                 // Field processEngineConfiguration:Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      67: iload         4
+      69: invokespecial #57                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext."<init>":(Lorg/cibseven/bpm/engine/impl/interceptor/Command;Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;Z)V
+      72: astore        6
+      74: aload         6
+      76: invokestatic  #61                 // Method org/cibseven/bpm/engine/impl/context/Context.setCommandInvocationContext:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext;)V
+      79: iload         5
+      81: ifeq          101
+      84: getstatic     #63                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cmd/CommandLogger;
+      87: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cmd/CommandLogger.debugOpeningNewCommandContext:()V
+      90: aload_0
+      91: getfield      #22                 // Field commandContextFactory:Lorg/cibseven/bpm/engine/impl/interceptor/CommandContextFactory;
+      94: invokevirtual #73                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandContextFactory.createCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      97: astore_2
+      98: goto          107
+     101: getstatic     #63                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cmd/CommandLogger;
+     104: invokevirtual #76                 // Method org/cibseven/bpm/engine/impl/cmd/CommandLogger.debugReusingExistingCommandContext:()V
+     107: aload_2
+     108: invokestatic  #80                 // Method org/cibseven/bpm/engine/impl/context/Context.setCommandContext:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;)V
+     111: aload_0
+     112: getfield      #24                 // Field processEngineConfiguration:Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+     115: invokestatic  #84                 // Method org/cibseven/bpm/engine/impl/context/Context.setProcessEngineConfiguration:(Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;)V
+     118: aload_0
+     119: getfield      #88                 // Field next:Lorg/cibseven/bpm/engine/impl/interceptor/CommandExecutor;
+     122: aload_1
+     123: invokeinterface #92,  2           // InterfaceMethod org/cibseven/bpm/engine/impl/interceptor/CommandExecutor.execute:(Lorg/cibseven/bpm/engine/impl/interceptor/Command;)Ljava/lang/Object;
+     128: astore        7
+     130: iload         5
+     132: ifeq          150
+     135: getstatic     #63                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cmd/CommandLogger;
+     138: invokevirtual #95                 // Method org/cibseven/bpm/engine/impl/cmd/CommandLogger.closingCommandContext:()V
+     141: aload_2
+     142: aload         6
+     144: invokevirtual #98                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.close:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext;)V
+     147: goto          155
+     150: aload         6
+     152: invokevirtual #103                // Method org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext.rethrow:()V
+     155: invokestatic  #106                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandInvocationContext:()V
+     158: invokestatic  #109                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandContext:()V
+     161: invokestatic  #112                // Method org/cibseven/bpm/engine/impl/context/Context.removeProcessEngineConfiguration:()V
+     164: iload_3
+     165: invokestatic  #116                // Method org/cibseven/bpm/engine/impl/context/ProcessEngineContextImpl.set:(Z)V
+     168: goto          189
+     171: astore        8
+     173: invokestatic  #106                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandInvocationContext:()V
+     176: invokestatic  #109                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandContext:()V
+     179: invokestatic  #112                // Method org/cibseven/bpm/engine/impl/context/Context.removeProcessEngineConfiguration:()V
+     182: iload_3
+     183: invokestatic  #116                // Method org/cibseven/bpm/engine/impl/context/ProcessEngineContextImpl.set:(Z)V
+     186: aload         8
+     188: athrow
+     189: aload         7
+     191: areturn
+     192: astore        7
+     194: aload         6
+     196: aload         7
+     198: invokevirtual #122                // Method org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext.trySetThrowable:(Ljava/lang/Throwable;)V
+     201: iload         5
+     203: ifeq          221
+     206: getstatic     #63                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cmd/CommandLogger;
+     209: invokevirtual #95                 // Method org/cibseven/bpm/engine/impl/cmd/CommandLogger.closingCommandContext:()V
+     212: aload_2
+     213: aload         6
+     215: invokevirtual #98                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.close:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext;)V
+     218: goto          226
+     221: aload         6
+     223: invokevirtual #103                // Method org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext.rethrow:()V
+     226: invokestatic  #106                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandInvocationContext:()V
+     229: invokestatic  #109                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandContext:()V
+     232: invokestatic  #112                // Method org/cibseven/bpm/engine/impl/context/Context.removeProcessEngineConfiguration:()V
+     235: iload_3
+     236: invokestatic  #116                // Method org/cibseven/bpm/engine/impl/context/ProcessEngineContextImpl.set:(Z)V
+     239: goto          260
+     242: astore        9
+     244: invokestatic  #106                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandInvocationContext:()V
+     247: invokestatic  #109                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandContext:()V
+     250: invokestatic  #112                // Method org/cibseven/bpm/engine/impl/context/Context.removeProcessEngineConfiguration:()V
+     253: iload_3
+     254: invokestatic  #116                // Method org/cibseven/bpm/engine/impl/context/ProcessEngineContextImpl.set:(Z)V
+     257: aload         9
+     259: athrow
+     260: goto          327
+     263: astore        10
+     265: iload         5
+     267: ifeq          285
+     270: getstatic     #63                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cmd/CommandLogger;
+     273: invokevirtual #95                 // Method org/cibseven/bpm/engine/impl/cmd/CommandLogger.closingCommandContext:()V
+     276: aload_2
+     277: aload         6
+     279: invokevirtual #98                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.close:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext;)V
+     282: goto          290
+     285: aload         6
+     287: invokevirtual #103                // Method org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext.rethrow:()V
+     290: invokestatic  #106                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandInvocationContext:()V
+     293: invokestatic  #109                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandContext:()V
+     296: invokestatic  #112                // Method org/cibseven/bpm/engine/impl/context/Context.removeProcessEngineConfiguration:()V
+     299: iload_3
+     300: invokestatic  #116                // Method org/cibseven/bpm/engine/impl/context/ProcessEngineContextImpl.set:(Z)V
+     303: goto          324
+     306: astore        11
+     308: invokestatic  #106                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandInvocationContext:()V
+     311: invokestatic  #109                // Method org/cibseven/bpm/engine/impl/context/Context.removeCommandContext:()V
+     314: invokestatic  #112                // Method org/cibseven/bpm/engine/impl/context/Context.removeProcessEngineConfiguration:()V
+     317: iload_3
+     318: invokestatic  #116                // Method org/cibseven/bpm/engine/impl/context/ProcessEngineContextImpl.set:(Z)V
+     321: aload         11
+     323: athrow
+     324: aload         10
+     326: athrow
+     327: aconst_null
+     328: areturn
+    Exception table:
+       from    to  target type
+         130   155   171   any
+         171   173   171   any
+          79   130   192   Class java/lang/Throwable
+         201   226   242   any
+         242   244   242   any
+          79   130   263   any
+         192   201   263   any
+         265   290   306   any
+         306   308   306   any
+         263   265   263   any
+
+  protected boolean isFromSameEngine(org.cibseven.bpm.engine.impl.interceptor.CommandContext);
+    Code:
+       0: aload_0
+       1: getfield      #24                 // Field processEngineConfiguration:Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       4: aload_1
+       5: invokevirtual #139                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       8: if_acmpne     15
+      11: iconst_1
+      12: goto          16
+      15: iconst_0
+      16: ireturn
+
+  public org.cibseven.bpm.engine.impl.interceptor.CommandContextFactory getCommandContextFactory();
+    Code:
+       0: aload_0
+       1: getfield      #22                 // Field commandContextFactory:Lorg/cibseven/bpm/engine/impl/interceptor/CommandContextFactory;
+       4: areturn
+
+  public void setCommandContextFactory(org.cibseven.bpm.engine.impl.interceptor.CommandContextFactory);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: putfield      #22                 // Field commandContextFactory:Lorg/cibseven/bpm/engine/impl/interceptor/CommandContextFactory;
+       5: return
+
+  public org.cibseven.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl getProcessEngineConfiguration();
+    Code:
+       0: aload_0
+       1: getfield      #24                 // Field processEngineConfiguration:Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       4: areturn
+
+  public void setProcessEngineContext(org.cibseven.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: putfield      #24                 // Field processEngineConfiguration:Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       5: return
+
+  static {};
+    Code:
+       0: getstatic     #149                // Field org/cibseven/bpm/engine/impl/cmd/CommandLogger.CMD_LOGGER:Lorg/cibseven/bpm/engine/impl/cmd/CommandLogger;
+       3: putstatic     #63                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cmd/CommandLogger;
+       6: return
+}

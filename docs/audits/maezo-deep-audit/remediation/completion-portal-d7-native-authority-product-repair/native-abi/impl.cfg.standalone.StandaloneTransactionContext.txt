@@ -1,0 +1,229 @@
+Compiled from "StandaloneTransactionContext.java"
+public class org.cibseven.bpm.engine.impl.cfg.standalone.StandaloneTransactionContext implements org.cibseven.bpm.engine.impl.cfg.TransactionContext {
+  private static final org.cibseven.bpm.engine.impl.cfg.TransactionLogger LOG;
+
+  protected org.cibseven.bpm.engine.impl.interceptor.CommandContext commandContext;
+
+  protected java.util.Map<org.cibseven.bpm.engine.impl.cfg.TransactionState, java.util.List<org.cibseven.bpm.engine.impl.cfg.TransactionListener>> stateTransactionListeners;
+
+  private org.cibseven.bpm.engine.impl.cfg.TransactionState lastTransactionState;
+
+  public org.cibseven.bpm.engine.impl.cfg.standalone.StandaloneTransactionContext(org.cibseven.bpm.engine.impl.interceptor.CommandContext);
+    Code:
+       0: aload_0
+       1: invokespecial #21                 // Method java/lang/Object."<init>":()V
+       4: aload_0
+       5: aconst_null
+       6: putfield      #23                 // Field stateTransactionListeners:Ljava/util/Map;
+       9: aload_0
+      10: aload_1
+      11: putfield      #25                 // Field commandContext:Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      14: return
+
+  public void addTransactionListener(org.cibseven.bpm.engine.impl.cfg.TransactionState, org.cibseven.bpm.engine.impl.cfg.TransactionListener);
+    Code:
+       0: aload_0
+       1: getfield      #23                 // Field stateTransactionListeners:Ljava/util/Map;
+       4: ifnonnull     18
+       7: aload_0
+       8: new           #31                 // class java/util/HashMap
+      11: dup
+      12: invokespecial #32                 // Method java/util/HashMap."<init>":()V
+      15: putfield      #23                 // Field stateTransactionListeners:Ljava/util/Map;
+      18: aload_0
+      19: getfield      #23                 // Field stateTransactionListeners:Ljava/util/Map;
+      22: aload_1
+      23: invokeinterface #38,  2           // InterfaceMethod java/util/Map.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      28: checkcast     #40                 // class java/util/List
+      31: astore_3
+      32: aload_3
+      33: ifnonnull     56
+      36: new           #42                 // class java/util/ArrayList
+      39: dup
+      40: invokespecial #43                 // Method java/util/ArrayList."<init>":()V
+      43: astore_3
+      44: aload_0
+      45: getfield      #23                 // Field stateTransactionListeners:Ljava/util/Map;
+      48: aload_1
+      49: aload_3
+      50: invokeinterface #47,  3           // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      55: pop
+      56: aload_3
+      57: aload_2
+      58: invokeinterface #51,  2           // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+      63: pop
+      64: return
+
+  public void commit();
+    Code:
+       0: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+       3: ldc           #62                 // String firing event committing...
+       5: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugTransactionOperation:(Ljava/lang/String;)V
+       8: aload_0
+       9: getstatic     #73                 // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.COMMITTING:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+      12: invokevirtual #77                 // Method fireTransactionEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;)V
+      15: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+      18: ldc           #79                 // String committing the persistence session...
+      20: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugTransactionOperation:(Ljava/lang/String;)V
+      23: aload_0
+      24: invokevirtual #83                 // Method getPersistenceProvider:()Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      27: invokeinterface #87,  1           // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.commit:()V
+      32: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+      35: ldc           #89                 // String firing event committed...
+      37: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugTransactionOperation:(Ljava/lang/String;)V
+      40: aload_0
+      41: getstatic     #92                 // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.COMMITTED:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+      44: invokevirtual #77                 // Method fireTransactionEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;)V
+      47: return
+
+  protected void fireTransactionEvent(org.cibseven.bpm.engine.impl.cfg.TransactionState);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #95                 // Method setLastTransactionState:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;)V
+       5: aload_0
+       6: getfield      #23                 // Field stateTransactionListeners:Ljava/util/Map;
+       9: ifnonnull     13
+      12: return
+      13: aload_0
+      14: getfield      #23                 // Field stateTransactionListeners:Ljava/util/Map;
+      17: aload_1
+      18: invokeinterface #38,  2           // InterfaceMethod java/util/Map.get:(Ljava/lang/Object;)Ljava/lang/Object;
+      23: checkcast     #40                 // class java/util/List
+      26: astore_2
+      27: aload_2
+      28: ifnonnull     32
+      31: return
+      32: aload_2
+      33: invokeinterface #99,  1           // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      38: astore_3
+      39: aload_3
+      40: invokeinterface #105,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      45: ifeq          73
+      48: aload_3
+      49: invokeinterface #109,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      54: checkcast     #111                // class org/cibseven/bpm/engine/impl/cfg/TransactionListener
+      57: astore        4
+      59: aload         4
+      61: aload_0
+      62: getfield      #25                 // Field commandContext:Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      65: invokeinterface #114,  2          // InterfaceMethod org/cibseven/bpm/engine/impl/cfg/TransactionListener.execute:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;)V
+      70: goto          39
+      73: return
+
+  protected void setLastTransactionState(org.cibseven.bpm.engine.impl.cfg.TransactionState);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: putfield      #116                // Field lastTransactionState:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+       5: return
+
+  private org.cibseven.bpm.engine.impl.db.PersistenceSession getPersistenceProvider();
+    Code:
+       0: aload_0
+       1: getfield      #25                 // Field commandContext:Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+       4: ldc           #85                 // class org/cibseven/bpm/engine/impl/db/PersistenceSession
+       6: invokevirtual #122                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       9: checkcast     #85                 // class org/cibseven/bpm/engine/impl/db/PersistenceSession
+      12: areturn
+
+  public void rollback();
+    Code:
+       0: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+       3: ldc           #127                // String firing event rollback...
+       5: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugTransactionOperation:(Ljava/lang/String;)V
+       8: aload_0
+       9: getstatic     #130                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLINGBACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+      12: invokevirtual #77                 // Method fireTransactionEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;)V
+      15: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+      18: ldc           #132                // String rolling back the persistence session...
+      20: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugTransactionOperation:(Ljava/lang/String;)V
+      23: aload_0
+      24: invokevirtual #83                 // Method getPersistenceProvider:()Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      27: invokeinterface #134,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.rollback:()V
+      32: goto          93
+      35: astore_1
+      36: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+      39: getstatic     #130                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLINGBACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+      42: aload_1
+      43: invokevirtual #138                // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.exceptionWhileFiringEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;Ljava/lang/Throwable;)V
+      46: invokestatic  #144                // Method org/cibseven/bpm/engine/impl/context/Context.getCommandInvocationContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext;
+      49: aload_1
+      50: invokevirtual #150                // Method org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext.trySetThrowable:(Ljava/lang/Throwable;)V
+      53: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+      56: ldc           #132                // String rolling back the persistence session...
+      58: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugTransactionOperation:(Ljava/lang/String;)V
+      61: aload_0
+      62: invokevirtual #83                 // Method getPersistenceProvider:()Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      65: invokeinterface #134,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.rollback:()V
+      70: goto          93
+      73: astore_2
+      74: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+      77: ldc           #132                // String rolling back the persistence session...
+      79: invokevirtual #68                 // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugTransactionOperation:(Ljava/lang/String;)V
+      82: aload_0
+      83: invokevirtual #83                 // Method getPersistenceProvider:()Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      86: invokeinterface #134,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.rollback:()V
+      91: aload_2
+      92: athrow
+      93: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+      96: invokevirtual #153                // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugFiringEventRolledBack:()V
+      99: aload_0
+     100: getstatic     #156                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLED_BACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+     103: invokevirtual #77                 // Method fireTransactionEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;)V
+     106: goto          159
+     109: astore_1
+     110: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+     113: getstatic     #130                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLINGBACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+     116: aload_1
+     117: invokevirtual #138                // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.exceptionWhileFiringEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;Ljava/lang/Throwable;)V
+     120: invokestatic  #144                // Method org/cibseven/bpm/engine/impl/context/Context.getCommandInvocationContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext;
+     123: aload_1
+     124: invokevirtual #150                // Method org/cibseven/bpm/engine/impl/interceptor/CommandInvocationContext.trySetThrowable:(Ljava/lang/Throwable;)V
+     127: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+     130: invokevirtual #153                // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugFiringEventRolledBack:()V
+     133: aload_0
+     134: getstatic     #156                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLED_BACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+     137: invokevirtual #77                 // Method fireTransactionEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;)V
+     140: goto          159
+     143: astore_3
+     144: getstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+     147: invokevirtual #153                // Method org/cibseven/bpm/engine/impl/cfg/TransactionLogger.debugFiringEventRolledBack:()V
+     150: aload_0
+     151: getstatic     #156                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLED_BACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+     154: invokevirtual #77                 // Method fireTransactionEvent:(Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;)V
+     157: aload_3
+     158: athrow
+     159: return
+    Exception table:
+       from    to  target type
+           0    15    35   Class java/lang/Throwable
+           0    15    73   any
+          35    53    73   any
+           0    93   109   Class java/lang/Throwable
+           0    93   143   any
+         109   127   143   any
+
+  public boolean isTransactionActive();
+    Code:
+       0: getstatic     #130                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLINGBACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+       3: aload_0
+       4: getfield      #116                // Field lastTransactionState:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+       7: invokevirtual #162                // Method org/cibseven/bpm/engine/impl/cfg/TransactionState.equals:(Ljava/lang/Object;)Z
+      10: ifne          30
+      13: getstatic     #156                // Field org/cibseven/bpm/engine/impl/cfg/TransactionState.ROLLED_BACK:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+      16: aload_0
+      17: getfield      #116                // Field lastTransactionState:Lorg/cibseven/bpm/engine/impl/cfg/TransactionState;
+      20: invokevirtual #162                // Method org/cibseven/bpm/engine/impl/cfg/TransactionState.equals:(Ljava/lang/Object;)Z
+      23: ifne          30
+      26: iconst_1
+      27: goto          31
+      30: iconst_0
+      31: ireturn
+
+  static {};
+    Code:
+       0: getstatic     #168                // Field org/cibseven/bpm/engine/impl/ProcessEngineLogger.TX_LOGGER:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+       3: putstatic     #60                 // Field LOG:Lorg/cibseven/bpm/engine/impl/cfg/TransactionLogger;
+       6: return
+}

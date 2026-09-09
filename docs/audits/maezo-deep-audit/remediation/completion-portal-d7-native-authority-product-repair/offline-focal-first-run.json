@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "/Users/familia/.cache/maezo-portal-jakarta-abi-repair-tooling/apache-maven-3.9.9/bin/mvn",
+    "-o",
+    "-s",
+    "/Users/familia/code/maezo-completion-wt/portal-d7-native-authority-product-repair/docs/audits/maezo-deep-audit/remediation/completion-portal-d7-native-authority-product-repair/empty-settings.xml",
+    "-Dmaven.repo.local=/Users/familia/.m2/repository",
+    "-f",
+    "src/maezo/portal/engine/java/pom.xml",
+    "-Dtest=NativeAuthorityUnitTest",
+    "test"
+  ],
+  "JAVA_HOME": "/Users/familia/.cache/maezo-portal-jakarta-abi-repair-tooling/jdk-17.0.17+10/Contents/Home",
+  "started": "2026-09-09T09:39:31.526938+00:00",
+  "ended": "2026-09-09T09:39:34.121127+00:00",
+  "returncode": 1
+}

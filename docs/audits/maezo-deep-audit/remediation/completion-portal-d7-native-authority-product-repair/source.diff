@@ -1,0 +1,331 @@
+diff --git a/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadCommand.java b/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadCommand.java
+index e713f249..384112f2 100644
+--- a/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadCommand.java
++++ b/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadCommand.java
+@@ -28,12 +28,13 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
+     this.plugin=plugin;this.peer=peer;this.cap=cap;this.request=request;
+   }
+   @Override public java.util.function.Supplier<byte[]> execute(CommandContext ctx) {
+-    WorkloadPlugin.GUARDED.set(true);
++    boolean guarded=WorkloadPlugin.GUARDED.get();WorkloadPlugin.GUARDED.set(true);
+     try {
+       context=ctx;engine=plugin.engine();policy=plugin.policy();plugin.authenticated(peer);
+       if(!ctx.isAuthorizationCheckEnabled() || !ctx.isTenantCheckEnabled())throw Refused.denied();
+       connection=ctx.getDbSqlSession().getSqlSession().getConnection();
+-      try {if(connection.getAutoCommit() || !"PostgreSQL".equals(connection.getMetaData().getDatabaseProductName()))throw Refused.unavailable();}
++      try {if(connection.getAutoCommit() || !"PostgreSQL".equals(connection.getMetaData().getDatabaseProductName())
++          || connection.getTransactionIsolation()!=Connection.TRANSACTION_READ_COMMITTED)throw Refused.unavailable();}
+       catch(SQLException e){throw Refused.unavailable();}
+       Map<String,Object> variables=cap.validate(request);
+       plugin.authorizeCapability(peer,cap);
+@@ -54,13 +55,14 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
+       current();
+       ctx.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->current());
+       return encoded;
+-    } finally {WorkloadPlugin.GUARDED.remove();}
++    } finally {if(guarded)WorkloadPlugin.GUARDED.set(true);else WorkloadPlugin.GUARDED.remove();}
+   }
+   private void current() {
+     plugin.authenticated(peer);
+     if(!context.isAuthorizationCheckEnabled() || !context.isTenantCheckEnabled())throw Refused.denied();
+     long now=System.currentTimeMillis();
+     for(long deadline:lockDeadlines)if(deadline<=now)throw Refused.resource();
++    plugin.reauthorizeCapability(context,peer,cap);
+   }
+   static ProcessDefinition definition(ProcessEngine engine,Map<String,Object> target,String tenant) {
+     var d=engine.getRepositoryService().createProcessDefinitionQuery().processDefinitionId(Json.token(target,"definition_id")).tenantIdIn(tenant).singleResult();
+@@ -132,6 +134,7 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
+   private ExternalTask locked(String id,Map<String,Object> target,String worker) {
+     // Native commands use optimistic revisions too; this enlisted row lock serializes lock ownership checks.
+     if(!exists("SELECT ID_ FROM ACT_RU_EXT_TASK WHERE ID_=? AND TENANT_ID_=? FOR UPDATE",id,policy.tenant))throw Refused.resource();
++    current();
+     var task=engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(id).tenantIdIn(policy.tenant).singleResult();
+     if(task==null || task.isSuspended() || !target.get("definition_id").equals(task.getProcessDefinitionId())
+         || !target.get("topic").equals(task.getTopicName()) || !worker.equals(task.getWorkerId()) || task.getLockExpirationTime()==null)throw Refused.resource();
+@@ -194,18 +197,28 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
+           String taskDefinition=Json.token(binding,"human_task_definition");
+           var tasks=engine.getHistoryService().createHistoricTaskInstanceQuery().processInstanceId(process).tenantIdIn(policy.tenant)
+               .taskDefinitionKey(taskDefinition).finished().orderByHistoricTaskInstanceEndTime().desc().listPage(0,1);
+-          if(tasks.size()!=1 || !hasReceipt(tasks.get(0)))throw Refused.resource();
++          if(tasks.size()!=1 || !humanSource(tasks.get(0),cap.sourceTarget,policy.tenant,process,taskDefinition)
++              || !hasReceipt(tasks.get(0)))throw Refused.resource();
+           // A copied actor/value is not provenance. Require the actual completed task's recorded variable update.
+           if(!"@business_key".equals(variable)) {
+             var updates=engine.getHistoryService().createHistoricDetailQuery().taskId(tasks.get(0).getId()).tenantIdIn(policy.tenant)
+                 .variableUpdates().disableCustomObjectDeserialization().disableBinaryFetching().listPage(0,limit()+1);
+             if(updates.size()>limit() || updates.stream().filter(d->d instanceof HistoricVariableUpdate)
+-                .map(d->(HistoricVariableUpdate)d).noneMatch(u->variable.equals(u.getVariableName()) && Objects.equals(value(u.getTypedValue()),supplied)))throw Refused.resource();
++                .map(d->(HistoricVariableUpdate)d).noneMatch(u->humanUpdate(u,tasks.get(0))
++                    && variable.equals(u.getVariableName()) && Objects.equals(value(u.getTypedValue()),supplied)))throw Refused.resource();
+           }
+         }
+       }
+     }
+   }
++  static boolean humanSource(HistoricTaskInstance task,Map<String,Object> target,String tenant,String process,String taskDefinition) {
++    return task!=null && target.get("definition_id").equals(task.getProcessDefinitionId())
++        && tenant.equals(task.getTenantId()) && process.equals(task.getProcessInstanceId()) && taskDefinition.equals(task.getTaskDefinitionKey());
++  }
++  static boolean humanUpdate(HistoricVariableUpdate update,HistoricTaskInstance task) {
++    return task.getId().equals(update.getTaskId()) && task.getProcessDefinitionId().equals(update.getProcessDefinitionId())
++        && task.getTenantId().equals(update.getTenantId()) && task.getProcessInstanceId().equals(update.getProcessInstanceId());
++  }
+   private boolean hasReceipt(HistoricTaskInstance task) {
+     if(task.getEndTime()==null || (task.getDeleteReason()!=null && !"completed".equals(task.getDeleteReason())))return false;
+     // Claim/release receipts are not proof of a human decision, even when a legacy client completed the task later.
+diff --git a/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadPlugin.java b/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadPlugin.java
+index 689e2e0d..fe83ee77 100644
+--- a/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadPlugin.java
++++ b/src/maezo/portal/engine/java/src/main/java/br/com/maezo/workload/WorkloadPlugin.java
+@@ -67,7 +67,10 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
+     }
+     long deadline=System.nanoTime()+java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(poll);
+     while(true) {
+-      byte[] result=configuration.getCommandExecutorTxRequired().execute(new WorkloadCommand(this,peer,cap,request)).get();
++      byte[] result;
++      try {result=configuration.getCommandExecutorTxRequired().execute(new WorkloadCommand(this,peer,cap,request)).get();}
++      // A native permission can change between checks. The executor has rolled back before this boundary returns.
++      catch(AuthorizationException e) {throw Refused.unavailable();}
+       if(poll==0 || !Json.list(Json.parse(result).get("result")).isEmpty() || System.nanoTime()>=deadline)return result;
+       policy.current(peer);
+       java.util.concurrent.locks.LockSupport.parkNanos(Math.min(java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(100),Math.max(1,deadline-System.nanoTime())));
+@@ -78,22 +81,40 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
+     authenticated(peer);
+     // Readiness exercises each exact definition and required native grants. An empty profile is unavailable.
+     if(peer.capabilities().isEmpty())throw Refused.unavailable();
+-    GUARDED.set(true);
++    boolean guarded=GUARDED.get();GUARDED.set(true);
+     try {
+       for(Capability cap:peer.capabilities())authorizeCapability(peer,cap);
+       policy.current(peer);
+       return Json.bytes(Map.of("protocol","maezo.engine-readiness.v1","ready",true,"policy_digest",policy.digest,
+           "capabilities",peer.capabilities().stream().map(c->c.digest).toList()));
+-    } finally {GUARDED.remove();}
++    } finally {if(guarded)GUARDED.set(true);else GUARDED.remove();}
+   }
+   /** Query authorization filters must never turn missing grants into an authoritative empty result. */
+   void authorizeCapability(BoundaryPolicy.Peer peer,Capability cap) {
+     WorkloadCommand.definition(engine,cap.target,policy.tenant);
++    if(!cap.sourceTarget.isEmpty())WorkloadCommand.definition(engine,cap.sourceTarget,policy.tenant);
++    authorizeGrants(cap,(permission,resource,id)->requireGrant(peer,permission,resource,id));
++  }
++  /** Recheck native authority without entering the service/interceptor chain during COMMITTING. */
++  void reauthorizeCapability(CommandContext context,BoundaryPolicy.Peer peer,Capability cap) {
++    if(context!=org.cibseven.bpm.engine.impl.context.Context.getCommandContext()
++        || !context.isAuthorizationCheckEnabled() || !context.isTenantCheckEnabled())throw Refused.denied();
++    // CIB 2.1 delegates boolean grant queries to MyBatis. Clear only query results, not enlisted entities/writes.
++    context.getDbSqlSession().getSqlSession().clearCache();
++    authorizeGrants(cap,(permission,resource,id)->{
++      // Its revoke-discovery flag is also cached per manager. A fresh native manager uses this SAME context/session.
++      var authority=new org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationManager();
++      if(authority.isPermissionDisabled(permission)
++          || !authority.isAuthorized(peer.engineUser(),List.of(),permission,resource,id))throw Refused.unavailable();
++    });
++  }
++  @FunctionalInterface private interface GrantCheck {void require(Permission permission,Resource resource,String id);}
++  private static void authorizeGrants(Capability cap,GrantCheck grants) {
+     List<Permission> permissions=new ArrayList<>(List.of(Permissions.READ));
+     switch(Json.token(cap.schema,"operation")) {
+       case "start":
+         permissions.add(Permissions.CREATE_INSTANCE);
+-        requireGrant(peer,Permissions.CREATE,Resources.PROCESS_INSTANCE,"*");break;
++        grants.require(Permissions.CREATE,Resources.PROCESS_INSTANCE,"*");break;
+       case "fetch_lock", "external_complete", "external_failure", "external_bpmn_error", "external_unlock", "external_extend_lock", "correlate":
+         permissions.add(Permissions.READ_INSTANCE);permissions.add(Permissions.UPDATE_INSTANCE);break;
+       case "read_active": permissions.add(Permissions.READ_INSTANCE);break;
+@@ -101,16 +122,15 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
+       default: throw Refused.unavailable();
+     }
+     String key=Json.token(cap.target,"process_key");
+-    for(Permission permission:permissions)requireGrant(peer,permission,Resources.PROCESS_DEFINITION,key);
++    for(Permission permission:permissions)grants.require(permission,Resources.PROCESS_DEFINITION,key);
+     if(!cap.sourceTarget.isEmpty()) {
+-      WorkloadCommand.definition(engine,cap.sourceTarget,policy.tenant);
+       String source=Json.token(cap.sourceTarget,"process_key");
+-      requireGrant(peer,Permissions.READ,Resources.PROCESS_DEFINITION,source);
+-      if("locked_external".equals(cap.sourceKind))requireGrant(peer,Permissions.READ_INSTANCE,Resources.PROCESS_DEFINITION,source);
++      grants.require(Permissions.READ,Resources.PROCESS_DEFINITION,source);
++      if("locked_external".equals(cap.sourceKind))grants.require(Permissions.READ_INSTANCE,Resources.PROCESS_DEFINITION,source);
+       boolean history="completed_human".equals(cap.sourceKind)
+           || cap.attestations.stream().map(Json::object).anyMatch(a->"@business_key".equals(a.get("source_variable")))
+           || Json.list(cap.schema.get("fields")).stream().map(Json::object).anyMatch(f->"prior_human_evidence".equals(f.get("origin")));
+-      if(history)requireGrant(peer,Permissions.READ_HISTORY,Resources.PROCESS_DEFINITION,source);
++      if(history)grants.require(Permissions.READ_HISTORY,Resources.PROCESS_DEFINITION,source);
+     }
+   }
+   private void requireGrant(BoundaryPolicy.Peer peer,Permission permission,Resource resource,String id) {
+diff --git a/src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/NativeAuthorityUnitTest.java b/src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/NativeAuthorityUnitTest.java
+new file mode 100644
+index 00000000..55c96898
+--- /dev/null
++++ b/src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/NativeAuthorityUnitTest.java
+@@ -0,0 +1,169 @@
++package br.com.maezo.workload;
++
++import static org.junit.jupiter.api.Assertions.*;
++import java.util.*;
++import org.apache.ibatis.cursor.Cursor;
++import org.apache.ibatis.executor.*;
++import org.apache.ibatis.mapping.*;
++import org.apache.ibatis.session.*;
++import org.apache.ibatis.session.defaults.*;
++import org.cibseven.bpm.engine.authorization.*;
++import org.cibseven.bpm.engine.impl.cfg.*;
++import org.cibseven.bpm.engine.impl.cfg.standalone.StandaloneTransactionContextFactory;
++import org.cibseven.bpm.engine.impl.context.Context;
++import org.cibseven.bpm.engine.impl.db.AuthorizationCheck;
++import org.cibseven.bpm.engine.impl.db.entitymanager.DbEntityManager;
++import org.cibseven.bpm.engine.impl.db.sql.*;
++import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
++import org.cibseven.bpm.engine.impl.persistence.entity.*;
++import org.junit.jupiter.api.*;
++import org.junit.jupiter.api.io.TempDir;
++import org.junit.jupiter.params.ParameterizedTest;
++import org.junit.jupiter.params.provider.ValueSource;
++
++/** Offline unit checks: real CIB managers and MyBatis cache, programmable query results, no engine/database. */
++class NativeAuthorityUnitTest {
++  @TempDir java.nio.file.Path temp;
++  private CommandContext context;
++  private ProcessEngineConfigurationImpl config;
++  private QueryResults queries;
++  private SqlSession sql;
++  private WorkloadPlugin plugin;
++  private BoundaryPolicy.Peer peer;
++
++  @BeforeEach void setup() throws Exception {
++    var policy=Fixtures.load(temp,Fixtures.manifest(temp));peer=policy.peers.get(0);plugin=new WorkloadPlugin(policy);
++    config=new StandaloneProcessEngineConfiguration();config.setAuthorizationEnabled(true);config.setTenantCheckEnabled(true);
++    config.setAuthorizationCheckRevokes("auto");
++    context=new CommandContext(config,new StandaloneTransactionContextFactory());
++    Context.setCommandContext(context);Context.setProcessEngineConfiguration(config);
++    var mapping=new Configuration();queries=new QueryResults(mapping);sql=new DefaultSqlSession(mapping,queries,false);
++    for(String id:List.of("selectRevokeAuthorization","isUserAuthorizedForResource")) {
++      // These are query-result units, not a replacement SQL grant policy. Distinct native inputs retain distinct cache keys.
++      SqlSource source=p->new BoundSql(mapping,id+" "+queryKey(p),List.of(),p);
++      mapping.addMappedStatement(new MappedStatement.Builder(mapping,id,source,SqlCommandType.SELECT).build());
++    }
++    var factory=new DbSqlSessionFactory(false);factory.setDatabaseType("postgres");
++    factory.setSqlSessionFactory(new DefaultSqlSessionFactory(mapping){@Override public SqlSession openSession(){return sql;}});
++    var nativeSql=new SimpleDbSqlSession(factory);
++    context.getSessions().put(DbSqlSession.class,nativeSql);
++    context.getSessions().put(DbEntityManager.class,new DbEntityManager(()->"unused",nativeSql));
++    context.getSessions().put(AuthorizationManager.class,new AuthorizationManager());
++  }
++  @AfterEach void teardown() {
++    Context.removeCommandContext();Context.removeProcessEngineConfiguration();WorkloadPlugin.GUARDED.remove();
++  }
++  private static String queryKey(Object p) {
++    if(p instanceof AuthorizationCheck a)return a.getAuthUserId()+":"+a.isRevokeAuthorizationCheckEnabled()+":"+
++        a.getPermissionChecks().getAllPermissionChecks().stream().map(c->c.getResourceType()+":"+c.getResourceId()+":"+c.getPermission().getName()).toList();
++    return p.toString();
++  }
++  private void refused(Runnable action) {
++    Refused refusal=assertThrows(Refused.class,action::run);assertEquals(503,refusal.status);assertEquals("engine_profile_unavailable",refusal.getMessage());
++  }
++  private Capability completion(){return new Capability(Fixtures.binding("contas.calculate_impact.complete.v1"));}
++
++  @Test void warmedMyBatisGrantCannotSurviveRevocation() {
++    var cap=completion();plugin.reauthorizeCapability(context,peer,cap);
++    int before=queries.reads;queries.denied="UPDATE_INSTANCE";
++    assertTrue(new AuthorizationManager().isAuthorized(peer.engineUser(),List.of(),Permissions.UPDATE_INSTANCE,Resources.PROCESS_DEFINITION,"SP-OP-CONTAS-001"),"the deliberately warmed MyBatis result is stale");
++    assertEquals(before,queries.reads);
++    refused(()->plugin.reauthorizeCapability(context,peer,cap));assertTrue(queries.reads>before);
++    queries.denied="";assertDoesNotThrow(()->plugin.reauthorizeCapability(context,peer,cap));
++  }
++  @Test void warmedNativeRevokeDiscoveryCannotSurviveNewRevoke() {
++    var authority=context.getAuthorizationManager();
++    assertTrue(authority.isAuthorized(peer.engineUser(),List.of(),Permissions.READ,Resources.PROCESS_DEFINITION,"SP-OP-CONTAS-001"));
++    queries.revoke=true;sql.clearCache();
++    assertTrue(authority.isAuthorized(peer.engineUser(),List.of(),Permissions.READ,Resources.PROCESS_DEFINITION,"SP-OP-CONTAS-001"),"existing native manager cached revoke absence");
++    refused(()->plugin.reauthorizeCapability(context,peer,completion()));
++    assertTrue(queries.sawRevoke);
++  }
++  @Test void sourceHistoryRemainsRequiredForReviewedAutomaticEmptyEvidence() {
++    var b=Fixtures.binding("contas.pagto.handoff.v1");var doc=Json.object(b.get("document"));
++    doc.put("source_target",Map.of("process_key","SP-OP-CONTAS-001","process_version",2L,"definition_id","contas-v2","topic","operadora.contas.handoff_pagamento","message",""));
++    b.put("source_kind","locked_external");b.put("source_worker_id","fixture-worker");
++    b.put("attestations",List.of(Map.of("name","fonte_valor","source_variable","fonte_valor","human_task_definition",""),
++        Map.of("name","lastro_origem","source_variable","lastro_origem","human_task_definition",""),
++        Map.of("name","lastro_decisor_id","source_variable","analista_id","human_task_definition","UT_AnalistaContas")));
++    b.put("digest",Json.digest(doc));var cap=new Capability(b);
++    plugin.reauthorizeCapability(context,peer,cap);queries.denied="READ_HISTORY";
++    refused(()->plugin.reauthorizeCapability(context,peer,cap));
++    assertTrue(queries.observed.contains(Resources.PROCESS_DEFINITION.resourceName()+":SP-OP-CONTAS-001:READ_HISTORY"));
++    assertTrue(queries.observed.contains(Resources.PROCESS_INSTANCE.resourceName()+":*:CREATE"));
++    assertTrue(queries.observed.contains(Resources.PROCESS_DEFINITION.resourceName()+":SP-OP-PAGTO-001:CREATE_INSTANCE"));
++  }
++  @Test void disabledNativePermissionIsUnavailableRatherThanImplicitGrant() {
++    config.setDisabledPermissions(List.of("UPDATE_INSTANCE"));refused(()->plugin.reauthorizeCapability(context,peer,completion()));
++  }
++  @ParameterizedTest @ValueSource(booleans={false,true})
++  void recheckKeepsGuardAndEnlistedStateEvenOnRefusal(boolean guarded) {
++    WorkloadPlugin.GUARDED.set(guarded);var sessions=new HashMap<>(context.getSessions());
++    var cache=context.getDbEntityManager().getDbEntityCache();var entity=new AuthorizationEntity();entity.setId("enlisted-existing");
++    context.getDbEntityManager().insert(entity);
++    plugin.reauthorizeCapability(context,peer,completion());queries.denied="UPDATE_INSTANCE";
++    refused(()->plugin.reauthorizeCapability(context,peer,completion()));
++    assertEquals(guarded,WorkloadPlugin.GUARDED.get());assertEquals(sessions,context.getSessions());
++    assertSame(cache,context.getDbEntityManager().getDbEntityCache());assertSame(entity,context.getDbEntityManager().getCachedEntity(AuthorizationEntity.class,"enlisted-existing"));
++    assertEquals(0,queries.writes);assertEquals(0,queries.flushes);
++  }
++  @Test void committingReadDoesNotAppendTransactionListeners() {
++    var called=new ArrayList<String>();
++    context.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->{called.add("before");plugin.reauthorizeCapability(context,peer,completion());});
++    context.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->{called.add("after");throw Refused.unavailable();});
++    refused(()->context.getTransactionContext().commit());assertEquals(List.of("before","after"),called);
++    assertEquals(0,queries.writes);assertEquals(0,queries.flushes);
++  }
++  @ParameterizedTest @ValueSource(strings={"authorization-disabled","tenant-disabled","foreign-context"})
++  void noInternalFenceBypass(String fault) {
++    if(fault.equals("authorization-disabled"))context.setAuthorizationCheckEnabled(false);
++    else if(fault.equals("tenant-disabled"))context.setTenantCheckEnabled(false);
++    else Context.removeCommandContext();
++    try {assertEquals(403,assertThrows(Refused.class,()->plugin.reauthorizeCapability(context,peer,completion())).status);assertEquals(0,queries.reads);}
++    finally {if(fault.equals("foreign-context"))Context.setCommandContext(context);}
++  }
++  @ParameterizedTest @ValueSource(booleans={false,true})
++  void failedCommandRestoresPreviousGuard(boolean guarded) {
++    WorkloadPlugin.GUARDED.set(guarded);
++    assertThrows(RuntimeException.class,()->new WorkloadCommand(new WorkloadPlugin(),null,null,null).execute(context));
++    assertEquals(guarded,WorkloadPlugin.GUARDED.get());
++  }
++  private static HistoricTaskInstanceEntity human() {
++    var task=new HistoricTaskInstanceEntity();task.setId("human-task");task.setProcessDefinitionId("contas-v2");
++    task.setProcessInstanceId("source-process");task.setTenantId("tenant-test");task.setTaskDefinitionKey("UT_AnalistaContas");return task;
++  }
++  @ParameterizedTest @ValueSource(strings={"valid","definition","tenant","process","task-definition"})
++  void historicTaskMustMatchPinnedSource(String fault) {
++    var task=human();
++    switch(fault){case "definition"->task.setProcessDefinitionId("contas-v1");case "tenant"->task.setTenantId("other");
++      case "process"->task.setProcessInstanceId("other");case "task-definition"->task.setTaskDefinitionKey("other");}
++    assertEquals(fault.equals("valid"),WorkloadCommand.humanSource(task,Map.of("definition_id","contas-v2"),"tenant-test","source-process","UT_AnalistaContas"));
++  }
++  @ParameterizedTest @ValueSource(strings={"valid","definition","tenant","process","task"})
++  void historicUpdateMustBelongToThatExactHumanTask(String fault) {
++    var task=human();var update=new HistoricDetailVariableInstanceUpdateEntity();update.setTaskId(task.getId());
++    update.setProcessDefinitionId(task.getProcessDefinitionId());update.setProcessInstanceId(task.getProcessInstanceId());update.setTenantId(task.getTenantId());
++    switch(fault){case "definition"->update.setProcessDefinitionId("contas-v1");case "tenant"->update.setTenantId("other");
++      case "process"->update.setProcessInstanceId("other");case "task"->update.setTaskId("other");}
++    assertEquals(fault.equals("valid"),WorkloadCommand.humanUpdate(update,task));
++  }
++  private static final class QueryResults extends BaseExecutor {
++    int reads,writes,flushes;boolean revoke,sawRevoke;String denied="";Set<String> observed=new HashSet<>();
++    QueryResults(Configuration config){super(config,null);}
++    @Override protected int doUpdate(MappedStatement m,Object p){writes++;throw new AssertionError("No offline SQL writes permitted");}
++    @Override protected List<BatchResult> doFlushStatements(boolean rollback){flushes++;throw new AssertionError("No offline SQL flush permitted");}
++    @Override protected <E> Cursor<E> doQueryCursor(MappedStatement m,Object p,RowBounds r,BoundSql s){throw new AssertionError();}
++    @Override @SuppressWarnings("unchecked") protected <E> List<E> doQuery(MappedStatement m,Object p,RowBounds r,ResultHandler h,BoundSql s) {
++      reads++;boolean result;
++      if(m.getId().equals("selectRevokeAuthorization"))result=revoke;
++      else {
++        var check=(AuthorizationCheck)p;assertEquals("fixture-helena",check.getAuthUserId());assertTrue(check.getAuthGroupIds().isEmpty());
++        sawRevoke|=check.isRevokeAuthorizationCheckEnabled();
++        for(var grant:check.getPermissionChecks().getAllPermissionChecks())observed.add(grant.getResource().resourceName()+":"+grant.getResourceId()+":"+grant.getPermission().getName());
++        result=!(revoke&&check.isRevokeAuthorizationCheckEnabled())
++            && check.getPermissionChecks().getAllPermissionChecks().stream().noneMatch(c->c.getPermission().getName().equals(denied));
++      }
++      return (List<E>)(List<?>)List.of(result?1:0);
++    }
++  }
++}

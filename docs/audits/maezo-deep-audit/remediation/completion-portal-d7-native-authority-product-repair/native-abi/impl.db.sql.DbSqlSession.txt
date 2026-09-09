@@ -1,0 +1,1731 @@
+Compiled from "DbSqlSession.java"
+public abstract class org.cibseven.bpm.engine.impl.db.sql.DbSqlSession extends org.cibseven.bpm.engine.impl.db.AbstractPersistenceSession {
+  protected static final org.cibseven.bpm.engine.impl.db.EnginePersistenceLogger LOG;
+
+  public static final java.lang.String[] JDBC_METADATA_TABLE_TYPES;
+
+  public static final java.lang.String[] PG_JDBC_METADATA_TABLE_TYPES;
+
+  protected org.apache.ibatis.session.SqlSession sqlSession;
+
+  protected org.cibseven.bpm.engine.impl.db.sql.DbSqlSessionFactory dbSqlSessionFactory;
+
+  protected java.lang.String connectionMetadataDefaultCatalog;
+
+  protected java.lang.String connectionMetadataDefaultSchema;
+
+  public org.cibseven.bpm.engine.impl.db.sql.DbSqlSession(org.cibseven.bpm.engine.impl.db.sql.DbSqlSessionFactory);
+    Code:
+       0: aload_0
+       1: invokespecial #37                 // Method org/cibseven/bpm/engine/impl/db/AbstractPersistenceSession."<init>":()V
+       4: aload_0
+       5: aconst_null
+       6: putfield      #39                 // Field connectionMetadataDefaultCatalog:Ljava/lang/String;
+       9: aload_0
+      10: aconst_null
+      11: putfield      #41                 // Field connectionMetadataDefaultSchema:Ljava/lang/String;
+      14: aload_0
+      15: aload_1
+      16: putfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      19: aload_1
+      20: invokevirtual #49                 // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getSqlSessionFactory:()Lorg/apache/ibatis/session/SqlSessionFactory;
+      23: astore_2
+      24: aload_0
+      25: aload_2
+      26: dup
+      27: invokestatic  #55                 // Method java/util/Objects.requireNonNull:(Ljava/lang/Object;)Ljava/lang/Object;
+      30: pop
+      31: invokedynamic #76,  0             // InvokeDynamic #0:get:(Lorg/apache/ibatis/session/SqlSessionFactory;)Ljava/util/function/Supplier;
+      36: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      39: checkcast     #84                 // class org/apache/ibatis/session/SqlSession
+      42: putfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+      45: return
+
+  public org.cibseven.bpm.engine.impl.db.sql.DbSqlSession(org.cibseven.bpm.engine.impl.db.sql.DbSqlSessionFactory, java.sql.Connection, java.lang.String, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokespecial #37                 // Method org/cibseven/bpm/engine/impl/db/AbstractPersistenceSession."<init>":()V
+       4: aload_0
+       5: aconst_null
+       6: putfield      #39                 // Field connectionMetadataDefaultCatalog:Ljava/lang/String;
+       9: aload_0
+      10: aconst_null
+      11: putfield      #41                 // Field connectionMetadataDefaultSchema:Ljava/lang/String;
+      14: aload_0
+      15: aload_1
+      16: putfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      19: aload_1
+      20: invokevirtual #49                 // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getSqlSessionFactory:()Lorg/apache/ibatis/session/SqlSessionFactory;
+      23: astore        5
+      25: aload_0
+      26: aload         5
+      28: aload_2
+      29: invokedynamic #99,  0             // InvokeDynamic #1:get:(Lorg/apache/ibatis/session/SqlSessionFactory;Ljava/sql/Connection;)Ljava/util/function/Supplier;
+      34: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      37: checkcast     #84                 // class org/apache/ibatis/session/SqlSession
+      40: putfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+      43: aload_0
+      44: aload_3
+      45: putfield      #39                 // Field connectionMetadataDefaultCatalog:Ljava/lang/String;
+      48: aload_0
+      49: aload         4
+      51: putfield      #41                 // Field connectionMetadataDefaultSchema:Ljava/lang/String;
+      54: return
+
+  public java.util.List<?> selectList(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: aload_1
+       5: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+       8: astore_1
+       9: aload_0
+      10: aload_1
+      11: aload_2
+      12: invokevirtual #113                // Method executeSelectList:(Ljava/lang/String;Ljava/lang/Object;)Ljava/util/List;
+      15: astore_3
+      16: aload_3
+      17: invokeinterface #119,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      22: astore        4
+      24: aload         4
+      26: invokeinterface #125,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      31: ifeq          52
+      34: aload         4
+      36: invokeinterface #128,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      41: astore        5
+      43: aload_0
+      44: aload         5
+      46: invokevirtual #132                // Method fireEntityLoaded:(Ljava/lang/Object;)V
+      49: goto          24
+      52: aload_3
+      53: areturn
+
+  public java.util.List<java.lang.Object> executeSelectList(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: invokedynamic #149,  0            // InvokeDynamic #2:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;Ljava/lang/String;Ljava/lang/Object;)Ljava/util/function/Supplier;
+       8: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      11: checkcast     #115                // class java/util/List
+      14: areturn
+
+  public <T extends org.cibseven.bpm.engine.impl.db.DbEntity> T selectById(java.lang.Class<T>, java.lang.String);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: aload_1
+       5: invokevirtual #156                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getSelectStatement:(Ljava/lang/Class;)Ljava/lang/String;
+       8: astore_3
+       9: aload_0
+      10: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      13: aload_3
+      14: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+      17: astore        4
+      19: aload_1
+      20: invokestatic  #162                // Method java/lang/String.valueOf:(Ljava/lang/Object;)Ljava/lang/String;
+      23: invokedynamic #173,  0            // InvokeDynamic #3:makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
+      28: ldc           #175                // String selectStatement
+      30: aload_3
+      31: invokestatic  #181                // Method org/cibseven/bpm/engine/impl/util/EnsureUtil.ensureNotNull:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)V
+      34: aload_0
+      35: aload         4
+      37: aload_2
+      38: invokedynamic #189,  0            // InvokeDynamic #4:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;Ljava/lang/String;Ljava/lang/String;)Ljava/util/function/Supplier;
+      43: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      46: astore        5
+      48: aload_0
+      49: aload         5
+      51: invokevirtual #132                // Method fireEntityLoaded:(Ljava/lang/Object;)V
+      54: aload         5
+      56: checkcast     #191                // class org/cibseven/bpm/engine/impl/db/DbEntity
+      59: areturn
+
+  public java.lang.Object selectOne(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: aload_1
+       5: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+       8: astore_3
+       9: aload_0
+      10: aload_3
+      11: aload_2
+      12: invokedynamic #204,  0            // InvokeDynamic #5:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;Ljava/lang/String;Ljava/lang/Object;)Ljava/util/function/Supplier;
+      17: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      20: astore        4
+      22: aload_0
+      23: aload         4
+      25: invokevirtual #132                // Method fireEntityLoaded:(Ljava/lang/Object;)V
+      28: aload         4
+      30: areturn
+
+  public void lock(java.lang.String, java.lang.Object);
+    Code:
+       0: iconst_1
+       1: anewarray     #158                // class java/lang/String
+       4: dup
+       5: iconst_0
+       6: ldc           #209                // String h2
+       8: aastore
+       9: invokestatic  #215                // Method org/cibseven/bpm/engine/impl/util/DatabaseUtil.checkDatabaseType:([Ljava/lang/String;)Z
+      12: ifne          33
+      15: aload_0
+      16: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      19: aload_1
+      20: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+      23: astore_3
+      24: aload_0
+      25: aload_3
+      26: aload_2
+      27: invokevirtual #218                // Method executeSelectForUpdate:(Ljava/lang/String;Ljava/lang/Object;)V
+      30: goto          39
+      33: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      36: invokevirtual #225                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.debugDisabledPessimisticLocks:()V
+      39: return
+
+  protected abstract void executeSelectForUpdate(java.lang.String, java.lang.Object);
+
+  protected void entityUpdatePerformed(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbEntityOperation, int, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_3
+       1: ifnull        13
+       4: aload_0
+       5: aload_1
+       6: aload_3
+       7: invokevirtual #231                // Method configureFailedDbEntityOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation;Lorg/apache/ibatis/exceptions/PersistenceException;)V
+      10: goto          80
+      13: aload_1
+      14: invokevirtual #237                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      17: astore        4
+      19: aload         4
+      21: instanceof    #239                // class org/cibseven/bpm/engine/impl/db/HasDbRevision
+      24: ifeq          73
+      27: iload_2
+      28: iconst_1
+      29: if_icmpeq     42
+      32: aload_1
+      33: getstatic     #243                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_CONCURRENT_MODIFICATION:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      36: invokevirtual #247                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      39: goto          80
+      42: aload         4
+      44: checkcast     #239                // class org/cibseven/bpm/engine/impl/db/HasDbRevision
+      47: astore        5
+      49: aload         5
+      51: aload         5
+      53: invokeinterface #251,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/HasDbRevision.getRevisionNext:()I
+      58: invokeinterface #255,  2          // InterfaceMethod org/cibseven/bpm/engine/impl/db/HasDbRevision.setRevision:(I)V
+      63: aload_1
+      64: getstatic     #258                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.APPLIED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      67: invokevirtual #247                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      70: goto          80
+      73: aload_1
+      74: getstatic     #258                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.APPLIED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      77: invokevirtual #247                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      80: return
+
+  protected void bulkUpdatePerformed(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbBulkOperation, int, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: iload_2
+       3: aload_3
+       4: invokevirtual #273                // Method bulkOperationPerformed:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;ILorg/apache/ibatis/exceptions/PersistenceException;)V
+       7: return
+
+  protected void bulkDeletePerformed(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbBulkOperation, int, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: iload_2
+       3: aload_3
+       4: invokevirtual #273                // Method bulkOperationPerformed:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;ILorg/apache/ibatis/exceptions/PersistenceException;)V
+       7: return
+
+  protected void bulkOperationPerformed(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbBulkOperation, int, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_3
+       1: ifnull        23
+       4: aload_1
+       5: aload_3
+       6: invokevirtual #281                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setFailure:(Ljava/lang/Exception;)V
+       9: getstatic     #284                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_ERROR:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      12: astore        4
+      14: aload_1
+      15: aload         4
+      17: invokevirtual #285                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      20: goto          35
+      23: aload_1
+      24: iload_2
+      25: invokevirtual #288                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setRowsAffected:(I)V
+      28: aload_1
+      29: getstatic     #258                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.APPLIED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      32: invokevirtual #285                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      35: return
+
+  protected void entityDeletePerformed(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbEntityOperation, int, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_3
+       1: ifnull        13
+       4: aload_0
+       5: aload_1
+       6: aload_3
+       7: invokevirtual #231                // Method configureFailedDbEntityOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation;Lorg/apache/ibatis/exceptions/PersistenceException;)V
+      10: goto          53
+      13: aload_1
+      14: iload_2
+      15: invokevirtual #291                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setRowsAffected:(I)V
+      18: aload_1
+      19: invokevirtual #237                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      22: astore        4
+      24: aload         4
+      26: instanceof    #239                // class org/cibseven/bpm/engine/impl/db/HasDbRevision
+      29: ifeq          46
+      32: iload_2
+      33: ifne          46
+      36: aload_1
+      37: getstatic     #243                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_CONCURRENT_MODIFICATION:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      40: invokevirtual #247                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      43: goto          53
+      46: aload_1
+      47: getstatic     #258                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.APPLIED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      50: invokevirtual #247                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      53: return
+
+  protected void configureFailedDbEntityOperation(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbEntityOperation, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_1
+       1: iconst_0
+       2: invokevirtual #291                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setRowsAffected:(I)V
+       5: aload_1
+       6: aload_2
+       7: invokevirtual #292                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setFailure:(Ljava/lang/Exception;)V
+      10: aload_1
+      11: invokevirtual #296                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getOperationType:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      14: astore_3
+      15: aload_1
+      16: invokevirtual #300                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getDependentOperation:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;
+      19: astore        4
+      21: aload_0
+      22: aload_1
+      23: aload_2
+      24: invokevirtual #304                // Method isConcurrentModificationException:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;Lorg/apache/ibatis/exceptions/PersistenceException;)Z
+      27: ifeq          50
+      30: invokestatic  #307                // Method org/cibseven/bpm/engine/impl/util/DatabaseUtil.checkDatabaseRollsBackTransactionOnError:()Z
+      33: ifeq          42
+      36: getstatic     #310                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_CONCURRENT_MODIFICATION_EXCEPTION:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      39: goto          45
+      42: getstatic     #243                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_CONCURRENT_MODIFICATION:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      45: astore        5
+      47: goto          109
+      50: getstatic     #316                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.DELETE:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      53: aload_3
+      54: invokevirtual #320                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.equals:(Ljava/lang/Object;)Z
+      57: ifeq          104
+      60: aload         4
+      62: ifnull        104
+      65: aload         4
+      67: invokevirtual #324                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation.getState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      70: ifnull        104
+      73: aload         4
+      75: invokevirtual #324                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation.getState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      78: getstatic     #258                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.APPLIED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      81: if_acmpeq     104
+      84: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      87: aload_1
+      88: ldc_w         #326                // String Parent database operation failed
+      91: aload         4
+      93: invokevirtual #330                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.ignoreFailureDuePreconditionNotMet:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;Ljava/lang/String;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)V
+      96: getstatic     #333                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.NOT_APPLIED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      99: astore        5
+     101: goto          109
+     104: getstatic     #284                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_ERROR:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+     107: astore        5
+     109: aload_1
+     110: aload         5
+     112: invokevirtual #247                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+     115: return
+
+  protected boolean isConcurrentModificationException(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_2
+       1: invokestatic  #340                // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.checkForeignKeyConstraintViolation:(Lorg/apache/ibatis/exceptions/PersistenceException;)Z
+       4: istore_3
+       5: aload_2
+       6: invokestatic  #343                // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.checkVariableIntegrityViolation:(Lorg/apache/ibatis/exceptions/PersistenceException;)Z
+       9: istore        4
+      11: iload         4
+      13: ifeq          18
+      16: iconst_1
+      17: ireturn
+      18: iload_3
+      19: ifeq          173
+      22: aload_1
+      23: instanceof    #233                // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation
+      26: ifeq          173
+      29: aload_1
+      30: checkcast     #233                // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation
+      33: invokevirtual #237                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      36: instanceof    #345                // class org/cibseven/bpm/engine/impl/db/HasDbReferences
+      39: ifeq          173
+      42: aload_1
+      43: invokevirtual #346                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation.getOperationType:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      46: getstatic     #349                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.INSERT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      49: invokevirtual #320                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.equals:(Ljava/lang/Object;)Z
+      52: ifne          68
+      55: aload_1
+      56: invokevirtual #346                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation.getOperationType:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      59: getstatic     #352                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.UPDATE:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      62: invokevirtual #320                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.equals:(Ljava/lang/Object;)Z
+      65: ifeq          173
+      68: invokestatic  #307                // Method org/cibseven/bpm/engine/impl/util/DatabaseUtil.checkDatabaseRollsBackTransactionOnError:()Z
+      71: ifeq          84
+      74: invokestatic  #358                // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      77: invokevirtual #364                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      80: invokevirtual #369                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.isEnableOptimisticLockingOnForeignKeyViolation:()Z
+      83: ireturn
+      84: aload_1
+      85: checkcast     #233                // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation
+      88: invokevirtual #237                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      91: astore        5
+      93: aload         5
+      95: checkcast     #345                // class org/cibseven/bpm/engine/impl/db/HasDbReferences
+      98: invokeinterface #373,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/HasDbReferences.getReferencedEntitiesIdAndClass:()Ljava/util/Map;
+     103: invokeinterface #377,  1          // InterfaceMethod java/util/Map.entrySet:()Ljava/util/Set;
+     108: invokeinterface #380,  1          // InterfaceMethod java/util/Set.iterator:()Ljava/util/Iterator;
+     113: astore        6
+     115: aload         6
+     117: invokeinterface #125,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+     122: ifeq          173
+     125: aload         6
+     127: invokeinterface #128,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+     132: checkcast     #12                 // class java/util/Map$Entry
+     135: astore        7
+     137: aload_0
+     138: aload         7
+     140: invokeinterface #383,  1          // InterfaceMethod java/util/Map$Entry.getValue:()Ljava/lang/Object;
+     145: checkcast     #385                // class java/lang/Class
+     148: aload         7
+     150: invokeinterface #388,  1          // InterfaceMethod java/util/Map$Entry.getKey:()Ljava/lang/Object;
+     155: checkcast     #158                // class java/lang/String
+     158: invokevirtual #390                // Method selectById:(Ljava/lang/Class;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+     161: astore        8
+     163: aload         8
+     165: ifnonnull     170
+     168: iconst_1
+     169: ireturn
+     170: goto          115
+     173: iconst_0
+     174: ireturn
+
+  protected void insertEntity(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbEntityOperation);
+    Code:
+       0: aload_1
+       1: invokevirtual #237                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+       4: astore_2
+       5: aload_0
+       6: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       9: aload_2
+      10: invokevirtual #406                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getInsertStatement:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Ljava/lang/String;
+      13: astore_3
+      14: aload_0
+      15: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      18: aload_3
+      19: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+      22: astore_3
+      23: aload_2
+      24: invokevirtual #412                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+      27: invokestatic  #162                // Method java/lang/String.valueOf:(Ljava/lang/Object;)Ljava/lang/String;
+      30: invokedynamic #415,  0            // InvokeDynamic #6:makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
+      35: ldc_w         #417                // String insertStatement
+      38: aload_3
+      39: invokestatic  #181                // Method org/cibseven/bpm/engine/impl/util/EnsureUtil.ensureNotNull:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)V
+      42: aload_0
+      43: aload_3
+      44: aload_2
+      45: invokevirtual #420                // Method executeInsertEntity:(Ljava/lang/String;Ljava/lang/Object;)V
+      48: return
+
+  protected void executeInsertEntity(java.lang.String, java.lang.Object);
+    Code:
+       0: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       3: ldc_w         #423                // String INSERT
+       6: aload_2
+       7: invokevirtual #426                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.executeDatabaseOperation:(Ljava/lang/String;Ljava/lang/Object;)V
+      10: aload_0
+      11: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+      14: aload_1
+      15: aload_2
+      16: invokeinterface #430,  3          // InterfaceMethod org/apache/ibatis/session/SqlSession.insert:(Ljava/lang/String;Ljava/lang/Object;)I
+      21: pop
+      22: goto          28
+      25: astore_3
+      26: aload_3
+      27: athrow
+      28: return
+    Exception table:
+       from    to  target type
+          10    22    25   Class java/lang/Exception
+
+  protected void entityInsertPerformed(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbEntityOperation, int, org.apache.ibatis.exceptions.PersistenceException);
+    Code:
+       0: aload_1
+       1: invokevirtual #237                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+       4: astore        4
+       6: aload_3
+       7: ifnull        19
+      10: aload_0
+      11: aload_1
+      12: aload_3
+      13: invokevirtual #231                // Method configureFailedDbEntityOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation;Lorg/apache/ibatis/exceptions/PersistenceException;)V
+      16: goto          49
+      19: aload         4
+      21: instanceof    #239                // class org/cibseven/bpm/engine/impl/db/HasDbRevision
+      24: ifeq          42
+      27: aload         4
+      29: checkcast     #239                // class org/cibseven/bpm/engine/impl/db/HasDbRevision
+      32: astore        5
+      34: aload         5
+      36: iconst_1
+      37: invokeinterface #255,  2          // InterfaceMethod org/cibseven/bpm/engine/impl/db/HasDbRevision.setRevision:(I)V
+      42: aload_1
+      43: getstatic     #258                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.APPLIED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      46: invokevirtual #247                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;)V
+      49: return
+
+  protected int executeDelete(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: aload_1
+       5: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+       8: astore_3
+       9: aload_0
+      10: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+      13: aload_3
+      14: aload_2
+      15: invokeinterface #437,  3          // InterfaceMethod org/apache/ibatis/session/SqlSession.delete:(Ljava/lang/String;Ljava/lang/Object;)I
+      20: ireturn
+      21: astore        4
+      23: aload         4
+      25: athrow
+    Exception table:
+       from    to  target type
+           9    20    21   Class java/lang/Exception
+
+  public int executeUpdate(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: aload_1
+       5: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+       8: astore_3
+       9: aload_0
+      10: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+      13: aload_3
+      14: aload_2
+      15: invokeinterface #443,  3          // InterfaceMethod org/apache/ibatis/session/SqlSession.update:(Ljava/lang/String;Ljava/lang/Object;)I
+      20: ireturn
+      21: astore        4
+      23: aload         4
+      25: athrow
+    Exception table:
+       from    to  target type
+           9    20    21   Class java/lang/Exception
+
+  public int update(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: invokedynamic #453,  0            // InvokeDynamic #7:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;Ljava/lang/String;Ljava/lang/Object;)Ljava/util/function/Supplier;
+       8: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      11: checkcast     #455                // class java/lang/Integer
+      14: invokevirtual #458                // Method java/lang/Integer.intValue:()I
+      17: ireturn
+
+  public int executeNonEmptyUpdateStmt(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: aload_1
+       5: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+       8: astore_3
+       9: aload_0
+      10: aload_3
+      11: aload_2
+      12: invokedynamic #467,  0            // InvokeDynamic #8:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;Ljava/lang/String;Ljava/lang/Object;)Ljava/util/function/Supplier;
+      17: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      20: checkcast     #469                // class java/lang/Boolean
+      23: invokevirtual #472                // Method java/lang/Boolean.booleanValue:()Z
+      26: istore        4
+      28: iload         4
+      30: ifeq          35
+      33: iconst_0
+      34: ireturn
+      35: aload_0
+      36: aload_3
+      37: aload_2
+      38: invokevirtual #473                // Method update:(Ljava/lang/String;Ljava/lang/Object;)I
+      41: ireturn
+
+  public void flush();
+    Code:
+       0: return
+
+  public void flushOperations();
+    Code:
+       0: aload_0
+       1: invokedynamic #485,  0            // InvokeDynamic #9:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;)Ljava/util/function/Supplier;
+       6: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+       9: pop
+      10: return
+
+  public java.util.List<org.apache.ibatis.executor.BatchResult> flushBatchOperations();
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: invokeinterface #491,  1          // InterfaceMethod org/apache/ibatis/session/SqlSession.flushStatements:()Ljava/util/List;
+       9: areturn
+      10: astore_1
+      11: aload_1
+      12: athrow
+    Exception table:
+       from    to  target type
+           0     9    10   Class org/apache/ibatis/exceptions/PersistenceException
+
+  public void close();
+    Code:
+       0: aload_0
+       1: invokedynamic #498,  0            // InvokeDynamic #10:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;)Ljava/util/function/Supplier;
+       6: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+       9: pop
+      10: return
+
+  public void commit();
+    Code:
+       0: aload_0
+       1: invokedynamic #504,  0            // InvokeDynamic #11:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;)Ljava/util/function/Supplier;
+       6: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+       9: pop
+      10: return
+
+  public void rollback();
+    Code:
+       0: aload_0
+       1: invokedynamic #510,  0            // InvokeDynamic #12:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;)Ljava/util/function/Supplier;
+       6: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+       9: pop
+      10: return
+
+  public void dbSchemaCheckVersion();
+    Code:
+       0: aload_0
+       1: invokevirtual #515                // Method getDbVersion:()Ljava/lang/String;
+       4: astore_1
+       5: ldc_w         #517                // String fox
+       8: aload_1
+       9: invokevirtual #518                // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      12: ifne          26
+      15: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      18: ldc_w         #517                // String fox
+      21: aload_1
+      22: invokevirtual #522                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.wrongDbVersionException:(Ljava/lang/String;Ljava/lang/String;)Lorg/cibseven/bpm/engine/WrongDbException;
+      25: athrow
+      26: new           #524                // class java/util/ArrayList
+      29: dup
+      30: invokespecial #525                // Method java/util/ArrayList."<init>":()V
+      33: astore_2
+      34: aload_0
+      35: invokevirtual #528                // Method isEngineTablePresent:()Z
+      38: ifne          51
+      41: aload_2
+      42: ldc_w         #530                // String engine
+      45: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+      50: pop
+      51: aload_0
+      52: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      55: invokevirtual #536                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.isDbHistoryUsed:()Z
+      58: ifeq          78
+      61: aload_0
+      62: invokevirtual #539                // Method isHistoryTablePresent:()Z
+      65: ifne          78
+      68: aload_2
+      69: ldc_w         #541                // String history
+      72: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+      77: pop
+      78: aload_0
+      79: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      82: invokevirtual #544                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.isDbIdentityUsed:()Z
+      85: ifeq          105
+      88: aload_0
+      89: invokevirtual #547                // Method isIdentityTablePresent:()Z
+      92: ifne          105
+      95: aload_2
+      96: ldc_w         #549                // String identity
+      99: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     104: pop
+     105: aload_0
+     106: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+     109: invokevirtual #552                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.isCmmnEnabled:()Z
+     112: ifeq          132
+     115: aload_0
+     116: invokevirtual #555                // Method isCmmnTablePresent:()Z
+     119: ifne          132
+     122: aload_2
+     123: ldc_w         #557                // String case.engine
+     126: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     131: pop
+     132: aload_0
+     133: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+     136: invokevirtual #560                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.isDmnEnabled:()Z
+     139: ifeq          159
+     142: aload_0
+     143: invokevirtual #563                // Method isDmnTablePresent:()Z
+     146: ifne          159
+     149: aload_2
+     150: ldc_w         #565                // String decision.engine
+     153: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     158: pop
+     159: aload_2
+     160: invokeinterface #568,  1          // InterfaceMethod java/util/List.isEmpty:()Z
+     165: ifne          176
+     168: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     171: aload_2
+     172: invokevirtual #572                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.missingTableException:(Ljava/util/List;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+     175: athrow
+     176: goto          215
+     179: astore_1
+     180: aload_0
+     181: aload_1
+     182: invokevirtual #576                // Method isMissingTablesException:(Ljava/lang/Exception;)Z
+     185: ifeq          195
+     188: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     191: invokevirtual #580                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.missingActivitiTablesException:()Lorg/cibseven/bpm/engine/ProcessEngineException;
+     194: athrow
+     195: aload_1
+     196: instanceof    #582                // class java/lang/RuntimeException
+     199: ifeq          207
+     202: aload_1
+     203: checkcast     #582                // class java/lang/RuntimeException
+     206: athrow
+     207: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     210: aload_1
+     211: invokevirtual #586                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.unableToFetchDbSchemaVersion:(Ljava/lang/Throwable;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+     214: athrow
+     215: return
+    Exception table:
+       from    to  target type
+           0   176   179   Class java/lang/Exception
+
+  protected java.lang.String getDbVersion();
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: ldc_w         #591                // String selectDbSchemaVersion
+       7: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.mapStatement:(Ljava/lang/String;)Ljava/lang/String;
+      10: astore_1
+      11: aload_0
+      12: aload_1
+      13: invokedynamic #599,  0            // InvokeDynamic #13:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;Ljava/lang/String;)Ljava/util/function/Supplier;
+      18: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      21: checkcast     #158                // class java/lang/String
+      24: areturn
+
+  protected void dbSchemaCreateIdentity();
+    Code:
+       0: aload_0
+       1: ldc_w         #603                // String create
+       4: ldc_w         #549                // String identity
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaCreateHistory();
+    Code:
+       0: aload_0
+       1: ldc_w         #603                // String create
+       4: ldc_w         #541                // String history
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaCreateEngine();
+    Code:
+       0: aload_0
+       1: ldc_w         #603                // String create
+       4: ldc_w         #530                // String engine
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaCreateCmmn();
+    Code:
+       0: aload_0
+       1: ldc_w         #603                // String create
+       4: ldc_w         #557                // String case.engine
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaCreateCmmnHistory();
+    Code:
+       0: aload_0
+       1: ldc_w         #603                // String create
+       4: ldc_w         #613                // String case.history
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaCreateDmn();
+    Code:
+       0: aload_0
+       1: ldc_w         #603                // String create
+       4: ldc_w         #565                // String decision.engine
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaCreateDmnHistory();
+    Code:
+       0: aload_0
+       1: ldc_w         #603                // String create
+       4: ldc_w         #617                // String decision.history
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaDropIdentity();
+    Code:
+       0: aload_0
+       1: ldc_w         #620                // String drop
+       4: ldc_w         #549                // String identity
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaDropHistory();
+    Code:
+       0: aload_0
+       1: ldc_w         #620                // String drop
+       4: ldc_w         #541                // String history
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaDropEngine();
+    Code:
+       0: aload_0
+       1: ldc_w         #620                // String drop
+       4: ldc_w         #530                // String engine
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaDropCmmn();
+    Code:
+       0: aload_0
+       1: ldc_w         #620                // String drop
+       4: ldc_w         #557                // String case.engine
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaDropCmmnHistory();
+    Code:
+       0: aload_0
+       1: ldc_w         #620                // String drop
+       4: ldc_w         #613                // String case.history
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaDropDmn();
+    Code:
+       0: aload_0
+       1: ldc_w         #620                // String drop
+       4: ldc_w         #565                // String decision.engine
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void dbSchemaDropDmnHistory();
+    Code:
+       0: aload_0
+       1: ldc_w         #620                // String drop
+       4: ldc_w         #617                // String decision.history
+       7: invokevirtual #607                // Method executeMandatorySchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  public void executeMandatorySchemaResource(java.lang.String, java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_0
+       4: aload_1
+       5: aload_1
+       6: aload_2
+       7: invokevirtual #630                // Method getResourceForDbOperation:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      10: iconst_0
+      11: invokevirtual #634                // Method executeSchemaResource:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Z)V
+      14: return
+
+  public boolean isEngineTablePresent();
+    Code:
+       0: aload_0
+       1: ldc_w         #637                // String ACT_RU_EXECUTION
+       4: invokevirtual #641                // Method isTablePresent:(Ljava/lang/String;)Z
+       7: ireturn
+
+  public boolean isHistoryTablePresent();
+    Code:
+       0: aload_0
+       1: ldc_w         #643                // String ACT_HI_PROCINST
+       4: invokevirtual #641                // Method isTablePresent:(Ljava/lang/String;)Z
+       7: ireturn
+
+  public boolean isIdentityTablePresent();
+    Code:
+       0: aload_0
+       1: ldc_w         #645                // String ACT_ID_USER
+       4: invokevirtual #641                // Method isTablePresent:(Ljava/lang/String;)Z
+       7: ireturn
+
+  public boolean isCmmnTablePresent();
+    Code:
+       0: aload_0
+       1: ldc_w         #647                // String ACT_RE_CASE_DEF
+       4: invokevirtual #641                // Method isTablePresent:(Ljava/lang/String;)Z
+       7: ireturn
+
+  public boolean isCmmnHistoryTablePresent();
+    Code:
+       0: aload_0
+       1: ldc_w         #650                // String ACT_HI_CASEINST
+       4: invokevirtual #641                // Method isTablePresent:(Ljava/lang/String;)Z
+       7: ireturn
+
+  public boolean isDmnTablePresent();
+    Code:
+       0: aload_0
+       1: ldc_w         #652                // String ACT_RE_DECISION_DEF
+       4: invokevirtual #641                // Method isTablePresent:(Ljava/lang/String;)Z
+       7: ireturn
+
+  public boolean isDmnHistoryTablePresent();
+    Code:
+       0: aload_0
+       1: ldc_w         #655                // String ACT_HI_DECINST
+       4: invokevirtual #641                // Method isTablePresent:(Ljava/lang/String;)Z
+       7: ireturn
+
+  public boolean isTablePresent(java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #658                // Method prependDatabaseTablePrefix:(Ljava/lang/String;)Ljava/lang/String;
+       5: astore_1
+       6: aconst_null
+       7: astore_2
+       8: aload_0
+       9: invokedynamic #665,  0            // InvokeDynamic #14:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;)Ljava/util/function/Supplier;
+      14: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      17: checkcast     #667                // class java/sql/Connection
+      20: astore_2
+      21: aload_2
+      22: invokeinterface #671,  1          // InterfaceMethod java/sql/Connection.getMetaData:()Ljava/sql/DatabaseMetaData;
+      27: astore_3
+      28: aconst_null
+      29: astore        4
+      31: aload_0
+      32: getfield      #41                 // Field connectionMetadataDefaultSchema:Ljava/lang/String;
+      35: astore        5
+      37: aload_0
+      38: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      41: invokevirtual #674                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseSchema:()Ljava/lang/String;
+      44: ifnull        56
+      47: aload_0
+      48: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      51: invokevirtual #674                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseSchema:()Ljava/lang/String;
+      54: astore        5
+      56: iconst_1
+      57: anewarray     #158                // class java/lang/String
+      60: dup
+      61: iconst_0
+      62: ldc_w         #680                // String postgres
+      65: aastore
+      66: invokestatic  #215                // Method org/cibseven/bpm/engine/impl/util/DatabaseUtil.checkDatabaseType:([Ljava/lang/String;)Z
+      69: ifeq          77
+      72: aload_1
+      73: invokevirtual #683                // Method java/lang/String.toLowerCase:()Ljava/lang/String;
+      76: astore_1
+      77: aload_3
+      78: aload_0
+      79: getfield      #39                 // Field connectionMetadataDefaultCatalog:Ljava/lang/String;
+      82: aload         5
+      84: aload_1
+      85: aload_0
+      86: invokevirtual #687                // Method getTableTypes:()[Ljava/lang/String;
+      89: invokeinterface #691,  5          // InterfaceMethod java/sql/DatabaseMetaData.getTables:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Ljava/sql/ResultSet;
+      94: astore        4
+      96: aload         4
+      98: invokeinterface #693,  1          // InterfaceMethod java/sql/ResultSet.next:()Z
+     103: istore        6
+     105: aload         4
+     107: ifnull        117
+     110: aload         4
+     112: invokeinterface #695,  1          // InterfaceMethod java/sql/ResultSet.close:()V
+     117: iload         6
+     119: ireturn
+     120: astore        7
+     122: aload         4
+     124: ifnull        134
+     127: aload         4
+     129: invokeinterface #695,  1          // InterfaceMethod java/sql/ResultSet.close:()V
+     134: aload         7
+     136: athrow
+     137: astore_3
+     138: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     141: aload_3
+     142: invokevirtual #700                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.checkDatabaseTableException:(Ljava/lang/Throwable;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+     145: athrow
+    Exception table:
+       from    to  target type
+          77   105   120   any
+         120   122   120   any
+           8   117   137   Class java/lang/Exception
+         120   137   137   Class java/lang/Exception
+
+  public java.util.List<java.lang.String> getTableNamesPresent();
+    Code:
+       0: new           #524                // class java/util/ArrayList
+       3: dup
+       4: invokespecial #525                // Method java/util/ArrayList."<init>":()V
+       7: astore_1
+       8: aconst_null
+       9: astore_2
+      10: ldc_w         #711                // String oracle
+      13: aload_0
+      14: invokevirtual #715                // Method getDbSqlSessionFactory:()Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      17: invokevirtual #718                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseType:()Ljava/lang/String;
+      20: invokevirtual #518                // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      23: ifeq          34
+      26: aload_0
+      27: invokevirtual #721                // Method getTablesPresentInOracleDatabase:()Ljava/util/List;
+      30: astore_1
+      31: goto          204
+      34: aload_0
+      35: invokevirtual #724                // Method getSqlSession:()Lorg/apache/ibatis/session/SqlSession;
+      38: invokeinterface #727,  1          // InterfaceMethod org/apache/ibatis/session/SqlSession.getConnection:()Ljava/sql/Connection;
+      43: astore_3
+      44: aload_0
+      45: invokevirtual #715                // Method getDbSqlSessionFactory:()Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      48: invokevirtual #730                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseTablePrefix:()Ljava/lang/String;
+      51: astore        4
+      53: aload_0
+      54: invokevirtual #715                // Method getDbSqlSessionFactory:()Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      57: invokevirtual #674                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseSchema:()Ljava/lang/String;
+      60: astore        5
+      62: aload_0
+      63: ldc_w         #732                // String ACT_%
+      66: invokevirtual #658                // Method prependDatabaseTablePrefix:(Ljava/lang/String;)Ljava/lang/String;
+      69: astore        6
+      71: iconst_1
+      72: anewarray     #158                // class java/lang/String
+      75: dup
+      76: iconst_0
+      77: ldc_w         #680                // String postgres
+      80: aastore
+      81: invokestatic  #215                // Method org/cibseven/bpm/engine/impl/util/DatabaseUtil.checkDatabaseType:([Ljava/lang/String;)Z
+      84: ifeq          111
+      87: aload         5
+      89: ifnonnull     97
+      92: aload         5
+      94: goto          102
+      97: aload         5
+      99: invokevirtual #683                // Method java/lang/String.toLowerCase:()Ljava/lang/String;
+     102: astore        5
+     104: aload         6
+     106: invokevirtual #683                // Method java/lang/String.toLowerCase:()Ljava/lang/String;
+     109: astore        6
+     111: aload_3
+     112: invokeinterface #671,  1          // InterfaceMethod java/sql/Connection.getMetaData:()Ljava/sql/DatabaseMetaData;
+     117: astore        7
+     119: aload         7
+     121: aconst_null
+     122: aload         5
+     124: aload         6
+     126: aload_0
+     127: invokevirtual #687                // Method getTableTypes:()[Ljava/lang/String;
+     130: invokeinterface #691,  5          // InterfaceMethod java/sql/DatabaseMetaData.getTables:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Ljava/sql/ResultSet;
+     135: astore_2
+     136: aload_2
+     137: invokeinterface #693,  1          // InterfaceMethod java/sql/ResultSet.next:()Z
+     142: ifeq          194
+     145: aload_2
+     146: ldc_w         #734                // String TABLE_NAME
+     149: invokeinterface #737,  2          // InterfaceMethod java/sql/ResultSet.getString:(Ljava/lang/String;)Ljava/lang/String;
+     154: astore        8
+     156: aload         4
+     158: invokevirtual #738                // Method java/lang/String.isEmpty:()Z
+     161: ifne          175
+     164: aload         4
+     166: aload         8
+     168: invokedynamic #743,  0            // InvokeDynamic #15:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+     173: astore        8
+     175: aload         8
+     177: invokevirtual #746                // Method java/lang/String.toUpperCase:()Ljava/lang/String;
+     180: astore        8
+     182: aload_1
+     183: aload         8
+     185: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     190: pop
+     191: goto          136
+     194: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     197: ldc_w         #748                // String jdbc metadata
+     200: aload_1
+     201: invokevirtual #752                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.fetchDatabaseTables:(Ljava/lang/String;Ljava/util/List;)V
+     204: aload_2
+     205: ifnull        235
+     208: aload_2
+     209: invokeinterface #695,  1          // InterfaceMethod java/sql/ResultSet.close:()V
+     214: goto          235
+     217: astore_3
+     218: aload_3
+     219: athrow
+     220: astore        9
+     222: aload_2
+     223: ifnull        232
+     226: aload_2
+     227: invokeinterface #695,  1          // InterfaceMethod java/sql/ResultSet.close:()V
+     232: aload         9
+     234: athrow
+     235: goto          247
+     238: astore_2
+     239: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     242: aload_2
+     243: invokevirtual #755                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.getDatabaseTableNameException:(Ljava/lang/Throwable;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+     246: athrow
+     247: aload_1
+     248: areturn
+    Exception table:
+       from    to  target type
+          10   204   217   Class java/sql/SQLException
+          10   204   220   any
+         217   222   220   any
+           8   235   238   Class java/lang/Exception
+
+  protected java.util.List<java.lang.String> getTablesPresentInOracleDatabase() throws java.sql.SQLException;
+    Code:
+       0: new           #524                // class java/util/ArrayList
+       3: dup
+       4: invokespecial #525                // Method java/util/ArrayList."<init>":()V
+       7: astore_1
+       8: aconst_null
+       9: astore_2
+      10: aconst_null
+      11: astore_3
+      12: aconst_null
+      13: astore        4
+      15: ldc_w         #763                // String SELECT table_name FROM all_tables WHERE table_name LIKE ? ESCAPE \'-\'
+      18: astore        5
+      20: aload_0
+      21: invokevirtual #715                // Method getDbSqlSessionFactory:()Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      24: invokevirtual #730                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseTablePrefix:()Ljava/lang/String;
+      27: astore        6
+      29: invokestatic  #764                // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      32: invokevirtual #768                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getDataSource:()Ljavax/sql/DataSource;
+      35: invokeinterface #771,  1          // InterfaceMethod javax/sql/DataSource.getConnection:()Ljava/sql/Connection;
+      40: astore_2
+      41: aload_2
+      42: aload         5
+      44: invokeinterface #775,  2          // InterfaceMethod java/sql/Connection.prepareStatement:(Ljava/lang/String;)Ljava/sql/PreparedStatement;
+      49: astore_3
+      50: aload_3
+      51: iconst_1
+      52: aload         6
+      54: invokedynamic #778,  0            // InvokeDynamic #16:makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
+      59: invokeinterface #784,  3          // InterfaceMethod java/sql/PreparedStatement.setString:(ILjava/lang/String;)V
+      64: aload_3
+      65: invokeinterface #788,  1          // InterfaceMethod java/sql/PreparedStatement.executeQuery:()Ljava/sql/ResultSet;
+      70: astore        4
+      72: aload         4
+      74: invokeinterface #693,  1          // InterfaceMethod java/sql/ResultSet.next:()Z
+      79: ifeq          113
+      82: aload         4
+      84: ldc_w         #734                // String TABLE_NAME
+      87: invokeinterface #737,  2          // InterfaceMethod java/sql/ResultSet.getString:(Ljava/lang/String;)Ljava/lang/String;
+      92: astore        7
+      94: aload         7
+      96: invokevirtual #746                // Method java/lang/String.toUpperCase:()Ljava/lang/String;
+      99: astore        7
+     101: aload_1
+     102: aload         7
+     104: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     109: pop
+     110: goto          72
+     113: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     116: ldc_w         #790                // String oracle all_tables
+     119: aload_1
+     120: invokevirtual #752                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.fetchDatabaseTables:(Ljava/lang/String;Ljava/util/List;)V
+     123: aload         4
+     125: ifnull        135
+     128: aload         4
+     130: invokeinterface #695,  1          // InterfaceMethod java/sql/ResultSet.close:()V
+     135: aload_3
+     136: ifnull        145
+     139: aload_3
+     140: invokeinterface #791,  1          // InterfaceMethod java/sql/PreparedStatement.close:()V
+     145: aload_2
+     146: ifnull        195
+     149: aload_2
+     150: invokeinterface #792,  1          // InterfaceMethod java/sql/Connection.close:()V
+     155: goto          195
+     158: astore        8
+     160: aload         4
+     162: ifnull        172
+     165: aload         4
+     167: invokeinterface #695,  1          // InterfaceMethod java/sql/ResultSet.close:()V
+     172: aload_3
+     173: ifnull        182
+     176: aload_3
+     177: invokeinterface #791,  1          // InterfaceMethod java/sql/PreparedStatement.close:()V
+     182: aload_2
+     183: ifnull        192
+     186: aload_2
+     187: invokeinterface #792,  1          // InterfaceMethod java/sql/Connection.close:()V
+     192: aload         8
+     194: athrow
+     195: aload_1
+     196: areturn
+    Exception table:
+       from    to  target type
+          29   123   158   any
+         158   160   158   any
+
+  public java.lang.String prependDatabaseTablePrefix(java.lang.String);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: invokevirtual #730                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseTablePrefix:()Ljava/lang/String;
+       7: astore_2
+       8: aload_0
+       9: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+      12: invokevirtual #674                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseSchema:()Ljava/lang/String;
+      15: astore_3
+      16: aload_2
+      17: ifnonnull     22
+      20: aload_1
+      21: areturn
+      22: aload_3
+      23: ifnonnull     34
+      26: aload_2
+      27: aload_1
+      28: invokedynamic #743,  0            // InvokeDynamic #15:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      33: areturn
+      34: aload_2
+      35: aload_3
+      36: invokedynamic #798,  0            // InvokeDynamic #17:makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
+      41: invokevirtual #801                // Method java/lang/String.startsWith:(Ljava/lang/String;)Z
+      44: ifeq          58
+      47: aload_2
+      48: aload_3
+      49: invokevirtual #804                // Method java/lang/String.length:()I
+      52: iconst_1
+      53: iadd
+      54: invokevirtual #808                // Method java/lang/String.substring:(I)Ljava/lang/String;
+      57: astore_2
+      58: aload_2
+      59: aload_1
+      60: invokedynamic #743,  0            // InvokeDynamic #15:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      65: areturn
+
+  public java.lang.String getResourceForDbOperation(java.lang.String, java.lang.String, java.lang.String);
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: invokevirtual #718                // Method org/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory.getDatabaseType:()Ljava/lang/String;
+       7: astore        4
+       9: aload_1
+      10: aload         4
+      12: aload_2
+      13: aload_3
+      14: invokedynamic #814,  0            // InvokeDynamic #18:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      19: areturn
+
+  public void executeSchemaResource(java.lang.String, java.lang.String, java.lang.String, boolean);
+    Code:
+       0: aconst_null
+       1: astore        5
+       3: aload_3
+       4: invokestatic  #822                // Method org/cibseven/bpm/engine/impl/util/ReflectUtil.getResourceAsStream:(Ljava/lang/String;)Ljava/io/InputStream;
+       7: astore        5
+       9: aload         5
+      11: ifnonnull     39
+      14: iload         4
+      16: ifeq          30
+      19: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      22: aload_3
+      23: aload_1
+      24: invokevirtual #825                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.missingSchemaResource:(Ljava/lang/String;Ljava/lang/String;)V
+      27: goto          48
+      30: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      33: aload_3
+      34: aload_1
+      35: invokevirtual #831                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.missingSchemaResourceException:(Ljava/lang/String;Ljava/lang/String;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+      38: athrow
+      39: aload_0
+      40: aload_1
+      41: aload_2
+      42: aload_3
+      43: aload         5
+      45: invokevirtual #834                // Method executeSchemaResource:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/io/InputStream;)V
+      48: aload         5
+      50: invokestatic  #840                // Method org/cibseven/bpm/engine/impl/util/IoUtil.closeSilently:(Ljava/io/Closeable;)V
+      53: goto          66
+      56: astore        6
+      58: aload         5
+      60: invokestatic  #840                // Method org/cibseven/bpm/engine/impl/util/IoUtil.closeSilently:(Ljava/io/Closeable;)V
+      63: aload         6
+      65: athrow
+      66: return
+    Exception table:
+       from    to  target type
+           3    48    56   any
+          56    58    56   any
+
+  public void executeSchemaResource(java.lang.String);
+    Code:
+       0: aconst_null
+       1: astore_2
+       2: new           #849                // class java/io/FileInputStream
+       5: dup
+       6: new           #851                // class java/io/File
+       9: dup
+      10: aload_1
+      11: invokespecial #853                // Method java/io/File."<init>":(Ljava/lang/String;)V
+      14: invokespecial #856                // Method java/io/FileInputStream."<init>":(Ljava/io/File;)V
+      17: astore_2
+      18: aload_0
+      19: ldc_w         #858                // String schema operation
+      22: ldc_w         #860                // String process engine
+      25: aload_1
+      26: aload_2
+      27: invokevirtual #834                // Method executeSchemaResource:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/io/InputStream;)V
+      30: aload_2
+      31: invokestatic  #840                // Method org/cibseven/bpm/engine/impl/util/IoUtil.closeSilently:(Ljava/io/Closeable;)V
+      34: goto          56
+      37: astore_3
+      38: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      41: aload_1
+      42: aload_3
+      43: invokevirtual #864                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.missingSchemaResourceFileException:(Ljava/lang/String;Ljava/lang/Throwable;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+      46: athrow
+      47: astore        4
+      49: aload_2
+      50: invokestatic  #840                // Method org/cibseven/bpm/engine/impl/util/IoUtil.closeSilently:(Ljava/io/Closeable;)V
+      53: aload         4
+      55: athrow
+      56: return
+    Exception table:
+       from    to  target type
+           2    30    37   Class java/io/FileNotFoundException
+           2    30    47   any
+          37    49    47   any
+
+  private void executeSchemaResource(java.lang.String, java.lang.String, java.lang.String, java.io.InputStream);
+    Code:
+       0: aconst_null
+       1: astore        5
+       3: aconst_null
+       4: astore        6
+       6: aload_0
+       7: invokedynamic #872,  0            // InvokeDynamic #19:get:(Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSession;)Ljava/util/function/Supplier;
+      12: invokestatic  #82                 // Method org/cibseven/bpm/engine/impl/util/ExceptionUtil.doWithExceptionWrapper:(Ljava/util/function/Supplier;)Ljava/lang/Object;
+      15: checkcast     #667                // class java/sql/Connection
+      18: astore        7
+      20: aconst_null
+      21: astore        8
+      23: aload         4
+      25: aload_3
+      26: invokestatic  #876                // Method org/cibseven/bpm/engine/impl/util/IoUtil.readInputStream:(Ljava/io/InputStream;Ljava/lang/String;)[B
+      29: astore        9
+      31: new           #158                // class java/lang/String
+      34: dup
+      35: aload         9
+      37: invokespecial #879                // Method java/lang/String."<init>":([B)V
+      40: astore        10
+      42: new           #881                // class java/io/BufferedReader
+      45: dup
+      46: new           #883                // class java/io/StringReader
+      49: dup
+      50: aload         10
+      52: invokespecial #884                // Method java/io/StringReader."<init>":(Ljava/lang/String;)V
+      55: invokespecial #887                // Method java/io/BufferedReader."<init>":(Ljava/io/Reader;)V
+      58: astore        11
+      60: aload_0
+      61: aload         11
+      63: invokevirtual #891                // Method readNextTrimmedLine:(Ljava/io/BufferedReader;)Ljava/lang/String;
+      66: astore        12
+      68: new           #524                // class java/util/ArrayList
+      71: dup
+      72: invokespecial #525                // Method java/util/ArrayList."<init>":()V
+      75: astore        13
+      77: aload         12
+      79: ifnull        284
+      82: aload         12
+      84: ldc_w         #895                // String #
+      87: invokevirtual #801                // Method java/lang/String.startsWith:(Ljava/lang/String;)Z
+      90: ifeq          110
+      93: aload         13
+      95: aload         12
+      97: iconst_2
+      98: invokevirtual #808                // Method java/lang/String.substring:(I)Ljava/lang/String;
+     101: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     106: pop
+     107: goto          273
+     110: aload         12
+     112: ldc_w         #897                // String --
+     115: invokevirtual #801                // Method java/lang/String.startsWith:(Ljava/lang/String;)Z
+     118: ifeq          138
+     121: aload         13
+     123: aload         12
+     125: iconst_3
+     126: invokevirtual #808                // Method java/lang/String.substring:(I)Ljava/lang/String;
+     129: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     134: pop
+     135: goto          273
+     138: aload         12
+     140: invokevirtual #804                // Method java/lang/String.length:()I
+     143: ifle          273
+     146: aload         12
+     148: ldc_w         #899                // String ;
+     151: invokevirtual #902                // Method java/lang/String.endsWith:(Ljava/lang/String;)Z
+     154: ifeq          263
+     157: aload_0
+     158: aload         5
+     160: aload         12
+     162: iconst_0
+     163: aload         12
+     165: invokevirtual #804                // Method java/lang/String.length:()I
+     168: iconst_1
+     169: isub
+     170: invokevirtual #905                // Method java/lang/String.substring:(II)Ljava/lang/String;
+     173: invokevirtual #908                // Method addSqlStatementPiece:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+     176: astore        5
+     178: aload         7
+     180: invokeinterface #912,  1          // InterfaceMethod java/sql/Connection.createStatement:()Ljava/sql/Statement;
+     185: astore        14
+     187: aload         13
+     189: aload         5
+     191: invokeinterface #533,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     196: pop
+     197: aload         14
+     199: aload         5
+     201: invokeinterface #917,  2          // InterfaceMethod java/sql/Statement.execute:(Ljava/lang/String;)Z
+     206: pop
+     207: aload         14
+     209: invokeinterface #918,  1          // InterfaceMethod java/sql/Statement.close:()V
+     214: aconst_null
+     215: astore        5
+     217: goto          260
+     220: astore        14
+     222: aload         8
+     224: ifnonnull     235
+     227: aload         14
+     229: astore        8
+     231: aload         5
+     233: astore        6
+     235: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     238: aload_1
+     239: aload         5
+     241: aload         14
+     243: invokevirtual #922                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.failedDatabaseOperation:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)V
+     246: aconst_null
+     247: astore        5
+     249: goto          260
+     252: astore        15
+     254: aconst_null
+     255: astore        5
+     257: aload         15
+     259: athrow
+     260: goto          273
+     263: aload_0
+     264: aload         5
+     266: aload         12
+     268: invokevirtual #908                // Method addSqlStatementPiece:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+     271: astore        5
+     273: aload_0
+     274: aload         11
+     276: invokevirtual #891                // Method readNextTrimmedLine:(Ljava/io/BufferedReader;)Ljava/lang/String;
+     279: astore        12
+     281: goto          77
+     284: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     287: aload_1
+     288: aload_2
+     289: aload_3
+     290: invokevirtual #926                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.performingDatabaseOperation:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+     293: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     296: aload         13
+     298: invokevirtual #930                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.executingDDL:(Ljava/util/List;)V
+     301: aload         8
+     303: ifnull        309
+     306: aload         8
+     308: athrow
+     309: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     312: aload_1
+     313: aload_2
+     314: invokevirtual #933                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.successfulDatabaseOperation:(Ljava/lang/String;Ljava/lang/String;)V
+     317: goto          334
+     320: astore        7
+     322: getstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     325: aload_1
+     326: aload         6
+     328: aload         7
+     330: invokevirtual #937                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.performDatabaseOperationException:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Throwable;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+     333: athrow
+     334: return
+    Exception table:
+       from    to  target type
+         178   214   220   Class java/lang/Exception
+         178   214   252   any
+         220   246   252   any
+         252   254   252   any
+           6   317   320   Class java/lang/Exception
+
+  protected java.lang.String addSqlStatementPiece(java.lang.String, java.lang.String);
+    Code:
+       0: aload_1
+       1: ifnonnull     6
+       4: aload_2
+       5: areturn
+       6: aload_1
+       7: aload_2
+       8: invokedynamic #951,  0            // InvokeDynamic #20:makeConcatWithConstants:(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;
+      13: areturn
+
+  protected java.lang.String readNextTrimmedLine(java.io.BufferedReader) throws java.io.IOException;
+    Code:
+       0: aload_1
+       1: invokevirtual #956                // Method java/io/BufferedReader.readLine:()Ljava/lang/String;
+       4: astore_2
+       5: aload_2
+       6: ifnull        14
+       9: aload_2
+      10: invokevirtual #959                // Method java/lang/String.trim:()Ljava/lang/String;
+      13: astore_2
+      14: aload_2
+      15: areturn
+
+  protected boolean isMissingTablesException(java.lang.Exception);
+    Code:
+       0: aload_1
+       1: invokevirtual #963                // Method java/lang/Exception.getCause:()Ljava/lang/Throwable;
+       4: astore_2
+       5: aload_2
+       6: ifnull        111
+       9: aload_2
+      10: invokevirtual #966                // Method java/lang/Throwable.getMessage:()Ljava/lang/String;
+      13: astore_3
+      14: aload_2
+      15: invokevirtual #966                // Method java/lang/Throwable.getMessage:()Ljava/lang/String;
+      18: ifnull        111
+      21: aload_3
+      22: ldc_w         #968                // String Table
+      25: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+      28: ifeq          43
+      31: aload_3
+      32: ldc_w         #974                // String not found
+      35: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+      38: ifeq          43
+      41: iconst_1
+      42: ireturn
+      43: aload_3
+      44: ldc_w         #968                // String Table
+      47: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+      50: ifne          63
+      53: aload_3
+      54: ldc_w         #976                // String table
+      57: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+      60: ifeq          75
+      63: aload_3
+      64: ldc_w         #978                // String doesn\'t exist
+      67: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+      70: ifeq          75
+      73: iconst_1
+      74: ireturn
+      75: aload_3
+      76: ldc_w         #980                // String relation
+      79: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+      82: ifne          95
+      85: aload_3
+      86: ldc_w         #976                // String table
+      89: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+      92: ifeq          109
+      95: aload_3
+      96: ldc_w         #982                // String does not exist
+      99: invokevirtual #972                // Method java/lang/String.contains:(Ljava/lang/CharSequence;)Z
+     102: ifeq          109
+     105: iconst_1
+     106: goto          110
+     109: iconst_0
+     110: ireturn
+     111: iconst_0
+     112: ireturn
+
+  protected java.lang.String[] getTableTypes();
+    Code:
+       0: iconst_1
+       1: anewarray     #158                // class java/lang/String
+       4: dup
+       5: iconst_0
+       6: ldc_w         #680                // String postgres
+       9: aastore
+      10: invokestatic  #215                // Method org/cibseven/bpm/engine/impl/util/DatabaseUtil.checkDatabaseType:([Ljava/lang/String;)Z
+      13: ifeq          20
+      16: getstatic     #986                // Field PG_JDBC_METADATA_TABLE_TYPES:[Ljava/lang/String;
+      19: areturn
+      20: getstatic     #988                // Field JDBC_METADATA_TABLE_TYPES:[Ljava/lang/String;
+      23: areturn
+
+  public org.apache.ibatis.session.SqlSession getSqlSession();
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: areturn
+
+  public org.cibseven.bpm.engine.impl.db.sql.DbSqlSessionFactory getDbSqlSessionFactory();
+    Code:
+       0: aload_0
+       1: getfield      #43                 // Field dbSqlSessionFactory:Lorg/cibseven/bpm/engine/impl/db/sql/DbSqlSessionFactory;
+       4: areturn
+
+  private java.sql.Connection lambda$executeSchemaResource$11();
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: invokeinterface #727,  1          // InterfaceMethod org/apache/ibatis/session/SqlSession.getConnection:()Ljava/sql/Connection;
+       9: areturn
+
+  private java.sql.Connection lambda$isTablePresent$10();
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: invokeinterface #727,  1          // InterfaceMethod org/apache/ibatis/session/SqlSession.getConnection:()Ljava/sql/Connection;
+       9: areturn
+
+  private java.lang.String lambda$getDbVersion$9(java.lang.String);
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: aload_1
+       5: invokeinterface #991,  2          // InterfaceMethod org/apache/ibatis/session/SqlSession.selectOne:(Ljava/lang/String;)Ljava/lang/Object;
+      10: checkcast     #158                // class java/lang/String
+      13: areturn
+
+  private java.lang.Object lambda$rollback$8();
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: invokeinterface #993,  1          // InterfaceMethod org/apache/ibatis/session/SqlSession.rollback:()V
+       9: aconst_null
+      10: areturn
+
+  private java.lang.Object lambda$commit$7();
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: invokeinterface #995,  1          // InterfaceMethod org/apache/ibatis/session/SqlSession.commit:()V
+       9: aconst_null
+      10: areturn
+
+  private java.lang.Object lambda$close$6();
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: invokeinterface #996,  1          // InterfaceMethod org/apache/ibatis/session/SqlSession.close:()V
+       9: aconst_null
+      10: areturn
+
+  private java.lang.Boolean lambda$executeNonEmptyUpdateStmt$5(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: invokeinterface #1000,  1         // InterfaceMethod org/apache/ibatis/session/SqlSession.getConfiguration:()Lorg/apache/ibatis/session/Configuration;
+       9: astore_3
+      10: aload_3
+      11: aload_1
+      12: invokevirtual #1006               // Method org/apache/ibatis/session/Configuration.getMappedStatement:(Ljava/lang/String;)Lorg/apache/ibatis/mapping/MappedStatement;
+      15: astore        4
+      17: aload         4
+      19: aload_2
+      20: invokevirtual #1012               // Method org/apache/ibatis/mapping/MappedStatement.getBoundSql:(Ljava/lang/Object;)Lorg/apache/ibatis/mapping/BoundSql;
+      23: astore        5
+      25: aload         5
+      27: invokevirtual #1017               // Method org/apache/ibatis/mapping/BoundSql.getSql:()Ljava/lang/String;
+      30: astore        6
+      32: aload         6
+      34: invokevirtual #738                // Method java/lang/String.isEmpty:()Z
+      37: invokestatic  #1020               // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+      40: areturn
+
+  private java.lang.Integer lambda$update$4(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: aload_1
+       5: aload_2
+       6: invokeinterface #443,  3          // InterfaceMethod org/apache/ibatis/session/SqlSession.update:(Ljava/lang/String;Ljava/lang/Object;)I
+      11: invokestatic  #1029               // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      14: areturn
+
+  private java.lang.Object lambda$selectOne$3(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: aload_1
+       5: aload_2
+       6: invokeinterface #1031,  3         // InterfaceMethod org/apache/ibatis/session/SqlSession.selectOne:(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
+      11: areturn
+
+  private java.lang.Object lambda$selectById$2(java.lang.String, java.lang.String);
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: aload_1
+       5: aload_2
+       6: invokeinterface #1033,  3         // InterfaceMethod org/apache/ibatis/session/SqlSession.selectList:(Ljava/lang/String;Ljava/lang/Object;)Ljava/util/List;
+      11: invokeinterface #1037,  1         // InterfaceMethod java/util/List.stream:()Ljava/util/stream/Stream;
+      16: invokeinterface #1043,  1         // InterfaceMethod java/util/stream/Stream.findFirst:()Ljava/util/Optional;
+      21: aconst_null
+      22: invokevirtual #1048               // Method java/util/Optional.orElse:(Ljava/lang/Object;)Ljava/lang/Object;
+      25: areturn
+
+  private java.util.List lambda$executeSelectList$1(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #86                 // Field sqlSession:Lorg/apache/ibatis/session/SqlSession;
+       4: aload_1
+       5: aload_2
+       6: invokeinterface #1033,  3         // InterfaceMethod org/apache/ibatis/session/SqlSession.selectList:(Ljava/lang/String;Ljava/lang/Object;)Ljava/util/List;
+      11: areturn
+
+  private static org.apache.ibatis.session.SqlSession lambda$new$0(org.apache.ibatis.session.SqlSessionFactory, java.sql.Connection);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokeinterface #1051,  2         // InterfaceMethod org/apache/ibatis/session/SqlSessionFactory.openSession:(Ljava/sql/Connection;)Lorg/apache/ibatis/session/SqlSession;
+       7: areturn
+
+  static {};
+    Code:
+       0: getstatic     #1057               // Field org/cibseven/bpm/engine/impl/ProcessEngineLogger.PERSISTENCE_LOGGER:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       3: putstatic     #220                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       6: iconst_1
+       7: anewarray     #158                // class java/lang/String
+      10: dup
+      11: iconst_0
+      12: ldc_w         #1059               // String TABLE
+      15: aastore
+      16: putstatic     #988                // Field JDBC_METADATA_TABLE_TYPES:[Ljava/lang/String;
+      19: iconst_2
+      20: anewarray     #158                // class java/lang/String
+      23: dup
+      24: iconst_0
+      25: ldc_w         #1059               // String TABLE
+      28: aastore
+      29: dup
+      30: iconst_1
+      31: ldc_w         #1061               // String PARTITIONED TABLE
+      34: aastore
+      35: putstatic     #986                // Field PG_JDBC_METADATA_TABLE_TYPES:[Ljava/lang/String;
+      38: return
+}

@@ -1,0 +1,1253 @@
+Compiled from "DbEntityManager.java"
+public class org.cibseven.bpm.engine.impl.db.entitymanager.DbEntityManager implements org.cibseven.bpm.engine.impl.interceptor.Session,org.cibseven.bpm.engine.impl.db.EntityLoadListener {
+  protected static final org.cibseven.bpm.engine.impl.db.EnginePersistenceLogger LOG;
+
+  protected static final java.lang.String TOGGLE_FOREIGN_KEY_STMT;
+
+  public static final int BATCH_SIZE;
+
+  protected java.util.List<org.cibseven.bpm.engine.impl.db.entitymanager.OptimisticLockingListener> optimisticLockingListeners;
+
+  protected org.cibseven.bpm.engine.impl.cfg.IdGenerator idGenerator;
+
+  protected org.cibseven.bpm.engine.impl.db.entitymanager.cache.DbEntityCache dbEntityCache;
+
+  protected org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperationManager dbOperationManager;
+
+  protected org.cibseven.bpm.engine.impl.db.PersistenceSession persistenceSession;
+
+  protected boolean isIgnoreForeignKeysForNextFlush;
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.DbEntityManager(org.cibseven.bpm.engine.impl.cfg.IdGenerator, org.cibseven.bpm.engine.impl.db.PersistenceSession);
+    Code:
+       0: aload_0
+       1: invokespecial #48                 // Method java/lang/Object."<init>":()V
+       4: aload_0
+       5: aload_1
+       6: putfield      #50                 // Field idGenerator:Lorg/cibseven/bpm/engine/impl/cfg/IdGenerator;
+       9: aload_0
+      10: aload_2
+      11: putfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      14: aload_2
+      15: ifnull        28
+      18: aload_0
+      19: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      22: aload_0
+      23: invokeinterface #58,  2           // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.addEntityLoadListener:(Lorg/cibseven/bpm/engine/impl/db/EntityLoadListener;)V
+      28: aload_0
+      29: invokevirtual #63                 // Method initializeEntityCache:()V
+      32: aload_0
+      33: invokevirtual #66                 // Method initializeOperationManager:()V
+      36: return
+
+  protected void initializeOperationManager();
+    Code:
+       0: aload_0
+       1: new           #70                 // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager
+       4: dup
+       5: invokespecial #71                 // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager."<init>":()V
+       8: putfield      #73                 // Field dbOperationManager:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager;
+      11: return
+
+  protected void initializeEntityCache();
+    Code:
+       0: invokestatic  #79                 // Method org/cibseven/bpm/engine/impl/context/Context.getJobExecutorContext:()Lorg/cibseven/bpm/engine/impl/jobexecutor/JobExecutorContext;
+       3: astore_1
+       4: invokestatic  #83                 // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       7: astore_2
+       8: aload_2
+       9: ifnull        64
+      12: aload_2
+      13: invokevirtual #89                 // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.isDbEntityCacheReuseEnabled:()Z
+      16: ifeq          64
+      19: aload_1
+      20: ifnull        64
+      23: aload_0
+      24: aload_1
+      25: invokevirtual #95                 // Method org/cibseven/bpm/engine/impl/jobexecutor/JobExecutorContext.getEntityCache:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      28: putfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      31: aload_0
+      32: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      35: ifnonnull     97
+      38: aload_0
+      39: new           #99                 // class org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache
+      42: dup
+      43: aload_2
+      44: invokevirtual #103                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getDbEntityCacheKeyMapping:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCacheKeyMapping;
+      47: invokespecial #106                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache."<init>":(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCacheKeyMapping;)V
+      50: putfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      53: aload_1
+      54: aload_0
+      55: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      58: invokevirtual #110                // Method org/cibseven/bpm/engine/impl/jobexecutor/JobExecutorContext.setEntityCache:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;)V
+      61: goto          97
+      64: aload_2
+      65: ifnull        86
+      68: aload_0
+      69: new           #99                 // class org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache
+      72: dup
+      73: aload_2
+      74: invokevirtual #103                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getDbEntityCacheKeyMapping:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCacheKeyMapping;
+      77: invokespecial #106                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache."<init>":(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCacheKeyMapping;)V
+      80: putfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      83: goto          97
+      86: aload_0
+      87: new           #99                 // class org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache
+      90: dup
+      91: invokespecial #111                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache."<init>":()V
+      94: putfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      97: return
+
+  public java.util.List selectList(java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aconst_null
+       3: iconst_0
+       4: ldc           #118                // int 2147483647
+       6: invokevirtual #121                // Method selectList:(Ljava/lang/String;Ljava/lang/Object;II)Ljava/util/List;
+       9: areturn
+
+  public java.util.List selectList(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: iconst_0
+       4: ldc           #118                // int 2147483647
+       6: invokevirtual #121                // Method selectList:(Ljava/lang/String;Ljava/lang/Object;II)Ljava/util/List;
+       9: areturn
+
+  public java.util.List selectList(java.lang.String, java.lang.Object, org.cibseven.bpm.engine.impl.Page);
+    Code:
+       0: aload_3
+       1: ifnull        19
+       4: aload_0
+       5: aload_1
+       6: aload_2
+       7: aload_3
+       8: invokevirtual #132                // Method org/cibseven/bpm/engine/impl/Page.getFirstResult:()I
+      11: aload_3
+      12: invokevirtual #135                // Method org/cibseven/bpm/engine/impl/Page.getMaxResults:()I
+      15: invokevirtual #121                // Method selectList:(Ljava/lang/String;Ljava/lang/Object;II)Ljava/util/List;
+      18: areturn
+      19: aload_0
+      20: aload_1
+      21: aload_2
+      22: iconst_0
+      23: ldc           #118                // int 2147483647
+      25: invokevirtual #121                // Method selectList:(Ljava/lang/String;Ljava/lang/Object;II)Ljava/util/List;
+      28: areturn
+
+  public java.util.List selectList(java.lang.String, org.cibseven.bpm.engine.impl.db.ListQueryParameterObject, org.cibseven.bpm.engine.impl.Page);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: invokevirtual #141                // Method selectList:(Ljava/lang/String;Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)Ljava/util/List;
+       6: areturn
+
+  public java.util.List selectList(java.lang.String, java.lang.Object, int, int);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: new           #144                // class org/cibseven/bpm/engine/impl/db/ListQueryParameterObject
+       5: dup
+       6: aload_2
+       7: iload_3
+       8: iload         4
+      10: invokespecial #147                // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject."<init>":(Ljava/lang/Object;II)V
+      13: invokevirtual #141                // Method selectList:(Ljava/lang/String;Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)Ljava/util/List;
+      16: areturn
+
+  public java.util.List selectList(java.lang.String, org.cibseven.bpm.engine.impl.db.ListQueryParameterObject);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_2
+       4: invokevirtual #150                // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject.getFirstResult:()I
+       7: aload_2
+       8: invokevirtual #151                // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject.getMaxResults:()I
+      11: invokevirtual #154                // Method selectListWithRawParameter:(Ljava/lang/String;Ljava/lang/Object;II)Ljava/util/List;
+      14: areturn
+
+  public java.util.List selectListWithRawParameter(java.lang.String, java.lang.Object, int, int);
+    Code:
+       0: iload_3
+       1: iconst_m1
+       2: if_icmpeq     11
+       5: iload         4
+       7: iconst_m1
+       8: if_icmpne     15
+      11: getstatic     #159                // Field java/util/Collections.EMPTY_LIST:Ljava/util/List;
+      14: areturn
+      15: aload_0
+      16: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      19: aload_1
+      20: aload_2
+      21: invokeinterface #161,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.selectList:(Ljava/lang/String;Ljava/lang/Object;)Ljava/util/List;
+      26: astore        5
+      28: aload_0
+      29: aload         5
+      31: invokevirtual #165                // Method filterLoadedObjects:(Ljava/util/List;)Ljava/util/List;
+      34: areturn
+
+  public java.lang.Object selectOne(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+       4: aload_1
+       5: aload_2
+       6: invokeinterface #170,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.selectOne:(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
+      11: astore_3
+      12: aload_3
+      13: instanceof    #172                // class org/cibseven/bpm/engine/impl/db/DbEntity
+      16: ifeq          32
+      19: aload_3
+      20: checkcast     #172                // class org/cibseven/bpm/engine/impl/db/DbEntity
+      23: astore        4
+      25: aload_0
+      26: aload         4
+      28: invokevirtual #176                // Method cacheFilter:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      31: astore_3
+      32: aload_3
+      33: areturn
+
+  public boolean selectBoolean(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+       4: aload_1
+       5: aload_2
+       6: invokeinterface #161,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.selectList:(Ljava/lang/String;Ljava/lang/Object;)Ljava/util/List;
+      11: astore_3
+      12: aload_3
+      13: ifnull        27
+      16: aload_3
+      17: iconst_1
+      18: invokestatic  #187                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      21: invokeinterface #193,  2          // InterfaceMethod java/util/List.contains:(Ljava/lang/Object;)Z
+      26: ireturn
+      27: iconst_0
+      28: ireturn
+
+  public <T extends org.cibseven.bpm.engine.impl.db.DbEntity> T selectById(java.lang.Class<T>, java.lang.String);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: aload_2
+       6: invokevirtual #200                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.get:(Ljava/lang/Class;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+       9: astore_3
+      10: aload_3
+      11: ifnull        16
+      14: aload_3
+      15: areturn
+      16: aload_0
+      17: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      20: aload_1
+      21: aload_2
+      22: invokeinterface #202,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.selectById:(Ljava/lang/Class;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      27: astore_3
+      28: aload_3
+      29: ifnonnull     34
+      32: aconst_null
+      33: areturn
+      34: aload_3
+      35: areturn
+
+  public <T extends org.cibseven.bpm.engine.impl.db.DbEntity> T getCachedEntity(java.lang.Class<T>, java.lang.String);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: aload_2
+       6: invokevirtual #200                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.get:(Ljava/lang/Class;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+       9: areturn
+
+  public <T extends org.cibseven.bpm.engine.impl.db.DbEntity> java.util.List<T> getCachedEntitiesByType(java.lang.Class<T>);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #216                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.getEntitiesByType:(Ljava/lang/Class;)Ljava/util/List;
+       8: areturn
+
+  protected java.util.List filterLoadedObjects(java.util.List<java.lang.Object>);
+    Code:
+       0: aload_1
+       1: invokeinterface #220,  1          // InterfaceMethod java/util/List.isEmpty:()Z
+       6: ifne          19
+       9: aload_1
+      10: iconst_0
+      11: invokeinterface #223,  2          // InterfaceMethod java/util/List.get:(I)Ljava/lang/Object;
+      16: ifnonnull     21
+      19: aload_1
+      20: areturn
+      21: ldc           #172                // class org/cibseven/bpm/engine/impl/db/DbEntity
+      23: aload_1
+      24: iconst_0
+      25: invokeinterface #223,  2          // InterfaceMethod java/util/List.get:(I)Ljava/lang/Object;
+      30: invokevirtual #227                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+      33: invokevirtual #233                // Method java/lang/Class.isAssignableFrom:(Ljava/lang/Class;)Z
+      36: ifne          41
+      39: aload_1
+      40: areturn
+      41: new           #235                // class java/util/ArrayList
+      44: dup
+      45: aload_1
+      46: invokeinterface #238,  1          // InterfaceMethod java/util/List.size:()I
+      51: invokespecial #241                // Method java/util/ArrayList."<init>":(I)V
+      54: astore_2
+      55: aload_1
+      56: invokeinterface #245,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      61: astore_3
+      62: aload_3
+      63: invokeinterface #250,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      68: ifeq          102
+      71: aload_3
+      72: invokeinterface #254,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      77: astore        4
+      79: aload_0
+      80: aload         4
+      82: checkcast     #172                // class org/cibseven/bpm/engine/impl/db/DbEntity
+      85: invokevirtual #176                // Method cacheFilter:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      88: astore        5
+      90: aload_2
+      91: aload         5
+      93: invokeinterface #257,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+      98: pop
+      99: goto          62
+     102: aload_2
+     103: areturn
+
+  protected org.cibseven.bpm.engine.impl.db.DbEntity cacheFilter(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #227                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+       8: aload_1
+       9: invokeinterface #265,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.getId:()Ljava/lang/String;
+      14: invokevirtual #200                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.get:(Ljava/lang/Class;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      17: astore_2
+      18: aload_2
+      19: ifnull        24
+      22: aload_2
+      23: areturn
+      24: aload_1
+      25: areturn
+
+  public void onEntityLoaded(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #227                // Method java/lang/Object.getClass:()Ljava/lang/Class;
+       8: aload_1
+       9: invokeinterface #265,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.getId:()Ljava/lang/String;
+      14: invokevirtual #200                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.get:(Ljava/lang/Class;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      17: astore_2
+      18: aload_2
+      19: ifnonnull     48
+      22: aload_0
+      23: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      26: aload_1
+      27: invokevirtual #270                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.putPersistent:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      30: aload_1
+      31: instanceof    #272                // class org/cibseven/bpm/engine/impl/db/DbEntityLifecycleAware
+      34: ifeq          48
+      37: aload_1
+      38: checkcast     #272                // class org/cibseven/bpm/engine/impl/db/DbEntityLifecycleAware
+      41: astore_3
+      42: aload_3
+      43: invokeinterface #275,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntityLifecycleAware.postLoad:()V
+      48: return
+
+  public void lock(java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aconst_null
+       3: invokevirtual #283                // Method lock:(Ljava/lang/String;Ljava/lang/Object;)V
+       6: return
+
+  public void lock(java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+       4: aload_1
+       5: aload_2
+       6: invokeinterface #284,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.lock:(Ljava/lang/String;Ljava/lang/Object;)V
+      11: return
+
+  public boolean isDirty(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #289                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.getCachedEntity:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;
+       8: astore_2
+       9: aload_2
+      10: ifnonnull     15
+      13: iconst_0
+      14: ireturn
+      15: aload_2
+      16: invokevirtual #293                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.isDirty:()Z
+      19: ifne          32
+      22: aload_2
+      23: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      26: getstatic     #303                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.MERGED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      29: if_acmpne     36
+      32: iconst_1
+      33: goto          37
+      36: iconst_0
+      37: ireturn
+
+  public void flush();
+    Code:
+       0: aload_0
+       1: invokevirtual #310                // Method flushEntityCache:()V
+       4: aload_0
+       5: invokevirtual #313                // Method flushDbOperationManager:()V
+       8: return
+
+  public void setIgnoreForeignKeysForNextFlush(boolean);
+    Code:
+       0: aload_0
+       1: iload_1
+       2: putfield      #317                // Field isIgnoreForeignKeysForNextFlush:Z
+       5: return
+
+  protected void flushDbOperationManager();
+    Code:
+       0: aload_0
+       1: getfield      #73                 // Field dbOperationManager:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager;
+       4: invokevirtual #322                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager.calculateFlush:()Ljava/util/List;
+       7: astore_1
+       8: aload_1
+       9: ifnull        21
+      12: aload_1
+      13: invokeinterface #238,  1          // InterfaceMethod java/util/List.size:()I
+      18: ifne          22
+      21: return
+      22: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      25: aload_1
+      26: invokevirtual #330                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.databaseFlushSummary:(Ljava/util/Collection;)V
+      29: aload_0
+      30: getfield      #317                // Field isIgnoreForeignKeysForNextFlush:Z
+      33: ifeq          61
+      36: aload_0
+      37: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      40: ldc           #27                 // String toggleForeignKey
+      42: iconst_0
+      43: invokestatic  #335                // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+      46: invokeinterface #339,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.executeNonEmptyUpdateStmt:(Ljava/lang/String;Ljava/lang/Object;)I
+      51: pop
+      52: aload_0
+      53: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      56: invokeinterface #342,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.flushOperations:()V
+      61: aload_1
+      62: bipush        50
+      64: invokestatic  #348                // Method org/cibseven/bpm/engine/impl/util/CollectionUtil.partition:(Ljava/util/List;I)Ljava/util/List;
+      67: astore_2
+      68: aload_2
+      69: invokeinterface #245,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      74: astore_3
+      75: aload_3
+      76: invokeinterface #250,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      81: ifeq          105
+      84: aload_3
+      85: invokeinterface #254,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      90: checkcast     #189                // class java/util/List
+      93: astore        4
+      95: aload_0
+      96: aload         4
+      98: aload_1
+      99: invokevirtual #352                // Method flushDbOperations:(Ljava/util/List;Ljava/util/List;)V
+     102: goto          75
+     105: aload_0
+     106: getfield      #317                // Field isIgnoreForeignKeysForNextFlush:Z
+     109: ifeq          187
+     112: aload_0
+     113: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+     116: ldc           #27                 // String toggleForeignKey
+     118: iconst_1
+     119: invokestatic  #335                // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+     122: invokeinterface #339,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.executeNonEmptyUpdateStmt:(Ljava/lang/String;Ljava/lang/Object;)I
+     127: pop
+     128: aload_0
+     129: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+     132: invokeinterface #342,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.flushOperations:()V
+     137: aload_0
+     138: iconst_0
+     139: putfield      #317                // Field isIgnoreForeignKeysForNextFlush:Z
+     142: goto          187
+     145: astore        5
+     147: aload_0
+     148: getfield      #317                // Field isIgnoreForeignKeysForNextFlush:Z
+     151: ifeq          184
+     154: aload_0
+     155: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+     158: ldc           #27                 // String toggleForeignKey
+     160: iconst_1
+     161: invokestatic  #335                // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+     164: invokeinterface #339,  3          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.executeNonEmptyUpdateStmt:(Ljava/lang/String;Ljava/lang/Object;)I
+     169: pop
+     170: aload_0
+     171: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+     174: invokeinterface #342,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.flushOperations:()V
+     179: aload_0
+     180: iconst_0
+     181: putfield      #317                // Field isIgnoreForeignKeysForNextFlush:Z
+     184: aload         5
+     186: athrow
+     187: return
+    Exception table:
+       from    to  target type
+          61   105   145   any
+         145   147   145   any
+
+  protected void flushDbOperations(java.util.List<org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation>, java.util.List<org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation>);
+    Code:
+       0: aload_1
+       1: invokeinterface #220,  1          // InterfaceMethod java/util/List.isEmpty:()Z
+       6: ifne          190
+       9: aload_0
+      10: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+      13: aload_1
+      14: invokeinterface #366,  2          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.executeDbOperations:(Ljava/util/List;)Lorg/cibseven/bpm/engine/impl/db/FlushResult;
+      19: astore_3
+      20: goto          35
+      23: astore        4
+      25: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      28: aload_2
+      29: aload         4
+      31: invokevirtual #370                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.flushDbOperationUnexpectedException:(Ljava/util/List;Ljava/lang/Throwable;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+      34: athrow
+      35: aload_3
+      36: invokevirtual #375                // Method org/cibseven/bpm/engine/impl/db/FlushResult.getFailedOperations:()Ljava/util/List;
+      39: astore        4
+      41: aload         4
+      43: invokeinterface #245,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      48: astore        5
+      50: aload         5
+      52: invokeinterface #250,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      57: ifeq          154
+      60: aload         5
+      62: invokeinterface #254,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      67: checkcast     #15                 // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation
+      70: astore        6
+      72: aload         6
+      74: invokevirtual #379                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation.getState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      77: astore        7
+      79: aload         7
+      81: getstatic     #383                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_CONCURRENT_MODIFICATION:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+      84: if_acmpne     96
+      87: aload_0
+      88: aload         6
+      90: invokevirtual #387                // Method handleConcurrentModification:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)V
+      93: goto          151
+      96: aload         7
+      98: getstatic     #390                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_CONCURRENT_MODIFICATION_EXCEPTION:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+     101: if_acmpne     113
+     104: aload_0
+     105: aload         6
+     107: invokevirtual #393                // Method handleConcurrentModificationWithRolledBackTransaction:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)V
+     110: goto          151
+     113: aload         7
+     115: getstatic     #396                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State.FAILED_ERROR:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation$State;
+     118: if_acmpne     140
+     121: aload         6
+     123: invokevirtual #400                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation.getFailure:()Ljava/lang/Exception;
+     126: astore        8
+     128: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     131: aload_2
+     132: aload         6
+     134: aload         8
+     136: invokevirtual #404                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.flushDbOperationException:(Ljava/util/List;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;Ljava/lang/Throwable;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+     139: athrow
+     140: new           #406                // class org/cibseven/bpm/engine/ProcessEngineException
+     143: dup
+     144: ldc_w         #408                // String Entity session returned a failed operation not in an error state. This indicates a bug
+     147: invokespecial #410                // Method org/cibseven/bpm/engine/ProcessEngineException."<init>":(Ljava/lang/String;)V
+     150: athrow
+     151: goto          50
+     154: aload_3
+     155: invokevirtual #413                // Method org/cibseven/bpm/engine/impl/db/FlushResult.getRemainingOperations:()Ljava/util/List;
+     158: astore        5
+     160: ldc_w         #415                // String Database flush did not process any operations. This indicates a bug.
+     163: ldc_w         #417                // String remainingOperations
+     166: aload         5
+     168: invokeinterface #238,  1          // InterfaceMethod java/util/List.size:()I
+     173: i2l
+     174: aload_1
+     175: invokeinterface #238,  1          // InterfaceMethod java/util/List.size:()I
+     180: i2l
+     181: invokestatic  #423                // Method org/cibseven/bpm/engine/impl/util/EnsureUtil.ensureLessThan:(Ljava/lang/String;Ljava/lang/String;JJ)V
+     184: aload         5
+     186: astore_1
+     187: goto          0
+     190: return
+    Exception table:
+       from    to  target type
+           9    20    23   Class java/lang/Exception
+
+  public void flushEntity(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #289                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.getCachedEntity:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;
+       8: astore_2
+       9: aload_2
+      10: ifnull        18
+      13: aload_0
+      14: aload_2
+      15: invokevirtual #438                // Method flushCachedEntity:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;)V
+      18: aload_0
+      19: invokevirtual #313                // Method flushDbOperationManager:()V
+      22: return
+
+  protected void handleConcurrentModification(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #442                // Method invokeOptimisticLockingListeners:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult;
+       5: astore_2
+       6: getstatic     #448                // Field org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult.THROW:Lorg/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult;
+       9: aload_2
+      10: invokevirtual #451                // Method org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult.equals:(Ljava/lang/Object;)Z
+      13: ifeq          28
+      16: aload_0
+      17: aload_1
+      18: invokevirtual #455                // Method canIgnoreHistoryModificationFailure:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)Z
+      21: ifeq          28
+      24: getstatic     #458                // Field org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult.IGNORE:Lorg/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult;
+      27: astore_2
+      28: getstatic     #462                // Field org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager$1.$SwitchMap$org$cibseven$bpm$engine$impl$db$entitymanager$OptimisticLockingResult:[I
+      31: aload_2
+      32: invokevirtual #465                // Method org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult.ordinal:()I
+      35: iaload
+      36: lookupswitch  { // 2
+                     1: 64
+                     2: 67
+               default: 67
+          }
+      64: goto          75
+      67: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      70: aload_1
+      71: invokevirtual #469                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.concurrentUpdateDbEntityException:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)Lorg/cibseven/bpm/engine/OptimisticLockingException;
+      74: athrow
+      75: return
+
+  protected void handleConcurrentModificationWithRolledBackTransaction(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #442                // Method invokeOptimisticLockingListeners:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult;
+       5: astore_2
+       6: getstatic     #458                // Field org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult.IGNORE:Lorg/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult;
+       9: aload_2
+      10: invokevirtual #451                // Method org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult.equals:(Ljava/lang/Object;)Z
+      13: ifeq          23
+      16: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      19: aload_1
+      20: invokevirtual #474                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.concurrentModificationFailureIgnored:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)V
+      23: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      26: aload_1
+      27: invokevirtual #469                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.concurrentUpdateDbEntityException:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)Lorg/cibseven/bpm/engine/OptimisticLockingException;
+      30: athrow
+
+  private org.cibseven.bpm.engine.impl.db.entitymanager.OptimisticLockingResult invokeOptimisticLockingListeners(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation);
+    Code:
+       0: getstatic     #448                // Field org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult.THROW:Lorg/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult;
+       3: astore_2
+       4: aload_0
+       5: getfield      #476                // Field optimisticLockingListeners:Ljava/util/List;
+       8: ifnull        80
+      11: aload_0
+      12: getfield      #476                // Field optimisticLockingListeners:Ljava/util/List;
+      15: invokeinterface #245,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      20: astore_3
+      21: aload_3
+      22: invokeinterface #250,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      27: ifeq          80
+      30: aload_3
+      31: invokeinterface #254,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      36: checkcast     #478                // class org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingListener
+      39: astore        4
+      41: aload         4
+      43: invokeinterface #481,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingListener.getEntityType:()Ljava/lang/Class;
+      48: ifnull        68
+      51: aload         4
+      53: invokeinterface #481,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingListener.getEntityType:()Ljava/lang/Class;
+      58: aload_1
+      59: invokevirtual #482                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation.getEntityType:()Ljava/lang/Class;
+      62: invokevirtual #233                // Method java/lang/Class.isAssignableFrom:(Ljava/lang/Class;)Z
+      65: ifeq          77
+      68: aload         4
+      70: aload_1
+      71: invokeinterface #484,  2          // InterfaceMethod org/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingListener.failedOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/OptimisticLockingResult;
+      76: astore_2
+      77: goto          21
+      80: aload_2
+      81: areturn
+
+  protected boolean canIgnoreHistoryModificationFailure(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation);
+    Code:
+       0: aload_1
+       1: checkcast     #488                // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation
+       4: invokevirtual #492                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+       7: astore_2
+       8: invokestatic  #83                 // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      11: invokevirtual #495                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.isSkipHistoryOptimisticLockingExceptions:()Z
+      14: ifeq          36
+      17: aload_2
+      18: instanceof    #497                // class org/cibseven/bpm/engine/impl/db/HistoricEntity
+      21: ifne          32
+      24: aload_0
+      25: aload_2
+      26: invokevirtual #500                // Method isHistoricByteArray:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Z
+      29: ifeq          36
+      32: iconst_1
+      33: goto          37
+      36: iconst_0
+      37: ireturn
+
+  protected boolean isHistoricByteArray(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_1
+       1: instanceof    #502                // class org/cibseven/bpm/engine/impl/persistence/entity/ByteArrayEntity
+       4: ifeq          26
+       7: aload_1
+       8: checkcast     #502                // class org/cibseven/bpm/engine/impl/persistence/entity/ByteArrayEntity
+      11: astore_2
+      12: aload_2
+      13: invokevirtual #506                // Method org/cibseven/bpm/engine/impl/persistence/entity/ByteArrayEntity.getType:()Ljava/lang/Integer;
+      16: getstatic     #512                // Field org/cibseven/bpm/engine/repository/ResourceTypes.HISTORY:Lorg/cibseven/bpm/engine/repository/ResourceTypes;
+      19: invokevirtual #515                // Method org/cibseven/bpm/engine/repository/ResourceTypes.getValue:()Ljava/lang/Integer;
+      22: invokevirtual #516                // Method java/lang/Integer.equals:(Ljava/lang/Object;)Z
+      25: ireturn
+      26: iconst_0
+      27: ireturn
+
+  protected void flushEntityCache();
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: invokevirtual #521                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.getCachedEntities:()Ljava/util/List;
+       7: astore_1
+       8: aload_1
+       9: invokeinterface #245,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      14: astore_2
+      15: aload_2
+      16: invokeinterface #250,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      21: ifeq          42
+      24: aload_2
+      25: invokeinterface #254,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      30: checkcast     #291                // class org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity
+      33: astore_3
+      34: aload_0
+      35: aload_3
+      36: invokevirtual #438                // Method flushCachedEntity:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;)V
+      39: goto          15
+      42: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      45: aload_0
+      46: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      49: invokevirtual #521                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.getCachedEntities:()Ljava/util/List;
+      52: invokevirtual #525                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.flushedCacheState:(Ljava/util/List;)V
+      55: return
+
+  protected void flushCachedEntity(org.cibseven.bpm.engine.impl.db.entitymanager.cache.CachedDbEntity);
+    Code:
+       0: aload_1
+       1: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+       4: getstatic     #531                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.TRANSIENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+       7: if_acmpne     32
+      10: aload_1
+      11: invokevirtual #534                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.determineEntityReferences:()V
+      14: aload_0
+      15: aload_1
+      16: getstatic     #540                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.INSERT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      19: invokevirtual #544                // Method performEntityOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)V
+      22: aload_1
+      23: getstatic     #547                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.PERSISTENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      26: invokevirtual #551                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.setEntityState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;)V
+      29: goto          145
+      32: aload_1
+      33: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      36: getstatic     #547                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.PERSISTENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      39: if_acmpne     60
+      42: aload_1
+      43: invokevirtual #293                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.isDirty:()Z
+      46: ifeq          60
+      49: aload_0
+      50: aload_1
+      51: getstatic     #554                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.UPDATE:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      54: invokevirtual #544                // Method performEntityOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)V
+      57: goto          145
+      60: aload_1
+      61: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      64: getstatic     #303                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.MERGED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      67: if_acmpne     88
+      70: aload_0
+      71: aload_1
+      72: getstatic     #554                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.UPDATE:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+      75: invokevirtual #544                // Method performEntityOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)V
+      78: aload_1
+      79: getstatic     #547                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.PERSISTENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      82: invokevirtual #551                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.setEntityState:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;)V
+      85: goto          145
+      88: aload_1
+      89: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      92: getstatic     #557                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.DELETED_TRANSIENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      95: if_acmpne     109
+      98: aload_0
+      99: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+     102: aload_1
+     103: invokevirtual #560                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.remove:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;)V
+     106: goto          145
+     109: aload_1
+     110: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+     113: getstatic     #563                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.DELETED_PERSISTENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+     116: if_acmpeq     129
+     119: aload_1
+     120: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+     123: getstatic     #566                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.DELETED_MERGED:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+     126: if_acmpne     145
+     129: aload_0
+     130: aload_1
+     131: getstatic     #569                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.DELETE:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+     134: invokevirtual #544                // Method performEntityOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)V
+     137: aload_0
+     138: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+     141: aload_1
+     142: invokevirtual #560                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.remove:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;)V
+     145: aload_1
+     146: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+     149: getstatic     #547                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.PERSISTENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+     152: if_acmpne     163
+     155: aload_1
+     156: invokevirtual #572                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.makeCopy:()V
+     159: aload_1
+     160: invokevirtual #534                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.determineEntityReferences:()V
+     163: return
+
+  public void insert(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #576                // Method ensureHasId:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+       5: aload_0
+       6: aload_1
+       7: invokevirtual #579                // Method validateId:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      10: aload_0
+      11: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      14: aload_1
+      15: invokevirtual #582                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.putTransient:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      18: return
+
+  public void merge(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_1
+       1: invokeinterface #265,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.getId:()Ljava/lang/String;
+       6: ifnonnull     17
+       9: getstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      12: aload_1
+      13: invokevirtual #587                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.mergeDbEntityException:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Lorg/cibseven/bpm/engine/ProcessEngineException;
+      16: athrow
+      17: aload_0
+      18: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+      21: aload_1
+      22: invokevirtual #590                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.putMerged:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      25: return
+
+  public void forceUpdate(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #289                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.getCachedEntity:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity;
+       8: astore_2
+       9: aload_2
+      10: ifnull        27
+      13: aload_2
+      14: invokevirtual #297                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntityState:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      17: getstatic     #547                // Field org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState.PERSISTENT:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityState;
+      20: if_acmpne     27
+      23: aload_2
+      24: invokevirtual #594                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.forceSetDirty:()V
+      27: return
+
+  public void delete(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #598                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.setDeleted:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+       8: return
+
+  public void undoDelete(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #601                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.undoDelete:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+       8: return
+
+  public void update(java.lang.Class<? extends org.cibseven.bpm.engine.impl.db.DbEntity>, java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_3
+       4: getstatic     #607                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.UPDATE_BULK:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+       7: invokevirtual #611                // Method performBulkOperation:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;
+      10: pop
+      11: return
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation updatePreserveOrder(java.lang.Class<? extends org.cibseven.bpm.engine.impl.db.DbEntity>, java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_3
+       4: getstatic     #607                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.UPDATE_BULK:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+       7: invokevirtual #619                // Method performBulkOperationPreserveOrder:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;
+      10: areturn
+
+  public void delete(java.lang.Class<? extends org.cibseven.bpm.engine.impl.db.DbEntity>, java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_3
+       4: getstatic     #622                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.DELETE_BULK:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+       7: invokevirtual #611                // Method performBulkOperation:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;
+      10: pop
+      11: return
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbBulkOperation deletePreserveOrder(java.lang.Class<? extends org.cibseven.bpm.engine.impl.db.DbEntity>, java.lang.String, java.lang.Object);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_3
+       4: getstatic     #622                // Field org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType.DELETE_BULK:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;
+       7: invokevirtual #619                // Method performBulkOperationPreserveOrder:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;
+      10: areturn
+
+  protected org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbBulkOperation performBulkOperation(java.lang.Class<? extends org.cibseven.bpm.engine.impl.db.DbEntity>, java.lang.String, java.lang.Object, org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperationType);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_3
+       4: aload         4
+       6: invokevirtual #629                // Method createDbBulkOperation:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;
+       9: astore        5
+      11: aload_0
+      12: getfield      #73                 // Field dbOperationManager:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager;
+      15: aload         5
+      17: invokevirtual #633                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager.addOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;)Z
+      20: pop
+      21: aload         5
+      23: areturn
+
+  protected org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbBulkOperation performBulkOperationPreserveOrder(java.lang.Class<? extends org.cibseven.bpm.engine.impl.db.DbEntity>, java.lang.String, java.lang.Object, org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperationType);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_3
+       4: aload         4
+       6: invokevirtual #629                // Method createDbBulkOperation:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;
+       9: astore        5
+      11: aload_0
+      12: getfield      #73                 // Field dbOperationManager:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager;
+      15: aload         5
+      17: invokevirtual #639                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager.addOperationPreserveOrder:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;)Z
+      20: pop
+      21: aload         5
+      23: areturn
+
+  private org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbBulkOperation createDbBulkOperation(java.lang.Class<? extends org.cibseven.bpm.engine.impl.db.DbEntity>, java.lang.String, java.lang.Object, org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperationType);
+    Code:
+       0: new           #641                // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation
+       3: dup
+       4: invokespecial #642                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation."<init>":()V
+       7: astore        5
+       9: aload         5
+      11: aload         4
+      13: invokevirtual #646                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setOperationType:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)V
+      16: aload         5
+      18: aload_1
+      19: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setEntityType:(Ljava/lang/Class;)V
+      22: aload         5
+      24: aload_2
+      25: invokevirtual #653                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setStatement:(Ljava/lang/String;)V
+      28: aload         5
+      30: aload_3
+      31: invokevirtual #657                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation.setParameter:(Ljava/lang/Object;)V
+      34: aload         5
+      36: areturn
+
+  protected void performEntityOperation(org.cibseven.bpm.engine.impl.db.entitymanager.cache.CachedDbEntity, org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperationType);
+    Code:
+       0: new           #488                // class org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation
+       3: dup
+       4: invokespecial #658                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation."<init>":()V
+       7: astore_3
+       8: aload_3
+       9: aload_1
+      10: invokevirtual #659                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getEntity:()Lorg/cibseven/bpm/engine/impl/db/DbEntity;
+      13: invokevirtual #662                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setEntity:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      16: aload_3
+      17: aload_1
+      18: invokevirtual #666                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/CachedDbEntity.getFlushRelevantEntityReferences:()Ljava/util/Set;
+      21: invokevirtual #670                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setFlushRelevantEntityReferences:(Ljava/util/Set;)V
+      24: aload_3
+      25: aload_2
+      26: invokevirtual #671                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation.setOperationType:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationType;)V
+      29: aload_0
+      30: getfield      #73                 // Field dbOperationManager:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager;
+      33: aload_3
+      34: invokevirtual #674                // Method org/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager.addOperation:(Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbEntityOperation;)Z
+      37: pop
+      38: return
+
+  public void close();
+    Code:
+       0: return
+
+  public boolean isDeleted(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #679                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.isDeleted:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Z
+       8: ireturn
+
+  protected void ensureHasId(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_1
+       1: invokeinterface #265,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.getId:()Ljava/lang/String;
+       6: ifnonnull     26
+       9: aload_0
+      10: getfield      #50                 // Field idGenerator:Lorg/cibseven/bpm/engine/impl/cfg/IdGenerator;
+      13: invokeinterface #683,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/cfg/IdGenerator.getNextId:()Ljava/lang/String;
+      18: astore_2
+      19: aload_1
+      20: aload_2
+      21: invokeinterface #686,  2          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.setId:(Ljava/lang/String;)V
+      26: return
+
+  protected void validateId(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_1
+       1: invokestatic  #692                // Method java/lang/String.valueOf:(Ljava/lang/Object;)Ljava/lang/String;
+       4: invokedynamic #704,  0            // InvokeDynamic #0:makeConcatWithConstants:(Ljava/lang/String;)Ljava/lang/String;
+       9: aload_1
+      10: invokeinterface #265,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.getId:()Ljava/lang/String;
+      15: invokestatic  #708                // Method org/cibseven/bpm/engine/impl/util/EnsureUtil.ensureValidIndividualResourceId:(Ljava/lang/String;Ljava/lang/String;)V
+      18: return
+
+  public <T extends org.cibseven.bpm.engine.impl.db.DbEntity> java.util.List<T> pruneDeletedEntities(java.util.List<T>);
+    Code:
+       0: new           #235                // class java/util/ArrayList
+       3: dup
+       4: invokespecial #711                // Method java/util/ArrayList."<init>":()V
+       7: astore_2
+       8: aload_1
+       9: invokeinterface #245,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      14: astore_3
+      15: aload_3
+      16: invokeinterface #250,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      21: ifeq          54
+      24: aload_3
+      25: invokeinterface #254,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      30: checkcast     #172                // class org/cibseven/bpm/engine/impl/db/DbEntity
+      33: astore        4
+      35: aload_0
+      36: aload         4
+      38: invokevirtual #712                // Method isDeleted:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Z
+      41: ifne          51
+      44: aload_2
+      45: aload         4
+      47: invokevirtual #713                // Method java/util/ArrayList.add:(Ljava/lang/Object;)Z
+      50: pop
+      51: goto          15
+      54: aload_2
+      55: areturn
+
+  public boolean contains(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: aload_1
+       5: invokevirtual #721                // Method org/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache.contains:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)Z
+       8: ireturn
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperationManager getDbOperationManager();
+    Code:
+       0: aload_0
+       1: getfield      #73                 // Field dbOperationManager:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager;
+       4: areturn
+
+  public void setDbOperationManager(org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperationManager);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: putfield      #73                 // Field dbOperationManager:Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperationManager;
+       5: return
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.cache.DbEntityCache getDbEntityCache();
+    Code:
+       0: aload_0
+       1: getfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       4: areturn
+
+  public void setDbEntityCache(org.cibseven.bpm.engine.impl.db.entitymanager.cache.DbEntityCache);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: putfield      #97                 // Field dbEntityCache:Lorg/cibseven/bpm/engine/impl/db/entitymanager/cache/DbEntityCache;
+       5: return
+
+  public org.cibseven.bpm.engine.impl.DeploymentQueryImpl createDeploymentQuery();
+    Code:
+       0: new           #732                // class org/cibseven/bpm/engine/impl/DeploymentQueryImpl
+       3: dup
+       4: invokespecial #733                // Method org/cibseven/bpm/engine/impl/DeploymentQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.ProcessDefinitionQueryImpl createProcessDefinitionQuery();
+    Code:
+       0: new           #737                // class org/cibseven/bpm/engine/impl/ProcessDefinitionQueryImpl
+       3: dup
+       4: invokespecial #738                // Method org/cibseven/bpm/engine/impl/ProcessDefinitionQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.cmmn.entity.repository.CaseDefinitionQueryImpl createCaseDefinitionQuery();
+    Code:
+       0: new           #742                // class org/cibseven/bpm/engine/impl/cmmn/entity/repository/CaseDefinitionQueryImpl
+       3: dup
+       4: invokespecial #743                // Method org/cibseven/bpm/engine/impl/cmmn/entity/repository/CaseDefinitionQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.ProcessInstanceQueryImpl createProcessInstanceQuery();
+    Code:
+       0: new           #747                // class org/cibseven/bpm/engine/impl/ProcessInstanceQueryImpl
+       3: dup
+       4: invokespecial #748                // Method org/cibseven/bpm/engine/impl/ProcessInstanceQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.ExecutionQueryImpl createExecutionQuery();
+    Code:
+       0: new           #752                // class org/cibseven/bpm/engine/impl/ExecutionQueryImpl
+       3: dup
+       4: invokespecial #753                // Method org/cibseven/bpm/engine/impl/ExecutionQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.TaskQueryImpl createTaskQuery();
+    Code:
+       0: new           #757                // class org/cibseven/bpm/engine/impl/TaskQueryImpl
+       3: dup
+       4: invokespecial #758                // Method org/cibseven/bpm/engine/impl/TaskQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.JobQueryImpl createJobQuery();
+    Code:
+       0: new           #762                // class org/cibseven/bpm/engine/impl/JobQueryImpl
+       3: dup
+       4: invokespecial #763                // Method org/cibseven/bpm/engine/impl/JobQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.HistoricProcessInstanceQueryImpl createHistoricProcessInstanceQuery();
+    Code:
+       0: new           #767                // class org/cibseven/bpm/engine/impl/HistoricProcessInstanceQueryImpl
+       3: dup
+       4: invokespecial #768                // Method org/cibseven/bpm/engine/impl/HistoricProcessInstanceQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.HistoricActivityInstanceQueryImpl createHistoricActivityInstanceQuery();
+    Code:
+       0: new           #772                // class org/cibseven/bpm/engine/impl/HistoricActivityInstanceQueryImpl
+       3: dup
+       4: invokespecial #773                // Method org/cibseven/bpm/engine/impl/HistoricActivityInstanceQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.HistoricTaskInstanceQueryImpl createHistoricTaskInstanceQuery();
+    Code:
+       0: new           #777                // class org/cibseven/bpm/engine/impl/HistoricTaskInstanceQueryImpl
+       3: dup
+       4: invokespecial #778                // Method org/cibseven/bpm/engine/impl/HistoricTaskInstanceQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.HistoricDetailQueryImpl createHistoricDetailQuery();
+    Code:
+       0: new           #782                // class org/cibseven/bpm/engine/impl/HistoricDetailQueryImpl
+       3: dup
+       4: invokespecial #783                // Method org/cibseven/bpm/engine/impl/HistoricDetailQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.HistoricVariableInstanceQueryImpl createHistoricVariableInstanceQuery();
+    Code:
+       0: new           #787                // class org/cibseven/bpm/engine/impl/HistoricVariableInstanceQueryImpl
+       3: dup
+       4: invokespecial #788                // Method org/cibseven/bpm/engine/impl/HistoricVariableInstanceQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.HistoricJobLogQueryImpl createHistoricJobLogQuery();
+    Code:
+       0: new           #792                // class org/cibseven/bpm/engine/impl/HistoricJobLogQueryImpl
+       3: dup
+       4: invokespecial #793                // Method org/cibseven/bpm/engine/impl/HistoricJobLogQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.UserQueryImpl createUserQuery();
+    Code:
+       0: new           #797                // class org/cibseven/bpm/engine/impl/identity/db/DbUserQueryImpl
+       3: dup
+       4: invokespecial #798                // Method org/cibseven/bpm/engine/impl/identity/db/DbUserQueryImpl."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.impl.GroupQueryImpl createGroupQuery();
+    Code:
+       0: new           #802                // class org/cibseven/bpm/engine/impl/identity/db/DbGroupQueryImpl
+       3: dup
+       4: invokespecial #803                // Method org/cibseven/bpm/engine/impl/identity/db/DbGroupQueryImpl."<init>":()V
+       7: areturn
+
+  public void registerOptimisticLockingListener(org.cibseven.bpm.engine.impl.db.entitymanager.OptimisticLockingListener);
+    Code:
+       0: aload_0
+       1: getfield      #476                // Field optimisticLockingListeners:Ljava/util/List;
+       4: ifnonnull     18
+       7: aload_0
+       8: new           #235                // class java/util/ArrayList
+      11: dup
+      12: invokespecial #711                // Method java/util/ArrayList."<init>":()V
+      15: putfield      #476                // Field optimisticLockingListeners:Ljava/util/List;
+      18: aload_0
+      19: getfield      #476                // Field optimisticLockingListeners:Ljava/util/List;
+      22: aload_1
+      23: invokeinterface #257,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+      28: pop
+      29: return
+
+  public java.util.List<java.lang.String> getTableNamesPresentInDatabase();
+    Code:
+       0: aload_0
+       1: getfield      #52                 // Field persistenceSession:Lorg/cibseven/bpm/engine/impl/db/PersistenceSession;
+       4: invokeinterface #810,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/PersistenceSession.getTableNamesPresent:()Ljava/util/List;
+       9: areturn
+
+  static {};
+    Code:
+       0: getstatic     #816                // Field org/cibseven/bpm/engine/impl/ProcessEngineLogger.PERSISTENCE_LOGGER:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       3: putstatic     #324                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       6: return
+}

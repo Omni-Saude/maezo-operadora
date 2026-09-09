@@ -1,0 +1,464 @@
+Compiled from "AbstractManager.java"
+public abstract class org.cibseven.bpm.engine.impl.persistence.AbstractManager implements org.cibseven.bpm.engine.impl.interceptor.Session {
+  public org.cibseven.bpm.engine.impl.persistence.AbstractManager();
+    Code:
+       0: aload_0
+       1: invokespecial #15                 // Method java/lang/Object."<init>":()V
+       4: return
+
+  public void insert(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: invokevirtual #23                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+       4: aload_1
+       5: invokevirtual #27                 // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.insert:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+       8: return
+
+  public void delete(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: invokevirtual #23                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+       4: aload_1
+       5: invokevirtual #32                 // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.delete:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+       8: return
+
+  protected org.cibseven.bpm.engine.impl.db.entitymanager.DbEntityManager getDbEntityManager();
+    Code:
+       0: aload_0
+       1: ldc           #25                 // class org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #25                 // class org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.db.sql.DbSqlSession getDbSqlSession();
+    Code:
+       0: aload_0
+       1: ldc           #40                 // class org/cibseven/bpm/engine/impl/db/sql/DbSqlSession
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #40                 // class org/cibseven/bpm/engine/impl/db/sql/DbSqlSession
+       9: areturn
+
+  protected <T> T getSession(java.lang.Class<T>);
+    Code:
+       0: invokestatic  #47                 // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+       3: aload_1
+       4: invokevirtual #50                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       7: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.DeploymentManager getDeploymentManager();
+    Code:
+       0: aload_0
+       1: ldc           #57                 // class org/cibseven/bpm/engine/impl/persistence/entity/DeploymentManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #57                 // class org/cibseven/bpm/engine/impl/persistence/entity/DeploymentManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.ResourceManager getResourceManager();
+    Code:
+       0: aload_0
+       1: ldc           #61                 // class org/cibseven/bpm/engine/impl/persistence/entity/ResourceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #61                 // class org/cibseven/bpm/engine/impl/persistence/entity/ResourceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.ByteArrayManager getByteArrayManager();
+    Code:
+       0: aload_0
+       1: ldc           #65                 // class org/cibseven/bpm/engine/impl/persistence/entity/ByteArrayManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #65                 // class org/cibseven/bpm/engine/impl/persistence/entity/ByteArrayManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.ProcessDefinitionManager getProcessDefinitionManager();
+    Code:
+       0: aload_0
+       1: ldc           #69                 // class org/cibseven/bpm/engine/impl/persistence/entity/ProcessDefinitionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #69                 // class org/cibseven/bpm/engine/impl/persistence/entity/ProcessDefinitionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.cmmn.entity.repository.CaseDefinitionManager getCaseDefinitionManager();
+    Code:
+       0: aload_0
+       1: ldc           #73                 // class org/cibseven/bpm/engine/impl/cmmn/entity/repository/CaseDefinitionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #73                 // class org/cibseven/bpm/engine/impl/cmmn/entity/repository/CaseDefinitionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.dmn.entity.repository.DecisionDefinitionManager getDecisionDefinitionManager();
+    Code:
+       0: aload_0
+       1: ldc           #77                 // class org/cibseven/bpm/engine/impl/dmn/entity/repository/DecisionDefinitionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #77                 // class org/cibseven/bpm/engine/impl/dmn/entity/repository/DecisionDefinitionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.dmn.entity.repository.DecisionRequirementsDefinitionManager getDecisionRequirementsDefinitionManager();
+    Code:
+       0: aload_0
+       1: ldc           #81                 // class org/cibseven/bpm/engine/impl/dmn/entity/repository/DecisionRequirementsDefinitionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #81                 // class org/cibseven/bpm/engine/impl/dmn/entity/repository/DecisionRequirementsDefinitionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.form.entity.CamundaFormDefinitionManager getCamundaFormDefinitionManager();
+    Code:
+       0: aload_0
+       1: ldc           #85                 // class org/cibseven/bpm/engine/impl/form/entity/CamundaFormDefinitionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #85                 // class org/cibseven/bpm/engine/impl/form/entity/CamundaFormDefinitionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.history.event.HistoricDecisionInstanceManager getHistoricDecisionInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #89                 // class org/cibseven/bpm/engine/impl/history/event/HistoricDecisionInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #89                 // class org/cibseven/bpm/engine/impl/history/event/HistoricDecisionInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.cmmn.entity.runtime.CaseExecutionManager getCaseInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #93                 // class org/cibseven/bpm/engine/impl/cmmn/entity/runtime/CaseExecutionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #93                 // class org/cibseven/bpm/engine/impl/cmmn/entity/runtime/CaseExecutionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.cmmn.entity.runtime.CaseExecutionManager getCaseExecutionManager();
+    Code:
+       0: aload_0
+       1: ldc           #93                 // class org/cibseven/bpm/engine/impl/cmmn/entity/runtime/CaseExecutionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #93                 // class org/cibseven/bpm/engine/impl/cmmn/entity/runtime/CaseExecutionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.ExecutionManager getProcessInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #98                 // class org/cibseven/bpm/engine/impl/persistence/entity/ExecutionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #98                 // class org/cibseven/bpm/engine/impl/persistence/entity/ExecutionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.TaskManager getTaskManager();
+    Code:
+       0: aload_0
+       1: ldc           #102                // class org/cibseven/bpm/engine/impl/persistence/entity/TaskManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #102                // class org/cibseven/bpm/engine/impl/persistence/entity/TaskManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.TaskReportManager getTaskReportManager();
+    Code:
+       0: aload_0
+       1: ldc           #106                // class org/cibseven/bpm/engine/impl/persistence/entity/TaskReportManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #106                // class org/cibseven/bpm/engine/impl/persistence/entity/TaskReportManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.IdentityLinkManager getIdentityLinkManager();
+    Code:
+       0: aload_0
+       1: ldc           #110                // class org/cibseven/bpm/engine/impl/persistence/entity/IdentityLinkManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #110                // class org/cibseven/bpm/engine/impl/persistence/entity/IdentityLinkManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.VariableInstanceManager getVariableInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #114                // class org/cibseven/bpm/engine/impl/persistence/entity/VariableInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #114                // class org/cibseven/bpm/engine/impl/persistence/entity/VariableInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricProcessInstanceManager getHistoricProcessInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #118                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricProcessInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #118                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricProcessInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricCaseInstanceManager getHistoricCaseInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #122                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricCaseInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #122                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricCaseInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricDetailManager getHistoricDetailManager();
+    Code:
+       0: aload_0
+       1: ldc           #126                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricDetailManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #126                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricDetailManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricVariableInstanceManager getHistoricVariableInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #130                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricVariableInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #130                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricVariableInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricActivityInstanceManager getHistoricActivityInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #134                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricActivityInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #134                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricActivityInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricCaseActivityInstanceManager getHistoricCaseActivityInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #138                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricCaseActivityInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #138                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricCaseActivityInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricTaskInstanceManager getHistoricTaskInstanceManager();
+    Code:
+       0: aload_0
+       1: ldc           #142                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricTaskInstanceManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #142                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricTaskInstanceManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricIncidentManager getHistoricIncidentManager();
+    Code:
+       0: aload_0
+       1: ldc           #146                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricIncidentManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #146                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricIncidentManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricIdentityLinkLogManager getHistoricIdentityLinkManager();
+    Code:
+       0: aload_0
+       1: ldc           #150                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricIdentityLinkLogManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #150                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricIdentityLinkLogManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricJobLogManager getHistoricJobLogManager();
+    Code:
+       0: aload_0
+       1: ldc           #154                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricJobLogManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #154                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricJobLogManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricExternalTaskLogManager getHistoricExternalTaskLogManager();
+    Code:
+       0: aload_0
+       1: ldc           #158                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricExternalTaskLogManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #158                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricExternalTaskLogManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.JobManager getJobManager();
+    Code:
+       0: aload_0
+       1: ldc           #162                // class org/cibseven/bpm/engine/impl/persistence/entity/JobManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #162                // class org/cibseven/bpm/engine/impl/persistence/entity/JobManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.JobDefinitionManager getJobDefinitionManager();
+    Code:
+       0: aload_0
+       1: ldc           #166                // class org/cibseven/bpm/engine/impl/persistence/entity/JobDefinitionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #166                // class org/cibseven/bpm/engine/impl/persistence/entity/JobDefinitionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.UserOperationLogManager getUserOperationLogManager();
+    Code:
+       0: aload_0
+       1: ldc           #170                // class org/cibseven/bpm/engine/impl/persistence/entity/UserOperationLogManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #170                // class org/cibseven/bpm/engine/impl/persistence/entity/UserOperationLogManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.EventSubscriptionManager getEventSubscriptionManager();
+    Code:
+       0: aload_0
+       1: ldc           #174                // class org/cibseven/bpm/engine/impl/persistence/entity/EventSubscriptionManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #174                // class org/cibseven/bpm/engine/impl/persistence/entity/EventSubscriptionManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.IdentityInfoManager getIdentityInfoManager();
+    Code:
+       0: aload_0
+       1: ldc           #178                // class org/cibseven/bpm/engine/impl/persistence/entity/IdentityInfoManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #178                // class org/cibseven/bpm/engine/impl/persistence/entity/IdentityInfoManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.AttachmentManager getAttachmentManager();
+    Code:
+       0: aload_0
+       1: ldc           #182                // class org/cibseven/bpm/engine/impl/persistence/entity/AttachmentManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #182                // class org/cibseven/bpm/engine/impl/persistence/entity/AttachmentManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.ReportManager getHistoricReportManager();
+    Code:
+       0: aload_0
+       1: ldc           #186                // class org/cibseven/bpm/engine/impl/persistence/entity/ReportManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #186                // class org/cibseven/bpm/engine/impl/persistence/entity/ReportManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.BatchManager getBatchManager();
+    Code:
+       0: aload_0
+       1: ldc           #190                // class org/cibseven/bpm/engine/impl/persistence/entity/BatchManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #190                // class org/cibseven/bpm/engine/impl/persistence/entity/BatchManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.HistoricBatchManager getHistoricBatchManager();
+    Code:
+       0: aload_0
+       1: ldc           #194                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricBatchManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #194                // class org/cibseven/bpm/engine/impl/persistence/entity/HistoricBatchManager
+       9: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.TenantManager getTenantManager();
+    Code:
+       0: aload_0
+       1: ldc           #198                // class org/cibseven/bpm/engine/impl/persistence/entity/TenantManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #198                // class org/cibseven/bpm/engine/impl/persistence/entity/TenantManager
+       9: areturn
+
+  public void close();
+    Code:
+       0: return
+
+  public void flush();
+    Code:
+       0: return
+
+  protected org.cibseven.bpm.engine.impl.interceptor.CommandContext getCommandContext();
+    Code:
+       0: invokestatic  #47                 // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+       3: areturn
+
+  protected org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationManager getAuthorizationManager();
+    Code:
+       0: aload_0
+       1: ldc           #204                // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager
+       3: invokevirtual #36                 // Method getSession:(Ljava/lang/Class;)Ljava/lang/Object;
+       6: checkcast     #204                // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager
+       9: areturn
+
+  protected void configureQuery(org.cibseven.bpm.engine.impl.AbstractQuery<?, ?>, org.cibseven.bpm.engine.authorization.Resource);
+    Code:
+       0: aload_0
+       1: invokevirtual #209                // Method getAuthorizationManager:()Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager;
+       4: aload_1
+       5: aload_2
+       6: invokevirtual #211                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager.configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;)V
+       9: return
+
+  protected void checkAuthorization(org.cibseven.bpm.engine.authorization.Permission, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokevirtual #209                // Method getAuthorizationManager:()Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager;
+       4: aload_1
+       5: aload_2
+       6: aload_3
+       7: invokevirtual #220                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager.checkAuthorization:(Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      10: return
+
+  public boolean isAuthorizationEnabled();
+    Code:
+       0: invokestatic  #230                // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       3: invokevirtual #234                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.isAuthorizationEnabled:()Z
+       6: ireturn
+
+  protected org.cibseven.bpm.engine.impl.identity.Authentication getCurrentAuthentication();
+    Code:
+       0: invokestatic  #47                 // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+       3: invokevirtual #239                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+       6: areturn
+
+  protected org.cibseven.bpm.engine.impl.cfg.auth.ResourceAuthorizationProvider getResourceAuthorizationProvider();
+    Code:
+       0: invokestatic  #230                // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       3: invokevirtual #243                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getResourceAuthorizationProvider:()Lorg/cibseven/bpm/engine/impl/cfg/auth/ResourceAuthorizationProvider;
+       6: areturn
+
+  protected void deleteAuthorizations(org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokevirtual #209                // Method getAuthorizationManager:()Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager;
+       4: aload_1
+       5: aload_2
+       6: invokevirtual #248                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager.deleteAuthorizationsByResourceId:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+       9: return
+
+  protected void deleteAuthorizationsForUser(org.cibseven.bpm.engine.authorization.Resource, java.lang.String, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokevirtual #209                // Method getAuthorizationManager:()Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager;
+       4: aload_1
+       5: aload_2
+       6: aload_3
+       7: invokevirtual #253                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager.deleteAuthorizationsByResourceIdAndUserId:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  protected void deleteAuthorizationsForGroup(org.cibseven.bpm.engine.authorization.Resource, java.lang.String, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokevirtual #209                // Method getAuthorizationManager:()Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager;
+       4: aload_1
+       5: aload_2
+       6: aload_3
+       7: invokevirtual #258                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager.deleteAuthorizationsByResourceIdAndGroupId:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Ljava/lang/String;)V
+      10: return
+
+  public void saveDefaultAuthorizations(org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationEntity[]);
+    Code:
+       0: aload_1
+       1: ifnull        25
+       4: aload_1
+       5: arraylength
+       6: ifle          25
+       9: invokestatic  #47                 // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      12: new           #11                 // class org/cibseven/bpm/engine/impl/persistence/AbstractManager$1
+      15: dup
+      16: aload_0
+      17: aload_1
+      18: invokespecial #264                // Method org/cibseven/bpm/engine/impl/persistence/AbstractManager$1."<init>":(Lorg/cibseven/bpm/engine/impl/persistence/AbstractManager;[Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity;)V
+      21: invokevirtual #268                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.runWithoutAuthorization:(Ljava/util/concurrent/Callable;)Ljava/lang/Object;
+      24: pop
+      25: return
+
+  public void deleteDefaultAuthorizations(org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationEntity[]);
+    Code:
+       0: aload_1
+       1: ifnull        25
+       4: aload_1
+       5: arraylength
+       6: ifle          25
+       9: invokestatic  #47                 // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      12: new           #9                  // class org/cibseven/bpm/engine/impl/persistence/AbstractManager$2
+      15: dup
+      16: aload_0
+      17: aload_1
+      18: invokespecial #272                // Method org/cibseven/bpm/engine/impl/persistence/AbstractManager$2."<init>":(Lorg/cibseven/bpm/engine/impl/persistence/AbstractManager;[Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity;)V
+      21: invokevirtual #268                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.runWithoutAuthorization:(Ljava/util/concurrent/Callable;)Ljava/lang/Object;
+      24: pop
+      25: return
+}

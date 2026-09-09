@@ -1,0 +1,2244 @@
+Compiled from "AuthorizationManager.java"
+public class org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationManager extends org.cibseven.bpm.engine.impl.persistence.AbstractManager {
+  protected static final org.cibseven.bpm.engine.impl.db.EnginePersistenceLogger LOG;
+
+  protected static final java.util.List<java.lang.String> EMPTY_LIST;
+
+  protected java.util.Set<java.lang.String> availableAuthorizedGroupIds;
+
+  protected java.lang.Boolean isRevokeAuthCheckUsed;
+
+  public org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationManager();
+    Code:
+       0: aload_0
+       1: invokespecial #29                 // Method org/cibseven/bpm/engine/impl/persistence/AbstractManager."<init>":()V
+       4: aload_0
+       5: aconst_null
+       6: putfield      #31                 // Field availableAuthorizedGroupIds:Ljava/util/Set;
+       9: aload_0
+      10: aconst_null
+      11: putfield      #33                 // Field isRevokeAuthCheckUsed:Ljava/lang/Boolean;
+      14: return
+
+  public org.cibseven.bpm.engine.impl.db.PermissionCheckBuilder newPermissionCheckBuilder();
+    Code:
+       0: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       3: dup
+       4: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+       7: areturn
+
+  public org.cibseven.bpm.engine.authorization.Authorization createNewAuthorization(int);
+    Code:
+       0: aload_0
+       1: getstatic     #48                 // Field org/cibseven/bpm/engine/authorization/Permissions.CREATE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+       4: getstatic     #54                 // Field org/cibseven/bpm/engine/authorization/Resources.AUTHORIZATION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       7: aconst_null
+       8: invokevirtual #58                 // Method checkAuthorization:(Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: new           #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      14: dup
+      15: iload_1
+      16: invokespecial #63                 // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity."<init>":(I)V
+      19: areturn
+
+  public void insert(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getstatic     #48                 // Field org/cibseven/bpm/engine/authorization/Permissions.CREATE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+       4: getstatic     #54                 // Field org/cibseven/bpm/engine/authorization/Resources.AUTHORIZATION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       7: aconst_null
+       8: invokevirtual #58                 // Method checkAuthorization:(Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: aload_0
+      12: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      15: aload_1
+      16: invokevirtual #75                 // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.insert:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      19: return
+
+  public java.util.List<org.cibseven.bpm.engine.authorization.Authorization> selectAuthorizationByQueryCriteria(org.cibseven.bpm.engine.impl.AuthorizationQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #54                 // Field org/cibseven/bpm/engine/authorization/Resources.AUTHORIZATION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: invokevirtual #84                 // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;)V
+       8: aload_0
+       9: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      12: ldc           #85                 // String selectAuthorizationByQueryCriteria
+      14: aload_1
+      15: invokevirtual #89                 // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.selectList:(Ljava/lang/String;Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)Ljava/util/List;
+      18: areturn
+
+  public java.lang.Long selectAuthorizationCountByQueryCriteria(org.cibseven.bpm.engine.impl.AuthorizationQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #54                 // Field org/cibseven/bpm/engine/authorization/Resources.AUTHORIZATION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: invokevirtual #84                 // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;)V
+       8: aload_0
+       9: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      12: ldc           #94                 // String selectAuthorizationCountByQueryCriteria
+      14: aload_1
+      15: invokevirtual #98                 // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.selectOne:(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
+      18: checkcast     #100                // class java/lang/Long
+      21: areturn
+
+  public org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationEntity findAuthorizationByUserIdAndResourceId(int, java.lang.String, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: iload_1
+       2: aload_2
+       3: aconst_null
+       4: aload_3
+       5: aload         4
+       7: invokevirtual #106                // Method findAuthorization:(ILjava/lang/String;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity;
+      10: areturn
+
+  public org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationEntity findAuthorizationByGroupIdAndResourceId(int, java.lang.String, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: iload_1
+       2: aconst_null
+       3: aload_2
+       4: aload_3
+       5: aload         4
+       7: invokevirtual #106                // Method findAuthorization:(ILjava/lang/String;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity;
+      10: areturn
+
+  public org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationEntity findAuthorization(int, java.lang.String, java.lang.String, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: new           #115                // class java/util/HashMap
+       3: dup
+       4: invokespecial #116                // Method java/util/HashMap."<init>":()V
+       7: astore        6
+       9: aload         6
+      11: ldc           #117                // String type
+      13: iload_1
+      14: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      17: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      22: pop
+      23: aload         6
+      25: ldc           #130                // String userId
+      27: aload_2
+      28: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      33: pop
+      34: aload         6
+      36: ldc           #131                // String groupId
+      38: aload_3
+      39: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      44: pop
+      45: aload         6
+      47: ldc           #132                // String resourceId
+      49: aload         5
+      51: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      56: pop
+      57: aload         4
+      59: ifnull        82
+      62: aload         6
+      64: ldc           #134                // String resourceType
+      66: aload         4
+      68: invokeinterface #139,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceType:()I
+      73: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      76: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      81: pop
+      82: aload_0
+      83: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      86: ldc           #141                // String selectAuthorizationByParameters
+      88: aload         6
+      90: invokevirtual #98                 // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.selectOne:(Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;
+      93: checkcast     #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      96: areturn
+
+  public void update(org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationEntity);
+    Code:
+       0: aload_0
+       1: getstatic     #149                // Field org/cibseven/bpm/engine/authorization/Permissions.UPDATE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+       4: getstatic     #54                 // Field org/cibseven/bpm/engine/authorization/Resources.AUTHORIZATION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       7: aload_1
+       8: invokevirtual #153                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity.getId:()Ljava/lang/String;
+      11: invokevirtual #58                 // Method checkAuthorization:(Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      14: aload_0
+      15: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      18: aload_1
+      19: invokevirtual #156                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.merge:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      22: return
+
+  public void delete(org.cibseven.bpm.engine.impl.db.DbEntity);
+    Code:
+       0: aload_0
+       1: getstatic     #161                // Field org/cibseven/bpm/engine/authorization/Permissions.DELETE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+       4: getstatic     #54                 // Field org/cibseven/bpm/engine/authorization/Resources.AUTHORIZATION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       7: aload_1
+       8: invokeinterface #164,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.getId:()Ljava/lang/String;
+      13: invokevirtual #58                 // Method checkAuthorization:(Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      16: aload_0
+      17: getstatic     #54                 // Field org/cibseven/bpm/engine/authorization/Resources.AUTHORIZATION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      20: aload_1
+      21: invokeinterface #164,  1          // InterfaceMethod org/cibseven/bpm/engine/impl/db/DbEntity.getId:()Ljava/lang/String;
+      26: invokevirtual #168                // Method deleteAuthorizationsByResourceId:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      29: aload_0
+      30: aload_1
+      31: invokespecial #170                // Method org/cibseven/bpm/engine/impl/persistence/AbstractManager.delete:(Lorg/cibseven/bpm/engine/impl/db/DbEntity;)V
+      34: return
+
+  public void checkAuthorization(org.cibseven.bpm.engine.impl.db.CompositePermissionCheck);
+    Code:
+       0: aload_0
+       1: invokevirtual #175                // Method isAuthCheckExecuted:()Z
+       4: ifeq          125
+       7: aload_0
+       8: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+      11: astore_2
+      12: aload_2
+      13: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      16: astore_3
+      17: aload_0
+      18: aload_1
+      19: invokevirtual #188                // Method isAuthorized:(Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)Z
+      22: istore        4
+      24: iload         4
+      26: ifne          125
+      29: new           #190                // class java/util/ArrayList
+      32: dup
+      33: invokespecial #191                // Method java/util/ArrayList."<init>":()V
+      36: astore        5
+      38: aload_1
+      39: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+      42: invokeinterface #203,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      47: astore        6
+      49: aload         6
+      51: invokeinterface #210,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      56: ifeq          114
+      59: aload         6
+      61: invokeinterface #214,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      66: checkcast     #216                // class org/cibseven/bpm/engine/impl/db/PermissionCheck
+      69: astore        7
+      71: aload         5
+      73: new           #218                // class org/cibseven/bpm/engine/authorization/MissingAuthorization
+      76: dup
+      77: aload         7
+      79: invokevirtual #222                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getPermission:()Lorg/cibseven/bpm/engine/authorization/Permission;
+      82: invokeinterface #227,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getName:()Ljava/lang/String;
+      87: aload         7
+      89: invokevirtual #231                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getResource:()Lorg/cibseven/bpm/engine/authorization/Resource;
+      92: invokeinterface #234,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceName:()Ljava/lang/String;
+      97: aload         7
+      99: invokevirtual #237                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getResourceId:()Ljava/lang/String;
+     102: invokespecial #240                // Method org/cibseven/bpm/engine/authorization/MissingAuthorization."<init>":(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+     105: invokeinterface #244,  2          // InterfaceMethod java/util/List.add:(Ljava/lang/Object;)Z
+     110: pop
+     111: goto          49
+     114: new           #246                // class org/cibseven/bpm/engine/AuthorizationException
+     117: dup
+     118: aload_3
+     119: aload         5
+     121: invokespecial #249                // Method org/cibseven/bpm/engine/AuthorizationException."<init>":(Ljava/lang/String;Ljava/util/List;)V
+     124: athrow
+     125: return
+
+  public void checkAuthorization(org.cibseven.bpm.engine.authorization.Permission, org.cibseven.bpm.engine.authorization.Resource);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aconst_null
+       4: invokevirtual #58                 // Method checkAuthorization:(Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+       7: return
+
+  public void checkAuthorization(org.cibseven.bpm.engine.authorization.Permission, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokevirtual #175                // Method isAuthCheckExecuted:()Z
+       4: ifeq          63
+       7: aload_0
+       8: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+      11: astore        4
+      13: aload_0
+      14: aload         4
+      16: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      19: aload         4
+      21: invokevirtual #264                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getGroupIds:()Ljava/util/List;
+      24: aload_1
+      25: aload_2
+      26: aload_3
+      27: invokevirtual #267                // Method isAuthorized:(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)Z
+      30: istore        5
+      32: iload         5
+      34: ifne          63
+      37: new           #246                // class org/cibseven/bpm/engine/AuthorizationException
+      40: dup
+      41: aload         4
+      43: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      46: aload_1
+      47: invokeinterface #227,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getName:()Ljava/lang/String;
+      52: aload_2
+      53: invokeinterface #234,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceName:()Ljava/lang/String;
+      58: aload_3
+      59: invokespecial #270                // Method org/cibseven/bpm/engine/AuthorizationException."<init>":(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V
+      62: athrow
+      63: return
+
+  public boolean isAuthorized(org.cibseven.bpm.engine.authorization.Permission, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+       4: astore        4
+       6: aload_0
+       7: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+      10: ifeq          44
+      13: aload         4
+      15: ifnull        44
+      18: aload         4
+      20: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      23: ifnull        44
+      26: aload_0
+      27: aload         4
+      29: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      32: aload         4
+      34: invokevirtual #264                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getGroupIds:()Ljava/util/List;
+      37: aload_1
+      38: aload_2
+      39: aload_3
+      40: invokevirtual #267                // Method isAuthorized:(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)Z
+      43: ireturn
+      44: iconst_1
+      45: ireturn
+
+  public boolean isAuthorized(java.lang.String, java.util.List<java.lang.String>, org.cibseven.bpm.engine.authorization.Permission, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_3
+       2: invokevirtual #279                // Method isPermissionDisabled:(Lorg/cibseven/bpm/engine/authorization/Permission;)Z
+       5: ifne          46
+       8: new           #216                // class org/cibseven/bpm/engine/impl/db/PermissionCheck
+      11: dup
+      12: invokespecial #280                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck."<init>":()V
+      15: astore        6
+      17: aload         6
+      19: aload_3
+      20: invokevirtual #284                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.setPermission:(Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      23: aload         6
+      25: aload         4
+      27: invokevirtual #288                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.setResource:(Lorg/cibseven/bpm/engine/authorization/Resource;)V
+      30: aload         6
+      32: aload         5
+      34: invokevirtual #292                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.setResourceId:(Ljava/lang/String;)V
+      37: aload_0
+      38: aload_1
+      39: aload_2
+      40: aload         6
+      42: invokevirtual #295                // Method isAuthorized:(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/impl/db/PermissionCheck;)Z
+      45: ireturn
+      46: iconst_1
+      47: ireturn
+
+  public boolean isAuthorized(java.lang.String, java.util.List<java.lang.String>, org.cibseven.bpm.engine.impl.db.PermissionCheck);
+    Code:
+       0: aload_0
+       1: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+       4: ifne          9
+       7: iconst_1
+       8: ireturn
+       9: aload_0
+      10: aload_3
+      11: invokevirtual #302                // Method isResourceValidForPermission:(Lorg/cibseven/bpm/engine/impl/db/PermissionCheck;)Z
+      14: ifne          42
+      17: getstatic     #304                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      20: aload_3
+      21: invokevirtual #231                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getResource:()Lorg/cibseven/bpm/engine/authorization/Resource;
+      24: invokeinterface #234,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceName:()Ljava/lang/String;
+      29: aload_3
+      30: invokevirtual #222                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getPermission:()Lorg/cibseven/bpm/engine/authorization/Permission;
+      33: invokeinterface #227,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getName:()Ljava/lang/String;
+      38: invokevirtual #310                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.invalidResourceForPermission:(Ljava/lang/String;Ljava/lang/String;)Lorg/cibseven/bpm/engine/BadUserRequestException;
+      41: athrow
+      42: aload_0
+      43: aload_2
+      44: invokevirtual #314                // Method filterAuthenticatedGroupIds:(Ljava/util/List;)Ljava/util/List;
+      47: astore        4
+      49: aload_0
+      50: aload_1
+      51: aload_2
+      52: invokevirtual #318                // Method isRevokeAuthCheckEnabled:(Ljava/lang/String;Ljava/util/List;)Z
+      55: istore        5
+      57: aload_0
+      58: aload_3
+      59: invokevirtual #322                // Method createCompositePermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/PermissionCheck;)Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      62: astore        6
+      64: new           #324                // class org/cibseven/bpm/engine/impl/db/AuthorizationCheck
+      67: dup
+      68: aload_1
+      69: aload         4
+      71: aload         6
+      73: iload         5
+      75: invokespecial #327                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck."<init>":(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;Z)V
+      78: astore        7
+      80: aload_0
+      81: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      84: ldc_w         #329                // String isUserAuthorizedForResource
+      87: aload         7
+      89: invokevirtual #333                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.selectBoolean:(Ljava/lang/String;Ljava/lang/Object;)Z
+      92: ireturn
+
+  protected boolean isRevokeAuthCheckEnabled(java.lang.String, java.util.List<java.lang.String>);
+    Code:
+       0: aload_0
+       1: getfield      #33                 // Field isRevokeAuthCheckUsed:Ljava/lang/Boolean;
+       4: astore_3
+       5: aload_3
+       6: ifnonnull     124
+       9: invokestatic  #345                // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      12: invokevirtual #350                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getAuthorizationCheckRevokes:()Ljava/lang/String;
+      15: astore        4
+      17: aload         4
+      19: ifnull        29
+      22: aload         4
+      24: invokevirtual #353                // Method java/lang/String.toLowerCase:()Ljava/lang/String;
+      27: astore        4
+      29: ldc_w         #357                // String always
+      32: aload         4
+      34: invokevirtual #360                // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      37: ifeq          48
+      40: iconst_1
+      41: invokestatic  #363                // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+      44: astore_3
+      45: goto          119
+      48: ldc_w         #365                // String never
+      51: aload         4
+      53: invokevirtual #360                // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      56: ifeq          67
+      59: iconst_0
+      60: invokestatic  #363                // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+      63: astore_3
+      64: goto          119
+      67: new           #115                // class java/util/HashMap
+      70: dup
+      71: invokespecial #116                // Method java/util/HashMap."<init>":()V
+      74: astore        5
+      76: aload         5
+      78: ldc           #130                // String userId
+      80: aload_1
+      81: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      86: pop
+      87: aload         5
+      89: ldc_w         #367                // String authGroupIds
+      92: aload_0
+      93: aload_2
+      94: invokevirtual #314                // Method filterAuthenticatedGroupIds:(Ljava/util/List;)Ljava/util/List;
+      97: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+     102: pop
+     103: aload_0
+     104: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+     107: ldc_w         #369                // String selectRevokeAuthorization
+     110: aload         5
+     112: invokevirtual #333                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.selectBoolean:(Ljava/lang/String;Ljava/lang/Object;)Z
+     115: invokestatic  #363                // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+     118: astore_3
+     119: aload_0
+     120: aload_3
+     121: putfield      #33                 // Field isRevokeAuthCheckUsed:Ljava/lang/Boolean;
+     124: aload_3
+     125: invokevirtual #372                // Method java/lang/Boolean.booleanValue:()Z
+     128: ireturn
+
+  protected org.cibseven.bpm.engine.impl.db.CompositePermissionCheck createCompositePermissionCheck(org.cibseven.bpm.engine.impl.db.PermissionCheck);
+    Code:
+       0: new           #193                // class org/cibseven/bpm/engine/impl/db/CompositePermissionCheck
+       3: dup
+       4: invokespecial #374                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck."<init>":()V
+       7: astore_2
+       8: aload_2
+       9: iconst_1
+      10: anewarray     #216                // class org/cibseven/bpm/engine/impl/db/PermissionCheck
+      13: dup
+      14: iconst_0
+      15: aload_1
+      16: aastore
+      17: invokestatic  #380                // Method java/util/Arrays.asList:([Ljava/lang/Object;)Ljava/util/List;
+      20: invokevirtual #384                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.setAtomicChecks:(Ljava/util/List;)V
+      23: aload_2
+      24: areturn
+
+  public boolean isAuthorized(java.lang.String, java.util.List<java.lang.String>, org.cibseven.bpm.engine.impl.db.CompositePermissionCheck);
+    Code:
+       0: aload_3
+       1: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+       4: invokeinterface #203,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+       9: astore        4
+      11: aload         4
+      13: invokeinterface #210,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      18: ifeq          72
+      21: aload         4
+      23: invokeinterface #214,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      28: checkcast     #216                // class org/cibseven/bpm/engine/impl/db/PermissionCheck
+      31: astore        5
+      33: aload_0
+      34: aload         5
+      36: invokevirtual #302                // Method isResourceValidForPermission:(Lorg/cibseven/bpm/engine/impl/db/PermissionCheck;)Z
+      39: ifne          69
+      42: getstatic     #304                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      45: aload         5
+      47: invokevirtual #231                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getResource:()Lorg/cibseven/bpm/engine/authorization/Resource;
+      50: invokeinterface #234,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceName:()Ljava/lang/String;
+      55: aload         5
+      57: invokevirtual #222                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getPermission:()Lorg/cibseven/bpm/engine/authorization/Permission;
+      60: invokeinterface #227,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getName:()Ljava/lang/String;
+      65: invokevirtual #310                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.invalidResourceForPermission:(Ljava/lang/String;Ljava/lang/String;)Lorg/cibseven/bpm/engine/BadUserRequestException;
+      68: athrow
+      69: goto          11
+      72: aload_0
+      73: aload_2
+      74: invokevirtual #314                // Method filterAuthenticatedGroupIds:(Ljava/util/List;)Ljava/util/List;
+      77: astore        4
+      79: aload_0
+      80: aload_1
+      81: aload_2
+      82: invokevirtual #318                // Method isRevokeAuthCheckEnabled:(Ljava/lang/String;Ljava/util/List;)Z
+      85: istore        5
+      87: new           #324                // class org/cibseven/bpm/engine/impl/db/AuthorizationCheck
+      90: dup
+      91: aload_1
+      92: aload         4
+      94: aload_3
+      95: iload         5
+      97: invokespecial #327                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck."<init>":(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;Z)V
+     100: astore        6
+     102: aload_0
+     103: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+     106: ldc_w         #329                // String isUserAuthorizedForResource
+     109: aload         6
+     111: invokevirtual #333                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.selectBoolean:(Ljava/lang/String;Ljava/lang/Object;)Z
+     114: ireturn
+
+  public boolean isAuthorized(org.cibseven.bpm.engine.impl.db.CompositePermissionCheck);
+    Code:
+       0: aload_0
+       1: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+       4: astore_2
+       5: aload_2
+       6: ifnull        23
+       9: aload_0
+      10: aload_2
+      11: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      14: aload_2
+      15: invokevirtual #264                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getGroupIds:()Ljava/util/List;
+      18: aload_1
+      19: invokevirtual #388                // Method isAuthorized:(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)Z
+      22: ireturn
+      23: iconst_1
+      24: ireturn
+
+  protected boolean isResourceValidForPermission(org.cibseven.bpm.engine.impl.db.PermissionCheck);
+    Code:
+       0: aload_1
+       1: invokevirtual #222                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getPermission:()Lorg/cibseven/bpm/engine/authorization/Permission;
+       4: invokeinterface #392,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getTypes:()[Lorg/cibseven/bpm/engine/authorization/Resource;
+       9: astore_2
+      10: aload_1
+      11: invokevirtual #231                // Method org/cibseven/bpm/engine/impl/db/PermissionCheck.getResource:()Lorg/cibseven/bpm/engine/authorization/Resource;
+      14: astore_3
+      15: aload_3
+      16: invokeinterface #139,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceType:()I
+      21: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      24: aload_2
+      25: invokestatic  #398                // Method org/cibseven/bpm/engine/impl/util/ResourceTypeUtil.resourceIsContainedInArray:(Ljava/lang/Integer;[Lorg/cibseven/bpm/engine/authorization/Resource;)Z
+      28: ireturn
+
+  public void validateResourceCompatibility(org.cibseven.bpm.engine.impl.persistence.entity.AuthorizationEntity);
+    Code:
+       0: aload_1
+       1: invokevirtual #405                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity.getResourceType:()I
+       4: istore_2
+       5: aload_1
+       6: invokevirtual #409                // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity.getCachedPermissions:()Ljava/util/Set;
+       9: astore_3
+      10: aload_3
+      11: invokeinterface #412,  1          // InterfaceMethod java/util/Set.iterator:()Ljava/util/Iterator;
+      16: astore        4
+      18: aload         4
+      20: invokeinterface #210,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      25: ifeq          75
+      28: aload         4
+      30: invokeinterface #214,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      35: checkcast     #224                // class org/cibseven/bpm/engine/authorization/Permission
+      38: astore        5
+      40: iload_2
+      41: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      44: aload         5
+      46: invokeinterface #392,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getTypes:()[Lorg/cibseven/bpm/engine/authorization/Resource;
+      51: invokestatic  #398                // Method org/cibseven/bpm/engine/impl/util/ResourceTypeUtil.resourceIsContainedInArray:(Ljava/lang/Integer;[Lorg/cibseven/bpm/engine/authorization/Resource;)Z
+      54: ifne          72
+      57: getstatic     #304                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      60: iload_2
+      61: aload         5
+      63: invokeinterface #227,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getName:()Ljava/lang/String;
+      68: invokevirtual #416                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.invalidResourceForAuthorization:(ILjava/lang/String;)Lorg/cibseven/bpm/engine/BadUserRequestException;
+      71: athrow
+      72: goto          18
+      75: return
+
+  public void configureQuery(org.cibseven.bpm.engine.impl.db.ListQueryParameterObject);
+    Code:
+       0: aload_1
+       1: invokevirtual #425                // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_2
+       6: invokevirtual #429                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.getPermissionChecks:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+       9: invokevirtual #432                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.clear:()V
+      12: aload_0
+      13: invokevirtual #175                // Method isAuthCheckExecuted:()Z
+      16: ifeq          48
+      19: aload_0
+      20: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+      23: astore_3
+      24: aload_2
+      25: aload_3
+      26: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      29: invokevirtual #435                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setAuthUserId:(Ljava/lang/String;)V
+      32: aload_2
+      33: aload_3
+      34: invokevirtual #264                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getGroupIds:()Ljava/util/List;
+      37: invokevirtual #438                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setAuthGroupIds:(Ljava/util/List;)V
+      40: aload_0
+      41: aload_2
+      42: invokevirtual #442                // Method enableQueryAuthCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;)V
+      45: goto          63
+      48: aload_2
+      49: iconst_0
+      50: invokevirtual #446                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setAuthorizationCheckEnabled:(Z)V
+      53: aload_2
+      54: aconst_null
+      55: invokevirtual #435                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setAuthUserId:(Ljava/lang/String;)V
+      58: aload_2
+      59: aconst_null
+      60: invokevirtual #438                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setAuthGroupIds:(Ljava/util/List;)V
+      63: return
+
+  public void configureQueryHistoricFinishedInstanceReport(org.cibseven.bpm.engine.impl.db.ListQueryParameterObject, org.cibseven.bpm.engine.authorization.Resource);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: invokevirtual #455                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.conjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: aload_2
+      16: ldc_w         #457                // String RES.KEY_
+      19: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      22: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      25: aload_2
+      26: ldc_w         #457                // String RES.KEY_
+      29: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      32: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      35: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      38: astore_3
+      39: aload_1
+      40: invokevirtual #425                // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      43: aload_3
+      44: invokevirtual #473                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setPermissionChecks:(Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      47: return
+
+  public void enableQueryAuthCheck(org.cibseven.bpm.engine.impl.db.AuthorizationCheck);
+    Code:
+       0: aload_1
+       1: invokevirtual #476                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.getAuthGroupIds:()Ljava/util/List;
+       4: astore_2
+       5: aload_1
+       6: invokevirtual #479                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.getAuthUserId:()Ljava/lang/String;
+       9: astore_3
+      10: aload_1
+      11: iconst_1
+      12: invokevirtual #446                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setAuthorizationCheckEnabled:(Z)V
+      15: aload_1
+      16: aload_0
+      17: aload_2
+      18: invokevirtual #314                // Method filterAuthenticatedGroupIds:(Ljava/util/List;)Ljava/util/List;
+      21: invokevirtual #438                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setAuthGroupIds:(Ljava/util/List;)V
+      24: aload_1
+      25: aload_0
+      26: aload_3
+      27: aload_2
+      28: invokevirtual #318                // Method isRevokeAuthCheckEnabled:(Ljava/lang/String;Ljava/util/List;)Z
+      31: invokevirtual #482                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setRevokeAuthorizationCheckEnabled:(Z)V
+      34: return
+
+  public void configureQuery(org.cibseven.bpm.engine.impl.AbstractQuery, org.cibseven.bpm.engine.authorization.Resource);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: ldc_w         #485                // String RES.ID_
+       6: invokevirtual #488                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+       9: return
+
+  public void configureQuery(org.cibseven.bpm.engine.impl.AbstractQuery, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: aload_3
+       4: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+       7: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      10: return
+
+  public void configureQuery(org.cibseven.bpm.engine.impl.AbstractQuery, org.cibseven.bpm.engine.authorization.Resource, java.lang.String, org.cibseven.bpm.engine.authorization.Permission);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: aload_2
+      13: aload_3
+      14: aload         4
+      16: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      19: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      22: astore        5
+      24: aload_0
+      25: aload_1
+      26: invokevirtual #496                // Method org/cibseven/bpm/engine/impl/AbstractQuery.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      29: aload         5
+      31: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      34: return
+
+  public boolean isPermissionDisabled(org.cibseven.bpm.engine.authorization.Permission);
+    Code:
+       0: aload_0
+       1: invokevirtual #504                // Method getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+       4: invokevirtual #507                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       7: invokevirtual #510                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getDisabledPermissions:()Ljava/util/List;
+      10: astore_2
+      11: aload_2
+      12: ifnull        61
+      15: aload_2
+      16: invokeinterface #203,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      21: astore_3
+      22: aload_3
+      23: invokeinterface #210,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      28: ifeq          61
+      31: aload_3
+      32: invokeinterface #214,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      37: checkcast     #205                // class java/lang/String
+      40: astore        4
+      42: aload_1
+      43: invokeinterface #227,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getName:()Ljava/lang/String;
+      48: aload         4
+      50: invokevirtual #360                // Method java/lang/String.equals:(Ljava/lang/Object;)Z
+      53: ifeq          58
+      56: iconst_1
+      57: ireturn
+      58: goto          22
+      61: iconst_0
+      62: ireturn
+
+  protected void addPermissionCheck(org.cibseven.bpm.engine.impl.db.AuthorizationCheck, org.cibseven.bpm.engine.impl.db.CompositePermissionCheck);
+    Code:
+       0: aload_0
+       1: invokevirtual #504                // Method getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+       4: astore_3
+       5: aload_0
+       6: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+       9: ifeq          31
+      12: aload_0
+      13: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+      16: ifnull        31
+      19: aload_3
+      20: invokevirtual #515                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.isAuthorizationCheckEnabled:()Z
+      23: ifeq          31
+      26: aload_1
+      27: aload_2
+      28: invokevirtual #473                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setPermissionChecks:(Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      31: return
+
+  public void deleteAuthorizationsByResourceIds(org.cibseven.bpm.engine.authorization.Resources, java.util.List<java.lang.String>);
+    Code:
+       0: aload_2
+       1: ifnonnull     15
+       4: new           #523                // class java/lang/IllegalArgumentException
+       7: dup
+       8: ldc_w         #525                // String Resource ids cannot be null
+      11: invokespecial #527                // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+      14: athrow
+      15: aload_2
+      16: aload_0
+      17: aload_1
+      18: invokedynamic #546,  0            // InvokeDynamic #0:accept:(Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager;Lorg/cibseven/bpm/engine/authorization/Resources;)Ljava/util/function/Consumer;
+      23: invokeinterface #550,  2          // InterfaceMethod java/util/List.forEach:(Ljava/util/function/Consumer;)V
+      28: return
+
+  public void deleteAuthorizationsByResourceId(org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_2
+       1: ifnonnull     15
+       4: new           #523                // class java/lang/IllegalArgumentException
+       7: dup
+       8: ldc_w         #553                // String Resource id cannot be null
+      11: invokespecial #527                // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+      14: athrow
+      15: aload_0
+      16: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+      19: ifeq          71
+      22: new           #115                // class java/util/HashMap
+      25: dup
+      26: invokespecial #116                // Method java/util/HashMap."<init>":()V
+      29: astore_3
+      30: aload_3
+      31: ldc           #134                // String resourceType
+      33: aload_1
+      34: invokeinterface #139,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceType:()I
+      39: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      42: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      47: pop
+      48: aload_3
+      49: ldc           #132                // String resourceId
+      51: aload_2
+      52: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      57: pop
+      58: aload_0
+      59: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      62: ldc           #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      64: ldc_w         #555                // String deleteAuthorizationsForResourceId
+      67: aload_3
+      68: invokevirtual #558                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.delete:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)V
+      71: return
+
+  public void deleteAuthorizationsByResourceIdAndUserId(org.cibseven.bpm.engine.authorization.Resource, java.lang.String, java.lang.String);
+    Code:
+       0: aload_2
+       1: ifnonnull     15
+       4: new           #523                // class java/lang/IllegalArgumentException
+       7: dup
+       8: ldc_w         #553                // String Resource id cannot be null
+      11: invokespecial #527                // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+      14: athrow
+      15: aload_0
+      16: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+      19: ifeq          86
+      22: new           #115                // class java/util/HashMap
+      25: dup
+      26: invokespecial #116                // Method java/util/HashMap."<init>":()V
+      29: astore        4
+      31: aload         4
+      33: ldc           #134                // String resourceType
+      35: aload_1
+      36: invokeinterface #139,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceType:()I
+      41: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      44: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      49: pop
+      50: aload         4
+      52: ldc           #132                // String resourceId
+      54: aload_2
+      55: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      60: pop
+      61: aload         4
+      63: ldc           #130                // String userId
+      65: aload_3
+      66: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      71: pop
+      72: aload_0
+      73: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      76: ldc           #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      78: ldc_w         #563                // String deleteAuthorizationsForResourceIdAndUserId
+      81: aload         4
+      83: invokevirtual #558                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.delete:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)V
+      86: return
+
+  public void deleteAuthorizationsByResourceIdAndGroupId(org.cibseven.bpm.engine.authorization.Resource, java.lang.String, java.lang.String);
+    Code:
+       0: aload_2
+       1: ifnonnull     15
+       4: new           #523                // class java/lang/IllegalArgumentException
+       7: dup
+       8: ldc_w         #553                // String Resource id cannot be null
+      11: invokespecial #527                // Method java/lang/IllegalArgumentException."<init>":(Ljava/lang/String;)V
+      14: athrow
+      15: aload_0
+      16: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+      19: ifeq          86
+      22: new           #115                // class java/util/HashMap
+      25: dup
+      26: invokespecial #116                // Method java/util/HashMap."<init>":()V
+      29: astore        4
+      31: aload         4
+      33: ldc           #134                // String resourceType
+      35: aload_1
+      36: invokeinterface #139,  1          // InterfaceMethod org/cibseven/bpm/engine/authorization/Resource.resourceType:()I
+      41: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      44: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      49: pop
+      50: aload         4
+      52: ldc           #132                // String resourceId
+      54: aload_2
+      55: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      60: pop
+      61: aload         4
+      63: ldc           #131                // String groupId
+      65: aload_3
+      66: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      71: pop
+      72: aload_0
+      73: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      76: ldc           #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      78: ldc_w         #566                // String deleteAuthorizationsForResourceIdAndGroupId
+      81: aload         4
+      83: invokevirtual #558                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.delete:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)V
+      86: return
+
+  public void checkCamundaAdmin();
+    Code:
+       0: aload_0
+       1: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+       4: astore_1
+       5: aload_0
+       6: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+       9: ifeq          41
+      12: aload_0
+      13: invokevirtual #504                // Method getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      16: invokevirtual #515                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.isAuthorizationCheckEnabled:()Z
+      19: ifeq          41
+      22: aload_1
+      23: ifnull        41
+      26: aload_0
+      27: aload_1
+      28: invokevirtual #571                // Method isCamundaAdmin:(Lorg/cibseven/bpm/engine/impl/identity/Authentication;)Z
+      31: ifne          41
+      34: getstatic     #304                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      37: invokevirtual #575                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.requiredCamundaAdmin:()Lorg/cibseven/bpm/engine/AuthorizationException;
+      40: athrow
+      41: return
+
+  public void checkCamundaAdminOrPermission(java.util.function.Consumer<org.cibseven.bpm.engine.impl.cfg.CommandChecker>);
+    Code:
+       0: aload_0
+       1: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+       4: ifeq          114
+       7: aload_0
+       8: invokevirtual #504                // Method getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      11: invokevirtual #515                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.isAuthorizationCheckEnabled:()Z
+      14: ifeq          114
+      17: aconst_null
+      18: astore_2
+      19: aconst_null
+      20: astore_3
+      21: aload_0
+      22: invokevirtual #504                // Method getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      25: invokevirtual #507                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      28: invokevirtual #580                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getCommandCheckers:()Ljava/util/List;
+      31: invokeinterface #203,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      36: astore        4
+      38: aload         4
+      40: invokeinterface #210,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      45: ifeq          71
+      48: aload         4
+      50: invokeinterface #214,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      55: checkcast     #582                // class org/cibseven/bpm/engine/impl/cfg/CommandChecker
+      58: astore        5
+      60: aload_1
+      61: aload         5
+      63: invokeinterface #586,  2          // InterfaceMethod java/util/function/Consumer.accept:(Ljava/lang/Object;)V
+      68: goto          38
+      71: goto          79
+      74: astore        4
+      76: aload         4
+      78: astore_2
+      79: aload_0
+      80: invokevirtual #588                // Method checkCamundaAdmin:()V
+      83: goto          91
+      86: astore        4
+      88: aload         4
+      90: astore_3
+      91: aload_2
+      92: ifnull        114
+      95: aload_3
+      96: ifnull        114
+      99: aload_2
+     100: invokevirtual #591                // Method org/cibseven/bpm/engine/AuthorizationException.getMissingAuthorizations:()Ljava/util/List;
+     103: astore        4
+     105: getstatic     #304                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+     108: aload         4
+     110: invokevirtual #595                // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.requiredCamundaAdminOrPermissionException:(Ljava/util/List;)Lorg/cibseven/bpm/engine/AuthorizationException;
+     113: athrow
+     114: return
+    Exception table:
+       from    to  target type
+          21    71    74   Class org/cibseven/bpm/engine/AuthorizationException
+          79    83    86   Class org/cibseven/bpm/engine/AuthorizationException
+
+  public boolean isCamundaAdmin(org.cibseven.bpm.engine.impl.identity.Authentication);
+    Code:
+       0: aload_1
+       1: invokevirtual #264                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getGroupIds:()Ljava/util/List;
+       4: astore_2
+       5: aload_2
+       6: ifnull        69
+       9: invokestatic  #605                // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      12: astore_3
+      13: aload_3
+      14: invokevirtual #507                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      17: invokevirtual #608                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getAdminGroups:()Ljava/util/List;
+      20: astore        4
+      22: aload         4
+      24: invokeinterface #203,  1          // InterfaceMethod java/util/List.iterator:()Ljava/util/Iterator;
+      29: astore        5
+      31: aload         5
+      33: invokeinterface #210,  1          // InterfaceMethod java/util/Iterator.hasNext:()Z
+      38: ifeq          69
+      41: aload         5
+      43: invokeinterface #214,  1          // InterfaceMethod java/util/Iterator.next:()Ljava/lang/Object;
+      48: checkcast     #205                // class java/lang/String
+      51: astore        6
+      53: aload_2
+      54: aload         6
+      56: invokeinterface #611,  2          // InterfaceMethod java/util/List.contains:(Ljava/lang/Object;)Z
+      61: ifeq          66
+      64: iconst_1
+      65: ireturn
+      66: goto          31
+      69: aload_1
+      70: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      73: astore_3
+      74: aload_3
+      75: ifnull        115
+      78: invokestatic  #605                // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+      81: astore        4
+      83: aload         4
+      85: invokevirtual #507                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+      88: invokevirtual #614                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.getAdminUsers:()Ljava/util/List;
+      91: astore        5
+      93: aload         5
+      95: ifnull        113
+      98: aload         5
+     100: aload_3
+     101: invokeinterface #611,  2          // InterfaceMethod java/util/List.contains:(Ljava/lang/Object;)Z
+     106: ifeq          113
+     109: iconst_1
+     110: goto          114
+     113: iconst_0
+     114: ireturn
+     115: iconst_0
+     116: ireturn
+
+  public void configureDeploymentQuery(org.cibseven.bpm.engine.impl.DeploymentQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #623                // Field org/cibseven/bpm/engine/authorization/Resources.DEPLOYMENT:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: invokevirtual #84                 // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;)V
+       8: return
+
+  public void configureProcessDefinitionQuery(org.cibseven.bpm.engine.impl.ProcessDefinitionQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #457                // String RES.KEY_
+       8: invokevirtual #488                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: aload_1
+      12: invokevirtual #634                // Method org/cibseven/bpm/engine/impl/ProcessDefinitionQueryImpl.isStartablePermissionCheck:()Z
+      15: ifeq          105
+      18: aload_1
+      19: invokevirtual #635                // Method org/cibseven/bpm/engine/impl/ProcessDefinitionQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      22: astore_2
+      23: aload_2
+      24: invokevirtual #637                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.isRevokeAuthorizationCheckEnabled:()Z
+      27: ifne          61
+      30: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      33: dup
+      34: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      37: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      40: ldc_w         #457                // String RES.KEY_
+      43: getstatic     #640                // Field org/cibseven/bpm/engine/authorization/Permissions.CREATE_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      46: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      49: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      52: astore_3
+      53: aload_1
+      54: aload_3
+      55: invokevirtual #643                // Method org/cibseven/bpm/engine/impl/ProcessDefinitionQueryImpl.addProcessDefinitionCreatePermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      58: goto          105
+      61: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      64: dup
+      65: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      68: invokevirtual #455                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.conjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      71: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      74: ldc_w         #457                // String RES.KEY_
+      77: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      80: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      83: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      86: ldc_w         #457                // String RES.KEY_
+      89: getstatic     #640                // Field org/cibseven/bpm/engine/authorization/Permissions.CREATE_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      92: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      95: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      98: astore_3
+      99: aload_0
+     100: aload_2
+     101: aload_3
+     102: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+     105: return
+
+  public void configureExecutionQuery(org.cibseven.bpm.engine.impl.AbstractQuery);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      18: ldc_w         #655                // String RES.PROC_INST_ID_
+      21: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      24: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      27: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      30: ldc_w         #657                // String P.KEY_
+      33: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      36: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      39: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      42: astore_2
+      43: aload_0
+      44: aload_1
+      45: invokevirtual #496                // Method org/cibseven/bpm/engine/impl/AbstractQuery.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      48: aload_2
+      49: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      52: return
+
+  public void configureTaskQuery(org.cibseven.bpm.engine.impl.TaskQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: aload_1
+       6: invokevirtual #665                // Method org/cibseven/bpm/engine/impl/TaskQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       9: invokevirtual #666                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.isAuthorizationCheckEnabled:()Z
+      12: ifeq          62
+      15: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      18: dup
+      19: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      22: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      25: getstatic     #669                // Field org/cibseven/bpm/engine/authorization/Resources.TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+      28: ldc_w         #485                // String RES.ID_
+      31: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      34: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      37: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      40: ldc_w         #671                // String D.KEY_
+      43: getstatic     #674                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_TASK:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      46: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      49: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      52: astore_2
+      53: aload_0
+      54: aload_1
+      55: invokevirtual #665                // Method org/cibseven/bpm/engine/impl/TaskQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      58: aload_2
+      59: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      62: return
+
+  public void configureEventSubscriptionQuery(org.cibseven.bpm.engine.impl.EventSubscriptionQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      18: ldc_w         #655                // String RES.PROC_INST_ID_
+      21: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      24: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      27: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      30: ldc_w         #679                // String PROCDEF.KEY_
+      33: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      36: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      39: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      42: astore_2
+      43: aload_0
+      44: aload_1
+      45: invokevirtual #682                // Method org/cibseven/bpm/engine/impl/EventSubscriptionQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      48: aload_2
+      49: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      52: return
+
+  public void configureConditionalEventSubscriptionQuery(org.cibseven.bpm.engine.impl.db.ListQueryParameterObject);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      15: ldc_w         #657                // String P.KEY_
+      18: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      21: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      24: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      27: astore_2
+      28: aload_0
+      29: aload_1
+      30: invokevirtual #425                // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      33: aload_2
+      34: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      37: return
+
+  public void configureIncidentQuery(org.cibseven.bpm.engine.impl.IncidentQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      18: ldc_w         #655                // String RES.PROC_INST_ID_
+      21: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      24: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      27: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      30: ldc_w         #679                // String PROCDEF.KEY_
+      33: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      36: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      39: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      42: astore_2
+      43: aload_0
+      44: aload_1
+      45: invokevirtual #689                // Method org/cibseven/bpm/engine/impl/IncidentQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      48: aload_2
+      49: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      52: return
+
+  protected void configureVariableInstanceQuery(org.cibseven.bpm.engine.impl.VariableInstanceQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: aload_1
+       6: invokevirtual #695                // Method org/cibseven/bpm/engine/impl/VariableInstanceQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       9: invokevirtual #666                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.isAuthorizationCheckEnabled:()Z
+      12: ifeq          122
+      15: aload_0
+      16: invokevirtual #698                // Method isEnsureSpecificVariablePermission:()Z
+      19: ifeq          63
+      22: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      25: dup
+      26: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      29: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      32: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      35: ldc_w         #679                // String PROCDEF.KEY_
+      38: getstatic     #704                // Field org/cibseven/bpm/engine/authorization/ProcessDefinitionPermissions.READ_INSTANCE_VARIABLE:Lorg/cibseven/bpm/engine/authorization/ProcessDefinitionPermissions;
+      41: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      44: getstatic     #669                // Field org/cibseven/bpm/engine/authorization/Resources.TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+      47: ldc_w         #706                // String RES.TASK_ID_
+      50: getstatic     #712                // Field org/cibseven/bpm/engine/authorization/TaskPermissions.READ_VARIABLE:Lorg/cibseven/bpm/engine/authorization/TaskPermissions;
+      53: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      56: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      59: astore_2
+      60: goto          113
+      63: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      66: dup
+      67: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      70: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      73: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      76: ldc_w         #655                // String RES.PROC_INST_ID_
+      79: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      82: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      85: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      88: ldc_w         #679                // String PROCDEF.KEY_
+      91: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      94: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      97: getstatic     #669                // Field org/cibseven/bpm/engine/authorization/Resources.TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+     100: ldc_w         #706                // String RES.TASK_ID_
+     103: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     106: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     109: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+     112: astore_2
+     113: aload_0
+     114: aload_1
+     115: invokevirtual #695                // Method org/cibseven/bpm/engine/impl/VariableInstanceQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+     118: aload_2
+     119: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+     122: return
+
+  public void configureJobDefinitionQuery(org.cibseven.bpm.engine.impl.JobDefinitionQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #717                // String RES.PROC_DEF_KEY_
+       8: invokevirtual #488                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: return
+
+  public void configureJobQuery(org.cibseven.bpm.engine.impl.JobQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      18: ldc_w         #722                // String RES.PROCESS_INSTANCE_ID_
+      21: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      24: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      27: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      30: ldc_w         #724                // String RES.PROCESS_DEF_KEY_
+      33: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      36: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      39: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      42: astore_2
+      43: aload_0
+      44: aload_1
+      45: invokevirtual #727                // Method org/cibseven/bpm/engine/impl/JobQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      48: aload_2
+      49: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      52: return
+
+  public void configureHistoricProcessInstanceQuery(org.cibseven.bpm.engine.impl.HistoricProcessInstanceQueryImpl);
+    Code:
+       0: aload_1
+       1: invokevirtual #733                // Method org/cibseven/bpm/engine/impl/HistoricProcessInstanceQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_0
+       6: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+       9: istore_3
+      10: aload_2
+      11: iload_3
+      12: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      15: iload_3
+      16: ifne          36
+      19: aload_0
+      20: aload_1
+      21: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      24: ldc_w         #741                // String SELF.PROC_DEF_KEY_
+      27: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      30: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      33: goto          87
+      36: aload_0
+      37: aload_1
+      38: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      41: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      44: dup
+      45: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #741                // String SELF.PROC_DEF_KEY_
+      57: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #746                // String SELF.ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      78: astore        4
+      80: aload_0
+      81: aload_2
+      82: aload         4
+      84: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      87: return
+
+  public void configureHistoricActivityInstanceQuery(org.cibseven.bpm.engine.impl.HistoricActivityInstanceQueryImpl);
+    Code:
+       0: aload_1
+       1: invokevirtual #757                // Method org/cibseven/bpm/engine/impl/HistoricActivityInstanceQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_0
+       6: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+       9: istore_3
+      10: aload_2
+      11: iload_3
+      12: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      15: iload_3
+      16: ifne          36
+      19: aload_0
+      20: aload_1
+      21: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      24: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      27: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      30: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      33: goto          87
+      36: aload_0
+      37: aload_1
+      38: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      41: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      44: dup
+      45: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      57: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #655                // String RES.PROC_INST_ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      78: astore        4
+      80: aload_0
+      81: aload_2
+      82: aload         4
+      84: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      87: return
+
+  public void configureHistoricTaskInstanceQuery(org.cibseven.bpm.engine.impl.HistoricTaskInstanceQueryImpl);
+    Code:
+       0: aload_1
+       1: invokevirtual #763                // Method org/cibseven/bpm/engine/impl/HistoricTaskInstanceQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_0
+       6: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+       9: istore_3
+      10: aload_2
+      11: iload_3
+      12: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      15: iload_3
+      16: ifne          36
+      19: aload_0
+      20: aload_1
+      21: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      24: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      27: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      30: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      33: goto          102
+      36: aload_0
+      37: aload_1
+      38: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      41: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      44: dup
+      45: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      57: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #655                // String RES.PROC_INST_ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: getstatic     #766                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+      78: ldc_w         #485                // String RES.ID_
+      81: getstatic     #771                // Field org/cibseven/bpm/engine/authorization/HistoricTaskPermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricTaskPermissions;
+      84: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      87: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      90: astore        4
+      92: aload_0
+      93: aload_1
+      94: invokevirtual #763                // Method org/cibseven/bpm/engine/impl/HistoricTaskInstanceQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      97: aload         4
+      99: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+     102: return
+
+  public void configureHistoricVariableInstanceQuery(org.cibseven.bpm.engine.impl.HistoricVariableInstanceQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #777                // Method configureHistoricVariableAndDetailQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;)V
+       5: return
+
+  public void configureHistoricDetailQuery(org.cibseven.bpm.engine.impl.HistoricDetailQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #777                // Method configureHistoricVariableAndDetailQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;)V
+       5: return
+
+  protected void configureHistoricVariableAndDetailQuery(org.cibseven.bpm.engine.impl.AbstractQuery);
+    Code:
+       0: aload_0
+       1: invokevirtual #698                // Method isEnsureSpecificVariablePermission:()Z
+       4: istore_2
+       5: iload_2
+       6: invokestatic  #785                // Method org/cibseven/bpm/engine/impl/persistence/entity/util/AuthManagerUtil.getVariablePermissions:(Z)Lorg/cibseven/bpm/engine/impl/persistence/entity/util/AuthManagerUtil$VariablePermissions;
+       9: astore_3
+      10: aload_3
+      11: invokevirtual #788                // Method org/cibseven/bpm/engine/impl/persistence/entity/util/AuthManagerUtil$VariablePermissions.getProcessDefinitionPermission:()Lorg/cibseven/bpm/engine/authorization/Permission;
+      14: astore        4
+      16: aload_1
+      17: invokevirtual #496                // Method org/cibseven/bpm/engine/impl/AbstractQuery.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      20: astore        5
+      22: aload_0
+      23: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+      26: istore        6
+      28: aload         5
+      30: iload         6
+      32: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      35: iload         6
+      37: ifne          56
+      40: aload_0
+      41: aload_1
+      42: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      45: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      48: aload         4
+      50: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      53: goto          124
+      56: aload_0
+      57: aload_1
+      58: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      61: aload_3
+      62: invokevirtual #791                // Method org/cibseven/bpm/engine/impl/persistence/entity/util/AuthManagerUtil$VariablePermissions.getHistoricTaskPermission:()Lorg/cibseven/bpm/engine/authorization/Permission;
+      65: astore        7
+      67: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      70: dup
+      71: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      74: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      77: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      80: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      83: aload         4
+      85: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      88: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      91: ldc_w         #655                // String RES.PROC_INST_ID_
+      94: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      97: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     100: getstatic     #766                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+     103: ldc_w         #793                // String TI.ID_
+     106: aload         7
+     108: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     111: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+     114: astore        8
+     116: aload_0
+     117: aload         5
+     119: aload         8
+     121: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+     124: return
+
+  public void configureHistoricJobLogQuery(org.cibseven.bpm.engine.impl.HistoricJobLogQueryImpl);
+    Code:
+       0: aload_1
+       1: invokevirtual #803                // Method org/cibseven/bpm/engine/impl/HistoricJobLogQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_0
+       6: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+       9: istore_3
+      10: aload_2
+      11: iload_3
+      12: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      15: iload_3
+      16: ifne          36
+      19: aload_0
+      20: aload_1
+      21: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      24: ldc_w         #724                // String RES.PROCESS_DEF_KEY_
+      27: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      30: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      33: goto          87
+      36: aload_0
+      37: aload_1
+      38: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      41: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      44: dup
+      45: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #724                // String RES.PROCESS_DEF_KEY_
+      57: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #722                // String RES.PROCESS_INSTANCE_ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      78: astore        4
+      80: aload_0
+      81: aload_2
+      82: aload         4
+      84: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      87: return
+
+  public void configureHistoricIncidentQuery(org.cibseven.bpm.engine.impl.HistoricIncidentQueryImpl);
+    Code:
+       0: aload_1
+       1: invokevirtual #809                // Method org/cibseven/bpm/engine/impl/HistoricIncidentQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_0
+       6: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+       9: istore_3
+      10: aload_2
+      11: iload_3
+      12: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      15: iload_3
+      16: ifne          36
+      19: aload_0
+      20: aload_1
+      21: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      24: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      27: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      30: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      33: goto          87
+      36: aload_0
+      37: aload_1
+      38: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      41: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      44: dup
+      45: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      57: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #655                // String RES.PROC_INST_ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      78: astore        4
+      80: aload_0
+      81: aload_2
+      82: aload         4
+      84: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      87: return
+
+  public void configureHistoricIdentityLinkQuery(org.cibseven.bpm.engine.impl.HistoricIdentityLinkLogQueryImpl);
+    Code:
+       0: aload_1
+       1: invokevirtual #815                // Method org/cibseven/bpm/engine/impl/HistoricIdentityLinkLogQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_0
+       6: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+       9: istore_3
+      10: aload_2
+      11: iload_3
+      12: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      15: iload_3
+      16: ifne          36
+      19: aload_0
+      20: aload_1
+      21: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      24: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      27: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      30: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      33: goto          99
+      36: aload_0
+      37: aload_1
+      38: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      41: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      44: dup
+      45: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      57: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #817                // String TI.PROC_INST_ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: getstatic     #766                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+      78: ldc_w         #706                // String RES.TASK_ID_
+      81: getstatic     #771                // Field org/cibseven/bpm/engine/authorization/HistoricTaskPermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricTaskPermissions;
+      84: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      87: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      90: astore        4
+      92: aload_0
+      93: aload_2
+      94: aload         4
+      96: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      99: return
+
+  public void configureHistoricDecisionInstanceQuery(org.cibseven.bpm.engine.impl.HistoricDecisionInstanceQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #823                // Field org/cibseven/bpm/engine/authorization/Resources.DECISION_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #825                // String RES.DEC_DEF_KEY_
+       8: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      11: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      14: return
+
+  public void configureHistoricExternalTaskLogQuery(org.cibseven.bpm.engine.impl.HistoricExternalTaskLogQueryImpl);
+    Code:
+       0: aload_1
+       1: invokevirtual #831                // Method org/cibseven/bpm/engine/impl/HistoricExternalTaskLogQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+       4: astore_2
+       5: aload_0
+       6: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+       9: istore_3
+      10: aload_2
+      11: iload_3
+      12: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      15: iload_3
+      16: ifne          36
+      19: aload_0
+      20: aload_1
+      21: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      24: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      27: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      30: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      33: goto          87
+      36: aload_0
+      37: aload_1
+      38: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+      41: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      44: dup
+      45: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      57: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #655                // String RES.PROC_INST_ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      78: astore        4
+      80: aload_0
+      81: aload_2
+      82: aload         4
+      84: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      87: return
+
+  public void configureUserOperationLogQuery(org.cibseven.bpm.engine.impl.UserOperationLogQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      18: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      21: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      24: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      27: getstatic     #837                // Field org/cibseven/bpm/engine/authorization/Resources.OPERATION_LOG_CATEGORY:Lorg/cibseven/bpm/engine/authorization/Resources;
+      30: ldc_w         #839                // String RES.CATEGORY_
+      33: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      36: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      39: astore_2
+      40: aload_1
+      41: invokevirtual #842                // Method org/cibseven/bpm/engine/impl/UserOperationLogQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      44: astore_3
+      45: aload_0
+      46: invokevirtual #736                // Method isHistoricInstancePermissionsEnabled:()Z
+      49: istore        4
+      51: aload_3
+      52: iload         4
+      54: invokevirtual #739                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setHistoricInstancePermissionsEnabled:(Z)V
+      57: iload         4
+      59: ifeq          88
+      62: aload_2
+      63: getstatic     #744                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #655                // String RES.PROC_INST_ID_
+      69: getstatic     #751                // Field org/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricProcessInstancePermissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: getstatic     #766                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+      78: ldc_w         #706                // String RES.TASK_ID_
+      81: getstatic     #771                // Field org/cibseven/bpm/engine/authorization/HistoricTaskPermissions.READ:Lorg/cibseven/bpm/engine/authorization/HistoricTaskPermissions;
+      84: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      87: pop
+      88: aload_2
+      89: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      92: astore        5
+      94: aload_0
+      95: aload_3
+      96: aload         5
+      98: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+     101: return
+
+  public void configureHistoricBatchQuery(org.cibseven.bpm.engine.impl.batch.history.HistoricBatchQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #850                // Field org/cibseven/bpm/engine/authorization/Resources.BATCH:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #485                // String RES.ID_
+       8: getstatic     #467                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_HISTORY:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      11: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      14: return
+
+  public void configureDeploymentStatisticsQuery(org.cibseven.bpm.engine.impl.DeploymentStatisticsQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #623                // Field org/cibseven/bpm/engine/authorization/Resources.DEPLOYMENT:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #485                // String RES.ID_
+       8: invokevirtual #488                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: aload_1
+      12: invokevirtual #858                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.getProcessInstancePermissionChecks:()Ljava/util/List;
+      15: invokeinterface #859,  1          // InterfaceMethod java/util/List.clear:()V
+      20: aload_1
+      21: invokevirtual #862                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.getJobPermissionChecks:()Ljava/util/List;
+      24: invokeinterface #859,  1          // InterfaceMethod java/util/List.clear:()V
+      29: aload_1
+      30: invokevirtual #865                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.getIncidentPermissionChecks:()Ljava/util/List;
+      33: invokeinterface #859,  1          // InterfaceMethod java/util/List.clear:()V
+      38: aload_1
+      39: invokevirtual #866                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      42: invokevirtual #666                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.isAuthorizationCheckEnabled:()Z
+      45: ifeq          200
+      48: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      51: dup
+      52: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      55: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      58: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      61: ldc_w         #868                // String EXECUTION.PROC_INST_ID_
+      64: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      67: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      70: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      73: ldc_w         #679                // String PROCDEF.KEY_
+      76: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      79: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      82: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      85: astore_2
+      86: aload_1
+      87: aload_2
+      88: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+      91: invokevirtual #871                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.addProcessInstancePermissionCheck:(Ljava/util/List;)V
+      94: aload_1
+      95: invokevirtual #874                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.isFailedJobsToInclude:()Z
+      98: ifeq          147
+     101: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+     104: dup
+     105: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+     108: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     111: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+     114: ldc_w         #876                // String JOB.PROCESS_INSTANCE_ID_
+     117: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     120: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     123: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+     126: ldc_w         #878                // String JOB.PROCESS_DEF_KEY_
+     129: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     132: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     135: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+     138: astore_3
+     139: aload_1
+     140: aload_3
+     141: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+     144: invokevirtual #881                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.addJobPermissionCheck:(Ljava/util/List;)V
+     147: aload_1
+     148: invokevirtual #884                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.isIncidentsToInclude:()Z
+     151: ifeq          200
+     154: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+     157: dup
+     158: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+     161: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     164: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+     167: ldc_w         #886                // String INC.PROC_INST_ID_
+     170: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     173: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     176: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+     179: ldc_w         #679                // String PROCDEF.KEY_
+     182: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     185: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     188: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+     191: astore_3
+     192: aload_1
+     193: aload_3
+     194: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+     197: invokevirtual #889                // Method org/cibseven/bpm/engine/impl/DeploymentStatisticsQueryImpl.addIncidentPermissionCheck:(Ljava/util/List;)V
+     200: return
+
+  public void configureProcessDefinitionStatisticsQuery(org.cibseven.bpm.engine.impl.ProcessDefinitionStatisticsQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #457                // String RES.KEY_
+       8: invokevirtual #488                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: return
+
+  public void configureActivityStatisticsQuery(org.cibseven.bpm.engine.impl.ActivityStatisticsQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: aload_1
+       6: invokevirtual #901                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.getProcessInstancePermissionChecks:()Ljava/util/List;
+       9: invokeinterface #859,  1          // InterfaceMethod java/util/List.clear:()V
+      14: aload_1
+      15: invokevirtual #902                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.getJobPermissionChecks:()Ljava/util/List;
+      18: invokeinterface #859,  1          // InterfaceMethod java/util/List.clear:()V
+      23: aload_1
+      24: invokevirtual #903                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.getIncidentPermissionChecks:()Ljava/util/List;
+      27: invokeinterface #859,  1          // InterfaceMethod java/util/List.clear:()V
+      32: aload_1
+      33: invokevirtual #904                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      36: invokevirtual #666                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.isAuthorizationCheckEnabled:()Z
+      39: ifeq          218
+      42: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+      45: dup
+      46: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      49: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      52: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      55: ldc_w         #906                // String E.PROC_INST_ID_
+      58: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      61: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      64: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      67: ldc_w         #657                // String P.KEY_
+      70: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      73: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      76: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      79: astore_2
+      80: aload_1
+      81: invokevirtual #904                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      84: aload_2
+      85: invokevirtual #473                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setPermissionChecks:(Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      88: aload_1
+      89: aload_2
+      90: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+      93: invokevirtual #907                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.addProcessInstancePermissionCheck:(Ljava/util/List;)V
+      96: aload_1
+      97: invokevirtual #908                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.isFailedJobsToInclude:()Z
+     100: ifeq          157
+     103: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+     106: dup
+     107: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+     110: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     113: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+     116: ldc_w         #876                // String JOB.PROCESS_INSTANCE_ID_
+     119: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     122: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     125: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+     128: ldc_w         #878                // String JOB.PROCESS_DEF_KEY_
+     131: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     134: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     137: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+     140: astore_3
+     141: aload_1
+     142: invokevirtual #904                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+     145: aload_3
+     146: invokevirtual #473                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setPermissionChecks:(Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+     149: aload_1
+     150: aload_3
+     151: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+     154: invokevirtual #909                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.addJobPermissionCheck:(Ljava/util/List;)V
+     157: aload_1
+     158: invokevirtual #910                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.isIncidentsToInclude:()Z
+     161: ifeq          218
+     164: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+     167: dup
+     168: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+     171: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     174: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+     177: ldc_w         #912                // String I.PROC_INST_ID_
+     180: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     183: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     186: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+     189: ldc_w         #679                // String PROCDEF.KEY_
+     192: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+     195: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+     198: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+     201: astore_3
+     202: aload_1
+     203: invokevirtual #904                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+     206: aload_3
+     207: invokevirtual #473                // Method org/cibseven/bpm/engine/impl/db/AuthorizationCheck.setPermissionChecks:(Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+     210: aload_1
+     211: aload_3
+     212: invokevirtual #197                // Method org/cibseven/bpm/engine/impl/db/CompositePermissionCheck.getAllPermissionChecks:()Ljava/util/List;
+     215: invokevirtual #913                // Method org/cibseven/bpm/engine/impl/ActivityStatisticsQueryImpl.addIncidentPermissionCheck:(Ljava/util/List;)V
+     218: return
+
+  public void configureExternalTaskQuery(org.cibseven.bpm.engine.impl.ExternalTaskQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: new           #39                 // class org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder
+       8: dup
+       9: invokespecial #40                 // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder."<init>":()V
+      12: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      18: ldc_w         #655                // String RES.PROC_INST_ID_
+      21: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      24: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      27: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      30: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      33: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      36: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      39: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      42: astore_2
+      43: aload_0
+      44: aload_1
+      45: invokevirtual #919                // Method org/cibseven/bpm/engine/impl/ExternalTaskQueryImpl.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      48: aload_2
+      49: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      52: return
+
+  public void configureExternalTaskFetch(org.cibseven.bpm.engine.impl.db.ListQueryParameterObject);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #452                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/db/ListQueryParameterObject;)V
+       5: aload_0
+       6: invokevirtual #923                // Method newPermissionCheckBuilder:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+       9: invokevirtual #455                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.conjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      12: invokevirtual #926                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.composite:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      15: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      18: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      21: ldc_w         #655                // String RES.PROC_INST_ID_
+      24: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      27: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      30: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      33: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      36: getstatic     #660                // Field org/cibseven/bpm/engine/authorization/Permissions.READ_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      39: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      42: invokevirtual #929                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.done:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      45: invokevirtual #926                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.composite:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      48: invokevirtual #650                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.disjunctive:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      51: getstatic     #653                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      54: ldc_w         #655                // String RES.PROC_INST_ID_
+      57: getstatic     #149                // Field org/cibseven/bpm/engine/authorization/Permissions.UPDATE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      60: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      63: getstatic     #629                // Field org/cibseven/bpm/engine/authorization/Resources.PROCESS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+      66: ldc_w         #717                // String RES.PROC_DEF_KEY_
+      69: getstatic     #932                // Field org/cibseven/bpm/engine/authorization/Permissions.UPDATE_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      72: invokevirtual #464                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.atomicCheck:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      75: invokevirtual #929                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.done:()Lorg/cibseven/bpm/engine/impl/db/PermissionCheckBuilder;
+      78: invokevirtual #470                // Method org/cibseven/bpm/engine/impl/db/PermissionCheckBuilder.build:()Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;
+      81: astore_2
+      82: aload_0
+      83: aload_1
+      84: invokevirtual #425                // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject.getAuthCheck:()Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;
+      87: aload_2
+      88: invokevirtual #500                // Method addPermissionCheck:(Lorg/cibseven/bpm/engine/impl/db/AuthorizationCheck;Lorg/cibseven/bpm/engine/impl/db/CompositePermissionCheck;)V
+      91: return
+
+  public void configureDecisionDefinitionQuery(org.cibseven.bpm.engine.impl.dmn.entity.repository.DecisionDefinitionQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #823                // Field org/cibseven/bpm/engine/authorization/Resources.DECISION_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #457                // String RES.KEY_
+       8: invokevirtual #488                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: return
+
+  public void configureDecisionRequirementsDefinitionQuery(org.cibseven.bpm.engine.impl.dmn.entity.repository.DecisionRequirementsDefinitionQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #941                // Field org/cibseven/bpm/engine/authorization/Resources.DECISION_REQUIREMENTS_DEFINITION:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #457                // String RES.KEY_
+       8: invokevirtual #488                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+      11: return
+
+  public void configureBatchQuery(org.cibseven.bpm.engine.impl.batch.BatchQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #850                // Field org/cibseven/bpm/engine/authorization/Resources.BATCH:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #485                // String RES.ID_
+       8: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      11: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      14: return
+
+  public void configureBatchStatisticsQuery(org.cibseven.bpm.engine.impl.batch.BatchStatisticsQueryImpl);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: getstatic     #850                // Field org/cibseven/bpm/engine/authorization/Resources.BATCH:Lorg/cibseven/bpm/engine/authorization/Resources;
+       5: ldc_w         #485                // String RES.ID_
+       8: getstatic     #460                // Field org/cibseven/bpm/engine/authorization/Permissions.READ:Lorg/cibseven/bpm/engine/authorization/Permissions;
+      11: invokevirtual #492                // Method configureQuery:(Lorg/cibseven/bpm/engine/impl/AbstractQuery;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;Lorg/cibseven/bpm/engine/authorization/Permission;)V
+      14: return
+
+  public java.util.List<java.lang.String> filterAuthenticatedGroupIds(java.util.List<java.lang.String>);
+    Code:
+       0: aload_1
+       1: ifnull        13
+       4: aload_1
+       5: invokeinterface #952,  1          // InterfaceMethod java/util/List.isEmpty:()Z
+      10: ifeq          17
+      13: getstatic     #954                // Field EMPTY_LIST:Ljava/util/List;
+      16: areturn
+      17: new           #956                // class java/util/HashSet
+      20: dup
+      21: aload_0
+      22: invokevirtual #959                // Method getAllGroups:()Ljava/util/Set;
+      25: invokespecial #962                // Method java/util/HashSet."<init>":(Ljava/util/Collection;)V
+      28: astore_2
+      29: aload_2
+      30: aload_1
+      31: invokeinterface #966,  2          // InterfaceMethod java/util/Set.retainAll:(Ljava/util/Collection;)Z
+      36: pop
+      37: new           #190                // class java/util/ArrayList
+      40: dup
+      41: aload_2
+      42: invokespecial #967                // Method java/util/ArrayList."<init>":(Ljava/util/Collection;)V
+      45: areturn
+
+  protected java.util.Set<java.lang.String> getAllGroups();
+    Code:
+       0: aload_0
+       1: getfield      #31                 // Field availableAuthorizedGroupIds:Ljava/util/Set;
+       4: ifnonnull     64
+       7: aload_0
+       8: new           #956                // class java/util/HashSet
+      11: dup
+      12: invokespecial #971                // Method java/util/HashSet."<init>":()V
+      15: putfield      #31                 // Field availableAuthorizedGroupIds:Ljava/util/Set;
+      18: aload_0
+      19: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      22: ldc_w         #973                // String selectAuthorizedGroupIds
+      25: invokevirtual #976                // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.selectList:(Ljava/lang/String;)Ljava/util/List;
+      28: astore_1
+      29: aload_1
+      30: invokeinterface #980,  1          // InterfaceMethod java/util/List.stream:()Ljava/util/stream/Stream;
+      35: invokedynamic #993,  0            // InvokeDynamic #1:test:()Ljava/util/function/Predicate;
+      40: invokeinterface #999,  2          // InterfaceMethod java/util/stream/Stream.filter:(Ljava/util/function/Predicate;)Ljava/util/stream/Stream;
+      45: aload_0
+      46: getfield      #31                 // Field availableAuthorizedGroupIds:Ljava/util/Set;
+      49: dup
+      50: invokestatic  #1003               // Method java/util/Objects.requireNonNull:(Ljava/lang/Object;)Ljava/lang/Object;
+      53: pop
+      54: invokedynamic #1008,  0           // InvokeDynamic #2:accept:(Ljava/util/Set;)Ljava/util/function/Consumer;
+      59: invokeinterface #1009,  2         // InterfaceMethod java/util/stream/Stream.forEach:(Ljava/util/function/Consumer;)V
+      64: aload_0
+      65: getfield      #31                 // Field availableAuthorizedGroupIds:Ljava/util/Set;
+      68: areturn
+
+  protected boolean isAuthCheckExecuted();
+    Code:
+       0: aload_0
+       1: invokevirtual #179                // Method getCurrentAuthentication:()Lorg/cibseven/bpm/engine/impl/identity/Authentication;
+       4: astore_1
+       5: invokestatic  #605                // Method org/cibseven/bpm/engine/impl/context/Context.getCommandContext:()Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;
+       8: astore_2
+       9: aload_0
+      10: invokevirtual #274                // Method isAuthorizationEnabled:()Z
+      13: ifeq          38
+      16: aload_2
+      17: invokevirtual #515                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.isAuthorizationCheckEnabled:()Z
+      20: ifeq          38
+      23: aload_1
+      24: ifnull        38
+      27: aload_1
+      28: invokevirtual #184                // Method org/cibseven/bpm/engine/impl/identity/Authentication.getUserId:()Ljava/lang/String;
+      31: ifnull        38
+      34: iconst_1
+      35: goto          39
+      38: iconst_0
+      39: ireturn
+
+  public boolean isEnsureSpecificVariablePermission();
+    Code:
+       0: invokestatic  #345                // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       3: invokevirtual #1013               // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.isEnforceSpecificVariablePermission:()Z
+       6: ireturn
+
+  protected boolean isHistoricInstancePermissionsEnabled();
+    Code:
+       0: invokestatic  #345                // Method org/cibseven/bpm/engine/impl/context/Context.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       3: invokevirtual #1016               // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.isEnableHistoricInstancePermissions:()Z
+       6: ireturn
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation addRemovalTimeToAuthorizationsByRootProcessInstanceId(java.lang.String, java.util.Date, java.lang.Integer);
+    Code:
+       0: new           #115                // class java/util/HashMap
+       3: dup
+       4: invokespecial #116                // Method java/util/HashMap."<init>":()V
+       7: astore        4
+       9: aload         4
+      11: ldc_w         #1020               // String rootProcessInstanceId
+      14: aload_1
+      15: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      20: pop
+      21: aload         4
+      23: ldc_w         #1022               // String removalTime
+      26: aload_2
+      27: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      32: pop
+      33: aload         4
+      35: ldc_w         #1024               // String maxResults
+      38: aload_3
+      39: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      44: pop
+      45: aload_0
+      46: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      49: ldc           #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      51: ldc_w         #1026               // String updateAuthorizationsByRootProcessInstanceId
+      54: aload         4
+      56: invokevirtual #1030               // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.updatePreserveOrder:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;
+      59: areturn
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation addRemovalTimeToAuthorizationsByProcessInstanceId(java.lang.String, java.util.Date, java.lang.Integer);
+    Code:
+       0: new           #115                // class java/util/HashMap
+       3: dup
+       4: invokespecial #116                // Method java/util/HashMap."<init>":()V
+       7: astore        4
+       9: aload         4
+      11: ldc_w         #1037               // String processInstanceId
+      14: aload_1
+      15: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      20: pop
+      21: aload         4
+      23: ldc_w         #1022               // String removalTime
+      26: aload_2
+      27: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      32: pop
+      33: aload         4
+      35: ldc_w         #1024               // String maxResults
+      38: aload_3
+      39: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      44: pop
+      45: aload_0
+      46: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      49: ldc           #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      51: ldc_w         #1039               // String updateAuthorizationsByProcessInstanceId
+      54: aload         4
+      56: invokevirtual #1030               // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.updatePreserveOrder:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbOperation;
+      59: areturn
+
+  public org.cibseven.bpm.engine.impl.db.entitymanager.operation.DbOperation deleteAuthorizationsByRemovalTime(java.util.Date, int, int, int);
+    Code:
+       0: new           #115                // class java/util/HashMap
+       3: dup
+       4: invokespecial #116                // Method java/util/HashMap."<init>":()V
+       7: astore        5
+       9: aload         5
+      11: ldc_w         #1022               // String removalTime
+      14: aload_1
+      15: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      20: pop
+      21: iload_3
+      22: iload_2
+      23: isub
+      24: iconst_1
+      25: iadd
+      26: bipush        60
+      28: if_icmpge     61
+      31: aload         5
+      33: ldc_w         #1043               // String minuteFrom
+      36: iload_2
+      37: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      40: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      45: pop
+      46: aload         5
+      48: ldc_w         #1045               // String minuteTo
+      51: iload_3
+      52: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      55: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      60: pop
+      61: aload         5
+      63: ldc_w         #1046               // String batchSize
+      66: iload         4
+      68: invokestatic  #123                // Method java/lang/Integer.valueOf:(I)Ljava/lang/Integer;
+      71: invokeinterface #129,  3          // InterfaceMethod java/util/Map.put:(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+      76: pop
+      77: aload_0
+      78: invokevirtual #71                 // Method getDbEntityManager:()Lorg/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager;
+      81: ldc           #60                 // class org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationEntity
+      83: ldc_w         #1047               // String deleteAuthorizationsByRemovalTime
+      86: new           #421                // class org/cibseven/bpm/engine/impl/db/ListQueryParameterObject
+      89: dup
+      90: aload         5
+      92: iconst_0
+      93: iload         4
+      95: invokespecial #1050               // Method org/cibseven/bpm/engine/impl/db/ListQueryParameterObject."<init>":(Ljava/lang/Object;II)V
+      98: invokevirtual #1054               // Method org/cibseven/bpm/engine/impl/db/entitymanager/DbEntityManager.deletePreserveOrder:(Ljava/lang/Class;Ljava/lang/String;Ljava/lang/Object;)Lorg/cibseven/bpm/engine/impl/db/entitymanager/operation/DbBulkOperation;
+     101: areturn
+
+  private void lambda$deleteAuthorizationsByResourceIds$0(org.cibseven.bpm.engine.authorization.Resources, java.lang.String);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: aload_2
+       3: invokevirtual #168                // Method deleteAuthorizationsByResourceId:(Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)V
+       6: return
+
+  static {};
+    Code:
+       0: getstatic     #1060               // Field org/cibseven/bpm/engine/impl/ProcessEngineLogger.PERSISTENCE_LOGGER:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       3: putstatic     #304                // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       6: new           #190                // class java/util/ArrayList
+       9: dup
+      10: invokespecial #191                // Method java/util/ArrayList."<init>":()V
+      13: putstatic     #954                // Field EMPTY_LIST:Ljava/util/List;
+      16: return
+}

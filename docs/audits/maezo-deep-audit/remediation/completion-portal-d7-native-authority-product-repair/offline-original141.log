@@ -1,0 +1,24 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------< br.com.maezo:human-command-engine >------------------
+[INFO] Building human-command-engine 1.0.0
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[WARNING] The POM for org.cibseven.bpm:cibseven-engine-rest-core-jakarta:jar:2.1.0 is missing, no dependency information available
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  0.208 s
+[INFO] Finished at: 2026-09-09T06:36:07-03:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal on project human-command-engine: Could not resolve dependencies for project br.com.maezo:human-command-engine:jar:1.0.0
+[ERROR] dependency: org.cibseven.bpm:cibseven-engine-rest-core-jakarta:jar:2.1.0 (provided)
+[ERROR] 	Cannot access central (https://repo.maven.apache.org/maven2) in offline mode and the artifact org.cibseven.bpm:cibseven-engine-rest-core-jakarta:jar:2.1.0 has not been downloaded from it before.
+[ERROR] 
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/DependencyResolutionException

@@ -1,0 +1,147 @@
+Compiled from "AuthorizationCheckCmd.java"
+public class org.cibseven.bpm.engine.impl.cmd.AuthorizationCheckCmd implements org.cibseven.bpm.engine.impl.interceptor.Command<java.lang.Boolean> {
+  protected static final org.cibseven.bpm.engine.impl.db.EnginePersistenceLogger LOG;
+
+  protected java.lang.String userId;
+
+  protected java.util.List<java.lang.String> groupIds;
+
+  protected org.cibseven.bpm.engine.authorization.Permission permission;
+
+  protected org.cibseven.bpm.engine.authorization.Resource resource;
+
+  protected java.lang.String resourceId;
+
+  public org.cibseven.bpm.engine.impl.cmd.AuthorizationCheckCmd(java.lang.String, java.util.List<java.lang.String>, org.cibseven.bpm.engine.authorization.Permission, org.cibseven.bpm.engine.authorization.Resource, java.lang.String);
+    Code:
+       0: aload_0
+       1: invokespecial #26                 // Method java/lang/Object."<init>":()V
+       4: aload_0
+       5: aload_1
+       6: putfield      #28                 // Field userId:Ljava/lang/String;
+       9: aload_0
+      10: aload_2
+      11: putfield      #30                 // Field groupIds:Ljava/util/List;
+      14: aload_0
+      15: aload_3
+      16: putfield      #32                 // Field permission:Lorg/cibseven/bpm/engine/authorization/Permission;
+      19: aload_0
+      20: aload         4
+      22: putfield      #34                 // Field resource:Lorg/cibseven/bpm/engine/authorization/Resource;
+      25: aload_0
+      26: aload         5
+      28: putfield      #36                 // Field resourceId:Ljava/lang/String;
+      31: aload_0
+      32: aload_1
+      33: aload_2
+      34: aload_3
+      35: aload         4
+      37: invokevirtual #40                 // Method validate:(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;)V
+      40: return
+
+  public java.lang.Boolean execute(org.cibseven.bpm.engine.impl.interceptor.CommandContext);
+    Code:
+       0: aload_1
+       1: invokevirtual #50                 // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getAuthorizationManager:()Lorg/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager;
+       4: astore_2
+       5: aload_2
+       6: aload_0
+       7: getfield      #32                 // Field permission:Lorg/cibseven/bpm/engine/authorization/Permission;
+      10: invokevirtual #56                 // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager.isPermissionDisabled:(Lorg/cibseven/bpm/engine/authorization/Permission;)Z
+      13: ifeq          32
+      16: getstatic     #58                 // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      19: aload_0
+      20: getfield      #32                 // Field permission:Lorg/cibseven/bpm/engine/authorization/Permission;
+      23: invokeinterface #64,  1           // InterfaceMethod org/cibseven/bpm/engine/authorization/Permission.getName:()Ljava/lang/String;
+      28: invokevirtual #70                 // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.disabledPermissionException:(Ljava/lang/String;)Lorg/cibseven/bpm/engine/BadUserRequestException;
+      31: athrow
+      32: aload_0
+      33: aload_1
+      34: invokevirtual #74                 // Method isHistoricInstancePermissionsDisabled:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;)Z
+      37: ifeq          54
+      40: aload_0
+      41: invokevirtual #78                 // Method isHistoricInstanceResource:()Z
+      44: ifeq          54
+      47: getstatic     #58                 // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+      50: invokevirtual #82                 // Method org/cibseven/bpm/engine/impl/db/EnginePersistenceLogger.disabledHistoricInstancePermissionsException:()Lorg/cibseven/bpm/engine/ProcessEngineException;
+      53: athrow
+      54: aload_2
+      55: aload_0
+      56: getfield      #28                 // Field userId:Ljava/lang/String;
+      59: aload_0
+      60: getfield      #30                 // Field groupIds:Ljava/util/List;
+      63: aload_0
+      64: getfield      #32                 // Field permission:Lorg/cibseven/bpm/engine/authorization/Permission;
+      67: aload_0
+      68: getfield      #34                 // Field resource:Lorg/cibseven/bpm/engine/authorization/Resource;
+      71: aload_0
+      72: getfield      #36                 // Field resourceId:Ljava/lang/String;
+      75: invokevirtual #86                 // Method org/cibseven/bpm/engine/impl/persistence/entity/AuthorizationManager.isAuthorized:(Ljava/lang/String;Ljava/util/List;Lorg/cibseven/bpm/engine/authorization/Permission;Lorg/cibseven/bpm/engine/authorization/Resource;Ljava/lang/String;)Z
+      78: invokestatic  #92                 // Method java/lang/Boolean.valueOf:(Z)Ljava/lang/Boolean;
+      81: areturn
+
+  protected void validate(java.lang.String, java.util.List<java.lang.String>, org.cibseven.bpm.engine.authorization.Permission, org.cibseven.bpm.engine.authorization.Resource);
+    Code:
+       0: ldc           #99                 // String Authorization must have a \'userId\' or/and a \'groupId\'.
+       2: iconst_2
+       3: anewarray     #5                  // class java/lang/Object
+       6: dup
+       7: iconst_0
+       8: aload_1
+       9: aastore
+      10: dup
+      11: iconst_1
+      12: aload_2
+      13: aastore
+      14: invokestatic  #105                // Method org/cibseven/bpm/engine/impl/util/EnsureUtil.ensureAtLeastOneNotNull:(Ljava/lang/String;[Ljava/lang/Object;)V
+      17: ldc           #107                // String Invalid permission for an authorization
+      19: ldc           #109                // String authorization.getResource()
+      21: aload_3
+      22: invokestatic  #113                // Method org/cibseven/bpm/engine/impl/util/EnsureUtil.ensureNotNull:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)V
+      25: ldc           #115                // String Invalid resource for an authorization
+      27: ldc           #109                // String authorization.getResource()
+      29: aload         4
+      31: invokestatic  #113                // Method org/cibseven/bpm/engine/impl/util/EnsureUtil.ensureNotNull:(Ljava/lang/String;Ljava/lang/String;Ljava/lang/Object;)V
+      34: return
+
+  protected boolean isHistoricInstancePermissionsDisabled(org.cibseven.bpm.engine.impl.interceptor.CommandContext);
+    Code:
+       0: aload_1
+       1: invokevirtual #119                // Method org/cibseven/bpm/engine/impl/interceptor/CommandContext.getProcessEngineConfiguration:()Lorg/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl;
+       4: invokevirtual #124                // Method org/cibseven/bpm/engine/impl/cfg/ProcessEngineConfigurationImpl.isEnableHistoricInstancePermissions:()Z
+       7: ifne          14
+      10: iconst_1
+      11: goto          15
+      14: iconst_0
+      15: ireturn
+
+  protected boolean isHistoricInstanceResource();
+    Code:
+       0: getstatic     #130                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_TASK:Lorg/cibseven/bpm/engine/authorization/Resources;
+       3: aload_0
+       4: getfield      #34                 // Field resource:Lorg/cibseven/bpm/engine/authorization/Resource;
+       7: invokestatic  #136                // Method java/util/Objects.equals:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      10: ifne          26
+      13: getstatic     #139                // Field org/cibseven/bpm/engine/authorization/Resources.HISTORIC_PROCESS_INSTANCE:Lorg/cibseven/bpm/engine/authorization/Resources;
+      16: aload_0
+      17: getfield      #34                 // Field resource:Lorg/cibseven/bpm/engine/authorization/Resource;
+      20: invokestatic  #136                // Method java/util/Objects.equals:(Ljava/lang/Object;Ljava/lang/Object;)Z
+      23: ifeq          30
+      26: iconst_1
+      27: goto          31
+      30: iconst_0
+      31: ireturn
+
+  public java.lang.Object execute(org.cibseven.bpm.engine.impl.interceptor.CommandContext);
+    Code:
+       0: aload_0
+       1: aload_1
+       2: invokevirtual #142                // Method execute:(Lorg/cibseven/bpm/engine/impl/interceptor/CommandContext;)Ljava/lang/Boolean;
+       5: areturn
+
+  static {};
+    Code:
+       0: getstatic     #148                // Field org/cibseven/bpm/engine/impl/ProcessEngineLogger.PERSISTENCE_LOGGER:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       3: putstatic     #58                 // Field LOG:Lorg/cibseven/bpm/engine/impl/db/EnginePersistenceLogger;
+       6: return
+}

@@ -1,0 +1,395 @@
+{
+  "archive": "generated-target.tar.gz",
+  "files": [
+    {
+      "path": "classes/br/com/maezo/human/AtomicHumanCommand$Result.class",
+      "bytes": 732,
+      "sha256": "170047ccbb5b8fdc8854d0903e7e97935479a1c7a5916c1a75bb2617f518d118"
+    },
+    {
+      "path": "classes/br/com/maezo/human/AtomicHumanCommand.class",
+      "bytes": 14013,
+      "sha256": "ab3b4dd2d4fe096708331c520aa3a1838bdd54f7d1eb6967fa45218066698811"
+    },
+    {
+      "path": "classes/br/com/maezo/human/AuthorityCommand.class",
+      "bytes": 10044,
+      "sha256": "f1946c5edaa497afe15eb2295061d4232b5ed9c1dc198d75f399441b67f8599f"
+    },
+    {
+      "path": "classes/br/com/maezo/human/EngineStore.class",
+      "bytes": 7677,
+      "sha256": "64663c3dddbd51024aa14205d98c4657ea67c308fd7b8dc3afccba044910c491"
+    },
+    {
+      "path": "classes/br/com/maezo/human/EnlistedWrites$Write.class",
+      "bytes": 1713,
+      "sha256": "19d2634828ddb07b587fe0fa4f33b225a90b53e3b7ee76e95914b21305674d00"
+    },
+    {
+      "path": "classes/br/com/maezo/human/EnlistedWrites.class",
+      "bytes": 4382,
+      "sha256": "a43b4647b64fdec16da806f565f134ad64dae6ec6a7d36cd385695a47b823f7b"
+    },
+    {
+      "path": "classes/br/com/maezo/human/Envelope$Verified.class",
+      "bytes": 2867,
+      "sha256": "dcdfd8c7aad171d2b616b0b5f101adb915fb667550fbc7cdd0b0c43e886bdb45"
+    },
+    {
+      "path": "classes/br/com/maezo/human/Envelope.class",
+      "bytes": 4551,
+      "sha256": "d175c5d9f7bc38f3f786b28ddf516e456c1ea7158caff74227e5a5301a2511cc"
+    },
+    {
+      "path": "classes/br/com/maezo/human/HumanCommand.class",
+      "bytes": 7537,
+      "sha256": "7a46e85b8efe40671d2bb5206683281fcc73bfe82ca222de109d41e61503f87a"
+    },
+    {
+      "path": "classes/br/com/maezo/human/HumanCommandPlugin.class",
+      "bytes": 8805,
+      "sha256": "95fa913be0fee84db1810de98f6823f93866b48bfe873ed8282c10cdc50279b3"
+    },
+    {
+      "path": "classes/br/com/maezo/human/HumanServlet.class",
+      "bytes": 5652,
+      "sha256": "65121e440a8550d956a2c070bababd864e809e96b489859f01eb3c53599ed811"
+    },
+    {
+      "path": "classes/br/com/maezo/human/Jcs$1.class",
+      "bytes": 947,
+      "sha256": "6467e2c6d5a231d02fddef9b1a2f4b0b35bedd0c27859d72ae7b30480493506a"
+    },
+    {
+      "path": "classes/br/com/maezo/human/Jcs.class",
+      "bytes": 10026,
+      "sha256": "9c81ba36ad3ee209e29f99ca315388d45cdd8ff1177dc4aaa525d8d736844bbb"
+    },
+    {
+      "path": "classes/br/com/maezo/human/Rejected.class",
+      "bytes": 753,
+      "sha256": "5e2823c01cb50ba6f9a79071a295148da22e1a04b5b740933200f76cd30bbb96"
+    },
+    {
+      "path": "classes/br/com/maezo/human/Trust$Key.class",
+      "bytes": 2529,
+      "sha256": "2881e6334f0a3fd87b1385cda0fb989df64f00e31ee720ddd086f4d79dcd022b"
+    },
+    {
+      "path": "classes/br/com/maezo/human/Trust.class",
+      "bytes": 5134,
+      "sha256": "6d2fd8900abc405213c698727487319fba6c0885d6c83c376e8f9037c2550dd1"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/BoundaryFilter.class",
+      "bytes": 6064,
+      "sha256": "afee8ed3974345f546e60f235849502a3819bc1e6f9c414df42c9b6829c6053c"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/BoundaryPolicy$Peer.class",
+      "bytes": 3653,
+      "sha256": "f958d0a390f3ead6ad6f1a6e6e9ea8b5866f2d2fa2ce300c5730b905be0e470b"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/BoundaryPolicy.class",
+      "bytes": 15576,
+      "sha256": "2580bd832b37c3364c30c9f6bcf1711bdc1c9923fd01a540061c0f0773abc618"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/Capability.class",
+      "bytes": 14896,
+      "sha256": "83edc0d25fe4b47d4ab733b85bfca1dac4242ad4e14d50dec81d4bfac204400e"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/CertificateAuthenticationProvider.class",
+      "bytes": 2630,
+      "sha256": "e4c98bbed89a97efb48b5b0157328e87b01183c816ffbec1e63fe1f8eb26f9fc"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/ClosedServlet.class",
+      "bytes": 898,
+      "sha256": "e25c65e3d87871624803faf4ed1f40f2463b5835f6f6e0fa811dfecf672274a8"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/Json$1.class",
+      "bytes": 1074,
+      "sha256": "2f3927177c79c74963901056974d7f08fd7d47c40d4f1fcbdf9cbbe59faec58b"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/Json.class",
+      "bytes": 9165,
+      "sha256": "4fc50e89fff9ae4f63946fc45d55a39c509ca3f99524724918283befef71dd93"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/Refused.class",
+      "bytes": 858,
+      "sha256": "871dce602998306b0fe6e13b7aa58b8c8e8c251fc567bd3f0a2ae73c8743d258"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/SecureLayout.class",
+      "bytes": 8521,
+      "sha256": "78f03d09e6f29e2bc60e85204d597847d773186346f06f90df4691b3e5bdbcd0"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/WorkloadCommand$FetchOutput.class",
+      "bytes": 4252,
+      "sha256": "6de2fb2325b1565cac00e4f1f93d44823947fe9cd25554452362345dbf12176a"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/WorkloadCommand.class",
+      "bytes": 33584,
+      "sha256": "7f942f300014e628e540e33678c7a3fe79b7644c5028b47fe075717b74cfb052"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/WorkloadPlugin$Fence.class",
+      "bytes": 3498,
+      "sha256": "d098314f26715e4a64f9b785b570b49bf65b1bb5d517ccf09f576c5aae7d6f38"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/WorkloadPlugin$Freshness.class",
+      "bytes": 3518,
+      "sha256": "cddd77fec75fd73fe56b5a41bf337c6e4d1a73df6d8123e7d8f0fffbfe4ea5f0"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/WorkloadPlugin$GrantCheck.class",
+      "bytes": 461,
+      "sha256": "5a19f8e00d0218805d84eee2edce87ab91e7717754fc3a2a968d85f3c105fc70"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/WorkloadPlugin.class",
+      "bytes": 16803,
+      "sha256": "95822299d0ce08ee22948be48ef9e646416bd87dcbf8247cb28c51f569699975"
+    },
+    {
+      "path": "classes/br/com/maezo/workload/WorkloadServlet.class",
+      "bytes": 3575,
+      "sha256": "d30404cbfaa8f40b2ea3ce609ce02adfff3267683daf46dd9516f45ab683acf6"
+    },
+    {
+      "path": "classes/engine-schemas-v1.json",
+      "bytes": 68884,
+      "sha256": "67501f427c65abaae5a52b6ace91e68acccae18e011896d682cc3898158a2a6f"
+    },
+    {
+      "path": "classes/human-schema-postgres.sql",
+      "bytes": 1845,
+      "sha256": "f9b769ea5f1b2baf6dab45a9cab3f81b1c81d3e3f07e4cf67f8d093855ff2b57"
+    },
+    {
+      "path": "maven-status/maven-compiler-plugin/compile/default-compile/createdFiles.lst",
+      "bytes": 1382,
+      "sha256": "decb397036f9835bb4044d620f04edb46a9a4d4cae0f477b3b0fe83552e70a93"
+    },
+    {
+      "path": "maven-status/maven-compiler-plugin/compile/default-compile/inputFiles.lst",
+      "bytes": 3609,
+      "sha256": "5966a2bc175fe6cc0d77deadc810e44620210b8ef4ea65c14a47b39f6af5bf45"
+    },
+    {
+      "path": "maven-status/maven-compiler-plugin/testCompile/default-testCompile/createdFiles.lst",
+      "bytes": 759,
+      "sha256": "1a2ad4172721542dc3a59ba18075dcd2a91edd76934156621869773a4375f161"
+    },
+    {
+      "path": "maven-status/maven-compiler-plugin/testCompile/default-testCompile/inputFiles.lst",
+      "bytes": 2329,
+      "sha256": "ca97e12d7e03ea1693f861ec3afa0f6059afa20f821e7c12472628f2b83efa44"
+    },
+    {
+      "path": "surefire-reports/TEST-br.com.maezo.human.ProfileTest.xml",
+      "bytes": 14727,
+      "sha256": "09f086342a5ee45c2d5092da94b05b40ca6400adde3a0caf90fed0e20827b00a"
+    },
+    {
+      "path": "surefire-reports/TEST-br.com.maezo.human.ServletBoundaryTest.xml",
+      "bytes": 12553,
+      "sha256": "4762b9391be3f714d78e6f85a3c7c790c6ec8f395e127f8c0295c86a85c67fb5"
+    },
+    {
+      "path": "surefire-reports/TEST-br.com.maezo.workload.CapabilityTest.xml",
+      "bytes": 17090,
+      "sha256": "f5be46631c96e4a2eee4bb43cf63155d4158d72ef46feba9fc8c36c8ad5f206d"
+    },
+    {
+      "path": "surefire-reports/TEST-br.com.maezo.workload.CertificateBoundaryTest.xml",
+      "bytes": 21059,
+      "sha256": "cbd26fd7f1fcf625673f025cfa289dfd96d70930a78e4f078d464e1c330a5eed"
+    },
+    {
+      "path": "surefire-reports/TEST-br.com.maezo.workload.LayoutTest.xml",
+      "bytes": 13223,
+      "sha256": "241136a37bdc1468db11e028b4683f3d874145f2e71c880181d6271fff670d39"
+    },
+    {
+      "path": "surefire-reports/TEST-br.com.maezo.workload.NativeAuthorityUnitTest.xml",
+      "bytes": 15639,
+      "sha256": "94efcc6a4f29ab4c701a4cb32c74356eed0b634fc67aa37e30d57759913b4bc5"
+    },
+    {
+      "path": "surefire-reports/br.com.maezo.human.ProfileTest.txt",
+      "bytes": 311,
+      "sha256": "e97ad309fe2c0006f0cbea001e425be194148c6ed10196e9a59e452440036557"
+    },
+    {
+      "path": "surefire-reports/br.com.maezo.human.ServletBoundaryTest.txt",
+      "bytes": 326,
+      "sha256": "bc473813a855921667974c1541377d63194381c19a779d42072785f12f14f930"
+    },
+    {
+      "path": "surefire-reports/br.com.maezo.workload.CapabilityTest.txt",
+      "bytes": 323,
+      "sha256": "324ed30bafe6e06158e8807615bce4de63994e2f518ce2deec00923fe8a7d6aa"
+    },
+    {
+      "path": "surefire-reports/br.com.maezo.workload.CertificateBoundaryTest.txt",
+      "bytes": 341,
+      "sha256": "55f9457dec2d32364d678db7c3692bfc6022cb76cc249aa181d50c798ce55d2c"
+    },
+    {
+      "path": "surefire-reports/br.com.maezo.workload.LayoutTest.txt",
+      "bytes": 314,
+      "sha256": "86eb7c6dbba2696bd0fed850dd0e42142d730365ec052be02f5609019742cc05"
+    },
+    {
+      "path": "surefire-reports/br.com.maezo.workload.NativeAuthorityUnitTest.txt",
+      "bytes": 341,
+      "sha256": "1b3d6784e523c57395b1221c8f9d647a0b10c7dc79db2aee17b36634ef7f71eb"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/AtomicEngineIT.class",
+      "bytes": 41832,
+      "sha256": "7f4426edfb68f0cd886420a4cf9b80ff7c1a873534b9097fefef16fb71bc96eb"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/D7HumanFixture.class",
+      "bytes": 5474,
+      "sha256": "9db1bd0f66d843634c19384c5399e493e77e6e27748f76d236a461ac636641fc"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/EnlistmentEngineIT.class",
+      "bytes": 10174,
+      "sha256": "eeffeeefdfa75add578e26099ff652205fc57c4e6190b6ce0b7ad06cd937bc03"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/FreshnessEngineIT.class",
+      "bytes": 17889,
+      "sha256": "8fba7c698384dfeb3deb4e18facddbe7f621bdee511dda1ae3d69e3c3f820fd9"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/ProfileTest.class",
+      "bytes": 15711,
+      "sha256": "9184775366171e6215bb5b5e874fd4f25d42227985da9be875f1d07ddf631300"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/ReviewerEngineIT.class",
+      "bytes": 13753,
+      "sha256": "b5b12d78ed5493c229bc6a00e88958346ed20fdd46b830fdb2185d2dba0e3421"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/ServletBoundaryTest$1.class",
+      "bytes": 1150,
+      "sha256": "593eef08650b18af321c659c7ae0de866a81e2a9834c3fe4f9d92b065a39ceab"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/ServletBoundaryTest.class",
+      "bytes": 7843,
+      "sha256": "2dce8922d234c1f1f09e5377b30fe03c4e611a20b6d73136fa4353ac70c236a3"
+    },
+    {
+      "path": "test-classes/br/com/maezo/human/TestKeys.class",
+      "bytes": 5776,
+      "sha256": "6ef2e489feac1a42c7413938ff906e48f15b90e84b310aba024e0d8e8db848b5"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/CapabilityTest.class",
+      "bytes": 11383,
+      "sha256": "89dd3d82f44a954be7e37b351b9e36c85bc9c65aaa98f64c282dedbf28a8247d"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/CertificateBoundaryTest.class",
+      "bytes": 16257,
+      "sha256": "b2570a1ca9996f690c9a1d853ba813d08b868f7f51e94e74aa9db23530b04de4"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/Fixtures.class",
+      "bytes": 13344,
+      "sha256": "4bdf21aa36c9ecda968a978c97c2caf04456f4d72a7e73d283f5f51e2bab5e37"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/LayoutTest.class",
+      "bytes": 9607,
+      "sha256": "f3e09afca69ab6a12fc2d5e79211ed015434d48410dbbcceab950269fc302d5b"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/NativeAuthorityUnitTest$1.class",
+      "bytes": 1000,
+      "sha256": "2bc13ed389a30adef3737dbf7680843cc6141d71f32de57f4a99273b6d88ecbd"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/NativeAuthorityUnitTest$QueryResults.class",
+      "bytes": 6093,
+      "sha256": "2810590ab0c6f595e8c6245b1bb4987ad8962f1219516fa018329b2be84ca5c5"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/NativeAuthorityUnitTest.class",
+      "bytes": 22610,
+      "sha256": "8348bb06df691649c8e9adfadaf9a4ca73fcdb12d8ee46e9717fd46b09ffd145"
+    },
+    {
+      "path": "test-classes/br/com/maezo/workload/WorkloadEngineIT.class",
+      "bytes": 82960,
+      "sha256": "a13fb02ef2cacd0dcfeef04d31f86f175d29049f02c29abe5a8a35fef27aeae3"
+    },
+    {
+      "path": "test-classes/d7/ca.pem",
+      "bytes": 518,
+      "sha256": "c717d478689662993285b63656967e331a29479d6b62d6cb09a023e0da0866c8"
+    },
+    {
+      "path": "test-classes/d7/client.pem",
+      "bytes": 611,
+      "sha256": "f90d34a3e09c3b6524035eb8924106de04d746fff792cf2df01aea97a19eaa4e"
+    },
+    {
+      "path": "test-classes/d7/expired.pem",
+      "bytes": 611,
+      "sha256": "fcaf82c1c77fa517719e54c1711a1a5ff1e2199dc8ff320b0d90b597be01da99"
+    },
+    {
+      "path": "test-classes/d7/no-eku.pem",
+      "bytes": 583,
+      "sha256": "9ea28b4bc03eb5c6156085be9a77a4b47efa71cdf45f45e1c5f49c5ad8dc3095"
+    },
+    {
+      "path": "test-classes/d7/wrong-client.pem",
+      "bytes": 615,
+      "sha256": "8c70441aac1fb03c4d36616f0fea285c763cfca948baf141d1c75934def94253"
+    },
+    {
+      "path": "test-classes/jakarta-servlet-client.pem",
+      "bytes": 1180,
+      "sha256": "cb3437868dd2aa12c10d7f9830ac4afffd8e3835bc4128e11fa3b8d315414fc6"
+    },
+    {
+      "path": "test-classes/jakarta-servlet-expired-client.pem",
+      "bytes": 1111,
+      "sha256": "f95c269304d7450db08c8a932777e50bbeafcd2c511eb6cd036dc1be05795d03"
+    },
+    {
+      "path": "test-classes/jcs-vectors.json",
+      "bytes": 455,
+      "sha256": "0bf88fe9911506c97deafc9bda57aa535f55530cfbd357b94934eae83a5f83a0"
+    },
+    {
+      "path": "test-classes/python-ed25519-vector.json",
+      "bytes": 1626,
+      "sha256": "5f6c5c6bd60d9e997609f84bd5dcd999baba97b54ded202193f86efaf7712757"
+    },
+    {
+      "path": "test-classes/synthetic-human.bpmn",
+      "bytes": 1115,
+      "sha256": "4faa91d6235c56f0e1d646f8d08183af4a9ec9dba36d53ef1531113af1f29ab0"
+    }
+  ]
+}

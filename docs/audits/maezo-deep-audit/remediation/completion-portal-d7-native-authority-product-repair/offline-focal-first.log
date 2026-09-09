@@ -1,0 +1,64 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] -----------------< br.com.maezo:human-command-engine >------------------
+[INFO] Building human-command-engine 1.0.0
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ human-command-engine ---
+[INFO] Copying 2 resources from src/main/resources to target/classes
+[INFO] 
+[INFO] --- compiler:3.13.0:compile (default-compile) @ human-command-engine ---
+[INFO] Nothing to compile - all classes are up to date.
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ human-command-engine ---
+[INFO] Copying 10 resources from src/test/resources to target/test-classes
+[INFO] 
+[INFO] --- compiler:3.13.0:testCompile (default-testCompile) @ human-command-engine ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 14 source files with javac [debug release 17] to target/test-classes
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] /Users/familia/code/maezo-completion-wt/portal-d7-native-authority-product-repair/src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/NativeAuthorityUnitTest.java:[62,21] no suitable method found for assertThrows(java.lang.Class<br.com.maezo.workload.Refused>,java.lang.Runnable)
+    method org.junit.jupiter.api.Assertions.<T>assertThrows(java.lang.Class<T>,org.junit.jupiter.api.function.Executable,java.util.function.Supplier<java.lang.String>) is not applicable
+      (cannot infer type-variable(s) T
+        (actual and formal argument lists differ in length))
+    method org.junit.jupiter.api.Assertions.<T>assertThrows(java.lang.Class<T>,org.junit.jupiter.api.function.Executable,java.lang.String) is not applicable
+      (cannot infer type-variable(s) T
+        (actual and formal argument lists differ in length))
+    method org.junit.jupiter.api.Assertions.<T>assertThrows(java.lang.Class<T>,org.junit.jupiter.api.function.Executable) is not applicable
+      (cannot infer type-variable(s) T
+        (argument mismatch; java.lang.Runnable cannot be converted to org.junit.jupiter.api.function.Executable))
+[ERROR] /Users/familia/code/maezo-completion-wt/portal-d7-native-authority-product-repair/src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/NativeAuthorityUnitTest.java:[62,138] cannot find symbol
+  symbol:   variable reason
+  location: variable refusal of type br.com.maezo.workload.Refused
+[INFO] 2 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  1.306 s
+[INFO] Finished at: 2026-09-09T06:39:34-03:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.13.0:testCompile (default-testCompile) on project human-command-engine: Compilation failure: Compilation failure: 
+[ERROR] /Users/familia/code/maezo-completion-wt/portal-d7-native-authority-product-repair/src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/NativeAuthorityUnitTest.java:[62,21] no suitable method found for assertThrows(java.lang.Class<br.com.maezo.workload.Refused>,java.lang.Runnable)
+[ERROR]     method org.junit.jupiter.api.Assertions.<T>assertThrows(java.lang.Class<T>,org.junit.jupiter.api.function.Executable,java.util.function.Supplier<java.lang.String>) is not applicable
+[ERROR]       (cannot infer type-variable(s) T
+[ERROR]         (actual and formal argument lists differ in length))
+[ERROR]     method org.junit.jupiter.api.Assertions.<T>assertThrows(java.lang.Class<T>,org.junit.jupiter.api.function.Executable,java.lang.String) is not applicable
+[ERROR]       (cannot infer type-variable(s) T
+[ERROR]         (actual and formal argument lists differ in length))
+[ERROR]     method org.junit.jupiter.api.Assertions.<T>assertThrows(java.lang.Class<T>,org.junit.jupiter.api.function.Executable) is not applicable
+[ERROR]       (cannot infer type-variable(s) T
+[ERROR]         (argument mismatch; java.lang.Runnable cannot be converted to org.junit.jupiter.api.function.Executable))
+[ERROR] /Users/familia/code/maezo-completion-wt/portal-d7-native-authority-product-repair/src/maezo/portal/engine/java/src/test/java/br/com/maezo/workload/NativeAuthorityUnitTest.java:[62,138] cannot find symbol
+[ERROR]   symbol:   variable reason
+[ERROR]   location: variable refusal of type br.com.maezo.workload.Refused
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

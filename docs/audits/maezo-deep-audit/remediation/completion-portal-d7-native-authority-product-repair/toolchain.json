@@ -1,0 +1,32 @@
+{
+  "files": [
+    {
+      "path": "/Users/familia/.m2/repository/org/cibseven/bpm/cibseven-engine/2.1.0/cibseven-engine-2.1.0.jar",
+      "sha256": "e73fd091d3d3785e9ea51596ddbfdcc90d045f8d2e3aa653d8bcd5610a7357e9",
+      "bytes": 32353446
+    },
+    {
+      "path": "/Users/familia/.m2/repository/org/mybatis/mybatis/3.5.15/mybatis-3.5.15.jar",
+      "sha256": "5e573887bfc18d877640f1e5074ab6ea43899fb905236f5b953036bef660a68a",
+      "bytes": 1808512
+    },
+    {
+      "path": "/Users/familia/.cache/maezo-portal-jakarta-abi-repair-tooling/jdk-17.0.17+10/Contents/Home/bin/java",
+      "sha256": "b66b363acef8221916a2cd1438cbd00367a9fe93b31b11a0609b5e37bfb511a7",
+      "bytes": 70464
+    },
+    {
+      "path": "/Users/familia/.cache/maezo-portal-jakarta-abi-repair-tooling/apache-maven-3.9.9/bin/mvn",
+      "sha256": "cefd49221acba7ebbbdc92b6f8af9395f3024019d1431b3ced7c88d222d0dc46",
+      "bytes": 5917
+    },
+    {
+      "path": "/Users/familia/code/maezo-completion-wt/portal-d7-native-authority-product-repair/docs/audits/maezo-deep-audit/remediation/completion-portal-d7-native-authority-product-repair/empty-settings.xml",
+      "sha256": "b546e42cf905023b479e33abc908fed827584e753d6402a372fb11fc1d343bca",
+      "bytes": 59
+    }
+  ],
+  "java_version": "openjdk version \"17.0.17\" 2025-10-21\nOpenJDK Runtime Environment Temurin-17.0.17+10 (build 17.0.17+10)\nOpenJDK 64-Bit Server VM Temurin-17.0.17+10 (build 17.0.17+10, mixed mode, sharing)\n",
+  "native_services_used": false,
+  "cache_engine_jar_matches_used_m2": true
+}

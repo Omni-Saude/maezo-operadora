@@ -1,0 +1,159 @@
+{
+  "schema": "maezo.bounded-author-evidence.v1",
+  "source_commit": "89930624aaf0d09e641d289ca67ea5fbbbbf2d72",
+  "source_tree": "107727e187bc457be510ac7a03d17fc3b1fd4103",
+  "scope": "D7B-NATIVE-GUARD-01 offline author only",
+  "self_excluded": "MANIFEST.json",
+  "files": [
+    {
+      "path": "REPORT.md",
+      "bytes": 10098,
+      "sha256": "da70857e99657c16477cc5d068aad346b720fb22d2e12642dac6ceb5db6fdf76"
+    },
+    {
+      "path": "empty-settings.xml",
+      "bytes": 59,
+      "sha256": "b546e42cf905023b479e33abc908fed827584e753d6402a372fb11fc1d343bca"
+    },
+    {
+      "path": "generated-output-manifest.json",
+      "bytes": 14600,
+      "sha256": "0c0505352f954a806c9cf7f2afac62e790d56f17852f9564dc68924c38ef6b32"
+    },
+    {
+      "path": "generated-target.tar.gz",
+      "bytes": 198471,
+      "sha256": "ba76be08b8165aa46d7d037995df76f7ab15b73ce633802e54b96eb0f26dd3bb"
+    },
+    {
+      "path": "input-PRODUCT-REPAIR-MANDATE.md",
+      "bytes": 6108,
+      "sha256": "3c494bb5fb4b8112eebf4970f9319f577f7cdd493665564d97e930d9146ea550"
+    },
+    {
+      "path": "input-REPORT.md",
+      "bytes": 9153,
+      "sha256": "aa4baa871b6ea96b2b287077860061f75a07ef0ddb18277d86296b91b9976cdb"
+    },
+    {
+      "path": "native-abi/impl.cfg.standalone.StandaloneTransactionContext.txt",
+      "bytes": 15475,
+      "sha256": "517bf601b5f9ce9a13db9215fb780eb2bbd09a07c73aeb52edb2ca2ca6e0fed5"
+    },
+    {
+      "path": "native-abi/impl.cmd.AuthorizationCheckCmd.txt",
+      "bytes": 8626,
+      "sha256": "b77d46b92a92214aeaca21e3d36295ba60e7244f20cf3b24a04a15c980260eed"
+    },
+    {
+      "path": "native-abi/impl.db.entitymanager.DbEntityManager.txt",
+      "bytes": 75590,
+      "sha256": "7d69bae8da4b47ee1cf5e428929811f221a83bdac2870e3a17c90e8ee42bd2d0"
+    },
+    {
+      "path": "native-abi/impl.db.sql.DbSqlSession.txt",
+      "bytes": 92625,
+      "sha256": "5536a367665bee04f30c35af5a6cd0ee6fe3de307b83f0d45a6cca6c7a63aa97"
+    },
+    {
+      "path": "native-abi/impl.interceptor.CommandContext.txt",
+      "bytes": 71185,
+      "sha256": "b8b73f63919cfef5223c9e18a1215e7a1757493039903a1b457decee509e3c1e"
+    },
+    {
+      "path": "native-abi/impl.interceptor.CommandContextInterceptor.txt",
+      "bytes": 14563,
+      "sha256": "0bbbf8a2edf4259d93de29e02846e9625a5c5fd88251b0dc26352066a1384ba9"
+    },
+    {
+      "path": "native-abi/impl.persistence.AbstractManager.txt",
+      "bytes": 29037,
+      "sha256": "f54e2ab0feeb0f668ac747bdae2ffce1fb311b7031647badf4a885b27d34fb03"
+    },
+    {
+      "path": "native-abi/impl.persistence.entity.AuthorizationManager.txt",
+      "bytes": 174151,
+      "sha256": "a1e6a15e67a5cbd8212d44e0dba640aba0198f7d6f198e448fc5b3719856a568"
+    },
+    {
+      "path": "native-abi/mybatis.BaseExecutor.txt",
+      "bytes": 41716,
+      "sha256": "77f57f982082d33cae165f52a5a7459a5a6d7c2ef89515aad98de51e3ff39b54"
+    },
+    {
+      "path": "offline-existing-tests-run.json",
+      "bytes": 683,
+      "sha256": "fef3ebf76491ab8869ddfcea33cdf24cd3f2d1e0a52d06371e284860a5bcd6a1"
+    },
+    {
+      "path": "offline-existing-tests.log",
+      "bytes": 2714,
+      "sha256": "d55e4ef8d122b84b7f227d63f24b70fe56dd8e9d1d227b908b0e1dc9e2d6913d"
+    },
+    {
+      "path": "offline-final-163-run.json",
+      "bytes": 683,
+      "sha256": "0027006bb353a799f451b1f4797178da0b1cfc4faa4a1729bf6ced1c1af800ac"
+    },
+    {
+      "path": "offline-final-163.log",
+      "bytes": 3031,
+      "sha256": "098ec447843d7f9af80f1e027118b476044877cc762ff966936e80d7c6808bf9"
+    },
+    {
+      "path": "offline-focal-first-run.json",
+      "bytes": 721,
+      "sha256": "993fa8ca4ce00ace104cbc445ddc6bf416f970a0b30349eca5f399ddce7889dd"
+    },
+    {
+      "path": "offline-focal-first.log",
+      "bytes": 5134,
+      "sha256": "adc27753d3fd8ce6e8c4e6f8721687a8afcf57f69f4fdac9f54e8f6ecdbc8b47"
+    },
+    {
+      "path": "offline-focal-second-run.json",
+      "bytes": 721,
+      "sha256": "b9a91b17920b0d3ab279dfe18a8cba433058fad917f80613b2a0345ee7d5b48a"
+    },
+    {
+      "path": "offline-focal-second.log",
+      "bytes": 4185,
+      "sha256": "a92a007abde45b896f1a2a79acc88fe9b0b4582bffc8425010f317c0da042024"
+    },
+    {
+      "path": "offline-original141-run.json",
+      "bytes": 718,
+      "sha256": "bac84d609467c61dc8821c3d91004e8b44214d168b1cb6a58bc6989b4cb26a70"
+    },
+    {
+      "path": "offline-original141.log",
+      "bytes": 1582,
+      "sha256": "96ceeca180ef0ea670a816eb3acd762e7c970388236594bbeb6f83be06d04a90"
+    },
+    {
+      "path": "preservation.json",
+      "bytes": 8494,
+      "sha256": "208ecdbbbf706ac28b24c3d8198849c7ee086ec57b0dfcf8660ccc8a8c37dbbb"
+    },
+    {
+      "path": "run_offline.py",
+      "bytes": 1086,
+      "sha256": "74d72546fb106a0383d0ec15e554c66c9168a8c3a6d07b393362a25eb17648da"
+    },
+    {
+      "path": "source-manifest.json",
+      "bytes": 271738,
+      "sha256": "43ccc1a96155e6a500fad11a8b868765180f4fb794ecd65d2a32b36196d570e0"
+    },
+    {
+      "path": "source.diff",
+      "bytes": 25195,
+      "sha256": "06a341c2765b12549dffe33deaf4c043c14564412770555598a22843f56691da"
+    },
+    {
+      "path": "toolchain.json",
+      "bytes": 1542,
+      "sha256": "242a7309a58de99106f870673d0e196fb453bae46b3a40bda32c6884e7355c52"
+    }
+  ]
+}
