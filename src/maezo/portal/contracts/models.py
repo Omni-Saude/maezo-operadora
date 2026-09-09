@@ -3,8 +3,8 @@
 Sources:
 
 * ADR-0049 D2-D6 (accepted engineering direction; technical specification DRAFT/verify);
-* SP-OP-AUTH-001, SP-OP-ESCALATION-001, SP-OP-PAGTO-001, SP-OP-CONTAS-001 and
-  SP-OP-RECURSO-001 at the catalog's pinned R6 revision;
+* SP-OP-AUTH-001, SP-OP-ESCALATION-001, SP-OP-PAGTO-001, SP-OP-CONTAS-001,
+  SP-OP-RECURSO-001 and SP-OP-REEMBOLSO-001 at the catalog's pinned R6 revision;
 * the frozen preparatory portal catalog (43 tasks in 15 families).
 
 These DTOs validate shape.  They do not authenticate a human, establish tenant membership,
@@ -25,6 +25,10 @@ The deliberately narrow executable form set is:
 * RECURSO ``UT_CoordenacaoRecursoAssume`` and ``UT_EscalonamentoPrazo`` ->
   ``recurso_coordenacao``;
 * RECURSO ``UT_RevisaoAuditorMedico`` -> ``recurso_auditor``.
+* REEMBOLSO ``UT_DecidirPendenciaExpirada`` -> ``reembolso_pendencia``;
+* REEMBOLSO ``UT_AnaliseReembolso`` and ``UT_CoordenacaoReembolso`` ->
+  ``reembolso_decisao``;
+* REEMBOLSO ``UT_RevisaoAuditorMedico`` -> ``reembolso_auditor``.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
@@ -39,6 +43,13 @@ The four RECURSO bindings have the same DRAFT/verify limitation.  Their DTOs pre
 vocabulary from ADR-0040 and deliberately exclude actor identities and engine BRL variables.  The
 future trusted gateway must inject the actor and perform the reviewed centavo-to-engine conversion;
 these source contracts do neither and do not authorize an adverse effect.
+
+The four REEMBOLSO bindings are also DRAFT/verify.  The contract output table omits
+``SOLICITAR_AUDITOR``, while the analyst/coordination task documentation and its gateway explicitly
+route that value.  It remains available only in those two draft-bound forms.  Approved money crosses
+the browser boundary as a canonical decimal integer string; comparison with the trusted requested
+amount and conversion to the engine integer belong to the future gateway.  Actor identities,
+calculated values, requested values, and clinical-routing facts are never browser authority here.
 """
 
 from __future__ import annotations
@@ -91,6 +102,9 @@ FormKey = Literal[
     "recurso_decisao",
     "recurso_coordenacao",
     "recurso_auditor",
+    "reembolso_pendencia",
+    "reembolso_decisao",
+    "reembolso_auditor",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -118,6 +132,11 @@ AllowedInput = Literal[
     "desfecho_humano",
     "decisao_auditor_recurso",
     "parecer_auditor",
+    "decisao_pendencia",
+    "decisao_reembolso",
+    "valor_reembolso_aprovado_cents",
+    "justificativa",
+    "fundamentacao_contratual",
 ]
 
 
@@ -433,6 +452,87 @@ class RecursoAuditorInputs(_RecursoDecisionFields):
         return self
 
 
+class ReembolsoPendingInputs(_FrozenContract):
+    """Expired-document pendency decision (contract lines 92/214/233-236; BPMN 188-193)."""
+
+    kind: Literal["reembolso_pendencia"]
+    decisao_pendencia: Literal[
+        "cancelar_solicitacao",
+        "conceder_prazo_extra",
+        "seguir_analise",
+    ]
+
+
+class _ReembolsoDecisionFields(_FrozenContract):
+    """Shared reimbursement decision fields at the browser trust boundary.
+
+    Contract lines 81 and 87-91 and BPMN lines 313-325 require human justification and
+    contractual basis for denial/reduction, plus an approved amount for payment.  The worker's
+    fail-closed money guard at contract line 224 requires that amount to be positive.
+
+    The contract already names integer cents.  ADR-0049 D3 changes only their browser transport
+    representation to a canonical decimal integer string.  This DTO neither compares a partial
+    amount with trusted ``valor_solicitado_cents`` nor executes payment.
+    """
+
+    valor_reembolso_aprovado_cents: Centavos | None = None
+    justificativa: RequiredText | None = None
+    fundamentacao_contratual: RequiredText | None = None
+
+    def _validate_reembolso_outcome(self, decision: str) -> None:
+        if decision in {"NEGAR", "APROVAR_PARCIAL"}:
+            for field, value in (
+                ("justificativa", self.justificativa),
+                ("fundamentacao_contratual", self.fundamentacao_contratual),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"{decision} requires {field}")
+
+        if decision in {"APROVAR", "APROVAR_PARCIAL"} and (
+            self.valor_reembolso_aprovado_cents is None or self.valor_reembolso_aprovado_cents.as_int() <= 0
+        ):
+            raise ValueError(f"{decision} requires positive valor_reembolso_aprovado_cents")
+
+
+class ReembolsoDecisionInputs(_ReembolsoDecisionFields):
+    """Analyst/coordination form; identities and clinical merit stay server/auditor-owned."""
+
+    kind: Literal["reembolso_decisao"]
+    decisao_reembolso: Literal[
+        "APROVAR",
+        "NEGAR",
+        "APROVAR_PARCIAL",
+        "SOLICITAR_INFO",
+        "SOLICITAR_AUDITOR",
+    ]
+
+    @model_validator(mode="after")
+    def _contractual_fields_are_complete(self) -> Self:
+        self._validate_reembolso_outcome(self.decisao_reembolso)
+        return self
+
+
+class ReembolsoAuditorInputs(_ReembolsoDecisionFields):
+    """Medical-merit form (BPMN 383-388); no clinical content is inferred."""
+
+    kind: Literal["reembolso_auditor"]
+    decisao_reembolso: Literal["APROVAR", "NEGAR", "APROVAR_PARCIAL"]
+    cid10_referencia: RequiredText | None = None
+    parecer_auditor: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _contractual_fields_are_complete(self) -> Self:
+        self._validate_reembolso_outcome(self.decisao_reembolso)
+        if self.decisao_reembolso in {"NEGAR", "APROVAR_PARCIAL"}:
+            for field, value in (
+                ("cid10_referencia", self.cid10_referencia),
+                ("parecer_auditor", self.parecer_auditor),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"{self.decisao_reembolso} requires {field}")
+        return self
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
@@ -442,7 +542,10 @@ DecisionInputs = Annotated[
     | ContasCoordinationInputs
     | RecursoDecisionInputs
     | RecursoCoordinationInputs
-    | RecursoAuditorInputs,
+    | RecursoAuditorInputs
+    | ReembolsoPendingInputs
+    | ReembolsoDecisionInputs
+    | ReembolsoAuditorInputs,
     Field(discriminator="kind"),
 ]
 
@@ -479,6 +582,22 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-RECURSO-001", "UT_RevisaoAuditorMedico"): (
         "recurso_auditor",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-REEMBOLSO-001", "UT_DecidirPendenciaExpirada"): (
+        "reembolso_pendencia",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-REEMBOLSO-001", "UT_AnaliseReembolso"): (
+        "reembolso_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-REEMBOLSO-001", "UT_CoordenacaoReembolso"): (
+        "reembolso_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-REEMBOLSO-001", "UT_RevisaoAuditorMedico"): (
+        "reembolso_auditor",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -537,6 +656,21 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "valor_glosa_mantido_centavos",
         "valor_deferido_centavos",
         "referencia_contratual",
+    ),
+    "reembolso_pendencia": ("decisao_pendencia",),
+    "reembolso_decisao": (
+        "decisao_reembolso",
+        "valor_reembolso_aprovado_cents",
+        "justificativa",
+        "fundamentacao_contratual",
+    ),
+    "reembolso_auditor": (
+        "decisao_reembolso",
+        "valor_reembolso_aprovado_cents",
+        "justificativa",
+        "fundamentacao_contratual",
+        "cid10_referencia",
+        "parecer_auditor",
     ),
 }
 
