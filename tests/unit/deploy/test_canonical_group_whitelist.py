@@ -153,8 +153,15 @@ def test_image_installs_only_group_specific_admission_and_preserves_existing_con
     ):
         assert re.fullmatch(pattern, name) is None, name
     dockerfile = (ROOT / "deploy/cibseven/Dockerfile").read_text()
-    assert "COPY configure-group-whitelist.sh" in dockerfile
-    assert "RUN sh /tmp/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml" in dockerfile
+    # As linhas que de fato CONSTROEM (provado em build local e CodeBuild em 09/09/2026): o contexto e'
+    # a raiz do repo (por isso `deploy/cibseven/` no COPY), e o script vai para /camunda, nao /tmp —
+    # o /tmp da base tem sticky bit e o USER nao-root nao consegue remover o que foi copiado como root.
+    assert (
+        "COPY deploy/cibseven/configure-group-whitelist.sh /camunda/configure-group-whitelist.sh"
+        in dockerfile
+    )
+    assert "RUN sh /camunda/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml" in dockerfile
+    assert "grep -c 'groupResourceWhitelistPattern' /camunda/conf/bpm-platform.xml | grep -qx 1" in dockerfile
     assert "FROM cibseven/cibseven:2.1.0" in dockerfile
 
 
