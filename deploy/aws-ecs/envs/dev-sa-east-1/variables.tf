@@ -235,9 +235,15 @@ variable "engine_image_tag" {
     Tag da imagem PROPRIA do engine (`amh/cibseven-maezo`), construida a partir de
     `deploy/cibseven/Dockerfile`. Sem o showcase de demonstracao e, portanto, sem o
     usuario `demo` que a imagem oficial recria a cada boot.
+
+    `sem-showcase-executor-global` (09/09/2026): alem do acima, `jobExecutorDeploymentAware`
+    = false. A tag anterior (`sem-showcase`) rodou de 18/08 a 09/09 com o executor de jobs
+    restrito a deployments registrados em memoria — conjunto que ficava vazio apos cada
+    reinicio — e por isso NENHUM relogio disparou nesse periodo (97 vencidos em 09/09).
+    O motivo completo esta' no proprio Dockerfile.
   EOT
   type        = string
-  default     = "sem-showcase"
+  default     = "sem-showcase-executor-global"
 }
 
 variable "cibseven_desired_count" {
