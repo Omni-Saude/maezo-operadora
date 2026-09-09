@@ -655,6 +655,8 @@ async def test_producer_failure_kafka_down_does_not_block_source_process() -> No
     handler = make_publish_event_handler(unreachable_producer)
     task = ExternalTask(
         task_id="t4-kafka-down-probe",
+        process_definition_key="SP-OP-CONTAS-001",
+        activity_id="ST_PublishGlosaAplicada",
         topic="operadora.events.publish",
         process_instance_id="proc-kafka-down-probe",
         business_key="bk-kafka-down-probe",

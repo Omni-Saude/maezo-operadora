@@ -15,8 +15,16 @@ from maezo.platform.privacy.population_policy import PopulationPolicyUnavailable
 from maezo.tools.process_allowlist import KNOWN_PROCESS_KEYS
 
 # Source identity comes from fetchAndLock metadata, not from outgoing event inputs.
-# ANS-CRON is a valid publisher although intentionally not agent-startable.
-_PUBLICATION_PROCESS_KEYS = KNOWN_PROCESS_KEYS | {"SP-OP-ANS-CRON-001"}
+# SP-OP-ANS-CRON-001 is the contract/model family, not an engine process ID.
+# Its five timer definitions publish facts but remain intentionally not agent-startable
+# (SP-OP-ANS-CRON-001 contract: topology per report_type; ADR-0003/ADR-0016).
+_PUBLICATION_PROCESS_KEYS = KNOWN_PROCESS_KEYS | {
+    "SP-OP-ANS-CRON-001-RN124SIP",
+    "SP-OP-ANS-CRON-001-RN209",
+    "SP-OP-ANS-CRON-001-RN388",
+    "SP-OP-ANS-CRON-001-RN424TISS",
+    "SP-OP-ANS-CRON-001-DIOPS",
+}
 PROGRAM_PROCESS_KEY = "SP-OP-PROGRAMA-001"
 PROGRAM_ACTIVITY_TOPICS = {
     "ST_PublishReceived": "agents.events.programa.received",
