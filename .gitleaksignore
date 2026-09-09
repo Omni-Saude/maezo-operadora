@@ -70,3 +70,8 @@ d3c5ac141e0f43587bf6278579e43afe05bb9aa3:.gitleaksignore:generic-api-key:46
 # O conteudo atual usa constante nomeada desde b73262f1. Esta excecao cobre somente
 # a ocorrencia historica imutavel indicada; nao libera outro commit, arquivo ou regra.
 1dd1afe304d62f8d4dd78304272ec64294112e70:tests/unit/portal/test_engine_profile.py:generic-api-key:42
+
+# PAE-D6: identificador publico do formulario ACK sintetico, nao credencial.
+# Os bytes causais capturados permanecem imutaveis; esta excecao cobre somente
+# o commit, arquivo, regra e linha historicos abaixo.
+92f98281696b31a0151d8ba0d48bdabe2d80a8be:tests/unit/gateway/human/test_receipt_recording_metadata.py:generic-api-key:42
