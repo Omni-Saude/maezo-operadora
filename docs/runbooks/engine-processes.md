@@ -399,6 +399,45 @@ impact: Minor (2h delay, no clinical impact)
 preventive_action: Auto-reassign to backup if unassigned after 8h
 ```
 
+### Relógios que não disparam: `jobExecutorDeploymentAware`
+
+**Medido em 09/09/2026, no engine de dev, antes da correção:**
+
+```
+GET /deployment/registered      -> []                 nenhum deployment registrado
+GET /deployment                 -> 1                  maezo-spec-processes, 13/08
+GET /job?timers=true            -> 97                 o mais antigo vencido em 22/08 10:31
+   todos com retries=3          (valor inicial: job nunca TENTADO nao decrementa)
+GET /incident                   -> 10, nenhum de timer
+bpm-platform.xml                -> jobExecutorDeploymentAware = true
+```
+
+Sintoma: relógio criado com a data certa e nunca executado, sem incidente. Em 08/09 eram 44
+vencidos; em 09/09, 97 — e nenhum relógio do motor havia disparado desde 22/08.
+
+**Causa.** A imagem base `cibseven/cibseven:2.1.0` (distribuição Tomcat) traz
+`jobExecutorDeploymentAware=true`: o executor está LIGADO, mas só adquire jobs de deployments
+**registrados nesta instância** do engine. O registro é em memória — acontece quando o
+deployment entra (por REST, no nosso caso) e morre no reinício do container. Sem Process
+Application (o WAR que a nossa imagem existe para não ter), nada o refaz no boot.
+
+**Correção.** `deploy/cibseven/Dockerfile` passa a propriedade para `false` (tag
+`sem-showcase-executor-global`). O valor é correto aqui porque há UM engine por banco; a
+propriedade existe para vários engines partilhando um schema. Motivo completo no Dockerfile.
+
+**Medido depois do deploy (09/09, ~2 min após o boot):** 92 relógios executados; 271 atividades
+finalizadas em 48 instâncias — 42 `BT_SlaAnalise` → `UT_CoordenacaoAssume`, 41 `BT_AlertaSla` →
+`End_RiscoSlaNotificado`, 4 `ICE_PrazoPendencia`, 2 `BT_SlaAck`/`BT_SlaResolucao` →
+`End_SupervisorAlertado`. Incidentes: 10 → 10 (nenhuma execução falhou). Restaram 5 jobs, todos
+timer-start dos `SP-OP-ANS-CRON-001-*` com vencimento futuro.
+
+**Para detectar regressão:** `/deployment/registered` vazio com `deploymentAware=true` é o
+diagnóstico em uma chamada. Com `false`, o endpoint continua vazio e isso é esperado.
+
+**Consulta certa para "vencidos":** `GET /job?timers=true&dueDates=lt_<ISO8601>` — o prefixo
+`lt_` é o operador. Um parâmetro desconhecido (ex.: `dueDateLowerThan`) é IGNORADO
+silenciosamente e devolve o total, o que parece um número de vencidos e não é.
+
 ---
 
 ## Dashboard & monitoring
