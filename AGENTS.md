@@ -34,6 +34,7 @@
 8. **82 findings da auditoria são checklist "não repetir".** Consulte `docs/reports/predeploy-findings.json` antes de implementar qualquer componente.
 9. **34 DL entries são padrões de design obrigatórios.** Consulte `docs/decisions-log.md` — cada DL contém uma lição paga com bugs reais.
 10. Geração em massa (swarm): cada lote termina com `make lint type test validate-artifacts` verde **e poda do que não é usado**.
+11. **Todo merge encerra com manutenção segura do repositório.** Depois de atualizar e verificar `main`, execute integralmente a rotina de inventário, preservação, remoção conservadora e verificação final em `CONTRIBUTING.md`. Nunca use `prune`, `reset`, `clean`, remoção forçada de worktree ou `git branch -D` como atalho.
 
 ## Gestão de contexto e memória
 
