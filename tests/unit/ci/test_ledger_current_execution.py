@@ -35,7 +35,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         subprocess.run(["git", "config", key, value], cwd=root, check=True)
     (root / TEST).parent.mkdir(parents=True)
     (root / "docs").mkdir()
-    (root / "pyproject.toml").write_text("[tool.pytest.ini_options]\n")
+    (root / "pyproject.toml").write_bytes((ROOT / "pyproject.toml").read_bytes())
     (root / "uv.lock").write_bytes((ROOT / "uv.lock").read_bytes())
     (root / "docs/evidence-ledger.md").write_text("# Tiny private fixture\n")
     base = commit(root, "empty ledger")
@@ -53,6 +53,9 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         )
 
     monkeypatch.setattr(legacy, "classify_test_admission", admission, raising=False)
+    # This suite isolates the observer behind its original explicit G2 seam.
+    # Actual loaded-policy controls live in test_ledger_current_consumer.py.
+    monkeypatch.setattr(current, "_g2_policy", lambda: {"private-fixture": "observer-only"})
 
     def build(source: str, expected: list[str] | None = None, *, conftest: str | None = None) -> Any:
         (root / TEST).write_text(source)
@@ -365,13 +368,11 @@ def test_valid_history_obligations_cannot_be_replaced_by_current_pass(
         stream.write(successor + "\n")
     commit(root, "bound history obligation")
 
-    def forbidden(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("uncomposed history must not be replaced by a current run")
-
-    monkeypatch.setattr(current.CurrentRunner, "run", forbidden)
     result = consumer.run_integrated(root, base, tmp_path / "proof")
     assert result["status"] == "UNRESOLVED"
     assert len(result["rows"]) == 2
+    assert result["current_status"] == "ACCEPTED"
+    assert len({row["current"]["run_id"] for row in result["rows"]}) == 2
     assert all(row["history"] == "REQUIRED_NOT_COMPOSED" for row in result["rows"])
 
 
