@@ -7,6 +7,7 @@
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
         check-ledger-hashes check-ledger-row-cell-count \
+        check-phi-scrub-prereqs \
         release-floor-check release-floor-write \
         deploy-artifacts dev-stack dev-observability tf-validate localstack-up tf-smoke helm-lint \
         check-helm-entrypoints check-chart-env-reconciliation
@@ -183,6 +184,20 @@ check-ledger-row-cell-count: ## LEDGER-ROW-CELL-COUNT: toda linha NOVA de docs/e
 	# `--all` (uso local apenas) verifica toda linha do ledger atual com numero de linha real —
 	# usado para gerar o inventario de review-queue das 30 linhas legadas, nunca para gate de CI.
 	uv run python scripts/ci/check_ledger_row_cell_count.py --ledger-path docs/evidence-ledger.md
+
+check-phi-scrub-prereqs: ## R-009 (gap D7-01): scrub_only/pseudo_keys nao ratificavel com pre-requisito pendente
+	# O dono ratificou (R-009, Bold-Decision Review v2 CEO 2026-09-04) que as duas pre-condicoes de
+	# prosa do bloco `modo` de spec/policies/privacy/phi-business-key-remediation.yaml virariam
+	# cerca de CI no MESMO PR que preenche os 4 campos do manifesto. Este gate le SO o manifesto
+	# (via o MESMO loader do runtime, maezo.platform.privacy.phi_key_policy.load_phi_key_policy,
+	# nunca uma leitura divergente) e reprova qualquer PR que deixe `status: RATIFICADO` com
+	# `modo: scrub_only` OU `modo: pseudo_keys` (que HERDA os pre-requisitos de scrub_only) sem os
+	# dois itens de `pre_requisitos_scrub_only` (`phi_hmac_key_provisionado`,
+	# `janela_drenagem_cancel_inad`) `atendido: true` E com evidencia registrada. `status: DRAFT`
+	# sempre passa (nada em vigor). NAO substitui a assinatura: nunca escreve
+	# `status`/`ratificacao.*`. Self-check de nao-vacuidade proprio roda primeiro. Belt-and-
+	# suspenders com tests/unit/ci/test_check_phi_scrub_prereqs.py.
+	uv run python scripts/ci/check_phi_scrub_prereqs.py
 
 release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
 	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de
