@@ -1,9 +1,9 @@
 """PHG-V1: validity must survive authority I/O and real session re-resolution."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from tests.unit.gateway.human.test_gateway import NOW, SECRET, setup
+from tests.unit.gateway.human.test_gateway import SECRET, setup
 
 import maezo.gateway.human.gateway as gateway_module
 from maezo.gateway.human import GatewayRefusalError
@@ -15,12 +15,13 @@ pytestmark = pytest.mark.asyncio
 @pytest.mark.parametrize("stage", ["authority_read", "second_session"])
 @pytest.mark.parametrize("offset_us", [-1, 0, 1], ids=["before", "equal", "after"])
 async def test_read_requires_both_grants_valid_after_io(monkeypatch, expires, stage, offset_us):
-    gateway, store, task_port, authority_port, admission = await setup()
-    deadline = NOW + timedelta(minutes=1)
+    fixture_at = datetime.now(UTC)
+    gateway, store, task_port, authority_port, admission = await setup(fixture_at=fixture_at)
+    deadline = fixture_at + timedelta(minutes=1)
     completion = deadline + timedelta(microseconds=offset_us)
 
     class Clock(datetime):
-        current = NOW
+        current = fixture_at
 
         @classmethod
         def now(cls, tz=None):
@@ -28,10 +29,10 @@ async def test_read_requires_both_grants_valid_after_io(monkeypatch, expires, st
 
     monkeypatch.setattr(gateway_module, "datetime", Clock)
     task_port.task = task_port.task.model_copy(
-        update={"valid_until": deadline if expires == "task" else NOW + timedelta(minutes=30)}
+        update={"valid_until": deadline if expires == "task" else fixture_at + timedelta(minutes=30)}
     )
     authority_port.authority = authority_port.authority.model_copy(
-        update={"valid_until": deadline if expires == "authority" else NOW + timedelta(minutes=30)}
+        update={"valid_until": deadline if expires == "authority" else fixture_at + timedelta(minutes=30)}
     )
     original_snapshot = task_port.task.snapshot
     original_membership = store.get_membership
