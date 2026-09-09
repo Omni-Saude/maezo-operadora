@@ -191,11 +191,13 @@ def async_producer_capsule(repository: Path) -> Iterator[ModuleType]:
         recipe, catalog = modules
         adapter = ModuleType("ledger_finite_d7_execution")
         adapter.__dict__.update(original.__dict__)
-        adapter.original_producer = original
-        adapter.async_recipe = recipe
-        adapter.async_catalogue = catalog
-        adapter.capture_source = partial(recipe.capture_source, original)
-        adapter.validate_receipt = partial(recipe.validate_receipt, original)
+        adapter.__dict__.update(
+            original_producer=original,
+            async_recipe=recipe,
+            async_catalogue=catalog,
+            capture_source=partial(recipe.capture_source, original),
+            validate_receipt=partial(recipe.validate_receipt, original),
+        )
         yield adapter
 
 
