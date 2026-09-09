@@ -2370,3 +2370,30 @@ executa; candidatos a linhas novas):
    de degradacao. Nao corrigido porque a linha aprovada do registro nomeia apenas
    `_rotulo_opcional_tolerante`, e alterar a mensagem de uma excecao modelada
    (`ERR_ESC_NOTIFY_FAILED`) e escopo proprio.
+
+## R-228 — WP3.5 de SP-OP-PROGRAMA-001 fechada 'sem sujeito hoje'; a cerca e a condicao de retorno ao DPO (2026-09-06)
+
+Decisao aprovada do dono (`OWNER-DECISIONS-REGISTER` **R-228**, status
+`APROVADO-APOS-REVISÃO-HUMANA`): a pergunta de k-anonimato / small-cell-suppression foi RETIRADA do
+pacote do DPO (`docs/sme-dispatch/dpo/PACKAGE.md`, redline com o texto original preservado) e a
+pendencia **WP3.5** do contrato `docs/processes/contracts/SP-OP-PROGRAMA-001.md` foi fechada como
+**'sem sujeito hoje'**, entre as ancoras `R-228-WP3.5-FECHAMENTO-INICIO/FIM`. Fato de arvore que a
+sustenta: `spec/processes/dmn/programa_routing.dmn` so declara as saidas `elegivel_programa` e
+`motivo` (banda/roteamento POR INSTANCIA) e as service tasks `operadora.events.publish` do BPMN do
+PROGRAMA publicam so identificadores por instancia — nao ha agregado populacional para o qual
+fixar um parametro.
+
+**ESTE FECHAMENTO NAO RATIFICA PISO DE K ALGUM.** Nenhum valor de k foi escolhido, lido como
+default ou sugerido; a classe de efeito `leitura_populacional` segue `enforcement: shadow` com
+`aprovado: false` nos tres dominios; o arquivo de signoff do contrato NAO foi tocado (continua
+sendo ato do revisor humano, `docs/sme-dispatch/README.md`).
+
+**A cerca `tests/unit/spec/test_programa_population_aggregate_fence.py` E A CONDICAO DE RETORNO A
+ESTA FILA.** Ela reprova se qualquer publicacao de agregado populacional aparecer no PROGRAMA
+enquanto nao existir piso k declarado; e quando o piso existir (**R-117** landa o manifesto sob
+`spec/policies/privacy/` com `k` VAZIO; ADR-0019 clausula 4 e ADR-0042, ambos DRAFT/verify), ela
+VIRA DE SENTIDO e passa a exigir que todo consumidor de agregado o referencie — nunca desliga.
+**Status: ABERTO (acionavel pelo evento)** — no primeiro consumidor de agregado populacional
+proposto para o PROGRAMA, a pergunta 4 volta ao pacote do DPO, desta vez com sujeito, e o piso k
+ratificado volta a ser pre-condicao. Nada a fazer enquanto o evento nao ocorrer; a cerca e quem
+detecta o evento.
