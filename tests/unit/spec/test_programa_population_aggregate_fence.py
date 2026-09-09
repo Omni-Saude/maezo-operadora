@@ -1,71 +1,15 @@
-"""Cerca R-228 — egresso de agregado populacional do SP-OP-PROGRAMA-001 x piso k de anonimato.
+"""R228 supplementary lexical tripwire, not runtime authorization.
 
-O QUE ESTA CERCA E (e o que ela explicitamente NAO E)
------------------------------------------------------
-A decisao aprovada do dono (`OWNER-DECISIONS-REGISTER` **R-228**) fechou a pendencia **WP3.5** do
-contrato `SP-OP-PROGRAMA-001` como **"sem sujeito hoje"**: nenhum agregado populacional do programa
-e exposto a Zona Geral, logo nao ha consumidor para o qual fixar um parametro de k-anonimato. A
-pergunta 4 do pacote do DPO (`docs/sme-dispatch/dpo/PACKAGE.md`) foi RETIRADA e substituida por
-esta cerca.
-
-**Fechar a pendencia NAO ratifica piso de k nenhum.** Esta cerca e a CONDICAO DE RETORNO ao DPO: no
-primeiro consumidor de agregado proposto, o piso k ratificado (R-117 / ADR-0019 clausula 4) volta a
-ser pre-condicao. Nenhum numero de k e escolhido, lido como default ou sugerido aqui — ADR-0042
-(`Proposed — DRAFT/verify. NADA AQUI ESTA RATIFICADO`) e quem pede esse valor ao dono, e
-`andre/graph.py::DEFAULT_MIN_K_ANONYMITY` (== 1) e mecanismo, nao piso ratificado.
-
-A CERCA VIRA DE SENTIDO, NUNCA DESLIGA
---------------------------------------
-Dois regimes, escolhidos pelo estado da arvore e nao por configuracao de teste:
-
-* **SEM PISO DECLARADO (estado de hoje)** — qualquer consumidor de agregado populacional no
-  PROGRAMA REPROVA. E o fail-closed que torna "sem sujeito hoje" uma afirmacao verificavel em vez
-  de uma nota de rodape que apodrece.
-* **COM PISO DECLARADO** (quando R-117 landar o manifesto assinado) — a cerca deixa de exigir
-  ZERO consumidores e passa a exigir que **todo** consumidor REFERENCIE o parametro. O mesmo teste
-  muda de exigencia; ele nunca vira no-op. `evaluate_gate` e a funcao pura que decide isso, e os
-  DOIS regimes sao exercitados por teste hoje — o ramo futuro nao e codigo morto.
-
-`_declared_k_floor` exige um **VALOR**, nao um arquivo. R-117 landa o manifesto com `k` VAZIO e
-campos de ratificacao em branco de proposito; um manifesto sem valor NAO vira o regime, que e
-exatamente o comportamento correto (o parametro ainda nao existe).
-
-INVENTARIO DERIVADO DA ARVORE — nao ha lista escrita a mao aqui
----------------------------------------------------------------
-Tudo que a cerca VARRE e parseado/introspectado: as service tasks e `event_payload_vars` do BPMN
-do PROGRAMA, os `<output>` das DMNs `programa_*`, a superficie declarada da Valentina
-(`spec/agents/valentina/agent.yaml`) e os simbolos do seam de agregado. O VOCABULARIO de marcadores
-tambem e ancorado na arvore: parte da classe de efeito `leitura_populacional` em
-`action-approvals.yaml`, colhe as operacoes mapeadas para ela (`mapeamento_acoes`), usa os nomes
-dessas operacoes como nomes de metodo do seam (`GatedPopulationFeatureClient`) e extrai o tipo de
-retorno pela anotacao (`CohortAggregate`). `test_marker_derivation_is_anchored` reprova se
-qualquer elo dessa cadeia sumir — apagar a classe de efeito quebra a cerca ALTO, nunca a desarma
-em silencio.
-
-A unica parte DECLARADA (nao derivada) e `_PT_BR_STEMS`: o par ortografico pt-BR de cada conceito
-derivado, porque os artefatos de spec desta casa sao escritos em pt-BR e um egresso de agregado
-seria plausivelmente nomeado em qualquer das duas linguas. Esta declarado como expansao dos
-conceitos derivados, nunca como inventario independente de nomes.
-
-POR QUE A VARREDURA E ESTRUTURAL, NUNCA SOBRE PROSA
----------------------------------------------------
-A cerca le NOMES de interface (topico, variavel publicada, saida de DMN, id de tool), jamais o
-texto de `<bpmn:documentation>`. O BPMN do PROGRAMA diz `estratificacao_populacional` (um VALOR do
-enum `gatilho`) e `criterio populacional/clinico informativo` em documentacao: as duas coisas sao
-prosa/rotulo por instancia, nao egresso de agregado, e contar prosa como egresso tornaria a cerca
-inutilizavel no primeiro comentario. Mesmo precedente de
-`test_dmn_dead_inputs_fence.py` ("prose is not a read").
-
-Esta cerca vive em `tests/unit/` e nao em `scripts/ci/`: a decisao R-228 nao pede um gate de CI
-novo, e `/scripts/ci/` e CODEOWNED — a lane unitaria ja e contexto obrigatorio de `main`
-(`lint / type / unit`), logo a cerca ja bloqueia merge sem ampliar superficie dono-gated.
+The finite inventory detects selected named proposals, not all aggregate semantics.
+R117 canonical validation and the actual program sink guards enforce consumption.
+No current program aggregate sink is contracted; prose can never authorize one.
 """
 
 from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Iterator, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -74,6 +18,7 @@ import pytest
 import yaml
 
 from maezo.gateway.seams.population import GatedPopulationFeatureClient
+from maezo.platform.privacy.population_policy import PopulationPolicyUnavailableError, load_population_policy
 
 _REPO = Path(__file__).resolve().parents[3]
 _BPMN_DIR = _REPO / "spec" / "processes" / "bpmn"
@@ -98,11 +43,6 @@ AGGREGATE_EFFECT_CLASS = "leitura_populacional"
 #: texto tem ancora de inicio E de fim — sem a de fim, a fatia cresce sem ninguem notar.
 _CLOSURE_START = "<!-- R-228-WP3.5-FECHAMENTO-INICIO -->"
 _CLOSURE_END = "<!-- R-228-WP3.5-FECHAMENTO-FIM -->"
-
-#: Chaves que declaram um piso de k-anonimato numa politica versionada sob `spec/policies/`
-#: (ADR-0019 clausula 4 "parametro de compliance versionado"; ADR-0042 Parte 3 propoe exatamente
-#: esse endereco; R-117 landa o manifesto sob `spec/policies/privacy/`).
-_K_FLOOR_KEY = re.compile(r"k_anon|piso_k|min_cell_size")
 
 #: Par ortografico pt-BR de cada conceito DERIVADO acima. Declarado, e dito que e declarado.
 _PT_BR_STEMS: dict[str, tuple[str, ...]] = {
@@ -181,40 +121,22 @@ class KFloor:
     source: str
 
 
-def _walk(node: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[tuple[str, ...], Any]]:
-    if isinstance(node, dict):
-        for key, value in node.items():
-            yield from _walk(value, (*path, str(key)))
-    elif isinstance(node, list):
-        for index, value in enumerate(node):
-            yield from _walk(value, (*path, f"[{index}]"))
-    else:
-        yield path, node
-
-
 def _as_declared_int(value: Any) -> int | None:
     """Um piso so EXISTE quando ha VALOR inteiro >= 1. Vazio/None/placeholder nao conta."""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
         return value if value >= 1 else None
-    if isinstance(value, str) and value.strip().isdigit():
-        parsed = int(value.strip())
-        return parsed if parsed >= 1 else None
     return None
 
 
 def declared_k_floor() -> KFloor | None:
     """O piso k ratificado, se ja existir numa politica versionada sob `spec/policies/`."""
-    paths = sorted([*_POLICIES_DIR.rglob("*.yaml"), *_POLICIES_DIR.rglob("*.yml")])
-    for path in paths:
-        for key_path, value in _walk(_load_yaml(path)):
-            if not key_path or not _K_FLOOR_KEY.search(key_path[-1]):
-                continue
-            parsed = _as_declared_int(value)
-            if parsed is not None:
-                return KFloor(key=key_path[-1], value=parsed, source=str(path.relative_to(_REPO)))
-    return None
+    try:
+        policy = load_population_policy()
+    except PopulationPolicyUnavailableError:
+        return None
+    return KFloor(key="k_min", value=policy.k_min, source=policy.policy_id)
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +309,7 @@ def _topic_map_consumers(markers: frozenset[str]) -> list[Consumer]:
 
 
 def aggregate_consumers() -> list[Consumer]:
-    """TODO consumidor de agregado populacional alcancavel pelo SP-OP-PROGRAMA-001."""
+    """Finite named proposal inventory; runtime sink guards cover opaque field additions."""
     markers = aggregate_markers()
     return [
         *_bpmn_consumers(markers),
@@ -401,8 +323,10 @@ def aggregate_consumers() -> list[Consumer]:
 # O nucleo puro: os DOIS regimes
 # ---------------------------------------------------------------------------
 def evaluate_gate(k_floor: KFloor | None, consumers: Sequence[Consumer]) -> list[str]:
-    """Violacoes (lista vazia == PASSA). SEM piso: qualquer consumidor viola. COM piso: viola quem
-    nao referencia o parametro."""
+    """All proposed program aggregates require a new actual sink contract, even with a floor.
+
+    This supplementary inventory cannot authorize a sink from documentation or a token.
+    """
     if k_floor is None:
         return [
             f"[{c.kind}] {c.where}: {c.ident} parece egresso de agregado populacional "
@@ -412,10 +336,10 @@ def evaluate_gate(k_floor: KFloor | None, consumers: Sequence[Consumer]) -> list
             for c in consumers
         ]
     return [
-        f"[{c.kind}] {c.where}: {c.ident} e consumidor de agregado populacional e NAO referencia "
+        f"[{c.kind}] {c.where}: {c.ident} e consumidor proposto sem contrato de sink vinculado; exige "
         f"o piso {k_floor.key!r} declarado em {k_floor.source}."
         for c in consumers
-        if k_floor.key not in c.declaration
+        # No program aggregate consumer is contracted. Prose never establishes a bound call.
     ]
 
 
@@ -577,11 +501,11 @@ def test_gate_without_floor_rejects_any_consumer() -> None:
     ("declaration", "expected"),
     [
         ("<serviceTask/>", 1),  # consumidor SEM referencia ao parametro -> reprova
-        ('<serviceTask><param name="k_anonimato_min"/></serviceTask>', 0),  # referencia -> passa
+        ('<serviceTask><param name="k_anonimato_min"/></serviceTask>', 1),  # referencia -> passa
     ],
 )
 def test_gate_with_floor_requires_every_consumer_to_reference_it(declaration: str, expected: int) -> None:
-    """COM piso declarado a cerca MUDA DE EXIGENCIA — deixa de proibir e passa a exigir referencia."""
+    """A floor or parameter reference alone cannot authorize a new program aggregate sink."""
     # value=7 e um numero de teste NEUTRO — `evaluate_gate` so le `.key`/`.source` (linhas 408/410
     # do modulo), nunca `.value`; 5 coincidiria com a opcao A (nao ratificada) da ADR-0042 (VER-R228 F2).
     floor = KFloor(key="k_anonimato_min", value=7, source="spec/policies/privacy/fake.yaml")
@@ -597,7 +521,7 @@ def test_gate_with_floor_still_admits_the_empty_world() -> None:
 
 @pytest.mark.parametrize(
     ("value", "expected"),
-    [(None, None), ("", None), ("PENDENTE", None), (0, None), (True, None), (5, 5), ("5", 5)],
+    [(None, None), ("", None), ("PENDENTE", None), (0, None), (True, None), (5, 5), ("5", None)],
 )
 def test_only_a_real_value_counts_as_a_declared_floor(value: Any, expected: int | None) -> None:
     """R-117 landa o manifesto com `k` VAZIO: um manifesto sem VALOR nao vira o regime."""

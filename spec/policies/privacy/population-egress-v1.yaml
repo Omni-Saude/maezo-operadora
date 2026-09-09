@@ -1,0 +1,13 @@
+# R117 / ADR-0019: unratified vehicle. No numerical/privacy decision is made here.
+schema_version: 1
+policy_id: maezo.population-egress.v1
+status: DRAFT
+k_min: null
+allowed_metrics: null
+ratificacao:
+  ratificado: false
+  revisor: null
+  ratificado_em: null
+  evidence_ref: null
+# Names/dates are accountability metadata, not authentication. A verified human act
+# bound to these exact bytes is required separately; no verifier is deployed today.

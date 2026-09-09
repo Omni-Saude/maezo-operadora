@@ -98,6 +98,7 @@ import structlog
 # `gateway.{log_scrubber,pseudonymizer}` only and defers `phi_key_policy` lazily inside the function
 # body, so there is no cycle back into `tools.workers`.
 from maezo.platform.integrations.partition_key import partition_key_for_task
+from maezo.platform.privacy.program_publication import validate_program_publication
 from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -349,6 +350,7 @@ def make_publish_event_handler(
         # `{tenant}|{process_instance_id}` instead of degrading to `None` (round-robin, no
         # per-entity ordering). The hoist above the `try` is preserved verbatim for the reason the
         # paragraph above gives.
+        validate_program_publication(str(event_topic), payload)
         message_key = partition_key_for_task(task, str(event_topic), payload)
         try:
             event_delivered = await kafka.publish(

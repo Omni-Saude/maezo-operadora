@@ -312,3 +312,10 @@ continuam levantando `ErasureNotImplementedError`, e os 3 CronJobs de lifecycle 
 com `REFUSAL_EXIT_CODE = 78` por desenho. A assinatura do encarregado é o único ato que muda
 qualquer um desses estados — e, mesmo ela, não liga a eliminação real (o mecanismo de execução e
 as duas pontes de identidade continuam ausentes).
+
+
+R117/R228 engineering correction: canonical population policy vehicle is present with all
+human fields and k blank. Ratification evidence authentication remains unprovisioned;
+no population client is activated. The current program has no aggregate publication contract.
+See the R117/R228 enforcement correction in SP-OP-PROGRAMA-001; historical lexical
+references alone do not authorize a sink. No new DPO question is added without a consumer.

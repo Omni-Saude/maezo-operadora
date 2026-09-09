@@ -438,6 +438,13 @@ async def test_parity_gated_vs_neutralized_under_the_shipped_manifest(seam_name:
     gated_inner = fake_cls()
     live = await _exercise(gate(gated_inner, _shipped_seam()))
 
+    if seam_name == "population":
+        # R117 privacy enforcement is independent of autonomy shadow mode. No ratified
+        # canonical policy/authenticated human act exists: even a shadow-allowed read refuses.
+        assert live == [("raised", "PopulationPolicyUnavailableError")] * 2
+        assert gated_inner.calls == []
+        assert all(outcome[0] == "ok" for outcome in neutralized)
+        return
     assert live == neutralized, f"{seam_name}: gated and neutralized outcomes differ"
     assert gated_inner.calls == neutralized_inner.calls, (
         f"{seam_name}: the gate changed WHICH inner calls happened, or with what arguments"
