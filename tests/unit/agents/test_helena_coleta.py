@@ -491,3 +491,31 @@ def test_o_prompt_de_coleta_proibe_diagnostico_e_manda_perguntar_uma_coisa_so() 
         "PERGUNTAR_IDADE_GESTACIONAL",
     ):
         assert token in p
+
+
+@pytest.mark.parametrize("rodadas", [None, 0, -1, True, False, "1", 1.0, COLETA_MAX_RODADAS + 1])
+def test_route_recusa_contador_sem_proveniencia_inteira(rodadas: Any) -> None:
+    assert (
+        HelenaGraph._route(
+            {
+                "next_kind": "collect",
+                "coleta_veredito": "PERGUNTAR_INTENSIDADE",
+                "coleta_rodadas": rodadas,
+            }
+        )
+        == "escalate"
+    )  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("rodadas", [1, COLETA_MAX_RODADAS])
+def test_route_preserva_rodadas_validas(rodadas: int) -> None:
+    assert (
+        HelenaGraph._route(
+            {
+                "next_kind": "collect",
+                "coleta_veredito": "PERGUNTAR_INTENSIDADE",
+                "coleta_rodadas": rodadas,
+            }
+        )
+        == "collect"
+    )  # type: ignore[arg-type]
