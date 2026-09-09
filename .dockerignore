@@ -35,6 +35,11 @@ docs/
 
 # Artefatos de deploy (o Dockerfile fica em deploy/ mas o contexto é a raiz)
 deploy/
+# Excecao unica (09/09/2026): a imagem do motor (deploy/cibseven/Dockerfile) COPIA este script
+# para injetar groupResourceWhitelistPattern no bpm-platform.xml. Sem a negacao, `deploy/` inteiro
+# fica fora do contexto e o COPY falha com "not found" — medido no CodeBuild e local. So' este
+# arquivo entra; o resto de deploy/ continua fora.
+!deploy/cibseven/configure-group-whitelist.sh
 
 # Variáveis de ambiente locais (nunca empacotar segredos)
 .env
