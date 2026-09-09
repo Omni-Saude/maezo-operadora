@@ -857,15 +857,14 @@ class HelenaGraph:
         existing fail-closed red-flag logic re-engages instead of being skipped.
         """
         reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
-        # MEMORIA DE CONVERSA (coleta): preservada, nunca zerada — o turno seguinte precisa saber
-        # que uma pergunta foi feita. Por que isto nao reabre o buraco que o reset fecha esta'
-        # escrito em `_HELENA_MEMORIA_DE_CONVERSA`. `coleta_rodadas` e' saturado em
-        # `COLETA_MAX_RODADAS`: um valor absurdo so' consegue escalar mais cedo.
-        for chave in _HELENA_MEMORIA_DE_CONVERSA:
-            if chave in state:
-                reset[chave] = state[chave]  # type: ignore[literal-required]
-        if "coleta_rodadas" in state:
-            reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"])
+        # Memoria de coleta so' e' preservada com a feature ligada. O helper estrito
+        # recusa bool, negativos e valores malformados como rodadas esgotadas.
+        if self._coleta_enabled:
+            for chave in _HELENA_MEMORIA_DE_CONVERSA:
+                if chave in state:
+                    reset[chave] = state[chave]  # type: ignore[literal-required]
+            if "coleta_rodadas" in state:
+                reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"])
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
@@ -1078,7 +1077,12 @@ class HelenaGraph:
                 "coleta_pendente": None,
             }
         # Vocabulario desconhecido: a tabela nao e' confiavel para este caso -> humano.
-        logger.warning("helena_coleta_veredito_desconhecido", veredito=veredito[:40], node="classify")
+        logger.warning(
+            "helena_coleta_veredito_desconhecido",
+            classification="fora_do_vocabulario",
+            ref=ref,
+            node="classify",
+        )
         return {
             "coleta_veredito": None,
             "next_kind": "escalate",
@@ -1446,9 +1450,11 @@ class HelenaGraph:
             # Backstop estrutural da coleta: so' pergunta quem tem um veredito de PERGUNTA da
             # tabela E ainda tem rodada. `next_kind="collect"` sem isso e' estado injustificado
             # -> humano, mesmo raciocinio do `inform`.
+            rodadas = state.get("coleta_rodadas")
             if (
                 state.get("coleta_veredito") in COLETA_VEREDITOS_PERGUNTA
-                and _rodadas_de_coleta(state.get("coleta_rodadas", 0)) <= COLETA_MAX_RODADAS
+                and type(rodadas) is int
+                and 1 <= rodadas <= COLETA_MAX_RODADAS
                 and not state.get("error")
             ):
                 return "collect"
@@ -1540,7 +1546,7 @@ class HelenaGraph:
         # atual, no MESMO bloco nao confiavel — "forte" so' significa algo ao lado de "dor de
         # cabeca". Sem pergunta em aberto o prompt e' byte-a-byte o de antes.
         corpo = state.get("message_body", "")
-        if state.get("coleta_pendente") and state.get("coleta_contexto"):
+        if self._coleta_enabled and state.get("coleta_pendente") and state.get("coleta_contexto"):
             anteriores = state.get("coleta_contexto")
             corpo = f"[mensagens anteriores desta conversa] {anteriores}\n[mensagem atual] {corpo}"
         prompt = f"{classify_prompt()}\n\n{render_untrusted_block('message_body', corpo)}"
