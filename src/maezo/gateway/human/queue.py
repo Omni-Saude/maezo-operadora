@@ -25,7 +25,7 @@ from .models import AuthoritativeTask, CurrentTaskAuthority, Scope
 
 class ReadRefusalError(Exception):
     def __init__(self, code: ReadErrorCode) -> None:
-        self.code = TypeAdapter(ReadErrorCode).validate_python(code)
+        self.code: ReadErrorCode = TypeAdapter(ReadErrorCode).validate_python(code)
         super().__init__(self.code)
 
 
