@@ -69,7 +69,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: Quantos `try` de `agents/*/graph.py` a afirmacao 3 cobre HOJE (§Delta-F3): 25 sitios
 #: estreitados + os 4 envios WhatsApp que continuam largos por contrato. Pino de NAO-VACUIDADE —
 #: ver `test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados`.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 29
+#: 09/09/2026: 30 — `HelenaGraph.collect` (passo 4 da triagem) ganhou o mesmo `try` estreitado
+#: dos outros sitios de LLM da Helena (`PROGRAMMING_ERRORS` re-levanta, `EXTERNAL_DEPENDENCY_FAILURES`
+#: cai para uma PERGUNTA de fallback — nunca resposta clinica).
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 30
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

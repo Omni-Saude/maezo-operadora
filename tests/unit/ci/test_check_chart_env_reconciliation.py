@@ -642,7 +642,14 @@ def test_removing_whatsapp_verify_token_from_the_deployment_states_the_boot_reas
         chart=str(chart_copy),
         value_files=[str(_REPO_ROOT / "deploy" / "helm" / "maezo-tenant" / "values-amh.yaml")],
     )
-    declared = extract_declared_from_helm(rendered) + extract_declared_from_terraform(_TF_ROOT)
+    # Desde 09/09/2026 o receptor tambem existe como servico ECS
+    # (`deploy/aws-ecs/envs/dev-sa-east-1/service-webhook-receiver.tf`) e DECLARA este mesmo nome
+    # como `secrets`. O reconciliador une Helm + Terraform, entao remover so' do chart deixaria de
+    # ir RED — nao porque a prova enfraqueceu, mas porque passou a haver um segundo declarante. A
+    # prova RED continua sendo "NINGUEM declara": o declarante Terraform sai daqui de proposito.
+    declared = extract_declared_from_helm(rendered) + [
+        ref for ref in extract_declared_from_terraform(_TF_ROOT) if ref.name != "WHATSAPP_VERIFY_TOKEN"
+    ]
     literal_names = extract_literal_env_names(_SRC_DIR)
     settings_all, settings_required, marker_required, no_default = extract_settings_env_names(_SRC_DIR)
     read_names = literal_names | settings_all

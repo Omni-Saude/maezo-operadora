@@ -232,6 +232,17 @@ COLETA_VEREDITOS_PERGUNTA: frozenset[str] = frozenset(
 COLETA_VEREDITO_SUFICIENTE: str = "SUFICIENTE"
 COLETA_VEREDITO_ESCALAR: str = "ESCALAR"
 
+
+def _rodadas_de_coleta(valor: object) -> int:
+    """Le `coleta_rodadas` sem o idioma `or 0` (cerca NONE-GUARDRAIL): um valor que NAO e' um
+    inteiro nao-negativo nao foi escrito por este grafo — e a leitura fail-closed e' ESGOTADO
+    (`COLETA_MAX_RODADAS`), que so' consegue escalar mais cedo. `bool` e' recusado explicitamente:
+    `True` e' `int` em Python e "uma rodada" nao pode nascer de um flag."""
+    if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
+        return COLETA_MAX_RODADAS
+    return min(valor, COLETA_MAX_RODADAS)
+
+
 # Classify-output schema domains (classify-v1's own contract) — the R1 cycle-1 fail-closed
 # validator (`_validate_extraction`) checks membership against these. Kept as explicit
 # frozensets (not `typing.get_args` derivations) so the validation surface is self-contained
@@ -853,10 +864,8 @@ class HelenaGraph:
         for chave in _HELENA_MEMORIA_DE_CONVERSA:
             if chave in state:
                 reset[chave] = state[chave]  # type: ignore[literal-required]
-        try:
-            reset["coleta_rodadas"] = min(max(int(reset.get("coleta_rodadas") or 0), 0), COLETA_MAX_RODADAS)
-        except (TypeError, ValueError):
-            reset["coleta_rodadas"] = COLETA_MAX_RODADAS  # ilegivel -> trata como esgotado (escala)
+        if "coleta_rodadas" in state:
+            reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"])
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
@@ -999,7 +1008,7 @@ class HelenaGraph:
         FAIL-CLOSED em tres formas: tabela indisponivel, sem linha casada, ou veredito fora do
         vocabulario -> `falha_tecnica` -> humano. Nunca "assume suficiente".
         """
-        rodadas = int(state.get("coleta_rodadas") or 0)
+        rodadas = _rodadas_de_coleta(state.get("coleta_rodadas", 0))
         if rodadas >= COLETA_MAX_RODADAS:
             logger.info("helena_coleta_esgotada", rodadas=rodadas, node="classify")
             return {
@@ -1439,7 +1448,7 @@ class HelenaGraph:
             # -> humano, mesmo raciocinio do `inform`.
             if (
                 state.get("coleta_veredito") in COLETA_VEREDITOS_PERGUNTA
-                and int(state.get("coleta_rodadas") or 0) <= COLETA_MAX_RODADAS
+                and _rodadas_de_coleta(state.get("coleta_rodadas", 0)) <= COLETA_MAX_RODADAS
                 and not state.get("error")
             ):
                 return "collect"

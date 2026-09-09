@@ -139,7 +139,7 @@ async def test_desligada_por_default_o_grafo_nao_consulta_a_suficiencia() -> Non
 
 def test_o_default_do_construtor_e_desligado() -> None:
     g = _graph(_FakeInference([]), _dmn(), coleta=False)
-    assert g._coleta_enabled is False  # noqa: SLF001
+    assert g._coleta_enabled is False
     assert HelenaGraph.__init__.__kwdefaults__["coleta_enabled"] is False
 
 
@@ -350,11 +350,11 @@ async def test_sem_pergunta_em_aberto_o_prompt_do_classificador_e_o_de_antes() -
 
 
 def test_route_recusa_collect_sem_veredito_de_pergunta() -> None:
-    assert HelenaGraph._route({"next_kind": "collect"}) == "escalate"  # type: ignore[arg-type]  # noqa: SLF001
+    assert HelenaGraph._route({"next_kind": "collect"}) == "escalate"  # type: ignore[arg-type]
     assert (
         HelenaGraph._route({"next_kind": "collect", "coleta_veredito": "SUFICIENTE", "coleta_rodadas": 1})
         == "escalate"
-    )  # type: ignore[arg-type]  # noqa: SLF001
+    )  # type: ignore[arg-type]
     assert (
         HelenaGraph._route(
             {
@@ -365,7 +365,7 @@ def test_route_recusa_collect_sem_veredito_de_pergunta() -> None:
             }
         )
         == "escalate"
-    )  # type: ignore[arg-type]  # noqa: SLF001
+    )  # type: ignore[arg-type]
 
 
 def test_route_aceita_collect_justificado() -> None:
@@ -374,7 +374,7 @@ def test_route_aceita_collect_justificado() -> None:
             {"next_kind": "collect", "coleta_veredito": "PERGUNTAR_INTENSIDADE", "coleta_rodadas": 1}
         )
         == "collect"
-    )  # type: ignore[arg-type]  # noqa: SLF001
+    )  # type: ignore[arg-type]
 
 
 def test_o_grafo_compilado_tem_o_no_collect_ligado_ao_respond() -> None:
