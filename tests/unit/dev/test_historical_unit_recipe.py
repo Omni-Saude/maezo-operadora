@@ -22,6 +22,16 @@ def cmd(repo, *argv):
     return subprocess.run(argv, cwd=repo, env=h.environment(), check=True, capture_output=True).stdout
 
 
+def write_private_fixture(path: Path, data: bytes) -> None:
+    """Create fixture evidence privately; only rewrite files this test already owns."""
+    if path.exists():
+        assert path.stat().st_mode & 0o777 == 0o600
+        path.write_bytes(data)
+    else:
+        h.write(path, data)
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
 @pytest.fixture(scope="module")
 def source(tmp_path_factory):
     repo = tmp_path_factory.mktemp("tiny-historical-git")
@@ -161,8 +171,30 @@ def test_timeout_child_cleanup(tmp_path):
 )
 def test_bad_json(tmp_path, body):
     p = tmp_path / "bad.json"
-    p.write_bytes(body)
-    with pytest.raises(h.CaptureRefusedError):
+    write_private_fixture(p, body)
+    reasons = {
+        b'{"a":1,"a":2}': "duplicate JSON key",
+        b"[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]": "deep JSON",
+        b'{"n":NaN}': "nonfinite JSON",
+        b"\xff": "invalid JSON",
+    }
+    with pytest.raises(h.CaptureRefusedError, match=reasons[body]):
+        h.load(p)
+
+
+def test_private_fixture_creation_does_not_change_umask_or_relax_permission_fence(tmp_path, monkeypatch):
+    calls = []
+
+    def forbidden_umask(mask):
+        calls.append(mask)
+        raise AssertionError("fixture creation must not change the process umask")
+
+    monkeypatch.setattr(h.os, "umask", forbidden_umask)
+    p = tmp_path / "private.json"
+    write_private_fixture(p, b"{}")
+    assert not calls
+    p.chmod(0o644)
+    with pytest.raises(h.CaptureRefusedError, match="nonregular or nonprivate evidence"):
         h.load(p)
 
 
@@ -171,24 +203,24 @@ def test_missing_forged_and_phase_receipts(positive, tmp_path):
     sources = h.load(out / "source-before.json")
     checkout = Path(receipt["environment"]["checkout"])
     for file in ("pytest.stdout", "pytest.stderr", "guard-base.json"):
-        (tmp_path / file).write_bytes((out / file).read_bytes())
+        write_private_fixture(tmp_path / file, (out / file).read_bytes())
     with pytest.raises(FileNotFoundError):
         h.validate_run(
             tmp_path, checkout, receipt["source"]["test"], sources, receipt["execution"], check_files=False
         )
     marker = h.load(out / "phase.json")
-    for mutate in [
-        lambda m: m.update(archived=[]),
-        lambda m: m.update(escaped=["/sibling/source.py"]),
-        lambda m: m["coverage"].update(selected=[]),
-        lambda m: m["coverage"]["phases"][0].update(outcome="failed"),
-        lambda m: m["coverage"].update(started=1),
-        lambda m: m.update(forged="field"),
+    for mutate, reason in [
+        (lambda m: m.update(archived=[]), "guard receipts differ"),
+        (lambda m: m.update(escaped=["/sibling/source.py"]), "guard receipts differ"),
+        (lambda m: m["coverage"].update(selected=[]), "incomplete phases"),
+        (lambda m: m["coverage"]["phases"][0].update(outcome="failed"), "nonpassing pytest phase"),
+        (lambda m: m["coverage"].update(started=1), "wrong receipt scalar type"),
+        (lambda m: m.update(forged="field"), "unknown or missing receipt fields"),
     ]:
         altered = json.loads(json.dumps(marker))
         mutate(altered)
-        (tmp_path / "phase.json").write_bytes(h.encode(altered))
-        with pytest.raises(h.CaptureRefusedError):
+        write_private_fixture(tmp_path / "phase.json", h.encode(altered))
+        with pytest.raises(h.CaptureRefusedError, match=reason):
             h.validate_run(
                 tmp_path,
                 checkout,
@@ -209,7 +241,7 @@ def test_borrowed_editable_and_inventory(positive, tmp_path):
         "url": "file:///sibling/workspace",
         "dir_info": {"editable": True},
     }
-    (tmp_path / "inventory.json").write_bytes(h.encode(inv))
+    write_private_fixture(tmp_path / "inventory.json", h.encode(inv))
     with pytest.raises(h.CaptureRefusedError, match="borrowed"):
         h.inventory(command, tmp_path, checkout)
 
@@ -340,13 +372,13 @@ def test_real_source_escape_and_locked_preparation(source, tmp_path, case):
 
 def test_oversized_json_and_strict_raw_utf8(positive, tmp_path):
     p = tmp_path / "oversized.json"
-    p.write_bytes(b" " * 65)
+    write_private_fixture(p, b" " * 65)
     with pytest.raises(h.CaptureRefusedError, match="oversized"):
         h.load(p, limit=64)
     out, receipt = positive
     command = dict(receipt["execution"])
-    (tmp_path / "pytest.stdout").write_bytes(b"\xff")
-    (tmp_path / "pytest.stderr").write_bytes(b"")
+    write_private_fixture(tmp_path / "pytest.stdout", b"\xff")
+    write_private_fixture(tmp_path / "pytest.stderr", b"")
     command["combined_sha256"] = h.digest(b"\xff")
     with pytest.raises(h.CaptureRefusedError, match="UTF-8"):
         h.validate_run(
