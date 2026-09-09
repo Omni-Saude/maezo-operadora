@@ -88,7 +88,13 @@ class WorkloadEngineIT {
     var c=(ProcessEngineConfigurationImpl)ProcessEngineConfiguration.createStandaloneProcessEngineConfiguration().setProcessEngineName("default")
         .setJdbcDriver("org.postgresql.Driver").setJdbcUrl(url).setJdbcUsername(user).setJdbcPassword(password)
         .setDatabaseSchemaUpdate("true").setJobExecutorActivate(false).setHistory("full").setAuthorizationEnabled(authorization).setTenantCheckEnabled(true);
-    c.setMetricsEnabled(false);c.setEnforceHistoryTimeToLive(false);return c;
+    c.setMetricsEnabled(false);c.setEnforceHistoryTimeToLive(false);
+    // Test-only observer preserves the command object and the product interceptor chain.
+    if(authorization) {
+      c.setCustomPostCommandInterceptorsTxRequired(List.of(new RaceCommandObserver()));
+      c.setCustomPostCommandInterceptorsTxRequiresNew(List.of(new RaceCommandObserver()));
+    }
+    return c;
   }
   String deploy(String key,String topic,boolean error) {
     String boundary=error?"<error id=\"failure\" errorCode=\"ERR_ESC_NOTIFY_FAILED\"/>":"";
@@ -436,17 +442,178 @@ class WorkloadEngineIT {
     assertNotNull(bootstrap(()->engine.getRuntimeService().startProcessInstanceById(pagto,"target-reachability-"+UUID.randomUUID())));
   }
 
+  // D7B-RACE-ORACLE-01: only the two explicitly submitted race futures set this scope.
+  // No datasource, transaction, grant, native command or product fence is replaced.
+  static final ThreadLocal<RaceCall> RACE_CALL = new ThreadLocal<>();
+  record NativeBackend(int pid,String schema,String command,String backendStart) {}
+  static final class RaceCall {
+    final String role,command,schema,resourceHash,sql;
+    volatile NativeBackend backend;
+    RaceCall(String role,String command,String schema,String resource,String sql) {
+      this.role=role;this.command=command;this.schema=schema;resourceHash=sqlHash(resource);this.sql=canonicalSql(sql);
+    }
+    <T>T invoke(Supplier<T> action) {
+      assertNull(RACE_CALL.get(),"race observation scopes cannot nest");RACE_CALL.set(this);
+      try{return action.get();}finally{RACE_CALL.remove();}
+    }
+  }
+  static final class RaceCommandObserver extends CommandInterceptor {
+    @Override public <T>T execute(Command<T> command) {
+      var observation=RACE_CALL.get();
+      if(observation!=null && command.getClass().getSimpleName().equals(observation.command)) {
+        var context=org.cibseven.bpm.engine.impl.context.Context.getCommandContext();
+        assertNotNull(context,"observation must run in the actual native CommandContext");
+        var c=context.getDbSqlSession().getSqlSession().getConnection();
+        // This read uses the enlisted native connection, not a guessed pg_stat_activity row.
+        try(var q=c.createStatement()) {
+          q.setQueryTimeout(2);
+          try(var r=q.executeQuery("SELECT pg_backend_pid(),current_schema(),backend_start::text FROM pg_stat_activity WHERE pid=pg_backend_pid()")) {
+          assertTrue(r.next());assertEquals(observation.schema,r.getString(2));
+          var found=new NativeBackend(r.getInt(1),r.getString(2),command.getClass().getName(),r.getString(3));
+          assertFalse(r.next());
+          if(observation.backend!=null)assertEquals(observation.backend,found,"one observed native command must retain its actual backend");
+          observation.backend=found;
+          }
+        } catch(SQLException e){throw new AssertionError("cannot bind the owned native race backend",e);}
+      }
+      return next.execute(command);
+    }
+  }
+  static String canonicalSql(String sql) {
+    return sql.replaceAll("\\$[0-9]+","?").replaceAll("\\s+"," ").replaceAll("\\s*=\\s*","=")
+        .replaceAll("\\s*,\\s*",",").trim().replaceAll(";+$","").toLowerCase(Locale.ROOT);
+  }
+  static String sqlHash(String value) {return br.com.maezo.human.Jcs.digest(value.getBytes(StandardCharsets.UTF_8));}
+  static boolean sameNativeWait(String actualSql,String expectedSql,String actualStart,String recordedStart) {
+    return actualStart!=null && actualStart.equals(recordedStart) && canonicalSql(actualSql).equals(canonicalSql(expectedSql));
+  }
+  record WaitNode(int pid,String backendStart,String state,String waitType,String waitEvent,
+      String sqlHash,boolean expectedSql,boolean ownedRelation,List<Integer> blockers,List<Object> locks) {
+    boolean waiting() {return "active".equals(state)&&"Lock".equals(waitType)&&expectedSql&&ownedRelation;}
+    Map<String,Object> safe() {
+      var row=new LinkedHashMap<String,Object>();row.put("pid",pid);row.put("backend_start",backendStart);row.put("state",state);
+      row.put("wait_type",waitType);row.put("wait_event",waitEvent);row.put("sql_sha256",sqlHash);row.put("expected_sql",expectedSql);
+      row.put("owned_relation",ownedRelation);row.put("blocking_pids",blockers);row.put("locks",locks);return row;
+    }
+  }
+  // The accepted universe is exactly owner, identified competitor and (optionally) victim.
+  // An unrelated/absent/cyclic path never establishes this race's precondition.
+  static boolean ownedWaitPath(Map<Integer,WaitNode> graph,int owner,int competitor,Integer victim) {
+    if(owner<=0||competitor<=0||owner==competitor||victim!=null&&(victim<=0||victim==owner||victim==competitor))return false;
+    var root=graph.get(owner);var first=graph.get(competitor);
+    if(root==null||!root.ownedRelation()||!root.blockers().isEmpty()||first==null||!first.waiting()
+        ||!new HashSet<>(first.blockers()).equals(Set.of(owner)))return false;
+    if(victim==null)return true;
+    var second=graph.get(victim);if(second==null||!second.waiting()||second.blockers().isEmpty())return false;
+    return Set.of(owner,competitor).containsAll(second.blockers());
+  }
+  String nativeRaceSql(String action,Object task) {
+    String mapping=action.equals("complete")||action.equals("timer")?"deleteExternalTask":"updateExternalTask";
+    // Use the actual pinned CIB MyBatis template, including its ID/revision predicate.
+    return securedConfig.getSqlSessionFactory().getConfiguration().getMappedStatement(mapping).getBoundSql(task).getSql();
+  }
+  Map<Integer,WaitNode> raceGraph(int owner,long relation,RaceCall competitor,RaceCall victim)throws Exception {
+    var expected=new LinkedHashMap<Integer,RaceCall>();
+    if(competitor.backend!=null)expected.put(competitor.backend.pid(),competitor);
+    if(victim!=null && victim.backend!=null)expected.put(victim.backend.pid(),victim);
+    var pids=new ArrayList<Integer>();pids.add(owner);pids.addAll(expected.keySet());
+    var result=new LinkedHashMap<Integer,WaitNode>();
+    try(var c=connection();var s=c.prepareStatement("SELECT pid,backend_start::text,state,wait_event_type,wait_event,query,pg_blocking_pids(pid) FROM pg_stat_activity WHERE datname=current_database() AND pid=ANY(?) ORDER BY pid")) {
+      var ids=c.createArrayOf("integer",pids.toArray());
+      try {
+        s.setArray(1,ids);s.setQueryTimeout(2);
+        try(var rows=s.executeQuery()) {
+          while(rows.next()) {
+            int id=rows.getInt(1);String query=canonicalSql(Objects.toString(rows.getString(6),""));
+            List<Integer> blockers=new ArrayList<>();var blocking=rows.getArray(7);
+            try {for(Object value:(Object[])blocking.getArray())blockers.add(((Number)value).intValue());}finally{blocking.free();}
+            var observed=expected.get(id);boolean exact=observed!=null
+                && sameNativeWait(query,observed.sql,rows.getString(2),observed.backend.backendStart());
+            List<Object> locks=new ArrayList<>();boolean owned=false;
+            try(var lock=c.prepareStatement("SELECT locktype,mode,granted,relation,page,tuple,transactionid::text FROM pg_locks WHERE pid=? AND (relation=?::oid OR locktype IN ('transactionid','virtualxid')) ORDER BY locktype,mode,granted LIMIT 33")) {
+              lock.setInt(1,id);lock.setLong(2,relation);lock.setQueryTimeout(2);
+              try(var lr=lock.executeQuery()) {
+                while(lr.next()) {
+                  var data=new LinkedHashMap<String,Object>();data.put("type",lr.getString(1));data.put("mode",lr.getString(2));data.put("granted",lr.getBoolean(3));
+                  data.put("relation",lr.getString(4));data.put("page",lr.getString(5));data.put("tuple",lr.getString(6));data.put("transaction",lr.getString(7));locks.add(data);
+                  if(lr.getLong(4)==relation&&lr.getBoolean(3))owned=true;
+                }
+              }
+            }
+            assertTrue(locks.size()<=32,"owned lock snapshot must stay bounded");
+            result.put(id,new WaitNode(id,rows.getString(2),rows.getString(3),rows.getString(4),rows.getString(5),sqlHash(query),exact,owned,blockers,locks));
+          }
+        }
+      } finally {ids.free();}
+    }
+    return result;
+  }
+  static final class EarlyRaceCompletion extends AssertionError {
+    final Object originalResult;
+    EarlyRaceCompletion(String role,Object result) {
+      super(role+" completed before its required SQL wait; original result SHA-256="+br.com.maezo.human.Jcs.digest(Json.bytes(result)));
+      originalResult=result; // Keep the actual return, while the emitted diagnostic redacts row values.
+    }
+  }
+  static void preserveEarlyResult(Future<?> future,String role)throws Exception {
+    if(future.isDone()) {
+      // get() propagates the original ExecutionException/cause, not a generic wait timeout.
+      Object result=future.get();
+      throw new EarlyRaceCompletion(role,result);
+    }
+  }
+  void observedRaceWait(String action,String stage,int owner,long relation,String tuple,RaceCall competitor,
+      Future<?> competing,RaceCall victim,Future<?> pending)throws Exception {
+    long started=System.nanoTime(),until=started+TimeUnit.SECONDS.toNanos(10);List<Object> evidence=new ArrayList<>();String previous="";
+    Map<Integer,WaitNode> graph=Map.of();boolean accepted=false;
+    try {
+      while(System.nanoTime()<until) {
+        preserveEarlyResult(competing,"competitor");if(pending!=null)preserveEarlyResult(pending,"victim");
+        graph=raceGraph(owner,relation,competitor,victim);
+        String signature=new String(Json.bytes(graph.values().stream().map(WaitNode::safe).toList()),StandardCharsets.UTF_8);
+        if(!signature.equals(previous)&&evidence.size()<15){evidence.add(Map.of("observed_at",java.time.Instant.now().toString(),"nodes",graph.values().stream().map(WaitNode::safe).toList()));previous=signature;}
+        if(System.nanoTime()<until && competitor.backend!=null && (victim==null||victim.backend!=null)
+            && ownedWaitPath(graph,owner,competitor.backend.pid(),victim==null?null:victim.backend.pid())) {
+          preserveEarlyResult(competing,"competitor");if(pending!=null)preserveEarlyResult(pending,"victim");accepted=true;return;
+        }
+        Thread.sleep(10);
+      }
+      preserveEarlyResult(competing,"competitor");if(pending!=null)preserveEarlyResult(pending,"victim");
+      fail("owned native race wait not established within 10 seconds; see D7_RACE_WAIT evidence");
+    } finally {
+      var output=new LinkedHashMap<String,Object>();output.put("schema","d7-race-wait-observation-v1");output.put("action",action);output.put("stage",stage);output.put("accepted",accepted);output.put("elapsed_ms",TimeUnit.NANOSECONDS.toMillis(System.nanoTime()-started));
+      output.put("owned_schema",schema);output.put("resource_sha256",competitor.resourceHash);output.put("relation_oid",relation);output.put("locked_tuple",tuple);output.put("owner_pid",owner);
+      output.put("competitor",raceIdentity(competitor));output.put("victim",victim==null?Map.of():raceIdentity(victim));output.put("changes",evidence);
+      output.put("final_nodes",graph.values().stream().map(WaitNode::safe).toList());
+      System.out.println("D7_RACE_WAIT "+new String(Json.bytes(output),StandardCharsets.UTF_8));
+    }
+  }
+  static Map<String,Object> raceIdentity(RaceCall call) {
+    var result=new LinkedHashMap<String,Object>();result.put("role",call.role);result.put("command",call.command);result.put("expected_sql_sha256",sqlHash(call.sql));
+    result.put("resource_sha256",call.resourceHash);
+    if(call.backend!=null){result.put("pid",call.backend.pid());result.put("native_command",call.backend.command());result.put("schema",call.backend.schema());result.put("backend_start",call.backend.backendStart());}
+    return result;
+  }
+
   @ParameterizedTest @ValueSource(strings={"complete","unlock","extend","timer"})
   void competingNativeOwnershipActionAndTypedCompleteAreSerialized(String action)throws Exception {
     String task=lockedTask(contas),row="contas.calculate_impact.complete.v1";var request=completion(task);
     String process=bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult().getProcessInstanceId());
     var jobs=bootstrap(()->engine.getManagementService().createJobQuery().processInstanceId(process).list());
     assertEquals(1,jobs.size(),"synthetic native timer must be deployed and reachable before the race");
+    var nativeTask=bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult());
+    String command=switch(action){case "complete"->"CompleteExternalTaskCmd";case "unlock"->"UnlockExternalTaskCmd";case "extend"->"ExtendLockOnExternalTaskCmd";case "timer"->"ExecuteJobsCmd";default->throw new AssertionError();};
+    var competingCall=new RaceCall("competitor",command,schema,task,nativeRaceSql(action,nativeTask));
+    var victimCall=new RaceCall("victim","WorkloadCommand",schema,task,"SELECT ID_ FROM ACT_RU_EXT_TASK WHERE ID_=? AND TENANT_ID_=? FOR UPDATE");
     var pool=Executors.newFixedThreadPool(2);
     try(var blocker=connection()) {
       blocker.setAutoCommit(false);int owner=pid(blocker);
       try(var s=blocker.prepareStatement("SELECT id_ FROM act_ru_ext_task WHERE id_=? FOR UPDATE")){s.setString(1,task);try(var r=s.executeQuery()){assertTrue(r.next());}}
-      Future<?> competing=pool.submit(()->bootstrap(()->{
+      long relation;String tuple;
+      try(var q=blocker.prepareStatement("SELECT tableoid::bigint,ctid::text FROM act_ru_ext_task WHERE id_=?")) {
+        q.setString(1,task);try(var r=q.executeQuery()){assertTrue(r.next());relation=r.getLong(1);tuple=r.getString(2);assertFalse(r.next());}
+      }
+      Future<?> competing=pool.submit(()->competingCall.invoke(()->bootstrap(()->{
         switch(action) {
           case "complete"->engine.getExternalTaskService().complete(task,"fixture-worker");
           case "unlock"->engine.getExternalTaskService().unlock(task);
@@ -454,12 +621,12 @@ class WorkloadEngineIT {
           case "timer"->engine.getManagementService().executeJob(jobs.get(0).getId());
           default->throw new AssertionError();
         }return null;
-      }));
+      })));
       try {
-        blocked(owner,"ACT_RU_EXT_TASK",competing);
-        Future<?> victim=pool.submit(()->call(row,request));
+        observedRaceWait(action,"competitor",owner,relation,tuple,competingCall,competing,null,null);
+        Future<?> victim=pool.submit(()->victimCall.invoke(()->call(row,request)));
         try {
-          blocked(owner,"SELECT ID_ FROM ACT_RU_EXT_TASK",victim);blocker.commit();competing.get(10,TimeUnit.SECONDS);
+          observedRaceWait(action,"victim",owner,relation,tuple,competingCall,competing,victimCall,victim);blocker.commit();competing.get(10,TimeUnit.SECONDS);
           if(action.equals("extend"))assertNotNull(victim.get(10,TimeUnit.SECONDS));
           else refusal(assertThrows(ExecutionException.class,()->victim.get(10,TimeUnit.SECONDS)),"engine_resource_mismatch",403);
           if(action.equals("unlock")) {
