@@ -45,6 +45,8 @@ _pending_groups: set[int] = set()
 _process_owner: EngineLock | None = None
 _source_digests: dict[Path, tuple[str, dict[str, str]]] = {}
 _collected_items: dict[Path, list[dict[str, Any]]] = {}
+_source_leases: dict[Path, EngineLock] = {}
+_source_cleanup_ready: set[Path] = set()
 
 CHECKOUT_INPUTS = (
     "docker-compose.yml",
@@ -593,10 +595,30 @@ def execution_checkout(checkout: Path, expected_sha: str, results_dir: Path) -> 
         _source_digests[target] = (expected_sha, digests)
         yield target, str(imported)
     finally:
-        # Processo ainda ativo pode continuar usando a cópia; nunca removê-la nesse estado.
-        if not _pending_groups:
-            _source_digests.pop(target, None)
+        # A generator may finalize during unwind/GC. Cleanup permission belongs to
+        # the source lease, never to the lifetime of the Python context reference.
+        owner = _source_leases.get(target)
+        if not _pending_groups and (
+            owner is None
+            or (
+                target in _source_cleanup_ready
+                and owner.owns()
+                and owner.owner.get("subprocess_quiescent") is not False
+            )
+        ):
+            if target in _source_digests:
+                _assert_execution_source(target)
             shutil.rmtree(scratch)
+            _source_digests.pop(target, None)
+            _source_leases.pop(target, None)
+            _source_cleanup_ready.discard(target)
+
+
+def _bind_execution_source(checkout: Path, lock: EngineLock) -> None:
+    _assert_execution_source(checkout)
+    if not lock.owns() or checkout in _source_leases:
+        raise RunnerError("fonte sem posse exclusiva para vincular à lease")
+    _source_leases[checkout] = lock
 
 
 def _assert_execution_source(checkout: Path) -> None:
@@ -1032,7 +1054,7 @@ class EngineLock:
         if _pending_groups or self.owner.get("subprocess_quiescent") is False:
             self.update("subprocess_cleanup_unconfirmed", pending_pgids=sorted(_pending_groups))
             return False
-        if not self.owns():
+        if not self.owns() or any(owner is self for owner in _source_leases.values()):
             return False
         self.owner_path.unlink()
         try:
@@ -1046,6 +1068,13 @@ class EngineLock:
 
 
 def _compose_base(checkout: Path) -> list[str]:
+    # Also covers readiness/schema commands that call _run directly with this argv.
+    _assert_execution_source(checkout)
+    owner = _source_leases.get(checkout)
+    if owner is not None and (
+        not owner.owns() or _pending_groups or owner.owner.get("subprocess_quiescent") is False
+    ):
+        raise RunnerError("Compose recusado sem posse e quiescência da fonte")
     return [
         "docker",
         "--context",
@@ -1714,6 +1743,7 @@ def run_suite(args: argparse.Namespace) -> int:
     stack_touched = False
     env = _runtime_env()
     source_context = None
+    cleanup_complete = False
     try:
         _invalidate_mutation_selection(results_dir)
         original, _ = validate_checkout(args.checkout, args.sha)
@@ -1760,6 +1790,7 @@ def run_suite(args: argparse.Namespace) -> int:
             _json_write(results_dir / "run-state.json", state)
             return BUSY_EXIT
         _process_owner = lock
+        _bind_execution_source(checkout, lock)
         lock.update("preflight_complete", results_dir=results_dir.as_posix())
         state["state"] = "lock_acquired"
         _json_write(results_dir / "run-state.json", state)
@@ -1810,12 +1841,8 @@ def run_suite(args: argparse.Namespace) -> int:
                     state.update(state="subprocess_cleanup_unconfirmed", return_code=1)
                     lock.update("subprocess_cleanup_unconfirmed", return_code=1, state=state["state"])
                 elif not stack_touched:
-                    if not lock.release():
-                        state.update(
-                            state="lock_release_failed",
-                            lock_release_error="posse mudou ou diretório contém arquivos inesperados",
-                        )
-                        return_code = return_code or 1
+                    _assert_execution_source(checkout)
+                    cleanup_complete = True
                 else:
                     outcome_before_teardown = state["state"]
                     # Nem o estado nem o rc durável são verdes durante a desmontagem.
@@ -1855,12 +1882,7 @@ def run_suite(args: argparse.Namespace) -> int:
                         if not lock.update("teardown_complete", return_code=return_code):
                             raise RunnerError("posse perdida ao confirmar teardown")
                         state.update(state=outcome_before_teardown, teardown_finished_at=_now())
-                        if not lock.release():
-                            state.update(
-                                state="lock_release_failed",
-                                lock_release_error="posse mudou ou diretório contém arquivos inesperados",
-                            )
-                            return_code = return_code or 1
+                        cleanup_complete = True
                     if _pending_groups or lock.owner.get("subprocess_quiescent") is False:
                         return_code = 1
                         state["state"] = "subprocess_cleanup_unconfirmed"
@@ -1877,7 +1899,15 @@ def run_suite(args: argparse.Namespace) -> int:
         finally:
             try:
                 if source_context is not None:
+                    if cleanup_complete:
+                        _source_cleanup_ready.add(checkout)
                     source_context.__exit__(None, None, None)
+                if cleanup_complete and lock is not None and not lock.release():
+                    state.update(
+                        state="lock_release_failed",
+                        lock_release_error="fonte retida, posse mudou ou arquivos inesperados na lease",
+                    )
+                    return_code = return_code or 1
             except (KeyboardInterrupt, RunnerInterrupted) as exc:
                 return_code = 130
                 state.update(state="source_cleanup_interrupted", error=type(exc).__name__)
