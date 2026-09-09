@@ -399,8 +399,7 @@ async def test_sem_pergunta_em_aberto_o_prompt_do_classificador_e_o_de_antes() -
 def test_route_recusa_collect_sem_veredito_de_pergunta() -> None:
     assert HelenaGraph._route({"next_kind": "collect"}) == "escalate"  # type: ignore[arg-type]
     assert (
-        HelenaGraph._route({"next_kind": "collect", "coleta_veredito": "PERGUNTAR_INTENSIDADE"})
-        == "escalate"
+        HelenaGraph._route({"next_kind": "collect", "coleta_veredito": "PERGUNTAR_INTENSIDADE"}) == "escalate"
     )  # type: ignore[arg-type]
     assert (
         HelenaGraph._route(
