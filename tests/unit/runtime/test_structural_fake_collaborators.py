@@ -9,10 +9,12 @@ import pytest
 from tests.unit.runtime import test_inference_fakes_match_protocol as fence
 
 _HTTP = """import http.client as wire
+import pytest
 class Specimen:
     def close(self): pass
 wire_alias = wire
 replacement = Specimen
+monkeypatch = pytest.MonkeyPatch()
 monkeypatch.setattr(wire_alias, "HTTPConnection", replacement)
 """
 _SOCKET = """from httpcore._backends.sync import SyncStream as Parent
@@ -180,6 +182,33 @@ def install(receiver):
 def test_install(monkeypatch):
     monkeypatch = Recorder()
     install(monkeypatch)
+"""
+    findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+    assert any("DmnTransport.close" in finding for finding in findings)
+
+
+@pytest.mark.parametrize("override", ["fixture", "named_fixture", "parametrize", "pytest_binding"])
+def test_overridden_or_parametrized_monkeypatch_name_does_not_prove_receiver(override):
+    declarations = {
+        "fixture": (
+            "@pytest.fixture\ndef monkeypatch():\n    return Recorder()\ndef test_install(monkeypatch):\n"
+        ),
+        "named_fixture": (
+            '@pytest.fixture(name="monkeypatch")\ndef recorder_fixture():\n'
+            "    return Recorder()\ndef test_install(monkeypatch):\n"
+        ),
+        "parametrize": (
+            '@pytest.mark.parametrize("monkeypatch", [Recorder()])\ndef test_install(monkeypatch):\n'
+        ),
+        "pytest_binding": "pytest = Recorder()\ndef test_install(monkeypatch):\n",
+    }
+    source = f"""import http.client as wire
+import pytest
+class Specimen:
+    def close(self): pass
+class Recorder:
+    def setattr(self, target, attribute, replacement): return replacement
+{declarations[override]}    monkeypatch.setattr(wire, "HTTPConnection", Specimen)
 """
     findings = fence._achados_estruturais_em_fonte(source, "arbitrary.py")
     assert any("DmnTransport.close" in finding for finding in findings)

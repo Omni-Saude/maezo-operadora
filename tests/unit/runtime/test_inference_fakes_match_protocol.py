@@ -988,16 +988,110 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
         return None
 
     funcoes = {no.name: no for no in arvore.body if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    importa_pytest = any(
-        isinstance(no, ast.Import)
-        and any(
-            alias.name == "pytest" and (alias.asname is None or alias.asname == "pytest")
-            for alias in no.names
+    importacoes_pytest = [
+        alias
+        for no in arvore.body
+        if isinstance(no, ast.Import)
+        for alias in no.names
+        if alias.name == "pytest" and (alias.asname is None or alias.asname == "pytest")
+    ]
+
+    def vincula_nome_no_modulo(no: ast.stmt, nome: str) -> bool:
+        if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return no.name == nome
+        if isinstance(no, (ast.Import, ast.ImportFrom)):
+            return any((alias.asname or alias.name.split(".")[0]) == nome for alias in no.names)
+        if isinstance(no, ast.Assign):
+            return any(nome in nomes_vinculados(target) for target in no.targets)
+        if isinstance(no, ast.AnnAssign):
+            return no.value is not None and nome in nomes_vinculados(no.target)
+        if isinstance(no, (ast.AugAssign, ast.For, ast.AsyncFor)):
+            return nome in nomes_vinculados(no.target)
+        if isinstance(no, (ast.With, ast.AsyncWith)):
+            return any(
+                item.optional_vars is not None and nome in nomes_vinculados(item.optional_vars)
+                for item in no.items
+            )
+        if isinstance(no, ast.Delete):
+            return any(nome in nomes_vinculados(target) for target in no.targets)
+        return False
+
+    pytest_sombreado_no_modulo = len(importacoes_pytest) != 1 or any(
+        vincula_nome_no_modulo(no, "pytest")
+        and not (
+            isinstance(no, ast.Import)
+            and any(alias is importacoes_pytest[0] for alias in no.names)
+            and all(
+                (alias.asname or alias.name.split(".")[0]) != "pytest" or alias is importacoes_pytest[0]
+                for alias in no.names
+            )
         )
         for no in arvore.body
     )
+
+    def fixture_nomeada_monkeypatch(no: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        for decorador in no.decorator_list:
+            if not (
+                isinstance(decorador, ast.Call)
+                and isinstance(decorador.func, ast.Attribute)
+                and isinstance(decorador.func.value, ast.Name)
+                and decorador.func.value.id == "pytest"
+                and decorador.func.attr == "fixture"
+            ):
+                continue
+            nome = next((keyword.value for keyword in decorador.keywords if keyword.arg == "name"), None)
+            if isinstance(nome, ast.Constant) and nome.value == "monkeypatch":
+                return True
+        return False
+
+    monkeypatch_sombreado_no_modulo = any(
+        vincula_nome_no_modulo(no, "monkeypatch")
+        or (isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef)) and fixture_nomeada_monkeypatch(no))
+        for no in arvore.body
+    )
+
+    def chamada_parametriza_monkeypatch(decorador: ast.expr) -> bool:
+        if not (
+            isinstance(decorador, ast.Call)
+            and isinstance(decorador.func, ast.Attribute)
+            and decorador.func.attr == "parametrize"
+            and isinstance(decorador.func.value, ast.Attribute)
+            and isinstance(decorador.func.value.value, ast.Name)
+            and decorador.func.value.value.id == "pytest"
+            and decorador.func.value.attr == "mark"
+        ):
+            return False
+        nomes = (
+            decorador.args[0]
+            if decorador.args
+            else next((keyword.value for keyword in decorador.keywords if keyword.arg == "argnames"), None)
+        )
+        if isinstance(nomes, ast.Constant) and isinstance(nomes.value, str):
+            return "monkeypatch" in {parte.strip() for parte in nomes.value.split(",")}
+        return isinstance(nomes, (ast.List, ast.Tuple)) and any(
+            isinstance(item, ast.Constant) and item.value == "monkeypatch" for item in nomes.elts
+        )
+
+    def parametriza_monkeypatch(no: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        return any(chamada_parametriza_monkeypatch(decorador) for decorador in no.decorator_list)
+
+    parametriza_monkeypatch_no_modulo = any(
+        isinstance(no, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in no.targets)
+        and any(chamada_parametriza_monkeypatch(candidate) for candidate in ast.walk(no.value))
+        for no in arvore.body
+    )
+
     parametros_monkeypatch: dict[ast.FunctionDef | ast.AsyncFunctionDef, set[str]] = {
-        no: ({"monkeypatch"} if importa_pytest and no.name.startswith("test_") else set())
+        no: (
+            {"monkeypatch"}
+            if not pytest_sombreado_no_modulo
+            and not monkeypatch_sombreado_no_modulo
+            and not parametriza_monkeypatch_no_modulo
+            and no.name.startswith("test_")
+            and not parametriza_monkeypatch(no)
+            else set()
+        )
         for no in funcoes.values()
         if any(argument.arg == "monkeypatch" for argument in [*no.args.posonlyargs, *no.args.args])
     }
@@ -1174,14 +1268,8 @@ def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.Class
                 target, attribute, replacement = no.args[:3]
                 classe = resolve(replacement, scope)
                 receiver = resolve(no.func.value, scope)
-                fragmento_de_fixture = (
-                    scope is bindings
-                    and isinstance(no.func.value, ast.Name)
-                    and no.func.value.id == "monkeypatch"
-                    and "monkeypatch" not in scope
-                )
                 if (
-                    (receiver == marcador_monkeypatch or fragmento_de_fixture)
+                    receiver == marcador_monkeypatch
                     and resolve(target, scope) == "http.client"
                     and isinstance(attribute, ast.Constant)
                     and attribute.value == "HTTPConnection"
