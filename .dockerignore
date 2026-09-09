@@ -35,6 +35,12 @@ docs/
 
 # Artefatos de deploy (o Dockerfile fica em deploy/ mas o contexto é a raiz)
 deploy/
+!deploy/
+deploy/*
+!deploy/certificates/
+deploy/certificates/*
+!deploy/certificates/install_rds_roots.py
+!deploy/certificates/sa-east-1-bundle.pem
 
 # Variáveis de ambiente locais (nunca empacotar segredos)
 .env

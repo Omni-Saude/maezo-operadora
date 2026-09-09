@@ -62,13 +62,21 @@ usam `MAEZO_TENANT_ID` e não autorizam o BFF como identidade migradora.
    login PKCE e negações M2M, egress permitido/negado, endpoint rotation e logs sem
    query/cookie/token no artefato exato. Só então revisar a ativação.
 
-**Pendência concreta de imagem:** `gateway/portal_identity.py` usa
-`ssl.create_default_context()` para PostgreSQL. `deploy/Dockerfile` ainda não instala
-explicitamente a cadeia CA do RDS. O autor de imagem deve fornecer o bundle confiável
-pinado e sua instalação no trust store, provar TLS/hostname e publicar o digest antes
-da ativação. Não desabilitar verificação TLS, usar CA inventada ou tratar digest com
-formato válido como prova de imagem apta. Startup falha fechado se persistência/CA
-estiver indisponível. Esta pendência não foi executada ou encerrada aqui.
+**Confiança CA na fonte da imagem:** `deploy/Dockerfile` instala as três raízes
+públicas RDS de `sa-east-1` do bundle oficial vendorizado, com SHA-256 fixo e um
+`.crt` por raiz. O instalador verifica o bundle antes da escrita, executa
+`update-ca-certificates` e exige as três fingerprints no contexto padrão do Python;
+qualquer falha impede o build. Proveniência, pins e rotação estão em
+[`deploy/certificates/README.md`](../../../certificates/README.md).
+`gateway/portal_identity.py` continua usando `ssl.create_default_context()` sem
+alteração de certificado/hostname. Não há fetch do bundle em runtime.
+
+**Gate ainda pendente:** construir a imagem completa, verificar trust/TLS/hostname
+no artefato exato como usuário 1000, publicar/revisar seu digest e comprovar a conexão
+com o endpoint Aurora real sob a DSN/role dedicada antes da ativação. Testes locais
+com trust store isolado e TLS sintético não encerram esses gates. Não usar CA
+inventada em implantação nem tratar digest com formato válido como prova de imagem
+apta. Startup continua falhando fechado se persistência/CA estiver indisponível.
 
 ## Rede, identidades e sondas
 
