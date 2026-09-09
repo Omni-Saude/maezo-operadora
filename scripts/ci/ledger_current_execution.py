@@ -1,0 +1,517 @@
+"""Fresh, all-PASS current verdicts, separate from legacy mathematical equality."""
+
+from __future__ import annotations
+
+import hashlib
+import importlib.metadata
+import json
+import os
+import signal
+import stat
+import subprocess
+import sys
+import sysconfig
+import time
+import uuid
+from collections import Counter
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from scripts.ci import check_evidence_ledger_hashes as legacy
+
+SCHEMA = "maezo-ledger-current-execution/v1"
+OBSERVATION_SCHEMA = "maezo-ledger-current-observation/v1"
+STATUSES = frozenset({"ACCEPTED", "REFUSED", "FAILED", "UNRESOLVED"})
+_OBSERVATION_KEYS = frozenset(
+    {
+        "schema",
+        "run_id",
+        "root",
+        "test_path",
+        "discovered",
+        "selected",
+        "deselected",
+        "collection_errors",
+        "reports",
+        "finished",
+        "exitstatus",
+        "runtime",
+        "sources",
+    }
+)
+_ITEM_KEYS = frozenset({"nodeid", "file", "body_file", "body_digest"})
+_PHASE_KEYS = frozenset({"nodeid", "phase", "outcome", "wasxfail", "body_entered"})
+_RUNTIME_KEYS = frozenset(
+    {
+        "executable",
+        "version",
+        "prefix",
+        "base_prefix",
+        "pytest_version",
+        "initial_environment",
+        "final_environment",
+        "plugin_autoload_disabled",
+    }
+)
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def canonical(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def strict_json(data: bytes) -> Any:
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                raise ValueError("DUPLICATE_JSON_FIELD")
+            result[key] = value
+        return result
+
+    return json.loads(data, object_pairs_hook=pairs)
+
+
+def minimal_environment(home: Path) -> dict[str, str]:
+    env = {
+        "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin",
+        "HOME": str(home),
+        "LC_ALL": "C",
+        "TZ": "UTC",
+    }
+    if sys.platform == "darwin":
+        # macOS otherwise synthesizes this key at exec, defeating exact equality.
+        env["__CF_USER_TEXT_ENCODING"] = f"0x{os.getuid():X}:0x0:0x0"
+    return env
+
+
+def regular_bytes(path: Path) -> bytes:
+    """Reject symlink components and special files without following their targets."""
+    absolute = path.absolute()
+    for component in [*reversed(absolute.parents), absolute]:
+        if component.is_symlink():
+            raise ValueError("SOURCE_SYMLINK")
+    descriptor = os.open(absolute, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+            raise ValueError("SOURCE_NOT_REGULAR")
+        return stream.read()
+
+
+def git(root: Path, *argv: str) -> bytes:
+    return subprocess.check_output(
+        ["git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", *argv],
+        cwd=root,
+        stderr=subprocess.PIPE,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_NO_REPLACE_OBJECTS": "1",
+        },
+    )
+
+
+def source_inventory(root: Path) -> dict[str, Any]:
+    if git(root, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise ValueError("CANDIDATE_NOT_CLEAN")
+    files: dict[str, str] = {}
+    for raw in git(root, "ls-tree", "-r", "-z", "HEAD").split(b"\0"):
+        if raw:
+            metadata, name_bytes = raw.split(b"\t", 1)
+            mode, kind, object_id = metadata.decode().split()
+            name = name_bytes.decode()
+            payload = regular_bytes(root / name)
+            actual_blob = hashlib.sha1(b"blob " + str(len(payload)).encode() + b"\0" + payload).hexdigest()
+            if mode not in {"100644", "100755"} or kind != "blob" or actual_blob != object_id:
+                raise ValueError("CANDIDATE_BLOB_DRIFT")
+            files[name] = digest(payload)
+    return {
+        "commit": git(root, "rev-parse", "HEAD").decode().strip(),
+        "tree": git(root, "rev-parse", "HEAD^{tree}").decode().strip(),
+        "files": files,
+        "file_stats": {name: file_identity(root / name) for name in files},
+    }
+
+
+def file_identity(path: Path) -> list[int]:
+    metadata = path.stat()
+    return [metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_mode]
+
+
+def runtime_inventory() -> dict[str, str]:
+    """Bind installed source/bytecode/metadata as well as the selected interpreter."""
+    roots = {Path(sysconfig.get_path(name)) for name in ("stdlib", "purelib", "platlib")}
+    files: dict[str, str] = {}
+    for root in sorted(roots):
+        for path in sorted(root.rglob("*")):
+            if path.is_file():
+                resolved = path.resolve()
+                files[str(resolved)] = digest(resolved.read_bytes())
+    executable = Path(sys.executable).resolve()
+    files[str(executable)] = digest(executable.read_bytes())
+    config = Path(sys.prefix) / "pyvenv.cfg"
+    if config.is_file():
+        files[str(config.resolve())] = digest(config.read_bytes())
+    return files
+
+
+@dataclass(frozen=True)
+class Occurrence:
+    line: int
+    raw: str
+
+    @property
+    def identity(self) -> str:
+        return f"{self.line}:{digest(self.raw.encode())}"
+
+    @property
+    def row(self) -> legacy.DeclaredRow:
+        row = legacy.parse_row_line(self.raw)
+        if self.line < 1 or row is None or not legacy.is_date_qualified(legacy.extract_row_date(self.raw)):
+            raise ValueError("INVALID_DECLARED_OCCURRENCE")
+        return row
+
+
+@dataclass(frozen=True)
+class CurrentExecutionVerdict:
+    schema: str
+    occurrence: str
+    run_id: str
+    status: str
+    reasons: tuple[str, ...]
+    packet: str
+    receipt_sha256: str
+
+
+def validate_observation(
+    observation: Any, binding: dict[str, Any], returncode: int | None
+) -> tuple[str, ...]:
+    """Closed pure validation. A validation result alone cannot mint a fresh verdict."""
+    errors: list[str] = []
+    if not isinstance(observation, dict) or set(observation) != _OBSERVATION_KEYS:
+        return ("OBSERVATION_SCHEMA",)
+    if (
+        observation["schema"] != OBSERVATION_SCHEMA
+        or observation["run_id"] != binding["run_id"]
+        or observation["root"] != binding["root"]
+        or observation["test_path"] != binding["test_path"]
+        or observation["finished"] is not True
+        or type(observation["exitstatus"]) is not int
+        or observation["exitstatus"] != returncode
+        or type(returncode) is not int
+        or returncode != 0
+    ):
+        errors.append("TERMINAL_BINDING")
+    runtime = observation["runtime"]
+    if not isinstance(runtime, dict) or set(runtime) != _RUNTIME_KEYS:
+        errors.append("RUNTIME_SCHEMA")
+    elif (
+        runtime["executable"] != str(Path(sys.executable).resolve())
+        or runtime["version"] != sys.version
+        or runtime["prefix"] != sys.prefix
+        or runtime["base_prefix"] != sys.base_prefix
+        or runtime["pytest_version"] != binding["pytest_version"]
+        or runtime["initial_environment"] != binding["environment"]
+        or runtime["final_environment"] != binding["environment"]
+        or runtime["plugin_autoload_disabled"] is not True
+    ):
+        errors.append("RUNTIME_ENVIRONMENT_BINDING")
+    discovered, selected = observation["discovered"], observation["selected"]
+    if not isinstance(discovered, list) or not isinstance(selected, list) or not discovered:
+        return tuple(errors + ["EMPTY_OR_INVALID_COLLECTION"])
+    allowed = binding["allowed_sources"]
+    identities: list[str] = []
+    for item in discovered:
+        if (
+            not isinstance(item, dict)
+            or set(item) != _ITEM_KEYS
+            or any(not isinstance(value, str) for value in item.values())
+            or not item["nodeid"].startswith(binding["test_path"] + "::")
+            or item["file"] != str(Path(binding["root"]) / binding["test_path"])
+            or item["body_file"] not in allowed
+            or len(item["body_digest"]) != 64
+        ):
+            return tuple(errors + ["COLLECTION_SOURCE_BINDING"])
+        identities.append(item["nodeid"])
+    if len(identities) != len(set(identities)) or discovered != selected:
+        errors.append("COLLECTION_DUPLICATE_OR_CHANGED")
+    if observation["deselected"] != [] or observation["collection_errors"] != []:
+        errors.append("COLLECTION_INCOMPLETE")
+    reports = observation["reports"]
+    if not isinstance(reports, list):
+        return tuple(errors + ["PHASE_SCHEMA"])
+    seen: Counter[tuple[str, str]] = Counter()
+    for report in reports:
+        if (
+            not isinstance(report, dict)
+            or set(report) != _PHASE_KEYS
+            or report["nodeid"] not in identities
+            or not isinstance(report["phase"], str)
+            or report["phase"] not in {"setup", "call", "teardown"}
+            or report["outcome"] != "passed"
+            or report["wasxfail"] is not False
+            or type(report["body_entered"]) is not bool
+            or (report["phase"] == "call" and report["body_entered"] is not True)
+        ):
+            errors.append("PHASE_NOT_COMPLETE_PASS")
+            continue
+        seen[(report["nodeid"], report["phase"])] += 1
+    expected = Counter((node, phase) for node in identities for phase in ("setup", "call", "teardown"))
+    if seen != expected:
+        errors.append("PHASE_IDENTITY_OR_CARDINALITY")
+    sources = observation["sources"]
+    if (
+        not isinstance(sources, list)
+        or any(not isinstance(path, str) or path not in allowed for path in sources)
+        or not {item["body_file"] for item in discovered}.issubset(sources)
+    ):
+        errors.append("OBSERVED_SOURCE_ESCAPE")
+    return tuple(dict.fromkeys(errors))
+
+
+class CurrentRunner:
+    """Own each fresh run and consume its handle once; reports are never proof inputs."""
+
+    def __init__(self, root: Path, output: Path, *, allow_live: bool = False, timeout: float = 60) -> None:
+        self.root = root.resolve()
+        self.output = output.resolve()
+        self.allow_live = allow_live
+        if not 0 < timeout <= 300 or self.output.is_relative_to(self.root):
+            raise ValueError("INVALID_RUN_BOUNDARY")
+        self.timeout = timeout
+        self._issued: dict[str, CurrentExecutionVerdict] = {}
+
+    def run(self, occurrence: Occurrence) -> CurrentExecutionVerdict:
+        row = occurrence.row
+        run_id = uuid.uuid4().hex
+        packet = self.output / run_id
+        packet.mkdir(parents=True, mode=0o700)
+        reasons: list[str] = []
+        status = "REFUSED"
+        binding: dict[str, Any] = {}
+        returncode: int | None = None
+        recipe_hash: str | None = None
+        started = datetime.now(UTC).isoformat()
+        try:
+            if not legacy.is_safe_test_path(row.test_path):
+                raise ValueError("UNSAFE_TEST_PATH")
+            ledger_lines = regular_bytes(self.root / legacy.DEFAULT_LEDGER_PATH).decode().splitlines()
+            if occurrence.line > len(ledger_lines) or ledger_lines[occurrence.line - 1] != occurrence.raw:
+                raise ValueError("ROW_SOURCE_BINDING")
+            classifier = getattr(legacy, "classify_test_admission", None)
+            if classifier is None:
+                raise ValueError("G2_ADMISSION_UNAVAILABLE")
+            admission = classifier(self.root, row.test_path)
+            if admission.status not in {"OFFLINE", "LIVE"}:
+                raise ValueError("G2_ADMISSION_UNKNOWN")
+            if admission.status == "LIVE" and not self.allow_live:
+                raise ValueError("G2_LIVE_ASSERTION_REQUIRED")
+            before = source_inventory(self.root)
+            if before["files"].get(row.test_path) != admission.source_sha256:
+                raise ValueError("G2_ADMISSION_SOURCE_DRIFT")
+            dependencies = dict(admission.dependencies)
+            if len(dependencies) != len(admission.dependencies) or any(
+                before["files"].get(path) != sha for path, sha in dependencies.items()
+            ):
+                raise ValueError("G2_ADMISSION_DEPENDENCY_DRIFT")
+            if "uv.lock" not in before["files"] or "pyproject.toml" not in before["files"]:
+                raise ValueError("SOURCE_CONFIG_LOCK_REQUIRED")
+            tool = Path(__file__).with_name("ledger_current_observer.py").resolve()
+            tools = {
+                str(path.resolve()): digest(regular_bytes(path))
+                for path in (
+                    Path(__file__),
+                    tool,
+                    Path(__file__).with_name("check_evidence_ledger_current.py"),
+                    Path(legacy.__file__),
+                )
+            }
+            runtime = runtime_inventory()
+            runtime_stats = {path: file_identity(Path(path)) for path in runtime}
+            allowed = {str(self.root / path): sha for path, sha in before["files"].items()}
+            allowed.update(runtime)
+            allowed[str(tool)] = digest(regular_bytes(tool))
+            home = packet / "home"
+            home.mkdir(mode=0o700)
+            environment = minimal_environment(home)
+            pytest_argv = [
+                row.test_path,
+                "-v",
+                "--tb=no",
+                "-p",
+                "no:cacheprovider",
+                "--disable-plugin-autoload",
+                "-o",
+                "addopts=",
+                "--rootdir",
+                str(self.root),
+                "--confcutdir",
+                str(self.root),
+                "-p",
+                "pytest_asyncio.plugin",
+            ]
+            request = {
+                "root": str(self.root),
+                "test_path": row.test_path,
+                "run_id": run_id,
+                "observation": str(packet / "observation.json"),
+                "pytest_argv": pytest_argv,
+            }
+            request_path = packet / "request.json"
+            request_path.write_bytes(canonical(request))
+            command = [sys.executable, "-I", "-B", str(tool), str(request_path)]
+            binding = {
+                **request,
+                "occurrence": occurrence.identity,
+                "row": asdict(row),
+                "source": before,
+                "runtime_files": runtime,
+                "runtime_stats": runtime_stats,
+                "environment": environment,
+                "admission": {
+                    "status": admission.status,
+                    "reason": admission.reason,
+                    "source_sha256": admission.source_sha256,
+                    "dependencies": list(admission.dependencies),
+                },
+                "command": command,
+                "allowed_sources": allowed,
+            }
+            binding["tool_files"] = tools
+            binding["pytest_version"] = importlib.metadata.version("pytest")
+            (packet / "binding.json").write_bytes(canonical(binding))
+            status = "FAILED"
+            with (packet / "stdout").open("wb") as stdout, (packet / "stderr").open("wb") as stderr:
+                process = subprocess.Popen(
+                    command,
+                    cwd=self.root,
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout,
+                    stderr=stderr,
+                    start_new_session=True,
+                )
+                deadline = time.monotonic() + self.timeout
+                try:
+                    while process.poll() is None:
+                        if time.monotonic() > deadline or max(stdout.tell(), stderr.tell()) > 8 * 1024 * 1024:
+                            reasons.append("TIMEOUT_OR_OUTPUT_LIMIT")
+                            break
+                        time.sleep(0.01)
+                except KeyboardInterrupt:
+                    reasons.append("INTERRUPTED")
+                finally:
+                    if process.poll() is None:
+                        os.killpg(process.pid, signal.SIGTERM)
+                        try:
+                            process.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            os.killpg(process.pid, signal.SIGKILL)
+                            process.wait()
+                    returncode = process.wait()
+            try:
+                os.killpg(process.pid, 0)
+            except ProcessLookupError:
+                pass
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+                reasons.append("PROCESS_GROUP_SURVIVED")
+            raw = regular_bytes(packet / "stdout") + regular_bytes(packet / "stderr")
+            lines = legacy.extract_result_lines(raw.decode("utf-8", errors="replace"))
+            if lines:
+                recipe_hash = legacy.compute_recipe_hash(lines)
+            recipe_version = "fixed"
+            if (
+                recipe_hash != "sha256:" + row.declared_hash
+                and row.row_date is not None
+                and row.row_date < legacy.LEGACY_NODE_ID_RECIPE_CUTOFF_DATE
+            ):
+                legacy_lines = legacy.extract_result_lines(
+                    raw.decode("utf-8", errors="replace"), node_id_regex=legacy._RESULT_LINE_RE_LEGACY
+                )
+                if legacy_lines and legacy.compute_recipe_hash(legacy_lines) == "sha256:" + row.declared_hash:
+                    recipe_hash = legacy.compute_recipe_hash(legacy_lines)
+                    recipe_version = "legacy"
+            binding["recipe_version"] = recipe_version
+            # Version is derived from the same raw capture, not an input policy flag.
+            (packet / "binding.json").write_bytes(canonical(binding))
+            if recipe_hash != "sha256:" + row.declared_hash:
+                reasons.append("MATHEMATICAL_HASH_MISMATCH")
+            if source_inventory(self.root) != before:
+                reasons.append("SOURCE_DRIFT")
+            if (
+                runtime_inventory() != runtime
+                or {path: file_identity(Path(path)) for path in runtime} != runtime_stats
+                or any(digest(regular_bytes(Path(path))) != sha for path, sha in tools.items())
+            ):
+                reasons.append("RUNTIME_TOOL_DRIFT")
+            observation = strict_json(regular_bytes(packet / "observation.json"))
+            reasons.extend(validate_observation(observation, binding, returncode))
+            expected_lines = [f"{item['nodeid']} PASSED" for item in observation.get("selected", [])]
+            if sorted(lines) != sorted(expected_lines):
+                reasons.append("RESULT_COLLECTION_MISMATCH")
+            if not reasons:
+                status = "ACCEPTED"
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
+            code = str(exc)
+            reasons.append(
+                code if isinstance(exc, ValueError) and code.isupper() else "EXECUTION_OR_ARTIFACT_ERROR"
+            )
+        artifacts = {path.name: digest(path.read_bytes()) for path in packet.iterdir() if path.is_file()}
+        receipt = {
+            "schema": SCHEMA,
+            "occurrence": occurrence.identity,
+            "run_id": run_id,
+            "status": status,
+            "reasons": list(dict.fromkeys(reasons)),
+            "start": started,
+            "end": datetime.now(UTC).isoformat(),
+            "returncode": returncode,
+            "recipe_hash": recipe_hash,
+            "artifacts": artifacts,
+        }
+        receipt_bytes = canonical(receipt)
+        (packet / "receipt.json").write_bytes(receipt_bytes)
+        verdict = CurrentExecutionVerdict(
+            SCHEMA,
+            occurrence.identity,
+            run_id,
+            status,
+            tuple(dict.fromkeys(reasons)),
+            str(packet),
+            digest(receipt_bytes),
+        )
+        self._issued[run_id] = verdict
+        return verdict
+
+    def consume(self, verdict: CurrentExecutionVerdict, occurrence: Occurrence) -> bool:
+        issued = self._issued.pop(verdict.run_id, None)
+        if issued is not verdict or verdict.occurrence != occurrence.identity or verdict.status != "ACCEPTED":
+            return False
+        packet = Path(verdict.packet)
+        try:
+            raw = regular_bytes(packet / "receipt.json")
+            if digest(raw) != verdict.receipt_sha256:
+                return False
+            receipt = strict_json(raw)
+            binding = strict_json(regular_bytes(packet / "binding.json"))
+            stable = (
+                source_inventory(self.root) == binding["source"]
+                and runtime_inventory() == binding["runtime_files"]
+                and {path: file_identity(Path(path)) for path in binding["runtime_files"]}
+                == binding["runtime_stats"]
+                and all(
+                    digest(regular_bytes(Path(path))) == sha for path, sha in binding["tool_files"].items()
+                )
+            )
+            return stable and all(
+                digest(regular_bytes(packet / name)) == sha for name, sha in receipt["artifacts"].items()
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            return False
