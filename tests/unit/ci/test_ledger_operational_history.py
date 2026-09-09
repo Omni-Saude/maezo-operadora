@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[3]
 TEST = "tests/unit/test_tiny.py"
 OLD = b"from maezo import VALUE\ndef test_old(): assert VALUE == 7\n"
 NEW = b"from maezo import VALUE\ndef test_new(): assert VALUE == 7\ndef test_second(): assert True\n"
+VALID_FIXTURE = {"valid": True}
 HEADER = "| Task ID | Date | Author | Verifier | Commit | Evidence | Test hash | Status |\n"
 
 
@@ -68,7 +69,12 @@ def historical(
         b'[project]\nname="tiny"\nversion="0.0.0"\nrequires-python=">=3.12,<3.13"\n[project.optional-dependencies]\ndev=["pytest==9.1.1"]\n[tool.uv]\npackage=false\n',
     )
     write(repo, ".python-version", b"3.12\n")
-    for path in ("scripts/ci/check_evidence_ledger_hashes.py", "scripts/ci/ledger_history_proofs.py"):
+    for path in (
+        "scripts/ci/check_evidence_ledger_hashes.py",
+        "scripts/ci/ledger_history_proofs.py",
+        "scripts/ci/ledger_invalid_declarations.py",
+        "scripts/ci/ledger_archived_catalog.py",
+    ):
         write(repo, path, (ROOT / path).read_bytes())
     oldrow = row(
         "TINY-OLD",
@@ -384,7 +390,7 @@ def test_resolved_inventory_positive_control() -> None:
     )
 
 
-@pytest.mark.parametrize("historical", [{"valid": True}], indirect=True)
+@pytest.mark.parametrize("historical", [VALID_FIXTURE], indirect=True)
 def test_valid_history_actual_own_lock_two_runs(candidate: Any, producer: Any) -> None:
     repo, reviewed, plan_fn, _, _, tmp = candidate
     plan = plan_fn()
@@ -401,7 +407,7 @@ def test_valid_history_actual_own_lock_two_runs(candidate: Any, producer: Any) -
     assert result.current["source"]["config"]["uv.lock"] == reviewed.current_lock_sha256
 
 
-@pytest.mark.parametrize("historical", [{"valid": True}], indirect=True)
+@pytest.mark.parametrize("historical", [VALID_FIXTURE], indirect=True)
 def test_valid_history_cli_truth_and_counters(
     candidate: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -417,7 +423,7 @@ def test_valid_history_cli_truth_and_counters(
     assert "2 executions" in output
 
 
-@pytest.mark.parametrize("historical", [{"valid": True}], indirect=True)
+@pytest.mark.parametrize("historical", [VALID_FIXTURE], indirect=True)
 @pytest.mark.parametrize("field", ["lock_sha256", "current_lock_sha256"])
 def test_valid_history_non_catalog_lock_refused(candidate: Any, producer: Any, field: str) -> None:
     repo, reviewed, plan_fn, _, _, tmp = candidate
@@ -431,7 +437,7 @@ def test_valid_history_non_catalog_lock_refused(candidate: Any, producer: Any, f
     assert not (out / "fresh-historical").exists()
 
 
-@pytest.mark.parametrize("historical", [{"valid": True}], indirect=True)
+@pytest.mark.parametrize("historical", [VALID_FIXTURE], indirect=True)
 def test_valid_history_failed_current_has_no_acceptance(candidate: Any, producer: Any) -> None:
     repo, reviewed, plan_fn, _, publish, tmp = candidate
     write(repo, TEST, b"def test_current(): assert False\n")
@@ -439,7 +445,195 @@ def test_valid_history_failed_current_has_no_acceptance(candidate: Any, producer
     plan = plan_fn()
     out = tmp / "bad-current"
     out.mkdir(mode=0o700)
-    with pytest.raises(RuntimeError):
+    with pytest.raises((RuntimeError, ValueError)):
         proof.prove_relation(repo, plan, plan.relations[0], producer, out, reviewed)
     assert (out / "fresh-historical/receipt.json").is_file()
     assert not (out / "result.json").exists()
+
+
+def test_portable_archive_uses_pinned_producer_identity_without_local_runtime(
+    historical: Any, producer: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.ci import ledger_archived_catalog as archive
+
+    repo, source, packet, receipt, _ = historical
+    monkeypatch.setattr(
+        archive,
+        "ARCHIVES",
+        {
+            "fixture": (
+                static.digest((packet / "manifest.json").read_bytes()),
+                static.digest((packet / "receipt.json").read_bytes()),
+            )
+        },
+    )
+    monkeypatch.setattr(
+        archive,
+        "PRODUCER_RUNTIMES",
+        {
+            "python": (
+                receipt["environment"]["inventory"]["interpreter"]["path"],
+                receipt["environment"]["inventory"]["interpreter"]["sha256"],
+            ),
+            "uv": (
+                receipt["environment"]["preparation"]["uv_path"],
+                receipt["environment"]["preparation"]["uv_sha256"],
+            ),
+        },
+    )
+    identity = ("fixture", source, TEST, "TINY-OLD", "2026-09-08")
+    observations = receipt["scope"]["original_observations"]
+
+    def foreign_runtime(*args: Any) -> str:
+        raise RuntimeError("foreign local runtime must refuse literal validator")
+
+    monkeypatch.setattr(producer, "runtime_digest", foreign_runtime)
+    with pytest.raises(RuntimeError, match="foreign local runtime"):
+        producer.validate_receipt(packet, repo, identity, observations)
+    # Archive-only readback never calls the local runtime opener. No fresh credit.
+    actual = archive.validate_archived_catalog_receipt(producer, packet, repo, identity)
+    assert actual == receipt
+    assert actual["scope"]["operational_validation"] == "not-performed"
+    assert actual["scope"]["current_proof_disposition"] == "unresolved"
+    with pytest.raises(RuntimeError, match="foreign local runtime"):
+        producer.validate_receipt(packet, repo, identity, observations)
+
+
+@pytest.mark.parametrize("mutation", ["manifest", "receipt", "member", "runtime", "source", "noncatalog"])
+def test_portable_archive_rejects_before_trusting_changed_custody(
+    historical: Any, producer: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    from scripts.ci import ledger_archived_catalog as archive
+
+    repo, source, original, receipt, _ = historical
+    packet = tmp_path / "archive"
+    proof.materialize(
+        packet,
+        {p.relative_to(original).as_posix(): p.read_bytes() for p in original.rglob("*") if p.is_file()},
+    )
+    pinned = (
+        static.digest((packet / "manifest.json").read_bytes()),
+        static.digest((packet / "receipt.json").read_bytes()),
+    )
+    monkeypatch.setattr(archive, "ARCHIVES", {"fixture": pinned})
+    if mutation == "manifest":
+        (packet / "manifest.json").write_bytes(b"{}")
+    elif mutation == "receipt":
+        monkeypatch.setattr(archive, "ARCHIVES", {"fixture": (pinned[0], "f" * 64)})
+    elif mutation == "member":
+        (packet / "phase.json").write_bytes(b"{}")
+    elif mutation == "runtime":
+        monkeypatch.setattr(
+            archive,
+            "PRODUCER_RUNTIMES",
+            {"python": ("/unapproved/runtime", "f" * 64), "uv": ("/unapproved/uv", "f" * 64)},
+        )
+    elif mutation == "source":
+        monkeypatch.setattr(archive, "PRODUCER_SHA256", "f" * 64)
+    identity = (
+        "noncatalog" if mutation == "noncatalog" else "fixture",
+        source,
+        TEST,
+        "TINY-OLD",
+        "2026-09-08",
+    )
+    with pytest.raises((RuntimeError, ValueError)):
+        archive.validate_archived_catalog_receipt(producer, packet, repo, identity)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "[ledger-supersedes:v3;kind=invalid-declaration;record=docs/evidence-history/"
+        + "a" * 64
+        + ".json;record_sha256="
+        + "a" * 64
+        + "]",
+        marker("a" * 64, "verified-history") + marker("a" * 64),
+        marker("a" * 64, "verified-history").replace(
+            "record_sha256=" + "a" * 64, "record_sha256=" + "b" * 64
+        ),
+        marker("a" * 64, "verified-history").replace("docs/evidence-history", "docs/evidence-corrections"),
+        marker("a" * 64, "verified-history") + checker.HISTORY_ROW_TEMPLATE_TOKEN,
+    ],
+)
+def test_closed_v3_marker_rejections(line: str) -> None:
+    with pytest.raises(checker.SupersessionError):
+        checker.parse_operational_marker(line)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "scripts/ci/ledger_history_proofs.py",
+        "scripts/ci/ledger_invalid_declarations.py",
+        "scripts/ci/ledger_archived_catalog.py",
+    ],
+)
+def test_candidate_consumer_source_must_equal_running_policy(candidate: Any, relative: str) -> None:
+    repo, _, _, _, publish, _ = candidate
+    write(repo, relative, (repo / relative).read_bytes() + b"\n# candidate-only unreviewed delta\n")
+    publish()
+    with (
+        pytest.raises(static.InvalidDeclarationError, match="IC_CURRENT_CONSUMER_SOURCE_BINDING"),
+        proof.producer_capsule(repo),
+    ):
+        pytest.fail("candidate must not choose another consumer")
+
+
+def test_full_qualified_ledger_prefix_before_replay(candidate: Any, producer: Any) -> None:
+    repo, reviewed, plan_fn, _, _, tmp = candidate
+    path = repo / "docs/evidence-ledger.md"
+    path.write_text(path.read_text().removeprefix(HEADER))
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "tamper untouched prefix")
+    plan = plan_fn()
+    out = tmp / "prefix-refusal"
+    out.mkdir(mode=0o700)
+    with pytest.raises(static.InvalidDeclarationError, match="IC_QUALIFIED_LEDGER_PREFIX"):
+        proof.prove_relation(repo, plan, plan.relations[0], producer, out, reviewed)
+    assert not (out / "fresh-historical").exists()
+
+
+def test_recipe_import_binding_is_part_of_frozen_closure() -> None:
+    data = (ROOT / "scripts/ci/check_evidence_ledger_hashes.py").read_bytes()
+    assert proof.recipe_closure(
+        data.replace(b"import hashlib\n", b"import json as hashlib\n")
+    ) != proof.recipe_closure(data)
+
+
+def test_ci_retains_failed_gate_output_and_private_directory(tmp_path: Path) -> None:
+    import os
+
+    import yaml
+
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+    gate = next(
+        step for step in steps if step.get("name", "").startswith("Evidence-ledger Test-hash recompute gate")
+    )
+    upload = next(
+        step
+        for step in steps
+        if step.get("name") == "Retain operational ledger proofs and refusal diagnostics"
+    )
+    assert upload["if"] == "${{ always() }}"
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert upload["with"]["path"] == "${{ runner.temp }}/ledger-operational-proofs/"
+    binary = tmp_path / "bin"
+    binary.mkdir()
+    uv = binary / "uv"
+    uv.write_text("#!/bin/sh\nprintf 'fixture refusal\\n' >&2\nexit 23\n")
+    uv.chmod(0o700)
+    env = {"PATH": str(binary) + os.pathsep + os.defpath, "RUNNER_TEMP": str(tmp_path)}
+    result = subprocess.run(["bash", "-c", gate["run"]], env=env, capture_output=True, text=True)
+    assert result.returncode == 23
+    output = tmp_path / "ledger-operational-proofs"
+    assert output.stat().st_mode & 0o777 == 0o700
+    assert (output / "checker.rc").read_text() == "23\n"
+    assert (output / "checker.stderr").read_text() == "fixture refusal\n"
+    assert "--proof-output" in (output / "invocation.txt").read_text()
+    # Existing directory is never reused, preserving prior run custody.
+    repeated = subprocess.run(["bash", "-c", gate["run"]], env=env, capture_output=True)
+    assert repeated.returncode != 0
+    assert (output / "checker.rc").read_text() == "23\n"

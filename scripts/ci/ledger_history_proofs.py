@@ -102,6 +102,9 @@ def recipe_closure(data: bytes) -> dict[str, str]:
     for node in ast.parse(data).body:
         if isinstance(node, ast.FunctionDef | ast.ClassDef):
             definitions[node.name] = node
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            for imported in node.names:
+                definitions[imported.asname or imported.name.split(".")[0]] = node
         elif isinstance(node, ast.Assign):
             for target_name in node.targets:
                 if isinstance(target_name, ast.Name):
@@ -136,6 +139,13 @@ def producer_capsule(repository: Path) -> Iterator[ModuleType]:
     """Load the immutable approved producer and dependencies without rewriting pins."""
     git = static.FrozenGit(Path(__file__).resolve().parents[2])
     candidate_git = static.FrozenGit(repository)
+    for relative in (
+        "scripts/ci/ledger_history_proofs.py",
+        "scripts/ci/ledger_invalid_declarations.py",
+        "scripts/ci/ledger_archived_catalog.py",
+    ):
+        if candidate_git.current(relative) != git.current(relative):
+            static.fail("IC_CURRENT_CONSUMER_SOURCE_BINDING")
     with tempfile.TemporaryDirectory(prefix="maezo-ledger-producer-") as temp:
         root = Path(temp)
         for relative, (commit, expected) in TOOL_SOURCES.items():
@@ -261,10 +271,12 @@ class CompleteCorrection:
     tree: str
     historical: dict[str, Any]
     current: dict[str, Any]
+    archived: dict[str, Any]
     artifacts: dict[str, dict[str, str]]
     producer_sources: dict[str, tuple[str, str]]
     validator_sha256: str
     checker_sha256: str
+    consumer_sources: dict[str, str]
     historical_claim_verified: bool = False
     historical_status: str = "INVALID_HISTORICAL_DECLARATION"
     current_status: Literal["CORRECTION_CURRENT_VERIFIED"] = "CORRECTION_CURRENT_VERIFIED"
@@ -421,6 +433,7 @@ def prove_relation(
         git.tree,
         historical,
         current,
+        old,
         {
             label: producer.Packet(directory).hashes()
             for label, directory in (
@@ -434,6 +447,14 @@ def prove_relation(
         static.digest(git.current("scripts/ci/check_evidence_ledger_hashes.py"))
         if "scripts/ci/check_evidence_ledger_hashes.py" in git.inventory(git.candidate)
         else static.digest(Path(checker.__file__).read_bytes()),
+        {
+            relative: static.digest((Path(__file__).resolve().parents[2] / relative).read_bytes())
+            for relative in (
+                "scripts/ci/ledger_history_proofs.py",
+                "scripts/ci/ledger_archived_catalog.py",
+                "scripts/ci/ledger_invalid_declarations.py",
+            )
+        },
     )
     result = replace(result, archive_validation=archive_validation)
     if valid_history:
