@@ -53,7 +53,9 @@ final class NativeEnlistedWritesV2 implements SqlSource {
         "close_acquisition_v2","append_receipt_v2","read_acquisitions_v2").contains(name))throw Refused.unavailable();
     List<String> values=session.selectList(PREFIX+name,new Object[]{new String(Json.bytes(data),java.nio.charset.StandardCharsets.UTF_8)});
     if(values.size()!=1 || values.get(0)==null)throw Refused.unavailable();
-    return Json.parse(values.get(0).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    var result=Json.parse(values.get(0).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    if(name.equals("read_acquisitions_v2"))NativeAcquisitionStoreV2.checkSelection(data,result);
+    return result;
   }
   @Override public BoundSql getBoundSql(Object parameter) {
     if(!(parameter instanceof Object[] values) || values.length!=arguments)throw Refused.unavailable();

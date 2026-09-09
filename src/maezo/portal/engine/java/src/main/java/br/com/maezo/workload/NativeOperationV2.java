@@ -94,7 +94,7 @@ final class NativeOperationV2 implements Command<NativeOutcomeV2.Publication> {
       if(request.get("source_acquisition")!=null)ids.add(Json.token(request,"source_ref"));
       if("fetch_lock".equals(cap.schema.get("operation"))){fetch=new NativeFetchV2(admission,cap,Json.object(request.get("parameters")));ids.addAll(fetch.ids);}
       if("correlate".equals(cap.schema.get("operation")))correlationRoots=discoverCorrelation();
-      store.lock(ids,correlationRoots);
+      store.lock(ids,correlationRoots,NativeAcquisitionStoreV2.selection(request,fetch==null?List.of():fetch.ids));
       if(request.get("resource_acquisition")!=null){String id=Json.token(request,"resource_ref");consumed.put(id,store.consume(id,request.get("resource_acquisition"),cap.target,cap.worker,peer.identity(),peer.engineUser(),null));}
       if(request.get("source_acquisition")!=null){String id=Json.token(request,"source_ref");var owner=cap.sourceOwner;var row=store.consume(id,request.get("source_acquisition"),cap.sourceTarget,cap.sourceWorker,Json.object(owner.get("identity")),Json.token(owner,"native_user"),Json.token(owner,"fetch_capability_digest"));if(consumed.containsKey(id)&&!consumed.get(id).equals(row))throw Refused.resource();consumed.put(id,row);}
       attest(variables);current();
@@ -118,7 +118,7 @@ final class NativeOperationV2 implements Command<NativeOutcomeV2.Publication> {
     current();List<Object> snapshots=new ArrayList<>();Map<String,Map<String,Object>> finalRows=new HashMap<>(consumed);
     if(fetch!=null){
       var actual=store.rows(fetch.ids);if(!actual.keySet().equals(new HashSet<>(fetch.ids)))throw Refused.resource();
-      for(String id:fetch.ids){var row=fetch.finalizeTask(id,command,actual.get(id));snapshots.add(store.snapshot("resource",row));}
+      for(String id:fetch.ids){var row=fetch.finalizeTask(id,command,actual.get(id),store.predecessor(id));snapshots.add(store.snapshot("resource",row));}
       value=fetch.value(actual);
     }else{
       if(request.get("resource_acquisition")!=null){

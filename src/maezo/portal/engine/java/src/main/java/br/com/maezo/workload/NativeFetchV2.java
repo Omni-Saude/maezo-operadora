@@ -37,13 +37,14 @@ final class NativeFetchV2 {
       projections.put(id,LockedExternalTaskImpl.fromEntity(entity,projection,false,false,false));refs.put(id,NativeOutcomeV2.newRef());
     }
   }
-  Map<String,Object> finalizeTask(String id,Map<String,Object> command,Map<String,Object> actual){
+  Map<String,Object> finalizeTask(String id,Map<String,Object> command,Map<String,Object> actual,Map<String,Object> predecessor){
     NativeAcquisitionStoreV2.checkTask(actual,cap.target,cap.worker,admission.now());
     Map<String,Object> row=new HashMap<>();row.put("acquisition_ref",refs.get(id));row.put("task_id",id);row.put("owner_identity",cap.identity);
     row.put("native_user",admission.peer.engineUser());row.put("worker_id",cap.worker);row.put("target",cap.target);row.put("process_instance_id",actual.get("process"));row.put("execution_id",actual.get("execution"));
     row.put("activation_ref",command.get("activation_ref"));row.put("runtime_generation",admission.policy.admission.get("runtime_generation"));row.put("decision_digest",admission.policy.admission.get("decision_digest"));
     row.put("fetch_capability_digest",cap.digest);row.put("command_id",command.get("command_id"));row.put("request_digest",command.get("request_digest"));row.put("lease_revision",1L);row.put("lock_expires_at",actual.get("expiry"));row.put("state","live");
-    return admission.call("insert_acquisition_v2",Map.of("acquisition",row));
+    var insertion=new HashMap<String,Object>();insertion.put("acquisition",row);insertion.put("predecessor",predecessor);
+    return admission.call("insert_acquisition_v2",insertion);
   }
   Object value(Map<String,Map<String,Object>> actual){
     List<Object> result=new ArrayList<>();

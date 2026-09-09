@@ -66,6 +66,186 @@ def literal(value):
     return "'" + value.replace("'", "''") + "'"
 
 
+def preparation(binding):
+    """Expected selectors only; actual qualified D owner state is read under F/G/V locks."""
+    ident(binding["d_schema_owner"])
+    oid = binding["d_schema_owner_oid"]
+    if type(oid) is not int or not 1 <= oid <= 4294967295:
+        raise ValueError("invalid_oid")
+    for role in ROLES:
+        if role != "migration_role" and (
+            binding[role] == binding["d_schema_owner"] or binding[role + "_oid"] == oid
+        ):
+            raise ValueError("d_owner_alias")
+    if (binding["migration_role"] == binding["d_schema_owner"]) != (binding["migration_role_oid"] == oid):
+        raise ValueError("d_owner_alias")
+    expected = binding["d_preparation"]
+    fields = {
+        "tenant",
+        "environment",
+        "engine_name",
+        "account",
+        "region",
+        "database_incarnation",
+        "generation_id",
+        "epoch",
+        "run_id",
+        "purpose",
+        "preparation_id",
+        "receipt_sha256",
+        "generation_core_sha256",
+        "decision_sha256",
+    }
+    if type(expected) is not dict or set(expected) != fields:
+        raise ValueError("invalid_preparation")
+    for key in ("tenant", "environment", "engine_name", "region"):
+        literal(expected[key])
+        if "*" in expected[key]:
+            raise ValueError("invalid_preparation")
+    if type(expected["account"]) is not str or re.fullmatch(r"[0-9]{12}", expected["account"]) is None:
+        raise ValueError("invalid_preparation")
+    for key in ("database_incarnation", "run_id", "preparation_id"):
+        if (
+            type(expected[key]) is not str
+            or re.fullmatch(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", expected[key]) is None
+        ):
+            raise ValueError("invalid_preparation")
+    for key in ("epoch", "generation_id"):
+        if type(expected[key]) is not int or not 1 <= expected[key] <= 9007199254740991:
+            raise ValueError("invalid_preparation")
+    for key in ("receipt_sha256", "generation_core_sha256", "decision_sha256"):
+        if type(expected[key]) is not str or re.fullmatch(r"[0-9a-f]{64}", expected[key]) is None:
+            raise ValueError("invalid_preparation")
+    if expected["purpose"] not in ("runtime", "candidate"):
+        raise ValueError("invalid_preparation")
+    pinned = dict(
+        expected,
+        native_function_owner_oid=binding["function_owner_oid"],
+        native_issuer_oid=binding["issuer_role_oid"],
+        login_name=binding["runtime_role"],
+        login_oid=binding["runtime_role_oid"],
+        d_schema_owner=binding["d_schema_owner"],
+        d_schema_owner_oid=oid,
+        database_binding_sha256=binding["database_binding_sha256"],
+    )
+    # Every field above has a closed type/bound. This literal is not a SQL or authority input.
+    encoded = json.dumps(pinned, sort_keys=True, separators=(",", ":"))
+    return "'" + encoded.replace("'", "''") + "'::jsonb"
+
+
+def preparation_checks(selector):
+    return (
+        "DO $native_preparation$\nDECLARE p jsonb := "
+        + selector
+        + (
+            "; f record; g record; r record; b jsonb; v record; t text; owner_oid oid;\n"
+            "BEGIN\n"
+            " owner_oid:=(p->>'d_schema_owner_oid')::oid;\n"
+            " IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE oid=owner_oid AND rolname=p->>'d_schema_o"
+            "wner' AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplicati"
+            "on AND NOT rolbypassrls)\n"
+            "    OR NOT pg_has_role(current_user,owner_oid,'USAGE') THEN RAISE EXCEPTION 'native_v"
+            "2_preparation_owner';END IF;\n"
+            " IF NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname='maezo_d7_control' AND nspown"
+            "er=owner_oid) THEN RAISE EXCEPTION 'native_v2_preparation_owner';END IF;\n"
+            " -- These tables are read only through the already qualified owner authority, never n"
+            "ew grants.\n"
+            " FOREACH t IN ARRAY ARRAY['MZO_PROVISIONING_FENCE','MZO_RUNTIME_ADMISSION','MZO_PROVI"
+            "SIONING_SCHEMA_VERSION','MZO_OWNER_PREPARATION_RECEIPT'] LOOP\n"
+            "  IF NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
+            "WHERE n.nspname='maezo_d7_control' AND c.relname=t AND c.relkind='r' AND c.relowner=o"
+            "wner_oid)\n"
+            "     OR NOT has_table_privilege(current_user,format('%I.%I','maezo_d7_control',t),'SE"
+            "LECT')\n"
+            "     OR has_table_privilege((p->>'login_oid')::oid,format('%I.%I','maezo_d7_control',"
+            "t),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')\n"
+            "     OR has_table_privilege((p->>'native_function_owner_oid')::oid,format('%I.%I','ma"
+            "ezo_d7_control',t),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')\n"
+            "     OR has_table_privilege((p->>'native_issuer_oid')::oid,format('%I.%I','maezo_d7_c"
+            "ontrol',t),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') THEN RAISE EXCE"
+            "PTION 'native_v2_preparation_owner';END IF;\n"
+            " END LOOP;\n"
+            " IF EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS"
+            " JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) x WHERE n.nsp"
+            "name='maezo_d7_control' AND c.relname='MZO_OWNER_PREPARATION_RECEIPT' AND (x.grantee="
+            "0 OR (x.grantee<>owner_oid AND (x.privilege_type<>'SELECT' OR x.is_grantable)))) OR E"
+            "XISTS(SELECT 1 FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namesp"
+            "ace n ON n.oid=c.relnamespace WHERE n.nspname='maezo_d7_control' AND c.relname='MZO_O"
+            "WNER_PREPARATION_RECEIPT' AND a.attacl IS NOT NULL) THEN RAISE EXCEPTION 'native_v2_p"
+            "reparation_owner';END IF;\n"
+            ' SELECT * INTO STRICT f FROM maezo_d7_control."MZO_PROVISIONING_FENCE"\n'
+            " WHERE tenant=p->>'tenant' AND environment=p->>'environment' AND engine_name=p->>'eng"
+            "ine_name' FOR UPDATE;\n"
+            ' SELECT * INTO STRICT g FROM maezo_d7_control."MZO_RUNTIME_ADMISSION"\n'
+            " WHERE tenant=f.tenant AND environment=f.environment AND engine_name=f.engine_name AN"
+            "D generation_id=(p->>'generation_id')::bigint FOR UPDATE;\n"
+            ' SELECT * INTO STRICT v FROM maezo_d7_control."MZO_PROVISIONING_SCHEMA_VERSION" WHERE'
+            " component='maezo-d7-control' AND version=1 FOR UPDATE;\n"
+            ' SELECT * INTO STRICT r FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT"\n'
+            " WHERE preparation_id=(p->>'preparation_id')::uuid AND event='PREPARED' FOR UPDATE;\n"
+            " IF (f.mode<>'CLOSED' OR f.restore_state<>'RECONCILED' OR f.current_generation_id IS "
+            "NOT NULL OR f.epoch<>(p->>'epoch')::bigint OR f.owner_run_id<>(p->>'run_id')::uuid\n"
+            "     OR f.database_incarnation<>(p->>'database_incarnation')::uuid OR f.database_bind"
+            "ing_sha256<>p->>'database_binding_sha256'\n"
+            "     OR f.account<>p->>'account' OR f.region<>p->>'region' OR g.generation_epoch<>f.e"
+            "poch OR g.run_id<>f.owner_run_id\n"
+            "     OR g.account<>f.account OR g.region<>f.region OR g.database_incarnation<>f.datab"
+            "ase_incarnation OR g.database_binding_sha256<>f.database_binding_sha256\n"
+            "     OR g.status<>'PREPARED' OR g.phase<>'UNADMITTED' OR g.phase_proof_bytes IS NOT N"
+            "ULL OR g.phase_proof_sha256 IS NOT NULL OR g.valid_until_ms IS NOT NULL OR g.observat"
+            "ion_deadline_ms IS NOT NULL OR g.opened_at_ms IS NOT NULL OR g.retired_at_ms IS NOT N"
+            "ULL\n"
+            "     OR g.login_name<>p->>'login_name' OR g.login_oid<>(p->>'login_oid')::oid OR g.pu"
+            "rpose<>p->>'purpose'\n"
+            "     OR g.owner_preparation_id<>r.preparation_id OR g.generation_binding_sha256<>p->>"
+            "'generation_core_sha256'\n"
+            "     OR g.generation_binding_sha256<>encode(sha256(g.generation_core_bytes),'hex')\n"
+            "     OR g.activation_decision_sha256<>p->>'decision_sha256' OR g.activation_decision_"
+            "sha256<>encode(sha256(g.activation_decision_bytes),'hex')\n"
+            "     OR octet_length(g.generation_core_bytes)>1048576 OR octet_length(g.activation_de"
+            "cision_bytes)>1048576\n"
+            "     OR r.tenant<>f.tenant OR r.environment<>f.environment OR r.engine_name<>f.engine"
+            "_name OR r.database_binding_sha256<>f.database_binding_sha256\n"
+            "     OR r.installation_id<>v.installation_id OR r.login_name<>g.login_name OR r.login"
+            "_oid<>g.login_oid\n"
+            "     OR r.result_sha256<>p->>'receipt_sha256' OR r.result_sha256<>encode(sha256(r.res"
+            "ult_bytes),'hex') OR r.request_sha256<>encode(sha256(r.request_bytes),'hex')\n"
+            "     OR octet_length(r.result_bytes)>1048576 OR octet_length(r.request_bytes)>1048576"
+            "\n"
+            '     OR EXISTS(SELECT 1 FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE p'
+            "reparation_id=r.preparation_id AND (event='REMOVED' OR (event='NATIVE_QUALIFIED' AND "
+            "to_regnamespace('maezo_native_v2') IS NULL)))) IS NOT FALSE\n"
+            " THEN RAISE EXCEPTION 'native_v2_preparation_unavailable';END IF;\n"
+            " b:=convert_from(r.result_bytes,'UTF8')::jsonb;\n"
+            " IF (b->>'protocol'<>'maezo.d7-owner-preparation-result.v1' OR b->>'event'<>'PREPARED"
+            "'\n"
+            "     OR b->>'preparation_id'<>r.preparation_id::text OR b->>'request_sha256'<>r.reque"
+            "st_sha256\n"
+            "     OR b->'generation_core' IS DISTINCT FROM convert_from(g.generation_core_bytes,'U"
+            "TF8')::jsonb\n"
+            "     OR b->'principal'->>'login_name'<>g.login_name OR (b->'principal'->>'login_oid')"
+            "::oid<>g.login_oid\n"
+            "     OR b->'principal'->>'purpose'<>g.purpose OR b->'principal'->>'kind'<>'generation"
+            "'\n"
+            "     OR (b->'principal'->>'generation_id')::bigint<>g.generation_id\n"
+            "     OR b->>'owner_session_user'<>r.owner_session_user OR (b->>'owner_login_oid')::oi"
+            "d<>r.owner_login_oid\n"
+            "     OR b->>'owner_effective_user'<>r.owner_effective_user OR (b->>'owner_effective_o"
+            "id')::oid<>r.owner_effective_oid\n"
+            "     OR NOT EXISTS(SELECT 1 FROM pg_roles WHERE oid=r.owner_login_oid AND rolname=r.o"
+            "wner_session_user)\n"
+            "     OR NOT EXISTS(SELECT 1 FROM pg_roles WHERE oid=r.owner_effective_oid AND rolname"
+            "=r.owner_effective_user)\n"
+            "     OR NOT pg_has_role(r.owner_effective_oid,owner_oid,'USAGE')\n"
+            "     OR NOT EXISTS(SELECT 1 FROM pg_roles WHERE oid=g.login_oid AND rolname=g.login_n"
+            "ame AND NOT rolcanlogin)\n"
+            "     OR has_database_privilege(g.login_oid,current_database(),'CONNECT')) IS NOT FALS"
+            "E THEN RAISE EXCEPTION 'native_v2_preparation_unavailable';END IF;\n"
+            "END $native_preparation$;\n"
+        )
+    )
+
+
 def render(binding):
     keys = (
         set(ROLES)
@@ -82,6 +262,9 @@ def render(binding):
             "d_role_acl_sha256",
             "d_objects_sha256",
             "migration_receipt",
+            "d_schema_owner",
+            "d_schema_owner_oid",
+            "d_preparation",
         }
     )
     if type(binding) is not dict or set(binding) != keys:
@@ -106,6 +289,7 @@ def render(binding):
     ):
         if type(binding[key]) is not str or re.fullmatch(r"[0-9a-f]{64}", binding[key]) is None:
             raise ValueError("invalid_digest")
+    preparation_selector = preparation(binding)
     manifest = read_json(MANIFEST)
     sql = SQL.read_text()
     if hashlib.sha256(sql.encode()).hexdigest() != manifest["sql_template_sha256"]:
@@ -223,6 +407,8 @@ def render(binding):
             "__DATABASE_BINDING_DIGEST__": binding["database_binding_sha256"],
             "__MANIFEST_DIGEST__": digest,
             "__CIB_ABI_DIGEST__": manifest["cib_abi_sha256"],
+            "__PREPARATION_BINDING__": preparation_selector,
+            "__PREPARATION_ID__": binding["d_preparation"]["preparation_id"],
             "'__MIGRATION_RECEIPT__'": literal(binding["migration_receipt"]),
         }
     )
@@ -232,7 +418,7 @@ def render(binding):
         raise ValueError("unresolved_placeholder")
     checks = []
     for role in ROLES:
-        login = "true" if role in ("issuer_role", "runtime_role", "migration_role") else "false"
+        login = "true" if role in ("issuer_role", "migration_role") else "false"
         checks.append(
             "IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_roles WHERE oid="
             + str(binding[role + "_oid"])
@@ -246,7 +432,14 @@ def render(binding):
                 "e_unavailable';END IF;"
             )
         )
-    for role in ("schema_owner", "function_owner", "d_guard_owner", "issuer_role"):
+    for role in (
+        "schema_owner",
+        "function_owner",
+        "d_guard_owner",
+        "d_schema_owner",
+        "issuer_role",
+        "migration_role",
+    ):
         checks.append(
             "IF pg_catalog.pg_has_role("
             + str(binding["runtime_role_oid"])
@@ -255,7 +448,7 @@ def render(binding):
             + ",'MEMBER') THEN RAISE EXCEPTION 'native_v2_role_assumption_denied';END IF;"
         )
     for login in ("issuer_role", "function_owner"):
-        for owner in ("schema_owner", "d_guard_owner", "migration_role"):
+        for owner in ("schema_owner", "d_guard_owner", "d_schema_owner", "migration_role"):
             checks.append(
                 "IF pg_catalog.pg_has_role("
                 + str(binding[login + "_oid"])
@@ -351,7 +544,12 @@ def render(binding):
             "CEPTION 'native_v2_D_acl_unavailable';END IF;"
         )
     )
-    preflight = "DO $native_preflight$ BEGIN\n" + "\n".join(checks) + "\nEND $native_preflight$;\n"
+    preflight = (
+        "DO $native_preflight$ BEGIN\n"
+        + "\n".join(checks)
+        + "\nEND $native_preflight$;\n"
+        + preparation_checks(preparation_selector)
+    )
     verify = (
         (
             "DO $native_replay$ DECLARE v record;BEGIN SELECT * INTO STRICT v FROM "
@@ -372,10 +570,21 @@ def render(binding):
         + str(binding["function_owner_oid"])
         + " OR v.issuer_role<>"
         + str(binding["issuer_role_oid"])
+        + " OR v.migration_receipt<>"
+        + literal(binding["migration_receipt"])
+        + " OR v.preparation_binding IS DISTINCT FROM "
+        + preparation_selector
+        + (
+            " OR v.preparation_receipt_bytes IS DISTINCT FROM (SELECT result_bytes FROM "
+            'maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE preparation_id='
+        )
+        + literal(binding["d_preparation"]["preparation_id"])
+        + "::uuid AND event='PREPARED')"
         + " THEN RAISE EXCEPTION 'native_v2_migration_drift';END IF;END $native_replay$;\n"
     )
     return (
-        "\\set ON_ERROR_STOP on\nBEGIN;\n"
+        "\\set ON_ERROR_STOP on\nBEGIN;\nSET LOCAL lock_timeout='1000ms';\n"
+        "SET LOCAL statement_timeout='5000ms';\n"
         + preflight
         + (
             "SELECT to_regnamespace('maezo_native_v2') IS NULL AS native_v2_in"

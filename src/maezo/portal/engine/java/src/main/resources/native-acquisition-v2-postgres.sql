@@ -13,6 +13,7 @@ CREATE TABLE maezo_native_v2.schema_version (
   database_binding_sha256 text NOT NULL CHECK(database_binding_sha256 ~ '^[0-9a-f]{64}$'),
   function_owner oid NOT NULL, issuer_role oid NOT NULL, d_helper_oid oid NOT NULL,
   abi_digest text NOT NULL CHECK(abi_digest ~ '^[0-9a-f]{64}$'), migration_receipt text NOT NULL,
+  preparation_binding jsonb NOT NULL, preparation_receipt_bytes bytea NOT NULL CHECK(octet_length(preparation_receipt_bytes)<=1048576),
   catalogue_digest text NOT NULL CHECK(catalogue_digest ~ '^[0-9a-f]{64}$')
 );
 CREATE TABLE maezo_native_v2.admission (
@@ -165,10 +166,23 @@ BEGIN
  RETURN jsonb_build_object('status','not_observed','receipt',NULL);
 END $$;
 CREATE FUNCTION maezo_native_v2.read_acquisitions_v2(p jsonb) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
-DECLARE r maezo_native_v2.acquisition;result jsonb:='[]';
+DECLARE r maezo_native_v2.acquisition;result jsonb:='[]';g jsonb;selector jsonb;
 BEGIN
- PERFORM maezo_native_v2.assert_keys(p,ARRAY['guard','task_ids']);PERFORM maezo_native_v2.check_guard(p->'guard');
- FOR r IN SELECT * FROM maezo_native_v2.acquisition WHERE scope=p->'guard'->'scope' AND task_id IN (SELECT jsonb_array_elements_text(p->'task_ids')) ORDER BY task_id COLLATE "C",acquisition_ref COLLATE "C" FOR UPDATE LOOP
+ PERFORM maezo_native_v2.assert_keys(p,ARRAY['guard','references','fetch_task_ids']);g:=p->'guard';PERFORM maezo_native_v2.check_guard(g);
+ IF (jsonb_typeof(p->'references')<>'array' OR jsonb_typeof(p->'fetch_task_ids')<>'array' OR jsonb_array_length(p->'references')>2 OR (jsonb_array_length(p->'references')>0 AND jsonb_array_length(p->'fetch_task_ids')>0)) IS NOT FALSE THEN RAISE EXCEPTION USING ERRCODE='P7N01',MESSAGE='invalid_request';END IF;
+ FOR selector IN SELECT value FROM jsonb_array_elements(p->'references') LOOP
+  PERFORM maezo_native_v2.assert_keys(selector,ARRAY['task_id','reference']);
+  PERFORM maezo_native_v2.assert_keys(selector->'reference',ARRAY['acquisition_ref','lease_revision']);
+  IF (jsonb_typeof(selector->'task_id')<>'string' OR selector->>'task_id'='' OR jsonb_typeof(selector->'reference'->'acquisition_ref')<>'string' OR selector->'reference'->>'acquisition_ref' !~ '^[A-Za-z0-9_-]{43}$' OR jsonb_typeof(selector->'reference'->'lease_revision')<>'number' OR selector->'reference'->>'lease_revision' !~ '^[1-9][0-9]*$' OR (selector->'reference'->>'lease_revision')::numeric>9223372036854775807) IS NOT FALSE THEN RAISE EXCEPTION USING ERRCODE='P7N01',MESSAGE='invalid_request';END IF;
+ END LOOP;
+ IF EXISTS(SELECT 1 FROM jsonb_array_elements(p->'fetch_task_ids') x WHERE jsonb_typeof(x)<>'string' OR x#>>'{}'='') OR EXISTS(SELECT 1 FROM jsonb_array_elements(p->'references') x GROUP BY x->>'task_id' HAVING count(*)>1) OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(p->'fetch_task_ids') x GROUP BY x HAVING count(*)>1) THEN RAISE EXCEPTION USING ERRCODE='P7N01',MESSAGE='invalid_request';END IF;
+ -- Only exact current consumed refs, or the one live predecessor per genuinely fetched task.
+ -- A predecessor from an older generation must be retired too, but unrelated history is never selected.
+ FOR r IN SELECT a.* FROM maezo_native_v2.acquisition a
+ WHERE a.scope=g->'scope' AND a.state='live' AND (
+  (a.binding->'runtime_generation'=g->'runtime_generation' AND a.binding->>'activation_ref'=g->>'activation_ref' AND a.binding->>'decision_digest'=g->>'decision_digest' AND EXISTS(SELECT 1 FROM jsonb_array_elements(p->'references') s WHERE a.task_id=s->>'task_id' AND a.acquisition_ref=s->'reference'->>'acquisition_ref' AND a.lease_revision=(s->'reference'->>'lease_revision')::bigint))
+  OR a.task_id IN (SELECT jsonb_array_elements_text(p->'fetch_task_ids')))
+ ORDER BY a.task_id COLLATE "C",a.acquisition_ref COLLATE "C" FOR UPDATE OF a LOOP
   result:=result||jsonb_build_array(r.binding||jsonb_build_object('acquisition_ref',r.acquisition_ref,'task_id',r.task_id,'lease_revision',r.lease_revision,'lock_expires_at',r.lock_expires_at,'state',r.state));
  END LOOP;RETURN jsonb_build_object('acquisitions',result);
 END $$;
@@ -181,14 +195,22 @@ BEGIN
  RETURN r;
 END $$;
 CREATE FUNCTION maezo_native_v2.insert_acquisition_v2(p jsonb) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
-DECLARE g jsonb;a jsonb;t jsonb;binding jsonb;c maezo_native_v2.capability;
+DECLARE g jsonb;a jsonb;t jsonb;binding jsonb;c maezo_native_v2.capability;previous maezo_native_v2.acquisition;
 BEGIN
- PERFORM maezo_native_v2.assert_keys(p,ARRAY['guard','acquisition']);g:=p->'guard';a:=p->'acquisition';PERFORM maezo_native_v2.check_guard(g);
+ PERFORM maezo_native_v2.assert_keys(p,ARRAY['guard','acquisition','predecessor']);g:=p->'guard';a:=p->'acquisition';PERFORM maezo_native_v2.check_guard(g);
  PERFORM maezo_native_v2.assert_keys(a,ARRAY['acquisition_ref','task_id','owner_identity','native_user','worker_id','target','process_instance_id','execution_id','activation_ref','runtime_generation','decision_digest','fetch_capability_digest','command_id','request_digest','lease_revision','lock_expires_at','state']);
  SELECT * INTO STRICT c FROM maezo_native_v2.capability WHERE scope=g->'scope' AND activation_ref=g->>'activation_ref' AND capability_digest=g->>'capability_digest';
  t:=maezo_native_v2.native_task(a->>'task_id',g->'scope');
  IF (c.binding->'document'->'schema'->>'operation'<>'fetch_lock' OR a->'owner_identity' IS DISTINCT FROM g->'identity' OR a->>'native_user'<>g->>'native_user' OR a->>'activation_ref'<>g->>'activation_ref' OR a->'runtime_generation' IS DISTINCT FROM g->'runtime_generation' OR a->>'decision_digest'<>g->>'decision_digest' OR a->>'fetch_capability_digest'<>g->>'capability_digest' OR a->'target' IS DISTINCT FROM c.binding->'document'->'target' OR a->>'worker_id'<>c.binding->'document'->>'worker_id' OR a->>'state'<>'live' OR a->>'lease_revision'<>'1' OR t IS NULL OR t->>'worker_id'<>a->>'worker_id' OR t->>'definition_id'<>a->'target'->>'definition_id' OR t->>'topic'<>a->'target'->>'topic' OR t->'process_instance_id' IS DISTINCT FROM a->'process_instance_id' OR t->'execution_id' IS DISTINCT FROM a->'execution_id' OR t->'expiry' IS DISTINCT FROM a->'lock_expires_at' OR (t->>'expiry')::bigint<=(extract(epoch FROM clock_timestamp())*1000)::bigint OR (t->'suspension'<>'null'::jsonb AND t->>'suspension'<>'1')) IS NOT FALSE THEN RAISE EXCEPTION USING ERRCODE='P7N03',MESSAGE='denied';END IF;
- UPDATE maezo_native_v2.acquisition SET state='closed',closed_by=jsonb_build_object('engine',g->'scope'->'engine_name','database_incarnation',g->'scope'->'database_incarnation','identity',g->'identity','native_user',g->'native_user','operation','fetch_lock','capability_digest',g->'capability_digest','command_id',a->'command_id','request_digest',a->'request_digest','activation_ref',g->'activation_ref') WHERE scope=g->'scope' AND task_id=a->>'task_id' AND state='live';
+ -- T/L were captured before the native fetch. Close exactly that retained predecessor.
+ SELECT * INTO previous FROM maezo_native_v2.acquisition WHERE scope=g->'scope' AND task_id=a->>'task_id' AND state='live';
+ IF p->'predecessor'='null'::jsonb THEN
+  IF FOUND THEN RAISE EXCEPTION USING ERRCODE='P7N03',MESSAGE='denied';END IF;
+ ELSE
+  PERFORM maezo_native_v2.assert_keys(p->'predecessor',ARRAY['acquisition_ref','lease_revision']);
+  IF (previous.acquisition_ref IS NULL OR previous.acquisition_ref<>p->'predecessor'->>'acquisition_ref' OR previous.lease_revision<>(p->'predecessor'->>'lease_revision')::bigint) IS NOT FALSE THEN RAISE EXCEPTION USING ERRCODE='P7N03',MESSAGE='denied';END IF;
+ END IF;
+ UPDATE maezo_native_v2.acquisition SET state='closed',closed_by=jsonb_build_object('engine',g->'scope'->'engine_name','database_incarnation',g->'scope'->'database_incarnation','identity',g->'identity','native_user',g->'native_user','operation','fetch_lock','capability_digest',g->'capability_digest','command_id',a->'command_id','request_digest',a->'request_digest','activation_ref',g->'activation_ref') WHERE scope=g->'scope' AND task_id=a->>'task_id' AND state='live' AND acquisition_ref=previous.acquisition_ref AND lease_revision=previous.lease_revision;
  binding:=a-ARRAY['acquisition_ref','task_id','lease_revision','lock_expires_at','state'];
  INSERT INTO maezo_native_v2.acquisition VALUES(g->'scope',a->>'acquisition_ref',a->>'task_id',binding,1,(a->>'lock_expires_at')::bigint,'live',NULL);
  RETURN a;
@@ -295,4 +317,4 @@ END $$;
 __FUNCTION_OWNERSHIP_AND_ACL__
 __VERIFY_NATIVE_ACL__
 -- Owner-generated exact receipt/catalogue identity; no runtime seed or automatic history completeness.
-INSERT INTO maezo_native_v2.schema_version VALUES('native-acquisition-v2','__MANIFEST_DIGEST__','__ACT_SCHEMA_VALUE__','__ACT_SCHEMA_OID__'::oid,'__DATABASE_OID__'::oid,'__DATABASE_BINDING_DIGEST__','__FUNCTION_OWNER_OID__'::oid,'__ISSUER_ROLE_OID__'::oid,to_regprocedure('maezo_d7_control.lock_runtime_v2_scope(jsonb)')::oid,'__CIB_ABI_DIGEST__','__MIGRATION_RECEIPT__',encode(sha256(convert_to(maezo_native_v2.catalogue_v2()::text,'UTF8')),'hex'));
+INSERT INTO maezo_native_v2.schema_version VALUES('native-acquisition-v2','__MANIFEST_DIGEST__','__ACT_SCHEMA_VALUE__','__ACT_SCHEMA_OID__'::oid,'__DATABASE_OID__'::oid,'__DATABASE_BINDING_DIGEST__','__FUNCTION_OWNER_OID__'::oid,'__ISSUER_ROLE_OID__'::oid,to_regprocedure('maezo_d7_control.lock_runtime_v2_scope(jsonb)')::oid,'__CIB_ABI_DIGEST__','__MIGRATION_RECEIPT__',__PREPARATION_BINDING__,(SELECT result_bytes FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE preparation_id='__PREPARATION_ID__'::uuid AND event='PREPARED'),encode(sha256(convert_to(maezo_native_v2.catalogue_v2()::text,'UTF8')),'hex'));

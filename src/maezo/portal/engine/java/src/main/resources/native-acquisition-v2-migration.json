@@ -1,4 +1,19 @@
 {
+  "acquisition_read": {
+    "fetch_close": "exact_captured_predecessor_reference_revision_or_proven_absence",
+    "fetch_task_ids": "only_actual_bounded_fetch_set_one_live_predecessor_per_task_including_required_prior_generation",
+    "history": "retained_never_selected_unless_required_live_predecessor",
+    "locks": "task_id_C_then_acquisition_ref_C",
+    "output": [
+      "acquisitions"
+    ],
+    "references": "at_most_two_unique_task_id_and_exact_reference_revision_current_live_generation",
+    "request": [
+      "guard",
+      "references",
+      "fetch_task_ids"
+    ]
+  },
   "actual_engine_controls": "NOT_RUN_ROOT_ONLY",
   "bootstrap_lock_timeout_ms": 1000,
   "bootstrap_statement_timeout_ms": 5000,
@@ -105,7 +120,7 @@
         "jsonb"
       ],
       "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
-      "body_sha256": "abba57b9d90cd4b3358c101fcef0a2f8d18ce6460583cd53f24f02301d9f5542",
+      "body_sha256": "ad91b0eb8bd279cf1912ddc1e4e063dc6c3a1b82fd2b2b62a3d9cc76900ffe4e",
       "caller": "runtime",
       "name": "read_acquisitions_v2",
       "returns": "jsonb"
@@ -126,7 +141,7 @@
         "jsonb"
       ],
       "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
-      "body_sha256": "3184f95603d74ee9f417200bd86b2c0b121de7a46365a6e11e18216e94382503",
+      "body_sha256": "2f68223013f6ece80e0a994c721ff99cb02f4746f66452516d441d2fa317033c",
       "caller": "runtime",
       "name": "insert_acquisition_v2",
       "returns": "jsonb"
@@ -205,11 +220,26 @@
   "migration_key": "native-acquisition-v2",
   "postgres_major": 16,
   "predecessor": null,
+  "prepared_principal_requirement": {
+    "D_native_qualified_event": "SEPARATE_OWNER_PROPAGATION_DEPENDENCY",
+    "authority": "ACTUAL_EXISTING_D_SCHEMA_OWNER_AUTHORITY_ONLY",
+    "generation": "MZO_RUNTIME_ADMISSION.PREPARED_UNADMITTED",
+    "later_principal_acl_refresh": "NOT_IMPLEMENTED",
+    "lock_order": [
+      "F",
+      "G",
+      "V",
+      "owner_preparation_receipt"
+    ],
+    "receipt": "MZO_OWNER_PREPARATION_RECEIPT.PREPARED",
+    "replay": "IMMUTABLE_PREPARATION_BINDING_AND_EXACT_RECEIPT_BYTES_WHILE_PREPARED",
+    "state": "PREPARED_NOLOGIN_NO_CONNECT"
+  },
   "protocol": "maezo.native-acquisition-migration.v2",
   "readiness_initially_admissible": false,
   "runtime_auto_ddl": false,
   "schema_registry_sha256": "4167a195860c50e1eae8464886a7d468a06ccde05b1a8e39c8a672fdd90a2807",
-  "sql_template_sha256": "b40f20376c98e66d91a8da674113b2cd320862af9b8cd00c5cf2b521901399b0",
+  "sql_template_sha256": "a4316ad665784a988359b27291ffed4e9d1a9739104861f1e28d3e053bee5248",
   "tables": [
     "schema_version",
     "admission",

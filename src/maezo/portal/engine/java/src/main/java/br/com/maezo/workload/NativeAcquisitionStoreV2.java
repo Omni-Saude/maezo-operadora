@@ -20,8 +20,37 @@ final class NativeAcquisitionStoreV2 {
       if(result.put(id,row)!=null)throw Refused.unavailable();
     }return result;
   }
-  void lock(Collection<String> ids){lock(ids,List.of());}
-  void lock(Collection<String> ids,Collection<String> additionalRoots){
+  /** Closed consumed selectors; same-row roles must name exactly the same lease. */
+  static Map<String,Object> selection(Map<String,Object> request,Collection<String> fetchIds){
+    Map<String,Map<String,Object>> refs=new HashMap<>();
+    for(String role:List.of("resource","source"))if(request.get(role+"_acquisition")!=null){
+      String id=Json.token(request,role+"_ref");var ref=NativeOutcomeV2.reference(request.get(role+"_acquisition"));
+      var old=refs.putIfAbsent(id,ref);if(old!=null&&!old.equals(ref))throw Refused.resource();
+    }
+    var fetch=ordered(fetchIds);if(!fetch.isEmpty()&&!refs.isEmpty())throw Refused.resource();
+    List<Object> selectors=new ArrayList<>();for(String id:ordered(refs.keySet()))selectors.add(Map.of("task_id",id,"reference",refs.get(id)));
+    return Map.of("references",selectors,"fetch_task_ids",fetch);
+  }
+  /** Verify the closed SQL result at the actual enlisted parser boundary. */
+  static void checkSelection(Map<String,Object> input,Map<String,Object> output){
+    Json.keys(input,"guard","references","fetch_task_ids");Json.keys(output,"acquisitions");
+    var guard=Json.object(input.get("guard"));var fetch=Json.list(input.get("fetch_task_ids"));
+    var refs=Json.list(input.get("references"));if(refs.size()>2||(!fetch.isEmpty()&&!refs.isEmpty()))throw Refused.body();
+    Set<String> seen=new HashSet<>();
+    for(Object item:Json.list(output.get("acquisitions"))){
+      var row=Json.object(item);String id=Json.token(row,"task_id");NativeOutcomeV2.ref(row,"acquisition_ref");
+      if(!seen.add(id)||!"live".equals(row.get("state")))throw Refused.unavailable();
+      if(fetch.contains(id))continue;
+      boolean selected=refs.stream().map(Json::object).anyMatch(s->id.equals(s.get("task_id"))&&NativeOutcomeV2.reference(s.get("reference")).equals(Map.of("acquisition_ref",row.get("acquisition_ref"),"lease_revision",row.get("lease_revision"))));
+      if(!selected||!Objects.equals(guard.get("runtime_generation"),row.get("runtime_generation"))||!Objects.equals(guard.get("activation_ref"),row.get("activation_ref"))||!Objects.equals(guard.get("decision_digest"),row.get("decision_digest")))throw Refused.unavailable();
+    }
+  }
+  Map<String,Object> predecessor(String id){
+    var rows=acquisitions.values().stream().filter(r->id.equals(r.get("task_id"))).toList();
+    if(rows.size()>1)throw Refused.unavailable();
+    return rows.isEmpty()?null:Map.of("acquisition_ref",rows.get(0).get("acquisition_ref"),"lease_revision",rows.get(0).get("lease_revision"));
+  }
+  void lock(Collection<String> ids,Collection<String> additionalRoots,Map<String,Object> selection){
     var wanted=ordered(ids);if(wanted.size()>admission.policy.transport.maxTasks+2)throw Refused.body();
     Map<String,Map<String,Object>> before=rows(wanted);if(!before.keySet().equals(new HashSet<>(wanted)))throw Refused.resource();
     List<String> rootIds=new ArrayList<>(additionalRoots);rootIds.addAll(before.values().stream().map(t->Json.token(t,"process")).toList());
@@ -35,7 +64,7 @@ final class NativeAcquisitionStoreV2 {
     tasks=rows(wanted);
     for(String id:wanted){var a=before.get(id);var b=tasks.get(id);if(b==null)throw Refused.resource();
       for(String field:List.of("task","tenant","definition","process","execution","topic"))if(!Objects.equals(a.get(field),b.get(field)))throw Refused.resource();}
-    var stored=admission.call("read_acquisitions_v2",Map.of("task_ids",wanted));Json.keys(stored,"acquisitions");
+    var stored=admission.call("read_acquisitions_v2",selection);Json.keys(stored,"acquisitions");
     Map<String,Map<String,Object>> map=new HashMap<>();
     for(Object item:Json.list(stored.get("acquisitions"))){var row=Json.object(item);String ref=NativeOutcomeV2.ref(row,"acquisition_ref");if(map.put(ref,row)!=null)throw Refused.unavailable();}
     acquisitions=Map.copyOf(map);
@@ -43,15 +72,18 @@ final class NativeAcquisitionStoreV2 {
   Map<String,Object> task(String id){var task=tasks.get(id);if(task==null)throw Refused.resource();return task;}
   Map<String,Object> consume(String id,Object reference,Map<String,Object> target,String worker,Map<String,Object> owner,String nativeUser,String fetchDigest){
     var consumed=NativeOutcomeV2.reference(reference);var row=acquisitions.get(consumed.get("acquisition_ref"));var task=task(id);
+    return checkConsumed(row,consumed,id,task,target,worker,owner,nativeUser,fetchDigest,admission.policy.admission,admission.now());
+  }
+  static Map<String,Object> checkConsumed(Map<String,Object> row,Map<String,Object> consumed,String id,Map<String,Object> task,Map<String,Object> target,String worker,Map<String,Object> owner,String nativeUser,String fetchDigest,Map<String,Object> current,long now){
     if(row==null || !"live".equals(row.get("state")) || !consumed.get("lease_revision").equals(row.get("lease_revision"))
         || !id.equals(row.get("task_id")) || !owner.equals(row.get("owner_identity")) || !nativeUser.equals(row.get("native_user"))
         || !worker.equals(row.get("worker_id")) || !target.equals(row.get("target"))
         || !Objects.equals(task.get("process"),row.get("process_instance_id")) || !Objects.equals(task.get("execution"),row.get("execution_id"))
-        || !admission.policy.admission.get("runtime_generation").equals(row.get("runtime_generation"))
-        || !admission.policy.admission.get("decision_digest").equals(row.get("decision_digest"))
-        || !admission.policy.admission.get("activation_ref").equals(row.get("activation_ref"))
+        || !current.get("runtime_generation").equals(row.get("runtime_generation"))
+        || !current.get("decision_digest").equals(row.get("decision_digest"))
+        || !current.get("activation_ref").equals(row.get("activation_ref"))
         || (fetchDigest!=null && !fetchDigest.equals(row.get("fetch_capability_digest"))))throw Refused.resource();
-    checkTask(task,target,worker,admission.now());
+    checkTask(task,target,worker,now);
     if(!task.get("expiry").equals(row.get("lock_expires_at")))throw Refused.resource();return row;
   }
   static void checkTask(Map<String,Object> task,Map<String,Object> target,String worker,long now){
