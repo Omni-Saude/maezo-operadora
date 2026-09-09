@@ -388,8 +388,8 @@ def _unique_contrato(prefix: str = "CONTRATO-TESTE") -> str:
 
 
 @pytest_asyncio.fixture
-async def start_inad(engine: EngineRest, deploy_artifacts: str) -> Callable[..., Any]:
-    """Inicia uma instancia com business key INAD-amh-{contrato} e payload canonico.
+async def start_inad(engine: EngineRest, deploy_artifacts: str, audit_tenant: str) -> Callable[..., Any]:
+    """Inicia uma instancia com business key INAD-{tenant_id}-{contrato} e payload canonico.
 
     Default = periodo minimo atingido + notificacao previa feita + purga decorrida em plano
     individual -> SEGUE_ANALISE. `dentro_periodo_minimo` (PORT NOTE: recomputado por resolve_facts
@@ -406,7 +406,7 @@ async def start_inad(engine: EngineRest, deploy_artifacts: str) -> Callable[...,
             competencias_em_aberto = ["2026-01", "2026-02", "2026-03"] if dentro_periodo_minimo else []
 
         variables: dict[str, Any] = {
-            "tenant_id": "amh",
+            "tenant_id": audit_tenant,
             "numero_contrato": contrato,
             "matricula_beneficiario": "BENEF-TESTE-0001",
             "tipo_plano": "individual",
@@ -419,7 +419,7 @@ async def start_inad(engine: EngineRest, deploy_artifacts: str) -> Callable[...,
             "dentro_janela_purga": False,
         }
         variables.update(overrides)
-        business_key = f"INAD-amh-{contrato}"
+        business_key = f"INAD-{audit_tenant}-{contrato}"
         return await engine.start_by_key("SP-OP-INADIMPLENCIA-001", business_key, variables)
 
     return _start
@@ -569,6 +569,7 @@ async def test_notificacao_previa_publica_inadimplencia_notified(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
     start_inad: Callable[..., Any],
+    audit_tenant: str,
 ) -> None:
     """T3.1 event-gap remedy B (wave 4, latent conformance, event-gap design doc §2.8).
 
@@ -591,7 +592,7 @@ async def test_notificacao_previa_publica_inadimplencia_notified(
     assert await engine.instance_is_active(iid), "Instancia deve aguardar no cure-window de purga"
     assert inad_probe.has_event(
         _INAD_NOTIFIED,
-        tenant_id="amh",
+        tenant_id=audit_tenant,
         numero_contrato=contrato,
     ), (
         "inadimplencia.notified (ST_PublishInadimplenciaNotified) deve ser publicado com os "
@@ -699,6 +700,7 @@ async def test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
     start_inad: Callable[..., Any],
+    audit_tenant: str,
 ) -> None:
     """SEGUE_ANALISE; humano ENCAMINHAR_RESCISAO => handoff a CANCEL-001; End_RescisaoHandoffCancel
     (NEUTRO).
@@ -713,7 +715,8 @@ async def test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde(
         _REPO / "spec/processes/dmn/cancel_sla.dmn",
         name="SP-OP-CANCEL-001-qa-inad-handoff",
     )
-    inst = await start_inad()
+    contrato = _unique_contrato()
+    inst = await start_inad(numero_contrato=contrato)
     iid = inst["id"]
 
     ut = await _drive_to_analise(engine, inad_probe, iid)
@@ -725,6 +728,17 @@ async def test_happy_path_encaminhar_rescisao_handoff_neutro_nao_rescinde(
     ended = await _await_end(engine, iid)
     assert _END_HANDOFF in ended, f"ENCAMINHAR_RESCISAO => End_RescisaoHandoffCancel (neutro). ended={ended}"
     assert not (ended & _ENDS_ADVERSOS), "Handoff de rescisao NAO atinge terminal adverso local"
+
+    targets = await engine.find_active_instances(f"CANCEL-{audit_tenant}-{contrato}")
+    assert len(targets) == 1, "O handoff deve criar uma unica instancia CANCEL do mesmo tenant/contrato"
+    target = targets[0]
+    definition = ET.fromstring(await engine.definition_xml(str(target["definitionId"])))
+    process = definition.find(f"{_BPMN_NS}process")
+    assert process is not None and process.get("id") == "SP-OP-CANCEL-001"
+    assert await engine.get_variable(str(target["id"]), "tenant_id") == audit_tenant
+    assert await engine.get_variable(str(target["id"]), "numero_contrato") == contrato
+    assert await engine.get_variable(str(target["id"]), "tipo_solicitacao") == "inadimplencia"
+    assert await engine.get_variable(str(target["id"]), "origem_solicitacao") == "operadora"
 
     # v2-real emitted shape (ADAPTADO — v2 has no internal-notification channel; see #1). The
     # ST_PublishRescisaoHandoff publish task (desfecho=rescisao_handoff, event_payload_vars carry
@@ -807,12 +821,13 @@ async def test_suspensao_recusada_se_ja_em_rescisao_cancel(
     engine: EngineRest,
     inad_probe: InadEngineProbe,
     start_inad: Callable[..., Any],
+    audit_tenant: str,
 ) -> None:
     """ANTI-DUPLA-TERMINACAO (GAP-INAD-1): CANCEL-001 ATIVO => resolve_facts DETECTA e recusa a suspensao.
 
     Com o seam `engine=` wired no `inad_probe` (FreshClientCibSevenTransport), resolve_facts roda a
     consulta cross-process REAL (`_query_ja_em_rescisao_cancel` -> `find_active_instance` sobre
-    CANCEL-amh-{contrato}). A instancia CANCEL-001 materializada abaixo (MESMO contrato) e detectada
+    CANCEL-{tenant_id}-{contrato}). A instancia CANCEL-001 materializada abaixo (MESMO contrato) e detectada
     como ATIVA -> ja_em_rescisao_cancel=True -> o guard de register_contract_suspension RECUSA a
     suspensao -> End_ContratoSuspenso_Inad NUNCA e atingido. A prova de que a deteccao e CAUSAL (nao
     uma recusa incondicional/fail-closed): o teste irmao `test_suspensao_prossegue_sem_cancel_ativo`
@@ -820,7 +835,7 @@ async def test_suspensao_recusada_se_ja_em_rescisao_cancel(
     discriminador. Anti-dupla-terminacao provada end-to-end.
     """
     contrato = _unique_contrato()
-    cancel_bk = f"CANCEL-amh-{contrato}"
+    cancel_bk = f"CANCEL-{audit_tenant}-{contrato}"
 
     await engine.deploy(
         _REPO / "spec/processes/bpmn/SP-OP-CANCEL-001_Cancelamento_Contrato.bpmn",
@@ -833,7 +848,7 @@ async def test_suspensao_recusada_se_ja_em_rescisao_cancel(
         "SP-OP-CANCEL-001",
         cancel_bk,
         {
-            "tenant_id": "amh",
+            "tenant_id": audit_tenant,
             "numero_contrato": contrato,
             "matricula_beneficiario": "BENEF-TESTE-0001",
             "tipo_solicitacao": "inadimplencia",
