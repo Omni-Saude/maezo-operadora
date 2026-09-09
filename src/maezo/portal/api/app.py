@@ -20,6 +20,7 @@ from maezo.portal.api.config import PortalSettings
 from maezo.portal.api.records import SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
+from maezo.portal.api.tasks import ReadServiceFactory, is_task_read, read_error, task_router
 
 _SESSION = "__Host-maezo-session"
 _BROWSER = "__Host-maezo-login"
@@ -118,6 +119,7 @@ def create_app(
     *,
     store: IdentityStore | None = None,
     oidc_client: httpx.AsyncClient | None = None,
+    task_read_service_factory: ReadServiceFactory | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
     try:
@@ -156,6 +158,8 @@ def create_app(
         redirect_slashes=False,
     )
     app.state.human_session_resolver = resolver
+    app.state.task_read_service_factory = task_read_service_factory
+    app.include_router(task_router)
 
     @app.middleware("http")
     async def deployment_host(
@@ -165,7 +169,7 @@ def create_app(
             len(request.headers.getlist("host")) != 1
             or request.headers["host"] != urlsplit(config.public_origin).netloc
         ):
-            return _refused(400)
+            return read_error("invalid_request") if is_task_read(request) else _refused(400)
         return await call_next(request)
 
     @app.exception_handler(AuthenticationError)
@@ -174,7 +178,7 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> Response:
-        return _refused(400)
+        return read_error("invalid_request") if is_task_read(request) else _refused(400)
 
     @app.get(f"{_PREFIX}/auth/login")
     async def login(request: Request) -> Response:
