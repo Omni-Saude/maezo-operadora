@@ -32,6 +32,7 @@ from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 SYSTEM_PROMPT_VERSION = "system-v1"
 CLASSIFY_PROMPT_VERSION = "classify-v2"  # HEL-06: fronteira NAO CONFIAVEL da mensagem
 RESPONSE_PROMPT_VERSION = "response-v2"  # HEL-06: fronteira NAO CONFIAVEL da mensagem
+COLETA_PROMPT_VERSION = "coleta-v1"  # passo 4 (09/09/2026): a pergunta pelo dado que falta
 
 SYSTEM_PROMPT = """Voce e Helena, uma navegadora de saude (health navigator) que atende
 beneficiarios de um plano de saude brasileiro via WhatsApp. Seu papel e triagem, roteamento e
@@ -138,6 +139,29 @@ intent="clinical_question" e para perguntas que pedem uma opiniao/conduta clinic
 intent="human_request" quando o beneficiario pede explicitamente para falar com uma pessoa/
 atendente/enfermeiro. Caso contrario, use "information" para duvidas administrativas
 (cobertura, rede, elegibilidade) e "scheduling" para pedidos de marcar consulta/exame."""
+
+
+def coleta_prompt() -> str:
+    """Instrucoes para a PERGUNTA de coleta (passo 4) — separado de `response_prompt` de proposito:
+    aquele e' pinado pelos goldens e este tem um trabalho so': perguntar UM dado, em linguagem
+    simples, sem diagnosticar e sem assustar.
+
+    O `contexto` traz `pergunta` (um token de `COLETA_VEREDITOS_PERGUNTA`), a `rodada` e a
+    `population`. A mensagem do beneficiario vem no bloco NAO CONFIAVEL, como sempre.
+    """
+    return f"""{SYSTEM_PROMPT}
+
+Tarefa: a mensagem do beneficiario descreve um sintoma, mas falta UM dado para encaminhar com
+seguranca. Redija UMA pergunta curta, acolhedora e em portugues simples pedindo SOMENTE esse dado,
+conforme `pergunta` no contexto:
+  PERGUNTAR_INTENSIDADE        -> pergunte se esta' leve, moderado ou forte agora.
+  PERGUNTAR_CARACTERIZACAO     -> pergunte o que exatamente a pessoa sente, onde e desde quando.
+  PERGUNTAR_IDADE              -> pergunte a idade da pessoa com o sintoma.
+  PERGUNTAR_IDADE_GESTACIONAL  -> pergunte com quantas semanas de gestacao esta'.
+Regras: NAO diagnostique, NAO diga se e' grave ou leve, NAO oriente conduta, NAO prometa prazo.
+Se a rodada for 2, diga tambem que, se preferir, pode pedir para falar com uma pessoa agora.
+Sempre termine dizendo: em caso de piora subita, procure emergencia. {UNTRUSTED_INSTRUCAO_DE_PROMPT}
+Responda APENAS com o texto da pergunta, sem JSON."""
 
 
 def response_prompt() -> str:

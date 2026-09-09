@@ -23,6 +23,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
   system: system-v1
   classify: classify-v2
   response: response-v2
+  coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
 model:
   task_default: { tier: fast }        # triagem/classificacao
   reasoning:    { tier: frontier }    # casos ambiguos
