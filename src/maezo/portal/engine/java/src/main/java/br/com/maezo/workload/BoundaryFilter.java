@@ -8,21 +8,32 @@ import java.util.*;
 /** Finite gate installed globally in actual Tomcat, including native SPI whitelist aliases. */
 public final class BoundaryFilter implements Filter {
   private BoundaryPolicy policy;
+  private BoundaryPolicyV2 v2;
   static final ThreadLocal<BoundaryPolicy.Peer> REQUEST_PEER=new ThreadLocal<>();
   @Override public void init(FilterConfig config) {
     policy=BoundaryPolicy.environment();SecureLayout.verify(policy);
+    if(BoundaryPolicyV2.configured()){v2=BoundaryPolicyV2.environment();SecureLayout.verifyV2(v2);}
   }
   @Override public void doFilter(ServletRequest req,ServletResponse res,FilterChain chain) throws IOException,ServletException {
     if(!(req instanceof HttpServletRequest request)||!(res instanceof HttpServletResponse response))throw new ServletException("engine_operation_denied");
     response.setHeader("Cache-Control","no-store");response.setHeader("X-Content-Type-Options","nosniff");
     try {
+      if(request.getRequestURI()!=null && request.getRequestURI().startsWith("/maezo-workload/")) {
+        if(v2==null || !BoundaryPolicyV2.route(request))throw Refused.denied();
+        v2.authenticate(request);chain.doFilter(request,response);return;
+      }
       BoundaryPolicy.Peer peer=policy.authenticate(request);
       route(request,peer.purpose());
       // Request attributes carry server-produced objects, never a forwarded principal/certificate header.
       request.setAttribute(BoundaryFilter.class.getName()+".peer",peer);
       REQUEST_PEER.set(peer);
       try {chain.doFilter(request,response);} finally {REQUEST_PEER.remove();}
-    } catch(Refused e) { error(response,e); }
+    } catch(Refused e) {
+      if(request.getRequestURI()!=null && request.getRequestURI().startsWith("/maezo-workload/")) {
+        var result=NativeOutcomeV2.refusal(e.status==400?"invalid_request":e.status==403?"denied":"unavailable");
+        response.setStatus(result.status());response.setContentType("application/json");response.getOutputStream().write(result.bytes());
+      }else error(response,e);
+    }
   }
   static void route(HttpServletRequest r,String purpose) {
     if(r.getDispatcherType()!=DispatcherType.REQUEST || r.isAsyncStarted() || r.getQueryString()!=null)throw Refused.denied();

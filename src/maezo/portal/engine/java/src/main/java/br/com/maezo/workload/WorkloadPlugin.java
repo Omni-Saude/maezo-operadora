@@ -12,6 +12,7 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
   private BoundaryPolicy policy;
   private ProcessEngineConfigurationImpl configuration;
   private ProcessEngine engine;
+  private BoundaryPolicyV2 nativeV2;
   static final ThreadLocal<Boolean> GUARDED = ThreadLocal.withInitial(()->false);
   public WorkloadPlugin() {}
   // Package-private constructor for real PostgreSQL engine tests; production uses mounted Tomcat layout.
@@ -19,6 +20,11 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
 
   @Override public void preInit(ProcessEngineConfigurationImpl config) {
     if(policy==null) {policy=BoundaryPolicy.environment(); SecureLayout.verify(policy);} configuration=config;
+    if(BoundaryPolicyV2.configured()) {
+      nativeV2=BoundaryPolicyV2.environment();SecureLayout.verifyV2(nativeV2);
+      if(!"false".equals(config.getDatabaseSchemaUpdate()) || !nativeV2.transport.engine.equals(config.getProcessEngineName())
+          || (config.getAdminUsers()!=null && nativeV2.transport.peers.stream().anyMatch(p->config.getAdminUsers().contains(p.engineUser()))))throw Refused.unavailable();
+    }
     if(!policy.engine.equals(config.getProcessEngineName()) || !config.isAuthorizationEnabled() || !config.isTenantCheckEnabled())throw Refused.unavailable();
     if(config.getAdminUsers()!=null && policy.peers.stream().anyMatch(p->config.getAdminUsers().contains(p.engineUser())))throw Refused.unavailable();
     var required=new ArrayList<CommandInterceptor>();
@@ -50,6 +56,10 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     return peer;
   }
   ProcessEngine engine() {return engine;}
+  BoundaryPolicyV2 v2(){if(nativeV2==null)throw Refused.unavailable();nativeV2.current(null);return nativeV2;}
+  NativeOutcomeV2.Encoded executeV2(Command<NativeOutcomeV2.Publication> command){
+    return configuration.getCommandExecutorTxRequired().execute(command).committed();
+  }
   void authenticated(BoundaryPolicy.Peer peer) {
     policy.current(peer);
     var auth=engine.getIdentityService().getCurrentAuthentication();
@@ -60,6 +70,7 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     authenticated(peer);
     Capability cap=peer.capabilities().stream().filter(c->c.digest.equals(request.get("capability_digest"))).findFirst().orElseThrow(Refused::denied);
     cap.validate(request);
+    if(nativeV2!=null && nativeV2.manages(cap))throw Refused.denied();
     long poll=0;
     if("fetch_lock".equals(cap.schema.get("operation"))) {
       poll=Json.number(Json.object(request.get("parameters")),"asyncResponseTimeout");
@@ -139,8 +150,12 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
   private final class Fence extends CommandInterceptor {
     @Override public <T>T execute(Command<T> command) {
       var auth=configuration.getIdentityService().getCurrentAuthentication();
+      if(auth!=null && nativeV2!=null && nativeV2.transport.peers.stream().anyMatch(p->p.engineUser().equals(auth.getUserId()))) {
+        if(!(command instanceof NativeOperationV2) && !(command instanceof NativeOperationV2.ReadCommand) && !GUARDED.get())throw Refused.denied();
+        nativeV2.current(null);
+      }
       if(auth!=null && policy.peers.stream().anyMatch(p->p.engineUser().equals(auth.getUserId()))) {
-        if(!(command instanceof WorkloadCommand) && !GUARDED.get())throw Refused.denied();
+        if(!(command instanceof WorkloadCommand) && !(command instanceof NativeOperationV2) && !(command instanceof NativeOperationV2.ReadCommand) && !GUARDED.get())throw Refused.denied();
         policy.current(null);
       }
       return next.execute(command);

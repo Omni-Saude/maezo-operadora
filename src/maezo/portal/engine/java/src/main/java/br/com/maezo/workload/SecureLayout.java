@@ -9,6 +9,18 @@ import org.w3c.dom.*;
 
 /** Checks the actual mounted Tomcat layout, not an unused YAML switch or descriptor comment. */
 final class SecureLayout {
+  static void verifyV2(BoundaryPolicyV2 policy){
+    String base=System.getenv("CATALINA_BASE");if(base==null)throw Refused.unavailable();Path root=Path.of(base);
+    verify(policy.transport,root);
+    String path=root.resolve("webapps/maezo-workload/WEB-INF/web.xml").toString();
+    if(policy.transport.files.stream().noneMatch(f->path.equals(f.get("path"))))throw Refused.unavailable();
+    var xml=parse(Path.of(path));
+    if(!"true".equals(xml.getDocumentElement().getAttribute("metadata-complete")) || xml.getElementsByTagName("servlet").getLength()!=1
+        || !"br.com.maezo.workload.WorkloadV2Servlet".equals(text(xml.getDocumentElement(),"servlet-class"))
+        || !"/v2/*".equals(text(xml.getDocumentElement(),"url-pattern")))throw Refused.unavailable();
+    var bpm=parse(root.resolve("conf/bpm-platform.xml"));
+    if(!hasPair(bpm.getDocumentElement(),"property","name","databaseSchemaUpdate",null,"false"))throw Refused.unavailable();
+  }
   static void verify(BoundaryPolicy policy) {
     String base=System.getenv("CATALINA_BASE");
     if (base==null) throw Refused.unavailable();

@@ -1,0 +1,222 @@
+{
+  "actual_engine_controls": "NOT_RUN_ROOT_ONLY",
+  "bootstrap_lock_timeout_ms": 1000,
+  "bootstrap_statement_timeout_ms": 5000,
+  "cib_abi_sha256": "e73fd091d3d3785e9ea51596ddbfdcc90d045f8d2e3aa653d8bcd5610a7357e9",
+  "cib_version": "2.1.0",
+  "d_component": "maezo-d7-control",
+  "d_dependency_state": "REQUIRES_DISTINCT_APPROVED_SOURCE_AND_OWNER_INSTALLATION",
+  "d_helper": "maezo_d7_control.lock_runtime_v2_scope(jsonb)",
+  "d_helper_abi_sha256": "b0c5e39a02becb61903559a58dceecd440d7102efcb6c66ef3878876632dd71d",
+  "d_version": 1,
+  "functions": [
+    {
+      "argument_types": [
+        "jsonb",
+        "text[]"
+      ],
+      "attributes": "plpgsql IMMUTABLE SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "967a8aff1e9d84e20ba38314ff6b591167f4052a31f88f989b71ab1024f9352a",
+      "caller": "private",
+      "name": "assert_keys",
+      "returns": "void"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql IMMUTABLE SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "15652ede50e1270acf7e44106ebcd2e5b4895242d344ce407ba924045cdbacea",
+      "caller": "private",
+      "name": "assert_scope",
+      "returns": "void"
+    },
+    {
+      "argument_types": [],
+      "attributes": "sql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "9def9362b1e805435712c26a4ffbb5c48adee497ddab2b5d9d94da74acc4edf8",
+      "caller": "private",
+      "name": "catalogue_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [],
+      "attributes": "plpgsql STABLE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "b5b568e84074a299712bd60bbe8894fa8c8e81cd9016181234b334a3ed820729",
+      "caller": "private",
+      "name": "assert_owner",
+      "returns": "maezo_native_v2.schema_version"
+    },
+    {
+      "argument_types": [
+        "jsonb",
+        "jsonb",
+        "jsonb",
+        "text"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "2820ecdc3dbf950d49a067fdae984c99b56641c7306cdf68716fe3e1393cf0fd",
+      "caller": "private",
+      "name": "d_guard",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "dd962623f5d5a45c7208b1f43f6f2e107adc1e36cca62f7c9d3167d26d1e4482",
+      "caller": "runtime",
+      "name": "guard_runtime_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "e93c66961139c9d9c6301bca32511a0a4cc79bf479abacb1820a7db2dade4e5f",
+      "caller": "private",
+      "name": "check_guard",
+      "returns": "void"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "0a4274094ef099730cc842a9446cf607bec64e8f40dab889532c7437636ffc13",
+      "caller": "runtime",
+      "name": "validate_guard_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "4abe21ae78841e3ba891c27cf0f50526b1ca9d1621371cd25c32db6f2c194dfa",
+      "caller": "runtime",
+      "name": "read_receipt_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "abba57b9d90cd4b3358c101fcef0a2f8d18ce6460583cd53f24f02301d9f5542",
+      "caller": "runtime",
+      "name": "read_acquisitions_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "text",
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "8026927bdcbdb7e7273c83bef39bfacd4b06c098247b54bd41ef951f81b01491",
+      "caller": "private",
+      "name": "native_task",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "3184f95603d74ee9f417200bd86b2c0b121de7a46365a6e11e18216e94382503",
+      "caller": "runtime",
+      "name": "insert_acquisition_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "cf1f186ecd517a9f7565c2ce12f649e39fd6f8ba0ab09b4e543817fda9577c2f",
+      "caller": "runtime",
+      "name": "renew_acquisition_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "1dc1c261a8654581aaa21ffb4a129a4d901831e0fd1a63a5f62f4ebf5c2355cb",
+      "caller": "runtime",
+      "name": "close_acquisition_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "4cef1d14a87113f3dbc0d76f08ef3248932a885b0a86da3e6f2b32d52c034a49",
+      "caller": "runtime",
+      "name": "append_receipt_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "bbb5b0dea2f1893d146ee6e2594e1e3f9e9ed6594e27a00ae80b55ad64c0b8da",
+      "caller": "issuer",
+      "name": "register_admission_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "3f762c68170b96eb6c6c38a7bba15cc0c713df124546546e24e2ce397042a772",
+      "caller": "issuer",
+      "name": "refresh_admission_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "9ceff3cb48387a4aa8a638258243b61b751b050e08067484d62194a12bb1a009",
+      "caller": "issuer",
+      "name": "retire_admission_v2",
+      "returns": "jsonb"
+    },
+    {
+      "argument_types": [
+        "jsonb"
+      ],
+      "attributes": "plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,pg_temp",
+      "body_sha256": "2f898405581a91a4a2eed35f9b146c95b4df3fb2062cdf4c49fbb82ec6c11b54",
+      "caller": "issuer",
+      "name": "set_receipt_history_v2",
+      "returns": "jsonb"
+    }
+  ],
+  "migration_key": "native-acquisition-v2",
+  "postgres_major": 16,
+  "predecessor": null,
+  "protocol": "maezo.native-acquisition-migration.v2",
+  "readiness_initially_admissible": false,
+  "runtime_auto_ddl": false,
+  "schema_registry_sha256": "4167a195860c50e1eae8464886a7d468a06ccde05b1a8e39c8a672fdd90a2807",
+  "sql_template_sha256": "b40f20376c98e66d91a8da674113b2cd320862af9b8cd00c5cf2b521901399b0",
+  "tables": [
+    "schema_version",
+    "admission",
+    "capability",
+    "acquisition",
+    "operation_receipt",
+    "receipt_history"
+  ],
+  "version": 1
+}
