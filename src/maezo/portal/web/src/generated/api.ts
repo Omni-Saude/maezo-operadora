@@ -72,10 +72,180 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tasks */
+        get: operations["list_tasks_api_v1_portal_tasks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tasks/{task_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Task */
+        get: operations["read_task_api_v1_portal_tasks__task_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Centavos
+         * @description Canonical browser representation of an exact integer number of centavos.
+         *
+         *     There is intentionally no business ceiling and no signed-int64 restriction in this value
+         *     object: SP-OP-PAGTO-001 requires an integer but does not declare either bound.  Conversion is
+         *     direct from the canonical decimal string and never passes through float/JavaScript Number.
+         */
+        Centavos: string;
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * PagtoAdmissibilityEvidence
+         * @description Closed read-only PAGTO projection; evidence does not confer financial approval.
+         */
+        PagtoAdmissibilityEvidence: {
+            /** Dados Pagamento Validos */
+            dados_pagamento_validos: boolean;
+            /** Duplicidade Suspeita */
+            duplicidade_suspeita: boolean;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "pagto_admissibilidade";
+            /** Lastro Confirmado */
+            lastro_confirmado: boolean;
+            /** Lastro Decisor Id */
+            lastro_decisor_id?: string | "" | null;
+            /** Lastro Origem */
+            lastro_origem?: ("contas_adjudicacao_automatica" | "contas_adjudicacao_humana" | "recurso_deferimento_humano") | null;
+            valor_pagamento_cents: components["schemas"]["Centavos"];
+        };
+        /** PortalReadError */
+        PortalReadError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "session_unavailable" | "employee_access_required" | "resource_unavailable" | "refresh_required" | "read_dependency_unavailable";
+            /**
+             * Schema
+             * @default portal-read-error.v1
+             * @constant
+             */
+            schema: "portal-read-error.v1";
+        };
+        /** PublicTaskSnapshot */
+        PublicTaskSnapshot: {
+            /**
+             * Allowed Actions
+             * @default []
+             */
+            allowed_actions: unknown[];
+            /** Allowed Inputs */
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica")[];
+            /** Assignee Ref */
+            assignee_ref: string | null;
+            /** Eligible Candidate Groups */
+            eligible_candidate_groups: string[];
+            /** Engine Due At */
+            engine_due_at: string | null;
+            /** Evidence Digest */
+            evidence_digest: string;
+            /** Evidence Revision */
+            evidence_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao";
+            /**
+             * Form Source Status
+             * @enum {string}
+             */
+            form_source_status: "BPMN_FORMDATA" | "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY";
+            /** Form Version */
+            form_version: string;
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            read_only_evidence: components["schemas"]["PagtoAdmissibilityEvidence"] | null;
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+            /** Task Revision */
+            task_revision: string;
+        };
+        /** QueueFreshness */
+        QueueFreshness: {
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Refresh After Seconds
+             * @default 10
+             * @constant
+             */
+            refresh_after_seconds: 10;
+            /**
+             * Source Observed At
+             * Format: date-time
+             */
+            source_observed_at: string;
+            /**
+             * State
+             * @default current
+             * @constant
+             */
+            state: "current";
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
+        };
         /**
          * SessionDTO
          * @description Minimal browser projection, never a principal accepted back as authority.
@@ -103,6 +273,72 @@ export interface components {
              * @constant
              */
             schema_version: 1;
+        };
+        /** TaskQueueItem */
+        TaskQueueItem: {
+            /** Engine Due At */
+            engine_due_at: string | null;
+            /**
+             * Ownership
+             * @enum {string}
+             */
+            ownership: "unassigned" | "self" | "other";
+            /** Process Definition Key */
+            process_definition_key: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+            /** Task Revision */
+            task_revision: string;
+        };
+        /** TaskQueuePage */
+        TaskQueuePage: {
+            freshness: components["schemas"]["QueueFreshness"];
+            /** Items */
+            items: components["schemas"]["TaskQueueItem"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /**
+             * Queue
+             * @enum {string}
+             */
+            queue: "mine" | "team";
+            /**
+             * Schema
+             * @default portal-task-queue.v1
+             * @constant
+             */
+            schema: "portal-task-queue.v1";
+        };
+        /** TaskReadResponse */
+        TaskReadResponse: {
+            freshness: components["schemas"]["QueueFreshness"];
+            /**
+             * Schema
+             * @default portal-task-read.v1
+             * @constant
+             */
+            schema: "portal-task-read.v1";
+            task: components["schemas"]["PublicTaskSnapshot"];
+        };
+        /** ValidationError */
+        ValidationError: {
+            /** Context */
+            ctx?: Record<string, never>;
+            /** Input */
+            input?: unknown;
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
         };
     };
     responses: never;
@@ -187,6 +423,165 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SessionDTO"];
+                };
+            };
+        };
+    };
+    list_tasks_api_v1_portal_tasks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskQueuePage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+        };
+    };
+    read_task_api_v1_portal_tasks__task_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskReadResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalReadError"];
                 };
             };
         };
