@@ -291,7 +291,7 @@ class WorkloadEngineIT {
         assertEquals(0,bootstrap(()->engine.getTaskService().createTaskQuery().processInstanceId(
             engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult().getProcessInstanceId()).count()));
       } finally {blocker.rollback();Files.write(policy.path,policyBytes);result.cancel(true);}
-    } finally {executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));bootstrap(()->{grant.setPermissions(permissions);engine.getAuthorizationService().saveAuthorization(grant);engine.getExternalTaskService().unlock(task);engine.getExternalTaskService().lock(task,"fixture-worker",60000);return null;});}
+    } finally {executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));bootstrap(()->{grant.setPermissions(permissions);engine.getAuthorizationService().saveAuthorization(grant);if(engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult()!=null){engine.getExternalTaskService().unlock(task);engine.getExternalTaskService().lock(task,"fixture-worker",60000);}return null;});}
     ready(row);call(row,pending);assertNull(bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult()));
   }
   @ParameterizedTest @ValueSource(strings={"policy-corrupt","policy-missing","native-grant-revoked"})
@@ -387,7 +387,7 @@ class WorkloadEngineIT {
       before=state();
       refusal(assertThrows(Refused.class,()->call(row,request)),fault.equals("wrong-task")?"engine_resource_mismatch":"engine_operation_denied",403);
       assertEquals(before,state());
-    } finally {Files.write(policy.path,saved);ready(row);call(row,completion(task));}
+    } finally {Files.write(policy.path,saved);ready(row);if(bootstrap(()->engine.getExternalTaskService().createExternalTaskQuery().externalTaskId(task).singleResult())!=null)call(row,completion(task));}
   }
 
   @ParameterizedTest @ValueSource(strings={"missing-decision","claim-only","release-only","wrong-task","wrong-definition","wrong-assignee","copied-actor-no-history","wrong-source-case"})
