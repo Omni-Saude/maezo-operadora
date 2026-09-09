@@ -507,8 +507,9 @@ def test_o_allowlist_estruturado_nao_tem_entrada_morta(agente: str) -> None:
 def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
     """Guarda de nao-vacuidade da PROPRIA resolucao: se `_sitios_de_prompt` deixasse de encontrar
     as chamadas (renome de `self._llm`, mudanca de forma do prompt), todos os testes acima ficariam
-    verdes sem inspecionar nada. Trava a contagem medida na base `87b51a8`: 15 sitios em 11
-    arquivos `graph.py`, dos quais 14 leem ao menos uma chave de entrada."""
+    verdes sem inspecionar nada. A base `87b51a8` tinha 15 sitios em 11 arquivos; o no'
+    `HelenaGraph.collect` acrescentou um prompt demarcado que le' `message_body`: 16 sitios,
+    dos quais 15 leem ao menos uma chave de entrada."""
     total = 0
     com_entrada = 0
     for arquivo in _GRAFOS:
@@ -518,9 +519,9 @@ def test_a_resolucao_ast_enxerga_os_sitios_de_prompt_dos_11_agentes() -> None:
             total += 1
             if lidas & entradas:
                 com_entrada += 1
-    assert (total, com_entrada) == (15, 14), (
+    assert (total, com_entrada) == (16, 15), (
         f"a resolucao AST encontrou {total} sitio(s) de prompt ({com_entrada} com campo de "
-        "entrada), nao os 15/14 da base. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
+        "entrada), nao os 16/15 medidos. Se um agente ganhou ou perdeu uma chamada LLM, atualize "
         "este numero JUNTO com o allowlist; se caiu para 0, a resolucao quebrou e as cercas "
         "acima estao vacuas."
     )

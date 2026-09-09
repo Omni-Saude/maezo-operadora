@@ -846,17 +846,25 @@ class HelenaGraph:
         existing fail-closed red-flag logic re-engages instead of being skipped.
         """
         reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
-        # MEMORIA DE CONVERSA (coleta): preservada, nunca zerada — o turno seguinte precisa saber
-        # que uma pergunta foi feita. Por que isto nao reabre o buraco que o reset fecha esta'
-        # escrito em `_HELENA_MEMORIA_DE_CONVERSA`. `coleta_rodadas` e' saturado em
-        # `COLETA_MAX_RODADAS`: um valor absurdo so' consegue escalar mais cedo.
-        for chave in _HELENA_MEMORIA_DE_CONVERSA:
-            if chave in state:
-                reset[chave] = state[chave]  # type: ignore[literal-required]
-        try:
-            reset["coleta_rodadas"] = min(max(int(reset.get("coleta_rodadas") or 0), 0), COLETA_MAX_RODADAS)
-        except (TypeError, ValueError):
-            reset["coleta_rodadas"] = COLETA_MAX_RODADAS  # ilegivel -> trata como esgotado (escala)
+        # MEMORIA DE CONVERSA (coleta): so' existe enquanto o portao esta' ligado. Preservar ou
+        # consumir esse contexto com a feature desligada mudaria silenciosamente o prompt do
+        # classificador antigo. Quando ligada, o turno seguinte precisa saber que uma pergunta
+        # foi feita; por que isto nao reabre o buraco que o reset fecha esta' escrito em
+        # `_HELENA_MEMORIA_DE_CONVERSA`.
+        if self._coleta_enabled:
+            for chave in _HELENA_MEMORIA_DE_CONVERSA:
+                if chave in state:
+                    reset[chave] = state[chave]  # type: ignore[literal-required]
+            # Ausencia/None e' o primeiro turno (zero). Qualquer outro valor ilegivel e'
+            # conservadoramente esgotado, em vez de ser mascarado como zero.
+            rodadas_recebidas = reset.get("coleta_rodadas")
+            try:
+                reset["coleta_rodadas"] = min(
+                    max(int(0 if rodadas_recebidas is None else rodadas_recebidas), 0),
+                    COLETA_MAX_RODADAS,
+                )
+            except (TypeError, ValueError):
+                reset["coleta_rodadas"] = COLETA_MAX_RODADAS  # ilegivel -> trata como esgotado (escala)
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
@@ -999,7 +1007,8 @@ class HelenaGraph:
         FAIL-CLOSED em tres formas: tabela indisponivel, sem linha casada, ou veredito fora do
         vocabulario -> `falha_tecnica` -> humano. Nunca "assume suficiente".
         """
-        rodadas = int(state.get("coleta_rodadas") or 0)
+        rodadas_brutas = state.get("coleta_rodadas")
+        rodadas = int(0 if rodadas_brutas is None else rodadas_brutas)
         if rodadas >= COLETA_MAX_RODADAS:
             logger.info("helena_coleta_esgotada", rodadas=rodadas, node="classify")
             return {
@@ -1069,7 +1078,12 @@ class HelenaGraph:
                 "coleta_pendente": None,
             }
         # Vocabulario desconhecido: a tabela nao e' confiavel para este caso -> humano.
-        logger.warning("helena_coleta_veredito_desconhecido", veredito=veredito[:40], node="classify")
+        logger.warning(
+            "helena_coleta_veredito_desconhecido",
+            classification="fora_do_vocabulario",
+            ref=ref,
+            node="classify",
+        )
         return {
             "coleta_veredito": None,
             "next_kind": "escalate",
@@ -1437,9 +1451,11 @@ class HelenaGraph:
             # Backstop estrutural da coleta: so' pergunta quem tem um veredito de PERGUNTA da
             # tabela E ainda tem rodada. `next_kind="collect"` sem isso e' estado injustificado
             # -> humano, mesmo raciocinio do `inform`.
+            rodadas = state.get("coleta_rodadas")
             if (
                 state.get("coleta_veredito") in COLETA_VEREDITOS_PERGUNTA
-                and int(state.get("coleta_rodadas") or 0) <= COLETA_MAX_RODADAS
+                and rodadas is not None
+                and 1 <= rodadas <= COLETA_MAX_RODADAS
                 and not state.get("error")
             ):
                 return "collect"
@@ -1531,7 +1547,7 @@ class HelenaGraph:
         # atual, no MESMO bloco nao confiavel — "forte" so' significa algo ao lado de "dor de
         # cabeca". Sem pergunta em aberto o prompt e' byte-a-byte o de antes.
         corpo = state.get("message_body", "")
-        if state.get("coleta_pendente") and state.get("coleta_contexto"):
+        if self._coleta_enabled and state.get("coleta_pendente") and state.get("coleta_contexto"):
             anteriores = state.get("coleta_contexto")
             corpo = f"[mensagens anteriores desta conversa] {anteriores}\n[mensagem atual] {corpo}"
         prompt = f"{classify_prompt()}\n\n{render_untrusted_block('message_body', corpo)}"
