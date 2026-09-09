@@ -555,7 +555,11 @@ def test_junit_empty_or_partial_cannot_turn_into_a_successful_suite() -> None:
 
 def test_runtime_env_pins_endpoints_and_drops_external_execution_controls(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    from tests.unit.dev.test_engine_runner_final_repair import authenticate_fixture
+
+    authenticate_fixture(tmp_path)
     marker = "SYNTHETIC_CREDENTIAL_MARKER_TEST_ONLY"
     dsn_keys = (
         "MAEZO_TEST_DATABASE_URL",
@@ -585,7 +589,7 @@ def test_runtime_env_pins_endpoints_and_drops_external_execution_controls(
         monkeypatch.setenv(key, marker)
 
     env = _runtime_env()
-    compose = _compose_base(REPO_ROOT)
+    compose = _compose_base(tmp_path)
 
     assert all(env[key] == "postgresql://maezo:maezo@127.0.0.1:15433/maezo" for key in dsn_keys)
     assert all(key not in env for key in control_keys)
