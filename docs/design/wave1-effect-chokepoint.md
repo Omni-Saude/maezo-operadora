@@ -987,3 +987,36 @@ gustavo 697 ·
 `docs/adr/0034-…`: 22-28, 30-38, 40-44, 68-85, 87-96 ·
 `docs/adr/0037-…`: 138-141, 142-146, 147-149, 151-157, 159-163, 170-173, 203-214, 239-244, 258-261,
 280-281 · `docs/adr/0006-phi-two-zones.md`: 1-20 · `PLANS.md`: 262 (W1), 274-297 (Ondas 0-3).
+
+### PFSU-01 — Portal identity and human mTLS construction reconciliation (2026-09-09)
+
+This additive propagation record applies ADR-0005 credential partition, ADR-0006 zones,
+ADR-0049 D4–D6 and AGENTS rule 6 to the inherited Portal constructors. It does not authorize
+D7 REST cutover or introduce a new policy plane. Historical section text and evidence remain.
+
+| Operation and caller | Endpoint and deployment identity | Credential owner and lifetime | Typed boundary and disposal |
+| --- | --- | --- | --- |
+| Human outbox relay dispatch / receipt | Fixed configured HTTPS human servlet origin/base; only POST `/v1/commands` or GET `/v1/receipts/{task}/{command}`. Dedicated tenant/workload signer and client certificate; never an agent/admin/OIDC credential. | Existing `gateway/human/transport.py::MTLSHumanEngineTransport._request`; partition currentness, tenant/workload binding, verified hostname/CA, fixed path grammar and verified bounded receipts remain unchanged. | `HumanEngineTransport`; fresh mTLS client closes per request, redirects and environment proxy inheritance disabled. |
+| Human login code exchange / issuer key read, called by BFF session service | Deployment-fixed Cognito token origin, POST `/oauth2/token`; GET fixed issuer `/.well-known/jwks.json`. Dedicated human Code+PKCE client differs from machine client. No configured client secret or discovery URL. | `gateway/oidc.py::CognitoAuthenticator`; authorization code/PKCE and returned tokens stay server-side. Existing RS256/issuer/audience/nonce/token-use/key/timing validation retained; operation/endpoint pairs explicitly bound. | `HumanAuthenticator.exchange` returns only `VerifiedIdentity`; no token or raw client returned. Gateway composition creates verified HTTPS client without redirects/proxies, BFF lifespan closes authenticator. |
+| Persistent identity/session store, called by BFF resolver | Configured dedicated PostgreSQL asyncpg DSN and deployment tenant; no fallback database or agent identity. | `gateway/portal_identity.py::build_human_identity_adapters` alone extracts `SecretStr`; verifies driver/host and passes required TLS context to engine. | `HumanIdentityAdapters` returns `IdentityStore` and `HumanAuthenticator`. BFF lifespan retains purge and close order; gateway rejects production dependency overrides before construction. |
+
+BFF keeps routes, opaque cookies, state/nonce transaction consumption, membership/tenant resolution,
+session expiry/rotation/revocation and CSRF semantics. `portal/api/auth.py` is a compatibility
+export only; session typing depends on the authenticator port. Existing explicit local-test
+HTTP/store injection remains confined by the production factory guard. Moving source ownership
+within this process does not claim a new network/process isolation boundary or deployed identity.
+
+The architecture scanner registers exactly two lexical HTTP construction seams and their AST
+expressions (including TLS/proxy/redirect options), not either module or directory. Adjacent,
+nested, definition-time and duplicate constructions fail. Imported HTTP aliases and simple local
+constructor assignments are detected. SecretStr accessor reads (including method alias capture
+and literal `getattr`) are permitted only as the single exact gateway composition extraction.
+Existing raw REST path fences and all prior non-vacuity counters remain; two scoped HTTP hits
+and one scoped credential hit are independently asserted. Static scanning remains a bounded
+source check, not a sandbox against arbitrary dynamic reflection. Runtime endpoint, credential
+and identity refusal tests remain necessary and cumulative.
+
+The identity adapters live directly in `gateway/`, separate from `gateway/human/` command
+authorization. This preserves the pre-existing stronger human-package guard: `transport.py`
+is its only HTTP-importing module. The unchanged guard rejected an initial placement under
+`human/`; the failed candidate and actual regression remain in the PFSU-01 author packet.

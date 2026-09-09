@@ -1,0 +1,20 @@
+# ADR0049 D5: opt-in pinned Tomcat package, build context is repository root.
+# This image fails engine startup without explicit trust config and preinstalled SQL.
+FROM maven:3.9.9-eclipse-temurin-17@sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc AS human-build
+WORKDIR /build
+COPY src/maezo/portal/engine/java/pom.xml ./pom.xml
+COPY src/maezo/portal/engine/java/src ./src
+RUN mvn -B -DskipTests package
+FROM cibseven/cibseven:tomcat-2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
+RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war \
+    && rm -f /camunda/lib/camunda-invoice*.jar \
+    && test ! -e /camunda/webapps/camunda-invoice \
+    && test ! -e /camunda/webapps/camunda-invoice.war
+COPY --from=human-build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar
+COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
+# Modify the existing Tomcat descriptor; do not substitute CIB Run config.
+RUN test -f /camunda/conf/bpm-platform.xml \
+    && sed -i 's|<plugins>|<plugins><plugin><class>br.com.maezo.human.HumanCommandPlugin</class></plugin>|' /camunda/conf/bpm-platform.xml \
+    && grep -q 'br.com.maezo.human.HumanCommandPlugin' /camunda/conf/bpm-platform.xml
+# TLS listener/clientAuth=required and SG restriction belong to the actual deployment.
+# No HTTP, forwarded-cert, shared bearer secret, synthetic flag, or validity default.

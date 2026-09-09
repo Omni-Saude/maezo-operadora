@@ -30,6 +30,11 @@ EXPLICIT local runtime mode with no `DATABASE_URL` — and is refused everywhere
 still no production Kafka producer constructed here: delivery is the relay's job and is deployment-
 gated, which is why the write side needed a durable buffer rather than a broker client.
 
+**PLAN-W3-A2A atomicity.** Both roots require compatible PostgreSQL audit,
+idempotency and outbox participants in production, including injected values.
+Claim + ALLOW + requested + marker share one transaction; terminal audit + fact
++ done share another. The handler and all external work run outside both.
+
 **T-G signed-Card enforcement (`docs/design/A2A-dispatcher-card-signing.md` §10).** W3 left this
 composition wired with NO `verifier=`: Cards came back unsigned and the registry admitted them
 unconditionally. This flips it: `_require_signer_or_fail_closed` resolves the vault/KMS-injected
@@ -85,13 +90,16 @@ from maezo.a2a.envelope_signing import (
     EnvelopeVerifier,
     build_verification_keyset,
 )
+from maezo.a2a.idempotency import IdempotencyStore
 from maezo.a2a.keyset import EnvTenantKeyset, TenantKeyset, per_tenant_key_env_var
-from maezo.a2a.outbox import build_outbox_fact_producer
+from maezo.a2a.outbox import PostgresOutboxFactProducer, build_outbox_fact_producer
+from maezo.a2a.transaction import PostgresDelegationTransactions
 from maezo.agents.andre.delegation import make_andre_handler
 from maezo.agents.andre.graph import PopulationFeatureClient
 from maezo.agents.carolina.delegation import make_carolina_handler
 from maezo.agents.fernando.delegation import make_fernando_handler
 from maezo.agents.rafael.delegation import make_rafael_handler
+from maezo.gateway.audit_postgres import FreshSinkAuditEmitter, PostgresAuditSink
 from maezo.gateway.tool_registry import (
     build_a2a_seam,
     build_agent_seam_context,
@@ -623,6 +631,36 @@ def _require_idempotency_store_or_fail_closed(
     return None
 
 
+def _require_transactions_or_fail_closed(
+    *,
+    runtime_mode: str,
+    tenant: str,
+    audit: Any,
+    facts: FactProducer,
+    idempotency: IdempotencyStore | None,
+) -> PostgresDelegationTransactions | None:
+    """Production requires all three enlisted participants, including injected ones.
+
+    FreshSink is a known DSN/tenant adapter; its enlisted form opens no pool.
+    The original adapter remains the handler's loop-safe audit seam.
+    """
+    producer = facts._producer
+    enlisted_audit = audit
+    if isinstance(audit, FreshSinkAuditEmitter):
+        enlisted_audit = PostgresAuditSink(audit._dsn, audit._tenant_id)
+    if (
+        isinstance(enlisted_audit, PostgresAuditSink)
+        and isinstance(idempotency, PostgresIdempotencyStore)
+        and isinstance(producer, PostgresOutboxFactProducer)
+    ):
+        return PostgresDelegationTransactions(
+            tenant=tenant, audit=enlisted_audit, store=idempotency, outbox=producer.outbox
+        )
+    if is_production_runtime_mode(runtime_mode):
+        raise RuntimeError("A2A production requires enlisted audit, idempotency and durable outbox")
+    return None
+
+
 def build_auth_delegation_dispatcher(
     settings: AgentRuntimeSettings,
     *,
@@ -717,6 +755,14 @@ def build_auth_delegation_dispatcher(
         database_url=settings.database_url,
     )
 
+    transactions = _require_transactions_or_fail_closed(
+        runtime_mode=settings.agent_runtime_mode,
+        tenant=tenant,
+        audit=audit,
+        facts=facts,
+        idempotency=idempotency,
+    )
+
     logger.info(
         "a2a_delegation_dispatcher_assembled",
         tenant=tenant,
@@ -739,6 +785,7 @@ def build_auth_delegation_dispatcher(
             audit=audit,
             facts=facts,
             idempotency=idempotency,
+            transactions=transactions,
             verifier=signer,
             envelope_verifier=envelope_verifier,
             origin_envelope_signer=envelope_signer,
@@ -946,6 +993,14 @@ def build_dossier_delegation_dispatcher(
         database_url=database_url,
     )
 
+    transactions = _require_transactions_or_fail_closed(
+        runtime_mode=runtime_mode,
+        tenant=tenant,
+        audit=audit_sink,
+        facts=facts,
+        idempotency=idempotency,
+    )
+
     logger.info(
         "a2a_dossier_delegation_dispatcher_assembled",
         tenant=tenant,
@@ -974,6 +1029,7 @@ def build_dossier_delegation_dispatcher(
             audit=audit_sink,
             facts=facts,
             idempotency=idempotency,
+            transactions=transactions,
             verifier=signer,
             envelope_verifier=envelope_verifier,
             origin_envelope_signer=envelope_signer,
