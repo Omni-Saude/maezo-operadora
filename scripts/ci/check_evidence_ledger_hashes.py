@@ -142,7 +142,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import ast
 import hashlib
 import importlib
 import io
@@ -1312,114 +1311,164 @@ def _read_admission_source(repo_root: Path, path: str) -> bytes:
         os.close(descriptor)
 
 
+def _metadata_module() -> ModuleType:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    return importlib.import_module("scripts.ci.pytest_metadata_admission")
+
+
 def _offline_source_refusal(source: bytes) -> str | None:
-    """Conservative static marker admission, not an import sandbox or a purity proof.
+    """Compatibility entry: absent source context never resolves an imported mark."""
+    result: str | None = _metadata_module().source_refusal(source)
+    return result
 
-    Recognize literal pytest metadata. Unresolved decorators, module execution and
-    dynamic metadata require the explicit live assertion; never collect to classify.
-    Function bodies are not executed to discover marks. The caller binds these bytes
-    to the current file or exact historical blob before invoking a recipe.
+
+def classify_test_admission(
+    repo_root: Path,
+    test_path: str,
+    source_commit: str | None = None,
+    *,
+    expected_source_sha256: str | None = None,
+) -> Any:
+    """Return closed metadata status plus exact source/lock/config dependency hashes.
+
+    No test import, collection, or recipe occurs. Historical resolution never uses
+    current files; a historical root must match its explicitly expected SHA256.
+    This result grants neither actual test success nor live execution permission.
     """
+    import tomllib
+
+    metadata = _metadata_module()
+    observed: dict[str, bytes] = {}
+    absent: set[str] = set()
+    source_hash: str | None = None
+
+    def result(status: str, reason: str) -> Any:
+        return metadata.TestAdmission(
+            status,
+            reason,
+            source_hash,
+            tuple(sorted((path, _sha256_bytes(data)) for path, data in observed.items())),
+        )
+
+    if not is_safe_test_path(test_path):
+        return result("UNKNOWN", "unsafe admission test path")
+    live_reason = "integration subtree" if is_live_test_path(test_path) else ""
+    if source_commit is not None and (
+        expected_source_sha256 is None or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+    ):
+        return result("UNKNOWN", "historical admission requires exact commit and expected source SHA256")
+
+    def read(path: str) -> bytes:
+        parts = path.split("/")
+        if any(part in {"", ".", ".."} for part in parts) or path.startswith("/"):
+            raise ValueError("unsafe metadata dependency path")
+        if source_commit is None:
+            data = _read_admission_source(repo_root, path)
+        else:
+            entry = run_git_bytes(["ls-tree", source_commit, "--", path], repo_root)
+            if not entry:
+                raise FileNotFoundError(path)
+            if not entry.startswith((b"100644 blob ", b"100755 blob ")):
+                raise ValueError("historical metadata dependency is not a regular Git blob")
+            data = _source_blob(repo_root, source_commit, path)
+        if path in observed and observed[path] != data:
+            raise ValueError("metadata source drift: " + path)
+        observed[path] = data
+        return data
+
+    def optional(path: str) -> bytes | None:
+        try:
+            return read(path)
+        except FileNotFoundError:
+            absent.add(path)
+            return None
+
     try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError, UnicodeError):
-        return "unknown source classification (unparseable Python)"
-    # Also catches imported/renamed pytest aliases without trusting their runtime value.
-    if any(isinstance(node, ast.Attribute) and node.attr == "integration" for node in ast.walk(tree)):
-        return "integration-marked source"
-    aliases: dict[str, str] = {}
-    for node in tree.body:
-        if isinstance(node, ast.Import):
-            for name in node.names:
-                if name.name == "pytest":
-                    aliases[name.asname or name.name] = "pytest"
-        elif isinstance(node, ast.ImportFrom) and node.module == "pytest":
-            for name in node.names:
-                aliases[name.asname or name.name] = "pytest." + name.name
+        source = read(test_path)
+        source_hash = _sha256_bytes(source)
+        if expected_source_sha256 is not None and source_hash != expected_source_sha256:
+            return result("UNKNOWN", "admission source differs from expected test hash")
+        classifier = metadata.Classifier(read)
 
-    def dotted(node: ast.AST) -> str:
-        if isinstance(node, ast.Name):
-            return aliases.get(node.id, "")
-        if isinstance(node, ast.Attribute):
-            parent = dotted(node.value)
-            return parent + "." + node.attr if parent else ""
-        return ""
+        def inspect(data: bytes, path: str, *, collected: bool) -> None:
+            nonlocal live_reason
+            try:
+                classifier.module_metadata(classifier.parse(data, path), collected=collected)
+            except metadata.LiveMetadataError as exc:
+                live_reason = str(exc)
 
-    def marker(node: ast.AST) -> bool:
-        if isinstance(node, ast.List | ast.Tuple):
-            return all(marker(item) for item in node.elts)
-        if isinstance(node, ast.Call):
-            return marker(node.func)
-        name = dotted(node)
-        return name.startswith("pytest.mark.") and name.count(".") == 2
-
-    def decorator(node: ast.AST) -> bool:
-        target = node.func if isinstance(node, ast.Call) else node
-        if not (marker(target) or dotted(target) in {"pytest.fixture", "pytest.yield_fixture"}):
-            return False
-        if isinstance(node, ast.Call):
-            for item in ast.walk(node):
-                if isinstance(item, ast.Call) and item is not node:
-                    if dotted(item.func) != "pytest.param":
-                        return False
-                    if any(keyword.arg == "marks" and not marker(keyword.value) for keyword in item.keywords):
-                        return False
-        return True
-
-    def statements(nodes: list[ast.stmt]) -> bool:
-        for node in nodes:
-            if isinstance(node, ast.Import | ast.ImportFrom):
-                if any(name.name == "*" or (name.asname or name.name) == "pytestmark" for name in node.names):
-                    return False
-                for name in node.names:
-                    local = name.asname or name.name.split(".")[0]
-                    actual = name.name if isinstance(node, ast.Import) else f"{node.module}.{name.name}"
-                    if local in aliases and aliases[local] != actual:
-                        return False
-            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-                if (
-                    node.name in aliases
-                    or node.name.startswith("pytest_")
-                    or not all(decorator(item) for item in node.decorator_list)
-                ):
-                    return False
-                if isinstance(node, ast.ClassDef) and not statements(node.body):
-                    return False
-                if isinstance(node, ast.ClassDef) and node.bases:
-                    return False  # Inherited marks cannot be established from this source.
-                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and any(
-                    isinstance(item, ast.Call) for item in ast.walk(node.args)
-                ):
-                    return False  # Defaults execute at import time.
-            elif isinstance(node, ast.Assign | ast.AnnAssign):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                names = [
-                    item.id for target in targets for item in ast.walk(target) if isinstance(item, ast.Name)
-                ]
-                if any(name in aliases for name in names):
-                    return False  # A rebinding cannot retain a trusted pytest identity.
-                if "pytestmark" in names:
-                    if node.value is None or not marker(node.value):
-                        return False
-                elif node.value is not None and any(
-                    isinstance(item, ast.Call) for item in ast.walk(node.value)
-                ):
-                    return False
-            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
-                continue  # Module/class docstring.
-            elif not isinstance(node, ast.Pass):
-                return False  # Includes reflective calls, mutation and conditional marks.
-        return True
-
-    if not statements(tree.body):
-        return "unknown/dynamic source classification"
-    return None
+        inspect(source, test_path, collected=True)
+        optional("uv.lock")
+        configuration = optional("pyproject.toml")
+        if configuration is not None:
+            options = (
+                tomllib.loads(configuration.decode()).get("tool", {}).get("pytest", {}).get("ini_options", {})
+            )
+            if any(
+                key in options
+                for key in (
+                    "addopts",
+                    "required_plugins",
+                    "python_files",
+                    "python_classes",
+                    "python_functions",
+                )
+            ):
+                raise ValueError("unresolved pytest collection configuration")
+            if options.get("pythonpath", ["."]) != ["."]:
+                raise ValueError("unresolved pytest import path configuration")
+        for name in ("pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg"):
+            data = optional(name)
+            if data is not None and (
+                name.endswith("pytest.ini") or b"[pytest]" in data or b"[tool:pytest]" in data
+            ):
+                raise ValueError("unresolved alternate pytest configuration")
+        parts = test_path.split("/")[:-1]
+        for count in range(len(parts) + 1):
+            prefix = "/".join(parts[:count])
+            for leaf in ("conftest.py", "__init__.py"):
+                path = prefix + "/" + leaf if prefix else leaf
+                data = optional(path)
+                if data is not None:
+                    inspect(data, path, collected=False)
+        # Revalidate this read-set, including newly appearing optional config.
+        # The execution consumer additionally binds its complete source inventory.
+        for path in tuple(observed):
+            read(path)
+        for path in absent:
+            if optional(path) is not None:
+                raise ValueError("metadata dependency appeared during classification")
+    except metadata.LiveMetadataError as exc:
+        return result("LIVE", str(exc))
+    except (
+        metadata.UnresolvedMetadataError,
+        GitError,
+        SupersessionError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        UnicodeError,
+        RecursionError,
+        TypeError,
+        AttributeError,
+    ) as exc:
+        return result("UNKNOWN", str(exc))
+    return (
+        result("LIVE", live_reason)
+        if live_reason
+        else result("OFFLINE", "statically resolved pytest metadata")
+    )
 
 
 def _source_admission_message(source: bytes, *, allow_live: bool) -> str | None:
     refusal = _offline_source_refusal(source)
     if refusal is None or allow_live:
         return None
+    return _admission_refusal_message(refusal)
+
+
+def _admission_refusal_message(refusal: str) -> str:
     return (
         f"{refusal}; refusing before test import/capture (HARNESS-LEDGER-HASH-AMBIENT-STACK). "
         "Re-run with --allow-live only while personally holding the engine mutex and controlling the stack."
@@ -1488,7 +1537,14 @@ def verify_row(
         source = _read_admission_source(repo_root, row.test_path)
     except (OSError, ValueError) as exc:
         return RowVerification(row, False, f"{row.task_id}: unsafe admission source: {exc}")
-    refusal = _source_admission_message(source, allow_live=allow_live)
+    admission = classify_test_admission(
+        repo_root, row.test_path, expected_source_sha256=_sha256_bytes(source)
+    )
+    refusal = (
+        None
+        if admission.status == "OFFLINE" or (admission.status == "LIVE" and allow_live)
+        else _admission_refusal_message(admission.reason)
+    )
     if refusal is not None:
         return RowVerification(row, False, f"{row.task_id}: {row.test_path}: {refusal}")
     capture = capture_pytest_recipe(repo_root, row.test_path, python_exe)
@@ -1574,7 +1630,17 @@ def verify_historical_row(
             raise SupersessionError("historical admission source differs from bound test hash")
     except (GitError, SupersessionError) as exc:
         return RowVerification(row, False, f"{row.task_id}: {exc}")
-    refusal = _source_admission_message(source, allow_live=allow_live)
+    admission = classify_test_admission(
+        repo_root,
+        row.test_path,
+        edge.claim.source_commit,
+        expected_source_sha256=edge.claim.source_test_sha256,
+    )
+    refusal = (
+        None
+        if admission.status == "OFFLINE" or (admission.status == "LIVE" and allow_live)
+        else _admission_refusal_message(admission.reason)
+    )
     if refusal is not None:
         return RowVerification(row, False, f"{row.task_id}: historical {row.test_path}: {refusal}")
     current_lock_path = repo_root / "uv.lock"
