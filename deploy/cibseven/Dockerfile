@@ -80,6 +80,10 @@ RUN grep -q '<property name="jobExecutorDeploymentAware">false</property>' /camu
 # Only groupResourceWhitelistPattern changes; user/tenant/general admission and
 # authorization remain inherited. Actual engine admission still requires live proof.
 # Build with deploy/cibseven as the context.
-COPY configure-group-whitelist.sh /tmp/configure-group-whitelist.sh
+# O contexto do build e' a RAIZ do repo (`docker build -f deploy/cibseven/Dockerfile .`, tanto no
+# CodeBuild quanto local) — o caminho do COPY e' relativo a ela, nao a este arquivo. Medido em
+# 09/09/2026: `COPY configure-group-whitelist.sh` falhou com "not found" na AWS e local. O CI nao
+# constroi esta imagem, entao um caminho errado aqui so' aparece no build de verdade.
+COPY deploy/cibseven/configure-group-whitelist.sh /tmp/configure-group-whitelist.sh
 RUN sh /tmp/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml \
     && rm /tmp/configure-group-whitelist.sh
