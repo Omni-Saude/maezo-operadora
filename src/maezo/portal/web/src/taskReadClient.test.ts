@@ -7,7 +7,7 @@ import {
   validateTaskReadResponse,
 } from "./taskReadClient";
 
-import { taskReadInputs } from "./taskReadBindings";
+import { taskReadBindings, taskReadInputs } from "./taskReadBindings";
 
 const digest = "a".repeat(64);
 const hugeRevision = "99999999999999999999999999999999999999999999999999";
@@ -70,6 +70,40 @@ function taskResponse() {
     },
     freshness: freshness(),
   } as const;
+}
+
+const addedBindings = [
+  ["SP-OP-ADEQUACAO-001", "UT_CoordenacaoRede", "adequacao_coordenacao"],
+  ["SP-OP-ADEQUACAO-001", "UT_DecisaoFallback", "adequacao_decisao"],
+  ["SP-OP-CRED-001", "UT_AnaliseCredenciamento", "cred_cred"],
+  ["SP-OP-CRED-001", "UT_AnaliseDescredenciamento", "cred_descred"],
+  ["SP-OP-CRED-001", "UT_CoordenacaoRedeCred", "cred_cred"],
+  ["SP-OP-CRED-001", "UT_CoordenacaoRedeDescred", "cred_descred"],
+  ["SP-OP-LGPD-DSR-001", "UT_RevisaoDpo", "lgpd_decisao"],
+  ["SP-OP-NIP-001", "UT_CoordenacaoNip", "nip_decisao"],
+  ["SP-OP-NIP-001", "UT_ElaborarRespostaNip", "nip_minuta"],
+  ["SP-OP-NIP-001", "UT_RevisaoJuridicaNip", "nip_decisao"],
+] as const;
+
+function addedTaskResponse(
+  process: (typeof addedBindings)[number][0],
+  task: (typeof addedBindings)[number][1],
+  form: (typeof addedBindings)[number][2],
+  taskId = `${process}-${task}`,
+) {
+  const value = taskResponse();
+  return {
+    ...value,
+    task: {
+      ...value.task,
+      task_id: taskId,
+      process_definition_key: process,
+      task_definition_key: task,
+      form_key: form,
+      form_source_status: "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY" as const,
+      allowed_inputs: [...taskReadInputs[form]],
+    },
+  };
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -226,4 +260,79 @@ describe("validação fechada do snapshot público", () => {
     const result = validateTaskReadResponse(pagto);
     expect(result?.task.read_only_evidence?.valor_pagamento_cents).toBe(cents);
   });
+
+  it("deriva exatamente os 32 bindings e 22 mapas de inputs do registro Q1 atual", () => {
+    expect(taskReadBindings).toHaveLength(32);
+    expect(Object.keys(taskReadInputs)).toHaveLength(22);
+    expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(32);
+    for (const binding of taskReadBindings) {
+      expect(taskReadInputs[binding.form]).toBeDefined();
+    }
+    for (const [process, task, form] of addedBindings) {
+      expect(taskReadBindings).toContainEqual({
+        process,
+        task,
+        form,
+        source: "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+      });
+    }
+  });
+
+  it.each(addedBindings)(
+    "aceita o binding atual %s/%s e seus inputs gerados",
+    async (process, task, form) => {
+      const taskId = `${process}-${task}`;
+      const response = addedTaskResponse(process, task, form, taskId);
+      vi.mocked(fetch).mockResolvedValue(jsonResponse(response));
+
+      await expect(readTask(taskId, new AbortController().signal)).resolves.toEqual({
+        kind: "success",
+        value: response,
+      });
+    },
+  );
+
+  it.each(addedBindings)(
+    "recusa input forjado no binding atual %s/%s",
+    (process, task, form) => {
+      const value = addedTaskResponse(process, task, form);
+      expect(
+        validateTaskReadResponse({
+          ...value,
+          task: { ...value.task, allowed_inputs: [...value.task.allowed_inputs, "actor_id"] },
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each(addedBindings)(
+    "recusa formulário de outra tarefa para %s/%s",
+    (process, task, form) => {
+      const value = addedTaskResponse(process, task, form);
+      expect(
+        validateTaskReadResponse({
+          ...value,
+          task: {
+            ...value.task,
+            form_key: "pagto_admissibilidade",
+            allowed_inputs: [...taskReadInputs.pagto_admissibilidade],
+          },
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it.each(addedBindings)(
+    "recusa correlação de task_id divergente no GET de %s/%s",
+    async (process, task, form) => {
+      const requestedTaskId = `${process}-${task}`;
+      vi.mocked(fetch).mockResolvedValue(
+        jsonResponse(addedTaskResponse(process, task, form, `${requestedTaskId}-other`)),
+      );
+
+      await expect(readTask(requestedTaskId, new AbortController().signal)).resolves.toEqual({
+        kind: "invalid-response",
+      });
+    },
+  );
 });
