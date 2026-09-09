@@ -314,3 +314,60 @@ def test_actual_stale_inprocess_candidate_cannot_reuse_runtime(tiny: Any, tmp_pa
     assert stale.status == "REFUSED"
     assert "CURRENT_EXPECTATION_STALE" in stale.reasons
     assert not (Path(stale.packet) / "request.json").exists()
+
+
+@pytest.mark.parametrize("when", ["before_launch", "during_body", "after_run"])
+def test_actual_ignored_configuration_appearance_breaks_admission_absence_binding(
+    tiny: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
+) -> None:
+    root, _, old, _ = tiny
+    (root / ".gitignore").write_text("conftest.py\n")
+    if when == "during_body":
+        (root / TEST).write_text(
+            "from pathlib import Path\ndef test_case():\n"
+            "    Path('conftest.py').write_text('# Newly appearing ignored configuration.\\n')\n"
+        )
+    base = commit(root)
+    with (root / "docs/evidence-ledger.md").open("a") as stream:
+        stream.write(old + "\n")
+    commit(root)
+    before = current.source_inventory(root)
+    occurrence = current.Occurrence(3, old)
+    runner = current.CurrentRunner(root, tmp_path / "proof", base=base)
+    if when == "before_launch":
+        prepare = runner._prepare_runtime
+
+        def appearance(packet: Path) -> Any:
+            result = prepare(packet)
+            (root / "conftest.py").write_text("# Newly appearing ignored configuration.\n")
+            return result
+
+        # Inject a real filesystem event after real uv preparation. G2 itself is
+        # the actual classifier, with no admission or policy-provenance seam.
+        monkeypatch.setattr(runner, "_prepare_runtime", appearance)
+    verdict = runner.run(occurrence)
+    if when == "after_run":
+        assert verdict.status == "ACCEPTED", verdict
+        (root / "conftest.py").write_text("# Newly appearing ignored configuration.\n")
+    elif when == "before_launch":
+        assert verdict.status == "REFUSED", verdict
+        assert "PRELAUNCH_ADMISSION_DRIFT" in verdict.reasons
+        assert not (Path(verdict.packet) / "request.json").exists()
+    else:
+        assert verdict.status == "FAILED", verdict
+        assert "G2_ADMISSION_DRIFT" in verdict.reasons
+    # This is the exact hole: Git's inventory alone sees no mutation.
+    assert current.source_inventory(root) == before
+    assert not runner.consume(verdict, occurrence)
+
+
+def test_actual_unsupported_plan_path_retains_prelaunch_refusal_packet(tiny: Any, tmp_path: Path) -> None:
+    root, base, old, _ = tiny
+    (root / ".gitignore").write_text("conftest.py\n")
+    commit(root)
+    runner = current.CurrentRunner(root, tmp_path / "proof", base=base)
+    verdict = runner.run(current.Occurrence(2, old))
+    assert verdict.status == "REFUSED"
+    assert "IC_PATH" in verdict.reasons
+    assert (Path(verdict.packet) / "receipt.json").is_file()
+    assert not (Path(verdict.packet) / "request.json").exists()

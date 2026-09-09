@@ -306,6 +306,16 @@ def _tool_provenance() -> dict[str, Any]:
     }
 
 
+def _admission_state(admission: Any) -> dict[str, Any]:
+    """The full result of the real classifier, including its absence rechecks."""
+    return {
+        "status": admission.status,
+        "reason": admission.reason,
+        "source_sha256": admission.source_sha256,
+        "dependencies": [list(pair) for pair in admission.dependencies],
+    }
+
+
 def _runtime_probe(python: Path, root: Path, environment: dict[str, str]) -> dict[str, Any]:
     result = subprocess.run(
         [str(python), "-I", "-B", "-c", _RUNTIME_PROBE],
@@ -619,6 +629,7 @@ class CurrentRunner:
             requirement = self._requirement(occurrence)
             expectation = requirement.current
             admission = classifier(self.root, expectation.authoritative_row.test_path)
+            admission_state = _admission_state(admission)
             if admission.status not in {"OFFLINE", "LIVE"}:
                 raise ValueError("G2_ADMISSION_UNKNOWN")
             if admission.status == "LIVE":
@@ -646,6 +657,8 @@ class CurrentRunner:
             runtime_stats = prepared_runtime["inventory"]["stats"]
             if source_inventory(self.root) != before or _tool_provenance() != provenance:
                 raise ValueError("PRELAUNCH_SOURCE_TOOL_DRIFT")
+            if _admission_state(classifier(self.root, row.test_path)) != admission_state:
+                raise ValueError("PRELAUNCH_ADMISSION_DRIFT")
             allowed = {str(self.root / path): sha for path, sha in before["files"].items()}
             allowed.update(runtime)
             allowed[str(tool)] = digest(regular_bytes(tool))
@@ -693,12 +706,7 @@ class CurrentRunner:
                 "runtime_files": runtime,
                 "runtime_stats": runtime_stats,
                 "environment": environment,
-                "admission": {
-                    "status": admission.status,
-                    "reason": admission.reason,
-                    "source_sha256": admission.source_sha256,
-                    "dependencies": list(admission.dependencies),
-                },
+                "admission": admission_state,
                 "command": command,
                 "allowed_sources": allowed,
             }
@@ -773,6 +781,8 @@ class CurrentRunner:
                 or self._requirement(occurrence) != requirement
             ):
                 reasons.append("RUNTIME_TOOL_DRIFT")
+            if _admission_state(legacy.classify_test_admission(self.root, row.test_path)) != admission_state:
+                reasons.append("G2_ADMISSION_DRIFT")
             observation = strict_json(regular_bytes(packet / "observation.json"))
             reasons.extend(validate_observation(observation, binding, returncode))
             expected_lines = [f"{item['nodeid']} PASSED" for item in observation.get("selected", [])]
@@ -780,10 +790,20 @@ class CurrentRunner:
                 reasons.append("RESULT_COLLECTION_MISMATCH")
             if not reasons:
                 status = "ACCEPTED"
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            legacy.SupersessionError,
+            subprocess.SubprocessError,
+        ) as exc:
             code = str(exc)
             reasons.append(
-                code if isinstance(exc, ValueError) and code.isupper() else "EXECUTION_OR_ARTIFACT_ERROR"
+                code
+                if isinstance(exc, (ValueError, legacy.SupersessionError)) and code.isupper()
+                else "EXECUTION_OR_ARTIFACT_ERROR"
             )
         artifacts = {path.name: digest(path.read_bytes()) for path in packet.iterdir() if path.is_file()}
         receipt = {
@@ -830,6 +850,8 @@ class CurrentRunner:
                 source_inventory(self.root) == binding["source"]
                 and self._runtime_stable()
                 and _tool_provenance() == binding["tool_provenance"]
+                and _admission_state(legacy.classify_test_admission(self.root, occurrence.row.test_path))
+                == binding["admission"]
                 and asdict(self._requirement(occurrence).current) == binding["current_expectation"]
                 and asdict(self._requirement(occurrence).occurrence) == binding["original"]
                 and digest(canonical(binding)) == receipt["binding_sha256"]
@@ -837,5 +859,13 @@ class CurrentRunner:
             return stable and all(
                 digest(regular_bytes(packet / name)) == sha for name, sha in receipt["artifacts"].items()
             )
-        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            legacy.SupersessionError,
+            subprocess.SubprocessError,
+        ):
             return False
