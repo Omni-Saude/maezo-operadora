@@ -22,55 +22,51 @@ not scan them and makes no claim about them; widening scope beyond `docs/adr/` i
 larger decision for the owner.
 
 Three citation shapes are HARD-CHECKED (fail the build on an unresolved one, unless explicitly
-disclosed — see `_DISCLOSED_ROT` below):
+disclosed — see `_DISCLOSED_ROT` below). Recovery qualifier 2026-09-09: this static gate verifies
+only the bindings described here. It does not reexecute ADR-0041's historical claims, certify
+inbound delivery, or grant portal/runtime closure credit.
 
   1. **Symbol citations** — `path/to/file.py::Symbol` or `path/to/file.py::Class.method`, the
      convention already used by ~40 existing citations across `docs/adr/*.md` (e.g. ADR-0029,
-     ADR-0042, ADR-0044). FAILS if `path` does not resolve to a tracked file, or if `Symbol` does
-     not resolve via AST in that file (a class, a module- or class-level function/method, or a
-     module- or class-level assignment/annotated-assignment/import name).
+     ADR-0042, ADR-0044). Repository-relative paths bind exactly; abbreviated paths bind by their
+     supplied suffix; slash-free names explicitly bind by basename. A qualified miss never falls
+     back to another directory's basename. Python names are collected statically from their real
+     lexical namespace: module bindings and qualified class members, never function locals. BPMN
+     and DMN symbols bind only to parsed XML `id` declarations, never comments or references.
   2. **Quoted Python import statements** — a backtick- or code-fence-quoted
      ``from dotted.module import name1, name2`` line (the ADR-0026 case: an inline code example,
      not a `::` citation, but the same underlying claim — "these names exist in this module"). The
-     dotted module is resolved via the `maezo.` package convention (`maezo.x.y` ->
-     `src/maezo/x/y.py`); FAILS if the module does not resolve, or if any imported name is not a
-     symbol of that module.
+     dotted module binds exactly via the `maezo.` package convention (`maezo.x.y` ->
+     `src/maezo/x/y.py` or `src/maezo/x/y/__init__.py`); FAILS if the module does not resolve, or if
+     any imported name is not a module binding. The quoted statement is parsed with `ast`, including
+     parentheses, multiline lists and aliases. Unsupported/unparseable cited forms fail explicitly.
   3. **Bare line citations, file existence only** (reparo F4/VER-ADR-BATCH, 2026-09-06) —
      `path/to/file.py:116` or `:116-120`. A bare line citation cannot be proven wrong without
      knowing what the line USED to say — only that the FILE still exists, which line-drift alone
      does not violate — so the LINE NUMBER stays purely informational (see the `line_citation_count`
-     in the render output: 753 counted, none individually vetted). But file existence IS cheap and
+     in the render output: 754 counted, none individually vetted). But file existence IS cheap and
      reliable, and was left unchecked entirely until this reparo measured 6 live citations (5
      distinct paths) across `docs/adr/*.md` naming a file absent from the tree — one of them inside
      ADR-0041, whose purpose is reconciling exactly this species of claim. FAILS only if the path
-     resolves to nothing (via the same `resolve_path_candidates` used by shapes 1-2), UNLESS the
-     path either (a) contains a literal `...` (an elided placeholder in prose, e.g. `0018-...md` in
-     a summary table — no real filename in this tree has three consecutive dots) or (b) falls under
-     a directory this repo's `.gitignore` excludes (e.g. `docs/prompts/` — untracked BY
-     CONSTRUCTION, so `git ls-files` can never confirm it either way). Both are structural RULES,
-     not `_DISCLOSED_ROT` allowlist entries — see `is_ellipsis_artifact_path` /
-     `gitignored_directory_prefixes`. A line citation immediately preceded by an
-     ``<!-- anchor: ... -->``-style HTML comment naming the same file is treated as a deliberately
-     pinned, stable anchor and is excluded from both the rot-prone count and the file-existence
-     check (none exist in the corpus today; the mechanism is here for the day one is added
-     deliberately).
+     resolves to nothing (via the explicit path forms above), UNLESS the path either (a) contains a
+     literal `...` (an elided placeholder in prose) or (b) is a concrete missing path under `docs/`
+     that Git itself reports ignored (e.g. `docs/prompts/`). Excluded abbreviations and ignored-local
+     paths have separate counts and reasons; neither is presented as checked. Tracked files are
+     checked before ignore handling, and ignored source/test/config paths receive no exemption.
+     HTML line-anchor comments may stabilize line bookkeeping but never suppress file existence.
 
 **Disclosed rot** (`_DISCLOSED_ROT`): a small, dated, named allowlist of citations already known to
 be unresolved when this gate was built — never a substitute for fixing forward, and never silent.
 Each entry is actively re-checked: if the citation now RESOLVES, the entry is stale and the gate
-fails, telling the maintainer to delete it (an allowlist that nobody prunes is the same disclosure
-failure this gate exists to catch). Seven entries ship with this gate today: one pre-existing
-symbol-citation rot (ADR-0022, unrelated to R-089), and six bare-line-citation rot found by reparo
-F4 (five in ADR-0024/0041, genuinely never-built modules; two in ADR-0037/0025, citations that were
-always cross-repo and could never resolve against THIS tree) — see the `_DISCLOSED_ROT` tuple's own
-inline comments for the per-entry evidence, not repeated here.
+fails, telling the maintainer to delete it. Seven entries ship with this gate today: **one** missing
+tool-wiring symbol, **four** inbound-driver path occurrences across ADR-0024/0041, and **two**
+explicitly cross-repository paths in ADR-0037/0025. See `_DISCLOSED_ROT` for per-entry evidence.
 
   - `docs/adr/0022-mcp-in-process-boot.md` :: `src/maezo/runtime/tool_wiring.py::build_tool_invoker`
     — genuine PRE-EXISTING rot found while building this gate, unrelated to R-089's own scope
-    (`tool_wiring.py` does not exist; already disclosed independently in
-    `src/maezo/tools/mcp_cibseven/__init__.py`'s module docstring: "no `ToolRegistry`/
-    `tool_wiring.py`/`build_tool_invoker` exists anywhere in this v2 tree"). Tracked as an open row
-    in `docs/review-queue.md`; deliberately NOT fixed here (out of scope for R-089).
+    (`runtime/tool_wiring.py::build_tool_invoker` does not resolve). Tracked as an open row in
+    `docs/review-queue.md`; deliberately NOT fixed here (out of scope for R-089). This exact target
+    is the disclosure; the checker makes no broader claim about the current ToolRegistry.
 
   (Historical: this gate originally shipped a SECOND entry for
   `docs/adr/0026-worker-standardization.md`'s `check_calendar` import citation — its own
@@ -79,8 +75,9 @@ inline comments for the per-entry evidence, not repeated here.
   removed once the citation resolved, exactly as the self-audit above demands of any entry.)
 
 Wired into `make check-doc-symbol-citations` and `.github/workflows/ci.yml`'s `validate-artifacts`
-job. Uses `git ls-files` only (no `git merge-base`/history walk), so it runs unchanged in a shallow
-clone (`git clone --depth 1`) — proven by `tests/unit/ci/test_check_doc_symbol_citations.py`.
+job. Tree binding uses `git ls-files`; the narrow local-doc exclusion asks Git's `check-ignore`
+without history, so the gate runs unchanged in a shallow clone. An empty document corpus or a scan
+with zero eligible citations is `EMPTY`/`UNCHECKED`, never PASS.
 """
 
 from __future__ import annotations
@@ -92,6 +89,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from xml.etree import ElementTree
 
 # ---------------------------------------------------------------------------
 # Citation extraction
@@ -103,20 +101,21 @@ _SYMBOL_CITATION_RE = re.compile(
     r"(?P<path>[A-Za-z0-9_./-]+\.(?:py|bpmn|yaml|yml|dmn))::(?P<symbol>[A-Za-z0-9_.]+)"
 )
 
-#: A quoted `from dotted.module import a, b, c` statement (module must be under the `maezo` package
-#: for this repo's path convention to resolve it; anything else is left alone rather than guessed).
-_IMPORT_CITATION_RE = re.compile(
-    r"from (?P<module>maezo(?:\.[A-Za-z0-9_]+)+) import (?P<names>[A-Za-z0-9_,\s]+)"
-)
+#: Import examples are considered only inside Markdown inline-code spans or fenced code blocks.
+#: Once such an example starts with ``from maezo... import``, it must either parse as one supported
+#: absolute ``ast.ImportFrom`` statement or be reported explicitly.  This start pattern deliberately
+#: does not try to parse Python; ``ast.parse`` owns that job below.
+_IMPORT_START_RE = re.compile(r"\bfrom\s+maezo(?:\.[A-Za-z_][A-Za-z0-9_]*)+\s+import\b")
+
+_FENCED_CODE_RE = re.compile(r"(?ms)^```[^\n]*\n(?P<code>.*?)^```[ \t]*$")
+
+_INLINE_CODE_RE = re.compile(r"(?s)(?<!`)(?P<ticks>`{1,2})(?!`)(?P<code>.*?)(?<!`)(?P=ticks)(?!`)")
 
 #: Bare `path.py:NNN` / `path.py:NNN-MMM` — NOT immediately preceded by another `:` (which would
 #: make it the second half of a `::Symbol` citation instead).
 _LINE_CITATION_RE = re.compile(
     r"(?<!:)\b(?P<path>[A-Za-z0-9_./-]+\.(?:py|md|yaml|yml|bpmn|dmn)):(?P<line>\d+)(?:-\d+)?\b"
 )
-
-#: An `<!-- anchor: ... -->`-style comment naming the file it pins — see shape 3 in the docstring.
-_ANCHOR_COMMENT_RE = re.compile(r"<!--\s*anchor:\s*(?P<path>\S+)\s*-->")
 
 
 @dataclass(frozen=True)
@@ -135,6 +134,28 @@ class ImportCitation:
     names: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ImportIssue:
+    doc: str
+    doc_line: int
+    statement: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CitationExclusion:
+    doc: str
+    doc_line: int
+    citation_repr: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class _CodeRegion:
+    text: str
+    offset: int
+
+
 def _line_number(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
@@ -146,25 +167,164 @@ def extract_symbol_citations(doc_name: str, text: str) -> list[SymbolCitation]:
     ]
 
 
-def extract_import_citations(doc_name: str, text: str) -> list[ImportCitation]:
+def _quoted_code_regions(text: str) -> list[_CodeRegion]:
+    """Return Markdown code regions without interpreting prose as Python.
+
+    Fenced regions are extracted first and masked before inline spans are found, preventing the
+    backticks that delimit a fence from creating duplicate inline regions.
+    """
+    regions: list[_CodeRegion] = []
+    fenced_spans: list[tuple[int, int]] = []
+    for match in _FENCED_CODE_RE.finditer(text):
+        regions.append(_CodeRegion(match.group("code"), match.start("code")))
+        fenced_spans.append(match.span())
+
+    masked = list(text)
+    for start, end in fenced_spans:
+        masked[start:end] = " " * (end - start)
+    masked_text = "".join(masked)
+    for match in _INLINE_CODE_RE.finditer(masked_text):
+        regions.append(_CodeRegion(text[match.start("code") : match.end("code")], match.start("code")))
+    return sorted(regions, key=lambda region: region.offset)
+
+
+def _import_statement_end(code: str, start_match: re.Match[str]) -> int:
+    """Return the end offset for one quoted import candidate.
+
+    An unparenthesized import ends at its physical line. A parenthesized import ends at its matching
+    close parenthesis; if no close exists, the entire remaining code region is returned so the AST
+    parser can report the malformed citation instead of silently dropping it.
+    """
+    cursor = start_match.end()
+    while cursor < len(code) and code[cursor].isspace() and code[cursor] != "\n":
+        cursor += 1
+    if cursor >= len(code) or code[cursor] != "(":
+        newline = code.find("\n", cursor)
+        return len(code) if newline < 0 else newline
+
+    depth = 0
+    for index in range(cursor, len(code)):
+        char = code[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return len(code)
+
+
+def _is_abbreviated_ellipsis_import(statement: str) -> bool:
+    """The one supported exclusion: an import list explicitly abbreviated with literal ``...``."""
+    if "(" not in statement or "..." not in statement:
+        return False
+    body = statement[statement.find("(") + 1 : statement.rfind(")") if ")" in statement else None]
+    return any(part.strip() == "..." for part in body.split(","))
+
+
+def inspect_import_citations(
+    doc_name: str, text: str
+) -> tuple[list[ImportCitation], list[ImportIssue], list[CitationExclusion]]:
+    """Parse supported quoted ``from maezo... import ...`` examples with Python's AST.
+
+    Supported examples are absolute ``ImportFrom`` statements, including aliases and parenthesized
+    or multiline name lists. Star imports, multiple statements in one code span, syntax errors and
+    nested constructs are explicit failures. Literal ``...`` entries are a narrowly reported
+    abbreviation exclusion used by ADR-0026's prose summary.
+    """
     citations: list[ImportCitation] = []
-    for m in _IMPORT_CITATION_RE.finditer(text):
-        names = tuple(n.strip() for n in m.group("names").split(",") if n.strip())
-        if names:
-            doc_line = _line_number(text, m.start())
-            citations.append(ImportCitation(doc_name, doc_line, m.group("module"), names))
+    issues: list[ImportIssue] = []
+    exclusions: list[CitationExclusion] = []
+
+    for region in _quoted_code_regions(text):
+        cursor = 0
+        while match := _IMPORT_START_RE.search(region.text, cursor):
+            end = _import_statement_end(region.text, match)
+            statement = region.text[match.start() : end].strip()
+            absolute_offset = region.offset + match.start()
+            doc_line = _line_number(text, absolute_offset)
+            cursor = max(end, match.end())
+
+            if _is_abbreviated_ellipsis_import(statement):
+                exclusions.append(
+                    CitationExclusion(
+                        doc=doc_name,
+                        doc_line=doc_line,
+                        citation_repr=" ".join(statement.split()),
+                        reason="abbreviated import list contains literal `...`",
+                    )
+                )
+                continue
+
+            try:
+                tree = ast.parse(statement)
+            except SyntaxError as exc:
+                issues.append(
+                    ImportIssue(
+                        doc=doc_name,
+                        doc_line=doc_line,
+                        statement=" ".join(statement.split()),
+                        reason=f"unsupported or unparseable ImportFrom syntax: {exc.msg}",
+                    )
+                )
+                continue
+
+            if len(tree.body) != 1 or not isinstance(tree.body[0], ast.ImportFrom):
+                issues.append(
+                    ImportIssue(
+                        doc=doc_name,
+                        doc_line=doc_line,
+                        statement=" ".join(statement.split()),
+                        reason="unsupported quoted import form (expected one ImportFrom statement)",
+                    )
+                )
+                continue
+
+            node = tree.body[0]
+            if node.level != 0 or node.module is None or not node.module.startswith("maezo."):
+                issues.append(
+                    ImportIssue(
+                        doc=doc_name,
+                        doc_line=doc_line,
+                        statement=" ".join(statement.split()),
+                        reason="unsupported import module (expected absolute maezo.* module)",
+                    )
+                )
+                continue
+            if any(alias.name == "*" for alias in node.names):
+                issues.append(
+                    ImportIssue(
+                        doc=doc_name,
+                        doc_line=doc_line,
+                        statement=" ".join(statement.split()),
+                        reason="unsupported star import citation",
+                    )
+                )
+                continue
+
+            # A citation asserts that the source names exist. ``as alias`` changes the importing
+            # document's local binding, not the names that must be exported by the cited module.
+            names = tuple(alias.name for alias in node.names)
+            citations.append(ImportCitation(doc_name, doc_line, node.module, names))
+
+    return citations, issues, exclusions
+
+
+def extract_import_citations(doc_name: str, text: str) -> list[ImportCitation]:
+    """Compatibility view used by inventory tooling; ``run_gate`` also consumes issues/exclusions."""
+    citations, _issues, _exclusions = inspect_import_citations(doc_name, text)
     return citations
 
 
 def extract_line_citations(text: str) -> list[tuple[str, int]]:
-    """`(path, doc_line)` for every bare line citation NOT paired with an anchor comment."""
-    anchored_paths = {m.group("path") for m in _ANCHOR_COMMENT_RE.finditer(text)}
-    out: list[tuple[str, int]] = []
-    for m in _LINE_CITATION_RE.finditer(text):
-        if m.group("path") in anchored_paths:
-            continue
-        out.append((m.group("path"), _line_number(text, m.start())))
-    return out
+    """``(path, doc_line)`` for every bare line citation, including anchored citations.
+
+    An HTML anchor may stabilize line-position bookkeeping, but it never proves that the named file
+    exists. Shape 3 always retains its path validation.
+    """
+    return [
+        (match.group("path"), _line_number(text, match.start())) for match in _LINE_CITATION_RE.finditer(text)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -175,24 +335,22 @@ def extract_line_citations(text: str) -> list[tuple[str, int]]:
 # stated grounds that "a bare `path:line` citation cannot be proven wrong without knowing what the
 # line USED to say — only that the FILE still exists, which line-drift alone does not violate."
 # That distinction was correct but the gate never acted on the half of it that IS cheap and
-# reliable: file existence. Measured over the real corpus at the time of this reparo, 6 of the 753
+# reliable: file existence. Measured over the real corpus at the time of this reparo, 6 of the 754
 # bare line citations named a path absent from the tree entirely (not merely line-drifted) — one
 # of them (`runtime/inbound_driver.py`) inside ADR-0041, the very ADR whose purpose is reconciling
 # this species of phantom claim. This section hard-checks file existence only; the line number
 # itself stays informational (see `test_bare_line_citation_with_a_drifted_line_number_still_passes`).
 #
-# Two RULES (not allowlist entries) exclude paths that a file-existence check would flag for
+# Two RULES (not allowlist entries) classify paths that a file-existence check would otherwise flag
 # reasons that have nothing to do with citation rot:
 #
 #   - **Ellipsis artefacts.** A cited "path" containing a literal `...` (e.g. `docs/adr/0018-...md`
 #     inside ADR-0040's own two-column summary table) is prose shorthand for an elided run of
 #     similar filenames, not a real path — no tracked filename in this repo has ever contained
 #     three consecutive dots (`git ls-files | grep -c '\.\.\.'` is 0). Structural, not per-citation.
-#   - **Gitignored paths.** A citation under a directory this repo's own `.gitignore` excludes
-#     (e.g. `docs/prompts/`) can never be confirmed via `git ls-files`, which is this gate's ONLY
-#     source of truth (by design, for shallow-clone compatibility — no `git status`/working-tree
-#     walk). Treating an untracked-by-construction path as "not found" would be a false positive
-#     baked into the gate's own architecture, not a fact about the citation's health.
+#   - **Intentionally local docs.** A concrete missing path under `docs/` that Git itself reports
+#     ignored (e.g. `docs/prompts/`) is reported separately as ignored-local. The exemption never
+#     applies to source/test/config paths, and an existing tracked file is checked first.
 _ELLIPSIS_ARTIFACT_MARKER = "..."
 
 
@@ -201,24 +359,24 @@ def is_ellipsis_artifact_path(path: str) -> bool:
     return _ELLIPSIS_ARTIFACT_MARKER in path
 
 
-def gitignored_directory_prefixes(repo_root: Path) -> tuple[str, ...]:
-    """Directory-pattern lines (ending in `/`) from this repo's own `.gitignore`, read fresh each
-    call (a small file; no caching needed) — see the module-level note above shape 3's
-    file-existence check for why these are excluded structurally, not via `_DISCLOSED_ROT`."""
-    gitignore_path = repo_root / ".gitignore"
-    try:
-        lines = gitignore_path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return ()
-    return tuple(
-        stripped
-        for raw in lines
-        if (stripped := raw.strip()) and not stripped.startswith("#") and stripped.endswith("/")
+def is_intentionally_local_ignored_path(repo_root: Path, path: str, tracked: list[str]) -> bool:
+    """Return whether a missing citation names a deliberately local-only documentation path.
+
+    Existing tracked files are never excluded, even if a broad ignore pattern also matches them.
+    The exemption is confined to ``docs/`` because ignored source/test/config paths are precisely
+    the deletion case this file-existence gate must catch. Git itself decides whether the concrete
+    path is ignored; simple textual prefix matching is not used as Git-ignore semantics.
+    """
+    if path in tracked or not path.startswith("docs/"):
+        return False
+    proc = subprocess.run(
+        ["git", "check-ignore", "--no-index", "--quiet", "--", path],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
     )
-
-
-def is_under_gitignored_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
-    return any(path.startswith(prefix) for prefix in prefixes)
+    return proc.returncode == 0
 
 
 # ---------------------------------------------------------------------------
@@ -233,20 +391,21 @@ def tracked_files(repo_root: Path) -> list[str]:
 
 
 def resolve_path_candidates(cited: str, tracked: list[str]) -> list[str]:
-    """Exact match, then suffix match (`a/b.py` cites `x/a/b.py`), then bare-basename match.
+    """Resolve one of three explicit path forms without discarding a supplied namespace.
 
-    Permissive by design: many citations in this corpus omit the `src/maezo/` prefix
-    (`gateway/pseudonymizer.py::...`) or cite a bare filename (`pep.py:71`). Returning every
-    candidate (rather than the first) lets the caller try each before declaring a symbol missing —
-    important for basenames that collide across agents (`graph.py` exists once per agent).
+    * a repository-relative path is exact when present;
+    * a path with a slash may be an abbreviated suffix (``gateway/pep.py``);
+    * a string with no slash is explicitly a basename citation (``pep.py``).
+
+    A qualified miss such as ``src/maezo/wrong/widget.py`` never falls back to a different
+    ``widget.py``. Returning every legitimate abbreviated/basename candidate lets the symbol
+    resolver check colliding basenames without inventing a match for a wrong directory.
     """
     if cited in tracked:
         return [cited]
-    suffix_hits = [t for t in tracked if t.endswith("/" + cited)]
-    if suffix_hits:
-        return suffix_hits
-    base = cited.rsplit("/", 1)[-1]
-    return [t for t in tracked if t.rsplit("/", 1)[-1] == base]
+    if "/" in cited:
+        return [tracked_path for tracked_path in tracked if tracked_path.endswith("/" + cited)]
+    return [tracked_path for tracked_path in tracked if Path(tracked_path).name == cited]
 
 
 def module_to_path(module: str) -> str:
@@ -255,59 +414,75 @@ def module_to_path(module: str) -> str:
     return "src/" + module.replace(".", "/") + ".py"
 
 
-class _SymbolCollector(ast.NodeVisitor):
-    """Collects every name resolvable as `Symbol` or `Class.Symbol` from a module's AST.
+def module_path_candidates(module: str, tracked: list[str]) -> list[str]:
+    """Bind an absolute Python module to its exact module file or package ``__init__.py``."""
+    base = "src/" + module.replace(".", "/")
+    return [candidate for candidate in (base + ".py", base + "/__init__.py") if candidate in tracked]
 
-    Deliberately permissive (also walks into function bodies, collecting nested assignments) —
-    this gate's job is catching a symbol that is GONE, not linting which symbols "should" be
-    citable. A false negative (missing a symbol that does exist) would wrongly fail the build; a
-    false positive (accepting a symbol that isn't really public API) does no harm here.
-    """
 
-    def __init__(self) -> None:
-        self.symbols: set[str] = set()
+def _target_names(target: ast.expr) -> set[str]:
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {name for element in target.elts for name in _target_names(element)}
+    return set()
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self.symbols.add(node.name)
-        for child in node.body:
-            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                self.symbols.add(f"{node.name}.{child.name}")
-            elif isinstance(child, ast.Assign):
-                for target in child.targets:
-                    if isinstance(target, ast.Name):
-                        self.symbols.add(f"{node.name}.{target.id}")
-            elif isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name):
-                self.symbols.add(f"{node.name}.{child.target.id}")
-        self.generic_visit(node)
 
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        self.symbols.add(node.name)
-        self.generic_visit(node)
+def _import_bound_names(node: ast.Import | ast.ImportFrom) -> set[str]:
+    if isinstance(node, ast.ImportFrom):
+        return {alias.asname or alias.name for alias in node.names if alias.name != "*"}
+    return {alias.asname or alias.name.split(".", 1)[0] for alias in node.names}
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self.symbols.add(node.name)
-        self.generic_visit(node)
 
-    def visit_Assign(self, node: ast.Assign) -> None:
-        for target in node.targets:
-            if isinstance(target, ast.Name):
-                self.symbols.add(target.id)
-        self.generic_visit(node)
+def _collect_lexical_bindings(statements: list[ast.stmt], *, prefix: str = "") -> set[str]:
+    """Collect static bindings in one module/class lexical scope, never function-local names."""
+    symbols: set[str] = set()
 
-    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if isinstance(node.target, ast.Name):
-            self.symbols.add(node.target.id)
-        self.generic_visit(node)
+    def qualify(name: str) -> str:
+        return f"{prefix}.{name}" if prefix else name
 
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        for alias in node.names:
-            self.symbols.add(alias.asname or alias.name)
-        self.generic_visit(node)
+    for statement in statements:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            symbols.add(qualify(statement.name))
+            continue
+        if isinstance(statement, ast.ClassDef):
+            class_name = qualify(statement.name)
+            symbols.add(class_name)
+            symbols.update(_collect_lexical_bindings(statement.body, prefix=class_name))
+            continue
+        if isinstance(statement, ast.Assign):
+            for target in statement.targets:
+                symbols.update(qualify(name) for name in _target_names(target))
+            continue
+        if isinstance(statement, ast.AnnAssign):
+            symbols.update(qualify(name) for name in _target_names(statement.target))
+            continue
+        if isinstance(statement, ast.AugAssign):
+            symbols.update(qualify(name) for name in _target_names(statement.target))
+            continue
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            symbols.update(qualify(name) for name in _import_bound_names(statement))
+            continue
 
-    def visit_Import(self, node: ast.Import) -> None:
-        for alias in node.names:
-            self.symbols.add((alias.asname or alias.name).split(".")[0])
-        self.generic_visit(node)
+        # Control-flow statements execute in their containing module/class namespace. Recurse into
+        # those statement lists, while function bodies above remain intentionally opaque.
+        nested_lists: list[list[ast.stmt]] = []
+        for field in ("body", "orelse", "finalbody"):
+            value = getattr(statement, field, None)
+            if isinstance(value, list) and all(isinstance(item, ast.stmt) for item in value):
+                nested_lists.append(value)
+        handlers = getattr(statement, "handlers", None)
+        if isinstance(handlers, list):
+            nested_lists.extend(
+                handler.body for handler in handlers if isinstance(handler, ast.ExceptHandler)
+            )
+        cases = getattr(statement, "cases", None)
+        if isinstance(cases, list):
+            nested_lists.extend(case.body for case in cases if isinstance(case, ast.match_case))
+        for nested in nested_lists:
+            symbols.update(_collect_lexical_bindings(nested, prefix=prefix))
+
+    return symbols
 
 
 def collect_python_symbols(source: str) -> set[str] | None:
@@ -318,25 +493,55 @@ def collect_python_symbols(source: str) -> set[str] | None:
         tree = ast.parse(source)
     except SyntaxError:
         return None
-    collector = _SymbolCollector()
-    collector.visit(tree)
-    return collector.symbols
+    return _collect_lexical_bindings(tree.body)
 
 
-def resolve_symbol(repo_root: Path, path_candidates: list[str], symbol: str) -> bool:
+def collect_declared_xml_ids(source: str) -> set[str] | None:
+    """Return actual XML ``id`` declarations; comments and reference attributes do not count."""
+    try:
+        root = ElementTree.fromstring(source)
+    except ElementTree.ParseError:
+        return None
+    return {element.attrib["id"] for element in root.iter() if "id" in element.attrib}
+
+
+def _candidate_symbol_status(candidate: str, content: str, symbol: str) -> tuple[bool, str | None]:
+    suffix = Path(candidate).suffix
+    if suffix == ".py":
+        symbols = collect_python_symbols(content)
+        if symbols is None:
+            return False, f"{candidate} is malformed Python"
+        return symbol in symbols, None
+    if suffix in {".bpmn", ".dmn"}:
+        identifiers = collect_declared_xml_ids(content)
+        if identifiers is None:
+            return False, f"{candidate} is malformed XML"
+        return symbol in identifiers, None
+    return False, f"{candidate} has unsupported structured-symbol extension {suffix or '<none>'}"
+
+
+def resolve_symbol_details(
+    repo_root: Path, path_candidates: list[str], symbol: str
+) -> tuple[bool, list[str]]:
+    problems: list[str] = []
     for candidate in path_candidates:
         full = repo_root / candidate
         try:
             content = full.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError) as exc:
+            problems.append(f"{candidate} could not be read: {exc}")
             continue
-        if candidate.endswith(".py"):
-            symbols = collect_python_symbols(content)
-            if symbols is not None and symbol in symbols:
-                return True
-        elif symbol in content:  # non-.py target: a plain substring/id match (e.g. BPMN `id="..."`)
-            return True
-    return False
+        resolved, problem = _candidate_symbol_status(candidate, content, symbol)
+        if resolved:
+            return True, []
+        if problem:
+            problems.append(problem)
+    return False, problems
+
+
+def resolve_symbol(repo_root: Path, path_candidates: list[str], symbol: str) -> bool:
+    resolved, _problems = resolve_symbol_details(repo_root, path_candidates, symbol)
+    return resolved
 
 
 # ---------------------------------------------------------------------------
@@ -368,10 +573,10 @@ _DISCLOSED_ROT: tuple[DisclosedRot, ...] = (
         citation_repr="src/maezo/runtime/tool_wiring.py::build_tool_invoker",
         reason=(
             "pre-existing rot found while building this gate (2026-09-06), unrelated to R-089's "
-            "scope (ADR-0026/0028) — `tool_wiring.py` does not exist. Already independently "
-            "disclosed in src/maezo/tools/mcp_cibseven/__init__.py's module docstring "
-            '("no ToolRegistry/tool_wiring.py/build_tool_invoker exists anywhere in this v2 '
-            'tree"). Tracked as an open docs/review-queue.md row; deliberately not fixed here.'
+            "scope (ADR-0026/0028) — the exact target "
+            "`src/maezo/runtime/tool_wiring.py::build_tool_invoker` does not resolve. Tracked as "
+            "an open docs/review-queue.md row; deliberately not fixed here. This disclosure does "
+            "not adopt any broader historical statement about the current ToolRegistry."
         ),
     ),
     # Reparo F4/VER-ADR-BATCH (2026-09-06, terceiro agente): the 6 live occurrences (5 distinct
@@ -388,7 +593,7 @@ _DISCLOSED_ROT: tuple[DisclosedRot, ...] = (
             "`src/maezo/platform/driver_idempotency.py`'s own module docstring: \"`driver_idempotency` "
             "was created by `migrations/versions/0003_a2a_idempotency.py:61-72` for ADR-0024's "
             "`InboundDriver`/`ResumeDriver`, which were never built — it had zero readers and zero "
-            "writers\". Not a rename, not a move; the module simply does not exist. Found while "
+            'writers". Not a rename, not a move; the module simply does not exist. Found while '
             "building the F4 file-existence check; not investigated further, out of scope for R-089."
         ),
     ),
@@ -446,9 +651,47 @@ _DISCLOSED_ROT: tuple[DisclosedRot, ...] = (
     ),
 )
 
+# Exact historical-path statements that the recovered ADR corpus already carried. These are kept
+# out of the seven current-tree disclosures because each surrounding passage explicitly describes
+# an older snapshot or quotes what an older ADR said. They remain finite, visible and self-audited;
+# no generic word such as "historical" suppresses a citation.
+_HISTORICAL_LINE_EXCLUSIONS: tuple[DisclosedRot, ...] = (
+    DisclosedRot(
+        doc="0024-durable-idempotency-resume-inbound-drivers.md",
+        citation_repr="platform/webhooks/whatsapp/idempotency.py",
+        reason=(
+            "historical July 2026 source inventory in the accepted ADR; the cited Redis module "
+            "was later removed, and this repair may not rewrite that accepted record"
+        ),
+    ),
+    DisclosedRot(
+        doc="0025-pep-policy-unification.md",
+        citation_repr="src/maezo/agents/gustavo/agent.yaml",
+        reason=(
+            "historical accepted-ADR path from before agent definitions moved to spec/agents; "
+            "this repair does not rewrite accepted ADR-0025"
+        ),
+    ),
+    DisclosedRot(
+        doc="0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md",
+        citation_repr="platform/webhooks/whatsapp/idempotency.py",
+        reason=(
+            "DRAFT section explicitly quotes ADR-0024 Contexto fato 3 rather than asserting a "
+            "current source binding; recovery qualifier keeps historical and current claims apart"
+        ),
+    ),
+)
+
 
 def _disclosed_reason(doc: str, citation_repr: str) -> str | None:
     for entry in _DISCLOSED_ROT:
+        if entry.doc == doc and entry.citation_repr == citation_repr:
+            return entry.reason
+    return None
+
+
+def _historical_exclusion_reason(doc: str, citation_repr: str) -> str | None:
+    for entry in _HISTORICAL_LINE_EXCLUSIONS:
         if entry.doc == doc and entry.citation_repr == citation_repr:
             return entry.reason
     return None
@@ -465,17 +708,31 @@ class GateResult:
     disclosed: list[str]
     line_citation_count: int
     ok: bool
+    ignored: list[str]
+    excluded: list[str]
+    historical: list[str]
+    document_count: int
+    eligible_citation_count: int
 
     def render(self) -> str:
         lines = [
             "[check-doc-symbol-citations] "
             + ("PASS" if self.ok else "FAIL")
             + f" — {len(self.failures)} unresolved, {len(self.disclosed)} disclosed, "
+            f"{len(self.ignored)} ignored-local, {len(self.excluded)} excluded-abbreviated, "
+            f"{len(self.historical)} historical-only; "
+            f"{self.document_count} documents, {self.eligible_citation_count} eligible citations, "
             f"{self.line_citation_count} bare line citations (line number informational; "
-            "file existence hard-checked since reparo F4/VER-ADR-BATCH)"
+            "file existence always hard-checked, including anchored citations)"
         ]
         for d in self.disclosed:
             lines.append(f"  DISCLOSED (not blocking): {d}")
+        for item in self.ignored:
+            lines.append(f"  IGNORED LOCAL (not checked): {item}")
+        for item in self.excluded:
+            lines.append(f"  EXCLUDED ABBREVIATION (not checked): {item}")
+        for item in self.historical:
+            lines.append(f"  HISTORICAL ONLY (not current-tree checked): {item}")
         for f in self.failures:
             lines.append(f"  FAIL: {f}")
         return "\n".join(lines)
@@ -485,6 +742,9 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
     tracked = tracked_files(repo_root)
     failures: list[str] = []
     disclosed: list[str] = []
+    ignored: list[str] = []
+    excluded: list[str] = []
+    historical: list[str] = []
     # Reparo F3/VER-ADR-BATCH (2026-09-06, terceiro agente): the allowlist-rot self-audit below
     # used to ask "did ANY disclosed message mention this doc's FILENAME?" — a substring match on
     # `entry.doc` against the rendered `disclosed` strings. Two entries on the SAME doc cover for
@@ -494,14 +754,17 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
     # rather than re-deriving it from rendered text — makes the self-audit ask the right question:
     # "was THIS entry the thing that got disclosed?"
     fired_pairs: set[tuple[str, str]] = set()
+    fired_historical_pairs: set[tuple[str, str]] = set()
     line_count = 0
-    gitignored_prefixes = gitignored_directory_prefixes(repo_root)
+    eligible_count = 0
+    documents = sorted(adr_dir.glob("*.md"))
 
-    for md_path in sorted(adr_dir.glob("*.md")):
+    for md_path in documents:
         doc_name = md_path.name
         text = md_path.read_text(encoding="utf-8")
 
         for sc in extract_symbol_citations(doc_name, text):
+            eligible_count += 1
             candidates = resolve_path_candidates(sc.path, tracked)
             citation_repr = f"{sc.path}::{sc.symbol}"
             if not candidates:
@@ -513,43 +776,57 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                     msg + (f" [DISCLOSED: {reason}]" if reason else "")
                 )
                 continue
-            if not resolve_symbol(repo_root, candidates, sc.symbol):
+            resolved, resolution_problems = resolve_symbol_details(repo_root, candidates, sc.symbol)
+            if not resolved:
                 reason = _disclosed_reason(doc_name, citation_repr)
                 if reason:
                     fired_pairs.add((doc_name, citation_repr))
-                msg = f"{doc_name}:{sc.doc_line}: `{citation_repr}` — symbol not found (tried {candidates})"
+                detail = (
+                    "; ".join(resolution_problems)
+                    if resolution_problems
+                    else f"symbol not found (tried {candidates})"
+                )
+                msg = f"{doc_name}:{sc.doc_line}: `{citation_repr}` — {detail}"
                 (disclosed if reason else failures).append(
                     msg + (f" [DISCLOSED: {reason}]" if reason else "")
                 )
 
-        for ic in extract_import_citations(doc_name, text):
+        import_citations, import_issues, import_exclusions = inspect_import_citations(doc_name, text)
+        for issue in import_issues:
+            eligible_count += 1
+            failures.append(f"{issue.doc}:{issue.doc_line}: `{issue.statement}` — {issue.reason}")
+        for item in import_exclusions:
+            excluded.append(f"{item.doc}:{item.doc_line}: `{item.citation_repr}` — {item.reason}")
+
+        for ic in import_citations:
             module_path = module_to_path(ic.module)
-            candidates = resolve_path_candidates(module_path, tracked)
+            candidates = module_path_candidates(ic.module, tracked)
             if not candidates:
                 for name in ic.names:
+                    eligible_count += 1
                     citation_repr = f"import {ic.module}::{name}"
                     reason = _disclosed_reason(doc_name, citation_repr)
                     if reason:
                         fired_pairs.add((doc_name, citation_repr))
                     msg = (
                         f"{doc_name}:{ic.doc_line}: `from {ic.module} import {name}` — "
-                        f"module does not resolve to {module_path}"
+                        f"module does not resolve exactly to {module_path} or its package __init__.py"
                     )
                     (disclosed if reason else failures).append(
                         msg + (f" [DISCLOSED: {reason}]" if reason else "")
                     )
                 continue
             for name in ic.names:
-                if resolve_symbol(repo_root, candidates, name):
+                eligible_count += 1
+                resolved, resolution_problems = resolve_symbol_details(repo_root, candidates, name)
+                if resolved:
                     continue
                 citation_repr = f"import {ic.module}::{name}"
                 reason = _disclosed_reason(doc_name, citation_repr)
                 if reason:
                     fired_pairs.add((doc_name, citation_repr))
-                msg = (
-                    f"{doc_name}:{ic.doc_line}: `from {ic.module} import {name}` — "
-                    f"name not found in {module_path}"
-                )
+                detail = "; ".join(resolution_problems) if resolution_problems else "name not found"
+                msg = f"{doc_name}:{ic.doc_line}: `from {ic.module} import {name}` — {detail}"
                 (disclosed if reason else failures).append(
                     msg + (f" [DISCLOSED: {reason}]" if reason else "")
                 )
@@ -558,16 +835,31 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
         line_count += len(line_citations)
 
         # Reparo F4/VER-ADR-BATCH: file-existence-only hard check — see the module-level note
-        # above `is_ellipsis_artifact_path`/`gitignored_directory_prefixes`. The line number
+        # above `is_ellipsis_artifact_path`/`is_intentionally_local_ignored_path`. The line number
         # itself is NEVER checked here (it stays informational, per the module docstring's own
         # rationale for why shape 3 cannot be proven wrong on the line alone).
         for cited_path, doc_line in line_citations:
             if is_ellipsis_artifact_path(cited_path):
-                continue
-            if is_under_gitignored_prefix(cited_path, gitignored_prefixes):
+                excluded.append(
+                    f"{doc_name}:{doc_line}: `{cited_path}` — abbreviated path contains literal `...`"
+                )
                 continue
             if resolve_path_candidates(cited_path, tracked):
+                eligible_count += 1
                 continue
+            if is_intentionally_local_ignored_path(repo_root, cited_path, tracked):
+                ignored.append(
+                    f"{doc_name}:{doc_line}: `{cited_path}` — concrete missing docs path is ignored by Git"
+                )
+                continue
+            historical_reason = _historical_exclusion_reason(doc_name, cited_path)
+            if historical_reason:
+                fired_historical_pairs.add((doc_name, cited_path))
+                historical.append(
+                    f"{doc_name}:{doc_line}: `{cited_path}` — historical path: {historical_reason}"
+                )
+                continue
+            eligible_count += 1
             citation_repr = cited_path
             reason = _disclosed_reason(doc_name, citation_repr)
             if reason:
@@ -576,9 +868,12 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                 f"{doc_name}:{doc_line}: `{cited_path}` — file not found in tree "
                 "(bare line citation, file-existence only)"
             )
-            (disclosed if reason else failures).append(
-                msg + (f" [DISCLOSED: {reason}]" if reason else "")
-            )
+            (disclosed if reason else failures).append(msg + (f" [DISCLOSED: {reason}]" if reason else ""))
+
+    if not documents:
+        failures.append("EMPTY: ADR scan found zero Markdown documents; no PASS is possible")
+    if eligible_count == 0:
+        failures.append("UNCHECKED: ADR scan found zero eligible citations; no PASS is possible")
 
     # An entry that no longer reproduces is allowlist rot in the other direction — the
     # maintainer must prune it, or a fixed citation could regress silently under the same name.
@@ -600,7 +895,27 @@ def run_gate(repo_root: Path, adr_dir: Path) -> GateResult:
                 "never found this run) — prune this entry, it is stale allowlist rot"
             )
 
-    return GateResult(failures=failures, disclosed=disclosed, line_citation_count=line_count, ok=not failures)
+    for entry in _HISTORICAL_LINE_EXCLUSIONS:
+        doc_path = adr_dir / entry.doc
+        if not doc_path.is_file():
+            continue
+        if (entry.doc, entry.citation_repr) not in fired_historical_pairs:
+            failures.append(
+                f"_HISTORICAL_LINE_EXCLUSIONS: `{entry.citation_repr}` in {entry.doc} now resolves "
+                "(or was never found this run) — prune the stale historical exclusion"
+            )
+
+    return GateResult(
+        failures=failures,
+        disclosed=disclosed,
+        line_citation_count=line_count,
+        ok=not failures,
+        ignored=ignored,
+        excluded=excluded,
+        historical=historical,
+        document_count=len(documents),
+        eligible_citation_count=eligible_count,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -612,8 +927,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="check_doc_symbol_citations",
         description=(
-            "R-089: docs/adr/*.md `path::symbol` and quoted-import citations must resolve "
-            "against the tree; bare `path:line` citations are counted, not gated."
+            "R-089: docs/adr/*.md `path::symbol`, quoted ImportFrom, and bare `path:line` "
+            "citations bind to the tracked tree; line numbers remain informational."
         ),
     )
     parser.add_argument(
