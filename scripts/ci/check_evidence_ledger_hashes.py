@@ -142,6 +142,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import importlib
 import io
@@ -149,6 +150,7 @@ import ipaddress
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -1292,6 +1294,138 @@ def is_live_test_path(path: str) -> bool:
     return path.startswith(_LIVE_TEST_PATH_PREFIX)
 
 
+def _read_admission_source(repo_root: Path, path: str) -> bytes:
+    """Read a regular source through non-symlink components, without importing it."""
+    descriptor = os.open(repo_root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        parts = path.split("/")
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        leaf = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+        with os.fdopen(leaf, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("admission source is not a regular file")
+            return source.read()
+    finally:
+        os.close(descriptor)
+
+
+def _offline_source_refusal(source: bytes) -> str | None:
+    """Conservative static marker admission, not an import sandbox or a purity proof.
+
+    Recognize literal pytest metadata. Unresolved decorators, module execution and
+    dynamic metadata require the explicit live assertion; never collect to classify.
+    Function bodies are not executed to discover marks. The caller binds these bytes
+    to the current file or exact historical blob before invoking a recipe.
+    """
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError, UnicodeError):
+        return "unknown source classification (unparseable Python)"
+    # Also catches imported/renamed pytest aliases without trusting their runtime value.
+    if any(isinstance(node, ast.Attribute) and node.attr == "integration" for node in ast.walk(tree)):
+        return "integration-marked source"
+    aliases: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for name in node.names:
+                if name.name == "pytest":
+                    aliases[name.asname or name.name] = "pytest"
+        elif isinstance(node, ast.ImportFrom) and node.module == "pytest":
+            for name in node.names:
+                aliases[name.asname or name.name] = "pytest." + name.name
+
+    def dotted(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return aliases.get(node.id, "")
+        if isinstance(node, ast.Attribute):
+            parent = dotted(node.value)
+            return parent + "." + node.attr if parent else ""
+        return ""
+
+    def marker(node: ast.AST) -> bool:
+        if isinstance(node, ast.List | ast.Tuple):
+            return all(marker(item) for item in node.elts)
+        if isinstance(node, ast.Call):
+            return marker(node.func)
+        name = dotted(node)
+        return name.startswith("pytest.mark.") and name.count(".") == 2
+
+    def decorator(node: ast.AST) -> bool:
+        target = node.func if isinstance(node, ast.Call) else node
+        if not (marker(target) or dotted(target) in {"pytest.fixture", "pytest.yield_fixture"}):
+            return False
+        if isinstance(node, ast.Call):
+            for item in ast.walk(node):
+                if isinstance(item, ast.Call) and item is not node:
+                    if dotted(item.func) != "pytest.param":
+                        return False
+                    if any(keyword.arg == "marks" and not marker(keyword.value) for keyword in item.keywords):
+                        return False
+        return True
+
+    def statements(nodes: list[ast.stmt]) -> bool:
+        for node in nodes:
+            if isinstance(node, ast.Import | ast.ImportFrom):
+                if any(name.name == "*" or (name.asname or name.name) == "pytestmark" for name in node.names):
+                    return False
+                for name in node.names:
+                    local = name.asname or name.name.split(".")[0]
+                    actual = name.name if isinstance(node, ast.Import) else f"{node.module}.{name.name}"
+                    if local in aliases and aliases[local] != actual:
+                        return False
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                if (
+                    node.name in aliases
+                    or node.name.startswith("pytest_")
+                    or not all(decorator(item) for item in node.decorator_list)
+                ):
+                    return False
+                if isinstance(node, ast.ClassDef) and not statements(node.body):
+                    return False
+                if isinstance(node, ast.ClassDef) and node.bases:
+                    return False  # Inherited marks cannot be established from this source.
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and any(
+                    isinstance(item, ast.Call) for item in ast.walk(node.args)
+                ):
+                    return False  # Defaults execute at import time.
+            elif isinstance(node, ast.Assign | ast.AnnAssign):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                names = [
+                    item.id for target in targets for item in ast.walk(target) if isinstance(item, ast.Name)
+                ]
+                if any(name in aliases for name in names):
+                    return False  # A rebinding cannot retain a trusted pytest identity.
+                if "pytestmark" in names:
+                    if node.value is None or not marker(node.value):
+                        return False
+                elif node.value is not None and any(
+                    isinstance(item, ast.Call) for item in ast.walk(node.value)
+                ):
+                    return False
+            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                continue  # Module/class docstring.
+            elif not isinstance(node, ast.Pass):
+                return False  # Includes reflective calls, mutation and conditional marks.
+        return True
+
+    if not statements(tree.body):
+        return "unknown/dynamic source classification"
+    return None
+
+
+def _source_admission_message(source: bytes, *, allow_live: bool) -> str | None:
+    refusal = _offline_source_refusal(source)
+    if refusal is None or allow_live:
+        return None
+    return (
+        f"{refusal}; refusing before test import/capture (HARNESS-LEDGER-HASH-AMBIENT-STACK). "
+        "Re-run with --allow-live only while personally holding the engine mutex and controlling the stack."
+    )
+
+
 # Truthy values accepted for the `LEDGER_HASH_ALLOW_LIVE` env-var fallback to `--allow-live` (see
 # `resolve_allow_live`) — deliberately small and explicit, not "any non-empty string", so a stray
 # exported-but-empty or accidentally-"0"/"false" var never silently grants the assertion.
@@ -1350,6 +1484,13 @@ def verify_row(
         return RowVerification(
             row, False, f"{row.task_id}: declared test file {row.test_path} does not exist at HEAD."
         )
+    try:
+        source = _read_admission_source(repo_root, row.test_path)
+    except (OSError, ValueError) as exc:
+        return RowVerification(row, False, f"{row.task_id}: unsafe admission source: {exc}")
+    refusal = _source_admission_message(source, allow_live=allow_live)
+    if refusal is not None:
+        return RowVerification(row, False, f"{row.task_id}: {row.test_path}: {refusal}")
     capture = capture_pytest_recipe(repo_root, row.test_path, python_exe)
     outcome = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE)
     if not outcome.ok:
@@ -1414,6 +1555,8 @@ def verify_historical_row(
 ) -> RowVerification:
     """Re-run a superseded target in its bound archive; never fall back to candidate HEAD."""
     row = edge.target
+    if not is_safe_test_path(row.test_path):
+        return RowVerification(row, False, f"{row.task_id}: unsafe historical test path; refusing execution")
     if is_live_test_path(row.test_path) and not allow_live:
         return RowVerification(
             row,
@@ -1422,6 +1565,18 @@ def verify_historical_row(
             f"{_LIVE_TEST_PATH_PREFIX}; HARNESS-LEDGER-HASH-AMBIENT-STACK applies equally to "
             "archived tests. Re-run with --allow-live only while holding the engine mutex.",
         )
+    try:
+        metadata = run_git_bytes(["ls-tree", edge.claim.source_commit, "--", row.test_path], repo_root)
+        if not metadata.startswith((b"100644 blob ", b"100755 blob ")):
+            raise SupersessionError("historical admission source is not a regular Git blob")
+        source = _source_blob(repo_root, edge.claim.source_commit, row.test_path)
+        if _sha256_bytes(source) != edge.claim.source_test_sha256:
+            raise SupersessionError("historical admission source differs from bound test hash")
+    except (GitError, SupersessionError) as exc:
+        return RowVerification(row, False, f"{row.task_id}: {exc}")
+    refusal = _source_admission_message(source, allow_live=allow_live)
+    if refusal is not None:
+        return RowVerification(row, False, f"{row.task_id}: historical {row.test_path}: {refusal}")
     current_lock_path = repo_root / "uv.lock"
     if not current_lock_path.is_file():
         return RowVerification(
