@@ -5,7 +5,7 @@ import copy
 import hashlib
 import pickle
 import threading
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
 
 import httpx
@@ -167,7 +167,8 @@ async def test_old_callback_cannot_remove_new_local_generation(owner):
     current_task = asyncio.create_task(second.run_async(work))
     await entered.wait()
     try:
-        owner._finish(previous_child, previous_execution)
+        for _ in range(3):
+            owner._finish(previous_child, previous_execution)
         assert owner.pending_children == 1
         assert await second.close(timeout=0) is False
         assert not current_task.done()
@@ -542,17 +543,189 @@ async def test_invalid_response_bytes_cannot_be_recorded_as_native_refusal(confi
 
 
 @pytest.mark.asyncio
-async def test_thread_returning_running_async_future_retains_actual_terminal(owner):
+@pytest.mark.parametrize("outcome", ["value", "exception", "cancelled"])
+@pytest.mark.parametrize("already_done", [False, True])
+async def test_returned_asyncio_future_without_terminal_binding_stays_quarantined(
+    owner, outcome, already_done
+):
     future = asyncio.get_running_loop().create_future()
     borrower = borrow(owner)
+
+    def finish_wrapper():
+        if outcome == "value":
+            future.set_result("wrapper-only")
+        elif outcome == "exception":
+            future.set_exception(TimeoutError("wrapper-only"))
+        else:
+            future.cancel()
+
+    if already_done:
+        finish_wrapper()
     task = asyncio.create_task(borrower.run_sync(lambda: future))
     try:
-        while not owner.poisoned:  # noqa: ASYNC110 - observes thread callback
-            await asyncio.sleep(0)
+        async with asyncio.timeout(3):
+            while not owner.poisoned:  # noqa: ASYNC110 - observes thread callback
+                await asyncio.sleep(0)
+        child = next(iter(owner._children))
         assert await owner.close(timeout=0) is False
-        assert not future.cancelled() and owner.pending_children == 1
+        if not already_done:
+            finish_wrapper()
+        await asyncio.gather(future, return_exceptions=True)
+        for _ in range(3):
+            owner._finish(child, future)
+        assert await owner.close(timeout=0.005) is False
+        assert owner._children.get(child) is child and not child.terminal.done()
+        assert child.execution is future and not task.done() and owner.poisoned
     finally:
-        future.set_result("terminal")
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if owner._pool is not None:
+            owner._pool.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sync", [True, False])
+@pytest.mark.parametrize("kind", ["to_thread_task", "wrapped_concurrent_future", "timed_out_to_thread_task"])
+async def test_returned_asyncio_wrapper_outcome_never_proves_hidden_thread_terminal(owner, kind, sync):
+    borrower, sibling = borrow(owner), borrow(owner)
+    entered, release, terminal = threading.Event(), threading.Event(), threading.Event()
+    pool = ThreadPoolExecutor(max_workers=1)
+    deadlines = []
+
+    def work():
+        entered.set()
+        try:
+            assert release.wait(10)
+            return "hidden-terminal"
+        finally:
+            terminal.set()
+
+    async def timed_thread():
+        async with asyncio.timeout(None) as deadline:
+            deadlines.append(deadline)
+            return await asyncio.to_thread(work)
+
+    actual = pool.submit(work) if kind == "wrapped_concurrent_future" else None
+    returned = (
+        asyncio.wrap_future(actual)
+        if actual is not None
+        else asyncio.create_task(
+            timed_thread() if kind == "timed_out_to_thread_task" else asyncio.to_thread(work)
+        )
+    )
+
+    async def return_wrapper():
+        return returned
+
+    task = closing = None
+    try:
+        await reached(entered)
+        task = asyncio.create_task(
+            borrower.run_sync(lambda: returned) if sync else borrower.run_async(return_wrapper)
+        )
+        async with asyncio.timeout(3):
+            while not owner.poisoned:  # noqa: ASYNC110 - observes actual callback
+                await asyncio.sleep(0)
+        child = next(iter(owner._children))
+        original = tuple(child.seen)
+        assert child.execution is returned and not child.terminal.done()
+        if kind == "timed_out_to_thread_task":
+            deadlines[0].reschedule(asyncio.get_running_loop().time() - 1)
+        else:
+            returned.cancel()
+        with pytest.raises(TimeoutError if kind == "timed_out_to_thread_task" else asyncio.CancelledError):
+            await returned
+        assert returned.cancelled() is (kind != "timed_out_to_thread_task")
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not terminal.is_set()
+        # Deadlines revoke admission but retain exactly the unproven child.
+        for scope in (borrower, owner):
+            for timeout in (0, 0.005):
+                assert await scope.close(timeout) is False
+                assert owner._children.get(child) is child and not child.terminal.done()
+            closing = asyncio.create_task(scope.close())
+            await asyncio.sleep(0)
+            assert not closing.done()
+            closing.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await closing
+        # Neither repeated callbacks nor the hidden thread's later completion is
+        # an authentic terminal binding to this owner's returned asyncio wrapper.
+        for _ in range(3):
+            for observed in (*original, returned):
+                owner._finish(child, observed)
+        assert owner._children.get(child) is child and not child.terminal.done()
+        release.set()
+        await reached(terminal)
+        if actual is not None:
+            assert actual.result(timeout=3) == "hidden-terminal"
+        for _ in range(3):
+            owner._finish(child, returned)
+        assert await borrower.close(0) is False and await owner.close(0) is False
+        assert owner.pending_children == 1 and not child.terminal.done() and owner.poisoned
+        assert not task.done()
+        for handle in (borrower, sibling):
+            with pytest.raises(EngineCapabilityError):
+                handle.check()
         with pytest.raises(EngineCapabilityError):
-            await task
-        assert await owner.close(timeout=3) is True
+            borrow(owner)
+    finally:
+        release.set()
+        returned.cancel()
+        await asyncio.gather(returned, return_exceptions=True)
+        for waiter in (task, closing):
+            if waiter is not None:
+                waiter.cancel()
+                await asyncio.gather(waiter, return_exceptions=True)
+        await reached(terminal)
+        pool.shutdown(wait=True)
+        # Fixture cleanup joins actual threads without falsifying owner drain.
+        await asyncio.get_running_loop().shutdown_default_executor()
+        if owner._pool is not None:
+            owner._pool.shutdown(wait=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fails", [False, True])
+async def test_registered_returned_concurrent_future_has_genuine_terminal_provenance(owner, fails):
+    borrower = borrow(owner)
+    entered, release, terminal = threading.Event(), threading.Event(), threading.Event()
+
+    def work():
+        entered.set()
+        try:
+            assert release.wait(10)
+            if fails:
+                raise ValueError("actual-terminal-exception")
+            return "actual-terminal-value"
+        finally:
+            terminal.set()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        actual = pool.submit(work)
+        task = asyncio.create_task(borrower.run_sync(lambda: actual))
+        try:
+            await reached(entered)
+            async with asyncio.timeout(3):
+                while not owner.poisoned:  # noqa: ASYNC110 - observes actual callback
+                    await asyncio.sleep(0)
+            child = next(iter(owner._children))
+            original = tuple(child.seen)
+            assert child.execution is actual and actual.cancel() is False
+            assert await borrower.close(0) is False and await owner.close(0.005) is False
+            assert not terminal.is_set() and owner.pending_children == 1
+        finally:
+            release.set()
+            with pytest.raises(ValueError if fails else EngineCapabilityError):
+                await task
+            assert await owner.close(3) is True
+        assert terminal.is_set() and child.terminal.done() and owner.pending_children == 0
+        for _ in range(3):
+            for observed in (*original, actual):
+                owner._finish(child, observed)
+        assert owner.pending_children == 0 and owner.poisoned
+        with pytest.raises(EngineCapabilityError):
+            borrower.check()
+        with pytest.raises(EngineCapabilityError):
+            borrow(owner)

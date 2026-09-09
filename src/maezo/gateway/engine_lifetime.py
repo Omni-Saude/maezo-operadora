@@ -123,7 +123,7 @@ class Submission(_Opaque):
 
 
 class _Child(_Opaque):
-    __slots__ = ("borrower", "terminal", "execution", "escaped", "seen")
+    __slots__ = ("borrower", "terminal", "execution", "escaped", "seen", "unproven")
 
     def __init__(self, borrower: LifetimeBorrower) -> None:
         self.borrower = borrower
@@ -134,6 +134,7 @@ class _Child(_Opaque):
         self.execution: Future[Any] | asyncio.Future[Any] | None = None
         self.escaped = False
         self.seen: set[Future[Any] | asyncio.Future[Any]] = set()
+        self.unproven = False
 
 
 class LocalLifetimeOwner(_Opaque):
@@ -277,7 +278,12 @@ class LocalLifetimeOwner(_Opaque):
         with self._lock:
             # Never remove by business/task ID, nor let a repeated old callback
             # remove another generation. Follow only the exact retained future.
-            if self._children.get(child) is not child or child.execution is not future or not future.done():
+            if (
+                self._children.get(child) is not child
+                or child.execution is not future
+                or child.unproven
+                or not future.done()
+            ):
                 return
             try:
                 value = future.result()
@@ -288,17 +294,14 @@ class LocalLifetimeOwner(_Opaque):
                     child.seen.add(future)
                     child.execution = value
                     if isinstance(value, asyncio.Future):
-                        loop = value.get_loop()
-                        if loop.is_closed():
-                            return
-                        try:
-                            loop.call_soon_threadsafe(
-                                value.add_done_callback, lambda actual: self._finish(child, actual)
-                            )
-                        except RuntimeError:
-                            return  # Loop closed concurrently; no terminal proof.
-                    else:
-                        value.add_done_callback(lambda actual: self._finish(child, actual))
+                        # A returned wrapper can finish (even with TimeoutError)
+                        # while hidden thread work continues. This API has no
+                        # authentic underlying terminal binding for it. Retain
+                        # this exact child indefinitely, including on callbacks
+                        # repeated after the wrapper or hidden work has ended.
+                        child.unproven = True
+                        return
+                    value.add_done_callback(lambda actual: self._finish(child, actual))
                     return
                 if inspect.iscoroutine(value):
                     if inspect.getcoroutinestate(value) not in {inspect.CORO_CREATED, inspect.CORO_CLOSED}:
