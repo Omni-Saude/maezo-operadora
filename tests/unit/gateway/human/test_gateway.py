@@ -241,21 +241,35 @@ async def test_snapshot_scoped_and_dated():
 
 
 async def test_fixture_clock_is_sampled_after_a_six_minute_collection_delay():
-    fixture_at = datetime.now(UTC)
-    collected_at = fixture_at - timedelta(minutes=6)
-    g, store, transport, authority, admission = await setup(fixture_at=fixture_at)
+    real_datetime = datetime
+    collected_at = real_datetime.now(UTC) - timedelta(minutes=6)
 
-    session = await store.get_session(digest(SECRET), fixture_at)
-    assert fixture_at - collected_at > timedelta(minutes=5)
-    assert session is not None
-    assert session.authenticated_at == fixture_at
-    assert session.expires_at == fixture_at + timedelta(hours=1)
-    assert transport.task.snapshot.snapshot_at == fixture_at
-    assert transport.task.valid_until == fixture_at + timedelta(minutes=5)
-    assert authority.authority.valid_until == fixture_at + timedelta(minutes=5)
+    class AdvancingClock(real_datetime):
+        current = collected_at
 
-    await submit(g)
-    assert admission.receipts[0].committed_at == fixture_at
+        @classmethod
+        def now(cls, tz=None):
+            return cls.current if tz is not None else cls.current.replace(tzinfo=None)
+
+    with pytest.MonkeyPatch.context() as clock:
+        clock.setitem(globals(), "datetime", AdvancingClock)
+        AdvancingClock.current += timedelta(minutes=6)
+        sampling_started_at = AdvancingClock.now(UTC)
+        g, store, transport, authority, admission = await setup()
+        sampling_finished_at = AdvancingClock.now(UTC)
+
+        fixture_at = transport.task.snapshot.snapshot_at
+        session = await store.get_session(digest(SECRET), fixture_at)
+        assert fixture_at - collected_at > timedelta(minutes=5)
+        assert sampling_started_at <= fixture_at <= sampling_finished_at
+        assert session is not None
+        assert session.authenticated_at == fixture_at
+        assert session.expires_at == fixture_at + timedelta(hours=1)
+        assert transport.task.valid_until == fixture_at + timedelta(minutes=5)
+        assert authority.authority.valid_until == fixture_at + timedelta(minutes=5)
+
+        await submit(g)
+        assert admission.receipts[0].committed_at == fixture_at
 
 
 @pytest.mark.parametrize(
