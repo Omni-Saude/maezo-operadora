@@ -7,6 +7,8 @@ import {
   validateTaskReadResponse,
 } from "./taskReadClient";
 
+import { taskReadInputs } from "./taskReadBindings";
+
 const digest = "a".repeat(64);
 const hugeRevision = "99999999999999999999999999999999999999999999999999";
 
@@ -27,7 +29,7 @@ function queuePage(queue: "mine" | "team" = "mine") {
     items: [
       {
         task_id: "task-1",
-        process_definition_key: "AUTH",
+        process_definition_key: "SP-OP-AUTH-001",
         task_definition_key: "UT_AnaliseMedicoAuditor",
         task_revision: hugeRevision,
         ownership: "self",
@@ -47,7 +49,7 @@ function taskResponse() {
       schema_version: 1,
       snapshot_at: "2026-09-09T15:00:00Z",
       task_id: "task-1",
-      process_definition_key: "AUTH",
+      process_definition_key: "SP-OP-AUTH-001",
       process_definition_version: hugeRevision,
       process_definition_id: "AUTH:version:opaque",
       process_definition_digest: digest,
@@ -63,7 +65,7 @@ function taskResponse() {
       evidence_digest: digest,
       engine_due_at: null,
       allowed_actions: [],
-      allowed_inputs: ["decisao_auditor", "justificativa_clinica"],
+      allowed_inputs: [...taskReadInputs.auth_decisao],
       read_only_evidence: null,
     },
     freshness: freshness(),
@@ -103,7 +105,7 @@ it("consulta a fila por same-origin/no-store e preserva revisão decimal exata",
 it("mantém o cursor opaco na paginação e a referência opaca no detalhe", async () => {
   vi.mocked(fetch)
     .mockResolvedValueOnce(jsonResponse(queuePage("team")))
-    .mockResolvedValueOnce(jsonResponse(taskResponse()));
+    .mockResolvedValueOnce(jsonResponse({ ...taskResponse(), task: { ...taskResponse().task, task_id: "task%opaque" } }));
   await listTaskQueue("team", "opaque_cursor_1", new AbortController().signal);
   const detail = await readTask("task%opaque", new AbortController().signal);
   expect(detail.kind).toBe("success");
@@ -205,7 +207,10 @@ describe("validação fechada do snapshot público", () => {
       ...value,
       task: {
         ...value.task,
+        process_definition_key: "SP-OP-PAGTO-001",
+        task_definition_key: "UT_AnaliseAdmissibilidade",
         form_key: "pagto_admissibilidade",
+        form_source_status: "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
         allowed_inputs: ["decisao_admissibilidade", "justificativa_recusa"],
         read_only_evidence: {
           kind: "pagto_admissibilidade",

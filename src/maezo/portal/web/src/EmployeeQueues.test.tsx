@@ -29,7 +29,7 @@ function queuePage(
     items: [
       {
         task_id: taskId,
-        process_definition_key: queue === "mine" ? "AUTH" : "ESCALATION",
+        process_definition_key: queue === "mine" ? "SP-OP-AUTH-001" : "SP-OP-ESCALATION-001",
         task_definition_key: definition,
         task_revision: huge,
         ownership: queue === "mine" ? "self" : "unassigned",
@@ -49,7 +49,7 @@ function taskResponse() {
       schema_version: 1,
       snapshot_at: "2026-09-09T15:00:00Z",
       task_id: "task-1",
-      process_definition_key: "PAGTO",
+      process_definition_key: "SP-OP-PAGTO-001",
       process_definition_version: huge,
       process_definition_id: "PAGTO:opaque",
       process_definition_digest: digest,
@@ -95,7 +95,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
+beforeEach(() => {
+  vi.setSystemTime(new Date("2026-09-09T15:00:02Z"));
+  vi.stubGlobal("fetch", vi.fn());
+});
 
 afterEach(() => {
   vi.useRealTimers();

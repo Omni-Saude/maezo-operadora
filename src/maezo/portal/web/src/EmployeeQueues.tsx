@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   listTaskQueue,
@@ -10,17 +10,19 @@ import {
   type TaskQueuePage,
 } from "./taskReadClient";
 
+import { expiryDelay, isCurrent, retainedCeiling } from "./taskReadTime";
+
 const REFRESH_MS = 10_000;
 
 type FailureKind = ReadErrorCode | "invalid-response";
 type QueueState =
   | { kind: "loading" }
-  | { kind: "ready"; items: TaskQueueItem[]; page: TaskQueuePage; refreshing: boolean }
+  | { kind: "ready"; items: TaskQueueItem[]; page: TaskQueuePage; validUntil: string; refreshing: boolean }
   | { kind: "error"; error: FailureKind };
 type DetailState =
   | { kind: "none" }
   | { kind: "loading" }
-  | { kind: "ready"; task: PublicTaskSnapshot; observedAt: string }
+  | { kind: "ready"; task: PublicTaskSnapshot; observedAt: string; validUntil: string }
   | { kind: "error"; error: FailureKind };
 
 const ownershipLabels = {
@@ -195,18 +197,31 @@ export function EmployeeQueues({
   const detailEpoch = useRef(0);
   const queueRequest = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
+  const suspended = useRef(false);
+
+  const invalidateDetail = useCallback((error?: FailureKind) => {
+    detailEpoch.current += 1;
+    detailRequest.current?.abort();
+    detailRequest.current = null;
+    setDetailState(error === undefined ? { kind: "none" } : { kind: "error", error });
+  }, []);
+
+  const invalidateWorkspace = useCallback((error?: FailureKind) => {
+    queueEpoch.current += 1;
+    queueRequest.current?.abort();
+    queueRequest.current = null;
+    suspended.current = error !== undefined;
+    invalidateDetail();
+    setQueueState(error === undefined ? { kind: "loading" } : { kind: "error", error });
+  }, [invalidateDetail]);
 
   const clearForSessionFailure = useCallback(() => {
-    queueEpoch.current += 1;
-    detailEpoch.current += 1;
-    queueRequest.current?.abort();
-    detailRequest.current?.abort();
-    setQueueState({ kind: "error", error: "session_unavailable" });
-    setDetailState({ kind: "none" });
+    invalidateWorkspace("session_unavailable");
     onSessionUnavailable();
-  }, [onSessionUnavailable]);
+  }, [invalidateWorkspace, onSessionUnavailable]);
 
   const loadFirstPage = useCallback(async () => {
+    suspended.current = false;
     const epoch = ++queueEpoch.current;
     queueRequest.current?.abort();
     const controller = new AbortController();
@@ -219,23 +234,32 @@ export function EmployeeQueues({
       if (controller.signal.aborted || epoch !== queueEpoch.current) return;
       queueRequest.current = null;
       if (result.kind === "success") {
-        setQueueState({ kind: "ready", items: [...result.value.items], page: result.value, refreshing: false });
+        if (!isCurrent(result.value.freshness.valid_until)) {
+          invalidateWorkspace("refresh_required");
+          return;
+        }
+        // A complete new page never carries forward an older selected snapshot.
+        invalidateDetail();
+        setQueueState({ kind: "ready", items: [...result.value.items], page: result.value,
+          validUntil: result.value.freshness.valid_until, refreshing: false });
       } else if (result.kind === "session_unavailable") {
         clearForSessionFailure();
       } else {
-        setDetailState({ kind: "none" });
-        setQueueState({ kind: "error", error: result.kind });
+        invalidateWorkspace(result.kind);
       }
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError") && epoch === queueEpoch.current) {
-        setDetailState({ kind: "none" });
-        setQueueState({ kind: "error", error: "read_dependency_unavailable" });
+        invalidateWorkspace("read_dependency_unavailable");
       }
     }
-  }, [clearForSessionFailure, queue]);
+  }, [clearForSessionFailure, invalidateDetail, invalidateWorkspace, queue]);
 
   const loadNextPage = useCallback(async () => {
     if (queueState.kind !== "ready" || queueState.page.next_cursor === null) return;
+    if (!isCurrent(queueState.validUntil)) {
+      invalidateWorkspace("refresh_required");
+      return;
+    }
     const cursor = queueState.page.next_cursor;
     const existing = queueState.items;
     const epoch = ++queueEpoch.current;
@@ -248,34 +272,42 @@ export function EmployeeQueues({
       if (controller.signal.aborted || epoch !== queueEpoch.current) return;
       queueRequest.current = null;
       if (result.kind === "success") {
+        const validUntil = retainedCeiling(queueState.validUntil, result.value.freshness.valid_until);
+        if (!isCurrent(validUntil)) {
+          invalidateWorkspace("refresh_required");
+          return;
+        }
         const ids = new Set(existing.map((item) => item.task_id));
         if (result.value.items.some((item) => ids.has(item.task_id))) {
-          setDetailState({ kind: "none" });
-          setQueueState({ kind: "error", error: "invalid-response" });
+          invalidateWorkspace("invalid-response");
           return;
         }
         setQueueState({
           kind: "ready",
           items: [...existing, ...result.value.items],
           page: result.value,
+          validUntil,
           refreshing: false,
         });
       } else if (result.kind === "session_unavailable") {
         clearForSessionFailure();
       } else {
-        setDetailState({ kind: "none" });
-        setQueueState({ kind: "error", error: result.kind });
+        invalidateWorkspace(result.kind);
       }
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError") && epoch === queueEpoch.current) {
-        setDetailState({ kind: "none" });
-        setQueueState({ kind: "error", error: "read_dependency_unavailable" });
+        invalidateWorkspace("read_dependency_unavailable");
       }
     }
-  }, [clearForSessionFailure, queue, queueState]);
+  }, [clearForSessionFailure, invalidateWorkspace, queue, queueState]);
 
   const openTask = useCallback(
     async (taskId: string) => {
+      if (queueState.kind !== "ready" || !isCurrent(queueState.validUntil) ||
+          !queueState.items.some((item) => item.task_id === taskId)) {
+        invalidateWorkspace("refresh_required");
+        return;
+      }
       const epoch = ++detailEpoch.current;
       detailRequest.current?.abort();
       const controller = new AbortController();
@@ -286,13 +318,20 @@ export function EmployeeQueues({
         if (controller.signal.aborted || epoch !== detailEpoch.current) return;
         detailRequest.current = null;
         if (result.kind === "success") {
+          if (!isCurrent(result.value.freshness.valid_until)) {
+            invalidateDetail("refresh_required");
+            return;
+          }
           setDetailState({
             kind: "ready",
             task: result.value.task,
             observedAt: result.value.freshness.observed_at,
+            validUntil: result.value.freshness.valid_until,
           });
         } else if (result.kind === "session_unavailable") {
           clearForSessionFailure();
+        } else if (result.kind === "employee_access_required") {
+          invalidateWorkspace(result.kind);
         } else {
           setDetailState({ kind: "error", error: result.kind });
         }
@@ -302,36 +341,43 @@ export function EmployeeQueues({
         }
       }
     },
-    [clearForSessionFailure],
+    [clearForSessionFailure, invalidateDetail, invalidateWorkspace, queueState],
   );
 
-  useEffect(() => {
-    setDetailState({ kind: "none" });
+  useLayoutEffect(() => {
+    // Before the changed context can paint, retire both old requests and views.
+    invalidateWorkspace();
     void loadFirstPage();
     return () => {
       queueEpoch.current += 1;
+      detailEpoch.current += 1;
       queueRequest.current?.abort();
+      detailRequest.current?.abort();
     };
-  }, [loadFirstPage, sessionBinding]);
+  }, [invalidateWorkspace, loadFirstPage, sessionBinding]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => void loadFirstPage(), REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (!suspended.current) void loadFirstPage();
+    }, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [loadFirstPage, sessionBinding]);
 
-  useEffect(
-    () => () => {
-      detailEpoch.current += 1;
-      detailRequest.current?.abort();
-    },
-    [sessionBinding],
-  );
+  useEffect(() => {
+    if (queueState.kind !== "ready") return;
+    const timer = window.setTimeout(() => invalidateWorkspace("refresh_required"), expiryDelay(queueState.validUntil));
+    return () => window.clearTimeout(timer);
+  }, [invalidateWorkspace, queueState]);
+
+  useEffect(() => {
+    if (detailState.kind !== "ready") return;
+    const timer = window.setTimeout(() => invalidateDetail("refresh_required"), expiryDelay(detailState.validUntil));
+    return () => window.clearTimeout(timer);
+  }, [detailState, invalidateDetail]);
 
   const chooseQueue = (next: QueueName) => {
     if (next === queue) return;
-    detailEpoch.current += 1;
-    detailRequest.current?.abort();
-    setDetailState({ kind: "none" });
+    invalidateWorkspace();
     setQueue(next);
   };
 
@@ -363,7 +409,7 @@ export function EmployeeQueues({
       {queueState.kind === "ready" && (
         <>
           <p className="freshness-detail">
-            Fonte observada em {formatTimestamp(queueState.page.freshness.source_observed_at)}. Validade informada até {formatTimestamp(queueState.page.freshness.valid_until)}.
+            Fonte observada em {formatTimestamp(queueState.page.freshness.source_observed_at)}. Validade informada até {formatTimestamp(queueState.validUntil)}.
           </p>
           <QueueTable items={queueState.items} onRead={(taskId) => void openTask(taskId)} />
           <div className="queue-actions">

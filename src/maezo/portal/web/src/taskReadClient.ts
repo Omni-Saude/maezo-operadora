@@ -1,4 +1,6 @@
 import type { components } from "./generated/api";
+import { taskReadBindings, taskReadInputs } from "./taskReadBindings";
+import { timestampMicroseconds } from "./taskReadTime";
 
 const TASKS_PATH = "/api/v1/portal/tasks";
 const PAGE_LIMIT = "25";
@@ -25,64 +27,6 @@ const statusCodes = {
   503: "read_dependency_unavailable",
 } as const satisfies Record<number, ReadErrorCode>;
 
-const allowedInputs = new Set<Schemas["PublicTaskSnapshot"]["allowed_inputs"][number]>([
-  "decisao_auditor",
-  "justificativa_clinica",
-  "cid10_referencia",
-  "fundamentacao_dut",
-  "resultado",
-  "notas_resolucao",
-  "decisao_admissibilidade",
-  "justificativa_recusa",
-  "decisao_contas",
-  "justificativa_glosa",
-  "codigo_glosa_tiss",
-  "valor_glosado_centavos",
-  "valor_liberado_centavos",
-  "justificativa_devolucao",
-  "decisao_coordenacao",
-  "decisao_recurso",
-  "fundamentacao_indeferimento",
-  "valor_glosa_mantido_centavos",
-  "valor_deferido_centavos",
-  "referencia_contratual",
-  "desfecho_humano",
-  "decisao_auditor_recurso",
-  "parecer_auditor",
-  "decisao_pendencia",
-  "decisao_reembolso",
-  "valor_reembolso_aprovado_cents",
-  "justificativa",
-  "fundamentacao_contratual",
-  "decisao_cancelamento",
-  "decisao_inadimplencia",
-  "comprovacao_periodo_minimo",
-  "data_efeito_iso",
-  "referencia_regulatoria",
-  "comprovacao_notificacao_previa",
-  "decisao_programa",
-  "motivo_desligamento_clinico",
-  "referencia_clinica",
-]);
-
-const formKeys = new Set<Schemas["PublicTaskSnapshot"]["form_key"]>([
-  "auth_decisao",
-  "auth_junta",
-  "escalation",
-  "pagto_admissibilidade",
-  "contas_decisao",
-  "contas_coordenacao",
-  "recurso_decisao",
-  "recurso_coordenacao",
-  "recurso_auditor",
-  "reembolso_pendencia",
-  "reembolso_decisao",
-  "reembolso_auditor",
-  "cancel_decisao",
-  "inad_decisao",
-  "programa_decisao",
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -107,34 +51,44 @@ function hasOnlyKeys(
 function isOpaqueRef(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    value.length >= 1 &&
-    value.length <= 512 &&
-    /^[^\s\u0000-\u001f\u007f/?#]+$/u.test(value)
+    [...value].length >= 1 &&
+    [...value].length <= 512 &&
+    // Q1 uses Unicode scalar length and Unicode White_Space, not UTF-16 units.
+    !/[\p{White_Space}\u0000-\u001f\u007f/?#\ud800-\udfff]/u.test(value)
   );
+}
+
+function matchesWhole(pattern: RegExp, value: string): boolean {
+  return pattern.exec(value)?.[0] === value;
 }
 
 function isOpaqueCursor(value: unknown): value is string {
-  return typeof value === "string" && value.length <= 2048 && /^[A-Za-z0-9_-]+$/.test(value);
+  return typeof value === "string" && value.length <= 2048 && matchesWhole(/^[A-Za-z0-9_-]+$/, value);
 }
 
 function isAwareTimestamp(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
-    Number.isFinite(Date.parse(value))
-  );
+  return typeof value === "string" && timestampMicroseconds(value) !== null;
+}
+
+function compareCodepoints(left: string, right: string): number {
+  const a = [...left], b = [...right];
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+    const difference = a[i].codePointAt(0)! - b[i].codePointAt(0)!;
+    if (difference !== 0) return difference;
+  }
+  return a.length - b.length;
 }
 
 function isRevision(value: unknown): value is string {
-  return typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value);
+  return typeof value === "string" && matchesWhole(/^(0|[1-9][0-9]*)$/, value);
 }
 
 function isVersion(value: unknown): value is string {
-  return typeof value === "string" && /^[1-9][0-9]*$/.test(value);
+  return typeof value === "string" && matchesWhole(/^[1-9][0-9]*$/, value);
 }
 
 function isDigest(value: unknown): value is string {
-  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  return typeof value === "string" && matchesWhole(/^[0-9a-f]{64}$/, value);
 }
 
 function isFreshness(value: unknown): value is Schemas["QueueFreshness"] {
@@ -155,8 +109,8 @@ function isFreshness(value: unknown): value is Schemas["QueueFreshness"] {
     return false;
   }
   return (
-    Date.parse(value.source_observed_at) <= Date.parse(value.observed_at) &&
-    Date.parse(value.observed_at) < Date.parse(value.valid_until)
+    timestampMicroseconds(value.source_observed_at)! <= timestampMicroseconds(value.observed_at)! &&
+    timestampMicroseconds(value.observed_at)! < timestampMicroseconds(value.valid_until)!
   );
 }
 
@@ -196,7 +150,7 @@ export function validateTaskQueuePage(value: unknown, queue: QueueName): TaskQue
     return null;
   }
   const ids = value.items.map((item) => item.task_id);
-  if (new Set(ids).size !== ids.length || ids.some((id, index) => index > 0 && ids[index - 1] > id)) {
+  if (new Set(ids).size !== ids.length || ids.some((id, index) => index > 0 && compareCodepoints(ids[index - 1], id) > 0)) {
     return null;
   }
   return value as TaskQueuePage;
@@ -217,7 +171,7 @@ function isPagtoEvidence(value: unknown): value is Schemas["PagtoAdmissibilityEv
     ) ||
     value.kind !== "pagto_admissibilidade" ||
     typeof value.valor_pagamento_cents !== "string" ||
-    !/^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/.test(value.valor_pagamento_cents) ||
+    !matchesWhole(/^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/, value.valor_pagamento_cents) ||
     typeof value.dados_pagamento_validos !== "boolean" ||
     typeof value.lastro_confirmado !== "boolean" ||
     typeof value.duplicidade_suspeita !== "boolean"
@@ -277,7 +231,6 @@ function isPublicTaskSnapshot(value: unknown): value is PublicTaskSnapshot {
     !isDigest(value.process_definition_digest) ||
     !isOpaqueRef(value.task_definition_key) ||
     typeof value.form_key !== "string" ||
-    !formKeys.has(value.form_key as PublicTaskSnapshot["form_key"]) ||
     !isVersion(value.form_version) ||
     !isDigest(value.form_digest) ||
     !["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"].includes(
@@ -292,13 +245,16 @@ function isPublicTaskSnapshot(value: unknown): value is PublicTaskSnapshot {
     !(value.engine_due_at === null || isAwareTimestamp(value.engine_due_at)) ||
     !Array.isArray(value.allowed_actions) ||
     value.allowed_actions.length !== 0 ||
-    !Array.isArray(value.allowed_inputs) ||
-    !value.allowed_inputs.every(
-      (item) => typeof item === "string" && allowedInputs.has(item as PublicTaskSnapshot["allowed_inputs"][number]),
-    )
+    !Array.isArray(value.allowed_inputs)
   ) {
     return false;
   }
+  const binding = taskReadBindings.find((row) =>
+    row.process === value.process_definition_key && row.task === value.task_definition_key);
+  if (binding === undefined || binding.form !== value.form_key || binding.source !== value.form_source_status) return false;
+  const inputs = taskReadInputs[binding.form];
+  if (value.allowed_inputs.length !== inputs.length || new Set(value.allowed_inputs).size !== inputs.length ||
+      !inputs.every((field) => (value.allowed_inputs as unknown[]).includes(field))) return false;
   return value.form_key === "pagto_admissibilidade"
     ? isPagtoEvidence(value.read_only_evidence)
     : value.read_only_evidence === null;
@@ -376,5 +332,8 @@ export function readTask(
   signal: AbortSignal,
 ): Promise<TaskReadResult<TaskReadResponse>> {
   if (!isOpaqueRef(taskId)) return Promise.resolve({ kind: "invalid_request" });
-  return request(`${TASKS_PATH}/${encodeURIComponent(taskId)}`, signal, validateTaskReadResponse);
+  return request(`${TASKS_PATH}/${encodeURIComponent(taskId)}`, signal, (value) => {
+    const parsed = validateTaskReadResponse(value);
+    return parsed?.task.task_id === taskId ? parsed : null;
+  });
 }
