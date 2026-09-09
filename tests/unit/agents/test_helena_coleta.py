@@ -10,7 +10,7 @@ O que estes testes travam (e' a parte deterministica — o conteudo da tabela e'
   3. os tres vereditos: SUFICIENTE segue `inform`; PERGUNTAR_* vira `collect`; ESCALAR escala;
   4. TEM FIM: na rodada `COLETA_MAX_RODADAS` escala sem consultar a tabela;
   5. FAIL-CLOSED: tabela indisponivel ou veredito fora do vocabulario -> `falha_tecnica`;
-  6. memoria entre turnos sobrevive ao `receive`, saturada no maximo;
+  6. memoria entre turnos sobrevive ao `receive` somente com a feature ligada, saturada no maximo;
   7. `_route` recusa `collect` sem veredito de pergunta (backstop estrutural);
   8. o desfecho do turno de pergunta e' `pergunta_coleta`, presente no vocabulario de telemetria.
 """
@@ -21,6 +21,7 @@ import json
 from typing import Any
 
 import pytest
+from structlog.testing import capture_logs
 
 from maezo.agents.helena import graph as helena_graph
 from maezo.agents.helena.graph import (
@@ -139,7 +140,7 @@ async def test_desligada_por_default_o_grafo_nao_consulta_a_suficiencia() -> Non
 
 def test_o_default_do_construtor_e_desligado() -> None:
     g = _graph(_FakeInference([]), _dmn(), coleta=False)
-    assert g._coleta_enabled is False  # noqa: SLF001
+    assert g._coleta_enabled is False
     assert HelenaGraph.__init__.__kwdefaults__["coleta_enabled"] is False
 
 
@@ -273,10 +274,17 @@ async def test_tabela_de_suficiencia_indisponivel_escala_falha_tecnica() -> None
 
 @pytest.mark.asyncio
 async def test_veredito_fora_do_vocabulario_escala_falha_tecnica() -> None:
-    g = _graph(_FakeInference([_classify_json()]), _dmn(veredito="TALVEZ"), coleta=True)
-    saida = await _turno(g, _state())
+    valor_rejeitado = "SYNTHETIC_REJECTED_PRIVATE_VALUE"
+    g = _graph(_FakeInference([_classify_json()]), _dmn(veredito=valor_rejeitado), coleta=True)
+    with capture_logs() as registros:
+        saida = await _turno(g, _state())
     assert saida["next_kind"] == "escalate"
     assert saida["escalation_motivo"] == "falha_tecnica"
+    assert valor_rejeitado not in json.dumps(registros)
+    evento = next(r for r in registros if r["event"] == "helena_coleta_veredito_desconhecido")
+    assert evento["classification"] == "fora_do_vocabulario"
+    assert evento["ref"].startswith(f"{SUFFICIENCY_DMN_KEY}#")
+    assert "veredito" not in evento
 
 
 # ---------------------------------------------------------------------------------------------
@@ -304,6 +312,45 @@ async def test_receive_preserva_so_a_memoria_de_conversa_e_zera_o_resto() -> Non
     for chave, neutro in _HELENA_NEUTRAL_OUTPUTS.items():
         if chave not in _HELENA_MEMORIA_DE_CONVERSA:
             assert reset[chave] == neutro, chave
+
+
+@pytest.mark.asyncio
+async def test_feature_desligada_descarta_memoria_e_nao_muda_o_prompt_do_classificador() -> None:
+    contexto_retido = "SYNTHETIC_RETAINED_COLLECTION_CONTEXT"
+    inf = _FakeInference([_classify_json()])
+    g = _graph(inf, _dmn(veredito=None), coleta=False)
+    saida = await _turno(
+        g,
+        _state(
+            coleta_rodadas=1,
+            coleta_pendente="PERGUNTAR_INTENSIDADE",
+            coleta_contexto=contexto_retido,
+        ),
+    )
+    assert saida["next_kind"] == "inform"
+    assert saida["coleta_rodadas"] == 0
+    assert saida["coleta_pendente"] is None
+    assert saida["coleta_contexto"] == ""
+    assert contexto_retido not in inf.prompts[0]
+    assert "mensagens anteriores desta conversa" not in inf.prompts[0]
+
+
+@pytest.mark.asyncio
+async def test_classificador_isolado_tambem_ignora_memoria_com_feature_desligada() -> None:
+    contexto_retido = "SYNTHETIC_RETAINED_COLLECTION_CONTEXT"
+    inf = _FakeInference([_classify_json()])
+    g = _graph(inf, _dmn(veredito=None), coleta=False)
+    extracao, falha = await g._classify_llm(
+        _state(
+            coleta_rodadas=1,
+            coleta_pendente="PERGUNTAR_INTENSIDADE",
+            coleta_contexto=contexto_retido,
+        )
+    )
+    assert extracao is not None
+    assert falha is None
+    assert contexto_retido not in inf.prompts[0]
+    assert "mensagens anteriores desta conversa" not in inf.prompts[0]
 
 
 @pytest.mark.asyncio
@@ -350,11 +397,21 @@ async def test_sem_pergunta_em_aberto_o_prompt_do_classificador_e_o_de_antes() -
 
 
 def test_route_recusa_collect_sem_veredito_de_pergunta() -> None:
-    assert HelenaGraph._route({"next_kind": "collect"}) == "escalate"  # type: ignore[arg-type]  # noqa: SLF001
+    assert HelenaGraph._route({"next_kind": "collect"}) == "escalate"  # type: ignore[arg-type]
+    assert (
+        HelenaGraph._route({"next_kind": "collect", "coleta_veredito": "PERGUNTAR_INTENSIDADE"})
+        == "escalate"
+    )  # type: ignore[arg-type]
+    assert (
+        HelenaGraph._route(
+            {"next_kind": "collect", "coleta_veredito": "PERGUNTAR_INTENSIDADE", "coleta_rodadas": 0}
+        )
+        == "escalate"
+    )  # type: ignore[arg-type]
     assert (
         HelenaGraph._route({"next_kind": "collect", "coleta_veredito": "SUFICIENTE", "coleta_rodadas": 1})
         == "escalate"
-    )  # type: ignore[arg-type]  # noqa: SLF001
+    )  # type: ignore[arg-type]
     assert (
         HelenaGraph._route(
             {
@@ -365,7 +422,7 @@ def test_route_recusa_collect_sem_veredito_de_pergunta() -> None:
             }
         )
         == "escalate"
-    )  # type: ignore[arg-type]  # noqa: SLF001
+    )  # type: ignore[arg-type]
 
 
 def test_route_aceita_collect_justificado() -> None:
@@ -374,7 +431,7 @@ def test_route_aceita_collect_justificado() -> None:
             {"next_kind": "collect", "coleta_veredito": "PERGUNTAR_INTENSIDADE", "coleta_rodadas": 1}
         )
         == "collect"
-    )  # type: ignore[arg-type]  # noqa: SLF001
+    )  # type: ignore[arg-type]
 
 
 def test_o_grafo_compilado_tem_o_no_collect_ligado_ao_respond() -> None:

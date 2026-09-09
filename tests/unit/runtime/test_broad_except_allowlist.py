@@ -66,10 +66,11 @@ from maezo.runtime.dependency_failures import (
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
 _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime")
 
-#: Quantos `try` de `agents/*/graph.py` a afirmacao 3 cobre HOJE (§Delta-F3): 25 sitios
-#: estreitados + os 4 envios WhatsApp que continuam largos por contrato. Pino de NAO-VACUIDADE —
-#: ver `test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados`.
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 29
+#: Quantos `try` de `agents/*/graph.py` a afirmacao 3 cobre HOJE (§Delta-F3): 26 sitios
+#: estreitados (incluindo `HelenaGraph.collect`) + os 4 envios WhatsApp que continuam largos por
+#: contrato. Pino de NAO-VACUIDADE — ver
+#: `test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados`.
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 30
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:
@@ -405,7 +406,7 @@ def _sitios_que_exigem_guarda(graph_path: Path) -> list[tuple[str, ast.Try]]:
 def test_todo_try_de_graph_py_re_levanta_erro_de_programacao(graph_path: Path) -> None:
     """Em `graph.py`, todo `try` que absorve falha de dependencia re-levanta o BUG primeiro.
 
-    Cobre os dois lados do conserto de uma vez: os 25 sitios estreitados (onde a primeira clausula
+    Cobre os dois lados do conserto de uma vez: os 26 sitios estreitados (onde a primeira clausula
     e' o que impede `NotImplementedError`/`RecursionError` — subclasses de `RuntimeError` — de
     serem absorvidas) e os quatro que continuam largos por contrato (onde ela e' o UNICO motivo
     pelo qual um `TypeError` de assinatura derivada nao vira mais 'envio indisponivel').
@@ -427,8 +428,8 @@ def test_a_afirmacao_3_cobre_os_sitios_de_fronteira_esperados() -> None:
     Sem este pino, um predicado que parasse de casar (um refactor que renomeie os atributos de
     porto, uma resolucao de nome que passe a devolver `None`) deixaria a afirmacao 3 verde por
     VACUIDADE — o modo de falha que esta cerca inteira existe para tornar impossivel. O numero e'
-    a contagem MEDIDA hoje: 25 sitios estreitados + os 4 envios que continuam largos por
-    contrato.
+    a contagem MEDIDA hoje: 26 sitios estreitados (o novo sitio e' `HelenaGraph.collect`) + os
+    4 envios que continuam largos por contrato.
     """
     medidos = {
         rotulo
