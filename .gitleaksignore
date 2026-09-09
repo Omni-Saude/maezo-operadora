@@ -65,3 +65,8 @@ a1b044b37c6551ab0de4c1b8315a5d95ea26245b:docs/gates/G1-gate-review.md:generic-ap
 # fingerprint cobre APENAS o commit imutavel que o introduziu. Mesma condicao de remocao da
 # entrada acima.
 d3c5ac141e0f43587bf6278579e43afe05bb9aa3:.gitleaksignore:generic-api-key:46
+
+# PAE-V3: identificador publico do formulario ACK sintetico, nao credencial.
+# O conteudo atual usa constante nomeada desde b73262f1. Esta excecao cobre somente
+# a ocorrencia historica imutavel indicada; nao libera outro commit, arquivo ou regra.
+1dd1afe304d62f8d4dd78304272ec64294112e70:tests/unit/portal/test_engine_profile.py:generic-api-key:42

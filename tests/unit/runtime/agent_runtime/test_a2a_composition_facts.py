@@ -296,8 +296,12 @@ def test_a_dsn_makes_the_root_wire_the_outbox_without_connecting(
     """Construction stays pure — the asyncpg pool is LAZY, so wiring the outbox at composition
     time must not require a reachable server (this suite has none)."""
     monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+
+    deps = _dossier_deps()
+    deps["audit_sink"] = PostgresAuditSink(_DSN, "amh")
     dispatcher = build_dossier_delegation_dispatcher(
-        tenant="amh", runtime_mode="production", database_url=_DSN, **_dossier_deps()
+        tenant="amh", runtime_mode="production", database_url=_DSN, **deps
     )
     assert dispatcher is not None
 
