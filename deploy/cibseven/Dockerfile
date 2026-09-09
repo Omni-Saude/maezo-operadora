@@ -79,11 +79,17 @@ RUN grep -q '<property name="jobExecutorDeploymentAware">false</property>' /camu
 # Preserve the 27 static candidate groups and four ESCALATION identities (ADR-0049).
 # Only groupResourceWhitelistPattern changes; user/tenant/general admission and
 # authorization remain inherited. Actual engine admission still requires live proof.
-# Build with deploy/cibseven as the context.
 # O contexto do build e' a RAIZ do repo (`docker build -f deploy/cibseven/Dockerfile .`, tanto no
 # CodeBuild quanto local) — o caminho do COPY e' relativo a ela, nao a este arquivo. Medido em
 # 09/09/2026: `COPY configure-group-whitelist.sh` falhou com "not found" na AWS e local. O CI nao
 # constroi esta imagem, entao um caminho errado aqui so' aparece no build de verdade.
-COPY deploy/cibseven/configure-group-whitelist.sh /tmp/configure-group-whitelist.sh
-RUN sh /tmp/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml \
-    && rm /tmp/configure-group-whitelist.sh
+#
+# Em /camunda e nao em /tmp: o /tmp da base tem sticky bit e o build roda como o USER da base
+# (nao-root, de proposito — ver acima), entao um arquivo copiado como root em /tmp nao pode ser
+# removido por ele (`rm: Operation not permitted`, medido em 09/09/2026). Em /camunda o mesmo
+# usuario ja' remove o showcase.
+COPY deploy/cibseven/configure-group-whitelist.sh /camunda/configure-group-whitelist.sh
+RUN sh /camunda/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml \
+    && rm /camunda/configure-group-whitelist.sh \
+    && grep -c 'groupResourceWhitelistPattern' /camunda/conf/bpm-platform.xml | grep -qx 1 \
+    && echo "OK: groupResourceWhitelistPattern presente uma vez"
