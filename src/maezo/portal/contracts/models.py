@@ -13,7 +13,7 @@ Those checks belong to the future server-side HumanGateway and engine plugin.  I
 ``HumanPrincipal.model_validate`` is not an authentication operation: the future BFF must build
 the object only after validating the server-side session and memberships.
 
-The deliberately narrow executable form set is:
+The closed source-level form set is:
 
 * AUTH ``UT_AnaliseMedicoAuditor`` and ``UT_CoordenacaoAssume`` -> ``auth_decisao``;
 * AUTH ``UT_RegistrarParecerJunta`` -> ``auth_junta``;
@@ -39,6 +39,17 @@ The deliberately narrow executable form set is:
   ``adequacao_coordenacao``;
 * NIP draft, legal-review and coordination tasks -> ``nip_minuta`` or ``nip_decisao``;
 * LGPD-DSR ``UT_RevisaoDpo`` -> ``lgpd_decisao``.
+* AUTH expired pending task -> ``auth_pendencia``;
+* PAGTO approval and coordination -> ``pagto_aprovacao`` / ``pagto_coordenacao``;
+* FRAUDE investigator/coordination and referral -> ``fraude_decisao`` / ``fraude_referral``;
+* ANS submission review/legal, coordination, correction and NACK -> ``ans_revisao``,
+  ``ans_coordenacao``, ``ans_pendencia`` and ``ans_nack``.
+
+All eleven additional task bindings remain DRAFT/verify. Source shape coverage of all 43 tasks
+is not operational completion. Fraud still requires trusted seal-before-decision verification,
+citation/corpus binding and a server projection of referral choices to flat gateway flags. ANS
+correction confirmations require authenticated human and current dataset binding, while NACK's
+manual retransmission choice has no current process consumer. No new runtime binding is supplied.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
@@ -149,6 +160,15 @@ FormKey = Literal[
     "nip_minuta",
     "nip_decisao",
     "lgpd_decisao",
+    "auth_pendencia",
+    "pagto_aprovacao",
+    "pagto_coordenacao",
+    "fraude_decisao",
+    "fraude_referral",
+    "ans_revisao",
+    "ans_coordenacao",
+    "ans_pendencia",
+    "ans_nack",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -203,6 +223,20 @@ AllowedInput = Literal[
     "referencia_negativa_original",
     "decisao_dsr",
     "fundamentacao_legal",
+    "decisao_pagamento",
+    "valor_aprovado_cents",
+    "justificativa_aprovacao",
+    "decisao_fraude",
+    "fundamentacao_investigacao",
+    "indicadores_fundamentantes",
+    "referencia_normativa",
+    "destino_referral",
+    "decisao_envio",
+    "justificativa_adiamento",
+    "dataset_complete",
+    "schema_valid",
+    "lgpd_anonimizado",
+    "decisao_nack",
 ]
 
 
@@ -948,6 +982,189 @@ class LgpdDsrDecisionInputs(_FrozenContract):
         return self
 
 
+class AuthPendingInputs(_FrozenContract):
+    """AUTH expired-document decision, SP-OP-AUTH-001 output/GW_PendenciaExpirada.
+
+    Choosing extra time does not supply or establish a regulatory deadline.
+    """
+
+    kind: Literal["auth_pendencia"]
+    decisao_pendencia: Literal["cancelar_guia", "conceder_prazo_extra", "seguir_analise"]
+
+
+class _PagtoApprovalFields(_FrozenContract):
+    """Payment choice fields; identity, tier, lastro and amount comparison are server-bound."""
+
+    decisao_pagamento: Literal["APROVAR", "RECUSAR", "SOLICITAR_INFO", "CANCELAR"] | None = None
+    valor_aprovado_cents: CanonicalCentavos | None = None
+    justificativa_aprovacao: RequiredText | None = None
+    justificativa_recusa: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _payment_basis(self) -> Self:
+        if self.decisao_pagamento == "APROVAR":
+            if self.valor_aprovado_cents is None:
+                raise ValueError("APROVAR requires valor_aprovado_cents")
+            if self.justificativa_aprovacao is None or not self.justificativa_aprovacao.strip():
+                raise ValueError("APROVAR requires justificativa_aprovacao")
+        if self.decisao_pagamento in {"RECUSAR", "CANCELAR"} and (
+            self.justificativa_recusa is None or not self.justificativa_recusa.strip()
+        ):
+            raise ValueError("RECUSAR/CANCELAR requires justificativa_recusa")
+        return self
+
+
+class PagtoApprovalInputs(_PagtoApprovalFields):
+    """Human approval at the routed tier, SP-OP-PAGTO-001 / UT_AprovacaoAlcada.
+
+    CanonicalCentavos preserves the inherited signed wire domain, without inventing limits.
+    Successful shape validation does not authorize or release money.
+    """
+
+    kind: Literal["pagto_aprovacao"]
+    decisao_pagamento: Literal["APROVAR", "RECUSAR", "SOLICITAR_INFO", "CANCELAR"]
+
+
+class PagtoCoordinationInputs(_PagtoApprovalFields):
+    """GW_DecisaoCoordenacao distinguishes taking a decision from extending/reopening review."""
+
+    kind: Literal["pagto_coordenacao"]
+    decisao_coordenacao: Literal["assumir_aprovacao", "prorrogar_prazo", "seguir_analise"]
+
+    @model_validator(mode="after")
+    def _coordination_payment_scope(self) -> Self:
+        if self.decisao_coordenacao == "assumir_aprovacao":
+            if self.decisao_pagamento is None:
+                raise ValueError("assumir_aprovacao requires decisao_pagamento")
+        elif any(
+            value is not None
+            for value in (
+                self.decisao_pagamento,
+                self.valor_aprovado_cents,
+                self.justificativa_aprovacao,
+                self.justificativa_recusa,
+            )
+        ):
+            raise ValueError("non-deciding coordination cannot carry payment decision fields")
+        return self
+
+
+class FraudReferralDestinations(_FrozenContract):
+    """Four explicit human destination choices from SP-OP-FRAUDE-001's output table.
+
+    The trusted projection must derive matching destino_referral_* gateway flags from this
+    single choice object and check entity context. The browser cannot forge separate flags.
+    All-false is valid: GW_DestinoReferral has a no-referral terminal. Neither choosing a
+    destination nor validating this DTO proves legal authority or actual external delivery.
+    """
+
+    juridico: StrictBool
+    ans: StrictBool
+    cred: StrictBool
+    contratual: StrictBool
+
+
+class FraudDecisionInputs(_FrozenContract):
+    """Investigator and coordination choices on the trusted, previously sealed corpus.
+
+    SP-OP-FRAUDE-001 requires seal-before-decision and worker custody verification. This DTO
+    cannot establish either: the future trusted binding must verify the sealed corpus, citation
+    membership, current revision, authenticated investigator/tier and entity context. No custody
+    root, proof, score, dossier fact, actor or tier is accepted as a browser assertion.
+    """
+
+    kind: Literal["fraude_decisao"]
+    decisao_fraude: Literal["ACUSAR_FRAUDE", "ARQUIVAR", "MONITORAR", "SOLICITAR_DILIGENCIA"]
+    fundamentacao_investigacao: RequiredText | None = None
+    indicadores_fundamentantes: tuple[RequiredText, ...] | None = None
+    referencia_normativa: RequiredText | None = None
+    destino_referral: FraudReferralDestinations | None = None
+
+    @field_validator("indicadores_fundamentantes")
+    @classmethod
+    def _citations_are_nonblank(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if value is not None and (not value or any(not item.strip() for item in value)):
+            raise ValueError("indicadores_fundamentantes must contain nonblank citations")
+        return value
+
+    @model_validator(mode="after")
+    def _accusation_basis(self) -> Self:
+        if self.decisao_fraude == "ACUSAR_FRAUDE":
+            for value in (self.fundamentacao_investigacao, self.referencia_normativa):
+                if value is None or not value.strip():
+                    raise ValueError("ACUSAR_FRAUDE requires investigation and normative basis")
+            if self.indicadores_fundamentantes is None or self.destino_referral is None:
+                raise ValueError("ACUSAR_FRAUDE requires citations and referral choices")
+        return self
+
+
+class FraudReferralInputs(_FrozenContract):
+    """Second human gate confirms destinations after an existing human accusation.
+
+    No new accusation, identity or custody assertion. The prerequisite accusation and sealed
+    evidence stay server-bound; this shape does not enable the currently unwired legal referral.
+    Contract decisao_diligencia has no current gateway/worker consumer and remains unbound.
+    """
+
+    kind: Literal["fraude_referral"]
+    destino_referral: FraudReferralDestinations
+
+
+class _AnsSubmissionReviewFields(_FrozenContract):
+    decisao_envio: Literal["APROVAR_ENVIO", "CORRIGIR_PENDENCIA", "ADIAR_ENVIO"]
+    justificativa_adiamento: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _deferral_basis(self) -> Self:
+        if self.decisao_envio == "ADIAR_ENVIO" and (
+            self.justificativa_adiamento is None or not self.justificativa_adiamento.strip()
+        ):
+            raise ValueError("ADIAR_ENVIO requires justificativa_adiamento")
+        return self
+
+
+class AnsSubmissionReviewInputs(_AnsSubmissionReviewFields):
+    """SP-OP-ANS-SUBMIT-001 review/legal-review choice; revisor_id stays server-bound."""
+
+    kind: Literal["ans_revisao"]
+
+
+class AnsSubmissionCoordinationInputs(_AnsSubmissionReviewFields):
+    """Explicit UT_CoordenacaoEnvioAssume outcomes; no ordinary-review correction route."""
+
+    kind: Literal["ans_coordenacao"]
+    decisao_envio: Literal["APROVAR_ENVIO", "ADIAR_ENVIO"]
+
+
+class AnsSubmissionCorrectionInputs(_FrozenContract):
+    """Human confirmations explicitly assigned to UT_CorrigirPendenciaEnvio.
+
+    Contract input table and task documentation assign these correction confirmations to the
+    human. They are draft human inputs, never standalone proof of dataset integrity/schema or
+    anonymization. The server must bind the authenticated reviewer and current task/evidence to
+    its trusted dataset_ref; preserve the source/evidence revision and fail closed on missing
+    binding. False remains an admissible explicit answer and does not bypass re-evaluation.
+    No worker attestation, dataset replacement, DPO ratification or automatic approval is added.
+    """
+
+    kind: Literal["ans_pendencia"]
+    dataset_complete: StrictBool
+    schema_valid: StrictBool
+    lgpd_anonimizado: StrictBool
+
+
+class AnsNackInputs(_FrozenContract):
+    """UT_TratarNack's documented choice, still DRAFT with an unresolved process consumer.
+
+    The current BPMN goes unconditionally to End_FalhaRetransmissao after this task; decisao_nack is
+    not consumed by a gateway/worker. Recording retransmitir_manual does not retransmit. The
+    runtime binding remains unavailable until this contract/consumer gap is reconciled.
+    """
+
+    kind: Literal["ans_nack"]
+    decisao_nack: Literal["retransmitir_manual", "registrar_falha"]
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
@@ -970,7 +1187,16 @@ DecisionInputs = Annotated[
     | AdequacaoCoordinationInputs
     | NipDraftInputs
     | NipDecisionInputs
-    | LgpdDsrDecisionInputs,
+    | LgpdDsrDecisionInputs
+    | AuthPendingInputs
+    | PagtoApprovalInputs
+    | PagtoCoordinationInputs
+    | FraudDecisionInputs
+    | FraudReferralInputs
+    | AnsSubmissionReviewInputs
+    | AnsSubmissionCoordinationInputs
+    | AnsSubmissionCorrectionInputs
+    | AnsNackInputs,
     Field(discriminator="kind"),
 ]
 
@@ -1087,6 +1313,50 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-LGPD-DSR-001", "UT_RevisaoDpo"): (
         "lgpd_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-AUTH-001", "UT_DecidirPendenciaExpirada"): (
+        "auth_pendencia",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-PAGTO-001", "UT_AprovacaoAlcada"): (
+        "pagto_aprovacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-PAGTO-001", "UT_CoordenacaoAlcada"): (
+        "pagto_coordenacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-FRAUDE-001", "UT_DecisaoInvestigador"): (
+        "fraude_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-FRAUDE-001", "UT_CoordenacaoInvestigacao"): (
+        "fraude_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-FRAUDE-001", "UT_RevisaoReferral"): (
+        "fraude_referral",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-ANS-SUBMIT-001", "UT_RevisarEnvio"): (
+        "ans_revisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-ANS-SUBMIT-001", "UT_RevisarEnvioJuridico"): (
+        "ans_revisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-ANS-SUBMIT-001", "UT_CoordenacaoEnvioAssume"): (
+        "ans_coordenacao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-ANS-SUBMIT-001", "UT_CorrigirPendenciaEnvio"): (
+        "ans_pendencia",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-ANS-SUBMIT-001", "UT_TratarNack"): (
+        "ans_nack",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -1217,6 +1487,32 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "texto_resposta_nip",
     ),
     "lgpd_decisao": ("decisao_dsr", "fundamentacao_legal"),
+    "auth_pendencia": ("decisao_pendencia",),
+    "pagto_aprovacao": (
+        "decisao_pagamento",
+        "valor_aprovado_cents",
+        "justificativa_aprovacao",
+        "justificativa_recusa",
+    ),
+    "pagto_coordenacao": (
+        "decisao_coordenacao",
+        "decisao_pagamento",
+        "valor_aprovado_cents",
+        "justificativa_aprovacao",
+        "justificativa_recusa",
+    ),
+    "fraude_decisao": (
+        "decisao_fraude",
+        "fundamentacao_investigacao",
+        "indicadores_fundamentantes",
+        "referencia_normativa",
+        "destino_referral",
+    ),
+    "fraude_referral": ("destino_referral",),
+    "ans_revisao": ("decisao_envio", "justificativa_adiamento"),
+    "ans_coordenacao": ("decisao_envio", "justificativa_adiamento"),
+    "ans_pendencia": ("dataset_complete", "schema_valid", "lgpd_anonimizado"),
+    "ans_nack": ("decisao_nack",),
 }
 
 

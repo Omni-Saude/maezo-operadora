@@ -1,15 +1,20 @@
 """Immutable internal contracts at the portal trust boundary (ADR-0049 D2-D6).
 
 Only the form bindings whose executable shape is explicitly included in this first slice are
-exported.  The remaining portal task catalog is deliberately unavailable until each task gets a
-closed, reconciled contract.
+exported.  All task source shapes remain subject to their reconciled binding status; DRAFT shapes
+do not establish runtime readiness, evidence custody or human authority.
 """
 
 from maezo.portal.contracts.models import (
     AdequacaoCoordinationInputs,
     AdequacaoDecisionInputs,
+    AnsNackInputs,
+    AnsSubmissionCoordinationInputs,
+    AnsSubmissionCorrectionInputs,
+    AnsSubmissionReviewInputs,
     AuthDecisionInputs,
     AuthJuntaInputs,
+    AuthPendingInputs,
     CancelDecisionInputs,
     Centavos,
     ContasCoordinationInputs,
@@ -17,6 +22,9 @@ from maezo.portal.contracts.models import (
     CredCredentialingInputs,
     CredDecredentialingInputs,
     EscalationDecisionInputs,
+    FraudDecisionInputs,
+    FraudReferralDestinations,
+    FraudReferralInputs,
     HumanCommandReceipt,
     HumanPrincipal,
     InadDecisionInputs,
@@ -26,6 +34,8 @@ from maezo.portal.contracts.models import (
     NipDraftInputs,
     PagtoAdmissibilityEvidence,
     PagtoAdmissibilityInputs,
+    PagtoApprovalInputs,
+    PagtoCoordinationInputs,
     ProgramaDecisionInputs,
     RecursoAuditorInputs,
     RecursoCoordinationInputs,
@@ -39,6 +49,16 @@ from maezo.portal.contracts.models import (
 )
 
 __all__ = [
+    "AuthPendingInputs",
+    "PagtoApprovalInputs",
+    "PagtoCoordinationInputs",
+    "FraudDecisionInputs",
+    "FraudReferralInputs",
+    "AnsSubmissionReviewInputs",
+    "AnsSubmissionCoordinationInputs",
+    "AnsSubmissionCorrectionInputs",
+    "AnsNackInputs",
+    "FraudReferralDestinations",
     "AdequacaoCoordinationInputs",
     "AdequacaoDecisionInputs",
     "AuthDecisionInputs",
