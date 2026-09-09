@@ -502,13 +502,27 @@ def async_adapter_history(tmp_path_factory: pytest.TempPathFactory, async_histor
 def test_actual_finite_async_operational_adapter_fixture_scope(
     tmp_path: Path, async_adapter_history: Any, async_history_producer: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from contextlib import contextmanager
+
     from scripts.ci import ledger_current_relations as relations
+    from scripts.ci import ledger_history_proofs as proof
 
     from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
 
     candidate = fixtures.candidate.__wrapped__(
         tmp_path, async_adapter_history, async_history_producer, monkeypatch
     )
+    capsule = proof.async_producer_capsule
+
+    @contextmanager
+    def synthetic_catalogue_capsule(repository: Path) -> Any:
+        # Carry the existing synthetic source catalogue into the fresh actual
+        # capsule. Its pinned source bytes and both real captures are unchanged.
+        with capsule(repository) as selected:
+            selected.async_catalogue.SOURCE_CATALOG_V1 = (candidate[-1],)
+            yield selected
+
+    monkeypatch.setattr(proof, "async_producer_capsule", synthetic_catalogue_capsule)
     root, reviewed = candidate[:2]
     runner = current.HistoryRunner(root, tmp_path / "async-adapter", base=reviewed.source)
     edge = relations.plan_current_relations(root, reviewed.source).relations[0]
