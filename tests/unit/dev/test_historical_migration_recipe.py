@@ -417,6 +417,9 @@ def test_tiny_actual_async_guarded_recipe_and_fresh_lock(tmp_path, monkeypatch):
             assert lock.owns()
             (out / "guard").mkdir(mode=0o700)
             h.write(out / "guard/ledger_source_guard.py", h.GUARD.encode())
+            guard_base = out / "guard-base.json"
+            h.write(guard_base, b"")
+            assert guard_base.stat().st_mode & 0o777 == 0o600
             env = dict(
                 h.environment(),
                 PYTHONPATH=os.pathsep.join([str(out / "guard"), str(checkout / "src"), str(checkout)]),
@@ -426,9 +429,12 @@ def test_tiny_actual_async_guarded_recipe_and_fresh_lock(tmp_path, monkeypatch):
                 HISTORICAL_PHASE_RECEIPT=str(out / "phase.json"),
             )
             c = h.capture(m.recipe_argv(checkout), checkout, env, out, "pytest")
+            assert guard_base.read_bytes()
+            phase = h.load(out / "phase.json")
+            assert h.load(guard_base) == {key: phase[key] for key in ("archived", "escaped")}
             result = h.validate_run(out, checkout, m.TEST, sources, c)
             assert result["nodes"] == [m.TEST + "::test_local_async"]
-            assert len(h.load(out / "phase.json")["coverage"]["phases"]) == 3
+            assert len(phase["coverage"]["phases"]) == 3
         assert h.load(out / "checkout-cleanup.json")["removed"]
         assert not r._pending_groups
     finally:
