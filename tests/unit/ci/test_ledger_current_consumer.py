@@ -441,3 +441,26 @@ def test_actual_unsupported_plan_path_retains_prelaunch_refusal_packet(tiny: Any
     assert "IC_PATH" in verdict.reasons
     assert (Path(verdict.packet) / "receipt.json").is_file()
     assert not (Path(verdict.packet) / "request.json").exists()
+
+
+@pytest.mark.parametrize("historical_result", ["PASSED", "FAILED"])
+def test_real_v1_history_equality_has_independent_current_credit(
+    tiny: Any, tmp_path: Path, historical_result: str
+) -> None:
+    root, base, old, _ = tiny
+    (root / "src/maezo").mkdir(parents=True)
+    (root / "src/maezo/__init__.py").write_text("")
+    old_commit = commit(root)
+    root, base, old, _ = v1((root, base, old, old_commit), failed_old=historical_result == "FAILED")
+    result = consumer.run_integrated(root, base, tmp_path / "history-proof")
+    assert result["current_status"] == "ACCEPTED"
+    assert result["status"] == "ACCEPTED"
+    edge = result["relations"][0]
+    assert edge["status"] == "VALID_HISTORICAL_EQUALITY"
+    assert edge["historical_test_status"] == historical_result
+    assert edge["historical_claim_verified"] is True
+    assert edge["consumed"] is True
+    assert result["history_execution_count"] == 2
+    assert result["execution_count"] == 2
+    assert len({item["current"]["run_id"] for item in result["rows"]}) == 2
+    assert result["global_acceptance"] is False
