@@ -7,15 +7,15 @@ standing in for a real one). Routing/scrub/failure-isolation logic itself is uni
 `tests/unit/platform/integrations/test_events_kafka_producer.py` against a fake raw producer — no
 network needed there.
 
-SCOPE (per this task's own boundary — no CIB Seven engine; another agent owns that slot):
+SCOPE (real Kafka, Postgres and CIB Seven for bridge starts; synthetic event inputs):
   (a) producer publishes a real event -> message lands on the topic (consumed back, shape
       asserted) — BOTH the untouched primary leg and the scrubbed `NOTIFICATIONS_TOPIC` mirror.
   (b) the REAL `AioKafkaBridgeConsumer` (EB-3) consumes the mirrored message -> `NotificationBridge`
       receives it -> for a rule-matching payload (the REAL `ST_PublishEncaminhadaFraude` shape —
-      see "WHICH BRIDGE RULE" below), the bridge invokes a RECORDING starter seam
-      (`FakeCibSevenTransport` — the fenced START itself, `start_process_idempotent`, is
-      engine-proven elsewhere, e.g. `test_notifications_bridge_live_engine.py`) + writes a REAL
-      audit row on live Postgres.
+      see "WHICH BRIDGE RULE" below), the bridge invokes the real `CibSevenHttpTransport` through
+      `start_process_idempotent` and writes a durable Postgres audit row. Independent native
+      active/history/definition/variable reads bind the returned ID to one FRAUDE instance
+      waiting at intake, before any human investigation decision.
   (c) a NON-matching payload — the equally real `ST_PublishGlosaAplicada` shape, MORE anchored than
       the armed one but carrying a `desfecho` no surviving rule selects -> no starter call, no
       audit row.
@@ -115,7 +115,7 @@ from maezo.platform.notification_bridge import (
     build_cibseven_process_starter,
 )
 from maezo.platform.topic_registry import TopicRegistry, dlq_topic_for
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
+from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.events import make_publish_event_handler
 from maezo.tools.workers.harness import ExternalTask
 from tests.integration.conftest import _apply_migrations, _pg_reachable
@@ -572,7 +572,7 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
 
         primary_record = await asyncio.wait_for(primary_consumer.__anext__(), timeout=15.0)
         primary_received = json.loads(primary_record.value.decode("utf-8"))
-        assert primary_received == payload  # primary leg is byte-for-byte untouched
+        assert primary_received == payload  # decoded primary payload is unchanged
 
         mirror_received = await _consume_one(bridge_consumer)
         await bridge_consumer.commit()
@@ -601,7 +601,7 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
     """Publish TWO REAL `agents.events.contas.completed` events through the producer — both in
     shapes `SP-OP-CONTAS-001` itself publishes — consume both via the REAL
     `AioKafkaBridgeConsumer`, dispatch both through `handle_bridge_message` against a bridge wired
-    to the FENCED starter (`FakeCibSevenTransport` recording + REAL `PostgresAuditSink`), and prove
+    to the FENCED starter (REAL CIB HTTP transport + REAL `PostgresAuditSink`), and prove
     the bridge discriminates between them:
 
       - ARMED: the `ST_PublishEncaminhadaFraude` shape — `event_payload_vars=tenant_id,
@@ -633,7 +633,7 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = FakeCibSevenTransport()
+    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
 
     await consumer.start()
@@ -793,7 +793,7 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = FakeCibSevenTransport()
+    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
 
     await consumer.start()
@@ -1053,7 +1053,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
       - a durable `bridge_dlq:` audit row exists in the real `audit_chain`;
       - the loop CONTINUED — the well-formed message behind the poison one still started its
         handoff (this is the head-of-line blocking that used to kill the daemon);
-      - the consumer offsets advanced (no re-delivery storm on restart).
+      - the live consumer commit path completes; restart behavior is not exercised here.
     """
     from aiokafka import AIOKafkaConsumer, AIOKafkaProducer  # type: ignore[import-untyped]
 
@@ -1078,7 +1078,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
         auto_offset_reset="latest",
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = FakeCibSevenTransport()
+    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
     dlq = BridgeDlqShunt(
         publisher=AioKafkaDlqPublisher(bootstrap_servers=kafka_bootstrap_servers),
