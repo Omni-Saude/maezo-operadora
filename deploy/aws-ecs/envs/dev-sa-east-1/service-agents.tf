@@ -230,7 +230,7 @@ resource "aws_ecs_task_definition" "agente" {
       # sanciona nenhum id para a zona de saude. Escolher e' ato registrado.
       { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
       { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
-      { name = "MAEZO_INFERENCE_MODEL", value = local._provider_phi == "bedrock_br" || local._provider_phi == "br_resident" ? var.phi_model_id : "" },
+      { name = "MAEZO_INFERENCE_MODEL", value = each.value.provider == "bedrock_br" || each.value.provider == "br_resident" ? var.phi_model_id : "" },
       # A chave viaja para o container SO' quando ligada. Assim ela aparece — ou nao —
       # no diff da task definition, e "quem ligou isso?" tem resposta no historico.
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },

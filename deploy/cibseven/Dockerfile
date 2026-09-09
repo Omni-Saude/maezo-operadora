@@ -75,3 +75,11 @@ RUN sed -i 's|<property name="jobExecutorDeploymentAware">true</property>|<prope
 RUN grep -q '<property name="jobExecutorDeploymentAware">false</property>' /camunda/conf/bpm-platform.xml \
     && ! grep -q '<property name="jobExecutorDeploymentAware">true</property>' /camunda/conf/bpm-platform.xml \
     && echo "OK: jobExecutorDeploymentAware=false"
+
+# Preserve the 27 static candidate groups and four ESCALATION identities (ADR-0049).
+# Only groupResourceWhitelistPattern changes; user/tenant/general admission and
+# authorization remain inherited. Actual engine admission still requires live proof.
+# Build with deploy/cibseven as the context.
+COPY configure-group-whitelist.sh /tmp/configure-group-whitelist.sh
+RUN sh /tmp/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml \
+    && rm /tmp/configure-group-whitelist.sh

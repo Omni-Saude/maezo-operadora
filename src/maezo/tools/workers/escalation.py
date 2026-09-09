@@ -24,12 +24,12 @@ AND `agents/lucas/graph.py:137,639` (`PROCESS_KEY`/`start_process_idempotent`), 
 Portuguese `severidade` — Lucas's is typed `Literal["grave","moderada","leve"]`
 (`lucas/graph.py:202,714`), so it structurally cannot carry `severity` — so the read ALWAYS missed
 and ALWAYS fell to the `"leve"` default; a private `_SEVERITY_TO_GROUP` table then mapped that
-phantom `leve` to `atendimentoHumano` and shipped both wrong values inside the internal
+phantom `leve` to `atendimento-humano` and shipped both wrong values inside the internal
 notification. A P1 `red_flag_clinico`/`grave` escalation under the PT5M art. 35-C SLA was therefore
-announced to the clinical team as `severity=leve, group=atendimentoHumano`. The private table ALSO
+announced to the clinical team as `severity=leve, group=atendimento-humano`. The private table ALSO
 competed with the DMN, which routes primarily on `motivo_categoria` (only `r1` reads `severidade`):
-`risco_psicossocial`+`leve` is `plantaoClinico`/P1 in the DMN (`escalation_routing.dmn:37-45`) and
-`atendimentoHumano` in the deleted table. The fix: consume `severidade` (process variable) and
+`risco_psicossocial`+`leve` is `plantao-clinico`/P1 in the DMN (`escalation_routing.dmn:37-45`) and
+`atendimento-humano` in the deleted table. The fix: consume `severidade` (process variable) and
 `grupo_atendimento` (the BPMN's `camunda:inputParameter` fed from
 `${roteamento.grupo_atendimento}`, `:96,:115,:206`), never re-derive routing, never default a
 clinical severity, and FAIL CLOSED when either is missing or outside its contractual domain (see
@@ -146,10 +146,10 @@ _SEVERIDADES_CONTRATUAIS: frozenset[str] = frozenset({"grave", "moderada", "leve
 
 #: `grupo_atendimento` domain — the `escalation_routing` DMN's `out_grupo` output values
 #: (`spec/processes/dmn/escalation_routing.dmn:33,42,51,60,69,78,87`), ratified by the contract's
-#: §Papeis humanos table (`:59`, `:69-71`). `supervisaoAtendimento` (`:72`) is NOT here: it is
+#: §Papeis humanos table (`:59`, `:69-71`). `supervisao-atendimento` (`:72`) is NOT here: it is
 #: the alert TARGET of `UT_SupervisorAssume`, never a DMN routing output.
 _GRUPOS_ATENDIMENTO_DMN: frozenset[str] = frozenset(
-    {"plantaoClinico", "enfermagemTriagem", "atendimentoHumano"}
+    {"plantao-clinico", "enfermagem-triagem", "atendimento-humano"}
 )
 
 #: `prioridade` domain — the SAME `escalation_routing` DMN's `out_prioridade` output values
@@ -181,7 +181,7 @@ _MOTIVOS_CONTRATUAIS: frozenset[str] = frozenset(
 #: `test_a_excecao_de_severidade_e_exatamente_a_que_o_contrato_declara`, so this constant can never
 #: drift away from the document it implements. Its ROUTING legitimacy comes from the
 #: `escalation_routing` DMN itself: rule `r6` matches this motivo with the `severidade` column at
-#: the `-` wildcard (any value, `null` included) -> P3 / `atendimentoHumano` / PT4H / PT24H, so
+#: the `-` wildcard (any value, `null` included) -> P3 / `atendimento-humano` / PT4H / PT24H, so
 #: severidade was never a routing input here — pinned by
 #: `test_a_dmn_roteia_falha_tecnica_com_severidade_nula_pela_regra_r6`.
 _MOTIVO_SEM_SEVERIDADE: str = "falha_tecnica"
@@ -200,7 +200,7 @@ _MOTIVO_SEM_SEVERIDADE: str = "falha_tecnica"
 _ALIASES_INGLES_PROIBIDOS: tuple[str, ...] = ("severity", "group", "priority")
 
 #: The supervisor group alerted on SLA breach / channel fallback (contract `:72`).
-_GRUPO_SUPERVISAO: str = "supervisaoAtendimento"
+_GRUPO_SUPERVISAO: str = "supervisao-atendimento"
 
 # Topics + notification channel/types (mirrors lgpd.py / recurso.py's per-worker notification idiom;
 # the notification `type` is what the integration probe's `notified_teams`/`notified_supervisors`
@@ -448,7 +448,7 @@ def _rotulo_opcional_tolerante(
 
     Used ONLY for `motivo_categoria`. The `escalation_routing` DMN's own catch-all (`r7`,
     `spec/processes/dmn/escalation_routing.dmn:82-89`) is an EXPLICIT fail-SAFE for an unknown
-    motivo: it still ROUTES the case (`P2`/`atendimentoHumano`/`PT30M`/`PT4H`) rather than
+    motivo: it still ROUTES the case (`P2`/`atendimento-humano`/`PT30M`/`PT4H`) rather than
     refusing anything — "Catch-all FAIL-SAFE: motivo desconhecido nunca recebe prioridade baixa".
     Before this fix, `make_notify_team_handler` refused the NOTIFICATION (via
     `_rotulo_opcional_validado`) for a case the DMN had already safely routed — stricter than the

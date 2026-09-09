@@ -24,25 +24,25 @@ GRUPO_ADMIN: Final[str] = "camunda-admin"
 #: signifique compartilhar a senha do administrador: cria-se o usuário da pessoa e
 #: coloca-se neste grupo, sem tocar em permissão.
 #:
-#: Sem hífen porque a lista branca de identificadores do engine é `[a-zA-Z0-9]+` — o
-#: `camunda-admin` é exceção embutida, o resto não pode.
+#: Identidade existente preservada. O default do engine e alfanumerico; a imagem
+#: amplia apenas groupResourceWhitelistPattern para os grupos canonicos dos contratos.
 GRUPO_LEITURA: Final[str] = "maezoleitura"
 
 #: As FILAS de atendimento humano — os `candidateGroups` de `UT_TratarEscalonamento`
 #: (SP-OP-ESCALATION-001) e os `grupo_atendimento` que `escalation_routing.dmn` emite.
 #:
-#: Medido em 09/09/2026: as quatro nao existiam no motor e NAO PODIAM existir — os nomes
-#: originais tinham hifen (`plantao-clinico`, ...) e a lista branca e' `[a-zA-Z0-9]+`. Toda
-#: tarefa de escalonamento apontava para fila vazia. Decisao do diretor em 09/09: RENOMEAR
-#: (camelCase), nao afrouxar a lista branca do engine. Criadas a mao no motor de dev no mesmo
-#: dia; aqui ficam para que um motor reconstruido nasca com elas (idempotente: so' cria a que
-#: falta). Sem autorizacoes: fila e' so' um nome que a Tasklist filtra; quem entra nela e'
-#: decisao de gente, e membro se adiciona sem tocar em permissao.
+#: Identidades canonicas preservadas (ADR-0049 / SP-OP-ESCALATION-001). A imagem
+#: configura groupResourceWhitelistPattern para admitir os grupos contratuais com
+#: hifen sem mudar a admissao de usuarios/tenants. O default alfanumerico observado
+#: nao e uma proibicao da plataforma; nao ha autorizacao independente para rename.
+#: O bootstrap cria somente filas ausentes, sem memberships ou grants para elas.
+#: Nomes/papeis de negocio continuam DRAFT/verify, dependentes de R-034. Nenhuma
+#: migracao ou exclusao de identidades implantadas e feita por esta lista.
 GRUPOS_DE_ATENDIMENTO: Final[tuple[tuple[str, str], ...]] = (
-    ("plantaoClinico", "Plantao clinico (P1)"),
-    ("enfermagemTriagem", "Enfermagem de triagem (P2)"),
-    ("atendimentoHumano", "Atendimento humano (P3)"),
-    ("supervisaoAtendimento", "Supervisao de atendimento (fallback)"),
+    ("plantao-clinico", "Plantao clinico (P1)"),
+    ("enfermagem-triagem", "Enfermagem de triagem (P2)"),
+    ("atendimento-humano", "Atendimento humano (P3)"),
+    ("supervisao-atendimento", "Supervisao de atendimento (fallback)"),
 )
 
 #: O que o grupo de leitura pode: ver o motor, e nada mais.

@@ -30,7 +30,7 @@
         <inputEntry id="r1i1"><text>"red_flag_clinico"</text></inputEntry>
         <inputEntry id="r1i2"><text>"grave"</text></inputEntry>
         <outputEntry id="r1o1"><text>"P1"</text></outputEntry>
-        <outputEntry id="r1o2"><text>"plantaoClinico"</text></outputEntry>
+        <outputEntry id="r1o2"><text>"plantao-clinico"</text></outputEntry>
         <outputEntry id="r1o3"><text>"PT5M"</text></outputEntry>
         <outputEntry id="r1o4"><text>"PT30M"</text></outputEntry>
       </rule>
@@ -39,7 +39,7 @@
         <inputEntry id="r2i1"><text>"risco_psicossocial"</text></inputEntry>
         <inputEntry id="r2i2"><text>-</text></inputEntry>
         <outputEntry id="r2o1"><text>"P1"</text></outputEntry>
-        <outputEntry id="r2o2"><text>"plantaoClinico"</text></outputEntry>
+        <outputEntry id="r2o2"><text>"plantao-clinico"</text></outputEntry>
         <outputEntry id="r2o3"><text>"PT5M"</text></outputEntry>
         <outputEntry id="r2o4"><text>"PT30M"</text></outputEntry>
       </rule>
@@ -48,7 +48,7 @@
         <inputEntry id="r3i1"><text>"red_flag_clinico"</text></inputEntry>
         <inputEntry id="r3i2"><text>-</text></inputEntry>
         <outputEntry id="r3o1"><text>"P2"</text></outputEntry>
-        <outputEntry id="r3o2"><text>"enfermagemTriagem"</text></outputEntry>
+        <outputEntry id="r3o2"><text>"enfermagem-triagem"</text></outputEntry>
         <outputEntry id="r3o3"><text>"PT30M"</text></outputEntry>
         <outputEntry id="r3o4"><text>"PT4H"</text></outputEntry>
       </rule>
@@ -57,7 +57,7 @@
         <inputEntry id="r4i1"><text>"intencao_clinica"</text></inputEntry>
         <inputEntry id="r4i2"><text>-</text></inputEntry>
         <outputEntry id="r4o1"><text>"P2"</text></outputEntry>
-        <outputEntry id="r4o2"><text>"enfermagemTriagem"</text></outputEntry>
+        <outputEntry id="r4o2"><text>"enfermagem-triagem"</text></outputEntry>
         <outputEntry id="r4o3"><text>"PT30M"</text></outputEntry>
         <outputEntry id="r4o4"><text>"PT4H"</text></outputEntry>
       </rule>
@@ -66,7 +66,7 @@
         <inputEntry id="r5i1"><text>"solicitacao_humano"</text></inputEntry>
         <inputEntry id="r5i2"><text>-</text></inputEntry>
         <outputEntry id="r5o1"><text>"P3"</text></outputEntry>
-        <outputEntry id="r5o2"><text>"atendimentoHumano"</text></outputEntry>
+        <outputEntry id="r5o2"><text>"atendimento-humano"</text></outputEntry>
         <outputEntry id="r5o3"><text>"PT4H"</text></outputEntry>
         <outputEntry id="r5o4"><text>"PT24H"</text></outputEntry>
       </rule>
@@ -75,7 +75,7 @@
         <inputEntry id="r6i1"><text>"falha_tecnica"</text></inputEntry>
         <inputEntry id="r6i2"><text>-</text></inputEntry>
         <outputEntry id="r6o1"><text>"P3"</text></outputEntry>
-        <outputEntry id="r6o2"><text>"atendimentoHumano"</text></outputEntry>
+        <outputEntry id="r6o2"><text>"atendimento-humano"</text></outputEntry>
         <outputEntry id="r6o3"><text>"PT4H"</text></outputEntry>
         <outputEntry id="r6o4"><text>"PT24H"</text></outputEntry>
       </rule>
@@ -84,7 +84,7 @@
         <inputEntry id="r7i1"><text>-</text></inputEntry>
         <inputEntry id="r7i2"><text>-</text></inputEntry>
         <outputEntry id="r7o1"><text>"P2"</text></outputEntry>
-        <outputEntry id="r7o2"><text>"atendimentoHumano"</text></outputEntry>
+        <outputEntry id="r7o2"><text>"atendimento-humano"</text></outputEntry>
         <outputEntry id="r7o3"><text>"PT30M"</text></outputEntry>
         <outputEntry id="r7o4"><text>"PT4H"</text></outputEntry>
       </rule>

@@ -40,7 +40,7 @@ _SAIDAS_R6: set[str] = {"prioridade", "grupo_atendimento", "sla_ack", "sla_resol
 #: O mapa real, como o motor o produz para `falha_tecnica` (DMN `r6`).
 _ROTEAMENTO: dict[str, Any] = {
     "prioridade": "P3",
-    "grupo_atendimento": "atendimentoHumano",
+    "grupo_atendimento": "atendimento-humano",
     "sla_ack": "PT4H",
     "sla_resolucao": "PT24H",
 }
@@ -91,7 +91,7 @@ def test_recusa_mapa_incompleto() -> None:
         "nao e json",
         None,
         42,
-        ["atendimentoHumano"],
+        ["atendimento-humano"],
     ],
 )
 def test_recusa_toda_forma_que_nao_carrega_o_mapa(valor: Any) -> None:
@@ -109,7 +109,7 @@ def test_recusa_entrada_sem_value() -> None:
 def test_string_json_de_lista_nao_passa_por_mapa() -> None:
     """JSON valido mas que nao e' objeto: recusado pelo `isinstance(valor, dict)`, nao por
     `KeyError` mais tarde."""
-    entrada = {"type": "Json", "value": json.dumps(["atendimentoHumano", "P3"])}
+    entrada = {"type": "Json", "value": json.dumps(["atendimento-humano", "P3"])}
     assert mapa_de_variavel_estruturada(entrada, _SAIDAS_R6) is None
 
 
@@ -119,5 +119,5 @@ def test_chaves_extras_sao_toleradas() -> None:
     entrada = {"type": "Object", "value": {**_ROTEAMENTO, "sla_extra": "PT1H"}}
     mapa = mapa_de_variavel_estruturada(entrada, _SAIDAS_R6)
     assert mapa is not None
-    assert mapa["grupo_atendimento"] == "atendimentoHumano"
+    assert mapa["grupo_atendimento"] == "atendimento-humano"
     assert mapa["prioridade"] == "P3"

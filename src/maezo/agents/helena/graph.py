@@ -219,7 +219,7 @@ ResponseKindOut = Literal["inform", "schedule", "escalate", "collect", "falha_te
 SUFFICIENCY_DMN_KEY: str = "triage_sufficiency"
 COLETA_MAX_RODADAS: int = 2
 #: Decisao do documento do diretor (08/09/2026): "se duas rodadas de pergunta nao resolverem,
-#: escalar como pedido de humano". `solicitacao_humano` roteia P3 / atendimentoHumano / ack 4h
+#: escalar como pedido de humano". `solicitacao_humano` roteia P3 / atendimento-humano / ack 4h
 #: (`escalation_routing` r5). ALTERNATIVA NAO ADOTADA, registrada para a ratificacao: um sintoma
 #: que nao se conseguiu caracterizar em duas rodadas talvez mereca `intencao_clinica`
 #: (P2 / enfermagem / 30 min). Nao e' decisao de engenharia — e' do medico auditor.
@@ -905,7 +905,7 @@ class HelenaGraph:
             # a maquina nao conseguiu ler. Verdade atual: o contrato declara `null` para este
             # motivo e o worker implementa a excecao (`escalation.py::_exigir_severidade`) — a
             # `severidade` nula e' ACEITA em `motivo_categoria=falha_tecnica`, a notificacao SAI
-            # para o grupo da regra `r6` da DMN `escalation_routing` (P3 / atendimentoHumano;
+            # para o grupo da regra `r6` da DMN `escalation_routing` (P3 / atendimento-humano;
             # aquela regra casa `severidade` no coringa `-`, entao nunca dependeu dela) e a
             # instancia segue por `Flow_Notificar_UT` -> `UT_TratarEscalonamento`. O que deixa de
             # existir e' o rotulo fabricado — nao a pagina.

@@ -17,12 +17,12 @@ Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`).
 
 ### test_happy_path_resolvido_por_humano
 - **Given** instancia iniciada com `motivo_categoria=red_flag_clinico`, `severidade=grave`
-- **When** worker de notificacao completa; usuario do grupo `plantaoClinico` (DMN: P1) completa `UT_TratarEscalonamento` com `resultado=resolvido_humano`
+- **When** worker de notificacao completa; usuario do grupo `plantao-clinico` (DMN: P1) completa `UT_TratarEscalonamento` com `resultado=resolvido_humano`
 - **Then** evento `escalation.requested` publicado no inicio; `escalation.resolved` com `payload.resultado=resolvido_humano`; instancia termina em `End_ResolvidoPorHumano`; NENHUM evento `process_completed` publicado
 
 ### test_happy_path_devolvido_ao_agente
 - **Given** instancia com `motivo_categoria=solicitacao_humano`, `severidade=leve`
-- **When** humano de `atendimentoHumano` completa com `resultado=devolvido_agente`, `notas_resolucao="instrucoes do humano"`
+- **When** humano de `atendimento-humano` completa com `resultado=devolvido_agente`, `notas_resolucao="instrucoes do humano"`
 - **Then** `escalation.resolved` publicado E `agents.events.process_completed` publicado com `conversation_id`, `agent_id` e `_business_key` (SEM `notas_resolucao` — Zona PHI, GAP-ESC-1); fim em `End_DevolvidoAoAgente`
 
 ### test_happy_path_emergencia_acionada
@@ -34,11 +34,11 @@ Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`).
 
 ### test_dmn_routing_p1_plantao_clinico
 - **Given/When** start com `red_flag_clinico`+`grave`
-- **Then** `UT_TratarEscalonamento` tem candidate group `plantaoClinico`; `roteamento.sla_ack == "PT5M"`
+- **Then** `UT_TratarEscalonamento` tem candidate group `plantao-clinico`; `roteamento.sla_ack == "PT5M"`
 
 ### test_dmn_routing_catchall_fail_safe
 - **Given/When** start com `motivo_categoria=categoria_inexistente`
-- **Then** roteado P2/`atendimentoHumano` (nunca P3) — regra catch-all
+- **Then** roteado P2/`atendimento-humano` (nunca P3) — regra catch-all
 
 ## Timers
 
@@ -50,7 +50,7 @@ Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`).
 ### test_timer_resolucao_interruptivo_supervisor_assume
 - **Given** instancia P1 nao tratada
 - **When** job do timer `BT_SlaResolucao` (PT30M) executado
-- **Then** `escalation.sla_breached` publicado com `fase=resolucao`; `UT_TratarEscalonamento` CANCELADA; `UT_SupervisorAssume` criada com candidate group `supervisaoAtendimento`
+- **Then** `escalation.sla_breached` publicado com `fase=resolucao`; `UT_TratarEscalonamento` CANCELADA; `UT_SupervisorAssume` criada com candidate group `supervisao-atendimento`
 
 ### test_supervisor_resolve_apos_breach
 - **Given** `UT_SupervisorAssume` aberta (apos breach)

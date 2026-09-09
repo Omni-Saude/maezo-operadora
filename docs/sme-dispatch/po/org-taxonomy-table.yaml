@@ -186,7 +186,7 @@ rows:
   proposto: true
   notas: caveat PROPOSTO contrato linha 159
   nome_real: ''
-- grupo_declarado: plantaoClinico
+- grupo_declarado: plantao-clinico
   arquivo: spec/processes/dmn/escalation_routing.dmn
   linha: 33
   processo: SP-OP-ESCALATION-001
@@ -198,7 +198,7 @@ rows:
   notas: SEM ressalva PROPOSTO no contrato -- unico contrato FINAL do escopo (status linha 3); objeto
     do bridge PR desta tarefa
   nome_real: ''
-- grupo_declarado: enfermagemTriagem
+- grupo_declarado: enfermagem-triagem
   arquivo: spec/processes/dmn/escalation_routing.dmn
   linha: 51
   processo: SP-OP-ESCALATION-001
@@ -210,7 +210,7 @@ rows:
   notas: SEM ressalva PROPOSTO no contrato -- unico contrato FINAL do escopo; objeto do bridge PR desta
     tarefa
   nome_real: ''
-- grupo_declarado: atendimentoHumano
+- grupo_declarado: atendimento-humano
   arquivo: spec/processes/dmn/escalation_routing.dmn
   linha: 69
   processo: SP-OP-ESCALATION-001
@@ -223,7 +223,7 @@ rows:
   proposto: false
   notas: SEM ressalva PROPOSTO no contrato; DRIFT observado -- ver item (6) do relatorio
   nome_real: ''
-- grupo_declarado: supervisaoAtendimento
+- grupo_declarado: supervisao-atendimento
   arquivo: spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn
   linha: 258
   processo: SP-OP-ESCALATION-001

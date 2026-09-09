@@ -233,7 +233,7 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
     engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
 ) -> None:
     """(a) simulated red-flag input -> SP-OP-ESCALATION-001 instance ACTIVE, business key
-    `ESC-{tenant}-{conversation_id}`, candidate group `plantaoClinico` (motivo_categoria=
+    `ESC-{tenant}-{conversation_id}`, candidate group `plantao-clinico` (motivo_categoria=
     red_flag_clinico, severidade=grave -> escalation_routing r1, verified via engine REST)."""
     conversation_id = f"wa:amh:t111-redflag-{_RUN_ID}"
     business_key = f"ESC-amh-{conversation_id}"
@@ -290,8 +290,8 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
 
         task = await wait_for_task(engine_client, instance_id)
         groups = await candidate_groups(engine_client, task["id"])
-        assert groups == {"plantaoClinico"}, (
-            f"expected candidate group 'plantaoClinico' (red_flag_clinico/grave -> escalation_routing "
+        assert groups == {"plantao-clinico"}, (
+            f"expected candidate group 'plantao-clinico' (red_flag_clinico/grave -> escalation_routing "
             f"r1 -> P1), got {groups!r}"
         )
     finally:
@@ -360,7 +360,7 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
 ) -> None:
     """Gatilho 5 (always active): psychosocial risk escalates regardless of `intent`, verified
     against the REAL `triage_redflag_mental_health` table + `escalation_routing` (motivo=
-    risco_psicossocial, severidade=grave -> r2 -> plantaoClinico)."""
+    risco_psicossocial, severidade=grave -> r2 -> plantao-clinico)."""
     conversation_id = f"wa:amh:t111-psy-{_RUN_ID}"
     business_key = f"ESC-amh-{conversation_id}"
 
@@ -406,7 +406,7 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
         instance_id = str(actives[0]["id"])
         task = await wait_for_task(engine_client, instance_id)
         groups = await candidate_groups(engine_client, task["id"])
-        assert groups == {"plantaoClinico"}
+        assert groups == {"plantao-clinico"}
     finally:
         await dmn.close()
         await cibseven.close()
@@ -444,7 +444,7 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
 ) -> None:
     """Verifier live case 1: malformed classify JSON + 'não consigo respirar' -> a REAL
     SP-OP-ESCALATION-001 instance (motivo=falha_tecnica -> escalation_routing r6 -> P3
-    atendimentoHumano), never inform."""
+    atendimento-humano), never inform."""
     conversation_id = f"wa:amh:t111-clf-badjson-{_RUN_ID}"
     business_key = f"ESC-amh-{conversation_id}"
 

@@ -95,8 +95,8 @@ Regras propostas (ordem importa):
 ### Decisões que NÃO são de engenharia (para a ratificação)
 
 1. **Para onde escalar quando esgota.** O documento do diretor diz "como pedido de humano"
-   (`solicitacao_humano` → P3 / `atendimentoHumano` / ack 4 h). Alternativa: `intencao_clinica`
-   (P2 / `enfermagemTriagem` / ack 30 min). Um sintoma que não se conseguiu caracterizar em duas
+   (`solicitacao_humano` → P3 / `atendimento-humano` / ack 4 h). Alternativa: `intencao_clinica`
+   (P2 / `enfermagem-triagem` / ack 30 min). Um sintoma que não se conseguiu caracterizar em duas
    rodadas talvez mereça enfermagem, não atendimento. Implementado o que o documento pediu
    (`MOTIVO_COLETA_ESGOTADA`), trocar é uma constante.
 2. **Regra 6.** Adulto com sintoma reconhecido e intensidade dita, sem idade: perguntar a idade

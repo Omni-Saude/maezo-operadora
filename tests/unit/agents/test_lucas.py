@@ -493,7 +493,7 @@ async def test_assess_escalation_routing_dmn_unavailable_still_escalates_case_ne
     result = await graph.assess(_base_state())
 
     assert result["route"] == "escalate_human"
-    assert result["grupo_humano"] == "atendimentoHumano"
+    assert result["grupo_humano"] == "atendimento-humano"
     assert "roteamento_escalacao" not in result
 
 

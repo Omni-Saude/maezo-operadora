@@ -206,13 +206,13 @@ _ROTEAMENTO_ESCALACAO_ALLOW: frozenset[str] = frozenset(
 # dossier/process variables for the human's benefit. This is NOT the same as the shared
 # `escalation_routing` DMN that SP-OP-ESCALATION-001's own `BRT_RotearEscalonamento` evaluates
 # engine-side (keyed on `motivo_categoria`/`severidade`, whose own `grupo_atendimento` domain —
-# `docs/processes/contracts/SP-OP-ESCALATION-001.md` — is `plantaoClinico` |
-# `enfermagemTriagem` | `atendimentoHumano`, with no dedicated billing/contracts group). The
+# `docs/processes/contracts/SP-OP-ESCALATION-001.md` — is `plantao-clinico` |
+# `enfermagem-triagem` | `atendimento-humano`, with no dedicated billing/contracts group). The
 # ACTUAL BPMN candidate group always comes from that shared table, never from this map — this map
 # only feeds the dossier's `grupo_humano_sugerido` (an instruction, never a decision).
 _ESCALACAO_GRUPO: dict[RoteamentoEscalacao, str] = {
-    "ATENDIMENTO_HUMANO": "atendimentoHumano",
-    "COBRANCA_HUMANO": "atendimentoHumano",
+    "ATENDIMENTO_HUMANO": "atendimento-humano",
+    "COBRANCA_HUMANO": "atendimento-humano",
     "CONTRATOS_HUMANO": "gestao-contratos",
 }
 
@@ -819,9 +819,9 @@ class LucasGraph:
 
         The destination is ALWAYS `escalate_human` regardless of this DMN's outcome — it only
         picks the SUGGESTED group. A DMN failure or an out-of-allowlist value NEVER loses the
-        case: the conservative catch-all group `atendimentoHumano` is used, and the case still
+        case: the conservative catch-all group `atendimento-humano` is used, and the case still
         escalates (fail-safe fechado — the case is never dropped)."""
-        grupo = "atendimentoHumano"  # conservative catch-all, always available
+        grupo = "atendimento-humano"  # conservative catch-all, always available
         roteamento_escalacao: RoteamentoEscalacao | None = None
         esc_in: dict[str, Any] = {
             "intencao": str(state.get("intencao", "")),
@@ -927,7 +927,7 @@ class LucasGraph:
                 "motivo_humano": "falha_tecnica",
                 "motivo_categoria": "falha_tecnica",
                 "severidade": "leve",
-                "grupo_humano": "atendimentoHumano",
+                "grupo_humano": "atendimento-humano",
             }
             state = cast(LucasState, {**state, **defaults})
 
@@ -1098,7 +1098,7 @@ class LucasGraph:
             "motivo_humano": motivo,
             "motivo_categoria": _motivo_categoria(motivo),
             "severidade": _severidade_humano(motivo),
-            "grupo_humano": "atendimentoHumano",
+            "grupo_humano": "atendimento-humano",
             # R1 cycle-1 F2: explicitly empty — no DMN ran on this shortcut, so nothing (least
             # of all a caller-planted value) may pose as a DMN provenance ref in engine
             # variables. Redundant with `receive`'s blanket reset by design (defense in depth).
@@ -1148,7 +1148,7 @@ class LucasGraph:
         # Lucas-specific audit annotations — additive, never a decision (module docstring).
         variables["lucas_route"] = state.get("route") or "escalate_human"
         variables["motivo_encaminhamento"] = state.get("motivo_humano") or ""
-        variables["grupo_humano_sugerido"] = state.get("grupo_humano") or "atendimentoHumano"
+        variables["grupo_humano_sugerido"] = state.get("grupo_humano") or "atendimento-humano"
         variables["dossie_lucas"] = dossier
         return variables
 

@@ -55,7 +55,7 @@ def _mutate_grupo_humano(case: dict[str, Any]) -> dict[str, Any]:
     Non-vacuousness proof for the SF half of this golden."""
     mutated = copy.deepcopy(dict(case))
     fields = dict(mutated["expect"]["fields"])
-    fields["grupo_humano"] = "atendimentoHumano"
+    fields["grupo_humano"] = "atendimento-humano"
     mutated["expect"] = {**mutated["expect"], "fields": fields}
     return mutated
 

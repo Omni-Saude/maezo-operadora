@@ -102,7 +102,7 @@ A DMN pode ser avaliada diretamente no engine para a demo:
 curl -sf -X POST "$ENGINE/decision-definition/key/escalation_routing/evaluate" \
   -H "Content-Type: application/json" \
   -d '{"variables":{"motivo_categoria":{"value":"red_flag_clinico","type":"String"},"severidade":{"value":"grave","type":"String"}}}' | jq
-# -> prioridade=P1, grupo_atendimento=plantaoClinico, sla_ack=PT5M, sla_resolucao=PT30M
+# -> prioridade=P1, grupo_atendimento=plantao-clinico, sla_ack=PT5M, sla_resolucao=PT30M
 ```
 
 ## Passo 4 — SP-OP-ESCALATION-001 inicia (business key idempotente)
@@ -132,12 +132,12 @@ Confirme **uma** instância ativa para a business key (idempotência):
 curl -sf "$ENGINE/process-instance?businessKey=$BKEY&active=true" | jq 'length'   # -> 1
 ```
 
-Confirme a User Task no grupo roteado pela DMN (`plantaoClinico`, P1):
+Confirme a User Task no grupo roteado pela DMN (`plantao-clinico`, P1):
 
 ```bash
 IID=$(curl -sf "$ENGINE/process-instance?businessKey=$BKEY&active=true" | jq -r '.[0].id')
 TID=$(curl -sf "$ENGINE/task?processInstanceId=$IID" | jq -r '.[0].id')
-curl -sf "$ENGINE/task/$TID/identity-links?type=candidate" | jq '.[].groupId'   # -> "plantaoClinico"
+curl -sf "$ENGINE/task/$TID/identity-links?type=candidate" | jq '.[].groupId'   # -> "plantao-clinico"
 ```
 
 ## Passo 5 — Humano resolve (HITL)

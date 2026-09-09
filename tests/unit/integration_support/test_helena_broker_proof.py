@@ -45,7 +45,7 @@ def _records(primary_failed: bool) -> tuple[list[SimpleNamespace], dict[str, Any
     if primary_failed:
         notification.update(
             type="escalation.notify_supervisor",
-            alert_to="supervisaoAtendimento",
+            alert_to="supervisao-atendimento",
             motivo_alerta="notificacao_primaria_falhou",
         )
     return [

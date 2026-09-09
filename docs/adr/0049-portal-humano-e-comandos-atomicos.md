@@ -119,7 +119,7 @@ Os identificadores estáticos existentes são preservados literalmente:
 `coordenacao-reembolso`, `coordenacao-regulatorio`, `equipe-cuidado`, `gestao-cobranca`,
 `gestao-contratos`, `gestao-rede`, `investigacao-fraude`, `junta-medica`,
 `juridico-contratos`, `juridico-fraude`, `juridico-rede`, `juridico-regulatorio`,
-`medico-auditor`, `regulatorio-ans`, `supervisaoAtendimento`.
+`medico-auditor`, `regulatorio-ans`, `supervisao-atendimento`.
 
 As expressões `${grupo_humano}`, `${pagto_alcada.grupo_aprovador}`,
 `${roteamento.grupo_atendimento}` e `${roteamento_dsr.grupo_revisor}` são resolvidas no servidor

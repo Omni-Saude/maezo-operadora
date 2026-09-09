@@ -27,7 +27,7 @@
     "fields": {
       "route": "escalate_human",
       "motivo_humano": "contestacao_cobranca",
-      "grupo_humano": "atendimentoHumano"
+      "grupo_humano": "atendimento-humano"
     }
   },
   "leak_canaries": []

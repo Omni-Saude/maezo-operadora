@@ -93,7 +93,7 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # `bedrock_br`/`br_resident` (ver `service-agents.tf`). Vazios nao afrouxam nada.
       { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
       { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
-      { name = "MAEZO_INFERENCE_MODEL", value = local.helena_phi_ligado ? var.phi_model_id : "" },
+      { name = "MAEZO_INFERENCE_MODEL", value = local.agentes.helena.provider == "bedrock_br" || local.agentes.helena.provider == "br_resident" ? var.phi_model_id : "" },
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },

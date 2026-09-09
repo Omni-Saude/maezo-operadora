@@ -255,8 +255,8 @@ Valores clinicos dos SLAs: DRAFT — validar com gestao assistencial (docs/revie
     </bpmn:boundaryEvent>
 
     <bpmn:userTask id="UT_SupervisorAssume" name="Supervisor assume e resolve (ultima linha)"
-                   camunda:candidateGroups="supervisaoAtendimento">
-      <bpmn:documentation>Escalation path do SLA: caso interrompido e reatribuido a supervisaoAtendimento. Mesmas saidas obrigatorias (resultado, notas_resolucao). Sem timer adicional: ultima linha humana; monitoramento via evento sla_breached.</bpmn:documentation>
+                   camunda:candidateGroups="supervisao-atendimento">
+      <bpmn:documentation>Escalation path do SLA: caso interrompido e reatribuido a supervisao-atendimento. Mesmas saidas obrigatorias (resultado, notas_resolucao). Sem timer adicional: ultima linha humana; monitoramento via evento sla_breached.</bpmn:documentation>
       <!-- GAP-ESC-4: mesmo enforcement estrutural de `resultado` de UT_TratarEscalonamento
            (ultima linha humana carrega o MESMO conjunto fechado de saidas). -->
       <bpmn:extensionElements>

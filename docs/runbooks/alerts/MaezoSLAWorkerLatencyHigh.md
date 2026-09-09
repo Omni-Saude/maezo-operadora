@@ -124,7 +124,7 @@ Is /readyz on worker-daemon green?
 **DRAFT/verify — dono do serviço.** No in-repo on-call/PagerDuty roster or Alertmanager routing
 config exists for platform/SRE infrastructure alerts (only `spec/processes/dmn/escalation_routing.dmn`
 exists, and it routes **agent-conversation** escalations to human staff — e.g. `falha_tecnica` →
-group `atendimentoHumano`, ack SLA `PT4H`, resolution `PT24H` (rule `r6`,
+group `atendimento-humano`, ack SLA `PT4H`, resolution `PT24H` (rule `r6`,
 `spec/processes/dmn/escalation_routing.dmn:73-81`) — a business-process concern, not
 an SRE paging concern; there is no DMN or contract mapping a Prometheus alert name to a human
 team). Until a service owner defines that mapping, treat this as: page the platform/SRE rotation
