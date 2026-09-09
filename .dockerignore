@@ -35,6 +35,23 @@ docs/
 
 # Artefatos de deploy (o Dockerfile fica em deploy/ mas o contexto é a raiz)
 deploy/
+!deploy/
+deploy/*
+!deploy/cibseven/
+deploy/cibseven/*
+!deploy/cibseven/human-webapp/
+deploy/cibseven/human-webapp/*
+!deploy/cibseven/human-webapp/WEB-INF/
+deploy/cibseven/human-webapp/WEB-INF/*
+!deploy/cibseven/human-webapp/WEB-INF/web.xml
+!deploy/cibseven/secured/
+deploy/cibseven/secured/*
+!deploy/cibseven/secured/descriptors/
+deploy/cibseven/secured/descriptors/*
+!deploy/cibseven/secured/descriptors/global-web.xml
+!deploy/cibseven/secured/descriptors/bpm-platform.xml
+!deploy/cibseven/secured/descriptors/engine-rest-web.xml
+!deploy/cibseven/secured/descriptors/camunda-web.xml
 
 # Variáveis de ambiente locais (nunca empacotar segredos)
 .env
