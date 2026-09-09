@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { EmployeeQueues } from "./EmployeeQueues";
 import { getSession, portalPaths, postLogout, type SessionDTO } from "./sessionClient";
 
 type ViewState =
@@ -144,6 +145,13 @@ export function App() {
     [logout],
   );
 
+  const invalidateSession = useCallback(() => {
+    requestEpoch.current += 1;
+    activeRequest.current?.abort();
+    activeRequest.current = null;
+    setState({ kind: "unauthenticated" });
+  }, []);
+
   useEffect(() => {
     if (!focusUserTransition.current || transitionHeading.current === null) return;
     transitionHeading.current.focus();
@@ -167,6 +175,7 @@ export function App() {
 
   if (state.kind === "authenticated") {
     const content = audienceContent[state.session.audience];
+    const isStaff = state.session.audience === "staff";
     return (
       <div className="app-shell">
         <header className="app-header">
@@ -181,8 +190,12 @@ export function App() {
             Sair com segurança
           </button>
         </header>
-        <main className="home">
-          <section className="welcome-card" aria-labelledby="audience-heading">
+        <main className={isStaff ? "employee-home" : "home"}>
+          <section
+            className={isStaff ? "welcome-card employee-welcome" : "welcome-card"}
+            aria-labelledby="audience-heading"
+            id="overview"
+          >
             <p className="eyebrow">Sessão ativa</p>
             <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
               Sessão confirmada. {content.heading}.
@@ -203,6 +216,16 @@ export function App() {
               </div>
             </dl>
           </section>
+          {isStaff && (
+            <EmployeeQueues
+              sessionBinding={[
+                state.session.principal_ref,
+                state.session.expires_at,
+                ...state.session.roles,
+              ].join("\u0000")}
+              onSessionUnavailable={invalidateSession}
+            />
+          )}
           <aside className="security-note" aria-labelledby="security-heading">
             <h2 id="security-heading">Acesso protegido</h2>
             <p>

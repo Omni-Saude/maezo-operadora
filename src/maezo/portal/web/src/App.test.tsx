@@ -2,6 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("./EmployeeQueues", () => ({
+  EmployeeQueues: () => <section aria-label="Filas de colaboradores" />,
+}));
+
 import { App } from "./App";
 
 type Audience = "staff" | "beneficiary" | "provider";
@@ -65,6 +69,18 @@ describe.each([
   });
 });
 
+it("monta filas somente para a audiência de colaboradores", async () => {
+  vi.mocked(fetch).mockResolvedValue(jsonResponse(session("staff")));
+  const view = render(<App />);
+  expect(await screen.findByRole("region", { name: "Filas de colaboradores" })).toBeInTheDocument();
+  view.unmount();
+
+  vi.mocked(fetch).mockResolvedValue(jsonResponse(session("provider")));
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+});
+
 it("trata 401 como sessão ausente e oferece a entrada canônica", async () => {
   vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
   render(<App />);
@@ -104,6 +120,21 @@ it("invalida a sessão quando a revalidação visível recebe 401", async () => 
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   fireEvent(document, new Event("visibilitychange"));
   expect(await screen.findByRole("heading", { name: "Sua sessão não está ativa" })).toBeInTheDocument();
+});
+
+it("remove o workspace antes de aplicar uma mudança de audiência", async () => {
+  const changedAudience = deferred<Response>();
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(jsonResponse(session("staff")))
+    .mockReturnValueOnce(changedAudience.promise);
+  render(<App />);
+  expect(await screen.findByRole("region", { name: "Filas de colaboradores" })).toBeInTheDocument();
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  fireEvent(document, new Event("visibilitychange"));
+  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+  changedAudience.resolve(jsonResponse(session("provider")));
+  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
 });
 
 it("revalida ao expirar e remove a autoridade da tela antes da resposta", async () => {
