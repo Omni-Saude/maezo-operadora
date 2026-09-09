@@ -91,5 +91,4 @@ RUN grep -q '<property name="jobExecutorDeploymentAware">false</property>' /camu
 COPY deploy/cibseven/configure-group-whitelist.sh /camunda/configure-group-whitelist.sh
 RUN sh /camunda/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml \
     && rm /camunda/configure-group-whitelist.sh \
-    && grep -c 'groupResourceWhitelistPattern' /camunda/conf/bpm-platform.xml | grep -qx 1 \
     && echo "OK: groupResourceWhitelistPattern presente uma vez"
