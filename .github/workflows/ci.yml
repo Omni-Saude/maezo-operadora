@@ -357,6 +357,13 @@ jobs:
           done
         working-directory: ${{ github.workspace }}
 
+      # Identity Center e' uma raiz separada: ECS verde nao valida esta politica.
+      - name: Terraform validate — aws-identity-center
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+        working-directory: deploy/aws-identity-center
+
   validate-helm:
     name: helm lint + egress NetworkPolicy CI
     runs-on: ubuntu-latest
