@@ -33,6 +33,8 @@ The deliberately narrow executable form set is:
   ``cancel_decisao``.
 * INADIMPLENCIA ``UT_AnaliseInadimplencia`` and ``UT_CoordenacaoCobranca`` ->
   ``inad_decisao``.
+* PROGRAMA ``UT_DecisaoClinica`` and ``UT_CoordenacaoDecisao`` -> ``programa_decisao``.
+* CRED analysis and network-coordination tasks -> ``cred_descred`` or ``cred_cred``.
 
 PAGTO admissibility is based on explicit BPMN task documentation and the plan, while the SP-OP
 output table does not enumerate ``decisao_admissibilidade`` and the BPMN has no ``formData``.  Its
@@ -66,6 +68,12 @@ hands the case to CANCEL; it does not rescind a contract. ``data_efeito_iso`` is
 text from the contract output table, not proof of a valid regulatory date. The separately listed
 ``decisao_coordenacao`` has no consumption in the current task/BPMN decision route and remains an
 unbound coordination-control obligation. This DTO does not silently give it decision authority.
+
+The four CRED bindings remain DRAFT/verify and split the two process directions into separate
+closed forms. Actor identity, provider/network facts, regulatory timers and derived replacement
+flags remain trusted runtime context. The contract-listed ``decisao_coordenacao`` and documented
+``encaminhar_fraude`` currently have no BPMN gateway or worker consumer, so neither is silently
+made browser-writable here.
 """
 
 from __future__ import annotations
@@ -124,6 +132,8 @@ FormKey = Literal[
     "cancel_decisao",
     "inad_decisao",
     "programa_decisao",
+    "cred_descred",
+    "cred_cred",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
 TaskAction = Literal["claim", "release", "decision"]
@@ -165,6 +175,9 @@ AllowedInput = Literal[
     "decisao_programa",
     "motivo_desligamento_clinico",
     "referencia_clinica",
+    "decisao_cred",
+    "fundamentacao",
+    "plano_substituicao",
 ]
 
 
@@ -670,6 +683,68 @@ class ProgramaDecisionInputs(_FrozenContract):
         return self
 
 
+class CredDecredentialingInputs(_FrozenContract):
+    """Human CRED decredentialing decision shared by analysis and network coordination.
+
+    SP-OP-CRED-001 and both current BPMN task descriptions require complete human basis for
+    ``DESCREDENCIAR``. Whether a replacement plan is mandatory depends on the trusted
+    ``tem_beneficiarios_vinculados`` process fact and remains a gateway/worker check. The browser
+    cannot supply that fact or the derived ``tem_plano_substituicao`` flag.
+    """
+
+    kind: Literal["cred_descred"]
+    decisao_cred: Literal["DESCREDENCIAR", "MANTER", "SOLICITAR_INFO"]
+    fundamentacao: RequiredText | None = None
+    referencia_regulatoria: RequiredText | None = None
+    comprovacao_notificacao_previa: RequiredText | None = None
+    plano_substituicao: RequiredText | None = None
+    data_efeito_iso: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _decredentialing_basis_is_complete(self) -> Self:
+        if self.decisao_cred == "DESCREDENCIAR":
+            for field, value in (
+                ("fundamentacao", self.fundamentacao),
+                ("referencia_regulatoria", self.referencia_regulatoria),
+                ("comprovacao_notificacao_previa", self.comprovacao_notificacao_previa),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"DESCREDENCIAR requires {field}")
+        if self.plano_substituicao is not None and not self.plano_substituicao.strip():
+            raise ValueError("plano_substituicao must not be blank when supplied")
+        return self
+
+
+class CredCredentialingInputs(_FrozenContract):
+    """Human CRED credentialing decision shared by analysis and network coordination.
+
+    The contract and current BPMN task descriptions require human basis for
+    ``NEGAR_CREDENCIAMENTO``. Building this DRAFT shape does not authenticate the actor, prove
+    provider/network facts or authorize an enrollment or denial effect.
+    """
+
+    kind: Literal["cred_cred"]
+    decisao_cred: Literal[
+        "APROVAR_CREDENCIAMENTO",
+        "NEGAR_CREDENCIAMENTO",
+        "SOLICITAR_INFO",
+    ]
+    fundamentacao: RequiredText | None = None
+    referencia_regulatoria: RequiredText | None = None
+    data_efeito_iso: RequiredText | None = None
+
+    @model_validator(mode="after")
+    def _denial_basis_is_complete(self) -> Self:
+        if self.decisao_cred == "NEGAR_CREDENCIAMENTO":
+            for field, value in (
+                ("fundamentacao", self.fundamentacao),
+                ("referencia_regulatoria", self.referencia_regulatoria),
+            ):
+                if value is None or not value.strip():
+                    raise ValueError(f"NEGAR_CREDENCIAMENTO requires {field}")
+        return self
+
+
 DecisionInputs = Annotated[
     AuthDecisionInputs
     | AuthJuntaInputs
@@ -685,7 +760,9 @@ DecisionInputs = Annotated[
     | ReembolsoAuditorInputs
     | CancelDecisionInputs
     | InadDecisionInputs
-    | ProgramaDecisionInputs,
+    | ProgramaDecisionInputs
+    | CredDecredentialingInputs
+    | CredCredentialingInputs,
     Field(discriminator="kind"),
 ]
 
@@ -762,6 +839,22 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
     ),
     ("SP-OP-PROGRAMA-001", "UT_CoordenacaoDecisao"): (
         "programa_decisao",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CRED-001", "UT_AnaliseDescredenciamento"): (
+        "cred_descred",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CRED-001", "UT_CoordenacaoRedeDescred"): (
+        "cred_descred",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CRED-001", "UT_AnaliseCredenciamento"): (
+        "cred_cred",
+        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+    ),
+    ("SP-OP-CRED-001", "UT_CoordenacaoRedeCred"): (
+        "cred_cred",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
 }
@@ -854,6 +947,20 @@ _INPUTS_BY_FORM: dict[FormKey, tuple[AllowedInput, ...]] = {
         "decisao_programa",
         "motivo_desligamento_clinico",
         "referencia_clinica",
+    ),
+    "cred_descred": (
+        "decisao_cred",
+        "fundamentacao",
+        "referencia_regulatoria",
+        "comprovacao_notificacao_previa",
+        "plano_substituicao",
+        "data_efeito_iso",
+    ),
+    "cred_cred": (
+        "decisao_cred",
+        "fundamentacao",
+        "referencia_regulatoria",
+        "data_efeito_iso",
     ),
 }
 
