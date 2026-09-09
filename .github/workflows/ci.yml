@@ -386,6 +386,9 @@ jobs:
             cd "$dir"
             terraform init -backend=false -input=false
             terraform validate
+            if [ "$dir" = "deploy/aws-ecs/envs/dev-sa-east-1/" ]; then
+              terraform test -filter=tests/portal.tftest.hcl
+            fi
             cd - > /dev/null
           done
         working-directory: ${{ github.workspace }}
