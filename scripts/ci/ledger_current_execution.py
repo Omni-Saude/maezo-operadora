@@ -329,6 +329,27 @@ def _runtime_probe(python: Path, root: Path, environment: dict[str, str]) -> dic
     return value
 
 
+def _launcher_identity(python: Path) -> dict[str, Any]:
+    """Attest the launcher without executing potentially replaced runtime code."""
+    resolved = python.resolve(strict=True)
+    metadata = python.lstat()
+    return {
+        "path": str(python),
+        "resolved": str(resolved),
+        "link": os.readlink(python) if stat.S_ISLNK(metadata.st_mode) else None,
+        "entry": [
+            metadata.st_dev,
+            metadata.st_ino,
+            metadata.st_mode,
+            metadata.st_size,
+            metadata.st_mtime_ns,
+            metadata.st_ctime_ns,
+        ],
+        "sha256": digest(regular_bytes(resolved)),
+        "stat": file_identity(resolved),
+    }
+
+
 @dataclass(frozen=True)
 class Occurrence:
     line: int
@@ -569,7 +590,12 @@ class CurrentRunner:
             ):
                 raise ValueError("LOCKED_RUNTIME_PREPARATION_REFUSED")
             python = runtime_root / ".venv/bin/python"
+            launcher = _launcher_identity(python)
+            if launcher["resolved"] != str(Path(sys.executable).resolve()):
+                raise ValueError("LOCKED_RUNTIME_LAUNCHER_IDENTITY")
             inventory = _runtime_probe(python, self.root, minimal_environment(home))
+            if _launcher_identity(python) != launcher:
+                raise ValueError("LOCKED_RUNTIME_LAUNCHER_DRIFT")
             validate_locked_inventory(regular_bytes(self.root / "uv.lock"), inventory)
             identity = inventory["identity"]
             if (
@@ -582,7 +608,7 @@ class CurrentRunner:
                 )
             ):
                 raise ValueError("LOCKED_RUNTIME_IDENTITY")
-            self._runtime = dict(python=str(python), home=str(home), inventory=inventory)
+            self._runtime = dict(python=str(python), home=str(home), inventory=inventory, launcher=launcher)
             self._preparation = preparation
         assert self._preparation is not None
         if not self._runtime_stable():
@@ -599,10 +625,12 @@ class CurrentRunner:
             and digest(regular_bytes(self.root / "uv.lock")) == prepared["lock_sha256"]
             and digest(regular_bytes(self.root / "pyproject.toml")) == prepared["config_sha256"]
             and all(digest(regular_bytes(Path(path))) == sha for path, sha in prepared["streams"].items())
+            and _launcher_identity(Path(self._runtime["python"])) == self._runtime["launcher"]
             and _runtime_probe(
                 Path(self._runtime["python"]), self.root, minimal_environment(Path(self._runtime["home"]))
             )
             == self._runtime["inventory"]
+            and _launcher_identity(Path(self._runtime["python"])) == self._runtime["launcher"]
         )
 
     def run(self, occurrence: Occurrence) -> CurrentExecutionVerdict:
@@ -659,6 +687,8 @@ class CurrentRunner:
                 raise ValueError("PRELAUNCH_SOURCE_TOOL_DRIFT")
             if _admission_state(classifier(self.root, row.test_path)) != admission_state:
                 raise ValueError("PRELAUNCH_ADMISSION_DRIFT")
+            if _launcher_identity(Path(prepared_runtime["python"])) != prepared_runtime["launcher"]:
+                raise ValueError("PRELAUNCH_RUNTIME_LAUNCHER_DRIFT")
             allowed = {str(self.root / path): sha for path, sha in before["files"].items()}
             allowed.update(runtime)
             allowed[str(tool)] = digest(regular_bytes(tool))
@@ -702,6 +732,7 @@ class CurrentRunner:
                 "base": self._scope.base if self._scope else None,
                 "tool_provenance": provenance,
                 "runtime_identity": prepared_runtime["inventory"]["identity"],
+                "runtime_launcher": prepared_runtime["launcher"],
                 "runtime_preparation": preparation,
                 "source": before,
                 "runtime_files": runtime,

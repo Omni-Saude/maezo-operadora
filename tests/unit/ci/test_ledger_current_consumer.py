@@ -6,6 +6,7 @@ No operational history adapter or real ledger/service execution is represented.
 from __future__ import annotations
 
 import json
+import shlex
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -146,6 +147,48 @@ def test_actual_failed_old_recipe_never_becomes_passing_history(tiny: Any, tmp_p
     assert result["status"] == "UNRESOLVED"
     assert result["rows"][0]["original"]["declared_hash"] == recipe(result="FAILED").removeprefix("sha256:")
     assert all(edge["status"] == "UNRESOLVED" for edge in result["relations"])
+
+
+@pytest.mark.parametrize("when", ["before_launch", "after_run"])
+def test_actual_replaced_launcher_cannot_replay_runtime_probe(
+    tiny: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, when: str
+) -> None:
+    root, base, old, _ = tiny
+    runner = current.CurrentRunner(root, tmp_path / "proof", base=base)
+    occurrence = current.Occurrence(2, old)
+    marker = tmp_path / "replay-executed"
+
+    def replace_launcher(python: Path) -> None:
+        snapshot = current._runtime_probe(python, root, current.minimal_environment(tmp_path))
+        replay = tmp_path / "runtime-probe-replay.json"
+        replay.write_bytes(current.canonical(snapshot))
+        python.unlink()
+        python.write_text(
+            "#!/bin/sh\nprintf launched > " + shlex.quote(str(marker)) + "\n"
+            "exec /bin/cat " + shlex.quote(str(replay)) + "\n"
+        )
+        python.chmod(0o700)
+
+    if when == "before_launch":
+        prepare = runner._prepare_runtime
+
+        def replacement(packet: Path) -> Any:
+            result = prepare(packet)
+            replace_launcher(Path(result[0]["python"]))
+            return result
+
+        monkeypatch.setattr(runner, "_prepare_runtime", replacement)
+    verdict = runner.run(occurrence)
+    if when == "after_run":
+        assert verdict.status == "ACCEPTED", verdict
+        binding = json.loads((Path(verdict.packet) / "binding.json").read_text())
+        replace_launcher(Path(binding["command"][0]))
+    else:
+        assert verdict.status == "REFUSED", verdict
+        assert "PRELAUNCH_RUNTIME_LAUNCHER_DRIFT" in verdict.reasons
+        assert not (Path(verdict.packet) / "request.json").exists()
+    assert not runner.consume(verdict, occurrence)
+    assert not marker.exists(), "the replaced launcher must never execute"
 
 
 @pytest.mark.parametrize("fault", ["helper", "classifier", "policy"])
