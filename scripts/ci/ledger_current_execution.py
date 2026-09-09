@@ -984,8 +984,8 @@ def _history_policy() -> dict[str, Any]:
             sha256=digest(payload), policy=digest(canonical(actual)), stat=file_identity(path)
         )
     if (
-        ledger_history_proofs.checker is not legacy
-        or ledger_history_proofs.static is not ledger_invalid_declarations
+        vars(ledger_history_proofs)["checker"] is not legacy
+        or vars(ledger_history_proofs)["static"] is not ledger_invalid_declarations
     ):
         raise ValueError("HISTORY_LOADED_POLICY_DRIFT")
     return result
