@@ -317,7 +317,14 @@ def keys(value: Any, expected: dict[str, type]) -> None:
 _tool_path = ROOT / "scripts/dev/historical_tool_sources.py"
 _tool_fd = os.open(_tool_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
 with os.fdopen(_tool_fd, "rb") as _tool_stream:
+    _tool_info = os.fstat(_tool_stream.fileno())
+    if not stat.S_ISREG(_tool_info.st_mode) or _tool_info.st_nlink != 1:
+        raise ValueError("nonregular historical tool-source loader")
     _tool_data = _tool_stream.read(1024 * 1024 + 1)
+    if os.fstat(_tool_stream.fileno()) != _tool_info or (
+        os.stat(_tool_path, follow_symlinks=False) != _tool_info
+    ):
+        raise ValueError("historical tool-source loader changed during read")
 # New loader pin; the original helper/runner/checker pins remain untouched.
 if _tool_path.is_symlink() or hashlib.sha256(_tool_data).hexdigest() != (
     "bc493cabd3ffbd26bb683922998497cd477e5c1d040422366158b72f87f6d612"
