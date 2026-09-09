@@ -657,3 +657,56 @@ def test_identical_bytecode_with_foreign_globals_cannot_mint_history(
     assert verdict.status == "REFUSED"
     assert "HISTORY_LOADED_GLOBALS_DRIFT" in verdict.reasons
     assert not (Path(verdict.packet) / "runtime").exists()
+
+
+@pytest.mark.parametrize("kind", ["current", "history"])
+def test_actual_failed_public_handle_mutation_cannot_grant_acceptance(
+    history_tiny: Any, tmp_path: Path, kind: str
+) -> None:
+    root, base, old, _ = history_tiny
+    (root / TEST).write_text("def test_case(): assert False\n")
+    source = commit(root)
+    if kind == "current":
+        runner: Any = current.CurrentRunner(root, tmp_path / "mutation", base=base)
+        selected: Any = current.Occurrence(2, old)
+        accepted = "ACCEPTED"
+    else:
+        root, base, _, _ = v1((root, base, old, source))
+        runner = current.HistoryRunner(root, tmp_path / "mutation", base=base)
+        selected = relations.plan_current_relations(root, base).required_relations[0]
+        accepted = "VALID_HISTORICAL_EQUALITY"
+    verdict = runner.run(selected)
+    assert verdict.status == "FAILED", verdict
+    original = (Path(verdict.packet) / "receipt.json").read_bytes()
+    object.__setattr__(verdict, "status", accepted)
+    assert not runner.consume(verdict, selected)
+    object.__setattr__(verdict, "status", "FAILED")
+    assert not runner.consume(verdict, selected)
+    assert (Path(verdict.packet) / "receipt.json").read_bytes() == original
+
+
+@pytest.mark.parametrize("kind", ["current", "history"])
+def test_actual_public_run_id_mutation_burns_handle_and_fresh_recovery(
+    history_tiny: Any, tmp_path: Path, kind: str
+) -> None:
+    root, base, old, _ = history_tiny
+    if kind == "current":
+        runner: Any = current.CurrentRunner(root, tmp_path / "mutation", base=base)
+        selected: Any = current.Occurrence(2, old)
+        accepted = "ACCEPTED"
+    else:
+        root, base, _, _ = v1(history_tiny)
+        runner = current.HistoryRunner(root, tmp_path / "mutation", base=base)
+        selected = relations.plan_current_relations(root, base).required_relations[0]
+        accepted = "VALID_HISTORICAL_EQUALITY"
+    verdict = runner.run(selected)
+    assert verdict.status == accepted, verdict
+    original_id = verdict.run_id
+    object.__setattr__(verdict, "run_id", "caller-changed-run-id")
+    assert not runner.consume(verdict, selected)
+    object.__setattr__(verdict, "run_id", original_id)
+    assert not runner.consume(verdict, selected)
+    fresh = runner.run(selected)
+    assert fresh.status == accepted, fresh
+    assert runner.consume(fresh, selected)
+    assert fresh.run_id != original_id

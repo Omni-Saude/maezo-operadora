@@ -124,6 +124,18 @@ def run_integrated(root: Path, base: str, output: Path, *, allow_live: bool = Fa
         item["history"] = (
             ("VERIFIED" if history_ok else "UNRESOLVED") if item["required_relations"] else "NOT_REQUIRED"
         )
+        if history_ok and item["required_relations"]:
+            # Discharging an invalid declaration never labels that original
+            # historical claim as verified.
+            item["history"] = next(
+                status
+                for status in (
+                    "CORRECTED_WITH_INVALID_HISTORY",
+                    "VERIFIED_HISTORY_OWN_LOCK",
+                    "VALID_HISTORICAL_EQUALITY",
+                )
+                if any(by_relation[identity]["status"] == status for identity in item["required_relations"])
+            )
         item["status"] = (
             "UNRESOLVED"
             if not history_ok or (handle.status == "ACCEPTED" and not item["current_consumed"])

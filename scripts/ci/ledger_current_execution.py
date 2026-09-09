@@ -484,7 +484,7 @@ class CurrentRunner:
         if not 0 < timeout <= 300 or self.output.is_relative_to(self.root):
             raise ValueError("INVALID_RUN_BOUNDARY")
         self.timeout = timeout
-        self._issued: dict[str, CurrentExecutionVerdict] = {}
+        self._issued: dict[str, tuple[CurrentExecutionVerdict, bytes]] = {}
         self._executed: set[str] = set()
         self.base = base
         self._scope: RelationScope | None = None
@@ -865,12 +865,19 @@ class CurrentRunner:
             str(packet),
             digest(receipt_bytes),
         )
-        self._issued[run_id] = verdict
+        self._issued[run_id] = (verdict, canonical(asdict(verdict)))
         return verdict
 
     def consume(self, verdict: CurrentExecutionVerdict, occurrence: Occurrence) -> bool:
-        issued = self._issued.pop(verdict.run_id, None)
-        if issued is not verdict or verdict.occurrence != occurrence.identity or verdict.status != "ACCEPTED":
+        key = next((key for key, value in self._issued.items() if value[0] is verdict), verdict.run_id)
+        issued = self._issued.pop(key, None)
+        if (
+            issued is None
+            or issued[0] is not verdict
+            or issued[1] != canonical(asdict(verdict))
+            or verdict.occurrence != occurrence.identity
+            or verdict.status != "ACCEPTED"
+        ):
             return False
         packet = Path(verdict.packet)
         try:
@@ -1068,7 +1075,7 @@ class HistoryRunner:
             git(self.root, "rev-parse", "--verify", "--end-of-options", base + "^{commit}").decode().strip()
         )
         self._scope = plan_current_relations(self.root, self.base)
-        self._issued: dict[str, tuple[HistoryVerdict, dict[str, Any]]] = {}
+        self._issued: dict[str, tuple[HistoryVerdict, dict[str, Any], bytes]] = {}
         self._runtime = CurrentRunner(self.root, self.output, base=self.base)
 
     def _edge(self, identity: str) -> Any:
@@ -1406,14 +1413,16 @@ class HistoryRunner:
             str(packet),
             digest(raw),
         )
-        self._issued[run_id] = (verdict, before)
+        self._issued[run_id] = (verdict, before, canonical(asdict(verdict)))
         return verdict
 
     def consume(self, verdict: HistoryVerdict, identity: str) -> bool:
-        issued = self._issued.pop(verdict.run_id, None)
+        key = next((key for key, value in self._issued.items() if value[0] is verdict), verdict.run_id)
+        issued = self._issued.pop(key, None)
         if (
             issued is None
             or issued[0] is not verdict
+            or issued[2] != canonical(asdict(verdict))
             or verdict.relation != identity
             or verdict.status not in _HISTORY_ACCEPTED
         ):
