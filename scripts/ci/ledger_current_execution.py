@@ -10,7 +10,6 @@ import signal
 import stat
 import subprocess
 import sys
-import sysconfig
 import time
 import types
 import uuid
@@ -148,23 +147,6 @@ def file_identity(path: Path) -> list[int]:
     return [metadata.st_ino, metadata.st_size, metadata.st_mtime_ns, metadata.st_ctime_ns, metadata.st_mode]
 
 
-def runtime_inventory() -> dict[str, str]:
-    """Bind installed source/bytecode/metadata as well as the selected interpreter."""
-    roots = {Path(sysconfig.get_path(name)) for name in ("stdlib", "purelib", "platlib")}
-    files: dict[str, str] = {}
-    for root in sorted(roots):
-        for path in sorted(root.rglob("*")):
-            if path.is_file():
-                resolved = path.resolve()
-                files[str(resolved)] = digest(resolved.read_bytes())
-    executable = Path(sys.executable).resolve()
-    files[str(executable)] = digest(executable.read_bytes())
-    config = Path(sys.prefix) / "pyvenv.cfg"
-    if config.is_file():
-        files[str(config.resolve())] = digest(config.read_bytes())
-    return files
-
-
 # Finite locally selected tools. No caller environment, executable or capsule input.
 _UV = Path(shutil.which("uv") or "/missing-uv").resolve()
 _RUNTIME_PROBE = r"""
@@ -195,7 +177,14 @@ def _policy_value(value: Any) -> Any:
     """Compare loaded policy code/defaults/constants against the committed module."""
     if isinstance(value, types.CodeType):
         return [
+            value.co_filename,
+            value.co_name,
+            value.co_qualname,
             value.co_code.hex(),
+            value.co_exceptiontable.hex(),
+            value.co_linetable.hex(),
+            value.co_firstlineno,
+            value.co_posonlyargcount,
             value.co_names,
             value.co_varnames,
             value.co_freevars,
@@ -250,10 +239,15 @@ def _g2_policy() -> dict[str, Any]:
     from scripts.ci import pytest_metadata_admission
 
     for module in (legacy, pytest_metadata_admission):
-        path = Path(module.__file__).resolve()
+        filename = module.__file__
+        if not isinstance(filename, str):
+            raise ValueError("G2_LOADED_POLICY_DRIFT")
+        path = Path(filename).resolve()
         if path != Path(__file__).resolve().with_name(module.__name__.rsplit(".", 1)[1] + ".py"):
             raise ValueError("G2_LOADED_POLICY_DRIFT")
-        payload = regular_bytes(path)
+        payload = git(path.parents[2], "show", "HEAD:scripts/ci/" + path.name)
+        if regular_bytes(path) != payload:
+            raise ValueError("G2_LOADED_POLICY_DRIFT")
         trusted = types.ModuleType(module.__name__)
         trusted.__file__ = str(path)
         for value in vars(module).values():
@@ -512,6 +506,7 @@ class CurrentRunner:
             environment["UV_PROJECT_ENVIRONMENT"] = str(runtime_root / ".venv")
             # UV's cache contains only installation artifacts; credentials are not inherited.
             uv_hash = digest(regular_bytes(_UV))
+            uv_stat = file_identity(_UV)
             command = [
                 str(_UV),
                 "sync",
@@ -548,6 +543,7 @@ class CurrentRunner:
                 returncode=result.returncode,
                 uv_path=str(_UV),
                 uv_sha256=uv_hash,
+                uv_stat=uv_stat,
                 lock_sha256=digest(regular_bytes(self.root / "uv.lock")),
                 config_sha256=digest(regular_bytes(self.root / "pyproject.toml")),
                 streams={
@@ -556,7 +552,11 @@ class CurrentRunner:
                 },
             )
             (packet / "preparation.json").write_bytes(canonical(preparation))
-            if result.returncode != 0 or digest(regular_bytes(_UV)) != uv_hash:
+            if (
+                result.returncode != 0
+                or digest(regular_bytes(_UV)) != uv_hash
+                or file_identity(_UV) != uv_stat
+            ):
                 raise ValueError("LOCKED_RUNTIME_PREPARATION_REFUSED")
             python = runtime_root / ".venv/bin/python"
             inventory = _runtime_probe(python, self.root, minimal_environment(home))
@@ -585,6 +585,7 @@ class CurrentRunner:
         prepared = self._preparation
         return (
             digest(regular_bytes(_UV)) == prepared["uv_sha256"]
+            and file_identity(_UV) == prepared["uv_stat"]
             and digest(regular_bytes(self.root / "uv.lock")) == prepared["lock_sha256"]
             and digest(regular_bytes(self.root / "pyproject.toml")) == prepared["config_sha256"]
             and all(digest(regular_bytes(Path(path))) == sha for path, sha in prepared["streams"].items())
