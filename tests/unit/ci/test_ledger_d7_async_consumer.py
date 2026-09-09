@@ -326,6 +326,9 @@ def test_missing_separate_review_closure_refused(candidate: Any, name: str) -> N
         if item["artifact"]["path"].endswith("/" + name)
     )
     (repo / ref["artifact"]["path"]).unlink()
+    # Remove the ref too: non-report packet omissions still satisfy closed v2,
+    # so the finite D7 review closure itself must catch the missing attestation.
+    record["historical_evidence"]["originals"].remove(ref)
     publish()
     with pytest.raises(static.InvalidDeclarationError):
         plan()
@@ -653,3 +656,42 @@ def test_collision_cycle_and_valid_history_do_not_expand_d7(candidate: Any) -> N
     value.pop("reason")
     with pytest.raises(static.InvalidDeclarationError, match="IC_REASON"):
         static.parse_record(json.dumps(value).encode(), kind="verified-history")
+
+
+@pytest.mark.parametrize(
+    "field", ["schema", "producer", "catalogue", "inner_schema", "recipe", "observations", "inner_producer"]
+)
+def test_outer_semantics_are_checked_after_fixture_hash_authentication(
+    candidate: Any, adapter: Any, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    repo, reviewed, _, _, _, tmp, prefix, _ = candidate
+    packet = tmp / "semantic-outer"
+    proof.materialize(
+        packet,
+        {
+            path.relative_to(repo / prefix).as_posix(): path.read_bytes()
+            for path in (repo / prefix).rglob("*")
+            if path.is_file()
+        },
+    )
+    envelope = adapter.load(packet / "successor.json")
+    envelope[field] = "synthetic forged field"
+    (packet / "successor.json").write_bytes(adapter.encode(envelope))
+    (packet / "manifest.json").write_bytes(
+        adapter.encode(adapter.Packet(packet).hashes(exclude="manifest.json"))
+    )
+    # Repinning here belongs only to the fixture: production forbids it. This
+    # reaches the independent envelope predicate instead of the outer hash wall.
+    monkeypatch.setattr(
+        proof,
+        "D7_CATALOG",
+        (
+            replace(
+                reviewed,
+                manifest_sha256=static.digest((packet / "manifest.json").read_bytes()),
+                receipt_sha256=static.digest((packet / "successor.json").read_bytes()),
+            ),
+        ),
+    )
+    with pytest.raises(static.InvalidDeclarationError, match="D7_ARCHIVE_ENVELOPE_BINDING"):
+        archive.validate_d7_archived_receipt(adapter, packet, repo, reviewed.identity())
