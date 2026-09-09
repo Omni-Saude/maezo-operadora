@@ -8,7 +8,7 @@ of task/command IDs or the original admission is never a read capability.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Literal
 
 from pydantic import field_validator, model_validator
@@ -43,9 +43,7 @@ class PublicReceipt(ReceiptIdentity):
     @field_validator("engine_recorded_at")
     @classmethod
     def utc_timestamp(cls, value: datetime | None) -> datetime | None:
-        if value is not None and (
-            value.tzinfo is None or value.utcoffset() != timedelta(0) or value > datetime.now(UTC)
-        ):
+        if value is not None and (value.tzinfo is None or value.utcoffset() != timedelta(0)):
             raise ValueError("engine receipt timestamp unavailable")
         return value
 
