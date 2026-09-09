@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from maezo.gateway.audit import hash_input
 from maezo.gateway.engine_contracts import (
     AttestedField,
     EngineAuthority,
@@ -24,6 +27,7 @@ from maezo.gateway.engine_contracts import (
     EngineTarget,
     FieldOrigin,
     ValueKind,
+    VariableField,
     canonical_json,
     parse_json,
 )
@@ -33,6 +37,7 @@ from maezo.gateway.engine_schemas import (
     CONTAS_PAGTO_START,
     ESCALATION_NOTIFY_ERROR,
     HELENA_START,
+    RAFAEL_START,
     SCHEMAS,
     schema_by_id,
     start_read_schema,
@@ -695,3 +700,265 @@ def test_legacy_wrapper_does_not_claim_a_d7_preflight():
     legacy = gate_cibseven(FakeCibSevenTransport(), SeamContext("synthetic", "helena"))
     assert isinstance(legacy, HistoryQueryingTransport)
     assert not isinstance(legacy, StartAuthorizingTransport)
+
+
+# Names are taken from the five canonical contract tables, independently of schema.null_members.
+_CONTRACT_DOSSIER_NULLS = (
+    ("carolina.cred.start.v1", "dossie_carolina", "decisao_cred"),
+    ("gustavo.nip.start.v1", "dossie_gustavo", "decisao_nip"),
+    ("gustavo.ans-submit.start.v1", "dossie_gustavo", "decisao_envio"),
+    ("marina.contas.start.v1", "dossie_marina", "decisao_contas"),
+    ("valentina.programa.start.v1", "dossie_valentina", "decisao_programa"),
+    ("valentina.programa.start.v1", "dossie_valentina", "motivo_desligamento_clinico"),
+    ("valentina.programa.start.v1", "dossie_valentina", "referencia_clinica"),
+    ("valentina.programa.start.v1", "dossie_valentina", "responsavel_clinico_id"),
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sid,dossier,field", _CONTRACT_DOSSIER_NULLS)
+async def test_repair_canonical_dossier_refuses_before_authority_and_recovers(sid, dossier, field):
+    schema = schema_by_id(sid)
+    p = profile(schema)
+    profiles = (p, replace(p, schema=start_read_schema(schema, EngineOperation.READ_ACTIVE)))
+    source = AuthoritySource(profiles)
+    inner, sink = FakeCibSevenTransport(), FakeStartAuditSink()
+    wrapped = bind_cibseven_start_preflight(
+        inner=inner,
+        seam=SeamContext("synthetic", schema.workload),
+        authorizer=ProfileStartAuthorizer(EngineOperationAuthorizer(profiles, source)),
+    )
+    data = variables(schema)
+    data[dossier][field] = "SYNTHETIC_FORGED_DECISION"
+    args = dict(
+        process_key=schema.process_key,
+        business_key=RESOURCE,
+        variables=data,
+        audit_sink=sink,
+        provenance=AgentDecisionProvenance(schema.workload, VERSION, "synthetic", {}),
+    )
+    with pytest.raises(CibSevenStartAuthorizationError):
+        await start_process_idempotent(wrapped, **args)
+    assert source.calls == [] and sink.calls == [] and sink._claimed == {} and inner._variables == {}
+    data[dossier][field] = None
+    data[dossier]["supporting_fact"] = {"count": 2, "refs": [{"decisao_informada": "ordinary data"}]}
+    assert (await start_process_idempotent(wrapped, **args)).start_outcome is StartOutcome.STARTED
+    assert inner._variables[RESOURCE] == data
+    del data[dossier][field]
+    schema.validate(data)  # Optional absence remains legal; no field is silently stripped.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("boundary", ["authority-start", "authority-read", "audit", "read", "effect"])
+@pytest.mark.parametrize("shape", ["dict", "list"])
+async def test_repair_snapshot_is_the_audited_and_emitted_payload_at_every_await(boundary, shape):
+    p = profile(RAFAEL_START)
+    profiles = (p, replace(p, schema=start_read_schema(p.schema, EngineOperation.READ_ACTIVE)))
+    data = variables(p.schema)
+    field = "dmn_decision_refs" if shape == "dict" else "documentos_refs"
+    data[field] = {"refs": [{"id": "original"}]} if shape == "dict" else [{"refs": ["original"]}]
+    alias = data[field]
+    original_json = canonical_json(data)
+    original = parse_json(original_json)
+    ready, proceed = asyncio.Event(), asyncio.Event()
+
+    async def pause(at):
+        if boundary == at:
+            ready.set()
+            await proceed.wait()
+
+    source = AuthoritySource(profiles)
+
+    class PausedAuthority:
+        async def resolve(self, req):
+            response = await source.resolve(req)
+            await pause("authority-start" if req.operation is EngineOperation.START else "authority-read")
+            return response
+
+    class PausedSink(FakeStartAuditSink):
+        async def emit_once_status(self, record, *, dedup_key):
+            await pause("audit")
+            return await super().emit_once_status(record, dedup_key=dedup_key)
+
+    class PausedTransport(FakeCibSevenTransport):
+        async def find_active_instance(self, business_key):
+            await pause("read")
+            return await super().find_active_instance(business_key)
+
+        async def start_process_instance(self, process_key, business_key, variables):
+            await pause("effect")
+            self.wire = _to_camunda_vars(variables)
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inner, sink = PausedTransport(), PausedSink()
+    wrapped = bind_cibseven_start_preflight(
+        inner=inner,
+        seam=SeamContext("synthetic", "rafael"),
+        authorizer=ProfileStartAuthorizer(EngineOperationAuthorizer(profiles, PausedAuthority())),
+    )
+    pending = asyncio.create_task(
+        start_process_idempotent(
+            wrapped,
+            process_key=p.target.process_key,
+            business_key=RESOURCE,
+            variables=data,
+            audit_sink=sink,
+            provenance=AgentDecisionProvenance("rafael", VERSION, "synthetic", {}),
+        )
+    )
+    try:
+        await asyncio.wait_for(ready.wait(), 2)
+        if shape == "dict":
+            alias["refs"][0]["id"] = "changed"
+            alias.update(
+                {
+                    "type": "Object",
+                    "value": "SYNTHETIC_UNREVIEWED",
+                    "valueInfo": {"serializationDataFormat": "application/x-java-serialized-object"},
+                }
+            )
+        else:
+            alias[0]["refs"].append("changed")
+            alias.append({"injected": ["changed"]})
+        data[field] = {"replaced": True}
+    finally:
+        proceed.set()
+    result = await pending
+    assert result.start_outcome is StartOutcome.STARTED
+    assert source.calls[0].variables_json == original_json
+    assert inner._variables[RESOURCE] == original
+    assert inner.wire == _to_camunda_vars(original)
+    assert len(sink.calls) == len(sink._claimed) == len(inner._history[RESOURCE]) == 1
+    assert sink.records[0].details["input_sha256"] == hash_input(original)
+
+
+class _MutableString(str):
+    pass
+
+
+class _MutableBytes(bytes):
+    pass
+
+
+@pytest.mark.parametrize(
+    "slot,value",
+    [
+        ("fixed_json", bytearray(b'"BRL"')),
+        ("fixed_json", memoryview(b'"BRL"')),
+        ("fixed_json", _MutableBytes(b'"BRL"')),
+        ("fixed_json", b' {"v": 1}'),
+        ("fixed_json", b'{"v":1,"v":2}'),
+        ("fixed_json", b"NaN"),
+        ("fixed_json", b"[] trailing"),
+        ("empty_evidence_when", ["lastro_origem", b'"automatic"']),
+        ("empty_evidence_when", ("lastro_origem", bytearray(b'"automatic"'))),
+        ("empty_evidence_when", ("lastro_origem", _MutableBytes(b'"automatic"'))),
+        ("empty_evidence_when", (_MutableString("lastro_origem"), b'"automatic"')),
+        ("empty_evidence_when", ("lastro_origem", b'"automatic"', b'"extra"')),
+        ("empty_evidence_when", ("lastro_origem",)),
+        ("empty_evidence_when", ([], b'"automatic"')),
+        ("null_members", (_MutableString("decisao_cred"),)),
+        ("null_members", (["decisao_cred"],)),
+        ("origin", "prior_human_evidence"),
+        ("kind", "String"),
+    ],
+)
+def test_repair_nested_policy_values_reject_mutable_and_malformed_members(slot, value):
+    with pytest.raises(EngineCapabilityError):
+        VariableField("synthetic", ValueKind.STRING, **{slot: value}) if slot != "kind" else VariableField(
+            "synthetic", value
+        )
+
+
+@pytest.mark.parametrize("slot", ["identity", "target", "source_target"])
+def test_repair_profile_rejects_mutable_identity_and_target_lookalikes(slot):
+    from dataclasses import asdict
+
+    p = profile(CONTAS_PAGTO_START)
+    values = asdict(getattr(p, slot))
+    if slot == "identity":
+        values["origin"] = "request_header"
+    with pytest.raises(EngineCapabilityError):
+        replace(p, **{slot: SimpleNamespace(**values)})
+
+
+@pytest.mark.parametrize(
+    "slot,value",
+    [
+        ("topic", []),
+        ("message", []),
+        ("worker_id", []),
+        ("resource_ref", []),
+        ("variables_json", bytearray(b"{}")),
+        ("correlation_json", bytearray(b"{}")),
+        ("parameters_json", bytearray(b"{}")),
+    ],
+)
+def test_repair_request_rejects_falsey_mutable_members(slot, value):
+    with pytest.raises(EngineCapabilityError):
+        replace(request(profile()), **{slot: value})
+
+
+@pytest.mark.parametrize(
+    "slot,value",
+    [
+        ("sources", (["synthetic"],)),
+        ("correlation_fields", (_MutableString("tenant_id"),)),
+        ("error_codes", ([],)),
+        ("read_projection", (["synthetic"],)),
+        ("topic", []),
+        ("message", []),
+        ("source_process_key", []),
+        ("source_topic", []),
+        ("audit_actor", []),
+        ("fields", (SimpleNamespace(name="tenant_id"),)),
+    ],
+)
+def test_repair_schema_rejects_equivalent_nested_mutability(slot, value):
+    with pytest.raises(EngineCapabilityError):
+        replace(HELENA_START, **{slot: value})
+
+
+@pytest.mark.parametrize(
+    "slot,value", [("origin", "request_header"), ("subject", _MutableString("synthetic"))]
+)
+def test_repair_profile_revalidates_real_identity_runtime_invariants(slot, value):
+    # Even an exact-class object bypassing its constructor cannot enter trusted configuration.
+    p = profile()
+    malformed = replace(p.identity)
+    object.__setattr__(malformed, slot, value)
+    with pytest.raises(EngineCapabilityError):
+        replace(p, identity=malformed)
+
+
+def test_repair_profile_and_request_ports_reject_mutable_lookalikes():
+    with pytest.raises(EngineCapabilityError):
+        EngineOperationAuthorizer((SimpleNamespace(schema=HELENA_START, target=profile().target),), None)
+    with pytest.raises(EngineCapabilityError):
+        replace(profile().target, topic=[])
+    with pytest.raises(EngineCapabilityError):
+        AttestedField("synthetic", "engine_fact", b'"value"', "synthetic-source")
+
+
+@pytest.mark.asyncio
+async def test_repair_authority_and_request_reject_mutable_lookalikes():
+    p = profile()
+    source = AuthoritySource((p,))
+    authorizer = EngineOperationAuthorizer((p,), source)
+    with pytest.raises(EngineCapabilityError):
+        await authorizer.authorize(SimpleNamespace(**{"operation": EngineOperation.START}))
+    original = await source.resolve(request(p))
+    for slot, value in (
+        ("identity", SimpleNamespace()),
+        ("target", SimpleNamespace()),
+        ("source_target", SimpleNamespace()),
+        ("lock_owner", []),
+        ("source_task_ref", []),
+        ("prior_human_completed", 1),
+    ):
+        with pytest.raises(EngineCapabilityError):
+            replace(original, **{slot: value})
+    malformed = AttestedField("synthetic", FieldOrigin.ENGINE, b'"value"', "synthetic-source")
+    object.__setattr__(malformed, "name", [])
+    with pytest.raises(EngineCapabilityError):
+        replace(original, fields=(malformed,))

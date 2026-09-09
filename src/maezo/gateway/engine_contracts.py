@@ -13,9 +13,10 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from enum import StrEnum
 from typing import Any, Protocol
+from zoneinfo import ZoneInfo
 
 
 class EngineRefusalCode(StrEnum):
@@ -91,6 +92,27 @@ def _token(value: object) -> None:
         raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
 
 
+def _optional_token(value: object) -> None:
+    if type(value) is not str:
+        raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+    if value:
+        _token(value)
+
+
+def _tokens(values: object) -> None:
+    if type(values) is not tuple:
+        raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+    for value in values:
+        _token(value)
+    if len(values) != len(set(values)):
+        raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+
+
+def _instant(value: object) -> None:
+    if type(value) is not datetime or type(value.tzinfo) not in (timezone, ZoneInfo):
+        raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
+
+
 def _json_value(value: object, *, depth: int = 0) -> None:
     if depth > 16:
         raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
@@ -152,6 +174,15 @@ def parse_json(body: bytes) -> dict[str, Any]:
         raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY) from None
 
 
+def _canonical_json_bytes(value: object) -> None:
+    """Reject equal-but-mutable bytes and malformed/noncanonical nested policy values."""
+    if type(value) is not bytes:
+        raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+    decoded = parse_json(b'{"value":' + value + b"}")["value"]
+    if canonical_json(decoded) != value:
+        raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+
+
 @dataclass(frozen=True, slots=True)
 class EngineIdentity:
     tenant: str
@@ -190,8 +221,7 @@ class EngineTarget:
         for value in (self.process_key, self.definition_id):
             _token(value)
         for value in (self.topic, self.message):
-            if value:
-                _token(value)
+            _optional_token(value)
         if type(self.process_version) is not int or self.process_version < 1:
             raise EngineCapabilityError(EngineRefusalCode.RESOURCE_MISMATCH)
 
@@ -211,14 +241,20 @@ class VariableField:
     def __post_init__(self) -> None:
         _token(self.name)
         if (
-            not isinstance(self.kind, ValueKind)
-            or not isinstance(self.origin, FieldOrigin)
+            type(self.kind) is not ValueKind
+            or type(self.origin) is not FieldOrigin
             or type(self.required) is not bool
             or type(self.null_members) is not tuple
         ):
             raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
-        for member in self.null_members:
-            _token(member)
+        _tokens(self.null_members)
+        if self.fixed_json is not None:
+            _canonical_json_bytes(self.fixed_json)
+        if self.empty_evidence_when is not None:
+            if type(self.empty_evidence_when) is not tuple or len(self.empty_evidence_when) != 2:
+                raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+            _token(self.empty_evidence_when[0])
+            _canonical_json_bytes(self.empty_evidence_when[1])
 
     def validate(self, value: object) -> None:
         if self.fixed_json is not None and canonical_json(value) != self.fixed_json:
@@ -270,7 +306,7 @@ class EngineSchema:
         for value in (self.schema_id, self.process_key, self.workload):
             _token(value)
         if (
-            not isinstance(self.operation, EngineOperation)
+            type(self.operation) is not EngineOperation
             or type(self.fields) is not tuple
             or type(self.sources) is not tuple
             or not self.sources
@@ -280,6 +316,14 @@ class EngineSchema:
             or type(self.all_matching) is not bool
         ):
             raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+        for item in self.fields:
+            if type(item) is not VariableField:
+                raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+            item.__post_init__()
+        for values in (self.sources, self.correlation_fields, self.error_codes, self.read_projection):
+            _tokens(values)
+        for value in (self.topic, self.message, self.source_process_key, self.source_topic, self.audit_actor):
+            _optional_token(value)
         names = [f.name for f in self.fields]
         if len(names) != len(set(names)):
             raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
@@ -343,6 +387,19 @@ class EngineCapabilityProfile:
     def __post_init__(self) -> None:
         from maezo.gateway.engine_schemas import registered_schema
 
+        if (
+            type(self.identity) is not EngineIdentity
+            or type(self.target) is not EngineTarget
+            or type(self.schema) is not EngineSchema
+            or (self.source_target is not None and type(self.source_target) is not EngineTarget)
+        ):
+            raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
+        self.identity.__post_init__()
+        self.target.__post_init__()
+        self.schema.__post_init__()
+        _optional_token(self.worker_id)
+        if self.source_target is not None:
+            self.source_target.__post_init__()
         if not registered_schema(self.schema):
             raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
         if (
@@ -392,9 +449,15 @@ class EngineRequest:
     parameters_json: bytes = field(default=b"{}", repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.operation, EngineOperation) or type(self.all_matching) is not bool:
+        if type(self.operation) is not EngineOperation or type(self.all_matching) is not bool:
             raise EngineCapabilityError(EngineRefusalCode.OPERATION_DENIED)
         _token(self.process_key)
+        for value in (self.resource_ref, self.topic, self.message, self.worker_id):
+            _optional_token(value)
+        try:
+            _optional_token(self.error_code)
+        except EngineCapabilityError:
+            raise EngineCapabilityError(EngineRefusalCode.OPERATION_DENIED) from None
         # An empty business key is legal only for the explicitly modeled all-matching message.
         if self.resource_ref:
             _token(self.resource_ref)
@@ -416,14 +479,14 @@ class AttestedField:
         _token(self.name)
         _token(self.source_ref)
         if (
-            self.origin not in (FieldOrigin.ENGINE, FieldOrigin.PRIOR_HUMAN)
+            type(self.origin) is not FieldOrigin
+            or self.origin not in (FieldOrigin.ENGINE, FieldOrigin.PRIOR_HUMAN)
             or type(self.value_json) is not bytes
         ):
             raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
         try:
-            if canonical_json(json.loads(self.value_json)) != self.value_json:
-                raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
-        except (ValueError, UnicodeError, RecursionError):
+            _canonical_json_bytes(self.value_json)
+        except EngineCapabilityError:
             raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE) from None
 
 
@@ -450,11 +513,28 @@ class EngineAuthority:
 
     def __post_init__(self) -> None:
         if (
-            type(self.fields) is not tuple
+            type(self.identity) is not EngineIdentity
+            or type(self.target) is not EngineTarget
+            or (self.source_target is not None and type(self.source_target) is not EngineTarget)
+            or type(self.prior_human_completed) is not bool
+            or type(self.fields) is not tuple
             or any(type(item) is not AttestedField for item in self.fields)
-            or len({item.name for item in self.fields}) != len(self.fields)
         ):
             raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
+        self.identity.__post_init__()
+        self.target.__post_init__()
+        if self.source_target is not None:
+            self.source_target.__post_init__()
+        for item in self.fields:
+            item.__post_init__()
+        if len({item.name for item in self.fields}) != len(self.fields):
+            raise EngineCapabilityError(EngineRefusalCode.EVIDENCE_UNAVAILABLE)
+        _token(self.policy_digest)
+        for value in (self.resource_ref, self.source_task_ref, self.lock_owner, self.prior_human_task_ref):
+            _optional_token(value)
+        _instant(self.valid_until)
+        if self.lock_expires_at is not None:
+            _instant(self.lock_expires_at)
 
 
 class EngineAuthoritySource(Protocol):
@@ -469,6 +549,13 @@ class AuthorizedEngineOperation:
     request: EngineRequest
     target: EngineTarget
 
+    def __post_init__(self) -> None:
+        _token(self.profile_digest)
+        if type(self.request) is not EngineRequest or type(self.target) is not EngineTarget:
+            raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+        self.request.__post_init__()
+        self.target.__post_init__()
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class EngineOperationAuthorizer:
@@ -482,6 +569,10 @@ class EngineOperationAuthorizer:
     ) -> None:
         if type(profiles) is not tuple:
             raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
+        for profile in profiles:
+            if type(profile) is not EngineCapabilityProfile:
+                raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
+            profile.__post_init__()
         keys = [
             (p.schema.operation, p.target.process_key, p.target.topic, p.target.message) for p in profiles
         ]
@@ -510,6 +601,9 @@ class EngineOperationAuthorizer:
         return result
 
     async def authorize(self, request: EngineRequest) -> AuthorizedEngineOperation:
+        if type(request) is not EngineRequest:
+            raise EngineCapabilityError(EngineRefusalCode.INVALID_BODY)
+        request.__post_init__()
         if not self._profiles:
             raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
         profile = next(

@@ -66,7 +66,7 @@ import structlog
 # concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
-from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode
+from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode, parse_json
 from maezo.tools.workers.engine_var_types import camunda_int_type
 from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
 
@@ -240,7 +240,7 @@ class StartAuthorizingTransport(Protocol):
         business_key: str,
         variables: dict[str, Any],
         provenance: AgentDecisionProvenance,
-    ) -> None: ...
+    ) -> bytes: ...
 
 
 @runtime_checkable
@@ -1578,12 +1578,15 @@ async def start_process_idempotent(
     # Raw legacy transports remain explicitly unmigrated; this does not activate cutover.
     if isinstance(transport, StartAuthorizingTransport):
         try:
-            await transport.authorize_process_start(
+            authorized_variables_json = await transport.authorize_process_start(
                 process_key=process_key,
                 business_key=business_key,
                 variables=variables,
                 provenance=provenance,
             )
+            # Only this detached projection of the authorized immutable snapshot survives into
+            # audit/claim/read/effect. Neither the caller nor the resolver retains a dict alias.
+            variables = parse_json(authorized_variables_json)
         except EngineCapabilityError as exc:
             raise CibSevenStartAuthorizationError(exc.code) from None
 

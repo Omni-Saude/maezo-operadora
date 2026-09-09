@@ -34,7 +34,7 @@ class EngineStartAuthorizer(Protocol):
         business_key: str,
         variables: dict[str, Any],
         provenance: AgentDecisionProvenance,
-    ) -> None: ...
+    ) -> bytes: ...
 
 
 class ProfileStartAuthorizer:
@@ -54,7 +54,7 @@ class ProfileStartAuthorizer:
         business_key: str,
         variables: dict[str, Any],
         provenance: AgentDecisionProvenance,
-    ) -> None:
+    ) -> bytes:
         from maezo.tools.mcp_cibseven.transport import is_strict_start_dedup
 
         request = EngineRequest(EngineOperation.START, process_key, business_key, canonical_json(variables))
@@ -69,6 +69,9 @@ class ProfileStartAuthorizer:
             operations.append(EngineOperation.READ_HISTORY)
         for operation in operations:
             await self._operations.authorize(EngineRequest(operation, process_key, business_key, b"{}"))
+        # Return the exact immutable start snapshot, never re-read caller-owned variables after
+        # any authority await. The helper detaches its audit/effect payload from these bytes.
+        return request.variables_json
 
 
 class PreflightCibSevenTransport(GatedCibSevenTransport):
@@ -87,10 +90,10 @@ class PreflightCibSevenTransport(GatedCibSevenTransport):
         business_key: str,
         variables: dict[str, Any],
         provenance: AgentDecisionProvenance,
-    ) -> None:
+    ) -> bytes:
         if self._start_authorizer is None:
             raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
-        await self._start_authorizer.authorize_start(
+        return await self._start_authorizer.authorize_start(
             process_key=process_key,
             business_key=business_key,
             variables=variables,

@@ -115,7 +115,7 @@ CAROLINA_START = _agent(
     )
     + _ROUTING
     + _REFS
-    + _dossier("carolina", "decisao_credenciamento decisao_descredenciamento"),
+    + _dossier("carolina", "decisao_credenciamento decisao_descredenciamento decisao_cred"),
 )
 FERNANDO_START = _agent(
     "fernando",
@@ -159,15 +159,20 @@ VALENTINA_START = _agent(
     )
     + _ROUTING
     + _REFS
-    + _dossier("valentina", "decisao_clinica decisao_desligamento"),
+    + _dossier(
+        "valentina",
+        "decisao_clinica decisao_desligamento decisao_programa motivo_desligamento_clinico "
+        "referencia_clinica responsavel_clinico_id",
+    ),
 )
-_GUSTAVO = _fields("gustavo_route motivo_encaminhamento") + _REFS + _dossier("gustavo", "decisao_merito")
+_GUSTAVO = _fields("gustavo_route motivo_encaminhamento") + _REFS
 GUSTAVO_NIP_START = _agent(
     "gustavo",
     "NIP",
     "Resposta_NIP",
     "_contract_variables[fluxo=nip]",
     _GUSTAVO
+    + _dossier("gustavo", "decisao_merito decisao_nip")
     + _fields(
         "numero_nip_ans beneficiario_pseudo_id classificacao_nip tema_nip "
         "data_recebimento_nip_iso prazo_resposta_iso",
@@ -184,16 +189,14 @@ GUSTAVO_ANS_START = _agent(
     "Envios_Periodicos_ANS",
     "_contract_variables[fluxo=ans_submit]",
     _GUSTAVO
+    + _dossier("gustavo", "decisao_merito decisao_envio")
     + _fields("report_type competencia periodicidade origem_envio dataset_ref due_date", required=True)
     + _fields("dataset_complete schema_valid lgpd_anonimizado", ValueKind.BOOLEAN, required=True)
     + _fields("nip_protocolo_origem")
     + _fields("decisao_envio", origin=FieldOrigin.FIXED_NULL),
 )
 _MARINA = (
-    _fields("beneficiario_pseudo_id prestador_id marina_flow marina_route", required=True)
-    + _ROUTING
-    + _REFS
-    + _dossier("marina", "decisao_glosa decisao_recurso decisao_reembolso")
+    _fields("beneficiario_pseudo_id prestador_id marina_flow marina_route", required=True) + _ROUTING + _REFS
 )
 MARINA_CONTAS_START = _agent(
     "marina",
@@ -201,6 +204,7 @@ MARINA_CONTAS_START = _agent(
     "Processamento_Contas_Glosa",
     "_contract_variables[flow=contas]",
     _MARINA
+    + _dossier("marina", "decisao_glosa decisao_recurso decisao_reembolso decisao_contas")
     + _fields("numero_lote_tiss competencia tipo_lote", required=True)
     + _fields("valor_apresentado_brl", ValueKind.DOUBLE, required=True)
     + _fields("linhas_conta_refs reason_codes_tiss", ValueKind.JSON, required=True)
@@ -217,6 +221,7 @@ MARINA_RECURSO_START = _agent(
     "Recurso_Glosa",
     "_contract_variables[flow=recurso]",
     _MARINA
+    + _dossier("marina", "decisao_glosa decisao_recurso decisao_reembolso")
     + _fields(
         "numero_guia_tiss glosa_id numero_lote_tiss glosa_type glosa_reason_code "
         "codigo_procedimento_tuss data_recebimento_recurso_iso",
