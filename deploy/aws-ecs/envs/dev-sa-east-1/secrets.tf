@@ -39,6 +39,26 @@ resource "aws_secretsmanager_secret" "engine_admin" {
   tags = merge(local.base_tags, { Name = "maezo-${local.env}-cibseven-admin" })
 }
 
+resource "aws_secretsmanager_secret" "whatsapp_meta" {
+  # As DUAS credenciais que o receptor de webhook exige no boot (fail-closed, sem default —
+  # `platform/webhooks/whatsapp/settings.py`): `app_secret` valida a assinatura HMAC de cada
+  # POST da Meta; `verify_token` responde ao handshake GET. Chaves do JSON: `app_secret`,
+  # `verify_token`, e opcionalmente `waba_token` (envio) e `phone_number_id`.
+  #
+  # ESTADO EM 09/09/2026: nao ha conta WhatsApp Business nem app na Meta. O valor populado
+  # fora do Terraform e' ALEATORIO, gerado por nos, e serve a UM proposito: permitir que o
+  # receptor suba e receba mensagem SIMULADA assinada com esse mesmo segredo — exercitando a
+  # Helena de ponta a ponta sem depender da Meta. Quando o app real existir, e' `put-secret-value`
+  # com o segredo da Meta, sem mudanca de codigo nem de infra. Ate' la', a URL publica do
+  # receptor NAO deve ser cadastrada na Meta: a assinatura nunca casaria.
+  name        = "maezo/${local.env}/whatsapp/meta"
+  description = "Credenciais do webhook WhatsApp (app_secret, verify_token). Valor populado fora do Terraform. Ate' existir app na Meta, valor aleatorio proprio para teste simulado."
+
+  recovery_window_in_days = 7
+
+  tags = merge(local.base_tags, { Name = "maezo-${local.env}-whatsapp-meta" })
+}
+
 # Grant de leitura para a execution role — restrito a estes ARNs.
 data "aws_iam_policy_document" "task_execution_maezo_secrets" {
   statement {
@@ -49,6 +69,7 @@ data "aws_iam_policy_document" "task_execution_maezo_secrets" {
       aws_secretsmanager_secret.a2a_card_signing_key.arn,
       aws_secretsmanager_secret.phi_hmac_key.arn,
       aws_secretsmanager_secret.engine_admin.arn,
+      aws_secretsmanager_secret.whatsapp_meta.arn,
     ]
   }
 }

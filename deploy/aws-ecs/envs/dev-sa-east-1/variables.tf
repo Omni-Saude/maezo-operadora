@@ -198,6 +198,25 @@ variable "image_tag" {
   default     = "bootstrap"
 }
 
+variable "webhook_receiver_image_tag" {
+  description = <<-EOT
+    Tag da imagem do RECEPTOR de webhook — separada de `image_tag` de proposito. O receptor
+    mudou 1.593 linhas entre a imagem que os agentes rodam (`40dc6d4`, 27/08) e a `main` de
+    09/09 (dedup por wamid, ack-then-queue, pseudonimizacao do wamid). Subir o receptor com a
+    imagem velha testaria codigo que ja nao existe; subir TODOS os servicos com a nova seria um
+    deploy de 400 commits de carona numa entrega que so' pede um servico. Quando os agentes
+    forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
+  EOT
+  type        = string
+  default     = "f713f997" # main de 09/09/2026, digest sha256:cbb27be8…
+}
+
+variable "webhook_receiver_desired_count" {
+  description = "Replicas do receptor de webhook WhatsApp. 1 para exercitar a Helena com mensagem simulada; 0 para tirar do ar."
+  type        = number
+  default     = 1
+}
+
 variable "log_retention_days" {
   description = "Retencao dos log groups. 30 dias em dev; auditoria de verdade nao mora em CloudWatch (ADR de retencao de 5 anos)."
   type        = number
