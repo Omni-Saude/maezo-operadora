@@ -896,6 +896,19 @@ def record_response(evidence: Path, label: str, response: httpx.Response) -> Non
     )
 
 
+def record_fault_attempt(evidence: Path, label: str, send) -> httpx.Response | None:
+    """Retain failed transport attempts too; they never satisfy an HTTP outcome oracle."""
+    try:
+        response = send()
+    except httpx.TransportError as error:
+        (evidence / (label + "-transport-error.json")).write_text(
+            json.dumps({"error_type": type(error).__name__, "accepted_as_unavailability": False}) + "\n"
+        )
+        return None
+    record_response(evidence, label, response)
+    return response
+
+
 def assert_start_effect(request: dict, instance_id: str | None) -> None:
     """Observe the exact pending business key in native runtime AND committed history."""
 
@@ -1074,22 +1087,31 @@ def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency
             attempt += 1
             if not failed_engine_rest_context(logs):
                 time.sleep(0.25)
-        assert failed_engine_rest_context(logs), "no exact current /engine-rest deployment failure"
+        # Attempt BOTH live paths even if the expected startup/log outcome differs.
+        # Transport failures are retained separately and then fail, never pass by fallback.
         with client() as connection:
-            response = connection.get("/engine-rest/maezo/v1/readiness")
-            record_response(evidence, "fault-readiness", response)
-            assert_failed_context_response(response, logs)
-            response = connection.post(
-                "/engine-rest/maezo/v1/operations",
-                content=pending_wire,
-                headers={"Content-Type": "application/json"},
+            fault_readiness = record_fault_attempt(
+                evidence,
+                "fault-readiness",
+                lambda: connection.get("/engine-rest/maezo/v1/readiness"),
             )
-            record_response(evidence, "fault-operation", response)
-            assert_failed_context_response(response, logs)
+            fault_operation = record_fault_attempt(
+                evidence,
+                "fault-operation",
+                lambda: connection.post(
+                    "/engine-rest/maezo/v1/operations",
+                    content=pending_wire,
+                    headers={"Content-Type": "application/json"},
+                ),
+            )
+        fault_snapshot = snapshot()
+        (evidence / "fault-snapshot.json").write_text(json.dumps(fault_snapshot, indent=2) + "\n")
         assert owned_engine_context(evidence, "fault-after-https") == fault_context
-        assert snapshot() == before
+        assert fault_readiness is not None and fault_operation is not None, "faulted HTTPS transport failed"
+        assert_failed_context_response(fault_readiness, logs)
+        assert_failed_context_response(fault_operation, logs)
+        assert fault_snapshot == before
         assert_start_effect(pending, None)
-        (evidence / "fault-snapshot.json").write_text(json.dumps(snapshot(), indent=2) + "\n")
         with pytest.raises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", 18080), timeout=3):
             pytest.fail("failed secured startup cannot reopen plaintext")
     finally:

@@ -95,7 +95,9 @@ Timestamped logs from that ID since StartedAt must identify `maezo-boundary` fil
 `br.com.maezo.workload.Refused: engine_profile_unavailable`, and failed `/engine-rest`
 context startup, plus the pinned JSSE8443 connector startup before any HTTPS probe.
 While the fault remains installed, the same verified mTLS agent requests
-both the previously live readiness path and the pending operation path.
+both the previously live readiness path and the pending operation path. Both attempts
+and the fault snapshot are retained before classifying the outcomes; unexpected transport
+failures are recorded separately and then fail, with no fallback acceptance.
 
 The expected context-initialization failure outcome is exactly HTTP404, `text/html`,
 with the pinned Tomcat `HTTP Status 404 – Not Found` title for **both** paths, bound to
