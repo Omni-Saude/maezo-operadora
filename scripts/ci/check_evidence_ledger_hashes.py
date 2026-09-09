@@ -143,6 +143,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import io
 import ipaddress
 import json
@@ -155,6 +156,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from urllib.parse import ParseResult, parse_qsl, urlparse
 
 # scripts/ci/<file> -> parents[2] == repo root.
@@ -272,6 +274,50 @@ def parse_supersession_claim(line: str) -> SupersessionClaim | None:
 
 
 @dataclass(frozen=True)
+class InvalidDeclarationMarker:
+    """A v2 reference, never a v1 equality claim or execution approval."""
+
+    record_path: str
+    record_sha256: str
+
+
+_INVALID_MARKER_RE = re.compile(
+    r"\[ledger-supersedes:v2;kind=invalid-declaration;"
+    r"record=(docs/evidence-corrections/([0-9a-f]{64})\.json);"
+    r"record_sha256=([0-9a-f]{64})\]"
+)
+INVALID_ROW_TEMPLATE_TOKEN = "{{ledger-invalid-declaration-record}}"
+
+
+def parse_invalid_declaration_marker(line: str) -> InvalidDeclarationMarker | None:
+    if "[ledger-supersedes:v2" not in line:
+        return None
+    matches = list(_INVALID_MARKER_RE.finditer(line))
+    if len(matches) != 1 or line.count(_SUPERSESSION_HINT) != 1:
+        raise SupersessionError(
+            "IC_MARKER: malformed marker; expected exactly one closed v2 invalid-declaration marker"
+        )
+    match = matches[0]
+    if match.group(2) != match.group(3) or INVALID_ROW_TEMPLATE_TOKEN in line:
+        raise SupersessionError("IC_MARKER: content address mismatch or pre-existing template token")
+    return InvalidDeclarationMarker(match.group(1), match.group(3))
+
+
+def invalid_declaration_template_sha256(line: str) -> str:
+    if parse_invalid_declaration_marker(line) is None:
+        raise SupersessionError("IC_MARKER: missing v2 marker")
+    return hashlib.sha256(_INVALID_MARKER_RE.sub(INVALID_ROW_TEMPLATE_TOKEN, line).encode()).hexdigest()
+
+
+def _invalid_declaration_module() -> ModuleType:
+    # Support both package imports and the established direct-script CLI.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    sys.modules.setdefault("scripts.ci.check_evidence_ledger_hashes", sys.modules[__name__])
+    return importlib.import_module("scripts.ci.ledger_invalid_declarations")
+
+
+@dataclass(frozen=True)
 class DeclaredRow:
     """One ledger row that opted into the machine-readable declared-path convention."""
 
@@ -289,6 +335,7 @@ class DeclaredRow:
     # public value semantics used by the pre-existing parser tests and hand-built rows.
     raw_line: str = field(default="", compare=False, repr=False)
     supersession: SupersessionClaim | None = field(default=None, compare=False)
+    invalid_declaration: InvalidDeclarationMarker | None = field(default=None, compare=False)
 
 
 def is_table_row(line: str) -> bool:
@@ -310,7 +357,8 @@ def parse_row_line(line: str) -> DeclaredRow | None:
     hash_match = _DECLARED_HASH_RE.search(line)
     if hash_match is None:
         return None
-    supersession = parse_supersession_claim(line)
+    invalid_declaration = parse_invalid_declaration_marker(line)
+    supersession = None if invalid_declaration else parse_supersession_claim(line)
     return DeclaredRow(
         task_id=task_match.group(1).strip(),
         declared_hash=hash_match.group(1).lower(),
@@ -321,6 +369,7 @@ def parse_row_line(line: str) -> DeclaredRow | None:
         row_date=extract_row_date(line),
         raw_line=line,
         supersession=supersession,
+        invalid_declaration=invalid_declaration,
     )
 
 
@@ -366,6 +415,8 @@ def select_rows(lines: Sequence[str]) -> RowSelection:
     declared: list[DeclaredRow] = []
     legacy: list[LegacyRow] = []
     for line in lines:
+        if _SUPERSESSION_HINT in line:
+            _invalid_declaration_module().validate_marker_row(line)
         stripped = line.lstrip()
         task_match = _TASK_ID_CELL_RE.match(stripped)
         if task_match is None:
@@ -564,6 +615,8 @@ def build_supersession_plan(
     # A malformed marker on a non-declared row must not fall through the legacy path.
     for line in ledger_lines:
         if is_table_row(line) and _SUPERSESSION_HINT in line:
+            if parse_invalid_declaration_marker(line) is not None:
+                continue
             parse_supersession_claim(line)
             successor = parse_row_line(line)
             if successor is None:
@@ -1424,6 +1477,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--version", action="version", version="ledger-hashes v1 + v2-static/1 (replay unresolved)"
+    )
+    parser.add_argument(
         "--base",
         default=None,
         help="Base ref/sha for range selection (merge-based with HEAD). Default: origin/main. "
@@ -1470,17 +1526,21 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
 
     ledger_path = root / args.ledger_path
     try:
-        ledger_text = ledger_path.read_text(encoding="utf-8")
-    except OSError as exc:
+        ledger_text = ledger_path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
         print(f"{prefix} ERROR: could not read ledger {args.ledger_path}: {exc}", file=sys.stderr)
         return 1
 
     try:
         supersession_plan = build_supersession_plan(root, ledger_text, args.ledger_path)
+        invalid_plan = _invalid_declaration_module().build_plan(
+            root, ledger_text, supersession_plan, args.ledger_path
+        )
     except (OSError, SupersessionError) as exc:
         print(f"{prefix} ERROR: invalid ledger supersession provenance: {exc}", file=sys.stderr)
         return 1
 
+    effective_base = None
     if args.all:
         try:
             selection = select_rows(ledger_text.splitlines())
@@ -1501,6 +1561,25 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
             print(f"{prefix} ERROR: {exc}", file=sys.stderr)
             return 1
         scope_desc = f"rows added in {effective_base}..HEAD of {args.ledger_path}"
+
+    try:
+        invalid_results = _invalid_declaration_module().selected_unresolved(
+            root, invalid_plan, selection.declared, effective_base
+        )
+    except (OSError, SupersessionError) as exc:
+        print(f"{prefix} ERROR: {exc}", file=sys.stderr)
+        return 1
+    if invalid_results:
+        # Operational acceptance is deliberately unavailable until the independent adapter
+        # review establishes fresh replay, environment inventory and source containment.
+        for result in invalid_results:
+            print(f"{prefix} UNRESOLVED: {json.dumps(result.to_dict(), sort_keys=True)}")
+        print(
+            f"{prefix} SUMMARY: 0 current verified, 0 historical verified, 0 invalidated declarations, "
+            f"0 corrected relations, {len(invalid_results)} unresolved relations, "
+            f"{len(selection.declared)} selected physical occurrences; 0 executions."
+        )
+        return 1
 
     # Legacy rows are listed with their reason (shape or date) EVERY time, not just when nothing
     # is declared — a row skipped for the mzo-040-style date-coincidence reason must be visible
