@@ -165,51 +165,143 @@ def _explicit_fixture_loader(contract: ExplicitFixtureContract) -> type:
     return loader
 
 
-def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract) -> bool:
-    """Prove the category names the fixture the live pytest fixture actually loads.
-
-    Importing a loader into the module is insufficient: it must be called from a function decorated
-    as a pytest fixture. This prevents an unused resolver-shaped symbol from satisfying the fence.
-    """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    imports_loader = any(
-        isinstance(node, ast.ImportFrom)
-        and node.module == contract.loader_module
-        and any(alias.name == contract.loader_name and alias.asname is None for alias in node.names)
-        for node in tree.body
-    )
-    integration_marked = any(
+def _is_pytest_mark(node: ast.expr, name: str) -> bool:
+    return (
         isinstance(node, ast.Attribute)
         and isinstance(node.value, ast.Attribute)
         and isinstance(node.value.value, ast.Name)
         and node.value.value.id == "pytest"
         and node.value.attr == "mark"
-        and node.attr == "integration"
-        for node in ast.walk(tree)
+        and node.attr == name
     )
-    if not imports_loader or not integration_marked:
+
+
+def _is_call(node: ast.expr, owner: str, method: str) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == owner
+        and node.func.attr == method
+        and not node.args
+        and not node.keywords
+    )
+
+
+def _assigns_call(statement: ast.stmt, target: str, owner: str, method: str) -> bool:
+    return (
+        isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.targets[0], ast.Name)
+        and statement.targets[0].id == target
+        and _is_call(statement.value, owner, method)
+    )
+
+
+def _awaits_call(statement: ast.stmt, owner: str, method: str) -> bool:
+    return (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Await)
+        and _is_call(statement.value.value, owner, method)
+    )
+
+
+def _canonical_live_fixture(node: ast.AsyncFunctionDef) -> bool:
+    """Match the one supported relay fixture lifecycle, without inferring Python data flow."""
+    if len(node.body) != 4:
+        return False
+    load, artifacts, construct, lifecycle = node.body
+    if not _assigns_call(load, "config", "RelayConfig", "load"):
+        return False
+    if not (
+        isinstance(artifacts, ast.Assign)
+        and len(artifacts.targets) == 1
+        and isinstance(artifacts.targets[0], ast.Name)
+        and artifacts.targets[0].id == "artifacts"
+        and isinstance(artifacts.value, ast.Call)
+        and isinstance(artifacts.value.func, ast.Name)
+        and artifacts.value.func.id == "artifact_directory"
+        and len(artifacts.value.args) == 2
+        and isinstance(artifacts.value.args[0], ast.Name)
+        and artifacts.value.args[0].id == "config"
+        and isinstance(artifacts.value.args[1], ast.Attribute)
+        and artifacts.value.args[1].attr == "name"
+        and isinstance(artifacts.value.args[1].value, ast.Attribute)
+        and artifacts.value.args[1].value.attr == "node"
+        and isinstance(artifacts.value.args[1].value.value, ast.Name)
+        and artifacts.value.args[1].value.value.id == "request"
+        and not artifacts.value.keywords
+    ):
+        return False
+    if not (
+        isinstance(construct, ast.Assign)
+        and len(construct.targets) == 1
+        and isinstance(construct.targets[0], ast.Name)
+        and construct.targets[0].id == "fixture"
+        and isinstance(construct.value, ast.Call)
+        and isinstance(construct.value.func, ast.Name)
+        and construct.value.func.id == "LiveRelayFixture"
+        and [argument.id for argument in construct.value.args if isinstance(argument, ast.Name)]
+        == ["config", "artifacts"]
+        and len(construct.value.args) == 2
+        and not construct.value.keywords
+    ):
+        return False
+    return (
+        isinstance(lifecycle, ast.Try)
+        and len(lifecycle.body) == 2
+        and _awaits_call(lifecycle.body[0], "fixture", "open")
+        and isinstance(lifecycle.body[1], ast.Expr)
+        and isinstance(lifecycle.body[1].value, ast.Yield)
+        and isinstance(lifecycle.body[1].value.value, ast.Name)
+        and lifecycle.body[1].value.value.id == "fixture"
+        and not lifecycle.handlers
+        and not lifecycle.orelse
+        and len(lifecycle.finalbody) == 1
+        and _awaits_call(lifecycle.finalbody[0], "fixture", "close")
+    )
+
+
+def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract) -> bool:
+    """Recognize the finite, fail-closed grammar of the actual relay fixture lifecycle."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imports_fixture = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == contract.loader_module
+        and {alias.name for alias in node.names if alias.asname is None}
+        >= {contract.loader_name, "LiveRelayFixture"}
+        for node in tree.body
+    )
+    pytestmark_values = [
+        node.value
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and (
+            any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)
+            if isinstance(node, ast.Assign)
+            else isinstance(node.target, ast.Name) and node.target.id == "pytestmark"
+        )
+    ]
+    integration_marked = len(pytestmark_values) == 1 and (
+        _is_pytest_mark(pytestmark_values[0], "integration")
+        or (
+            isinstance(pytestmark_values[0], (ast.List, ast.Tuple))
+            and any(_is_pytest_mark(value, "integration") for value in pytestmark_values[0].elts)
+        )
+    )
+    if not imports_fixture or not integration_marked:
         return False
     for node in tree.body:
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if not isinstance(node, ast.AsyncFunctionDef):
             continue
-        is_fixture = any(
+        is_fixture = len(node.decorator_list) == 1 and any(
             isinstance(decorator, ast.Attribute)
             and isinstance(decorator.value, ast.Name)
             and decorator.value.id == "pytest"
             and decorator.attr == "fixture"
             for decorator in node.decorator_list
         )
-        calls_loader = any(
-            isinstance(candidate, ast.Call)
-            and isinstance(candidate.func, ast.Attribute)
-            and isinstance(candidate.func.value, ast.Name)
-            and candidate.func.value.id == contract.loader_name
-            and candidate.func.attr == "load"
-            and not candidate.args
-            and not candidate.keywords
-            for candidate in ast.walk(node)
-        )
-        if is_fixture and calls_loader:
+        if is_fixture and _canonical_live_fixture(node):
             return True
     return False
 
@@ -492,6 +584,83 @@ def test_explicit_fixture_category_rejects_an_unused_loader(tmp_path: Path, body
         "pytestmark = pytest.mark.integration\n" + body,
         encoding="utf-8",
     )
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+def _relay_suite_source(fixture_body: str, *, marker: str = "pytestmark") -> str:
+    return (
+        "import pytest\n"
+        "from tests.support.human_relay_live import LiveRelayFixture, RelayConfig\n"
+        f"{marker} = [pytest.mark.integration, pytest.mark.asyncio]\n"
+        "def artifact_directory(config, node_name):\n"
+        "    return object()\n"
+        "@pytest.fixture\n"
+        "async def live(request):\n" + fixture_body
+    )
+
+
+_CANONICAL_RELAY_FIXTURE_BODY = (
+    "    config = RelayConfig.load()\n"
+    "    artifacts = artifact_directory(config, request.node.name)\n"
+    "    fixture = LiveRelayFixture(config, artifacts)\n"
+    "    try:\n"
+    "        await fixture.open()\n"
+    "        yield fixture\n"
+    "    finally:\n"
+    "        await fixture.close()\n"
+)
+
+
+def test_explicit_fixture_category_accepts_canonical_relay_lifecycle(tmp_path: Path) -> None:
+    candidate = tmp_path / "test_canonical_relay_fixture.py"
+    candidate.write_text(_relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY), encoding="utf-8")
+    assert _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        (
+            "unreachable_load_unused_result",
+            _relay_suite_source("    if False:\n        RelayConfig.load()\n    return object()\n"),
+        ),
+        (
+            "nested_unused_helper",
+            _relay_suite_source(
+                "    def unused():\n        return RelayConfig.load()\n    return object()\n"
+            ),
+        ),
+        (
+            "unused_loader_result",
+            _relay_suite_source("    RelayConfig.load()\n    return object()\n"),
+        ),
+        (
+            "unused_integration_marker",
+            _relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY, marker="unused"),
+        ),
+        (
+            "fixture_local_fallback",
+            _relay_suite_source(
+                _CANONICAL_RELAY_FIXTURE_BODY.replace(
+                    "RelayConfig.load()", "RelayConfig.load() if request else object()", 1
+                )
+            ),
+        ),
+        (
+            "fixture_local_reassignment",
+            _relay_suite_source(
+                _CANONICAL_RELAY_FIXTURE_BODY.replace(
+                    "    artifacts =", "    config = object()\n    artifacts =", 1
+                )
+            ),
+        ),
+    ],
+)
+def test_explicit_fixture_category_rejects_noncanonical_lifecycle(
+    tmp_path: Path, name: str, source: str
+) -> None:
+    candidate = tmp_path / f"test_{name}.py"
+    candidate.write_text(source, encoding="utf-8")
     assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
 
 
