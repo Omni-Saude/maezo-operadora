@@ -176,6 +176,29 @@ def _is_pytest_mark(node: ast.expr, name: str) -> bool:
     )
 
 
+def _pytest_parametrize_names(node: ast.expr) -> set[str] | None:
+    """Return finite literal argnames; None means this is not a supported parametrization."""
+    if not (isinstance(node, ast.Call) and _is_pytest_mark(node.func, "parametrize")):
+        return set()
+    argnames = (
+        node.args[0]
+        if node.args
+        else next((keyword.value for keyword in node.keywords if keyword.arg == "argnames"), None)
+    )
+    if isinstance(argnames, ast.Constant) and isinstance(argnames.value, str):
+        return {name.strip() for name in argnames.value.split(",") if name.strip()}
+    if isinstance(argnames, (ast.List, ast.Tuple)) and all(
+        isinstance(item, ast.Constant) and isinstance(item.value, str) for item in argnames.elts
+    ):
+        return {item.value for item in argnames.elts}
+    return None
+
+
+def _parametrization_may_override(node: ast.expr, fixture_name: str) -> bool:
+    names = _pytest_parametrize_names(node)
+    return names is None or fixture_name in names
+
+
 def _is_call(node: ast.expr, owner: str, method: str) -> bool:
     return (
         isinstance(node, ast.Call)
@@ -403,6 +426,12 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
             else isinstance(node.target, ast.Name) and node.target.id == "pytestmark"
         )
     ]
+    module_mark_overrides_live = any(
+        _parametrization_may_override(candidate, "live")
+        for value in pytestmark_values
+        for candidate in (value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value])
+        if isinstance(candidate, ast.Call) and _is_pytest_mark(candidate.func, "parametrize")
+    )
     integration_marked = len(pytestmark_values) == 1 and (
         _is_pytest_mark(pytestmark_values[0], "integration")
         or (
@@ -423,6 +452,12 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
     tests_request_live = bool(test_functions) and all(
         any(argument.arg == "live" for argument in [*node.args.posonlyargs, *node.args.args])
         and not any(
+            isinstance(decorator, ast.Call)
+            and _is_pytest_mark(decorator.func, "parametrize")
+            and _parametrization_may_override(decorator, "live")
+            for decorator in node.decorator_list
+        )
+        and not any(
             isinstance(candidate, ast.Name)
             and isinstance(candidate.ctx, ast.Store)
             and candidate.id == "live"
@@ -437,6 +472,7 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
         or not supported_top_level
         or not protected_names_are_not_assigned
         or not integration_marked
+        or module_mark_overrides_live
         or len(fixture_definitions) != 1
         or bindings.get("live") != fixture_definitions
         or not tests_request_live
@@ -892,6 +928,59 @@ def test_actual_relay_suite_rejects_fixture_resolution_bypasses(
     candidate = tmp_path / f"test_{name}.py"
     candidate.write_text(mutate(source), encoding="utf-8")
     assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize(
+    "decorator",
+    [
+        '@pytest.mark.parametrize("live", [object()])',
+        '@pytest.mark.parametrize("live", [object()], indirect=True)',
+        '@pytest.mark.parametrize(("live", "fault"), [(object(), "x")])',
+        '@pytest.mark.parametrize(["live", "fault"], [(object(), "x")])',
+    ],
+)
+def test_actual_relay_suite_rejects_direct_live_parametrization(tmp_path: Path, decorator: str) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    first_test = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name.startswith("test_")
+    )
+    needle = f"async def {first_test.name}("
+    candidate = tmp_path / "test_direct_live_parameter.py"
+    candidate.write_text(source.replace(needle, decorator + "\n" + needle, 1), encoding="utf-8")
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize("container", ["list", "tuple"])
+def test_actual_relay_suite_rejects_module_live_parametrization(tmp_path: Path, container: str) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    opening, closing = ("[", "]") if container == "list" else ("(", ")")
+    replacement = (
+        f"pytestmark = {opening}pytest.mark.integration, pytest.mark.asyncio, "
+        f'pytest.mark.parametrize("live", [object()]){closing}'
+    )
+    candidate = tmp_path / "test_module_live_parameter.py"
+    candidate.write_text(
+        source.replace("pytestmark = [pytest.mark.integration, pytest.mark.asyncio]", replacement, 1),
+        encoding="utf-8",
+    )
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+def test_actual_relay_suite_keeps_other_name_parametrization(tmp_path: Path) -> None:
+    source = _relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY).replace(
+        "async def test_uses_live(live):\n    pass",
+        '@pytest.mark.parametrize("fault", ["x"])\nasync def test_uses_live(live, fault):\n    assert fault',
+        1,
+    )
+    candidate = tmp_path / "test_other_parameter.py"
+    candidate.write_text(source, encoding="utf-8")
+    assert _suite_loads_explicit_fixture(candidate, _relay_contract())
 
 
 def test_the_expected_coordinates_come_from_compose_not_from_this_file() -> None:
