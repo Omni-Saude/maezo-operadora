@@ -17,9 +17,11 @@ Three layers, mirroring `test_check_start_process_fence.py`:
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -108,6 +110,8 @@ def test_the_ambient_scrub_actually_took_effect_in_this_test() -> None:
 
 
 AUTHOR = "flip-author"
+BASE_SHA = "0" * 36 + "ba5e"
+HEAD_SHA = "1" * 40
 #: The login used by the SYNTHETIC fixtures below. It is the repo's real owner account
 #: (`rodaquino-OMNI`) rather than an invented string so the fixtures keep the same shape as the real
 #: file — including the mixed case, which is the interesting part for the case-insensitivity rules.
@@ -156,8 +160,10 @@ def members(*logins: str) -> gate.MembershipResolver:
     return resolve
 
 
-def approval(login: str, *, when: str = "2026-08-13T10:00:00Z", review_id: int = 1) -> Review:
-    return Review(login=login, state="APPROVED", submitted_at=when, review_id=review_id)
+def approval(
+    login: str, *, when: str = "2026-08-13T10:00:00Z", review_id: int = 1, commit_id: str | None = HEAD_SHA
+) -> Review:
+    return Review(login=login, state="APPROVED", submitted_at=when, review_id=review_id, commit_id=commit_id)
 
 
 def run(
@@ -175,6 +181,7 @@ def run(
         changed_paths=changed,
         reviews=reviews,
         author_login=author,
+        head_sha=HEAD_SHA,
         membership=membership if membership is not None else nobody_is_a_member,
         require_single_reviewer_covers_all=single_reviewer,
     )
@@ -666,8 +673,6 @@ def test_comments_and_blank_lines_are_skipped() -> None:
 # 3. The shell: base-ref sourcing, event payloads, API classification
 # =============================================================================================
 
-BASE_SHA = "0000000000000000000000000000000000000ba5e"
-HEAD_SHA = "1111111111111111111111111111111111111head"
 
 #: What the base commit says. Owns the flip path.
 BASE_CODEOWNERS = f"/spec/policies/autonomy/  @{OWNER_USER}\n"
@@ -692,6 +697,7 @@ class FakeAPI:
         reviews: list[Review],
         membership_state: MembershipState = MembershipState.NOT_MEMBER,
         base_tip: str = BASE_SHA,
+        context: gate.EventContext | None = None,
     ) -> None:
         self.files_by_ref = files_by_ref
         self._changed = changed
@@ -699,6 +705,17 @@ class FakeAPI:
         self._membership_state = membership_state
         self._base_tip = base_tip
         self.refs_asked: list[str] = []
+        self.context = context or gate.EventContext(
+            repo="Omni-Saude/maezo-operadora",
+            pr_number=244,
+            base_sha=BASE_SHA,
+            base_ref="main",
+            head_sha=HEAD_SHA,
+            author_login=AUTHOR,
+        )
+
+    def pull_request(self, pr_number: int) -> gate.EventContext:
+        return replace(self.context, pr_number=pr_number)
 
     def file_at(self, ref: str, path: str) -> str | None:
         self.refs_asked.append(ref)
@@ -775,6 +792,7 @@ def test_pr_cannot_unown_itself_by_deleting_codeowners_lines_in_its_own_head(
         changed_paths=["spec/policies/autonomy/matrix.yaml", ".github/CODEOWNERS"],
         reviews=[],
         author_login=AUTHOR,
+        head_sha=HEAD_SHA,
         membership=nobody_is_a_member,
     )
     assert head_decision.ok, "fixture is not proving anything unless the head reading would be green"
@@ -805,8 +823,8 @@ def test_main_dry_run_mode_fetches_the_pr_context_and_still_reads_codeowners_fro
         changed=["spec/policies/autonomy/matrix.yaml"],
         reviews=[],
     )
-    api.pull_request = lambda pr: gate.EventContext(  # type: ignore[attr-defined]
-        repo="o/r", pr_number=pr, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
+    api.context = gate.EventContext(
+        repo="o/r", pr_number=244, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
     )
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
@@ -843,8 +861,8 @@ def _direct_mode_api() -> FakeAPI:
         changed=["spec/policies/autonomy/matrix.yaml"],
         reviews=[],
     )
-    api.pull_request = lambda pr: gate.EventContext(  # type: ignore[attr-defined]
-        repo="o/r", pr_number=pr, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
+    api.context = gate.EventContext(
+        repo="o/r", pr_number=244, base_sha=BASE_SHA, base_ref="main", head_sha=HEAD_SHA, author_login=AUTHOR
     )
     return api
 
@@ -917,12 +935,7 @@ def test_the_workflow_really_does_invoke_the_gate_with_no_arguments() -> None:
 def test_a_lone_pr_override_still_applies_on_top_of_the_ambient_payload(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`--pr` alone is an OVERRIDE, not a mode switch: the ambient payload still supplies context.
-
-    Touched paths are no longer keyed by `pr_number` at all (they come from `context.base_ref` /
-    `context.head_sha`, both sourced from the ambient payload regardless of `--pr`) — the PR-number
-    override now shows up in which PR's REVIEWS are fetched, so that is what this test tracks.
-    """
+    """The override selects one whole live PR context, including files, author and reviews."""
     api = FakeAPI(
         files_by_ref={BASE_SHA: {".github/CODEOWNERS": BASE_CODEOWNERS}},
         changed=["spec/policies/autonomy/matrix.yaml"],
@@ -940,7 +953,7 @@ def test_a_lone_pr_override_still_applies_on_top_of_the_ambient_payload(
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(write_event(tmp_path)))
 
     assert gate.main(["--pr", "777"]) == 1
-    assert api.refs_asked == [BASE_SHA], "context still comes from the payload"
+    assert api.refs_asked == [BASE_SHA], "context comes from the selected live PR"
     assert seen == [777], "but the PR number override was honoured"
 
 
@@ -1029,6 +1042,7 @@ def test_main_is_red_end_to_end_when_the_base_codeowners_fetch_fails(
         changed_paths=["spec/policies/autonomy/matrix.yaml"],
         reviews=[],
         author_login=AUTHOR,
+        head_sha=HEAD_SHA,
         membership=nobody_is_a_member,
     )
     assert would_be_green.ok, "fixture proves nothing unless the head reading would have been green"
@@ -1393,8 +1407,8 @@ def test_changed_paths_commit_walk_total_commits_mismatch_is_red(
 
 def test_branch_tip_resolves_the_current_sha(monkeypatch: pytest.MonkeyPatch) -> None:
     api = gate.GitHubAPI(repo="o/r", token="t")
-    monkeypatch.setattr(api, "_request", lambda path: (200, {"name": "main", "commit": {"sha": "deadbeef"}}))
-    assert api.branch_tip("main") == "deadbeef"
+    monkeypatch.setattr(api, "_request", lambda path: (200, {"name": "main", "commit": {"sha": HEAD_SHA}}))
+    assert api.branch_tip("main") == HEAD_SHA
 
 
 def test_branch_tip_failure_is_red(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1471,6 +1485,14 @@ def test_stale_base_sha_no_longer_produces_a_false_owned_hit_defect_254(
     )
     monkeypatch.setattr(gate, "GitHubAPI", lambda **kwargs: api)
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token")
+    api.context = gate.EventContext(
+        repo="Omni-Saude/maezo-operadora",
+        pr_number=254,
+        base_sha=STALE_BASE_SHA,
+        base_ref="main",
+        head_sha=REGRESSION_HEAD_SHA,
+        author_login="dependabot[bot]",
+    )
     event = write_event(
         tmp_path,
         pull_request={
@@ -1666,3 +1688,540 @@ def test_a_real_flip_pr_shape_is_red_without_review_and_green_with_the_owner() -
     self_approved = run(codeowners=real, changed=flip_paths, reviews=(approval(owner),), author=owner)
     assert not self_approved.ok, "the sole user owner must not be able to self-approve his own flip"
     assert "NO self-service route to green" in self_approved.render()
+
+
+# 5. Every approval is evidence for one full current head, never for a later push.
+
+
+@pytest.mark.parametrize(
+    "commit_id",
+    [None, "", True, False, 123, "a" * 39, "a" * 41, "z" * 40, " " + HEAD_SHA, HEAD_SHA + "\n", "a" * 40],
+)
+def test_approval_without_exact_current_head_never_qualifies(commit_id: Any) -> None:
+    decision = run(
+        changed=("spec/policies/autonomy/matrix.yaml",), reviews=(approval(OWNER_USER, commit_id=commit_id),)
+    )
+    assert not decision.ok, decision.render()
+    assert "commit_id is missing, malformed or differs" in decision.render()
+
+
+@pytest.mark.parametrize("head", [None, True, "", "abc123", "x" * 40])
+def test_core_cannot_bypass_head_validation_by_matching_two_invalid_shas(head: Any) -> None:
+    decision = decide(
+        codeowners_text=BASE_CODEOWNERS,
+        codeowners_source="fixture",
+        changed_paths=["spec/policies/autonomy/matrix.yaml"],
+        reviews=[approval(OWNER_USER, commit_id=head)],
+        author_login=AUTHOR,
+        head_sha=head,
+        membership=nobody_is_a_member,
+    )
+    assert not decision.ok, decision.render()
+    assert "not a full commit SHA" in decision.render()
+
+
+def test_core_has_no_optional_head_binding_bypass() -> None:
+    with pytest.raises(TypeError, match="head_sha"):
+        decide(
+            codeowners_text=BASE_CODEOWNERS,
+            codeowners_source="fixture",
+            changed_paths=["spec/policies/autonomy/matrix.yaml"],
+            reviews=[approval(OWNER_USER)],
+            author_login=AUTHOR,
+            membership=nobody_is_a_member,
+        )  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("latest_state", ["APPROVED", "DISMISSED", "CHANGES_REQUESTED"])
+def test_invalid_later_standing_review_cannot_resurrect_earlier_approval(latest_state: str) -> None:
+    decision = run(
+        changed=("spec/policies/autonomy/matrix.yaml",),
+        reviews=(
+            approval(OWNER_USER),
+            Review(OWNER_USER, latest_state, "2026-08-13T11:00:00Z", 2, "a" * 40),
+        ),
+    )
+    assert not decision.ok, decision.render()
+
+
+def test_current_approval_restores_green_after_old_approval_and_comments_do_not_clear_it() -> None:
+    decision = run(
+        changed=("spec/policies/autonomy/matrix.yaml",),
+        reviews=(
+            approval(OWNER_USER, commit_id="a" * 40),
+            approval(OWNER_USER, when="2026-08-13T11:00:00Z", review_id=2),
+            Review(OWNER_USER, "COMMENTED", "2026-08-13T12:00:00Z", 3, "a" * 40),
+        ),
+    )
+    assert decision.ok, decision.render()
+
+
+def test_old_owner_objection_still_blocks_current_other_owner_approval() -> None:
+    decision = run(
+        codeowners=f"/owned/ @{OWNER_USER} @{OTHER_OWNER}\n",
+        changed=("owned/a",),
+        reviews=(
+            Review(OWNER_USER, "CHANGES_REQUESTED", "2026-08-13T10:00:00Z", 1, "a" * 40),
+            approval(OTHER_OWNER),
+        ),
+    )
+    assert not decision.ok, decision.render()
+    assert "has requested changes" in decision.headline
+
+
+def test_unowned_path_still_passes_with_stale_approval() -> None:
+    decision = run(changed=("README.md",), reviews=(approval(OWNER_USER, commit_id="a" * 40),))
+    assert decision.ok, decision.render()
+
+
+def review_payload(**overrides: Any) -> dict[str, Any]:
+    return {
+        "id": 1,
+        "user": {"login": OWNER_USER},
+        "state": "APPROVED",
+        "submitted_at": "2026-08-13T10:00:00Z",
+        "commit_id": HEAD_SHA,
+        "pull_request_url": "https://api.github.com/repos/Omni-Saude/maezo-operadora/pulls/244",
+        **overrides,
+    }
+
+
+def rest_gate_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    reviews: list[dict[str, Any]],
+    drift_at: str | None = None,
+    drift_field: str = "head",
+    selected_pr: int = 244,
+    codeowners: str | None = None,
+    changed: list[dict[str, Any]] | None = None,
+    fail_at: str | None = None,
+) -> list[str]:
+    """Real API parsing/pagination/decision, with only the HTTP boundary replaced; no network."""
+    calls: list[str] = []
+    live: dict[str, Any] = {
+        "number": selected_pr,
+        "base": {"sha": BASE_SHA, "ref": "main"},
+        "head": {"sha": HEAD_SHA},
+        "user": {"login": AUTHOR},
+    }
+    tip = BASE_SHA
+
+    def request(self: gate.GitHubAPI, path: str) -> tuple[int, Any]:
+        nonlocal tip
+        calls.append(path)
+        if fail_at is not None and fail_at in path:
+            return 403, None
+        if drift_at is not None and drift_at in path:
+            if drift_field == "tip":
+                tip = "c" * 40
+            elif drift_field == "base_ref":
+                live["base"]["ref"] = "other-base"
+            elif drift_field == "author":
+                live["user"]["login"] = OWNER_USER
+            else:
+                live[drift_field]["sha"] = "c" * 40
+        prefix = "repos/Omni-Saude/maezo-operadora/"
+        if path == prefix + f"pulls/{selected_pr}":
+            return 200, json.loads(json.dumps(live))
+        if path == prefix + f"contents/.github/CODEOWNERS?ref={BASE_SHA}":
+            owners = (
+                codeowners
+                if codeowners is not None
+                else (TEAM_ONLY_CODEOWNERS if drift_at == "memberships" else BASE_CODEOWNERS)
+            )
+            return 200, {"encoding": "base64", "content": base64.b64encode(owners.encode()).decode()}
+        if path == prefix + "branches/main":
+            return 200, {"commit": {"sha": tip}}
+        if path == prefix + f"compare/{BASE_SHA}...{HEAD_SHA}?per_page=300&page=1":
+            return 200, {
+                "status": "ahead",
+                "ahead_by": 1,
+                "files": changed
+                if changed is not None
+                else [{"filename": "spec/policies/autonomy/matrix.yaml"}],
+            }
+        if path == prefix + f"pulls/{selected_pr}/reviews?per_page=100&page=1":
+            return 200, reviews
+        if "memberships" in path:
+            return 200, {"state": "active"}
+        raise AssertionError(f"Unexpected HTTP path {path}")
+
+    monkeypatch.setattr(gate.GitHubAPI, "_request", request)
+    monkeypatch.setenv("GITHUB_TOKEN", "synthetic-unused-token")
+    return calls
+
+
+@pytest.mark.parametrize("commit_id", [HEAD_SHA, "a" * 40, None, True, "abc123", "x" * 40])
+def test_real_rest_review_commit_reaches_current_head_decision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    commit_id: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = rest_gate_fixture(monkeypatch, reviews=[review_payload(commit_id=commit_id)])
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == (0 if commit_id == HEAD_SHA else 1)
+    out = capsys.readouterr().out
+    assert HEAD_SHA in out
+    assert calls.count("repos/Omni-Saude/maezo-operadora/pulls/244") == 2
+    assert calls.count("repos/Omni-Saude/maezo-operadora/branches/main") == 2
+    assert all("pulls/244/files" not in path for path in calls)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        None,
+        True,
+        "https://api.github.com/repos/Omni-Saude/maezo-operadora/pulls/245",
+        "https://api.github.com/repos/foreign/repo/pulls/244",
+    ],
+)
+def test_rest_review_for_another_pr_cannot_approve_selected_pr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    url: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rest_gate_fixture(monkeypatch, reviews=[review_payload(pull_request_url=url)])
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+    assert "does not identify pulls/244" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("state", ["COMMENTED", "PENDING", "DISMISSED", "CHANGES_REQUESTED"])
+def test_real_rest_nonapproval_never_becomes_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    state: str,
+) -> None:
+    rest_gate_fixture(monkeypatch, reviews=[review_payload(state=state)])
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+
+
+@pytest.mark.parametrize(
+    "drift_at,drift_field",
+    [
+        (at, field)
+        for at in ["contents/", "compare/", "/reviews?", "memberships"]
+        for field in ["head", "base", "base_ref", "tip", "author"]
+        if (at, field) != ("contents/", "tip")  # tip is first captured AFTER contents
+    ],
+)
+def test_snapshot_drift_during_any_read_fails_closed_before_verdict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    drift_at: str,
+    drift_field: str,
+) -> None:
+    rest_gate_fixture(monkeypatch, reviews=[review_payload()], drift_at=drift_at, drift_field=drift_field)
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+    out = capsys.readouterr().out
+    assert "changed during review evaluation" in out
+    assert "] GREEN" not in out
+
+
+@pytest.mark.parametrize("fail_at", ["pulls/244", "/reviews?", "contents/", "branches/"])
+def test_rest_auth_failure_never_turns_current_approval_green(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail_at: str,
+) -> None:
+    rest_gate_fixture(monkeypatch, reviews=[review_payload()], fail_at=fail_at)
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+
+
+def test_stale_event_cannot_publish_verdict_for_another_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls = rest_gate_fixture(monkeypatch, reviews=[review_payload()])
+    event = write_event(tmp_path)
+    payload = json.loads(event.read_text())
+    payload["pull_request"]["head"]["sha"] = "a" * 40
+    event.write_text(json.dumps(payload))
+    assert gate.main(["--event-path", str(event)]) == 1
+    assert "event context no longer matches" in capsys.readouterr().out
+    assert calls == ["repos/Omni-Saude/maezo-operadora/pulls/244"]
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_pr_override_uses_selected_pr_head_base_and_author_not_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    explicit: bool,
+) -> None:
+    # Event has an unowned base, different head and the approving owner AS ITS AUTHOR. Mixing any
+    # of those facts with PR 777's review cannot satisfy the selected PR's coherent fixture.
+    calls = rest_gate_fixture(
+        monkeypatch,
+        selected_pr=777,
+        reviews=[
+            review_payload(
+                pull_request_url="https://api.github.com/repos/Omni-Saude/maezo-operadora/pulls/777"
+            )
+        ],
+    )
+    event = write_event(
+        tmp_path,
+        pull_request={
+            "number": 244,
+            "user": {"login": OWNER_USER},
+            "base": {"sha": "d" * 40, "ref": "other-base"},
+            "head": {"sha": "e" * 40},
+        },
+    )
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    args = ["--pr", "777"] + (["--event-path", str(event)] if explicit else [])
+    assert gate.main(args) == 0
+    assert calls.count("repos/Omni-Saude/maezo-operadora/pulls/777") == 2
+    assert all("pulls/244" not in path for path in calls)
+
+
+def test_real_rest_rename_out_of_owned_directory_still_requires_current_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rest_gate_fixture(
+        monkeypatch,
+        reviews=[review_payload(commit_id="a" * 40)],
+        changed=[{"filename": "unowned.yaml", "previous_filename": "spec/policies/autonomy/matrix.yaml"}],
+    )
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+
+
+def test_rest_review_missing_commit_field_is_red(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = review_payload()
+    del payload["commit_id"]
+    rest_gate_fixture(monkeypatch, reviews=[payload])
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+
+
+@pytest.mark.parametrize("review_id", [None, True, False, "1", 0, -1])
+def test_malformed_review_id_cannot_supply_ordered_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    review_id: Any,
+) -> None:
+    rest_gate_fixture(monkeypatch, reviews=[review_payload(id=review_id)])
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+
+
+@pytest.mark.parametrize(
+    "field,value", [("head", True), ("head", "abc123"), ("base", "x" * 40), ("number", True), ("number", 245)]
+)
+def test_malformed_or_other_pr_rest_context_is_red(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: Any,
+) -> None:
+    api = gate.GitHubAPI("o/r", "synthetic-unused-token")
+    payload = {
+        "number": 244,
+        "base": {"sha": BASE_SHA, "ref": "main"},
+        "head": {"sha": HEAD_SHA},
+        "user": {"login": AUTHOR},
+    }
+    payload[field] = {"sha": value, "ref": "main"} if field in ("head", "base") else value
+    monkeypatch.setattr(api, "_request", lambda path: (200, payload))
+    with pytest.raises(GateError):
+        api.pull_request(244)
+
+
+@pytest.mark.parametrize("resource", ["pulls/244", "branches/main"])
+def test_failed_final_snapshot_read_cannot_publish_green(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    resource: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rest_gate_fixture(monkeypatch, reviews=[review_payload()])
+    original_request = gate.GitHubAPI._request
+    reads = 0
+
+    def request(self: gate.GitHubAPI, path: str) -> tuple[int, Any]:
+        nonlocal reads
+        if path == "repos/Omni-Saude/maezo-operadora/" + resource:
+            reads += 1
+            if reads == 2:
+                return 403, None
+        return original_request(self, path)
+
+    monkeypatch.setattr(gate.GitHubAPI, "_request", request)
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+    assert reads == 2
+    assert "] GREEN" not in capsys.readouterr().out
+
+
+def test_rest_review_repository_name_matches_case_insensitive_github_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = gate.GitHubAPI("omni-saude/maezo-operadora", "synthetic-unused-token")
+    monkeypatch.setattr(api, "_paginate", lambda path: [review_payload()])
+    reviews = api.reviews(244)
+    assert len(reviews) == 1
+    assert reviews[0].commit_id == HEAD_SHA
+
+
+# EIR-HEAD-01: an ineligible approval has no authority to erase a prior objection.
+
+
+@pytest.mark.parametrize("commit_id", ["a" * 40, None, "invalid"])
+@pytest.mark.parametrize("noise", [None, "COMMENTED", "PENDING"])
+def test_rest_ineligible_approval_preserves_owner_objection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    commit_id: str | None,
+    noise: str | None,
+) -> None:
+    reviews = [
+        review_payload(state="CHANGES_REQUESTED", commit_id="a" * 40),
+        review_payload(
+            id=2,
+            user={"login": OWNER_USER.upper()},
+            commit_id=commit_id,
+            submitted_at="2026-08-13T11:00:00Z",
+        ),
+        review_payload(id=3, user={"login": OTHER_OWNER}, submitted_at="2026-08-13T12:00:00Z"),
+    ]
+    if noise is not None:
+        reviews.append(
+            review_payload(
+                id=4,
+                state=noise,
+                submitted_at=None if noise == "PENDING" else "2026-08-13T13:00:00Z",
+            )
+        )
+    calls = rest_gate_fixture(
+        monkeypatch,
+        reviews=list(reversed(reviews)),
+        codeowners=f"/spec/policies/autonomy/ @{OWNER_USER} @{OTHER_OWNER}\n",
+    )
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
+    out = capsys.readouterr().out
+    assert "has requested changes" in out
+    assert f"SATISFIED by @{OTHER_OWNER}" in out  # unrelated coverage really was qualified
+    assert calls.count("repos/Omni-Saude/maezo-operadora/pulls/244") == 2
+    assert calls.count("repos/Omni-Saude/maezo-operadora/branches/main") == 2
+
+
+@pytest.mark.parametrize("release", ["APPROVED", "DISMISSED"])
+@pytest.mark.parametrize("later_stale", [False, True])
+def test_same_owner_current_approval_or_dismissal_clears_objection(
+    release: str,
+    later_stale: bool,
+) -> None:
+    reviews = [
+        # REST dismissal updates the objection's own ID in place, never a new event ID.
+        Review(
+            OWNER_USER,
+            "DISMISSED" if release == "DISMISSED" else "CHANGES_REQUESTED",
+            "2026-08-13T10:00:00Z",
+            1,
+            "a" * 40,
+        ),
+        approval(OTHER_OWNER),
+    ]
+    if release == "APPROVED":
+        reviews.append(approval(OWNER_USER.upper(), when="2026-08-13T11:00:00Z", review_id=2))
+    if later_stale:
+        reviews.append(approval(OWNER_USER, when="2026-08-13T12:00:00Z", review_id=3, commit_id="a" * 40))
+    decision = run(
+        codeowners=f"/owned/ @{OWNER_USER} @{OTHER_OWNER}\n",
+        changed=("owned/a",),
+        reviews=tuple(reversed(reviews)),
+    )
+    assert decision.ok, decision.render()
+
+
+@pytest.mark.parametrize("later_state", ["APPROVED", "CHANGES_REQUESTED"])
+def test_objection_order_uses_review_id_when_timestamps_tie(later_state: str) -> None:
+    earlier_state = "CHANGES_REQUESTED" if later_state == "APPROVED" else "APPROVED"
+    decision = run(
+        codeowners=f"/owned/ @{OWNER_USER} @{OTHER_OWNER}\n",
+        changed=("owned/a",),
+        reviews=(
+            Review(OWNER_USER.upper(), later_state, "2026-08-13T10:00:00Z", 2, HEAD_SHA),
+            Review(OWNER_USER, earlier_state, "2026-08-13T10:00:00Z", 1, HEAD_SHA),
+            approval(OTHER_OWNER),
+        ),
+    )
+    assert decision.ok == (later_state == "APPROVED"), decision.render()
+
+
+# EIR-HEAD-02: list-reviews is a snapshot of review IDs, not principal-wide dismissal events.
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("uppercase", [False, True])
+@pytest.mark.parametrize(
+    ("states", "expected_ok"),
+    [
+        (("CHANGES_REQUESTED", "DISMISSED"), False),
+        (("DISMISSED", "CHANGES_REQUESTED"), False),
+        (("CHANGES_REQUESTED", "CHANGES_REQUESTED", "DISMISSED"), False),
+        # Dismissing the newer objection in place leaves the older objection live.
+        (("CHANGES_REQUESTED", "DISMISSED", "APPROVED_STALE"), False),
+        # The sole objection itself was dismissed in place; Bob supplies coverage.
+        (("DISMISSED", "APPROVED_STALE"), True),
+        (("CHANGES_REQUESTED", "DISMISSED", "APPROVED"), True),
+        (("APPROVED", "CHANGES_REQUESTED", "DISMISSED"), False),
+    ],
+    ids=[
+        "distinct-dismissal-after-objection",
+        "distinct-dismissal-before-objection",
+        "multiple-live-objections",
+        "newer-objection-dismissed-older-still-live",
+        "sole-objection-dismissed-in-place",
+        "current-approval-releases-objection",
+        "new-objection-after-approval-remains-live",
+    ],
+)
+def test_rest_dismissal_respects_review_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    states: tuple[str, ...],
+    expected_ok: bool,
+    reverse: bool,
+    uppercase: bool,
+) -> None:
+    reviews = [
+        review_payload(
+            id=index,
+            user={"login": OWNER_USER.upper() if uppercase and index > 1 else OWNER_USER},
+            state="APPROVED" if state == "APPROVED_STALE" else state,
+            commit_id=HEAD_SHA if state == "APPROVED" else "a" * 40,
+            submitted_at=f"2026-08-13T10:{index:02d}:00Z",
+        )
+        for index, state in enumerate(states, 1)
+    ]
+    reviews.append(review_payload(id=20, user={"login": OTHER_OWNER}, submitted_at="2026-08-13T11:00:00Z"))
+    calls = rest_gate_fixture(
+        monkeypatch,
+        reviews=list(reversed(reviews)) if reverse else reviews,
+        codeowners=f"/spec/policies/autonomy/ @{OWNER_USER} @{OTHER_OWNER}\n",
+    )
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == (0 if expected_ok else 1)
+    out = capsys.readouterr().out
+    assert ("has requested changes" in out) is not expected_ok
+    assert any("SATISFIED by" in line and f"@{OTHER_OWNER}" in line for line in out.splitlines())
+    assert calls.count("repos/Omni-Saude/maezo-operadora/pulls/244") == 2
+    assert calls.count("repos/Omni-Saude/maezo-operadora/branches/main") == 2
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rest_tied_distinct_dismissal_preserves_objection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reverse: bool
+) -> None:
+    reviews = [
+        review_payload(id=1, state="CHANGES_REQUESTED", commit_id="a" * 40),
+        review_payload(id=2, state="DISMISSED", user={"login": OWNER_USER.upper()}),
+        review_payload(id=3, user={"login": OTHER_OWNER}),
+    ]
+    rest_gate_fixture(
+        monkeypatch,
+        reviews=list(reversed(reviews)) if reverse else reviews,
+        codeowners=f"/spec/policies/autonomy/ @{OWNER_USER} @{OTHER_OWNER}\n",
+    )
+    assert gate.main(["--event-path", str(write_event(tmp_path))]) == 1
