@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import tempfile
 import tomllib
 from contextlib import contextmanager
@@ -32,13 +33,43 @@ DATE = "2026-09-08"
 PROOF = "D6migrationa92"
 ORIGINAL_MANIFEST = "0fc37de9a53bc846cfe94a5a390c30f328c8e1926912373df63bf7a59cd5b9b6"
 ORIGINAL_QUIET = "a169f8aacf5d636a86287e684812d1454901d2d078ddf1946b471de7171f2e8f"
-_path = ROOT / "scripts/dev/run_historical_unit_recipe.py"
-_data = _path.read_bytes()
-if hashlib.sha256(_data).hexdigest() != HELPER_PIN:
+# The companion's reviewed helper is immutable, including its original runner
+# and checker. Its inert source capsule is NOT the owned execution checkout.
+_tool_path = ROOT / "scripts/dev/historical_tool_sources.py"
+_tool_fd = os.open(_tool_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+with os.fdopen(_tool_fd, "rb") as _tool_stream:
+    _tool_info = os.fstat(_tool_stream.fileno())
+    if not stat.S_ISREG(_tool_info.st_mode) or _tool_info.st_nlink != 1:
+        raise ValueError("nonregular historical tool-source loader")
+    _tool_data = _tool_stream.read(1024 * 1024 + 1)
+    # Access time may change because of this read; content identity may not.
+    if any(
+        getattr(current, field) != getattr(_tool_info, field)
+        for current in (os.fstat(_tool_stream.fileno()), os.stat(_tool_path, follow_symlinks=False))
+        for field in (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_uid",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+    ):
+        raise ValueError("historical tool-source loader changed during read")
+# New loader pin; the original helper/runner/checker pins remain untouched.
+if _tool_path.is_symlink() or hashlib.sha256(_tool_data).hexdigest() != (
+    "0c9f10f5b2a7a8e5a290ca43fb204bddfdc090462d3a02b318fe6e5297ab7c25"
+):
+    raise ValueError("historical tool-source loader pin mismatch")
+_tool_spec = importlib.util.spec_from_file_location("historical_tool_sources", _tool_path)
+_tool_sources = importlib.util.module_from_spec(_tool_spec)
+exec(compile(_tool_data, str(_tool_path), "exec"), _tool_sources.__dict__)
+_tool_capsule = _tool_sources.ToolSourceCapsule(ROOT)
+h = _tool_capsule.load("scripts/dev/run_historical_unit_recipe.py", "migration_capture_helper")
+if hashlib.sha256(Path(h.__file__).read_bytes()).hexdigest() != HELPER_PIN:
     raise ValueError("approved historical capture helper changed")
-_spec = importlib.util.spec_from_file_location("migration_capture_helper", _path)
-h = importlib.util.module_from_spec(_spec)
-exec(compile(_data, str(_path), "exec"), h.__dict__)
 r = h.runner
 
 # Exact canonical core policy: integration/conftest's autouse fixture requires

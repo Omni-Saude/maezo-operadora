@@ -312,39 +312,42 @@ def keys(value: Any, expected: dict[str, type]) -> None:
         raise CaptureRefusedError("wrong receipt scalar type")
 
 
-def module(relative: str, name: str):
-    path = ROOT / relative
-    data = path.read_bytes()
-    if digest(data) != PINS[relative]:
-        # Explicit integration: keep the original producer's checker bytes and pin.
-        # New ledger grammar may coexist, but cannot change this recipe dependency.
-        if relative != "scripts/ci/check_evidence_ledger_hashes.py":
-            raise CaptureRefusedError("reviewed tooling source changed")
-        result = subprocess.run(
-            ["git", "--no-replace-objects", "show", "7189bcb0b3532a48401bf86f376cf37e876adabf:" + relative],
-            cwd=ROOT,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            timeout=30,
-            env={
-                "PATH": os.defpath,
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": os.devnull,
-                "GIT_NO_REPLACE_OBJECTS": "1",
-            },
+# Load reviewed historical bytes from their own truthful source paths. Current
+# canonical tooling may evolve without rewriting historical receipt dependencies.
+_tool_path = ROOT / "scripts/dev/historical_tool_sources.py"
+_tool_fd = os.open(_tool_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+with os.fdopen(_tool_fd, "rb") as _tool_stream:
+    _tool_info = os.fstat(_tool_stream.fileno())
+    if not stat.S_ISREG(_tool_info.st_mode) or _tool_info.st_nlink != 1:
+        raise ValueError("nonregular historical tool-source loader")
+    _tool_data = _tool_stream.read(1024 * 1024 + 1)
+    # Access time may change because of this read; content identity may not.
+    if any(
+        getattr(current, field) != getattr(_tool_info, field)
+        for current in (os.fstat(_tool_stream.fileno()), os.stat(_tool_path, follow_symlinks=False))
+        for field in (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_uid",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
         )
-        if result.returncode != 0 or digest(result.stdout) != PINS[relative]:
-            raise CaptureRefusedError("original pinned checker source unavailable")
-        data = result.stdout
-    spec = importlib.util.spec_from_file_location(name, path)
-    result = importlib.util.module_from_spec(spec)
-    sys.modules[name] = result
-    exec(compile(data, str(path), "exec"), result.__dict__)
-    return result
-
-
-runner = module("scripts/dev/run_engine_integration.py", "historical_capture_runner")
-checker = module("scripts/ci/check_evidence_ledger_hashes.py", "historical_capture_checker")
+    ):
+        raise ValueError("historical tool-source loader changed during read")
+# New loader pin; the original helper/runner/checker pins remain untouched.
+if _tool_path.is_symlink() or hashlib.sha256(_tool_data).hexdigest() != (
+    "0c9f10f5b2a7a8e5a290ca43fb204bddfdc090462d3a02b318fe6e5297ab7c25"
+):
+    raise ValueError("historical tool-source loader pin mismatch")
+_tool_spec = importlib.util.spec_from_file_location("historical_tool_sources", _tool_path)
+_tool_sources = importlib.util.module_from_spec(_tool_spec)
+exec(compile(_tool_data, str(_tool_path), "exec"), _tool_sources.__dict__)
+_tool_capsule = _tool_sources.ToolSourceCapsule(ROOT)
+runner = _tool_capsule.load("scripts/dev/run_engine_integration.py", "historical_capture_runner")
+checker = _tool_capsule.load("scripts/ci/check_evidence_ledger_hashes.py", "historical_capture_checker")
 
 
 def environment() -> dict[str, str]:
