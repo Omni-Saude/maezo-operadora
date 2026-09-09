@@ -1335,7 +1335,15 @@ async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
             "competencia",
             "competencia_referencia_iso",
             "ans_cron_reference_date_iso",
+            "_business_key",
+            "_process_instance_id",
+            "_worker_topic",
         }
+        # Native timer starts have no caller-assigned business key. Bind publisher
+        # provenance to the same engine task already checked above.
+        assert fact["_business_key"] is None
+        assert fact["_process_instance_id"] == instance_id
+        assert fact["_worker_topic"] == "operadora.events.publish"
         assert fact["type"] == "ans.cron_due"
         assert fact["tenant_id"] == tenant_id
         assert fact["report_type"] == report_type
