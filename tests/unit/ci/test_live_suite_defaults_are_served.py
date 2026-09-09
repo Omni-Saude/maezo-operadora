@@ -262,16 +262,137 @@ def _canonical_live_fixture(node: ast.AsyncFunctionDef) -> bool:
     )
 
 
+def _bound_target_names(node: ast.expr) -> set[str]:
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, ast.Starred):
+        return _bound_target_names(node.value)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return set().union(*(_bound_target_names(item) for item in node.elts))
+    return set()
+
+
+def _module_scope_bindings(tree: ast.Module) -> dict[str, list[ast.stmt]]:
+    """Inventory lexical module bindings without evaluating branches or function bodies."""
+    result: dict[str, list[ast.stmt]] = {}
+
+    def record(name: str, statement: ast.stmt) -> None:
+        result.setdefault(name, []).append(statement)
+
+    def visit(statement: ast.stmt) -> None:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            record(statement.name, statement)
+            return
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            for alias in statement.names:
+                record(alias.asname or alias.name.split(".")[0], statement)
+            return
+        targets: list[ast.expr] = []
+        if isinstance(statement, ast.Assign):
+            targets.extend(statement.targets)
+        elif (
+            isinstance(statement, ast.AnnAssign)
+            and statement.value is not None
+            or isinstance(statement, (ast.AugAssign, ast.For, ast.AsyncFor))
+        ):
+            targets.append(statement.target)
+        elif isinstance(statement, (ast.With, ast.AsyncWith)):
+            targets.extend(item.optional_vars for item in statement.items if item.optional_vars is not None)
+        elif isinstance(statement, ast.Delete):
+            targets.extend(statement.targets)
+        for target in targets:
+            for name in _bound_target_names(target):
+                record(name, statement)
+        if isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+            for child in [*statement.body, *statement.orelse]:
+                visit(child)
+        elif isinstance(statement, (ast.With, ast.AsyncWith)):
+            for child in statement.body:
+                visit(child)
+        elif isinstance(statement, (ast.Try, ast.TryStar)):
+            for child in [*statement.body, *statement.orelse, *statement.finalbody]:
+                visit(child)
+            for handler in statement.handlers:
+                if handler.name:
+                    record(handler.name, statement)
+                for child in handler.body:
+                    visit(child)
+
+    for statement in tree.body:
+        visit(statement)
+    return result
+
+
+def _fixture_registration_name(node: ast.AsyncFunctionDef) -> str | None:
+    for decorator in node.decorator_list:
+        if (
+            isinstance(decorator, ast.Attribute)
+            and isinstance(decorator.value, ast.Name)
+            and decorator.value.id == "pytest"
+            and decorator.attr == "fixture"
+        ):
+            return node.name
+        if (
+            isinstance(decorator, ast.Call)
+            and isinstance(decorator.func, ast.Attribute)
+            and isinstance(decorator.func.value, ast.Name)
+            and decorator.func.value.id == "pytest"
+            and decorator.func.attr == "fixture"
+        ):
+            explicit_names = [
+                keyword.value.value
+                for keyword in decorator.keywords
+                if keyword.arg == "name"
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, str)
+            ]
+            return explicit_names[0] if len(explicit_names) == 1 else None
+    return None
+
+
 def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract) -> bool:
     """Recognize the finite, fail-closed grammar of the actual relay fixture lifecycle."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    imports_fixture = any(
-        isinstance(node, ast.ImportFrom)
+    supported_top_level = all(
+        isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef))
+        or (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+        or (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "pytestmark"
+        )
+        for node in tree.body
+    )
+    protected_names_are_not_assigned = not any(
+        isinstance(node, ast.Name)
+        and isinstance(node.ctx, (ast.Store, ast.Del))
+        and node.id in {contract.loader_name, "LiveRelayFixture", "pytest"}
+        for node in ast.walk(tree)
+    )
+    loader_imports = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
         and node.module == contract.loader_module
         and {alias.name for alias in node.names if alias.asname is None}
         >= {contract.loader_name, "LiveRelayFixture"}
+    ]
+    pytest_imports = [
+        node
         for node in tree.body
+        if isinstance(node, ast.Import)
+        and any(alias.name == "pytest" and alias.asname is None for alias in node.names)
+    ]
+    bindings = _module_scope_bindings(tree)
+    imports_fixture = len(loader_imports) == 1 and all(
+        bindings.get(name) == loader_imports for name in (contract.loader_name, "LiveRelayFixture")
     )
+    imports_pytest = len(pytest_imports) == 1 and bindings.get("pytest") == pytest_imports
     pytestmark_values = [
         node.value
         for node in tree.body
@@ -289,21 +410,39 @@ def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract)
             and any(_is_pytest_mark(value, "integration") for value in pytestmark_values[0].elts)
         )
     )
-    if not imports_fixture or not integration_marked:
-        return False
-    for node in tree.body:
-        if not isinstance(node, ast.AsyncFunctionDef):
-            continue
-        is_fixture = len(node.decorator_list) == 1 and any(
-            isinstance(decorator, ast.Attribute)
-            and isinstance(decorator.value, ast.Name)
-            and decorator.value.id == "pytest"
-            and decorator.attr == "fixture"
-            for decorator in node.decorator_list
+    fixture_definitions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and _fixture_registration_name(node) == "live"
+    ]
+    test_functions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+    ]
+    tests_request_live = bool(test_functions) and all(
+        any(argument.arg == "live" for argument in [*node.args.posonlyargs, *node.args.args])
+        and not any(
+            isinstance(candidate, ast.Name)
+            and isinstance(candidate.ctx, ast.Store)
+            and candidate.id == "live"
+            for statement in node.body
+            for candidate in ast.walk(statement)
         )
-        if is_fixture and _canonical_live_fixture(node):
-            return True
-    return False
+        for node in test_functions
+    )
+    if (
+        not imports_fixture
+        or not imports_pytest
+        or not supported_top_level
+        or not protected_names_are_not_assigned
+        or not integration_marked
+        or len(fixture_definitions) != 1
+        or bindings.get("live") != fixture_definitions
+        or not tests_request_live
+    ):
+        return False
+    return _canonical_live_fixture(fixture_definitions[0])
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +734,8 @@ def _relay_suite_source(fixture_body: str, *, marker: str = "pytestmark") -> str
         "def artifact_directory(config, node_name):\n"
         "    return object()\n"
         "@pytest.fixture\n"
-        "async def live(request):\n" + fixture_body
+        "async def live(request):\n" + fixture_body + "async def test_uses_live(live):\n"
+        "    pass\n"
     )
 
 
@@ -661,6 +801,96 @@ def test_explicit_fixture_category_rejects_noncanonical_lifecycle(
 ) -> None:
     candidate = tmp_path / f"test_{name}.py"
     candidate.write_text(source, encoding="utf-8")
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize(
+    ("name", "mutate"),
+    [
+        (
+            "unused_canonical_fixture",
+            lambda source: (
+                source.replace("async def live(request):", "async def unused_live(request):", 1)
+                + "\n@pytest.fixture\nasync def live():\n    yield object()\n"
+            ),
+        ),
+        (
+            "overridden_canonical_fixture",
+            lambda source: source + "\n@pytest.fixture\nasync def live():\n    yield object()\n",
+        ),
+        (
+            "rebound_loader",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "class RelayConfig:\n"
+                "    @classmethod\n"
+                "    def load(cls):\n"
+                "        return object()\n\n"
+                "@pytest.fixture\n"
+                "async def live(request):",
+                1,
+            ),
+        ),
+        (
+            "rebound_constructor",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "class LiveRelayFixture:\n"
+                "    def __init__(self, config, artifacts):\n"
+                "        pass\n\n"
+                "@pytest.fixture\n"
+                "async def live(request):",
+                1,
+            ),
+        ),
+        (
+            "rebound_pytest",
+            lambda source: source.replace("pytestmark =", "pytest = object()\npytestmark =", 1),
+        ),
+        (
+            "reassigned_requested_fixture",
+            lambda source: source.replace(
+                "    command = await live.command()",
+                "    live = object()\n    command = await live.command()",
+                1,
+            ),
+        ),
+        (
+            "tuple_rebound_loader",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "RelayConfig, unused = (object, None)\n\n@pytest.fixture\nasync def live(request):",
+                1,
+            ),
+        ),
+        (
+            "globals_subscript_rebound_loader",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                'globals()["RelayConfig"] = object\n\n@pytest.fixture\nasync def live(request):',
+                1,
+            ),
+        ),
+        (
+            "aliased_constructor_import",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "from builtins import object as LiveRelayFixture\n\n"
+                "@pytest.fixture\n"
+                "async def live(request):",
+                1,
+            ),
+        ),
+    ],
+)
+def test_actual_relay_suite_rejects_fixture_resolution_bypasses(
+    tmp_path: Path, name: str, mutate: Callable[[str], str]
+) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    candidate = tmp_path / f"test_{name}.py"
+    candidate.write_text(mutate(source), encoding="utf-8")
     assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
 
 
