@@ -155,7 +155,7 @@ def test_no_new_contract_claims_collect_or_unique_for_a_dmn_actually_deployed_as
 
 # ---------------------------------------------------------------------------------------------
 # ESCALATION-CONTRACT-P3-VS-DMN-R7-P2: the contract's Papeis humanos table must disclose the
-# DMN's own fail-safe catch-all, not just the "normal" P3 routing for `atendimento-humano`.
+# DMN's own fail-safe catch-all, not just the "normal" P3 routing for `atendimentoHumano`.
 # ---------------------------------------------------------------------------------------------
 
 _DMN_NS = {"dmn": "https://www.omg.org/spec/DMN/20191111/MODEL/"}
@@ -185,24 +185,24 @@ def _dmn_rule_outputs(decision_id: str, rule_id: str) -> dict[str, str]:
 def test_escalation_dmn_r7_catch_all_routes_atendimento_humano_to_p2() -> None:
     """Ground truth, independently re-derived from `escalation_routing.dmn`'s own `r7` rule (not
     the contract's prose): the FAIL-SAFE catch-all (unknown `motivo_categoria`/`severidade`)
-    routes to `atendimento-humano` under `P2`, matching the DMN's own module `<description>`
+    routes to `atendimentoHumano` under `P2`, matching the DMN's own module `<description>`
     ("categoria desconhecida recebe prioridade P2, nunca menos")."""
     outputs = _dmn_rule_outputs("escalation_routing", "r7")
     assert outputs["prioridade"] == "P2"
-    assert outputs["grupo_atendimento"] == "atendimento-humano"
+    assert outputs["grupo_atendimento"] == "atendimentoHumano"
 
 
 def test_escalation_contract_papeis_table_discloses_the_r7_p2_catch_all() -> None:
     """ESCALATION-CONTRACT-P3-VS-DMN-R7-P2. The contract's Papeis humanos table used to claim
-    `atendimento-humano` serves ONLY `P3` — but the DMN's own fail-safe catch-all rule `r7` routes
+    `atendimentoHumano` serves ONLY `P3` — but the DMN's own fail-safe catch-all rule `r7` routes
     unknown-reason cases to that SAME group under `P2` SLAs (only `r5`/`r6`, explicit
     `solicitacao_humano`/`falha_tecnica`, route it under `P3`). Revert the table row to drop the
     `P2` mention (or drop `P3`) and this goes RED."""
     text = (_CONTRACTS_DIR / "SP-OP-ESCALATION-001.md").read_text(encoding="utf-8")
-    row_re = re.compile(r"^\|\s*`atendimento-humano`\s*\|.*\|\s*$", re.MULTILINE)
+    row_re = re.compile(r"^\|\s*`atendimentoHumano`\s*\|.*\|\s*$", re.MULTILINE)
     rows = row_re.findall(text)
-    assert rows, "Papeis humanos table row for `atendimento-humano` not found"
+    assert rows, "Papeis humanos table row for `atendimentoHumano` not found"
     assert any("P2" in row and "P3" in row for row in rows), (
-        "contract Papeis table row for `atendimento-humano` must disclose BOTH the normal `P3` "
+        "contract Papeis table row for `atendimentoHumano` must disclose BOTH the normal `P3` "
         f"routing (r5/r6) and the DMN's r7 catch-all `P2` -- got: {rows}"
     )

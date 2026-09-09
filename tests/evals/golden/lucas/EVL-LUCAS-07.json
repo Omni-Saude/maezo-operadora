@@ -3,7 +3,7 @@
   "agent": "lucas",
   "class": "FC",
   "tier": ["A"],
-  "description": "CC-08: `lucas_billing_admissibility` is UNAVAILABLE (decision_key omitted -> `self._dmn.evaluate` raises `DmnEvaluationError`, caught inline -- Lucas's two DMN calls do NOT go through the shared `_evaluate_dmn` helper). `assess` routes to `_assess_escalation(motivo=\"dmn_indisponivel\")` IMMEDIATELY -- route=escalate_human, motivo_categoria=falha_tecnica (`_motivo_categoria`), severidade=leve, desfecho=escalado_humano -- NEVER the neutral `respond_member` path. `lucas_escalation_routing` IS available (registered normally) so the suggested human group resolves deterministically (ATENDIMENTO_HUMANO -> atendimento-humano) rather than relying on the conservative catch-all -- isolates the admissibility-DMN failure as the sole variable under test. Same request as EVL-LUCAS-01; the only difference is the transport that fails. Synthetic data only.",
+  "description": "CC-08: `lucas_billing_admissibility` is UNAVAILABLE (decision_key omitted -> `self._dmn.evaluate` raises `DmnEvaluationError`, caught inline -- Lucas's two DMN calls do NOT go through the shared `_evaluate_dmn` helper). `assess` routes to `_assess_escalation(motivo=\"dmn_indisponivel\")` IMMEDIATELY -- route=escalate_human, motivo_categoria=falha_tecnica (`_motivo_categoria`), severidade=leve, desfecho=escalado_humano -- NEVER the neutral `respond_member` path. `lucas_escalation_routing` IS available (registered normally) so the suggested human group resolves deterministically (ATENDIMENTO_HUMANO -> atendimentoHumano) rather than relying on the conservative catch-all -- isolates the admissibility-DMN failure as the sole variable under test. Same request as EVL-LUCAS-01; the only difference is the transport that fails. Synthetic data only.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -30,7 +30,7 @@
       "motivo_humano": "dmn_indisponivel",
       "motivo_categoria": "falha_tecnica",
       "severidade": "leve",
-      "grupo_humano": "atendimento-humano",
+      "grupo_humano": "atendimentoHumano",
       "desfecho": "escalado_humano"
     }
   },

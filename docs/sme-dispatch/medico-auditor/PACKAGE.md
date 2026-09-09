@@ -118,12 +118,12 @@ regulatório/DPO/finanças territory, see the other packages.
      `PT4H`, P3 `PT24H`) are clinically adequate given the contract's own annotation: "Política
      assistencial ancorada em Lei 9.656/98 art. 35-C — DRAFT/verify (gestão assistencial)."
   2. Confirm the P1/P2/P3 severity mapping (`grave`→P1, `moderada`→P2, `leve`→P3) and the
-     fail-safe catch-all (unknown motivo → P2/`atendimento-humano`, never P3) match current
+     fail-safe catch-all (unknown motivo → P2/`atendimentoHumano`, never P3) match current
      clinical escalation policy.
   3. Confirm the upstream `triage_redflag_*` tables (four files listed above) reflect the current
      red-flag clinical protocol for adult/gestante/mental-health/pediatric populations.
-  4. Confirm candidate groups `plantao-clinico` / `enfermagem-triagem` / `atendimento-humano` /
-     `supervisao-atendimento` are correct.
+  4. Confirm candidate groups `plantaoClinico` / `enfermagemTriagem` / `atendimentoHumano` /
+     `supervisaoAtendimento` are correct.
   - **Once this pass is done, please produce the signoff file** —
     `docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml` — per `../README.md`
     §"Signoff artifact spec". No agent will create this file for you.

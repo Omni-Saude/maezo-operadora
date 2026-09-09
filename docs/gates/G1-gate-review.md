@@ -70,7 +70,7 @@ engine's reaction, not LLM quality).
 - psychosocial (gatilho 5, intent looks administrative): **`235dd688-8276-11f1-a35f-2660d0923ba4`**
   ACTIVE.
 - classifier fail-closed (malformed JSON → falha_tecnica): **`37fe4bb9-8276-…`**; (LLM exception):
-  **`4b53f064-8276-…`** — both ACTIVE, both routed `atendimento-humano` (escalation_routing r6).
+  **`4b53f064-8276-…`** — both ACTIVE, both routed `atendimentoHumano` (escalation_routing r6).
 - CPF-leak regression probe: **`607136af-8276-…`** — engine variable set proven free of every
   fragment of the offending value; `resumo_contexto` carries the class token only.
 - non-red-flag turn: **no instance** (active-instance query for its business key asserted empty).
@@ -79,7 +79,7 @@ engine's reaction, not LLM quality).
 `1e3222fb…`: `GET /process-instance/{id}/variables` → `motivo_categoria=red_flag_clinico`,
 `severidade=grave`; `GET /task?processInstanceId=…` → task `2187ddf4-8276-11f1-a35f-2660d0923ba4`
 "Assumir e tratar escalonamento" (`UT_TratarEscalonamento`); `GET /task/{id}/identity-links?type=
-candidate` → **`['plantao-clinico']`**. Matches the acceptance target exactly
+candidate` → **`['plantaoClinico']`**. Matches the acceptance target exactly
 (red_flag_clinico/grave → escalation_routing r1 → P1 plantão clínico).
 
 ### Criterion 2 — Rafael→dossier runs E2E on local compose against real CIB Seven — **PASS (live)**

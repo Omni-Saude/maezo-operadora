@@ -89,6 +89,11 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "AGENT_RUNTIME_MODE", value = var.agent_runtime_mode },
       { name = "MAEZO_INFERENCE_PROVIDER", value = local.agentes.helena.provider },
       { name = "MAEZO_INFERENCE_PHI_ZONE_REQUIRED", value = tostring(local.agentes.helena.phi_zone_required) },
+      # Os tres portoes da zona PHI + o modelo explicito — lidos SO' quando o provedor e'
+      # `bedrock_br`/`br_resident` (ver `service-agents.tf`). Vazios nao afrouxam nada.
+      { name = "MAEZO_PHI_ENDPOINT_URL", value = var.phi_endpoint_url },
+      { name = "MAEZO_PHI_VENDOR_DPA_REF", value = var.phi_vendor_dpa_ref },
+      { name = "MAEZO_INFERENCE_MODEL", value = local.helena_phi_ligado ? var.phi_model_id : "" },
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },

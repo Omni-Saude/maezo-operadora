@@ -83,7 +83,7 @@ def _team_vars(**overrides: Any) -> dict[str, Any]:
     """Exactly what the engine hands `ST_NotificarTime`: the process variables of the contract
     plus the four `camunda:inputParameter`s the BPMN declares at `:96-99`, for the canonical P1
     case (`motivo_categoria=red_flag_clinico` + `severidade=grave` -> `escalation_routing.dmn`
-    rule `r1`: P1 / plantao-clinico / PT5M / PT30M)."""
+    rule `r1`: P1 / plantaoClinico / PT5M / PT30M)."""
     variables: dict[str, Any] = {
         "tenant_id": "amh",
         "source_agent_id": "helena",
@@ -92,7 +92,7 @@ def _team_vars(**overrides: Any) -> dict[str, Any]:
         "motivo_categoria": "red_flag_clinico",
         "severidade": "grave",
         # camunda:inputParameter <- ${roteamento.*} (DMN escalation_routing)
-        "grupo_atendimento": "plantao-clinico",
+        "grupo_atendimento": "plantaoClinico",
         "prioridade": "P1",
         "sla_ack": "PT5M",
         "sla_resolucao": "PT30M",
@@ -126,12 +126,12 @@ async def test_notify_team_publishes_notification_and_returns_routing() -> None:
     result = await handler(_task(variables=_team_vars()))
 
     assert result["status"] == "teams_notified"
-    assert result["grupo_atendimento"] == "plantao-clinico"
+    assert result["grupo_atendimento"] == "plantaoClinico"
     assert result["severidade"] == "grave"
     assert result["prioridade"] == "P1"
     assert result["event"] == "agents.events.escalation.requested"
     # The English keys the pre-fix worker emitted are GONE — they wrote a phantom `leve` /
-    # `atendimento-humano` back into process scope on every single escalation.
+    # `atendimentoHumano` back into process scope on every single escalation.
     assert "severity" not in result
     assert "group" not in result
 
@@ -139,7 +139,7 @@ async def test_notify_team_publishes_notification_and_returns_routing() -> None:
     topic, payload, key = kafka.published[0]
     assert topic == _NOTIFICATIONS_TOPIC
     assert payload["type"] == "escalation.notify_team"
-    assert payload["grupo_atendimento"] == "plantao-clinico"
+    assert payload["grupo_atendimento"] == "plantaoClinico"
     assert payload["severidade"] == "grave"
     assert payload["prioridade"] == "P1"
     assert payload["motivo_categoria"] == "red_flag_clinico"
@@ -152,30 +152,30 @@ async def test_notify_team_publishes_notification_and_returns_routing() -> None:
 
 
 async def test_notify_team_grave_p1_flows_through_unchanged() -> None:
-    """(a) GAP-ESC-SEVERITY-GROUP acceptance: `severidade=grave` + the DMN's `plantao-clinico`
+    """(a) GAP-ESC-SEVERITY-GROUP acceptance: `severidade=grave` + the DMN's `plantaoClinico`
     reach the clinical team VERBATIM. Under the pre-fix worker this exact task produced
-    `severity=leve, group=atendimento-humano` — the P1 art. 35-C PT5M case announced as the
+    `severity=leve, group=atendimentoHumano` — the P1 art. 35-C PT5M case announced as the
     mildest one, to the wrong queue."""
     kafka = FakeKafkaPublisher()
     result = await make_notify_team_handler(kafka)(_task(variables=_team_vars()))
     _topic, payload, _key = kafka.published[0]
 
-    assert (result["severidade"], result["grupo_atendimento"]) == ("grave", "plantao-clinico")
-    assert (payload["severidade"], payload["grupo_atendimento"]) == ("grave", "plantao-clinico")
+    assert (result["severidade"], result["grupo_atendimento"]) == ("grave", "plantaoClinico")
+    assert (payload["severidade"], payload["grupo_atendimento"]) == ("grave", "plantaoClinico")
     assert payload["severidade"] != "leve"
-    assert payload["grupo_atendimento"] != "atendimento-humano"
+    assert payload["grupo_atendimento"] != "atendimentoHumano"
 
 
 @pytest.mark.parametrize(
     ("severidade", "grupo", "prioridade"),
     [
-        ("grave", "plantao-clinico", "P1"),
-        # DMN r2: risco_psicossocial is P1/plantao-clinico for ANY severidade — the deleted
-        # private `_SEVERITY_TO_GROUP` would have sent `leve` here to `atendimento-humano`,
+        ("grave", "plantaoClinico", "P1"),
+        # DMN r2: risco_psicossocial is P1/plantaoClinico for ANY severidade — the deleted
+        # private `_SEVERITY_TO_GROUP` would have sent `leve` here to `atendimentoHumano`,
         # actively CONTRADICTING the DMN and the User Task's candidateGroups.
-        ("leve", "plantao-clinico", "P1"),
-        ("moderada", "enfermagem-triagem", "P2"),
-        ("leve", "atendimento-humano", "P3"),
+        ("leve", "plantaoClinico", "P1"),
+        ("moderada", "enfermagemTriagem", "P2"),
+        ("leve", "atendimentoHumano", "P3"),
     ],
 )
 async def test_notify_team_never_re_derives_the_dmn_group(
@@ -223,7 +223,7 @@ async def test_notify_team_unusable_severidade_fails_closed(bruta: Any) -> None:
 
 async def test_notify_team_missing_grupo_atendimento_fails_closed() -> None:
     """No routing => no notification. The worker has no private table to fall back to any more,
-    and inventing `atendimento-humano` would contradict `UT_TratarEscalonamento`'s
+    and inventing `atendimentoHumano` would contradict `UT_TratarEscalonamento`'s
     `candidateGroups="${roteamento.grupo_atendimento}"` (BPMN `:134`)."""
     kafka = FakeKafkaPublisher()
     variables = _team_vars()
@@ -237,12 +237,12 @@ async def test_notify_team_missing_grupo_atendimento_fails_closed() -> None:
 
 async def test_notify_team_grupo_outside_dmn_domain_fails_closed() -> None:
     """A group the `escalation_routing` DMN cannot emit is refused, not forwarded —
-    `supervisao-atendimento` included (it is `UT_SupervisorAssume`'s group, contract `:72`, never
+    `supervisaoAtendimento` included (it is `UT_SupervisorAssume`'s group, contract `:72`, never
     a routing output)."""
     kafka = FakeKafkaPublisher()
     with pytest.raises(WorkerBpmnError) as excinfo:
         await make_notify_team_handler(kafka)(
-            _task(variables=_team_vars(grupo_atendimento="supervisao-atendimento"))
+            _task(variables=_team_vars(grupo_atendimento="supervisaoAtendimento"))
         )
     assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
     assert kafka.published == []
@@ -283,7 +283,7 @@ async def test_notify_team_motivo_categoria_outside_domain_degrades_never_refuse
     assert "motivo_categoria" not in payload
     assert "CPF 123.456.789-00" not in str(payload)
     # The DMN's OWN output is untouched by the degraded motivo — still routed correctly.
-    assert payload["grupo_atendimento"] == "plantao-clinico"
+    assert payload["grupo_atendimento"] == "plantaoClinico"
     assert payload["severidade"] == "grave"
 
 
@@ -408,7 +408,7 @@ async def test_notify_team_kafka_none_completes_without_publish() -> None:
     publishes — `teams_notified` is reserved for an actual publish attempt that succeeded."""
     result = await make_notify_team_handler(None)(_task(variables=_team_vars()))
     assert result["status"] == "teams_notification_skipped_no_producer"
-    assert result["grupo_atendimento"] == "plantao-clinico"
+    assert result["grupo_atendimento"] == "plantaoClinico"
     assert result["severidade"] == "grave"
 
 
@@ -451,8 +451,8 @@ async def test_notify_supervisor_publishes_notification_on_sla_breach() -> None:
 
     assert result["status"] == "supervisor_notified"
     assert result["severidade"] == "grave"
-    assert result["grupo_atendimento"] == "plantao-clinico"
-    assert result["alert_to"] == "supervisao-atendimento"
+    assert result["grupo_atendimento"] == "plantaoClinico"
+    assert result["alert_to"] == "supervisaoAtendimento"
     assert result["require_human_resolution"] is True
     # `sla_status` is GONE: no BPMN task ever set it, so it reported the literal "unknown" on
     # every supervisor alert. The BPMN's own `motivo` (`:208`) replaces it.
@@ -464,7 +464,7 @@ async def test_notify_supervisor_publishes_notification_on_sla_breach() -> None:
     assert topic == _NOTIFICATIONS_TOPIC
     assert payload["type"] == "escalation.notify_supervisor"
     assert payload["severidade"] == "grave"
-    assert payload["grupo_atendimento"] == "plantao-clinico"
+    assert payload["grupo_atendimento"] == "plantaoClinico"
     assert payload["motivo_alerta"] == "sla_ack_breached"
     assert "severity" not in payload
     assert "sla_status" not in payload
@@ -497,7 +497,7 @@ async def test_notify_supervisor_grave_severity_reaches_supervisor_verbatim() ->
     _topic, payload, _key = kafka.published[0]
     assert payload["severidade"] == "grave"
     assert payload["severidade"] != "leve"
-    assert payload["grupo_atendimento"] == "plantao-clinico"
+    assert payload["grupo_atendimento"] == "plantaoClinico"
 
 
 async def test_notify_supervisor_missing_severidade_fails_closed() -> None:
@@ -592,7 +592,7 @@ def test_escalation_bpmn_error_allowlist_is_exactly_notify_failed() -> None:
 def test_no_private_severity_to_group_table_survives() -> None:
     """Regression pin for the root cause: routing belongs to `escalation_routing.dmn` (ADR-0012/
     ADR-0028), evaluated by `BRT_RotearEscalonamento`. A worker-side severidade->grupo map is a
-    SECOND, competing source of truth — it is what shipped `atendimento-humano` for a P1. It must
+    SECOND, competing source of truth — it is what shipped `atendimentoHumano` for a P1. It must
     not come back under any name."""
     from maezo.tools.workers import escalation as mod
 
@@ -639,7 +639,7 @@ def test_contract_domains_match_the_artifacts() -> None:
     has no DMN OUTPUT column of its own (it is a DMN INPUT, matched mostly by the `-` wildcard —
     only rule `r1` pins a literal), so its domain — and the OPTIONAL `motivo_categoria`'s, which the
     routing DMN consumes upstream of these notify tasks — are parsed off the CONTRACT's own markdown
-    tables instead (`SP-OP-ESCALATION-001.md:26,:57`). `supervisao-atendimento` (contract `:72`) is
+    tables instead (`SP-OP-ESCALATION-001.md:26,:57`). `supervisaoAtendimento` (contract `:72`) is
     asserted absent from the DMN's group domain: it is `UT_SupervisorAssume`'s alert TARGET, never a
     routing output.
     """
@@ -657,7 +657,7 @@ def test_contract_domains_match_the_artifacts() -> None:
 
     assert grupos_dmn == mod._GRUPOS_ATENDIMENTO_DMN
     assert prioridades_dmn == mod._PRIORIDADES_DMN
-    assert "supervisao-atendimento" not in grupos_dmn
+    assert "supervisaoAtendimento" not in grupos_dmn
 
     contract_text = _CONTRACT_PATH.read_text(encoding="utf-8")
     severidade_contrato = _contract_domain(contract_text, line_prefix="| in | `severidade` | string |")
@@ -708,10 +708,10 @@ def _falha_tecnica_vars(**overrides: Any) -> dict[str, Any]:
     """O que o motor entrega a `ST_NotificarTime` numa escalacao de falha do classificador: o
     `motivo_categoria=falha_tecnica` do contrato, SEM `severidade` (a variavel de processo existe e
     e' `null` — `_from_camunda_var` devolve `None`), e os `camunda:inputParameter`s vindos da regra
-    `r6` da DMN (`P3` / `atendimento-humano` / `PT4H` / `PT24H`)."""
+    `r6` da DMN (`P3` / `atendimentoHumano` / `PT4H` / `PT24H`)."""
     variables = _team_vars(
         motivo_categoria="falha_tecnica",
-        grupo_atendimento="atendimento-humano",
+        grupo_atendimento="atendimentoHumano",
         prioridade="P3",
         sla_ack="PT4H",
         sla_resolucao="PT24H",
@@ -739,14 +739,14 @@ async def test_notify_team_falha_tecnica_sem_severidade_notifica_com_null(ausent
 
     assert result["status"] == "teams_notified"
     assert result["severidade"] is None
-    assert result["grupo_atendimento"] == "atendimento-humano"
+    assert result["grupo_atendimento"] == "atendimentoHumano"
     assert result["prioridade"] == "P3"
     assert result["motivo_categoria"] == "falha_tecnica"
     assert len(kafka.published) == 1
     _topico, payload, _chave = kafka.published[0]
     assert payload["severidade"] is None
     assert payload["severidade"] != "leve"
-    assert payload["grupo_atendimento"] == "atendimento-humano"
+    assert payload["grupo_atendimento"] == "atendimentoHumano"
 
 
 @pytest.mark.parametrize("ausente", [None, "", "   "])
@@ -769,7 +769,7 @@ async def test_notify_supervisor_falha_tecnica_sem_severidade_notifica_com_null(
 
     assert result["status"] == "supervisor_notified"
     assert result["severidade"] is None
-    assert result["alert_to"] == "supervisao-atendimento"
+    assert result["alert_to"] == "supervisaoAtendimento"
     assert len(kafka.published) == 1
     assert kafka.published[0][1]["severidade"] is None
     assert kafka.published[0][1]["severidade"] != "leve"
@@ -843,7 +843,7 @@ async def test_notify_team_falha_tecnica_sem_severidade_com_kafka_none_completa(
     result = await make_notify_team_handler(None)(_task(variables=_falha_tecnica_vars()))
     assert result["status"] == "teams_notification_skipped_no_producer"
     assert result["severidade"] is None
-    assert result["grupo_atendimento"] == "atendimento-humano"
+    assert result["grupo_atendimento"] == "atendimentoHumano"
 
 
 def test_a_excecao_de_severidade_e_exatamente_a_que_o_contrato_declara() -> None:
@@ -898,7 +898,7 @@ def test_a_dmn_roteia_falha_tecnica_com_severidade_nula_pela_regra_r6() -> None:
     assert getattr(mod, "_MOTIVO_SEM_SEVERIDADE", None) == "falha_tecnica"
     assert veredito.regra == "r6"
     assert veredito.saidas["prioridade"] == "P3"
-    assert veredito.saidas["grupo_atendimento"] == "atendimento-humano"
+    assert veredito.saidas["grupo_atendimento"] == "atendimentoHumano"
     assert veredito.saidas["grupo_atendimento"] in mod._GRUPOS_ATENDIMENTO_DMN
 
     severidade_idx = table.input_names.index("severidade")

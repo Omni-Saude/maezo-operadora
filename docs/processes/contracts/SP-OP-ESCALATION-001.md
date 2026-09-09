@@ -38,7 +38,7 @@ ramos, inclusive sobre um sintoma ja classificado como `grave`. A regra agora e:
 | Situacao | `severidade` | Por que |
 |---|---|---|
 | DMN indisponivel COM sintoma classificado | derivada da `intensidade` ja validada: `leve` so' quando a `intensidade` e' explicitamente `leve`; qualquer outro valor (`grave`, `moderada`, `desconhecida`, ausente) => `moderada` | ha' sinal para calibrar, e uma intensidade nao apurada nao e' a mais branda. **Teto em `moderada`**: `grave` fica reservado ao red flag P1, que so' a DMN emite |
-| Falha do classificador (excecao, JSON invalido, schema invalido, roteamento PHI recusado) | ausente (`null`) | nao houve extracao alguma de onde derivar. Uma severidade desconhecida nunca e' anunciada como `leve` — mesma decisao ja vigente para o escalonamento sem contexto de runtime (HELENA-SEVERIDADE-DEFAULT). **CORRECAO (§Delta-3, regressao P-12, 2026-09-06):** a linha obrigatoria anterior contradizia o `null` declarado nesta secao. O reparo Fleet `6af016b1` aceita ausencia/vazio somente em `falha_tecnica` (`escalation.py::_exigir_severidade`). Os testes historicos `test_malformed_classifier_json_escalates_falha_tecnica` e `test_classifier_llm_exception_escalates_falha_tecnica` registraram `no user task ever appeared`; esse relato nao prova falha dos dois canais de producao: a fixture daquele corte omitia a allowlist BPMN e usava `kafka=None`. Os topicos sao distintos (`notify_team` e `notify_supervisor`), embora compartilhem a checagem. Com produtor disponivel, a notificacao pode ser publicada; sem produtor o status e `teams_notification_skipped_no_producer`, que significa progresso sem entrega. A escalacao deve chegar a `UT_TratarEscalonamento`; a revisao integrada exige tarefa exata, `null` presente, roteamento r6, grupo humano e status de publicacao verificados no motor. Legitimidade da excecao: a DMN `escalation_routing` (hitPolicy FIRST) roteia esse motivo pela regra **`r6`**, cuja coluna `severidade` e' o coringa `-` (qualquer valor, `null` inclusive) -> `P3` / `atendimento-humano` / `PT4H` / `PT24H`; a severidade NUNCA foi entrada de roteamento neste motivo, entao aceitar `null` nao enfraquece decisao nenhuma. Limites da excecao, os dois fail-closed: um valor PRESENTE fora de `{grave, moderada, leve}` continua recusando (aqui como em qualquer motivo — ausencia e' a verdade declarada, corrupcao nao e'), e nenhum outro `motivo_categoria` (nem um ausente) aceita ausencia. O que continua nao existindo e' o rotulo fabricado `leve` |
+| Falha do classificador (excecao, JSON invalido, schema invalido, roteamento PHI recusado) | ausente (`null`) | nao houve extracao alguma de onde derivar. Uma severidade desconhecida nunca e' anunciada como `leve` — mesma decisao ja vigente para o escalonamento sem contexto de runtime (HELENA-SEVERIDADE-DEFAULT). **CORRECAO (§Delta-3, regressao P-12, 2026-09-06):** a linha obrigatoria anterior contradizia o `null` declarado nesta secao. O reparo Fleet `6af016b1` aceita ausencia/vazio somente em `falha_tecnica` (`escalation.py::_exigir_severidade`). Os testes historicos `test_malformed_classifier_json_escalates_falha_tecnica` e `test_classifier_llm_exception_escalates_falha_tecnica` registraram `no user task ever appeared`; esse relato nao prova falha dos dois canais de producao: a fixture daquele corte omitia a allowlist BPMN e usava `kafka=None`. Os topicos sao distintos (`notify_team` e `notify_supervisor`), embora compartilhem a checagem. Com produtor disponivel, a notificacao pode ser publicada; sem produtor o status e `teams_notification_skipped_no_producer`, que significa progresso sem entrega. A escalacao deve chegar a `UT_TratarEscalonamento`; a revisao integrada exige tarefa exata, `null` presente, roteamento r6, grupo humano e status de publicacao verificados no motor. Legitimidade da excecao: a DMN `escalation_routing` (hitPolicy FIRST) roteia esse motivo pela regra **`r6`**, cuja coluna `severidade` e' o coringa `-` (qualquer valor, `null` inclusive) -> `P3` / `atendimentoHumano` / `PT4H` / `PT24H`; a severidade NUNCA foi entrada de roteamento neste motivo, entao aceitar `null` nao enfraquece decisao nenhuma. Limites da excecao, os dois fail-closed: um valor PRESENTE fora de `{grave, moderada, leve}` continua recusando (aqui como em qualquer motivo — ausencia e' a verdade declarada, corrupcao nao e'), e nenhum outro `motivo_categoria` (nem um ausente) aceita ausencia. O que continua nao existindo e' o rotulo fabricado `leve` |
 
 `event_payload_vars` de `ST_PublishRequested` (BPMN `:66`) e dos dois publicadores de breach
 (`:188`, `:243`) inclui `severidade`. O publicador generico
@@ -85,7 +85,7 @@ dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste 
 | `dossie_lucas` | json | nao | Dossie/narrativa de encaminhamento montado por Lucas — instrui o atendimento humano; carrega `decisao_cancelamento` sempre `None` (Lucas NUNCA decide) |
 | `lucas_route` | string | nao | Roteamento do grafo do Lucas (`respond_member` \| `escalate_human`) — espelha, nao decide, o roteamento do processo |
 | `motivo_encaminhamento` | string | nao | Motivo do encaminhamento de Lucas (`inadimplencia_detectada` \| `pedido_cancelamento` \| `contestacao_cobranca` \| `ambiguidade` \| `dmn_indisponivel` \| `falha_tecnica`) |
-| `grupo_humano_sugerido` | string | nao | Grupo humano sugerido por Lucas (sugestao, catch-all `atendimento-humano`) — DIFERENTE do `dmn_decision_ref` singular ja declarado acima: aqui e a sugestao do agente, nao a saida da DMN `escalation_routing` |
+| `grupo_humano_sugerido` | string | nao | Grupo humano sugerido por Lucas (sugestao, catch-all `atendimentoHumano`) — DIFERENTE do `dmn_decision_ref` singular ja declarado acima: aqui e a sugestao do agente, nao a saida da DMN `escalation_routing` |
 | `dmn_decision_refs` | json | nao | Referencias auditaveis (tabela→regra, plural — dict `{tabela: ref}`) das DMN que Lucas consultou; complementa o `dmn_decision_ref` (singular) ja declarado em §Variaveis de entrada |
 
 ## Topicos
@@ -109,34 +109,36 @@ dossie instrutivo e roteamento humano (CC-13 — Agent Fleet Audit: antes deste 
 | in | `motivo_categoria` | string | ver variaveis de entrada |
 | in | `severidade` | string | `grave` \| `moderada` \| `leve` |
 | out | `prioridade` | string | `P1` \| `P2` \| `P3` |
-| out | `grupo_atendimento` | string | `plantao-clinico` \| `enfermagem-triagem` \| `atendimento-humano` |
+| out | `grupo_atendimento` | string | `plantaoClinico` \| `enfermagemTriagem` \| `atendimentoHumano` |
 | out | `sla_ack` | string (ISO 8601) | ex.: `PT5M` |
 | out | `sla_resolucao` | string (ISO 8601) | ex.: `PT30M` |
 
-Fail-safe: catch-all = P2/`atendimento-humano` (motivo desconhecido nunca vira P3).
+Fail-safe: catch-all = P2/`atendimentoHumano` (motivo desconhecido nunca vira P3).
 
 ## Papeis humanos (candidate groups)
 
 | Grupo | Papel | Tarefa |
 |---|---|---|
-| `plantao-clinico` | Enfermeiro/medico de plantao — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P1) |
-| `enfermagem-triagem` | Enfermagem de triagem — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P2) |
-| `atendimento-humano` | Atendimento ao beneficiario — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P3 via `r5`/`r6`; TAMBEM P2 via o catch-all fail-safe `r7` da DMN — motivo desconhecido nunca vira P3, ver `escalation_routing.dmn` regra `r7`) |
-| `supervisao-atendimento` | Supervisor — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_SupervisorAssume` (SLA resolucao estourado) + alertas de ack |
+| `plantaoClinico` | Enfermeiro/medico de plantao — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P1) |
+| `enfermagemTriagem` | Enfermagem de triagem — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P2) |
+| `atendimentoHumano` | Atendimento ao beneficiario — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_TratarEscalonamento` (P3 via `r5`/`r6`; TAMBEM P2 via o catch-all fail-safe `r7` da DMN — motivo desconhecido nunca vira P3, ver `escalation_routing.dmn` regra `r7`) |
+| `supervisaoAtendimento` | Supervisor — **DRAFT/verify** (nome candidato, R-034; ver `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`) | `UT_SupervisorAssume` (SLA resolucao estourado) + alertas de ack |
 
-> **PERSP-ESCALATION-VOCAB-b (parcial — rename bloqueado por R-034):** as 4 linhas acima ganham a
-> marca `DRAFT/verify` diretamente na tabela (antes so o paragrafo PROPOSTO abaixo explicava a
-> ressalva em prosa). O RENAME de fato dos `candidateGroups` (`plantao-clinico`,
-> `enfermagem-triagem`, `atendimento-humano`, `supervisao-atendimento` — 6 locais no total, incl.
-> `escalation_routing.dmn`, `escalation.py::_SEVERITY_TO_GROUP`, `test-specs/SP-OP-ESCALATION-001.md`)
-> continua BLOQUEADO ate a sessao de nomeacao de R-034 produzir os nomes reais do dono
-> organizacional. Nenhum rename foi aplicado por esta linha.
+> **PERSP-ESCALATION-VOCAB-b (identificadores renomeados em 09/09/2026; nomes de negocio seguem DRAFT/verify):**
+> os 4 `candidateGroups` foram renomeados de `plantao-clinico`/`enfermagem-triagem`/`atendimento-humano`/
+> `supervisao-atendimento` para camelCase por DECISAO DO DIRETOR em 09/09/2026, com base num fato medido no
+> motor: a lista branca de identificadores do CIB Seven e' `[a-zA-Z0-9]+` (`plantao_clinico` e
+> `plantao.clinico` -> HTTP 500; `plantaoClinico` -> 204), entao NENHUM dos nomes com hifen podia existir
+> como grupo — toda tarefa de escalonamento apontava para fila vazia (medido: HTTP 404 nos tres grupos em
+> 09/09). Os 4 grupos foram criados no motor de dev no mesmo dia e o `engine_bootstrap` passou a cria-los
+> (idempotente). O que R-034 ainda decide e' o NOME DE NEGOCIO de cada fila (quem e' "plantao clinico" na
+> operadora) — por isso a marca `DRAFT/verify` fica; o identificador tecnico ja' nao bloqueia nada.
 
 > **PROPOSTO — confirmar contra a taxonomia organizacional da operadora** (ver
-> `docs/review-queue.md`; R-034 / gap `PERSP-ESCALATION-VOCAB-a`). Os nomes `plantao-clinico` e
-> `enfermagem-triagem` sao candidatos DRAFT herdados de vocabulario de prestador e podem nao
-> corresponder aos grupos reais do IdP/console de User Tasks da operadora; `atendimento-humano` e
-> `supervisao-atendimento` tambem aguardam a mesma confirmacao. A tabela consolidada de
+> `docs/review-queue.md`; R-034 / gap `PERSP-ESCALATION-VOCAB-a`). Os nomes `plantaoClinico` e
+> `enfermagemTriagem` sao candidatos DRAFT herdados de vocabulario de prestador e podem nao
+> corresponder aos grupos reais do IdP/console de User Tasks da operadora; `atendimentoHumano` e
+> `supervisaoAtendimento` tambem aguardam a mesma confirmacao. A tabela consolidada de
 > `grupo declarado -> arquivo:linha -> processo -> SLA/ato` para esta sessao de nomeacao esta em
 > `docs/sme-dispatch/po/ORG-TAXONOMY-TABLE.md`. Nenhum rename e aplicado sem os nomes reais do
 > dono organizacional da operadora.

@@ -28,6 +28,23 @@ GRUPO_ADMIN: Final[str] = "camunda-admin"
 #: `camunda-admin` é exceção embutida, o resto não pode.
 GRUPO_LEITURA: Final[str] = "maezoleitura"
 
+#: As FILAS de atendimento humano — os `candidateGroups` de `UT_TratarEscalonamento`
+#: (SP-OP-ESCALATION-001) e os `grupo_atendimento` que `escalation_routing.dmn` emite.
+#:
+#: Medido em 09/09/2026: as quatro nao existiam no motor e NAO PODIAM existir — os nomes
+#: originais tinham hifen (`plantao-clinico`, ...) e a lista branca e' `[a-zA-Z0-9]+`. Toda
+#: tarefa de escalonamento apontava para fila vazia. Decisao do diretor em 09/09: RENOMEAR
+#: (camelCase), nao afrouxar a lista branca do engine. Criadas a mao no motor de dev no mesmo
+#: dia; aqui ficam para que um motor reconstruido nasca com elas (idempotente: so' cria a que
+#: falta). Sem autorizacoes: fila e' so' um nome que a Tasklist filtra; quem entra nela e'
+#: decisao de gente, e membro se adiciona sem tocar em permissao.
+GRUPOS_DE_ATENDIMENTO: Final[tuple[tuple[str, str], ...]] = (
+    ("plantaoClinico", "Plantao clinico (P1)"),
+    ("enfermagemTriagem", "Enfermagem de triagem (P2)"),
+    ("atendimentoHumano", "Atendimento humano (P3)"),
+    ("supervisaoAtendimento", "Supervisao de atendimento (fallback)"),
+)
+
 #: O que o grupo de leitura pode: ver o motor, e nada mais.
 #:
 #: `(resourceType, resourceId, permissões)`. Os tipos são os do engine — 0 aplicação,
@@ -63,6 +80,7 @@ class Plano:
     filtros_a_apagar: list[tuple[str, str]] = field(default_factory=list)
     autorizacoes_a_apagar: list[tuple[str, str]] = field(default_factory=list)
     grupo_leitura_a_criar: bool = False
+    filas_a_criar: list[str] = field(default_factory=list)
     grants_de_leitura_a_criar: list[str] = field(default_factory=list)
 
 
@@ -154,6 +172,7 @@ def _planejar_grupo_de_leitura(http: httpx.Client, plano: Plano, *, grupos: set[
     o erro" produziria lixo crescente a cada execução.
     """
     plano.grupo_leitura_a_criar = GRUPO_LEITURA not in grupos
+    plano.filas_a_criar = [gid for gid, _ in GRUPOS_DE_ATENDIMENTO if gid not in grupos]
 
     existentes = {
         (a["resourceType"], str(a["resourceId"]))
@@ -251,6 +270,7 @@ def _imprimir(plano: Plano, *, executar: bool) -> None:
     for aid, desc in plano.autorizacoes_a_apagar:
         print(f"    - {aid[:8]}  {desc}")
     criar = "SIM" if plano.grupo_leitura_a_criar else "ja existe"
+    print(f"  filas de atendimento a criar: {plano.filas_a_criar or 'nenhuma (todas existem)'}")
     print(f"  grupo de leitura {GRUPO_LEITURA!r}: {criar}")
     print(f"  grants de leitura a criar: {len(plano.grants_de_leitura_a_criar)}")
     for g in plano.grants_de_leitura_a_criar:
@@ -340,6 +360,15 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
 
     # 6) O grupo de leitura. Depois da limpeza de propósito: criar permissão antes de
     #    remover a antiga deixaria as duas coexistindo se algo falhasse no meio.
+    for gid, nome in GRUPOS_DE_ATENDIMENTO:
+        if gid not in plano.filas_a_criar:
+            continue
+        _exigir_ok(
+            http.post(base + "/group/create", json={"id": gid, "name": nome, "type": "WORKFLOW"}),
+            f"criar fila {gid}",
+        )
+        print(f"  criada fila {gid}")
+
     if plano.grupo_leitura_a_criar:
         _exigir_ok(
             http.post(

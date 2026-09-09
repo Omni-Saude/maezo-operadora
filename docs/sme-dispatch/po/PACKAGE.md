@@ -82,7 +82,7 @@ not a generic "please review."
 
 - **Contract:** `docs/processes/contracts/SP-OP-ESCALATION-001.md`
 - **Specific ask:** this contract is already FINAL and its candidate groups
-  (`plantao-clinico`/`enfermagem-triagem`/`atendimento-humano`/`supervisao-atendimento`) are
+  (`plantaoClinico`/`enfermagemTriagem`/`atendimentoHumano`/`supervisaoAtendimento`) are
   shipped — PO's role here is narrow: confirm these groups are still current (org changes since
   FINAL?) as part of the retro-verification pass (see `../tracker.md` signoff-absent flag and
   `../medico-auditor/PACKAGE.md` / `../regulatorio/PACKAGE.md` for the SLA-content half of the
@@ -167,7 +167,7 @@ signoff file.
 ## Taxonomia organizacional — sessão única (ROW R-034)
 
 O `candidateGroups` "confirm" ask repetido em quase todo item acima (`gestao-rede`,
-`auditoria-contas`, `medico-auditor`, `plantao-clinico`/`enfermagem-triagem` de
+`auditoria-contas`, `medico-auditor`, `plantaoClinico`/`enfermagemTriagem` de
 SP-OP-ESCALATION-001 etc.) é a mesma pergunta de organograma feita processo a processo. A resposta
 aprovada de R-034 (`OWNER-DECISIONS-REGISTER`, APROVADO-APOS-REVISAO-HUMANA) consolida essa
 pergunta numa única sessão de taxonomia cobrindo os 8 processos do escopo do dono (ESCALATION,

@@ -151,7 +151,7 @@ def test_package_md_points_to_the_new_table() -> None:
 # ---------------------------------------------------------------------------------------------
 
 _CAVEAT_CONTRACTS_AND_GROUPS: dict[str, tuple[str, ...]] = {
-    "SP-OP-ESCALATION-001.md": ("plantao-clinico", "enfermagem-triagem", "atendimento-humano"),
+    "SP-OP-ESCALATION-001.md": ("plantaoClinico", "enfermagemTriagem", "atendimentoHumano"),
     "SP-OP-AUTH-001.md": ("medico-auditor", "coordenacao-auditoria-medica", "junta-medica"),
     "SP-OP-LGPD-DSR-001.md": ("dpo", "juridico-privacidade"),
 }

@@ -100,7 +100,7 @@ _ESTADO = {
     "motivo_humano": "contestacao_cobranca",
     "motivo_categoria": "cobranca",
     "severidade": "leve",
-    "grupo_humano": "atendimento-humano",
+    "grupo_humano": "atendimentoHumano",
 }
 
 

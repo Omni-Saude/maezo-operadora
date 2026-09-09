@@ -332,7 +332,7 @@ async def start_escalation(engine: EngineRest, deploy_artifacts: str) -> StartEs
 async def test_happy_path_resolvido_por_humano(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
-    """Start -> requested; humano de plantao-clinico resolve; resolved; sem process_completed."""
+    """Start -> requested; humano de plantaoClinico resolve; resolved; sem process_completed."""
     inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
     iid = inst["id"]
 
@@ -340,7 +340,7 @@ async def test_happy_path_resolvido_por_humano(
     assert probe.has_event(_REQUESTED, motivo_categoria="red_flag_clinico")
 
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
-    assert task.candidate_groups == frozenset({"plantao-clinico"})  # DMN: P1
+    assert task.candidate_groups == frozenset({"plantaoClinico"})  # DMN: P1
 
     await engine.complete_task_as_human(task.id, {"resultado": "resolvido_humano", "notas_resolucao": "ok"})
     await probe.drain()  # publica resolved
@@ -373,7 +373,7 @@ async def test_happy_path_devolvido_ao_agente(
 
     await probe.drain()
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
-    assert task.candidate_groups == frozenset({"atendimento-humano"})  # DMN: P3
+    assert task.candidate_groups == frozenset({"atendimentoHumano"})  # DMN: P3
 
     await engine.complete_task_as_human(
         task.id, {"resultado": "devolvido_agente", "notas_resolucao": "instrucoes do humano"}
@@ -419,17 +419,17 @@ async def test_happy_path_emergencia_acionada(
 async def test_dmn_routing_p1_plantao_clinico(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
-    """red_flag_clinico+grave => UT em plantao-clinico (P1)."""
+    """red_flag_clinico+grave => UT em plantaoClinico (P1)."""
     inst = await start_escalation(motivo_categoria="red_flag_clinico", severidade="grave")
     await probe.drain()
     task = await engine.await_user_task(inst["id"], "UT_TratarEscalonamento")
-    assert task.candidate_groups == frozenset({"plantao-clinico"})
+    assert task.candidate_groups == frozenset({"plantaoClinico"})
 
 
 async def test_dmn_routing_catchall_fail_safe(
     engine: EngineRest, probe: EngineProbe, start_escalation: StartEscalation
 ) -> None:
-    """motivo desconhecido => catch-all P2/atendimento-humano (nunca P3).
+    """motivo desconhecido => catch-all P2/atendimentoHumano (nunca P3).
 
     ESC-D1-MOTIVO-STRICTER-THAN-R7 (prova ao vivo): pre-fix, `notify_team` RECUSAVA a notificacao
     para este mesmo `motivo_categoria` fora de dominio (`_rotulo_opcional_validado`) — mais
@@ -443,14 +443,14 @@ async def test_dmn_routing_catchall_fail_safe(
     inst = await start_escalation(motivo_categoria="categoria_inexistente", severidade="moderada")
     await probe.drain()
     task = await engine.await_user_task(inst["id"], "UT_TratarEscalonamento")
-    assert task.candidate_groups == frozenset({"atendimento-humano"})
+    assert task.candidate_groups == frozenset({"atendimentoHumano"})
 
     assert probe.notified_teams, (
         "notify_team recusou a notificacao para um motivo_categoria fora de dominio — mais "
         "estrito que o catch-all fail-safe r7 da propria DMN (ESC-D1-MOTIVO-STRICTER-THAN-R7)"
     )
     notificacao = probe.notified_teams[0]
-    assert notificacao["grupo_atendimento"] == "atendimento-humano"
+    assert notificacao["grupo_atendimento"] == "atendimentoHumano"
     assert notificacao["severidade"] == "moderada"
     # motivo_categoria fora de dominio e' OMITIDO (degradado), nunca republicado nem inventado.
     assert "motivo_categoria" not in notificacao
@@ -463,11 +463,11 @@ async def test_dmn_routing_catchall_fail_safe(
 @pytest.mark.parametrize(
     ("motivo_categoria", "severidade", "grupo_esperado"),
     [
-        ("red_flag_clinico", "grave", "plantao-clinico"),  # DMN r1 — P1, PT5M (art. 35-C)
-        # DMN r2: risco_psicossocial e P1/plantao-clinico para QUALQUER severidade. Este e o par
-        # que uma tabela privada severidade->grupo erra: `leve` iria para atendimento-humano.
-        ("risco_psicossocial", "leve", "plantao-clinico"),
-        ("solicitacao_humano", "leve", "atendimento-humano"),  # DMN r5 — P3
+        ("red_flag_clinico", "grave", "plantaoClinico"),  # DMN r1 — P1, PT5M (art. 35-C)
+        # DMN r2: risco_psicossocial e P1/plantaoClinico para QUALQUER severidade. Este e o par
+        # que uma tabela privada severidade->grupo erra: `leve` iria para atendimentoHumano.
+        ("risco_psicossocial", "leve", "plantaoClinico"),
+        ("solicitacao_humano", "leve", "atendimentoHumano"),  # DMN r5 — P3
     ],
 )
 async def test_notificacao_nunca_contradiz_o_grupo_da_dmn(
@@ -482,7 +482,7 @@ async def test_notificacao_nunca_contradiz_o_grupo_da_dmn(
     severidade contratual e o `grupo_atendimento` da DMN — o mesmo valor que o engine usa em
     `candidateGroups="${roteamento.grupo_atendimento}"` (BPMN :134). Antes do fix o worker lia a
     variavel INGLESA `severity` (que ninguem define) e caia em `severity=leve` +
-    `group=atendimento-humano` para TODA escalacao, inclusive a P1 clinica sob SLA PT5M.
+    `group=atendimentoHumano` para TODA escalacao, inclusive a P1 clinica sob SLA PT5M.
     """
     inst = await start_escalation(motivo_categoria=motivo_categoria, severidade=severidade)
     await probe.drain()
@@ -540,7 +540,7 @@ async def test_timer_resolucao_interruptivo_supervisor_assume(
 
     assert probe.has_event(_BREACHED, fase="resolucao")
     sup = await engine.await_user_task(iid, "UT_SupervisorAssume")
-    assert sup.candidate_groups == frozenset({"supervisao-atendimento"})
+    assert sup.candidate_groups == frozenset({"supervisaoAtendimento"})
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert "UT_TratarEscalonamento" not in open_keys  # cancelada (interruptivo)
 
@@ -605,7 +605,7 @@ async def test_falha_notificacao_usa_fallback(
     assert probe.notified_supervisors  # ST_NotificarFallback publicou o supervisor
     # Escalonamento nunca se perde por falha de canal: a User Task existe.
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
-    assert task.candidate_groups == frozenset({"plantao-clinico"})
+    assert task.candidate_groups == frozenset({"plantaoClinico"})
 
 
 async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
@@ -634,7 +634,7 @@ async def test_falha_notificacao_ambos_canais_ainda_cria_ut(
     assert "BE_NotifFallbackFailed" in ended  # a falha do canal de fallback disparou a 2a boundary
     assert not probe.notified_supervisors  # nem o fallback conseguiu publicar
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
-    assert task.candidate_groups == frozenset({"plantao-clinico"})
+    assert task.candidate_groups == frozenset({"plantaoClinico"})
 
 
 async def test_falha_publish_requested_nao_bloqueia_roteamento(
@@ -655,7 +655,7 @@ async def test_falha_publish_requested_nao_bloqueia_roteamento(
     # ...mas o processo seguiu incondicionalmente: notify_team rodou e a UT foi criada.
     assert probe.notified_teams
     task = await engine.await_user_task(iid, "UT_TratarEscalonamento")
-    assert task.candidate_groups == frozenset({"plantao-clinico"})
+    assert task.candidate_groups == frozenset({"plantaoClinico"})
 
 
 # --- Idempotencia --------------------------------------------------------------------

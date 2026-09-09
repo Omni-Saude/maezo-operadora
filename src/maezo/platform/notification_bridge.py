@@ -108,7 +108,7 @@ PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 # THE GROUP IS NOT HARD-CODED HERE. `escalation_routing.dmn` decides it inside the process from
 # (`motivo_categoria`, `severidade`); `motivo_categoria="outro"` falls to the FAIL-SAFE catch-all
 # rule `r7` (`spec/processes/dmn/escalation_routing.dmn:83-90`) -> `P2` /
-# `grupo_atendimento="atendimento-humano"` / `sla_ack=PT30M` / `sla_resolucao=PT4H`. The bridge
+# `grupo_atendimento="atendimentoHumano"` / `sla_ack=PT30M` / `sla_resolucao=PT4H`. The bridge
 # therefore states FACTS about the alert and lets the ratified decision table route it — the
 # earlier draft of this rule hard-coded the group string, which asserted a routing decision the
 # DMN owns.
@@ -137,7 +137,7 @@ SLA_ALERT_SOURCE_AGENT_VERSION: Final[str] = "notification_bridge@v1"
 #: agent may ratify — so the honest member is `outro`, which is also what `LucasGraph.
 #: _escalation_variables` (`agents/lucas/graph.py`) already sends when its own reason does not map.
 #: Routing consequence is stated above: `outro` hits the DMN's fail-safe catch-all, P2 /
-#: `atendimento-humano` — never a clinical queue, which is exactly right for an administrative
+#: `atendimentoHumano` — never a clinical queue, which is exactly right for an administrative
 #: SLA clock.
 SLA_ALERT_MOTIVO_CATEGORIA: Final[str] = "outro"
 

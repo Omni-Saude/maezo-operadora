@@ -87,17 +87,35 @@ check "ratificacao_da_zona_da_narrativa" {
 }
 
 locals {
+  # Helena (ver comentario dentro de `agentes.helena`): o provedor dela segue a atestacao PHI.
+  helena_phi_ligado = trimspace(var.phi_vendor_dpa_ref) != ""
+  helena_provider   = local.helena_phi_ligado ? var.phi_zone_provider : var.inference_provider
+}
+
+locals {
   # Zona, provedor de inferencia e replicas por agente.
   #
   # O provedor NAO e' o mesmo para todos, e essa e' a decisao central deste arquivo:
   # a zona de seguranca do agente escolhe quem serve a inferencia dele.
   agentes = {
     helena = {
-      zona              = "general"
-      replicas          = 1
-      provider          = var.inference_provider # bedrock: modelo real
-      phi_zone_required = false
-      motivo            = "zona geral — sem PHI, inferencia real via Bedrock"
+      zona     = "general"
+      replicas = 1
+      # 09/09/2026 — MEDIDO NO PRIMEIRO TURNO REAL (receptor): `PhiZoneRoutingError: PHI-tagged
+      # inference request cannot be served by provider 'bedrock' — it is not PHI-capable`. O grafo
+      # da Helena marca TODA chamada ao modelo como PHI (a mensagem e' texto livre do beneficiario,
+      # ADR-0006/ADR-0017), entao a zona "geral" nunca foi verdade para a inferencia dela: com o
+      # `bedrock` comum ela cai em `falha_tecnica` em 100% dos turnos. Isto ficou invisivel por
+      # semanas porque `agent-helena` nao executa turno — so' o receptor executa.
+      #
+      # A CORRECAO E' A MESMA VIA DOS AGENTES PHI: o provedor de zona de saude, que so' existe
+      # quando o dono ATESTA o instrumento (`var.phi_vendor_dpa_ref`, sem default de proposito).
+      # Sem atestacao, fica o `bedrock` comum e a Helena continua caindo em humano — que e' o
+      # comportamento seguro, nao o desejado. Ligar = preencher `phi_vendor_dpa_ref` (e
+      # `phi_zone_provider`, hoje `bedrock_br`); nada mais muda.
+      provider          = local.helena_provider
+      phi_zone_required = local.helena_phi_ligado
+      motivo            = local.helena_phi_ligado ? "zona geral, inferencia PHI-capable (bedrock_br) porque o texto e' PHI" : "zona geral — SEM provedor PHI: todo turno cai em falha_tecnica ate' a atestacao"
     }
     rafael = {
       zona     = "phi"
