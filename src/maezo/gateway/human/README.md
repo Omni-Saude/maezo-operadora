@@ -136,6 +136,12 @@ para o browser. É separado de `PendingAdmission`, `EngineReceipt` e do DTO D3
 `HumanCommandReceipt`: D5 não fornece `engine_commit_ref`, e D6 não o inventa.
 A reconciliação versionada desse contrato D3 permanece necessária. O timestamp
 exposto é `engine_recorded_at`, não um instante exato de commit alegado.
+Seu epoch deve ser uma string decimal canônica não negativa e representável em
+UTC; a projeção pública preserva esse UTC. Não se exige ordenação desse metadado
+contra o relógio independente do gateway. Essa comparação de clocks rejeitava
+recibos válidos já commitados (D6-RELAY-EIR-01), inclusive na releitura durável.
+Validades de envelope, chave, sessão, membership, evidência, autoridade e lease
+continuam sendo controles próprios de autorização/entrega, sem tolerância nova.
 
 Os dublês HTTP existem apenas nos testes unitários. Os testes em
 `tests/integration/gateway/test_human_outbox_live_pg.py` e

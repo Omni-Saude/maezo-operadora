@@ -175,8 +175,9 @@ def verify_engine_receipt(raw: bytes, command: HumanCommand) -> EngineReceipt:
             or receipt.consumed_task_revision != command.task_revision
         ):
             raise ProjectionError("receipt mismatch")
-        if receipt.engine_recorded_at > datetime.now(UTC):
-            raise ProjectionError("receipt timestamp unavailable")
+        # Engine registration metadata is not an authorization freshness clock.
+        # Keep UTC datetime representability validation without cross-clock ordering.
+        _ = receipt.engine_recorded_at
         return receipt
     except Exception:
         raise ProjectionError("receipt verification unavailable") from None
