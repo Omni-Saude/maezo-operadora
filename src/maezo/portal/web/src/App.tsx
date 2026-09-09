@@ -53,6 +53,8 @@ export function App() {
   const [state, setState] = useState<ViewState>({ kind: "loading", reason: "initial" });
   const requestEpoch = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
+  const transitionHeading = useRef<HTMLHeadingElement | null>(null);
+  const focusUserTransition = useRef(false);
 
   const revalidate = useCallback(async (reason: "initial" | "revalidation" | "expiry") => {
     const epoch = ++requestEpoch.current;
@@ -129,11 +131,34 @@ export function App() {
     }
   }, []);
 
+  const startSessionRetry = useCallback(() => {
+    focusUserTransition.current = true;
+    void revalidate("revalidation");
+  }, [revalidate]);
+
+  const startLogout = useCallback(
+    (csrfToken: string) => {
+      focusUserTransition.current = true;
+      void logout(csrfToken);
+    },
+    [logout],
+  );
+
+  useEffect(() => {
+    if (!focusUserTransition.current || transitionHeading.current === null) return;
+    transitionHeading.current.focus();
+    if (state.kind !== "loading" && state.kind !== "logging-out") {
+      focusUserTransition.current = false;
+    }
+  }, [state.kind]);
+
   if (state.kind === "loading") {
     return (
       <StatusPage>
         <p className="eyebrow">Portal Maezo</p>
-        <h1>{state.reason === "initial" ? "Validando sua sessão" : "Revalidando sua sessão"}</h1>
+        <h1 ref={transitionHeading} tabIndex={-1}>
+          {state.reason === "initial" ? "Validando sua sessão" : "Revalidando sua sessão"}
+        </h1>
         <p>Aguarde enquanto confirmamos seu acesso com segurança.</p>
         <span className="progress" aria-hidden="true" />
       </StatusPage>
@@ -151,7 +176,7 @@ export function App() {
           <button
             className="secondary-action"
             type="button"
-            onClick={() => void logout(state.session.csrf_token)}
+            onClick={() => startLogout(state.session.csrf_token)}
           >
             Sair com segurança
           </button>
@@ -159,7 +184,12 @@ export function App() {
         <main className="home">
           <section className="welcome-card" aria-labelledby="audience-heading">
             <p className="eyebrow">Sessão ativa</p>
-            <h1 id="audience-heading">{content.heading}</h1>
+            <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+              Sessão confirmada. {content.heading}.
+            </p>
+            <h1 id="audience-heading" ref={transitionHeading} tabIndex={-1}>
+              {content.heading}
+            </h1>
             <p>{content.help}</p>
             <dl className="session-detail">
               <div>
@@ -189,7 +219,9 @@ export function App() {
     return (
       <StatusPage>
         <p className="eyebrow">Portal Maezo</p>
-        <h1>Encerrando a sessão</h1>
+        <h1 ref={transitionHeading} tabIndex={-1}>
+          Encerrando a sessão
+        </h1>
         <p>Removemos os dados desta tela e estamos confirmando a saída no servidor.</p>
       </StatusPage>
     );
@@ -199,13 +231,15 @@ export function App() {
     return (
       <StatusPage>
         <p className="eyebrow">Atenção</p>
-        <h1>Não foi possível confirmar a saída</h1>
+        <h1 ref={transitionHeading} tabIndex={-1}>
+          Não foi possível confirmar a saída
+        </h1>
         <p>Os dados foram removidos desta tela, mas o servidor não confirmou o encerramento da sessão.</p>
         <div className="action-row">
           <button
             className="primary-action"
             type="button"
-            onClick={() => void logout(state.retryToken)}
+            onClick={() => startLogout(state.retryToken)}
           >
             Tentar sair novamente
           </button>
@@ -219,7 +253,9 @@ export function App() {
     return (
       <StatusPage>
         <p className="eyebrow">Portal Maezo</p>
-        <h1>Sessão encerrada</h1>
+        <h1 ref={transitionHeading} tabIndex={-1}>
+          Sessão encerrada
+        </h1>
         <p>O servidor confirmou sua saída.</p>
         <SignInLink label="Entrar novamente" />
       </StatusPage>
@@ -230,12 +266,14 @@ export function App() {
     return (
       <StatusPage>
         <p className="eyebrow">Serviço temporariamente indisponível</p>
-        <h1>Não foi possível validar sua sessão</h1>
+        <h1 ref={transitionHeading} tabIndex={-1}>
+          Não foi possível validar sua sessão
+        </h1>
         <p>Uma dependência do portal não respondeu. Nenhum acesso foi concedido.</p>
         <button
           className="primary-action"
           type="button"
-          onClick={() => void revalidate("revalidation")}
+          onClick={startSessionRetry}
         >
           Tentar novamente
         </button>
@@ -247,12 +285,14 @@ export function App() {
     return (
       <StatusPage>
         <p className="eyebrow">Resposta inválida</p>
-        <h1>Não foi possível validar sua sessão</h1>
+        <h1 ref={transitionHeading} tabIndex={-1}>
+          Não foi possível validar sua sessão
+        </h1>
         <p>O portal recusou uma resposta inesperada. Nenhum acesso foi concedido.</p>
         <button
           className="primary-action"
           type="button"
-          onClick={() => void revalidate("revalidation")}
+          onClick={startSessionRetry}
         >
           Tentar novamente
         </button>
@@ -264,7 +304,9 @@ export function App() {
     return (
       <StatusPage>
         <p className="eyebrow">Sessão expirada</p>
-        <h1>Entre novamente para continuar</h1>
+        <h1 ref={transitionHeading} tabIndex={-1}>
+          Entre novamente para continuar
+        </h1>
         <p>Os dados da sessão anterior foram removidos desta tela.</p>
         <SignInLink />
       </StatusPage>
@@ -274,7 +316,9 @@ export function App() {
   return (
     <StatusPage>
       <p className="eyebrow">Portal Maezo</p>
-      <h1>Sua sessão não está ativa</h1>
+      <h1 ref={transitionHeading} tabIndex={-1}>
+        Sua sessão não está ativa
+      </h1>
       <p>Entre para que o servidor confirme seu acesso.</p>
       <SignInLink />
     </StatusPage>

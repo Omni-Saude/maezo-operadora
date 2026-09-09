@@ -9,15 +9,26 @@ import json
 from pathlib import Path
 
 import httpx
+from pydantic import BaseModel
 
 from maezo.portal.api.app import create_app
 from maezo.portal.api.config import PortalSettings
 from maezo.portal.api.store import LocalTestIdentityStore
 
 
+class _SchemaExportSettings(PortalSettings):
+    """Use PortalSettings validators without constructing deployment settings sources."""
+
+    def __init__(self, **data: object) -> None:
+        # BaseSettings assembles env/dotenv/secret sources before validation. The pure
+        # BaseModel initializer runs this subclass's inherited PortalSettings validators
+        # directly against the complete explicit export fixture.
+        BaseModel.__init__(self, **data)
+
+
 def build_schema() -> dict[str, object]:
     """Build only the ASGI route graph; no lifespan, database, or HTTP request runs."""
-    settings = PortalSettings(
+    settings = _SchemaExportSettings(
         tenant="schema-export",
         issuer="https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_SchemaExport",
         cognito_origin="https://schema-export.auth.sa-east-1.amazoncognito.com",
@@ -25,7 +36,10 @@ def build_schema() -> dict[str, object]:
         machine_client_id="schemaexportmachine",
         client_purpose="dedicated-human-code-pkce",
         public_origin="https://portal.schema-export.invalid",
+        database_url=None,
         mode="local-test",
+        session_seconds=1800,
+        transaction_seconds=300,
     )
 
     def refuse_network(request: httpx.Request) -> httpx.Response:

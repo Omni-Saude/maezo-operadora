@@ -191,14 +191,95 @@ it("não usa storage persistente do navegador", async () => {
   expect(remove).not.toHaveBeenCalled();
 });
 
-it("mantém status assíncrono sem mover o foco", async () => {
+it("leva o foco pelo carregamento até o destino após retry pelo teclado", async () => {
+  const retried = deferred<Response>();
   vi.mocked(fetch)
     .mockResolvedValueOnce(new Response(null, { status: 503 }))
-    .mockResolvedValueOnce(jsonResponse(session()));
+    .mockReturnValueOnce(retried.promise);
   render(<App />);
   const retry = await screen.findByRole("button", { name: "Tentar novamente" });
   retry.focus();
-  fireEvent.click(retry);
-  expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
-  await waitFor(() => expect(document.activeElement).toBe(document.body));
+  await userEvent.keyboard("{Enter}");
+  const loading = screen.getByRole("heading", { name: "Revalidando sua sessão" });
+  await waitFor(() => expect(loading).toHaveFocus());
+  retried.resolve(jsonResponse(session()));
+  const destination = await screen.findByRole("heading", { name: "Área de colaboradores" });
+  await waitFor(() => expect(destination).toHaveFocus());
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Sessão confirmada. Área de colaboradores.",
+  );
+});
+
+it("leva o foco ao erro útil quando o retry pelo teclado falha", async () => {
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(new Response(null, { status: 503 }))
+    .mockResolvedValueOnce(new Response(null, { status: 503 }));
+  render(<App />);
+  const retry = await screen.findByRole("button", { name: "Tentar novamente" });
+  retry.focus();
+  await userEvent.keyboard("{Enter}");
+  const destination = await screen.findByRole("heading", {
+    name: "Não foi possível validar sua sessão",
+  });
+  await waitFor(() => expect(destination).toHaveFocus());
+  expect(
+    screen.getByText("Uma dependência do portal não respondeu. Nenhum acesso foi concedido."),
+  ).toBeInTheDocument();
+});
+
+it("orienta o foco no logout confirmado e no retry após falha", async () => {
+  const firstLogout = deferred<Response>();
+  const retryLogout = deferred<Response>();
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(jsonResponse(session()))
+    .mockReturnValueOnce(firstLogout.promise)
+    .mockReturnValueOnce(retryLogout.promise);
+  render(<App />);
+  const logout = await screen.findByRole("button", { name: "Sair com segurança" });
+  logout.focus();
+  await userEvent.keyboard("{Enter}");
+  const loggingOut = screen.getByRole("heading", { name: "Encerrando a sessão" });
+  await waitFor(() => expect(loggingOut).toHaveFocus());
+
+  firstLogout.resolve(new Response(null, { status: 503 }));
+  const failure = await screen.findByRole("heading", {
+    name: "Não foi possível confirmar a saída",
+  });
+  await waitFor(() => expect(failure).toHaveFocus());
+  expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
+
+  const retry = screen.getByRole("button", { name: "Tentar sair novamente" });
+  retry.focus();
+  await userEvent.keyboard("{Enter}");
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { name: "Encerrando a sessão" })).toHaveFocus(),
+  );
+  retryLogout.resolve(new Response(null, { status: 204 }));
+  const confirmed = await screen.findByRole("heading", { name: "Sessão encerrada" });
+  await waitFor(() => expect(confirmed).toHaveFocus());
+});
+
+it("revalidação automática anuncia o estado sem focar o destino", async () => {
+  const revalidated = deferred<Response>();
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(jsonResponse(session()))
+    .mockReturnValueOnce(revalidated.promise);
+  render(<App />);
+  const logout = await screen.findByRole("button", { name: "Sair com segurança" });
+  logout.focus();
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
+  fireEvent(document, new Event("visibilitychange"));
+  const loading = screen.getByRole("heading", { name: "Revalidando sua sessão" });
+  expect(loading).not.toHaveFocus();
+  expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
+
+  revalidated.resolve(jsonResponse(session()));
+  const destination = await screen.findByRole("heading", { name: "Área de colaboradores" });
+  expect(destination).not.toHaveFocus();
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Sessão confirmada. Área de colaboradores.",
+  );
 });
