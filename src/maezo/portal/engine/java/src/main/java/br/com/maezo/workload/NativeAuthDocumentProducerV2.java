@@ -1,6 +1,10 @@
 package br.com.maezo.workload;
 
 import java.time.Instant;
+import java.io.IOException;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.*;
 import br.com.maezo.human.AuthDocumentProducerContext;
 import org.cibseven.bpm.engine.impl.cfg.TransactionState;
@@ -8,9 +12,24 @@ import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
 
 /** Separate producer read, current fetch preflight only; no acquisition or effect writes. */
 public final class NativeAuthDocumentProducerV2 {
-  public record Response(int status,byte[] body) {
-    public Response {body=body.clone();}
+  public record Response(int status,byte[] body,long validUntil) {
+    public Response {if(status!=200 || validUntil<=0)throw Refused.unavailable();body=body.clone();}
     @Override public byte[] body(){return body.clone();}
+    /** Route-only release after engine, policy I/O and identity restoration. */
+    public void writeTo(HttpServletResponse response)throws IOException {
+      writeTo(response,System::currentTimeMillis);
+    }
+    void writeTo(HttpServletResponse response,LongSupplier clock)throws IOException {
+      byte[] frozen=body();
+      var output=response.getOutputStream();
+      response.setStatus(status);
+      // No source reload or I/O between this original-deadline check and body write.
+      if(clock.getAsLong()>=validUntil) {
+        var unavailable=NativeOutcomeV2.refusal("unavailable");
+        response.setStatus(unavailable.status());output.write(unavailable.bytes());return;
+      }
+      output.write(frozen);
+    }
   }
   private final WorkloadPlugin plugin;
   private final AuthDocumentProducerContext auth;
@@ -19,8 +38,11 @@ public final class NativeAuthDocumentProducerV2 {
   }
   public Response execute(BoundaryPolicy.Peer peer,byte[] raw) {
     var query=Json.parse(raw);validate(query);
-    var value=plugin.executeV2(context->read(context,peer,query,NativeOutcomeV2.bodyDigest(raw)));
-    return new Response(value.status(),value.bytes());
+    var response=new AtomicReference<Response>();
+    var value=plugin.executeV2(context->read(context,peer,query,NativeOutcomeV2.bodyDigest(raw),response));
+    var frozen=response.get();
+    if(frozen==null || frozen.status()!=value.status() || !Arrays.equals(frozen.body(),value.bytes()))throw Refused.unavailable();
+    return frozen;
   }
   static void validate(Map<String,Object> q) {
     Json.keys(q,"protocol","designation_digest","query_id","reader_activation_ref","fetch_command","resource_ref","resource_acquisition");
@@ -29,7 +51,7 @@ public final class NativeAuthDocumentProducerV2 {
     Json.token(q,"reader_activation_ref");Json.token(q,"resource_ref");NativeOutcomeV2.reference(q.get("resource_acquisition"));
     if(!"fetch_lock".equals(NativeOutcomeV2.command(q.get("fetch_command")).get("operation")))throw Refused.body();
   }
-  private NativeOutcomeV2.Publication read(CommandContext ctx,BoundaryPolicy.Peer peer,Map<String,Object> query,String digest) {
+  private NativeOutcomeV2.Publication read(CommandContext ctx,BoundaryPolicy.Peer peer,Map<String,Object> query,String digest,AtomicReference<Response> response) {
     boolean prior=WorkloadPlugin.GUARDED.get();WorkloadPlugin.GUARDED.set(true);
     try {
       var policy=plugin.v2();var command=NativeOutcomeV2.command(query.get("fetch_command"));
@@ -71,6 +93,7 @@ public final class NativeAuthDocumentProducerV2 {
         result.put("observed_at",now);result.put("valid_until",deadline);result.put("context",context);
         var encoded=new NativeOutcomeV2.Encoded(200,Json.bytes(result));
         if(Instant.now().toEpochMilli()>=deadline)throw Refused.unavailable();
+        if(!response.compareAndSet(null,new Response(encoded.status(),encoded.bytes(),deadline)))throw Refused.unavailable();
         publication.prepare(encoded);
       });
       ctx.getTransactionContext().addTransactionListener(TransactionState.COMMITTED,ignored->publication.publish());

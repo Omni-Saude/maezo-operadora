@@ -1,6 +1,12 @@
 package br.com.maezo.workload;
 
 import java.util.*;
+import java.io.ByteArrayOutputStream;
+import java.lang.reflect.Proxy;
+import java.util.concurrent.atomic.AtomicLong;
+import jakarta.servlet.ServletOutputStream;
+import jakarta.servlet.WriteListener;
+import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -37,7 +43,43 @@ class NativeAuthDocumentProducerV2Test {
     var publication=new NativeOutcomeV2.Publication();var bytes=Json.bytes(Map.of("private","observation"));
     publication.prepare(new NativeOutcomeV2.Encoded(200,bytes));
     assertThrows(Refused.class,publication::committed);publication.publish();
-    var response=new NativeAuthDocumentProducerV2.Response(200,publication.committed().bytes());
+    var response=new NativeAuthDocumentProducerV2.Response(200,publication.committed().bytes(),1000L);
     var copy=response.body();copy[0]=0;assertArrayEquals(bytes,response.body());
+  }
+  @Test void finalReleaseRetainsOriginalCeilingAcrossAllHandoffs()throws Exception {
+    for(String boundary:List.of("current","engine_return","policy_io","identity_restore","output_stream","status")) {
+      var clock=new AtomicLong(900L);var bytes=new ByteArrayOutputStream();var events=new ArrayList<String>();
+      int[] status={0};
+      var output=new ServletOutputStream(){
+        @Override public boolean isReady(){return true;}
+        @Override public void setWriteListener(WriteListener ignored){}
+        @Override public void write(int value){events.add("write");bytes.write(value);}
+      };
+      var servlet=(HttpServletResponse)Proxy.newProxyInstance(getClass().getClassLoader(),new Class<?>[]{HttpServletResponse.class},(proxy,method,args)->{
+        if(method.getName().equals("getOutputStream")) {
+          events.add("output_stream");if(boundary.equals("output_stream"))clock.set(1000L);return output;
+        }
+        if(method.getName().equals("setStatus")) {
+          events.add("status");status[0]=(Integer)args[0];if(boundary.equals("status"))clock.set(1000L);return null;
+        }
+        throw new AssertionError(method.getName());
+      });
+      byte[] protectedBody=Json.bytes(Map.of("context","protected"));
+      var original=new NativeAuthDocumentProducerV2.Response(200,protectedBody,1000L);
+      protectedBody[0]=0;
+      // Conversion must not discard the separate immutable context response.
+      var encoded=new NativeOutcomeV2.Encoded(original.status(),original.body());
+      assertArrayEquals(original.body(),encoded.bytes());
+      for(String step:List.of("engine_return","policy_io","identity_restore")) {
+        events.add(step);if(boundary.equals(step))clock.set(1000L);
+      }
+      original.writeTo(servlet,()->{events.add("original_deadline");return clock.get();});
+      assertTrue(events.indexOf("original_deadline")>events.indexOf("identity_restore"));
+      assertTrue(events.indexOf("original_deadline")>events.indexOf("output_stream"));
+      assertTrue(events.indexOf("original_deadline")>events.indexOf("status"));
+      assertEquals("write",events.get(events.indexOf("original_deadline")+1+(boundary.equals("current")?0:1)));
+      assertEquals(boundary.equals("current")?200:503,status[0]);
+      assertArrayEquals(boundary.equals("current")?original.body():NativeOutcomeV2.refusal("unavailable").bytes(),bytes.toByteArray());
+    }
   }
 }
