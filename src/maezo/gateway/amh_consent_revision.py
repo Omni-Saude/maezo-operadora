@@ -9,8 +9,10 @@ still owns current consent and AMH still enforces it for each HTTP request.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -36,11 +38,63 @@ ON CONFLICT (domain_digest, subject_purpose_digest) DO UPDATE SET
         ELSE stored.conflicted END
 RETURNING revision::text, decision_digest, conflicted
 """)
+_BEGIN = text("""
+INSERT INTO maezo_amh_consent.pending_observation
+    (domain_digest, subject_purpose_digest, observation_token)
+VALUES (:domain, :subject_purpose, :token)
+ON CONFLICT (domain_digest, subject_purpose_digest) DO NOTHING
+RETURNING observation_token
+""")
+_LOCK_PENDING = text("""
+SELECT observation_token FROM maezo_amh_consent.pending_observation
+WHERE domain_digest = :domain AND subject_purpose_digest = :subject_purpose
+FOR UPDATE
+""")
+_COMPLETE = text("""
+DELETE FROM maezo_amh_consent.pending_observation
+WHERE domain_digest = :domain AND subject_purpose_digest = :subject_purpose
+    AND observation_token = :token
+RETURNING observation_token
+""")
+_PENDING = text("""
+SELECT p.observation_token, r.revision::text, r.decision_digest, r.conflicted
+FROM maezo_amh_consent.pending_observation p
+LEFT JOIN maezo_amh_consent.revision_guard r
+    USING (domain_digest, subject_purpose_digest)
+WHERE p.domain_digest = :domain AND p.subject_purpose_digest = :subject_purpose
+""")
 _CURRENT = text("""
 SELECT revision::text, decision_digest, conflicted
 FROM maezo_amh_consent.revision_guard
 WHERE domain_digest = :domain AND subject_purpose_digest = :subject_purpose
+    AND NOT EXISTS (SELECT 1 FROM maezo_amh_consent.pending_observation p
+        WHERE p.domain_digest = :domain AND p.subject_purpose_digest = :subject_purpose)
 """)
+
+
+@dataclass(frozen=True, slots=True)
+class ConsentObservationIntent:
+    """Internal opaque ownership, never consent authority or a browser token."""
+
+    domain_digest: str
+    subject_purpose_digest: str
+    observation_token: str
+
+
+@dataclass(frozen=True, slots=True)
+class PendingConsentReconciliation:
+    """Read-only recovery evidence; the possibly observed value is NOT known here.
+
+    An active request and an abandoned intent are deliberately indistinguishable.
+    A retained exact decision may retry with this intent; after losing that value,
+    qualified source reconciliation is mandatory. Neither age nor a lower fresh
+    reply qualifies deletion. No automated source reconciliation is implemented.
+    """
+
+    intent: ConsentObservationIntent
+    persisted_revision: int | None
+    persisted_decision_digest: str | None
+    conflicted: bool | None
 
 
 class PostgresAmhConsentRevisionGuard:
@@ -101,18 +155,72 @@ class PostgresAmhConsentRevisionGuard:
             and row[2] is False
         )
 
-    async def observe(self, decision: ConsentDecision) -> bool:
-        """Commit denials too, before testing grant/ref; unknown commit never permits."""
-        parameters = self._parameters(decision)
+    def _key(self, subject: str, purpose: str) -> dict[str, str]:
+        if any(type(value) is not str or not value for value in (subject, purpose)):
+            raise ValueError("amh_consent_observation_invalid")
+        return {"domain": self._domain, "subject_purpose": hash_input([subject, purpose])}
+
+    async def begin_observation(self, subject: str, purpose: str) -> ConsentObservationIntent | None:
+        """Commit intent BEFORE source IO; conflicts/unknown commits never observe.
+
+        There is no timeout expiry or replacement. A committed abandoned intent
+        survives reconstruction and blocks only this authority/subject/purpose.
+        """
+        parameters = self._key(subject, purpose)
+        parameters["token"] = uuid4().hex
         async with self._engine.begin() as connection:
+            result = await connection.execute(_BEGIN, parameters)
+            row = result.one_or_none()
+        if row is None:
+            return None
+        if row[0] != parameters["token"]:
+            raise ValueError("amh_consent_observation_unresolved")
+        return ConsentObservationIntent(self._domain, parameters["subject_purpose"], row[0])
+
+    async def observe(self, decision: ConsentDecision, *, intent: ConsentObservationIntent) -> bool:
+        """Atomically retain floor and complete owned intent, including denials.
+
+        On unknown commit, the floor has committed OR the intent still fences
+        readers. Retry is safe only with the retained exact observation and same
+        intent. Missing/replaced intents are refused, never implicitly recreated.
+        """
+        parameters = self._parameters(decision)
+        if (
+            not isinstance(intent, ConsentObservationIntent)
+            or intent.domain_digest != self._domain
+            or intent.subject_purpose_digest != parameters["subject_purpose"]
+        ):
+            raise ValueError("amh_consent_observation_invalid")
+        parameters["token"] = intent.observation_token
+        async with self._engine.begin() as connection:
+            owned = (await connection.execute(_LOCK_PENDING, parameters)).one_or_none()
+            if owned is None or owned[0] != intent.observation_token:
+                return False
             result = await connection.execute(_OBSERVE, parameters)
             allowed = self._matches(result.one(), parameters)
-        # Do not return an affirmative answer until context-manager COMMIT succeeds.
+            completed = (await connection.execute(_COMPLETE, parameters)).one_or_none()
+            if completed is None or completed[0] != intent.observation_token:
+                raise ValueError("amh_consent_observation_unresolved")
         return allowed
 
+    async def pending_status(self, subject: str, purpose: str) -> PendingConsentReconciliation | None:
+        """Concrete read-only reconciliation evidence; no grant or unlock effect."""
+        parameters = self._key(subject, purpose)
+        async with self._engine.connect() as connection:
+            row = (await connection.execute(_PENDING, parameters)).one_or_none()
+        if row is None:
+            return None
+        return PendingConsentReconciliation(
+            ConsentObservationIntent(self._domain, parameters["subject_purpose"], row[0]),
+            int(row[1]) if row[1] is not None else None,
+            row[2],
+            row[3],
+        )
+
     async def is_current(self, decision: ConsentDecision) -> bool:
-        """Check observations completed during awaited audit/HTTP work; no grant cache."""
+        """Linearize after HTTP cleanup; unresolved observations also refuse."""
         parameters = self._parameters(decision)
         async with self._engine.connect() as connection:
             result = await connection.execute(_CURRENT, parameters)
-            return self._matches(result.one_or_none(), parameters)
+            row = result.one_or_none()
+        return self._matches(row, parameters)

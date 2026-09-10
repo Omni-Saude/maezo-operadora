@@ -468,7 +468,7 @@ def test_missing_or_wrong_domain_revision_store_refuses_composition(harness):
 
 
 @pytest.mark.asyncio
-async def test_late_point_read_completion_cannot_regress_observed_revision(harness, monkeypatch):
+async def test_concurrent_point_read_is_refused_until_prior_observation_commits(harness, monkeypatch):
     h = harness
     first_started, release_first = asyncio.Event(), asyncio.Event()
     old = h.consent.result
@@ -487,7 +487,15 @@ async def test_late_point_read_completion_cannot_regress_observed_revision(harne
     pending = asyncio.create_task(h.executor.execute(h.request))
     await first_started.wait()
     assert not (await h.executor.execute(h.request)).succeeded
+    assert calls == 1  # No second source observation can overtake an unknown first value.
     release_first.set()
-    result = await pending
-    assert not result.succeeded and result.failure.reason == Reason.CONSENT_REQUIRED
-    assert not h.requests
+    assert (await pending).succeeded
+    assert not (await h.executor.execute(h.request)).succeeded  # Now observe revision 2 denial.
+    count = len(h.requests)
+    monkeypatch.setattr(h.consent, "latest_decision", lambda *a, **k: _result(old))
+    assert not (await h.executor.execute(h.request)).succeeded
+    assert len(h.requests) == count
+
+
+async def _result(value):
+    return PortResult.ok(value)

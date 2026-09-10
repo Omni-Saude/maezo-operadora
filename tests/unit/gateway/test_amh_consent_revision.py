@@ -25,24 +25,42 @@ class RevisionDouble(revision.PostgresAmhConsentRevisionGuard):
         super().__init__(None, tenant=tenant, legal_entity_ref=legal_entity_ref, origin=origin)
         self.observations = {}
         self.failure = None
+        self.pending = {}
 
-    async def observe(self, decision):
+    async def begin_observation(self, subject, purpose):
+        key = self._key(subject, purpose)["subject_purpose"]
+        if key in self.pending:
+            return None
+        intent = revision.ConsentObservationIntent(self._domain, key, uuid4().hex)
+        self.pending[key] = intent
+        return intent
+
+    async def observe(self, decision, *, intent=None):
+        # Optional auto-admission exists ONLY in this offline double for legacy
+        # controls injecting independent observations; production requires intent.
+        if intent is None:
+            intent = await self.begin_observation(decision.portable_subject_ref, decision.purpose_of_use)
+        if intent is None:
+            return False
         if self.failure:
             raise self.failure
         p = self._parameters(decision)
         key = p["subject_purpose"]
+        if self.pending.get(key) != intent:
+            return False
         old = self.observations.get(key)
         if old is None or decision.consent_revision > old[0]:
             self.observations[key] = (decision.consent_revision, p["decision"], False)
         elif decision.consent_revision == old[0] and p["decision"] != old[1]:
             self.observations[key] = (old[0], old[1], True)
+        del self.pending[key]
         return await self.is_current(decision)
 
     async def is_current(self, decision):
         if self.failure:
             raise self.failure
         p = self._parameters(decision)
-        return self.observations.get(p["subject_purpose"]) == (
+        return p["subject_purpose"] not in self.pending and self.observations.get(p["subject_purpose"]) == (
             decision.consent_revision,
             p["decision"],
             False,
@@ -74,9 +92,15 @@ async def test_real_adapter_waits_for_commit_and_refuses_unknown_ack():
 
     class Connection:
         async def execute(self, statement, parameters):
-            assert str(statement) == str(revision._OBSERVE)
-            assert parameters == p
+            assert parameters == {**p, "token": "a" * 32}
             assert all("opaque-" not in value for value in parameters.values())
+            if str(statement) == str(revision._LOCK_PENDING):
+                events.append("lock")
+                return SimpleNamespace(one_or_none=lambda: ("a" * 32,))
+            if str(statement) == str(revision._COMPLETE):
+                events.append("complete")
+                return SimpleNamespace(one_or_none=lambda: ("a" * 32,))
+            assert str(statement) == str(revision._OBSERVE)
             events.append("execute")
             return SimpleNamespace(one=lambda: ("9", p["decision"], False))
 
@@ -88,8 +112,10 @@ async def test_real_adapter_waits_for_commit_and_refuses_unknown_ack():
 
     guard._engine = SimpleNamespace(begin=begin)
     with pytest.raises(OSError):
-        await guard.observe(d)
-    assert events == ["execute", "commit_ack_lost"]
+        await guard.observe(
+            d, intent=revision.ConsentObservationIntent(guard._domain, p["subject_purpose"], "a" * 32)
+        )
+    assert events == ["lock", "execute", "complete", "commit_ack_lost"]
 
 
 @pytest.mark.parametrize(
@@ -131,12 +157,10 @@ async def postgres_guard(monkeypatch):
                 for command in ddl.replace("maezo_amh_consent", schema).split(";"):
                     if command.strip():
                         await conn.execute(text(command))
-        monkeypatch.setattr(
-            revision, "_OBSERVE", text(str(revision._OBSERVE).replace("maezo_amh_consent", schema))
-        )
-        monkeypatch.setattr(
-            revision, "_CURRENT", text(str(revision._CURRENT).replace("maezo_amh_consent", schema))
-        )
+        for name in ("_OBSERVE", "_CURRENT", "_BEGIN", "_LOCK_PENDING", "_COMPLETE", "_PENDING"):
+            monkeypatch.setattr(
+                revision, name, text(str(getattr(revision, name)).replace("maezo_amh_consent", schema))
+            )
         yield engine
     finally:
         if created:
@@ -151,32 +175,42 @@ def guard(engine, tenant="amh"):
     )
 
 
+async def observe(guard_instance, value):
+    intent = await guard_instance.begin_observation(value.portable_subject_ref, value.purpose_of_use)
+    if intent is None:
+        return False
+    return await guard_instance.observe(value, intent=intent)
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_postgres_restart_domains_and_concurrent_lower_revisions(postgres_guard):
     engine = postgres_guard
     denied = decision(2**60 + 3)
-    assert await guard(engine).observe(denied)
+    assert await observe(guard(engine), denied)
     # New object/pool connections retain the committed floor; never a memory cache.
-    assert not await guard(engine).observe(decision(2**60 + 2, granted=True))
-    assert await guard(engine, tenant="other").observe(decision(8, granted=True))
-    assert await guard(engine).observe(decision(8, granted=True, portable_subject_ref="another"))
-    assert await guard(engine).observe(decision(8, granted=True, purpose_of_use="another"))
+    assert not await observe(guard(engine), decision(2**60 + 2, granted=True))
+    assert await observe(guard(engine, tenant="other"), decision(8, granted=True))
+    assert await observe(guard(engine), decision(8, granted=True, portable_subject_ref="another"))
+    assert await observe(guard(engine), decision(8, granted=True, purpose_of_use="another"))
     await asyncio.gather(
         *(
-            guard(engine).observe(decision(n, granted=True, portable_subject_ref="concurrent"))
+            observe(guard(engine), decision(n, granted=True, portable_subject_ref="concurrent"))
             for n in (10, 12, 11, 8)
         )
     )
+    # Unique intents may refuse concurrent readers before observing their source.
+    # Explicit final independent observation establishes the asserted revision.
+    assert await observe(guard(engine), decision(12, granted=True, portable_subject_ref="concurrent"))
     assert await guard(engine).is_current(decision(12, granted=True, portable_subject_ref="concurrent"))
-    assert not await guard(engine).observe(decision(11, granted=True, portable_subject_ref="concurrent"))
+    assert not await observe(guard(engine), decision(11, granted=True, portable_subject_ref="concurrent"))
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_postgres_equal_revision_equivocation_stays_refused(postgres_guard):
     g = guard(postgres_guard)
-    assert await g.observe(decision(9, granted=True))
-    assert not await g.observe(decision(9, granted=False))
-    assert not await guard(postgres_guard).observe(decision(9, granted=True))
-    assert await guard(postgres_guard).observe(decision(10, granted=True))
+    assert await observe(g, decision(9, granted=True))
+    assert not await observe(g, decision(9, granted=False))
+    assert not await observe(guard(postgres_guard), decision(9, granted=True))
+    assert await observe(guard(postgres_guard), decision(10, granted=True))

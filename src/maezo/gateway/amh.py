@@ -264,6 +264,11 @@ class AmhSubjectContextExecutor(GovernedSubjectContextExecutor):
                         raise ValueError
                 except Exception:
                     return PortResult.refused(Reason.NOT_AUTHENTICATED)
+                intent = await self._consent_revisions.begin_observation(subject, purpose)
+                if intent is None:
+                    return PortResult.refused(Reason.CONSENT_REQUIRED)
+                # Once source IO begins, any unknown observation remains durably
+                # fenced. No finally block may clear its intent without its floor.
                 consent = await self._consent.latest_decision(
                     subject, purpose_of_use=purpose, timeout_seconds=request.timeout_seconds
                 )
@@ -281,7 +286,7 @@ class AmhSubjectContextExecutor(GovernedSubjectContextExecutor):
                     return PortResult.refused(Reason.CONSENT_REQUIRED)
                 # Record newer denials and nonmatching decision refs too. No caller
                 # can bypass the observed revision floor by presenting an old ref.
-                if not await self._consent_revisions.observe(granted):
+                if not await self._consent_revisions.observe(granted, intent=intent):
                     return PortResult.refused(Reason.CONSENT_REQUIRED)
                 if (
                     granted.granted is not True
@@ -358,11 +363,16 @@ class AmhSubjectContextExecutor(GovernedSubjectContextExecutor):
                             raw.extend(chunk)
                             if len(raw) > _MAX_RESPONSE_BYTES:
                                 return PortResult.refused(Reason.CONTRACT_VIOLATION)
-                        if not await self._consent_revisions.is_current(granted):
-                            return PortResult.refused(Reason.CONSENT_REQUIRED)
-                        return PortResult.ok(GovernedSubjectContextResponse(response.status_code, bytes(raw)))
+                        response_value = GovernedSubjectContextResponse(response.status_code, bytes(raw))
                     finally:
                         await response.aclose()
+                # Both response and transport cleanup may await while a newer
+                # denial is observed. Never return PHI from inside those scopes.
+                if self._closed:
+                    return PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)
+                if not await self._consent_revisions.is_current(granted):
+                    return PortResult.refused(Reason.CONSENT_REQUIRED)
+                return PortResult.ok(response_value)
         except asyncio.CancelledError:
             raise
         except (TimeoutError, httpx.TimeoutException):
