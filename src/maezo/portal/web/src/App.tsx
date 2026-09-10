@@ -190,7 +190,14 @@ export function App() {
           <ExternalPortalExperience
             audience={state.session.audience}
             expiresAt={state.session.expires_at}
+            csrfToken={state.session.csrf_token}
+            sessionBinding={[
+              state.session.principal_ref,
+              state.session.expires_at,
+              ...state.session.roles,
+            ].join("\u0000")}
             headingRef={transitionHeading}
+            onSessionUnavailable={invalidateSession}
           />
         )}
       </div>
