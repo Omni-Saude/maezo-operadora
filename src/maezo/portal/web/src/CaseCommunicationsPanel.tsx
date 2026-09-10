@@ -6,6 +6,7 @@ import type {
   CommunicationsFailure,
   HistoryPage,
 } from "./caseCommunicationsClient";
+import { CommunicationBody } from "./CommunicationBody";
 import { expiryDelay, isCurrent, retainedCeiling } from "./taskReadTime";
 
 type PanelFailure = CommunicationsFailure | "expired";
@@ -80,7 +81,11 @@ function CommunicationsSection({
   state,
   onRetry,
   onLoadMore,
+  caseRef,
+  onContentFailure,
 }: Readonly<{
+  caseRef: string;
+  onContentFailure: (failure: CommunicationsFailure) => void;
   state: ResourcePage<CommunicationPage>;
   onRetry: () => void;
   onLoadMore: () => void;
@@ -95,8 +100,7 @@ function CommunicationsSection({
         se a mensagem foi enviada por você.
       </p>
       <p className="form-notice">
-        A leitura do conteúdo e o envio de novas mensagens dependem do serviço PHI separado e não
-        estão disponíveis neste painel.
+        Abra uma comunicação para consultar seu conteúdo com o vínculo atual.
       </p>
       <ResourceState state={state} loadingLabel="Consultando comunicações autorizadas…" retry={onRetry} />
       {state.kind === "ready" && state.page.items.length === 0 && (
@@ -130,11 +134,10 @@ function CommunicationsSection({
                 <p className="delivery-status">
                   Disponível nesta caixa em {formatTimestamp(item.inbox_available_at!)}
                 </p>
-                <p>
-                  {item.body_ref == null
-                    ? "O conteúdo protegido não foi disponibilizado para este vínculo."
-                    : "O conteúdo protegido possui referência autorizada no serviço PHI separado."}
-                </p>
+                {item.body_ref == null
+                  ? <p>O conteúdo protegido não foi disponibilizado para este vínculo.</p>
+                  : <CommunicationBody caseRef={caseRef} communicationRef={item.communication_ref}
+                      pageValidUntil={state.page.valid_until} onFailure={onContentFailure} />}
               </li>
             ))}
           </ol>
@@ -409,6 +412,8 @@ function CaseCommunicationsContext({ caseRef, client, onSessionUnavailable }: Pr
   return (
     <section className="stacked-sections" aria-label="Comunicações e eventos do portal">
       <CommunicationsSection
+        caseRef={caseRef}
+        onContentFailure={(failure) => { if (invalidatesContext(failure)) clearContext(failure); }}
         state={communications}
         onRetry={() => void loadCommunications()}
         onLoadMore={() => void loadMoreCommunications()}
