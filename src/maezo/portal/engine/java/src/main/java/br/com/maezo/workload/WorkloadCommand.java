@@ -117,6 +117,7 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
   private Object external(Map<String,Object> variables) {
     String id=Json.token(request,"resource_ref");locked(id,cap.target,cap.worker);
     current();var service=engine.getExternalTaskService();var p=Json.object(request.get("parameters"));
+    try(var consumerSeal=ClassifiedConsumerFence.external(this,context,id,Json.token(cap.schema,"operation"),variables,p)) {
     switch(Json.token(cap.schema,"operation")) {
       case "external_complete":service.complete(id,cap.worker,Capability.engineVariables(variables));break;
       case "external_bpmn_error":service.handleBpmnError(id,cap.worker,Json.token(request,"error_code"),null,Capability.engineVariables(variables));break;
@@ -128,6 +129,7 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
         service.extendLock(id,cap.worker,Json.number(p,"newDuration"));break;
       case "external_unlock":service.unlock(id);break;
       default:throw Refused.denied();
+    }
     }
     return Map.of("applied",true);
   }
@@ -152,8 +154,10 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
     Set<String> processes=new TreeSet<>();executions.forEach(e->processes.add(e.getProcessInstanceId()));
     for(String id:processes) {
       if(!exists("SELECT ID_ FROM ACT_RU_EXECUTION WHERE ID_=? AND TENANT_ID_=? AND PROC_DEF_ID_=? FOR UPDATE",id,policy.tenant,cap.target.get("definition_id")))throw Refused.resource();
+      try(var consumerSeal=ClassifiedConsumerFence.correlation(this,context,List.of(id))) {
       current();engine.getRuntimeService().createMessageCorrelation(Json.token(cap.schema,"message"))
           .processInstanceId(id).setVariables(Capability.engineVariables(variables)).correlateWithResult();
+      }
     }
     return Map.of("correlated",(long)processes.size());
   }

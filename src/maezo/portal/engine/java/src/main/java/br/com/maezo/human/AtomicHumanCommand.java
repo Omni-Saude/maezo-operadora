@@ -113,6 +113,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
     final Map<String, Object> pinnedDecisionBinding = decisionBinding;
     ClassifiedDecision.requireCurrent(pinnedDecisionBinding, java.time.Instant.now().getEpochSecond());
     requireCurrent(verified, principal, evidence);
+    ConsumerEdgeInstallation.Installed consumerQualification = null;
     if (c.operation().equals("claim")) {
       if (task.getAssignee() != null) throw Rejected.conflict();
       task.setAssignee(c.principalRef());
@@ -121,6 +122,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
       if (c.operation().equals("release")) task.setAssignee(null);
       else {
         if (c.classified() != null) {
+          consumerQualification = ConsumerLineage.decision(context, c, verified.digest(), task);
           c.classified().variables(c).forEach(task::setVariable);
         } else {
         task.setVariable("synthetic_acknowledged", true);
@@ -134,6 +136,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
     // Keep CIB's optimistic revision fence and its single normal deferred flush.
     // A manual flush replays retained metric/history inserts at CommandContext.close.
     if (!c.operation().equals("decision")) context.getDbEntityManager().forceUpdate(task);
+    final var pinnedConsumerQualification = consumerQualification;
     context
         .getTransactionContext()
         .addTransactionListener(
@@ -143,6 +146,10 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
                   persistReceipt(db, c, verified.digest(), java.time.Instant.now().getEpochSecond());
               // Last local blocking SQL has returned. The tenant lock still fences
               // state changes, but only a fresh clock can fence elapsed validity.
+              requireCurrent(verified, principal, evidence);
+              ClassifiedDecision.requireCurrent(pinnedDecisionBinding, java.time.Instant.now().getEpochSecond());
+              if (pinnedConsumerQualification != null) pinnedConsumerQualification.requireCurrent(context);
+              // P2 readback is blocking SQL; recheck original human deadlines afterward too.
               requireCurrent(verified, principal, evidence);
               ClassifiedDecision.requireCurrent(pinnedDecisionBinding, java.time.Instant.now().getEpochSecond());
               committing

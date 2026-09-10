@@ -606,6 +606,8 @@ def test_recipe_import_binding_is_part_of_frozen_closure() -> None:
 
 def test_ci_retains_failed_gate_output_and_private_directory(tmp_path: Path) -> None:
     import os
+    import shlex
+    import sys
 
     import yaml
 
@@ -624,19 +626,49 @@ def test_ci_retains_failed_gate_output_and_private_directory(tmp_path: Path) -> 
     assert upload["with"]["path"] == "${{ runner.temp }}/ledger-operational-proofs/"
     binary = tmp_path / "bin"
     binary.mkdir()
-    uv = binary / "uv"
-    uv.write_text("#!/bin/sh\nprintf 'fixture refusal\\n' >&2\nexit 23\n")
-    uv.chmod(0o700)
-    env = {"PATH": str(binary) + os.pathsep + os.defpath, "RUNNER_TEMP": str(tmp_path)}
-    result = subprocess.run(["bash", "-c", gate["run"]], env=env, capture_output=True, text=True)
+    (binary / "python").symlink_to(sys.executable)
+    venv_python = tmp_path / ".venv/bin/python"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text(
+        "#!/bin/sh\n"
+        'test -z "${UV_CACHE_DIR+x}" && test -z "${UV_PYTHON_INSTALL_DIR+x}" || exit 91\n'
+        "printf '%s\\n' \"$@\" > checker-argv.txt\n"
+        "printf 'fixture refusal\\n' >&2\nexit 23\n"
+    )
+    venv_python.chmod(0o700)
+    env = {
+        "PATH": str(binary) + os.pathsep + os.defpath,
+        "RUNNER_TEMP": str(tmp_path),
+        "UV_CACHE_DIR": str(tmp_path / "setup-uv-cache"),
+        "UV_PYTHON_INSTALL_DIR": str(tmp_path / "uv-python-dir"),
+    }
+    result = subprocess.run(
+        ["bash", "-c", gate["run"]], cwd=tmp_path, env=env, capture_output=True, text=True
+    )
     assert result.returncode == 23
     output = tmp_path / "ledger-operational-proofs"
     assert output.stat().st_mode & 0o777 == 0o700
     assert (output / "checker.rc").read_text() == "23\n"
     assert (output / "checker.stderr").read_text() == "fixture refusal\n"
-    assert "--proof-output" in (output / "invocation.txt").read_text()
+    invocation = shlex.split((output / "invocation.txt").read_text())
+    assert invocation == [
+        "env",
+        "-u",
+        "UV_CACHE_DIR",
+        "-u",
+        "UV_PYTHON_INSTALL_DIR",
+        ".venv/bin/python",
+        "scripts/ci/check_evidence_ledger_hashes.py",
+        "--ledger-path",
+        "docs/evidence-ledger.md",
+        "--proof-output",
+        str(output),
+    ]
+    assert (tmp_path / "checker-argv.txt").read_text().splitlines() == invocation[6:]
+    assert env["UV_CACHE_DIR"] == str(tmp_path / "setup-uv-cache")
+    assert env["UV_PYTHON_INSTALL_DIR"] == str(tmp_path / "uv-python-dir")
     # Existing directory is never reused, preserving prior run custody.
-    repeated = subprocess.run(["bash", "-c", gate["run"]], env=env, capture_output=True)
+    repeated = subprocess.run(["bash", "-c", gate["run"]], cwd=tmp_path, env=env, capture_output=True)
     assert repeated.returncode != 0
     assert (output / "checker.rc").read_text() == "23\n"
 
