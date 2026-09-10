@@ -202,6 +202,23 @@ it("abre apenas o snapshot público e preserva valores exatos sem ações de mut
   expect(screen.getByText(/Esta consulta é somente leitura/)).toBeInTheDocument();
 });
 
+it("não remove o detalhe aberto durante a atualização periódica da fila", async () => {
+  vi.useFakeTimers();
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(jsonResponse(queuePage()))
+    .mockResolvedValueOnce(jsonResponse(taskResponse()));
+  render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
+  await act(async () => Promise.resolve());
+  await act(async () => {
+    screen.getByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }).click();
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
+  await act(async () => vi.advanceTimersByTimeAsync(10_000));
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
+});
+
 it("remove conteúdo da fila quando a sessão expira no endpoint de leitura", async () => {
   const onSessionUnavailable = vi.fn();
   vi.mocked(fetch)

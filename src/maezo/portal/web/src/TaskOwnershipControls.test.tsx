@@ -140,6 +140,8 @@ it("mostra somente operações autorizadas e separa admissão pendente de recibo
   expect(onCommitted).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole("button", { name: "Consultar recibo" }));
   expect(await screen.findByRole("status")).toHaveTextContent("executada e confirmada");
+  expect(onCommitted).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole("button", { name: "Atualizar fila" }));
   expect(onCommitted).toHaveBeenCalledOnce();
   expect(screen.queryByText("tenant-hidden")).not.toBeInTheDocument();
   expect(screen.queryByText("principal-hidden")).not.toBeInTheDocument();

@@ -341,6 +341,9 @@ export function EmployeeQueues({
             observedAt: result.value.freshness.observed_at,
             validUntil: result.value.freshness.valid_until,
           });
+          // Keep the authorized snapshot stable while its per-task command is being
+          // prepared or reconciled. An explicit queue refresh still clears it.
+          suspended.current = true;
         } else if (result.kind === "session_unavailable") {
           clearForSessionFailure();
         } else if (result.kind === "employee_access_required") {

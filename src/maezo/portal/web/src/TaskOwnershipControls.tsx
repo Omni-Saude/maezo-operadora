@@ -204,13 +204,6 @@ export function TaskOwnershipControls({
         activeRequest.current = null;
         if (result.kind === "success") {
           setCommand({ kind: "receipt", submission, receipt: result.value });
-          if (
-            result.value.status === "committed" &&
-            reportedCommit.current !== commandId
-          ) {
-            reportedCommit.current = commandId;
-            onCommitted();
-          }
         } else if (result.kind === "authentication_unavailable") {
           invalidateSession();
         } else {
@@ -356,6 +349,19 @@ export function TaskOwnershipControls({
             {receipt?.status === "conflict" && (
               <button className="secondary-action" disabled={busy} type="button" onClick={() => void loadContext()}>
                 Atualizar autorização
+              </button>
+            )}
+            {receipt?.status === "committed" && (
+              <button
+                className="secondary-action"
+                disabled={reportedCommit.current === command.submission.command.command_id}
+                type="button"
+                onClick={() => {
+                  reportedCommit.current = command.submission.command.command_id;
+                  onCommitted();
+                }}
+              >
+                Atualizar fila
               </button>
             )}
           </div>
