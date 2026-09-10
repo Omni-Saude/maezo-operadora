@@ -30,6 +30,10 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
     }
     if (!trust.engineName.equals(configuration.getProcessEngineName()))
       throw new IllegalStateException("human engine name mismatch");
+    var listeners = new java.util.ArrayList<org.cibseven.bpm.engine.impl.bpmn.parser.BpmnParseListener>();
+    if (configuration.getCustomPostBPMNParseListeners() != null) listeners.addAll(configuration.getCustomPostBPMNParseListeners());
+    listeners.add(new ConsumerTaskListener());
+    configuration.setCustomPostBPMNParseListeners(listeners);
     this.configuration = configuration;
   }
 

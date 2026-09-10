@@ -150,6 +150,7 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
   private final class Fence extends CommandInterceptor {
     @Override public <T>T execute(Command<T> command) {
       var auth=configuration.getIdentityService().getCurrentAuthentication();
+      if(auth!=null && ((nativeV2!=null && nativeV2.transport.peers.stream().anyMatch(p->p.engineUser().equals(auth.getUserId()))) || policy.peers.stream().anyMatch(p->p.engineUser().equals(auth.getUserId())))) ClassifiedConsumerFence.nested(command);
       if(auth!=null && nativeV2!=null && nativeV2.transport.peers.stream().anyMatch(p->p.engineUser().equals(auth.getUserId()))) {
         if(!(command instanceof NativeOperationV2) && !(command instanceof NativeOperationV2.ReadCommand) && !GUARDED.get())throw Refused.denied();
         nativeV2.current(null);

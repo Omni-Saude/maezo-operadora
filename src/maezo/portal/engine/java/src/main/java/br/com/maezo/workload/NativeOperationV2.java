@@ -166,6 +166,7 @@ final class NativeOperationV2 implements Command<NativeOutcomeV2.Publication> {
   private Object external(Map<String,Object> variables) {
     String id=Json.token(request,"resource_ref");locked(id,cap.target,cap.worker);
     current();var service=engine.getExternalTaskService();var p=Json.object(request.get("parameters"));
+    try(var consumerSeal=ClassifiedConsumerFence.external(this,context,id,Json.token(cap.schema,"operation"),variables,p)) {
     switch(Json.token(cap.schema,"operation")) {
       case "external_complete":service.complete(id,cap.worker,Capability.engineVariables(variables));break;
       case "external_bpmn_error":service.handleBpmnError(id,cap.worker,Json.token(request,"error_code"),null,Capability.engineVariables(variables));break;
@@ -177,6 +178,7 @@ final class NativeOperationV2 implements Command<NativeOutcomeV2.Publication> {
         service.extendLock(id,cap.worker,Json.number(p,"newDuration"));break;
       case "external_unlock":service.unlock(id);break;
       default:throw Refused.denied();
+    }
     }
     return Map.of("applied",true);
   }
@@ -197,8 +199,10 @@ final class NativeOperationV2 implements Command<NativeOutcomeV2.Publication> {
     var processes=NativeAcquisitionStoreV2.ordered(executions.stream().map(e->e.getProcessInstanceId()).toList());
     if(!processes.equals(correlationRoots))throw Refused.resource();
     for(String id:processes) {
+      try(var consumerSeal=ClassifiedConsumerFence.correlation(this,context,List.of(id))) {
       current();engine.getRuntimeService().createMessageCorrelation(Json.token(cap.schema,"message"))
           .processInstanceId(id).setVariables(Capability.engineVariables(variables)).correlateWithResult();
+      }
     }
     return Map.of("correlated",(long)processes.size());
   }
