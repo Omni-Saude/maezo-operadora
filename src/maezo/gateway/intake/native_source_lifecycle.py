@@ -6,8 +6,9 @@ installation/credentials are mandatory inputs; this module provisions no grant.
 
 from __future__ import annotations
 
+import hashlib
 import secrets
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -17,7 +18,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from maezo.gateway.human.auth_profile import (
+    InputKind,
     InputPublication,
+    Pin,
     PublicationLookup,
     PublicationQuery,
     PublicationReceipt,
@@ -25,7 +28,14 @@ from maezo.gateway.human.auth_profile import (
     SessionBinding,
 )
 from maezo.gateway.human.auth_transport import AuthNativeClient, AuthUnavailableError, bind_result
-from maezo.gateway.human.read_profile import Closed, SourceProvenance, digest, parse_model, wire
+from maezo.gateway.human.read_profile import (
+    Closed,
+    MembershipProjection,
+    SourceProvenance,
+    digest,
+    parse_model,
+    wire,
+)
 from maezo.portal.api.records import MembershipRecord, SessionRecord
 from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
 from maezo.portal.contracts.models import HumanPrincipal, OpaqueRef, Sha256Digest
@@ -37,6 +47,24 @@ class RelationPin(Closed):
     name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,62}$")
     oid: int = Field(gt=0)
     owner: str = Field(pattern=r"^[a-z][a-z0-9_]{0,62}$")
+
+
+class SourceFunctionPin(Closed):
+    signature: Literal["portal_auth.source_write_guard()", "portal_auth.apply_change(text,text)"]
+    oid: int = Field(gt=0)
+    definition_digest: Sha256Digest
+
+
+class MembershipDependencyBinding(Closed):
+    dependency_ref: OpaqueRef
+    principal_ref: OpaqueRef
+    scope: Scope
+    kind: InputKind
+    resource_ref: OpaqueRef
+    source_ref: OpaqueRef
+    publisher_ref: OpaqueRef
+    workload_ref: OpaqueRef
+    original_pin: Pin
 
 
 class IdentitySourceBinding(Closed):
@@ -54,6 +82,7 @@ class IdentitySourceBinding(Closed):
     control_role: str
     receipt_role: str
     relations: tuple[RelationPin, ...]
+    functions: tuple[SourceFunctionPin, ...]
     scopes: tuple[Scope, ...]
     publisher_ref: OpaqueRef
     source_ref: OpaqueRef
@@ -180,7 +209,15 @@ class PostgresAuthSourceLifecycle:
             (binding.source_schema_name, "portal_memberships"),
         } | {
             ("portal_auth", n)
-            for n in ("installation", "source_head", "reservation", "issuance", "source_change")
+            for n in (
+                "installation",
+                "source_head",
+                "reservation",
+                "issuance",
+                "source_change",
+                "membership_dependency",
+                "dependency_issuance",
+            )
         }
         if (
             {(p.schema_name, p.name) for p in binding.relations} != required
@@ -218,6 +255,56 @@ class PostgresAuthSourceLifecycle:
             b.database_oid,
         ):
             raise AuthUnavailableError()
+        if {p.signature for p in b.functions} != {
+            "portal_auth.source_write_guard()",
+            "portal_auth.apply_change(text,text)",
+        } or len(b.functions) != 2:
+            raise AuthUnavailableError()
+        for pin in b.functions:
+            function = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT p.oid,pg_get_userbyid(p.proowner) AS owner,"
+                            "p.prosecdef,p.proconfig,pg_get_functiondef(p.oid) AS definition,"
+                            "has_function_privilege(current_user,p.oid,'EXECUTE') AS executable "
+                            "FROM pg_proc p WHERE p.oid=to_regprocedure(:signature)"
+                        ),
+                        {"signature": pin.signature},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            if (
+                function["oid"],
+                function["owner"],
+                function["prosecdef"],
+                function["proconfig"],
+                hashlib.sha256(function["definition"].encode()).hexdigest(),
+            ) != (
+                pin.oid,
+                b.owner_role,
+                True,
+                ["search_path=pg_catalog, portal_auth"],
+                pin.definition_digest,
+            ) or (
+                pin.signature.endswith("apply_change(text,text)")
+                and function["executable"] != (role == b.writer_role)
+            ):
+                raise AuthUnavailableError()
+        schemas = {"portal_auth", b.source_schema_name}
+        for schema in schemas:
+            if (
+                await db.execute(
+                    text(
+                        "SELECT has_schema_privilege(current_user,:schema,'CREATE') OR "
+                        "pg_has_role(current_user,:owner,'MEMBER')"
+                    ),
+                    {"schema": schema, "owner": b.owner_role},
+                )
+            ).scalar_one():
+                raise AuthUnavailableError()
         installed = (
             (
                 await db.execute(
@@ -281,6 +368,44 @@ class PostgresAuthSourceLifecycle:
                 if writable:
                     raise AuthUnavailableError()
         if role == b.control_role:
+            for table, columns in (
+                ("source_change", ["applying_xid", "source_receipt"]),
+                ("dependency_issuance", ["receipt", "receipt_digest"]),
+            ):
+                for column in columns:
+                    if (
+                        await db.execute(
+                            text(
+                                "SELECT has_column_privilege(current_user,:table,:column,'INSERT') "
+                                "OR has_column_privilege(current_user,:table,:column,'UPDATE')"
+                            ),
+                            {"table": "portal_auth." + table, "column": column},
+                        )
+                    ).scalar_one():
+                        raise AuthUnavailableError()
+            for column in ("tenant", "publication_id", "dependency_ref", "request", "request_digest"):
+                if (
+                    await db.execute(
+                        text(
+                            "SELECT has_column_privilege(current_user,"
+                            "'portal_auth.dependency_issuance',:column,'UPDATE')"
+                        ),
+                        {"column": column},
+                    )
+                ).scalar_one():
+                    raise AuthUnavailableError()
+            for column in ("tenant", "principal_ref", "dependency_ref", "binding"):
+                if (
+                    await db.execute(
+                        text(
+                            "SELECT has_column_privilege(current_user,"
+                            "'portal_auth.membership_dependency',:column,'INSERT') OR has_column_privilege("
+                            "current_user,'portal_auth.membership_dependency',:column,'UPDATE')"
+                        ),
+                        {"column": column},
+                    )
+                ).scalar_one():
+                    raise AuthUnavailableError()
             forgery = (
                 (
                     await db.execute(
@@ -313,7 +438,14 @@ class PostgresAuthSourceLifecycle:
             )
             if any(mutable):
                 raise AuthUnavailableError()
-            for name in ("issuance", "reservation", "source_change", "source_head"):
+            for name in (
+                "issuance",
+                "reservation",
+                "source_change",
+                "source_head",
+                "membership_dependency",
+                "dependency_issuance",
+            ):
                 if (
                     await db.execute(
                         text("SELECT has_table_privilege(current_user,:name,'DELETE')"),
@@ -322,7 +454,42 @@ class PostgresAuthSourceLifecycle:
                 ).scalar_one():
                     raise AuthUnavailableError()
         if role == b.receipt_role:
-            for name in ("source_head", "source_change", "reservation", "installation"):
+            for table, columns in (
+                (
+                    "issuance",
+                    [
+                        "tenant",
+                        "publication_id",
+                        "reservation_ref",
+                        "target_state",
+                        "expected_generation",
+                        "request_digest",
+                        "request",
+                    ],
+                ),
+                (
+                    "dependency_issuance",
+                    ["tenant", "publication_id", "dependency_ref", "request", "request_digest"],
+                ),
+            ):
+                for column in columns:
+                    if (
+                        await db.execute(
+                            text(
+                                "SELECT has_column_privilege(current_user,:table,:column,'INSERT') "
+                                "OR has_column_privilege(current_user,:table,:column,'UPDATE')"
+                            ),
+                            {"table": "portal_auth." + table, "column": column},
+                        )
+                    ).scalar_one():
+                        raise AuthUnavailableError()
+            for name in (
+                "source_head",
+                "source_change",
+                "reservation",
+                "installation",
+                "membership_dependency",
+            ):
                 if (
                     await db.execute(
                         text(
@@ -346,17 +513,41 @@ class PostgresAuthSourceLifecycle:
         )
         if any(bypass.values()):
             raise AuthUnavailableError()
+        trigger_function = next(p.oid for p in b.functions if p.signature.endswith("source_write_guard()"))
+        expected_triggers = {
+            "portal_auth_session_write": (
+                next(p.oid for p in b.relations if p.name == "portal_sessions"),
+                31,
+            ),
+            "portal_auth_session_truncate": (
+                next(p.oid for p in b.relations if p.name == "portal_sessions"),
+                34,
+            ),
+            "portal_auth_membership_write": (
+                next(p.oid for p in b.relations if p.name == "portal_memberships"),
+                31,
+            ),
+            "portal_auth_membership_truncate": (
+                next(p.oid for p in b.relations if p.name == "portal_memberships"),
+                34,
+            ),
+        }
         triggers = (
             await db.execute(
                 text(
-                    "SELECT tgname,tgenabled FROM pg_trigger WHERE tgname IN "
-                    "('portal_auth_session_write','portal_auth_session_truncate','p"
-                    "ortal_auth_membership_write','portal_auth_membership_truncate'"
-                    ") AND NOT tgisinternal"
-                )
+                    "SELECT tgname,tgrelid,tgtype,tgfoid,tgenabled FROM pg_trigger "
+                    "WHERE tgfoid=:function AND NOT tgisinternal"
+                ),
+                {"function": trigger_function},
             )
         ).all()
-        if len(triggers) != 4 or any(row[1] != "A" for row in triggers):
+        if len(triggers) != 4 or any(
+            name not in expected_triggers
+            or (relation, kind) != expected_triggers[name]
+            or function != trigger_function
+            or enabled != "A"
+            for name, relation, kind, function, enabled in triggers
+        ):
             raise AuthUnavailableError()
         actual_schema = (
             await db.execute(
@@ -709,10 +900,12 @@ class PostgresAuthSourceLifecycle:
         if self.clock() >= self.binding.valid_until:
             raise AuthUnavailableError()
 
-    async def _resolve_publication(self, publication: InputPublication) -> PublicationReceipt:
+    async def _native_publication_receipt(
+        self, publication: InputPublication, checkpoint: Callable[[], Awaitable[None]]
+    ) -> PublicationReceipt:
         # Pending was committed before credential access. Recovery never infers
         # no-in-flight from an absent receipt and always keeps identical CAS bytes.
-        await self._publication_current(publication)
+        await checkpoint()
         prior = await self.journal.freeze(publication)
         if prior is None:
             query = PublicationQuery(
@@ -723,21 +916,25 @@ class PostgresAuthSourceLifecycle:
                 publication_id=publication.publication_id,
                 expected_digest=digest(publication),
             )
-            lookup = await self.native.execute(
-                query, checkpoint=lambda: self._publication_current(publication)
-            )
+            lookup = await self.native.execute(query, checkpoint=checkpoint)
             if not isinstance(lookup, PublicationLookup):
                 raise AuthUnavailableError()
             prior = lookup.receipt
         if prior is None:
-            value = await self.native.execute(
-                publication, checkpoint=lambda: self._publication_current(publication)
-            )
+            value = await self.native.execute(publication, checkpoint=checkpoint)
             if not isinstance(value, PublicationReceipt):
                 raise AuthUnavailableError()
             prior = value
         bind_result(prior, publication, self.clock())
         await self.journal.acknowledge(publication, prior)
+        await checkpoint()
+        return prior
+
+    async def _resolve_publication(self, publication: InputPublication) -> PublicationReceipt:
+        prior = await self._native_publication_receipt(
+            publication, lambda: self._publication_current(publication)
+        )
+        bind_result(prior, publication, self.clock())
         async with self.receipts.begin() as db:
             await self.qualified(db, self.binding.receipt_role)
             row = (
@@ -1033,6 +1230,210 @@ class PostgresAuthSourceLifecycle:
             await self._insert_issuance(db, ref, publication)
         await self._resolve_publication(publication)
 
+    async def _dependency_publication_current(self, publication: InputPublication) -> None:
+        async with self.reader.connect() as db:
+            await self.qualified(db, self.binding.reader_role)
+            value = (
+                await db.execute(
+                    text(
+                        "SELECT request FROM portal_auth.dependency_issuance "
+                        "WHERE tenant=:tenant AND publication_id=:id"
+                    ),
+                    {"tenant": self.binding.tenant, "id": publication.publication_id},
+                )
+            ).scalar_one()
+            if value != wire(publication):
+                raise AuthUnavailableError()
+        if self.clock() >= self.binding.valid_until:
+            raise AuthUnavailableError()
+
+    async def _transition_membership_dependency(
+        self, ref: str, change_id: str, state: Literal["frozen", "revoked", "active"]
+    ) -> None:
+        async with self.control.begin() as db:
+            await self.qualified(db, self.binding.control_role)
+            change = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT * FROM portal_auth.source_change "
+                            "WHERE tenant=:tenant AND change_id=:id FOR UPDATE"
+                        ),
+                        {"tenant": self.binding.tenant, "id": change_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            if ref not in change["membership_dependencies"] or (
+                state in ("revoked", "active") and change["state"] != "source_committed"
+            ):
+                raise AuthUnavailableError()
+            row = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT * FROM portal_auth.membership_dependency "
+                            "WHERE tenant=:tenant AND dependency_ref=:ref FOR UPDATE"
+                        ),
+                        {"tenant": self.binding.tenant, "ref": ref},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            binding = parse_model(MembershipDependencyBinding, row["binding"])
+            old = (
+                None
+                if row["last_publication"] is None
+                else parse_model(InputPublication, row["last_publication"])
+            )
+            receipt = parse_model(PublicationReceipt, row["last_receipt"])
+            if old is not None:
+                bind_result(receipt, old, self.clock())
+            elif (receipt.head_generation, receipt.payload_digest) != (
+                binding.original_pin.head_generation,
+                binding.original_pin.payload_digest,
+            ):
+                raise AuthUnavailableError()
+            if (binding.principal_ref, binding.scope, binding.kind, binding.resource_ref) != (
+                change["identity_ref"],
+                receipt.scope,
+                receipt.kind,
+                receipt.resource_ref,
+            ) or binding.scope not in self.binding.scopes:
+                raise AuthUnavailableError()
+            if row["pending_change"] not in (None, change_id):
+                raise AuthUnavailableError()
+            if (
+                old is not None
+                and old.state == state
+                and row["pending_change"] == change_id
+                and row["pending_publication"] is None
+            ):
+                return
+            if row["pending_publication"] is not None:
+                publication = parse_model(InputPublication, row["pending_publication"])
+                if publication.state != state:
+                    raise AuthUnavailableError()
+            else:
+                now = self.clock()
+                until = min(self.binding.valid_until, now + timedelta(seconds=self.binding.control_seconds))
+                payload = None
+                if state == "active":
+                    if binding.kind != "actor" or change["new_record"] is None:
+                        raise AuthUnavailableError()
+                    record = parse_model(MembershipRecord, change["new_record"])
+                    if record.revoked or record.principal_ref != binding.resource_ref:
+                        raise AuthUnavailableError()
+                    payload = MembershipProjection(
+                        principal_ref=record.principal_ref,
+                        issuer=record.issuer,
+                        subject=record.subject,
+                        membership_revision=record.revision,
+                        audience=record.audience,
+                        memberships=record.memberships,
+                        subject_bindings=record.subject_bindings,
+                        state="active",
+                        reviewed_until=record.reviewed_until,
+                    )
+                    until = min(until, record.reviewed_until)
+                publication = InputPublication(
+                    schema="human-auth-input-publication.v1",
+                    scope=binding.scope,
+                    workload_ref=binding.workload_ref,
+                    publication_id=secrets.token_urlsafe(24),
+                    kind=binding.kind,
+                    resource_ref=binding.resource_ref,
+                    expected_generation=receipt.head_generation,
+                    source=SourceProvenance(
+                        publisher_ref=binding.publisher_ref,
+                        source_ref=binding.source_ref,
+                        source_revision=change["source_revision"] + (1 if state != "frozen" else 0),
+                        source_digest=digest(
+                            change["source_receipt"]
+                            if state != "frozen"
+                            else {
+                                "change_id": change_id,
+                                "request_digest": change["request_digest"],
+                                "dependencies": change["membership_dependencies"],
+                            }
+                        ),
+                        receipt_ref=change_id,
+                        observed_at=now,
+                        valid_until=until,
+                    ),
+                    state=state,
+                    payload=payload,
+                    payload_digest=None if payload is None else digest(payload),
+                    valid_until=until,
+                )
+                await db.execute(
+                    text(
+                        "INSERT INTO portal_auth.dependency_issuance "
+                        "(tenant,publication_id,dependency_ref,request,request_digest) "
+                        "VALUES(:tenant,:id,:ref,CAST(:request AS jsonb),:digest)"
+                    ),
+                    {
+                        "tenant": self.binding.tenant,
+                        "id": publication.publication_id,
+                        "ref": ref,
+                        "request": canonicalize(wire(publication)).decode(),
+                        "digest": digest(publication),
+                    },
+                )
+                await db.execute(
+                    text(
+                        "UPDATE portal_auth.membership_dependency "
+                        "SET pending_publication=CAST(:request AS jsonb),pending_change=:change "
+                        "WHERE tenant=:tenant AND dependency_ref=:ref"
+                    ),
+                    {
+                        "tenant": self.binding.tenant,
+                        "ref": ref,
+                        "change": change_id,
+                        "request": canonicalize(wire(publication)).decode(),
+                    },
+                )
+        actual = await self._native_publication_receipt(
+            publication, lambda: self._dependency_publication_current(publication)
+        )
+        async with self.receipts.begin() as db:
+            await self.qualified(db, self.binding.receipt_role)
+            await db.execute(
+                text(
+                    "UPDATE portal_auth.dependency_issuance SET receipt=CAST(:receipt AS jsonb),"
+                    "receipt_digest=:digest WHERE tenant=:tenant AND publication_id=:id "
+                    "AND (receipt_digest IS NULL OR receipt_digest=:digest)"
+                ),
+                {
+                    "tenant": self.binding.tenant,
+                    "id": publication.publication_id,
+                    "receipt": canonicalize(wire(actual)).decode(),
+                    "digest": digest(actual),
+                },
+            )
+        async with self.control.begin() as db:
+            await self.qualified(db, self.binding.control_role)
+            await db.execute(
+                text(
+                    "UPDATE portal_auth.membership_dependency d "
+                    "SET last_publication=i.request,last_receipt=i.receipt,pending_publication=NULL "
+                    "FROM portal_auth.dependency_issuance i WHERE d.tenant=:tenant "
+                    "AND d.dependency_ref=:ref AND d.pending_change=:change AND i.tenant=d.tenant "
+                    "AND i.dependency_ref=d.dependency_ref AND i.publication_id=:id AND i.receipt IS "
+                    "NOT NULL "
+                    "AND d.pending_publication=i.request"
+                ),
+                {
+                    "tenant": self.binding.tenant,
+                    "ref": ref,
+                    "change": change_id,
+                    "id": publication.publication_id,
+                },
+            )
+        await self._dependency_publication_current(publication)
+
     async def _begin_change(
         self,
         category: str,
@@ -1144,8 +1545,8 @@ class PostgresAuthSourceLifecycle:
                     return pending["change_id"]
                 if (
                     head["state"] != "active"
-                    or old is None
-                    or self.record_digest(category, old) != head["record_digest"]
+                    or (digest(None) if old is None else self.record_digest(category, old))
+                    != head["record_digest"]
                 ):
                     raise AuthUnavailableError()
             refs = (
@@ -1162,6 +1563,29 @@ class PostgresAuthSourceLifecycle:
                 .scalars()
                 .all()
             )
+            member_refs = []
+            if category == "membership":
+                mappings = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT binding FROM portal_auth.membership_dependency "
+                                "WHERE tenant=:tenant AND principal_ref=:ref ORDER BY dependency_ref "
+                                "FOR UPDATE"
+                            ),
+                            {"tenant": self.binding.tenant, "ref": identity_ref},
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                if head is None or head["dependency_set_digest"] != digest(mappings):
+                    raise AuthUnavailableError()
+                for mapping in mappings:
+                    binding = parse_model(MembershipDependencyBinding, mapping)
+                    if binding.principal_ref != identity_ref or binding.scope not in self.binding.scopes:
+                        raise AuthUnavailableError()
+                    member_refs.append(binding.dependency_ref)
             change = secrets.token_urlsafe(24)
             if category == "session" and new is not None and new.session_ref != identity_ref:
                 await db.execute(
@@ -1183,10 +1607,10 @@ class PostgresAuthSourceLifecycle:
                     "INSERT INTO "
                     "portal_auth.source_change(tenant,change_id,category,identity_r"
                     "ef,source_revision,operation,old_record,new_record,new_record_"
-                    "digest,request_digest,state,dependencies) VALUES(:tenant,:id,:"
+                    "digest,request_digest,state,dependencies,membership_dependencies) VALUES(:tenant,:id,:"
                     "category,:ref,:revision,:operation,CAST(:old AS jsonb),CAST(:n"
                     "ew AS jsonb),:new_digest,:digest,'freeze_pending',CAST(:depend"
-                    "encies AS jsonb))"
+                    "encies AS jsonb),CAST(:member_dependencies AS jsonb))"
                 ),
                 {
                     "tenant": self.binding.tenant,
@@ -1200,6 +1624,7 @@ class PostgresAuthSourceLifecycle:
                     "new_digest": None if new is None else self.record_digest(category, new),
                     "digest": request_digest,
                     "dependencies": canonicalize(list(refs)).decode(),
+                    "member_dependencies": canonicalize(member_refs).decode(),
                 },
             )
             await db.execute(
@@ -1218,7 +1643,8 @@ class PostgresAuthSourceLifecycle:
                 (
                     await db.execute(
                         text(
-                            "SELECT state,dependencies FROM portal_auth.source_change WHERE"
+                            "SELECT state,dependencies,membership_dependencies FROM portal_auth.sourc"
+                            "e_change WHERE"
                             " tenant=:tenant AND "
                             "change_id=:id"
                         ),
@@ -1232,6 +1658,8 @@ class PostgresAuthSourceLifecycle:
             return
         for ref in change["dependencies"]:
             await self._freeze_dependency(ref, change_id)
+        for ref in change["membership_dependencies"]:
+            await self._transition_membership_dependency(ref, change_id, "frozen")
         async with self.control.begin() as db:
             await self.qualified(db, self.binding.control_role)
             await db.execute(
@@ -1350,8 +1778,56 @@ class PostgresAuthSourceLifecycle:
                     )
                     await self._insert_issuance(db, ref, publication)
             await self._resolve_publication(publication)
+        for ref in change["membership_dependencies"]:
+            async with self.reader.connect() as db:
+                await self.qualified(db, self.binding.reader_role)
+                mapping = (
+                    await db.execute(
+                        text(
+                            "SELECT binding FROM portal_auth.membership_dependency "
+                            "WHERE tenant=:tenant AND dependency_ref=:ref"
+                        ),
+                        {"tenant": self.binding.tenant, "ref": ref},
+                    )
+                ).scalar_one()
+            member = (
+                None if change["new_record"] is None else parse_model(MembershipRecord, change["new_record"])
+            )
+            state = (
+                "active"
+                if mapping["kind"] == "actor" and member is not None and not member.revoked
+                else "revoked"
+            )
+            await self._transition_membership_dependency(ref, change_id, state)
         async with self.control.begin() as db:
             await self.qualified(db, self.binding.control_role)
+            await db.execute(
+                text(
+                    "UPDATE portal_auth.membership_dependency SET pending_change=NULL "
+                    "WHERE tenant=:tenant AND pending_change=:change AND pending_publication IS NULL "
+                    "AND last_receipt->>'state' IN ('active','revoked')"
+                ),
+                {"tenant": self.binding.tenant, "change": change_id},
+            )
+            if change["new_record"] is not None:
+                source_ref = (
+                    change["new_record"]["session_ref"]
+                    if change["category"] == "session"
+                    else change["identity_ref"]
+                )
+                await db.execute(
+                    text(
+                        "UPDATE portal_auth.source_head SET state='active',pending_change=NULL "
+                        "WHERE tenant=:tenant AND category=:category AND identity_ref=:ref AND pendin"
+                        "g_change=:change"
+                    ),
+                    {
+                        "tenant": self.binding.tenant,
+                        "category": change["category"],
+                        "ref": source_ref,
+                        "change": change_id,
+                    },
+                )
             await db.execute(
                 text(
                     "UPDATE portal_auth.source_change SET state='complete' WHERE tenant=:tenant AND "

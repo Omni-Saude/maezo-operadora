@@ -819,6 +819,13 @@ class AuthProductionComposition:
             await self.native.qualified(db)
         await self.qualify_protected()
 
+    async def publish_admission(self, command_id: str) -> Any:
+        """Publish only the actual joined source/protected admission for host binding."""
+        await self.qualify()
+        original = await self.source.protected.original_identity(command_id)
+        material = next(m for m in self.config.client.signing if m.purpose == "human-auth-input-publication")
+        return await self.source.publish_admission(original, workload_ref=material.issuer)
+
     def intake_components(self, authority: Any) -> Any:
         from maezo.gateway.human.auth_projection import projection_digest
 

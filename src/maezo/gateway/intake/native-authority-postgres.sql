@@ -19,7 +19,7 @@ CREATE TABLE portal_auth.source_head (
  category text NOT NULL CHECK(category IN ('session','membership')),
  identity_ref text NOT NULL, revision bigint NOT NULL CHECK(revision>0),
  record_digest char(64) NOT NULL, state text NOT NULL CHECK(state IN ('active','frozen','revoked')),
- pending_change text, PRIMARY KEY(tenant,category,identity_ref)
+ pending_change text, dependency_set_digest char(64), PRIMARY KEY(tenant,category,identity_ref)
 );
 CREATE TABLE portal_auth.reservation (
  tenant text NOT NULL REFERENCES portal_auth.installation(tenant), reservation_ref text NOT NULL,
@@ -50,6 +50,24 @@ CREATE TABLE portal_auth.issuance (
 );
 CREATE UNIQUE INDEX portal_auth_one_pending_issuance ON portal_auth.issuance(tenant,reservation_ref)
  WHERE state='pending';
+-- Owner registers the complete non-session AUTH source dependency set. No
+-- runtime grant is inferred from an actor/resource head merely being present.
+CREATE TABLE portal_auth.membership_dependency (
+ tenant text NOT NULL REFERENCES portal_auth.installation(tenant),
+ principal_ref text NOT NULL, dependency_ref text NOT NULL, binding jsonb NOT NULL,
+ -- Initial owner pin/receipt are metadata only; no active clinical payload is copied.
+ last_publication jsonb, last_receipt jsonb NOT NULL,
+ pending_publication jsonb, pending_change text,
+ PRIMARY KEY(tenant,dependency_ref), UNIQUE(tenant,principal_ref,dependency_ref)
+);
+CREATE TABLE portal_auth.dependency_issuance (
+ tenant text NOT NULL, publication_id text NOT NULL, dependency_ref text NOT NULL,
+ request jsonb NOT NULL, request_digest char(64) NOT NULL,
+ receipt jsonb, receipt_digest char(64),
+ PRIMARY KEY(tenant,publication_id),
+ FOREIGN KEY(tenant,dependency_ref) REFERENCES portal_auth.membership_dependency(tenant,dependency_ref),
+ CHECK((receipt IS NULL)=(receipt_digest IS NULL))
+);
 CREATE TABLE portal_auth.source_change (
  tenant text NOT NULL REFERENCES portal_auth.installation(tenant), change_id text NOT NULL,
  category text NOT NULL CHECK(category IN ('session','membership')),
@@ -58,7 +76,7 @@ CREATE TABLE portal_auth.source_change (
  -- Existing identity custody only; never exported in a reservation/native projection.
  old_record jsonb, new_record jsonb, new_record_digest char(64), request_digest char(64) NOT NULL,
  state text NOT NULL CHECK(state IN ('freeze_pending','native_frozen','source_committed','complete')),
- dependencies jsonb NOT NULL, applying_xid xid8,
+ dependencies jsonb NOT NULL, membership_dependencies jsonb NOT NULL, applying_xid xid8,
  source_receipt jsonb, PRIMARY KEY(tenant,change_id)
 );
 CREATE UNIQUE INDEX portal_auth_one_source_change ON portal_auth.source_change(tenant,category,identity_ref)
@@ -154,6 +172,30 @@ BEGIN
    AND ((change.category='session' AND r.session_ref=change.identity_ref)
    OR (change.category='membership' AND r.principal_ref=change.identity_ref))
    AND NOT change.dependencies ? r.reservation_ref) THEN RAISE EXCEPTION 'AUTH_SOURCE_CONFLICT'; END IF;
+ IF change.category='membership' THEN
+   IF EXISTS(SELECT 1 FROM portal_auth.membership_dependency d WHERE d.tenant=p_tenant
+       AND d.principal_ref=change.identity_ref
+       AND NOT change.membership_dependencies ? d.dependency_ref)
+      OR jsonb_array_length(change.membership_dependencies)<>(SELECT count(*) FROM portal_auth.membership_dependency
+         WHERE tenant=p_tenant AND principal_ref=change.identity_ref) THEN
+     RAISE EXCEPTION 'AUTH_SOURCE_CONFLICT';
+   END IF;
+   FOR dependency IN SELECT jsonb_array_elements_text(change.membership_dependencies) LOOP
+     PERFORM 1 FROM portal_auth.membership_dependency d
+       JOIN portal_auth.dependency_issuance i ON i.tenant=d.tenant
+         AND i.dependency_ref=d.dependency_ref
+       WHERE d.tenant=p_tenant AND d.dependency_ref=dependency
+         AND d.pending_change=p_change AND d.pending_publication IS NULL
+         AND d.last_publication=i.request AND d.last_receipt=i.receipt
+         AND i.receipt->>'state' IN ('frozen','revoked')
+         AND i.receipt->>'publication_id'=i.publication_id
+         AND i.receipt->>'request_digest'=i.request_digest
+         AND i.receipt->'scope'=i.request->'scope'
+         AND i.receipt->>'kind'=i.request->>'kind'
+         AND i.receipt->>'resource_ref'=i.request->>'resource_ref';
+     IF NOT FOUND THEN RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE'; END IF;
+   END LOOP;
+ END IF;
  UPDATE portal_auth.source_change SET applying_xid=pg_current_xact_id() WHERE tenant=p_tenant AND change_id=p_change;
  IF change.category='session' THEN
    IF change.old_record IS NOT NULL THEN
@@ -170,7 +212,7 @@ BEGIN
  UPDATE portal_auth.source_head SET revision=revision+1,state='revoked',pending_change=NULL
    WHERE tenant=p_tenant AND category=change.category AND identity_ref=change.identity_ref;
  IF change.new_record IS NOT NULL THEN
-   UPDATE portal_auth.source_head SET state='active',pending_change=NULL,record_digest=change.new_record_digest
+   UPDATE portal_auth.source_head SET state='frozen',pending_change=p_change,record_digest=change.new_record_digest
    WHERE tenant=p_tenant AND category=change.category
      AND identity_ref=CASE WHEN change.category='session' THEN change.new_record->>'session_ref' ELSE change.identity_ref END;
    IF NOT FOUND THEN RAISE EXCEPTION 'AUTH_SOURCE_CONFLICT'; END IF;
