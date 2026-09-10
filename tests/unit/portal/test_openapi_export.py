@@ -19,6 +19,12 @@ EXPECTED_PATHS = {
     "/api/v1/portal/auth/login",
     "/api/v1/portal/auth/logout",
     "/api/v1/portal/session",
+    "/api/v1/portal/commands/{command_id}",
+    "/api/v1/portal/commands/{command_id}/receipt",
+    "/api/v1/portal/tasks",
+    "/api/v1/portal/tasks/{task_id}",
+    "/api/v1/portal/tasks/{task_id}/decision-context",
+    "/api/v1/portal/tasks/{task_id}/decisions",
 }
 
 

@@ -106,10 +106,216 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/decision-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Decision Context */
+        get: operations["decision_context_api_v1_portal_tasks__task_id__decision_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tasks/{task_id}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Decision */
+        post: operations["submit_decision_api_v1_portal_tasks__task_id__decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AdequacaoCoordinationInputs
+         * @description SLA coordination control plus an optional assumed ADEQUACAO remediation decision.
+         *
+         *     The current coordination gateway consumes ``decisao_coordenacao``. Only ``assumir_decisao``
+         *     carries a remediation decision onward; extending the deadline or resuming dossier analysis
+         *     carries no browser-authored remediation fields.
+         */
+        AdequacaoCoordinationInputs: {
+            /**
+             * Decisao Coordenacao
+             * @enum {string}
+             */
+            decisao_coordenacao: "assumir_decisao" | "prorrogar_prazo" | "seguir_analise";
+            /** Decisao Remediacao */
+            decisao_remediacao?: ("MONITORAR_OK" | "ENCAMINHAR_CRED" | "COMPROMISSO_FALLBACK" | "SOLICITAR_INFO") | null;
+            /** Estimativa Custo Cents */
+            estimativa_custo_cents?: string | null;
+            /** Justificativa Fallback */
+            justificativa_fallback?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "adequacao_coordenacao";
+            /** Referencia Regulatoria */
+            referencia_regulatoria?: string | null;
+            /** Tipo Fallback */
+            tipo_fallback?: ("livre_escolha" | "reembolso_garantido" | "contratacao_ad_hoc") | null;
+        };
+        /**
+         * AdequacaoDecisionInputs
+         * @description Human remediation choice at ADEQUACAO ``UT_DecisaoFallback``.
+         *
+         *     A financial fallback commitment is the only adverse effect in this mostly-L3 process. The
+         *     browser supplies the documented choice and conditional basis; authenticated ``responsavel_id``
+         *     and all network, routing and timer facts remain trusted context. The centavo estimate stays an
+         *     exact decimal integer string until a future gateway performs the reviewed engine conversion.
+         */
+        AdequacaoDecisionInputs: {
+            /**
+             * Decisao Remediacao
+             * @enum {string}
+             */
+            decisao_remediacao: "MONITORAR_OK" | "ENCAMINHAR_CRED" | "COMPROMISSO_FALLBACK" | "SOLICITAR_INFO";
+            /** Estimativa Custo Cents */
+            estimativa_custo_cents?: string | null;
+            /** Justificativa Fallback */
+            justificativa_fallback?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "adequacao_decisao";
+            /** Referencia Regulatoria */
+            referencia_regulatoria?: string | null;
+            /** Tipo Fallback */
+            tipo_fallback?: ("livre_escolha" | "reembolso_garantido" | "contratacao_ad_hoc") | null;
+        };
+        /**
+         * AuthDecisionInputs
+         * @description AUTH auditor form; ``auditor_id`` is injected later from the trusted principal.
+         */
+        AuthDecisionInputs: {
+            /** Cid10 Referencia */
+            cid10_referencia?: string | null;
+            /**
+             * Decisao Auditor
+             * @enum {string}
+             */
+            decisao_auditor: "APROVAR" | "NEGAR" | "SOLICITAR_INFO" | "JUNTA_MEDICA";
+            /** Fundamentacao Dut */
+            fundamentacao_dut?: string | null;
+            /** Justificativa Clinica */
+            justificativa_clinica?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "auth_decisao";
+        };
+        /**
+         * AuthJuntaInputs
+         * @description AUTH medical-board form, whose outcome set is narrower than the auditor form.
+         */
+        AuthJuntaInputs: {
+            /** Cid10 Referencia */
+            cid10_referencia?: string | null;
+            /**
+             * Decisao Auditor
+             * @enum {string}
+             */
+            decisao_auditor: "APROVAR" | "NEGAR";
+            /** Fundamentacao Dut */
+            fundamentacao_dut?: string | null;
+            /** Justificativa Clinica */
+            justificativa_clinica?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "auth_junta";
+        };
+        /**
+         * BrowserTaskDecision
+         * @description Exactly TaskDecision fields with explicit decimal revision/version codecs.
+         */
+        BrowserTaskDecision: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Evidence Digest */
+            expected_evidence_digest: string;
+            /** Expected Evidence Revision */
+            expected_evidence_revision: string;
+            /** Expected Membership Revision */
+            expected_membership_revision: string;
+            /** Expected Task Revision */
+            expected_task_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao";
+            /** Form Version */
+            form_version: string;
+            /** Inputs */
+            inputs: components["schemas"]["AuthDecisionInputs"] | components["schemas"]["AuthJuntaInputs"] | components["schemas"]["EscalationDecisionInputs"] | components["schemas"]["PagtoAdmissibilityInputs"] | components["schemas"]["ContasDecisionInputs"] | components["schemas"]["ContasCoordinationInputs"] | components["schemas"]["RecursoDecisionInputs"] | components["schemas"]["RecursoCoordinationInputs"] | components["schemas"]["RecursoAuditorInputs"] | components["schemas"]["ReembolsoPendingInputs"] | components["schemas"]["ReembolsoDecisionInputs"] | components["schemas"]["ReembolsoAuditorInputs"] | components["schemas"]["CancelDecisionInputs"] | components["schemas"]["InadDecisionInputs"] | components["schemas"]["ProgramaDecisionInputs"] | components["schemas"]["CredDecredentialingInputs"] | components["schemas"]["CredCredentialingInputs"] | components["schemas"]["AdequacaoDecisionInputs"] | components["schemas"]["AdequacaoCoordinationInputs"] | components["schemas"]["NipDraftInputs"] | components["schemas"]["NipDecisionInputs"] | components["schemas"]["LgpdDsrDecisionInputs"];
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+        };
+        /**
+         * CancelDecisionInputs
+         * @description Human CANCEL decision shared by analysis and SLA coordination.
+         *
+         *     SP-OP-CANCEL-001 lines 75-83 and BPMN lines 260-276/318-320 define the five
+         *     outcomes and conditional basis fields. ``responsavel_id`` is injected from the trusted
+         *     human task context. ``tipo_solicitacao`` is likewise trusted process context: this DTO cannot
+         *     establish whether ``MANTER`` means a denied member request or a maintained contract, nor may it
+         *     authorize ``EFETIVAR_PEDIDO``. The gateway and BPMN/worker guards must enforce that route.
+         */
+        CancelDecisionInputs: {
+            /** Comprovacao Notificacao Previa */
+            comprovacao_notificacao_previa?: string | null;
+            /**
+             * Decisao Cancelamento
+             * @enum {string}
+             */
+            decisao_cancelamento: "RESCINDIR" | "MANTER" | "SUSPENDER" | "EFETIVAR_PEDIDO" | "SOLICITAR_INFO";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "cancel_decisao";
+            /** Referencia Regulatoria */
+            referencia_regulatoria?: string | null;
+        };
         /**
          * Centavos
          * @description Canonical browser representation of an exact integer number of centavos.
@@ -119,10 +325,323 @@ export interface components {
          *     direct from the canonical decimal string and never passes through float/JavaScript Number.
          */
         Centavos: string;
+        /**
+         * ContasCoordinationInputs
+         * @description CONTAS SLA takeover with the same human decision plus its coordination disposition.
+         */
+        ContasCoordinationInputs: {
+            /** Codigo Glosa Tiss */
+            codigo_glosa_tiss?: string | null;
+            /**
+             * Decisao Contas
+             * @enum {string}
+             */
+            decisao_contas: "PAGAR" | "GLOSAR" | "PAGAR_PARCIAL" | "DEVOLVER" | "ENCAMINHAR_FRAUDE";
+            /**
+             * Decisao Coordenacao
+             * @enum {string}
+             */
+            decisao_coordenacao: "assumir_analise" | "prorrogar_prazo" | "seguir_analise";
+            /** Justificativa Devolucao */
+            justificativa_devolucao?: string | null;
+            /** Justificativa Glosa */
+            justificativa_glosa?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "contas_coordenacao";
+            valor_glosado_centavos?: components["schemas"]["Centavos"] | null;
+            valor_liberado_centavos?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ContasDecisionInputs
+         * @description CONTAS analyst form; actor identity is injected from the authoritative session.
+         */
+        ContasDecisionInputs: {
+            /** Codigo Glosa Tiss */
+            codigo_glosa_tiss?: string | null;
+            /**
+             * Decisao Contas
+             * @enum {string}
+             */
+            decisao_contas: "PAGAR" | "GLOSAR" | "PAGAR_PARCIAL" | "DEVOLVER" | "ENCAMINHAR_FRAUDE";
+            /** Justificativa Devolucao */
+            justificativa_devolucao?: string | null;
+            /** Justificativa Glosa */
+            justificativa_glosa?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "contas_decisao";
+            valor_glosado_centavos?: components["schemas"]["Centavos"] | null;
+            valor_liberado_centavos?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * CredCredentialingInputs
+         * @description Human CRED credentialing decision shared by analysis and network coordination.
+         *
+         *     The contract and current BPMN task descriptions require human basis for
+         *     ``NEGAR_CREDENCIAMENTO``. Building this DRAFT shape does not authenticate the actor, prove
+         *     provider/network facts or authorize an enrollment or denial effect.
+         */
+        CredCredentialingInputs: {
+            /** Data Efeito Iso */
+            data_efeito_iso?: string | null;
+            /**
+             * Decisao Cred
+             * @enum {string}
+             */
+            decisao_cred: "APROVAR_CREDENCIAMENTO" | "NEGAR_CREDENCIAMENTO" | "SOLICITAR_INFO";
+            /** Fundamentacao */
+            fundamentacao?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "cred_cred";
+            /** Referencia Regulatoria */
+            referencia_regulatoria?: string | null;
+        };
+        /**
+         * CredDecredentialingInputs
+         * @description Human CRED decredentialing decision shared by analysis and network coordination.
+         *
+         *     SP-OP-CRED-001 and both current BPMN task descriptions require complete human basis for
+         *     ``DESCREDENCIAR``. Whether a replacement plan is mandatory depends on the trusted
+         *     ``tem_beneficiarios_vinculados`` process fact and remains a gateway/worker check. The browser
+         *     cannot supply that fact or the derived ``tem_plano_substituicao`` flag.
+         */
+        CredDecredentialingInputs: {
+            /** Comprovacao Notificacao Previa */
+            comprovacao_notificacao_previa?: string | null;
+            /** Data Efeito Iso */
+            data_efeito_iso?: string | null;
+            /**
+             * Decisao Cred
+             * @enum {string}
+             */
+            decisao_cred: "DESCREDENCIAR" | "MANTER" | "SOLICITAR_INFO";
+            /** Fundamentacao */
+            fundamentacao?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "cred_descred";
+            /** Plano Substituicao */
+            plano_substituicao?: string | null;
+            /** Referencia Regulatoria */
+            referencia_regulatoria?: string | null;
+        };
+        /** DecisionContextResponse */
+        DecisionContextResponse: {
+            /** Binding Digest */
+            binding_digest: string;
+            /** Expected Authority Revision */
+            expected_authority_revision: string;
+            /** Expected Membership Revision */
+            expected_membership_revision: string;
+            /**
+             * Schema Version
+             * @default portal-decision-context.v1
+             * @constant
+             */
+            schema_version: "portal-decision-context.v1";
+            snapshot: components["schemas"]["DecisionSnapshot"];
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
+        };
+        /**
+         * DecisionSnapshot
+         * @description Separate from Q1; offers the one implemented mutation, never fake claim/release.
+         */
+        DecisionSnapshot: {
+            /** Allowed Actions */
+            allowed_actions: [
+                "decision"
+            ];
+            /** Allowed Inputs */
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal")[];
+            /** Assignee Ref */
+            assignee_ref: string | null;
+            /** Eligible Candidate Groups */
+            eligible_candidate_groups: string[];
+            /** Engine Due At */
+            engine_due_at: string | null;
+            /** Evidence Digest */
+            evidence_digest: string;
+            /** Evidence Revision */
+            evidence_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao";
+            /**
+             * Form Source Status
+             * @enum {string}
+             */
+            form_source_status: "BPMN_FORMDATA" | "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY";
+            /** Form Version */
+            form_version: string;
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            read_only_evidence: components["schemas"]["PagtoAdmissibilityEvidence"] | null;
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+            /** Task Revision */
+            task_revision: string;
+        };
+        /** DecisionSubmission */
+        DecisionSubmission: {
+            decision: components["schemas"]["BrowserTaskDecision"];
+            /** Expected Authority Revision */
+            expected_authority_revision: string;
+            /** Expected Binding Digest */
+            expected_binding_digest: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "portal-decision-submission.v1";
+        };
+        /** EscalationDecisionInputs */
+        EscalationDecisionInputs: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "escalation";
+            /** Notas Resolucao */
+            notas_resolucao: string;
+            /**
+             * Resultado
+             * @enum {string}
+             */
+            resultado: "resolvido_humano" | "devolvido_agente" | "emergencia_acionada";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * InadDecisionInputs
+         * @description Human decision fields shared by both INAD tasks (contract outputs, BPMN task docs).
+         *
+         *     ADR-0049 D2/D3 keeps identities and process facts outside browser authority. Conditional
+         *     basis follows SP-OP-INADIMPLENCIA-001: suspension and neutral rescission handoff require all
+         *     four basis fields. Evidence strings do not authenticate their contents or establish delivery,
+         *     elapsed periods, current cross-process state or authority to perform an adverse effect.
+         */
+        InadDecisionInputs: {
+            /** Comprovacao Notificacao Previa */
+            comprovacao_notificacao_previa?: string | null;
+            /** Comprovacao Periodo Minimo */
+            comprovacao_periodo_minimo?: string | null;
+            /** Data Efeito Iso */
+            data_efeito_iso?: string | null;
+            /**
+             * Decisao Inadimplencia
+             * @enum {string}
+             */
+            decisao_inadimplencia: "SUSPENDER" | "ENCAMINHAR_RESCISAO" | "MANTER" | "SOLICITAR_INFO";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "inad_decisao";
+            /** Referencia Regulatoria */
+            referencia_regulatoria?: string | null;
+        };
+        /**
+         * LgpdDsrDecisionInputs
+         * @description Human DPO/privacy review decision for the LGPD data-subject request.
+         *
+         *     This closed DRAFT shape preserves the engine's explicit fail-closed outcomes. It cannot prove
+         *     DPO identity, legal sufficiency, record scope, data minimization, approval or execution.
+         */
+        LgpdDsrDecisionInputs: {
+            /**
+             * Decisao Dsr
+             * @enum {string}
+             */
+            decisao_dsr: "APROVAR_ENVIO" | "EXECUTAR_E_ENVIAR" | "NEGAR_FUNDAMENTADO";
+            /** Fundamentacao Legal */
+            fundamentacao_legal?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "lgpd_decisao";
+        };
+        /**
+         * NipDecisionInputs
+         * @description Final human NIP response shared by legal review and SLA coordination.
+         *
+         *     Maintaining the original denial is L0 hard and requires both documented basis fields. Response
+         *     text is human-authored and required for the three outcomes submitted to ANS; requesting more
+         *     information does not submit a final response. ``revisor_id`` comes from the authenticated
+         *     assignment; construction alone neither proves authorship nor authorizes transmission to ANS.
+         */
+        NipDecisionInputs: {
+            /**
+             * Decisao Nip
+             * @enum {string}
+             */
+            decisao_nip: "MANTER_NEGATIVA" | "CONCEDER" | "RESPONDER_NAO_ASSISTENCIAL" | "SOLICITAR_INFO";
+            /** Fundamentacao Regulatoria */
+            fundamentacao_regulatoria?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "nip_decisao";
+            /** Referencia Negativa Original */
+            referencia_negativa_original?: string | null;
+            /** Texto Resposta Nip */
+            texto_resposta_nip?: string | null;
+        };
+        /**
+         * NipDraftInputs
+         * @description Human-authored NIP draft before mandatory legal review.
+         *
+         *     ``UT_ElaborarRespostaNip`` documents preliminary ``decisao_nip`` options, but its current
+         *     ``GW_Minuta`` has no conditional consumer and always routes to legal review. Only the consumed
+         *     human-authored draft field is bound here; this DTO cannot make a final NIP decision.
+         */
+        NipDraftInputs: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "nip_minuta";
+            /** Texto Resposta Nip */
+            texto_resposta_nip: string;
         };
         /**
          * PagtoAdmissibilityEvidence
@@ -146,6 +665,74 @@ export interface components {
             lastro_origem?: ("contas_adjudicacao_automatica" | "contas_adjudicacao_humana" | "recurso_deferimento_humano") | null;
             valor_pagamento_cents: components["schemas"]["Centavos"];
         };
+        /**
+         * PagtoAdmissibilityInputs
+         * @description PAGTO admissibility only; it cannot approve or release a payment.
+         */
+        PagtoAdmissibilityInputs: {
+            /**
+             * Decisao Admissibilidade
+             * @enum {string}
+             */
+            decisao_admissibilidade: "PROSSEGUIR" | "DEVOLVER";
+            /** Justificativa Recusa */
+            justificativa_recusa?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "pagto_admissibilidade";
+        };
+        /** PendingDecisionAdmission */
+        PendingDecisionAdmission: {
+            /** Audit Intent Ref */
+            audit_intent_ref: string;
+            /** Command Id */
+            command_id: string;
+            /**
+             * Committed At
+             * Format: date-time
+             */
+            committed_at: string;
+            /** Outbox Ref */
+            outbox_ref: string;
+            /** Payload Digest */
+            payload_digest: string;
+            /** Principal Ref */
+            principal_ref: string;
+            /** Request Digest */
+            request_digest: string;
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Status
+             * @default pending
+             * @constant
+             */
+            status: "pending";
+            /** Task Id */
+            task_id: string;
+            /** Tenant */
+            tenant: string;
+            /** Transaction Ref */
+            transaction_ref: string;
+            /** Workload Ref */
+            workload_ref: string;
+        };
+        /** PortalDecisionError */
+        PortalDecisionError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "invalid_decision" | "authentication_unavailable" | "operation_forbidden" | "revision_conflict" | "authority_unavailable" | "task_unavailable" | "form_projection_unavailable" | "form_contract_unavailable" | "admission_unavailable" | "credential_scope_mismatch" | "production_capabilities_unavailable" | "dependency_unavailable";
+            /**
+             * Schema Version
+             * @default portal-decision-error.v1
+             * @constant
+             */
+            schema_version: "portal-decision-error.v1";
+        };
         /** PortalReadError */
         PortalReadError: {
             /**
@@ -160,6 +747,36 @@ export interface components {
              */
             schema: "portal-read-error.v1";
         };
+        /**
+         * ProgramaDecisionInputs
+         * @description Human PROGRAMA decision shared by the clinical and SLA-takeover tasks.
+         *
+         *     SP-OP-PROGRAMA-001 lines 105-108 and the two BPMN task descriptions define this narrow
+         *     browser-writable shape. ``responsavel_clinico_id`` is injected later from trusted human-task
+         *     context. Consent, eligibility, enrollment gaps, timers, tenant and autonomy tier are likewise
+         *     authoritative context, never browser claims. Constructing this DRAFT DTO does not authenticate
+         *     a clinician, establish consent or clinical merit, or execute an engine/clinical decision.
+         *
+         *     The contract separately lists ``decisao_coordenacao``, but the current BPMN has no gateway,
+         *     worker or other decision consumer for it. It remains an explicit unbound obligation instead of
+         *     becoming an arbitrary browser control in this slice.
+         */
+        ProgramaDecisionInputs: {
+            /**
+             * Decisao Programa
+             * @enum {string}
+             */
+            decisao_programa: "ENROLL" | "MANTER_ACOMPANHAMENTO" | "DESLIGAR_CLINICO" | "SOLICITAR_INFO";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "programa_decisao";
+            /** Motivo Desligamento Clinico */
+            motivo_desligamento_clinico?: string | null;
+            /** Referencia Clinica */
+            referencia_clinica?: string | null;
+        };
         /** PublicTaskSnapshot */
         PublicTaskSnapshot: {
             /**
@@ -168,7 +785,7 @@ export interface components {
              */
             allowed_actions: unknown[];
             /** Allowed Inputs */
-            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica")[];
+            allowed_inputs: ("decisao_auditor" | "justificativa_clinica" | "cid10_referencia" | "fundamentacao_dut" | "resultado" | "notas_resolucao" | "decisao_admissibilidade" | "justificativa_recusa" | "decisao_contas" | "justificativa_glosa" | "codigo_glosa_tiss" | "valor_glosado_centavos" | "valor_liberado_centavos" | "justificativa_devolucao" | "decisao_coordenacao" | "decisao_recurso" | "fundamentacao_indeferimento" | "valor_glosa_mantido_centavos" | "valor_deferido_centavos" | "referencia_contratual" | "desfecho_humano" | "decisao_auditor_recurso" | "parecer_auditor" | "decisao_pendencia" | "decisao_reembolso" | "valor_reembolso_aprovado_cents" | "justificativa" | "fundamentacao_contratual" | "decisao_cancelamento" | "decisao_inadimplencia" | "comprovacao_periodo_minimo" | "data_efeito_iso" | "referencia_regulatoria" | "comprovacao_notificacao_previa" | "decisao_programa" | "motivo_desligamento_clinico" | "referencia_clinica" | "decisao_cred" | "fundamentacao" | "plano_substituicao" | "decisao_remediacao" | "tipo_fallback" | "justificativa_fallback" | "estimativa_custo_cents" | "texto_resposta_nip" | "decisao_nip" | "fundamentacao_regulatoria" | "referencia_negativa_original" | "decisao_dsr" | "fundamentacao_legal")[];
             /** Assignee Ref */
             assignee_ref: string | null;
             /** Eligible Candidate Groups */
@@ -185,7 +802,7 @@ export interface components {
              * Form Key
              * @enum {string}
              */
-            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao";
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao";
             /**
              * Form Source Status
              * @enum {string}
@@ -245,6 +862,138 @@ export interface components {
              * Format: date-time
              */
             valid_until: string;
+        };
+        /**
+         * RecursoAuditorInputs
+         * @description Auditor merit form (BPMN lines 445-458); no clinical fact or actor identity is inferred.
+         */
+        RecursoAuditorInputs: {
+            /**
+             * Decisao Auditor Recurso
+             * @enum {string}
+             */
+            decisao_auditor_recurso: "DEFERIR" | "DEFERIR_PARCIAL" | "INDEFERIR";
+            /** Fundamentacao Indeferimento */
+            fundamentacao_indeferimento?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "recurso_auditor";
+            /** Parecer Auditor */
+            parecer_auditor: string;
+            /** Referencia Contratual */
+            referencia_contratual?: string | null;
+            valor_deferido_centavos?: components["schemas"]["Centavos"] | null;
+            valor_glosa_mantido_centavos?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * RecursoCoordinationInputs
+         * @description SLA/teto decision, including BPMN lines 370-372/424-426 human inadmissibility.
+         */
+        RecursoCoordinationInputs: {
+            /**
+             * Decisao Recurso
+             * @enum {string}
+             */
+            decisao_recurso: "DEFERIR" | "DEFERIR_PARCIAL" | "INDEFERIR" | "SOLICITAR_INFO" | "ESCALAR_AUDITOR";
+            /** Desfecho Humano */
+            desfecho_humano?: "inadmissivel" | null;
+            /** Fundamentacao Indeferimento */
+            fundamentacao_indeferimento?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "recurso_coordenacao";
+            /** Referencia Contratual */
+            referencia_contratual?: string | null;
+            valor_deferido_centavos?: components["schemas"]["Centavos"] | null;
+            valor_glosa_mantido_centavos?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * RecursoDecisionInputs
+         * @description Primary analyst decision (BPMN lines 313-329); the gateway injects actor identity.
+         */
+        RecursoDecisionInputs: {
+            /**
+             * Decisao Recurso
+             * @enum {string}
+             */
+            decisao_recurso: "DEFERIR" | "DEFERIR_PARCIAL" | "INDEFERIR" | "SOLICITAR_INFO" | "ESCALAR_AUDITOR";
+            /** Fundamentacao Indeferimento */
+            fundamentacao_indeferimento?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "recurso_decisao";
+            /** Referencia Contratual */
+            referencia_contratual?: string | null;
+            valor_deferido_centavos?: components["schemas"]["Centavos"] | null;
+            valor_glosa_mantido_centavos?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ReembolsoAuditorInputs
+         * @description Medical-merit form (BPMN 383-388); no clinical content is inferred.
+         */
+        ReembolsoAuditorInputs: {
+            /** Cid10 Referencia */
+            cid10_referencia?: string | null;
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reembolso_auditor";
+            /** Parecer Auditor */
+            parecer_auditor?: string | null;
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ReembolsoDecisionInputs
+         * @description Analyst/coordination form; identities and clinical merit stay server/auditor-owned.
+         */
+        ReembolsoDecisionInputs: {
+            /**
+             * Decisao Reembolso
+             * @enum {string}
+             */
+            decisao_reembolso: "APROVAR" | "NEGAR" | "APROVAR_PARCIAL" | "SOLICITAR_INFO" | "SOLICITAR_AUDITOR";
+            /** Fundamentacao Contratual */
+            fundamentacao_contratual?: string | null;
+            /** Justificativa */
+            justificativa?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reembolso_decisao";
+            valor_reembolso_aprovado_cents?: components["schemas"]["Centavos"] | null;
+        };
+        /**
+         * ReembolsoPendingInputs
+         * @description Expired-document pendency decision (contract lines 92/214/233-236; BPMN 188-193).
+         */
+        ReembolsoPendingInputs: {
+            /**
+             * Decisao Pendencia
+             * @enum {string}
+             */
+            decisao_pendencia: "cancelar_solicitacao" | "conceder_prazo_extra" | "seguir_analise";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "reembolso_pendencia";
         };
         /**
          * SessionDTO
@@ -582,6 +1331,162 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+        };
+    };
+    decision_context_api_v1_portal_tasks__task_id__decision_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionContextResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
+    submit_decision_api_v1_portal_tasks__task_id__decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingDecisionAdmission"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
                 };
             };
         };
