@@ -339,3 +339,100 @@ def test_singleton_origin_cannot_authorize_effects(operation: str) -> None:
         s.validate_store_call("issue_permit", call)
     call["request"]["principal_origin"] = {"kind": "owner_prepared_one_shot", "preparation_id": U}
     assert s.validate_store_call("issue_permit", call) == call
+
+
+@pytest.mark.parametrize("count", [1, 8, 10])
+def test_publication_manifest_bounds_and_separate_revision_domains(count):
+    resources = [
+        dict(
+            logical_key="RESOURCE#task#" + f"{index:064x}",
+            expected_sha256=None,
+            replacement_sha256=H,
+            body_bytes=s.MAX_BYTES,
+            chunk_sha256s=[H] * s.MAX_CHUNKS,
+        )
+        for index in range(count)
+    ]
+    fields = dict(
+        protocol=s.STAGING_PROTOCOLS["PublicationManifest"],
+        scope=vectors.sample("Scope"),
+        control_scope_id=U,
+        table_identity_sha256=H,
+        owner_subject="owner-a",
+        run_id=U,
+        epoch=1,
+        anchor_root_revision=10,
+        semantic_root_sha256=H,
+        captured_lease_deadline_ms=1000,
+        journal_operation_id=U,
+        journal_before_sha256=H,
+        journal_after_sha256=H,
+        root_journal_revision_before=9,
+        root_journal_revision_after=10,
+        intent_record_revision_before=3,
+        intent_record_revision_after=4,
+        outcome_key=s.key(U, "OUTCOME", U, revision=10)["SK"],
+        outcome_sha256=H,
+        pending_before_sha256=H,
+        pending_after_sha256=H,
+        registry_before_sha256=H,
+        registry_after_sha256=H,
+        resources=resources,
+    )
+    assert s.Document.create("PublicationManifest", fields).value() == fields
+    for changed in (
+        dict(intent_record_revision_after=10),
+        dict(outcome_key=s.key(U, "OUTCOME", U, revision=4)["SK"]),
+        dict(resources=resources * 11),
+        dict(resources=[resources[0] | dict(body_bytes=s.MAX_BYTES + 1)]),
+        dict(resources=[resources[0] | dict(chunk_sha256s=[H] * 9)]),
+        dict(unapproved=True),
+    ):
+        with pytest.raises(s.Refusal):
+            s.Document.create("PublicationManifest", fields | changed)
+
+
+def test_stage_fragment_binary_limit_hash_and_canonical_step_ordinal():
+    raw = b"x" * s.CHUNK_BYTES
+    fragment = dict(
+        protocol=s.STAGING_PROTOCOLS["StageFragment"],
+        scope=vectors.sample("Scope"),
+        publication_sha256=H,
+        resource_identity_sha256=H,
+        ordinal=7,
+        bytes=s.encode64(raw),
+        chunk_sha256=s.digest(raw),
+    )
+    assert s.Document.create("StageFragment", fragment).value() == fragment
+    for changed in (
+        dict(ordinal=8),
+        dict(bytes=s.encode64(raw + b"x")),
+        dict(chunk_sha256=H),
+        dict(bytes=s.encode64(b"")),
+        dict(unapproved=True),
+    ):
+        with pytest.raises(s.Refusal):
+            s.Document.create("StageFragment", fragment | changed)
+    step = dict(
+        protocol=s.STAGING_PROTOCOLS["StageStepReceipt"],
+        scope=vectors.sample("Scope"),
+        publication_sha256=H,
+        ordinal=0,
+        previous_step_sha256=None,
+        expected_root_sha256=H,
+        replacement_root_sha256=H,
+        expected_root_revision=10,
+        replacement_root_revision=11,
+        fragment_keys=[s.staging_key(U, H, "RESOURCE", resource=H, ordinal=0)["SK"]],
+        fragment_sha256s=[H],
+        request_sha256=H,
+    )
+    assert s.Document.create("StageStepReceipt", step).value() == step
+    for changed in (
+        dict(replacement_root_revision=10),
+        dict(ordinal=80),
+        dict(fragment_keys=[step["fragment_keys"][0][:-8] + "٠٠٠٠٠٠٠٠"]),
+        dict(fragment_keys=step["fragment_keys"] * 9, fragment_sha256s=[H] * 9),
+    ):
+        with pytest.raises(s.Refusal):
+            s.Document.create("StageStepReceipt", step | changed)

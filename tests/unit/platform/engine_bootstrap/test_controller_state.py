@@ -33,6 +33,7 @@ def pair_for(
     fence_revision: int = 1,
     task_status: str = "RUNNING",
     unregistered_tasks: bool = False,
+    task_inventory: tuple[dict[str, Any], ...] | None = None,
 ) -> tuple[s.Document, d.ObservationPair, d.ObservationVerifier]:
     r = record.value()
     control = v.control_observation()
@@ -49,6 +50,8 @@ def pair_for(
     database["observed_revision"] = fence_revision
     cp["managed_resources"] = [m.to_wire() for m in managed]
     cp["tasks"] = v.control_observation()["payload"]["tasks"] if managed or unregistered_tasks else []
+    if task_inventory is not None and (managed or unregistered_tasks):
+        cp["tasks"] = [dict(task) for task in task_inventory]
     for task in cp["tasks"]:
         task["last_status"] = task_status
     cp["desired_count"] = cp["running_count"] = cp["pending_count"] = 0
@@ -1007,7 +1010,7 @@ def test_each_normal_transition_keeps_order_and_missing_qualification_closed(cur
         )
 
 
-def test_one_frozen_profile_supports_owner_preparation_publication_and_live_journal_lifecycle() -> None:
+def frozen_lifecycle_inputs(task_count: int = 10) -> dict[str, Any]:
     """Acyclic source construction with real crypto; SQL/authority ports are finite fixtures."""
     from tests.unit.platform.engine_bootstrap.test_d7_control_migration_contract import (
         prepare_through_actual_owner_source,
@@ -1021,6 +1024,15 @@ def test_one_frozen_profile_supports_owner_preparation_publication_and_live_jour
     generation_id, reserved = d.reserve_generation(record, owner, 300)
     assert generation_id == 1
     raw_intent = v.intent()
+    raw_intent["request"]["count"] = task_count
+    raw_intent.update(
+        request_bytes=s.encode64(s.canonical(raw_intent["request"])),
+        request_sha256=s.digest(s.canonical(raw_intent["request"])),
+    )
+    task_ids = tuple(v.TASK if i == 0 else v.TASK + "-" + str(i) for i in range(task_count))
+    task_inventory = tuple(
+        dict(v.control_observation()["payload"]["tasks"][0], task_arn=task_id) for task_id in task_ids
+    )
     prepared, connection = prepare_through_actual_owner_source(
         reserved.replacement,
         reserved.append[0][1],
@@ -1072,7 +1084,7 @@ def test_one_frozen_profile_supports_owner_preparation_publication_and_live_jour
     ) -> d.ObservationPair:
         nonlocal verifier_once
         same_root, pair, verifier = pair_for(
-            current, journals, managed, (generation,), unregistered_tasks=tasks
+            current, journals, managed, (generation,), unregistered_tasks=tasks, task_inventory=task_inventory
         )
         assert same_root.wire == current.wire  # No per-snapshot ROOT/profile rewrite.
         assert verifier.profile.digest() == frozen_profile == decision.trust_profile_sha256
@@ -1145,7 +1157,8 @@ def test_one_frozen_profile_supports_owner_preparation_publication_and_live_jour
         target_generation_status="OPEN",
     )
     intent = c.parse("RunTaskIntent", s.canonical(raw_intent))
-    record = d.append_intent(record, intent, pair, 300, generation=generation, decision=decision).replacement
+    append_change = d.append_intent(record, intent, pair, 300, generation=generation, decision=decision)
+    record = append_change.replacement
     row = v.journal("INTENT")
     row.update(intent_sha256=intent.digest(), logical_run_id=owner["run_id"], epoch=1)
     journal = c.parse("JournalObservation", s.canonical(row))
@@ -1159,9 +1172,10 @@ def test_one_frozen_profile_supports_owner_preparation_publication_and_live_jour
         300,
         qualification=spy,
     )
+    dispatch_change = change
     record = change.replacement
     outcome = v.sample("ProviderOutcome")
-    outcome.update(returned_resource_ids=[v.TASK], failures=[])
+    outcome.update(returned_resource_ids=list(task_ids), failures=[])
     change = d.record_outcome(
         record,
         journal,
@@ -1170,31 +1184,77 @@ def test_one_frozen_profile_supports_owner_preparation_publication_and_live_jour
         now_ms=300,
         qualification=spy,
     )
+    ack_change = change
     record, journal = change.replacement, change.journals[0].replacement
-    managed = c.parse(
-        "ManagedResource", s.canonical(v.control_observation()["payload"]["managed_resources"][0])
+    managed = tuple(
+        c.parse(
+            "ManagedResource",
+            s.canonical(
+                dict(
+                    v.control_observation()["payload"]["managed_resources"][0],
+                    provider_resource_id=task_id,
+                    observation_sha256=s.digest(s.canonical(task)),
+                )
+            ),
+        )
+        for task_id, task in zip(task_ids, task_inventory, strict=True)
     )
     settlement_wire = v.sample("Settlement")
     settlement_wire.update(
         settlement_class="CURRENT_LIVE_TRACKED",
         resource_proofs=[],
-        managed_resource_registry_sha256=s.digest(s.canonical([managed.to_wire()])),
+        managed_resource_registry_sha256=s.digest(s.canonical([m.to_wire() for m in managed])),
     )
     settlement_wire["dispatch_terminal"]["intent_sha256"] = intent.digest()
-    journal, change = d.settle(
-        record,
-        journal,
-        c.parse("Settlement", s.canonical(settlement_wire)),
-        observe(record, (journal,), tasks=True),
-        300,
-        (managed,),
+    return dict(
+        root=record,
+        journal=journal,
+        settlement=c.parse("Settlement", s.canonical(settlement_wire)),
+        managed=managed,
         qualification=spy,
+        now_ms=300,
+        observe=observe,
+        stage=stage,
+        intent=intent,
+        changes=(append_change, dispatch_change, ack_change),
+        frozen_profile=frozen_profile,
+        generation=generation,
+        decision=decision,
+        signed_digests=signed_digests,
     )
-    record = stage(change.replacement, "CANDIDATE_VALIDATED", (journal,), (managed,))
+
+
+@pytest.mark.parametrize("task_count", [1, 8, 10])
+def test_one_frozen_profile_supports_owner_preparation_publication_and_live_journal_lifecycle(
+    task_count: int,
+) -> None:
+    values = frozen_lifecycle_inputs(task_count)
+    journal, change = d.settle(
+        values["root"],
+        values["journal"],
+        values["settlement"],
+        values["observe"](values["root"], (values["journal"],), tasks=True),
+        300,
+        values["managed"],
+        qualification=values["qualification"],
+    )
+    assert len(change.documents) == task_count
+    from tests.unit.platform.engine_bootstrap.test_controller_dynamodb import binding
+
+    from maezo.platform.engine_bootstrap import controller_dynamodb as dynamo
+
+    if task_count <= 8:
+        physical = dynamo.transaction(binding(), change)
+        assert len(physical["TransactItems"]) == 3 + task_count
+    else:
+        # Logical ten-task settlement is valid; thirteen physical actions remain forbidden.
+        with pytest.raises(s.Refusal):
+            dynamo.transaction(binding(), change)
+    record = values["stage"](change.replacement, "CANDIDATE_VALIDATED", (journal,), values["managed"])
     assert record.value()["state"] == "CANDIDATE_VALIDATED" and record.value()["pending_operation_ids"] == []
-    assert record.value()["trust_profile_sha256"] == frozen_profile
-    assert generation.activation_decision_sha256 == decision.digest()
-    assert len(set(signed_digests)) > 5
+    assert record.value()["trust_profile_sha256"] == values["frozen_profile"]
+    assert values["generation"].activation_decision_sha256 == values["decision"].digest()
+    assert len(set(values["signed_digests"])) > 5
 
 
 def test_v2_full_signature_and_separate_source_census_both_remain_required() -> None:
