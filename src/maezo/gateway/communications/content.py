@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.external_cases.postgres import transaction
-from maezo.portal.api.session import HumanSessionResolver
+from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
 from maezo.portal.contracts.communication_content import (
     CommunicationContent,
     CommunicationContentReceipt,
@@ -25,6 +25,7 @@ from maezo.portal.contracts.communication_content import (
 )
 from maezo.portal.engine.profile import canonicalize
 
+from .admission import PostgresCommunicationAdmission
 from .models import (
     CommunicationAuthority,
     CommunicationGrant,
@@ -70,11 +71,20 @@ class PhiContentKeys:
 
 class PostgresPhiCommunicationContent:
     def __init__(
-        self, engine: AsyncEngine, *, scope: CommunicationScope, keys: PhiContentKeys, seconds: float = 5
+        self,
+        engine: AsyncEngine,
+        *,
+        scope: CommunicationScope,
+        keys: PhiContentKeys,
+        seconds: float = 5,
+        admission: PostgresCommunicationAdmission | None = None,
     ) -> None:
         if keys.scope != scope:
             raise ExternalCaseError("unavailable")
         self.engine, self.scope, self.keys, self.seconds = engine, scope, keys, seconds
+        if admission is not None and (admission.engine is not engine or admission.scope != scope):
+            raise ExternalCaseError("unavailable")
+        self.admission = admission
 
     def params(self, grant: CommunicationGrant) -> dict[str, Any]:
         if grant.access.scope != self.scope or grant.access.principal.tenant != self.scope.tenant:
@@ -86,7 +96,13 @@ class PostgresPhiCommunicationContent:
         )
 
     async def preserve(
-        self, grant: CommunicationGrant, body: CommunicationContentSubmission, *, deadline: datetime
+        self,
+        grant: CommunicationGrant,
+        body: CommunicationContentSubmission,
+        *,
+        deadline: datetime,
+        secret: str,
+        session: ResolvedHumanSession,
     ) -> CommunicationContentReceipt:
         params = self.params(grant)
         ceiling = alive(deadline, grant.ceiling(), self.keys.valid_until)
@@ -116,7 +132,11 @@ class PostgresPhiCommunicationContent:
             authority_digest=grant.authority_digest,
         )
         result = None
-        async with transaction(self.engine, self.seconds) as connection:
+        if self.admission is None:
+            raise ExternalCaseError("unavailable")
+        async with self.admission.acquire(
+            secret=secret, session=session, grant=grant, deadline=ceiling, seconds=self.seconds
+        ) as connection:
             await connection.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:lock,0))"),
                 {
@@ -242,6 +262,8 @@ class PhiCommunicationService(CommunicationSessionBoundary):
     ) -> None:
         super().__init__(resolver, authority, store.scope)
         self.store = store
+        if store.admission is not None:
+            store.admission.bind(resolver, store.engine)
 
     async def preserve[T](
         self,
@@ -266,7 +288,7 @@ class PhiCommunicationService(CommunicationSessionBoundary):
             grant.ceiling(),
             self.store.keys.valid_until,
         )
-        result = await self.store.preserve(grant, body, deadline=ceiling)
+        result = await self.store.preserve(grant, body, deadline=ceiling, secret=secret, session=session)
         return await self.finish(
             secret, session, [grant], result, ceiling, self.store.keys.valid_until, freeze=freeze
         )

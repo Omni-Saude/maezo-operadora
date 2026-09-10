@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from tests.unit.gateway.intake.test_postgres import inputs
 
+from maezo.gateway.communications.admission import PostgresCommunicationAdmission, Publication, packed
 from maezo.gateway.communications.content import (
     PhiCommunicationService,
     PhiContentKeys,
@@ -26,12 +27,19 @@ from maezo.gateway.communications.models import (
 from maezo.gateway.communications.postgres import PostgresCommunicationStore
 from maezo.gateway.communications.service import PAGE_FIELDS, CommunicationService
 from maezo.gateway.external_cases.models import ExternalCaseError
+from maezo.gateway.human.read_profile import digest
+from maezo.portal.api.auth import digest as secret_digest
+from maezo.portal.api.postgres import PostgresIdentityStore
+from maezo.portal.api.records import MembershipRecord, SessionRecord
+from maezo.portal.api.session import ResolvedHumanSession
 from maezo.portal.contracts.communication_content import CommunicationContentSubmission
 from maezo.portal.contracts.communications import CommunicationSubmission
+from maezo.portal.contracts.models import SubjectBinding
 
 REF = "a" * 32
 OTHER = "b" * 32
 THIRD = "c" * 32
+SECRET = "s" * 43
 
 
 class Database:
@@ -47,6 +55,11 @@ class Database:
         self.fail_inbox = False
         self.unknown_commit = False
         self.after = None
+        self.authorities = {}
+        self.resolver = None
+
+    def in_transaction(self):
+        return True
 
     @asynccontextmanager
     async def transaction(self, engine, seconds):
@@ -69,9 +82,27 @@ class Database:
         rows = []
 
         def matches(row, *names):
-            return all(row[name] == p[name] for name in names)
+            return all(row.get(name) == p[name] for name in names)
 
-        if "pg_advisory" in q:
+        if q.startswith("SELECT revision,publication_ref,payload FROM portal_communication.authority_head"):
+            rows = [self.authorities[p["access"]]] if p["access"] in self.authorities else []
+        elif q.startswith("SELECT * FROM portal_communication.lock_session"):
+            resolved = self.resolver.records()
+            session, member = resolved.record, resolved.membership
+            rows = [
+                dict(
+                    session_tenant=member.tenant,
+                    membership_tenant=member.tenant,
+                    secret_hash=session.secret_hash,
+                    expires_at=session.expires_at,
+                    issuer=member.issuer,
+                    subject=member.subject,
+                    principal_ref=member.principal_ref,
+                    session_payload=session.model_dump_json(),
+                    membership_payload=member.model_dump_json(),
+                )
+            ]
+        elif "pg_advisory" in q:
             pass
         elif q.startswith("INSERT INTO portal_communication.content "):
             self.contents.append(dict(p, authored_at=self.clock[0]))
@@ -208,23 +239,51 @@ class Database:
 class Resolver:
     def __init__(self, clock):
         self.clock = clock
-        self.principal = inputs()[0].principal
+        self.principal = inputs()[0].principal.model_copy(
+            update={"subject_bindings": (SubjectBinding(kind="provider", resource_ref=REF),)}
+        )
         self.settings = SimpleNamespace(
-            tenant=self.principal.tenant, public_origin="https://portal.example.test"
+            tenant=self.principal.tenant,
+            public_origin="https://portal.example.test",
+            issuer=self.principal.issuer,
         )
         self.session_until = clock[0] + timedelta(minutes=2)
         self.member_until = self.session_until
         self.audience = "provider"
         self.after = None
 
+    def records(self):
+        p = self.principal
+        return ResolvedHumanSession(
+            p,
+            SessionRecord(
+                secret_hash=secret_digest(SECRET),
+                session_ref=p.session_ref,
+                csrf_token="csrf",
+                issuer=p.issuer,
+                subject=p.subject,
+                principal_ref=p.principal_ref,
+                membership_revision=p.membership_revision,
+                authenticated_at=p.authenticated_at,
+                expires_at=self.session_until,
+            ),
+            MembershipRecord(
+                tenant=p.tenant,
+                issuer=p.issuer,
+                subject=p.subject,
+                principal_ref=p.principal_ref,
+                revision=p.membership_revision,
+                audience=self.audience,
+                memberships=p.memberships,
+                subject_bindings=p.subject_bindings,
+                reviewed_until=self.member_until,
+            ),
+        )
+
     async def resolve(self, secret):
         if self.after:
             self.after()
-        return SimpleNamespace(
-            principal=self.principal,
-            membership=SimpleNamespace(audience=self.audience, reviewed_until=self.member_until),
-            record=SimpleNamespace(expires_at=self.session_until, csrf_token="csrf"),
-        )
+        return self.records()
 
 
 class Authority(CommunicationAuthority):
@@ -268,7 +327,7 @@ class Authority(CommunicationAuthority):
             if access.operation == "publish"
             else ()
         )
-        return CommunicationGrant(
+        grant = CommunicationGrant(
             access=access,
             authority_receipt_ref=REF,
             authority_digest="a" * 64,
@@ -277,6 +336,19 @@ class Authority(CommunicationAuthority):
             permitted_fields=tuple(sorted(fields)),
             intended_recipients=recipients,
         )
+        publication = Publication(
+            publication_ref=REF,
+            access=access,
+            expected_revision="0",
+            source_receipt_ref=REF,
+            source_digest="a" * 64,
+            valid_until=self.until,
+            grant=grant,
+        )
+        self.db.authorities[digest(access)] = dict(
+            revision="1", publication_ref=REF, payload=packed(publication)
+        )
+        return grant
 
 
 @pytest.fixture
@@ -286,9 +358,14 @@ def setup(monkeypatch):
     db = Database(clock)
     monkeypatch.setattr("maezo.gateway.communications.postgres.transaction", db.transaction)
     monkeypatch.setattr("maezo.gateway.communications.content.transaction", db.transaction)
+    monkeypatch.setattr("maezo.gateway.communications.admission.transaction", db.transaction)
     resolver = Resolver(clock)
     scope = CommunicationScope(tenant=resolver.principal.tenant, environment="synthetic")
     authority = Authority(resolver, scope, clock)
+    authority.db, db.resolver = db, resolver
+    engine = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    resolver.store = PostgresIdentityStore(scope.tenant, engine)
+    admission = PostgresCommunicationAdmission(resolver.store, scope=scope, issuer=resolver.settings.issuer)
     keys = PhiContentKeys(
         scope=scope,
         active_key_id="synthetic",
@@ -296,9 +373,13 @@ def setup(monkeypatch):
         valid_until=clock[0] + timedelta(minutes=2),
     )
     phi = PhiCommunicationService(
-        resolver, authority, PostgresPhiCommunicationContent(None, scope=scope, keys=keys)
+        resolver,
+        authority,
+        PostgresPhiCommunicationContent(engine, scope=scope, keys=keys, admission=admission),
     )
-    service = CommunicationService(resolver, authority, PostgresCommunicationStore(None, scope=scope))
+    service = CommunicationService(
+        resolver, authority, PostgresCommunicationStore(engine, scope=scope, admission=admission)
+    )
     return SimpleNamespace(
         clock=clock, db=db, resolver=resolver, authority=authority, keys=keys, phi=phi, service=service
     )
@@ -307,7 +388,7 @@ def setup(monkeypatch):
 async def send(s, command=REF, body="PRIVATE_TEXT_CANARY", case=REF):
     receipt = json.loads(
         await s.phi.preserve(
-            "session",
+            SECRET,
             csrf="csrf",
             origin="https://portal.example.test",
             case_ref=case,
@@ -317,7 +398,7 @@ async def send(s, command=REF, body="PRIVATE_TEXT_CANARY", case=REF):
     )
     return json.loads(
         await s.service.publish(
-            "session",
+            SECRET,
             csrf="csrf",
             origin="https://portal.example.test",
             case_ref=case,
@@ -344,21 +425,21 @@ async def test_real_adapters_preserve_encrypt_publish_and_display_recipient_inbo
         == 1
     )
     page = json.loads(
-        await s.service.page("session", operation="list_messages", case_ref=REF, freeze=lambda raw: raw)
+        await s.service.page(SECRET, operation="list_messages", case_ref=REF, freeze=lambda raw: raw)
     )
     assert page["items"][0]["communication_ref"] == first["communication_ref"]
     assert page["items"][0]["delivery_state"] == "inbox_available"
     assert "PRIVATE_TEXT_CANARY" not in json.dumps(page)
     content = json.loads(
         await s.phi.read_content(
-            "session", case_ref=REF, communication_ref=first["communication_ref"], freeze=lambda raw: raw
+            SECRET, case_ref=REF, communication_ref=first["communication_ref"], freeze=lambda raw: raw
         )
     )
     assert content["body"] == "PRIVATE_TEXT_CANARY"
     assert b"PRIVATE_TEXT_CANARY" not in s.db.contents[0]["ciphertext"]
     assert all("PRIVATE_TEXT_CANARY" not in repr(p) for _, p in s.db.calls)
     history = json.loads(
-        await s.service.page("session", operation="list_history", case_ref=REF, freeze=lambda raw: raw)
+        await s.service.page(SECRET, operation="list_history", case_ref=REF, freeze=lambda raw: raw)
     )
     assert history["history_scope"] == "portal_events"
     assert history["items"][0]["kind"] == "communication_available"
@@ -427,7 +508,7 @@ async def test_content_requires_current_recipient_exact_case_and_verified_bytes(
         s.authority.denied.add("read_content")
     with pytest.raises(ExternalCaseError):
         await s.phi.read_content(
-            "session",
+            SECRET,
             case_ref=OTHER if change == "case" else REF,
             communication_ref=result["communication_ref"],
             freeze=lambda raw: raw,
@@ -442,14 +523,12 @@ async def test_pagination_is_recipient_bound_and_does_not_grant_withheld_body_re
     await send(s, command=THIRD)
     s.authority.withhold = {"body_ref"}
     first = json.loads(
-        await s.service.page(
-            "session", operation="list_messages", case_ref=REF, limit=1, freeze=lambda raw: raw
-        )
+        await s.service.page(SECRET, operation="list_messages", case_ref=REF, limit=1, freeze=lambda raw: raw)
     )
     assert first["next_cursor"] and first["items"][0]["body_ref"] is None
     second = json.loads(
         await s.service.page(
-            "session",
+            SECRET,
             operation="list_messages",
             case_ref=REF,
             limit=1,
@@ -461,7 +540,7 @@ async def test_pagination_is_recipient_bound_and_does_not_grant_withheld_body_re
     s.resolver.principal = s.resolver.principal.model_copy(update={"membership_revision": 2})
     with pytest.raises(ExternalCaseError):
         await s.service.page(
-            "session",
+            SECRET,
             operation="list_messages",
             case_ref=REF,
             limit=1,
@@ -471,12 +550,12 @@ async def test_pagination_is_recipient_bound_and_does_not_grant_withheld_body_re
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("deadline", ["session", "membership", "grant", "policy", "key"])
+@pytest.mark.parametrize("deadline", [SECRET, "membership", "grant", "policy", "key"])
 async def test_final_render_checks_original_ceiling_after_all_io(setup, deadline):
     s = setup
     result = await send(s)
     until = s.clock[0] + timedelta(seconds=1)
-    if deadline == "session":
+    if deadline == SECRET:
         s.resolver.session_until = until
     if deadline == "membership":
         s.resolver.member_until = until
@@ -493,7 +572,7 @@ async def test_final_render_checks_original_ceiling_after_all_io(setup, deadline
 
     with pytest.raises(ExternalCaseError):
         await s.phi.read_content(
-            "session", case_ref=REF, communication_ref=result["communication_ref"], freeze=slow_render
+            SECRET, case_ref=REF, communication_ref=result["communication_ref"], freeze=slow_render
         )
 
 
@@ -536,7 +615,7 @@ async def test_existing_authenticated_receipt_index_never_promotes_pending_and_r
     monkeypatch.setattr(HumanGateway, "read_receipt", get_receipt)
     with pytest.raises(ExternalCaseError):
         await s.service.index_existing_receipt(
-            "session", case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
+            SECRET, case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
         )
     assert not s.db.history
     receipt = PublicReceipt.model_validate(
@@ -551,11 +630,11 @@ async def test_existing_authenticated_receipt_index_never_promotes_pending_and_r
         )
     )
     event = await s.service.index_existing_receipt(
-        "session", case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
+        SECRET, case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
     )
     assert (
         await s.service.index_existing_receipt(
-            "session", case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
+            SECRET, case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
         )
         == event
     )
@@ -563,7 +642,7 @@ async def test_existing_authenticated_receipt_index_never_promotes_pending_and_r
     s.authority.denied.add("index_receipt")
     with pytest.raises(ExternalCaseError):
         await s.service.index_existing_receipt(
-            "session", case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
+            SECRET, case_ref=REF, task_id=THIRD, command_id=REF, gateway=gateway
         )
     assert len(s.db.history) == 1
 
@@ -587,7 +666,7 @@ async def test_metadata_renderer_and_shortened_final_policy_are_bounded(setup, m
 
     monkeypatch.setattr(s.authority, "authorize", changing)
     page = json.loads(
-        await s.service.page("session", operation="list_messages", case_ref=REF, freeze=lambda raw: raw)
+        await s.service.page(SECRET, operation="list_messages", case_ref=REF, freeze=lambda raw: raw)
     )
     assert page["valid_until"] == instant(shortened)
 
@@ -596,7 +675,7 @@ async def test_metadata_renderer_and_shortened_final_policy_are_bounded(setup, m
         return raw
 
     with pytest.raises(ExternalCaseError):
-        await s.service.page("session", operation="list_messages", case_ref=REF, freeze=late_response)
+        await s.service.page(SECRET, operation="list_messages", case_ref=REF, freeze=late_response)
 
 
 @pytest.mark.asyncio
@@ -604,12 +683,12 @@ async def test_nonrecipient_and_different_case_cannot_discover_existing_message(
     s = setup
     await send(s)
     page = json.loads(
-        await s.service.page("session", operation="list_messages", case_ref=OTHER, freeze=lambda raw: raw)
+        await s.service.page(SECRET, operation="list_messages", case_ref=OTHER, freeze=lambda raw: raw)
     )
     assert not page["items"]
     s.resolver.principal = s.resolver.principal.model_copy(update={"principal_ref": "unrelated-principal"})
     page = json.loads(
-        await s.service.page("session", operation="list_messages", case_ref=REF, freeze=lambda raw: raw)
+        await s.service.page(SECRET, operation="list_messages", case_ref=REF, freeze=lambda raw: raw)
     )
     assert not page["items"]
 
@@ -619,7 +698,7 @@ async def test_wrong_case_body_reference_cannot_be_published(setup):
     s = setup
     preserved = json.loads(
         await s.phi.preserve(
-            "session",
+            SECRET,
             csrf="csrf",
             origin="https://portal.example.test",
             case_ref=REF,
@@ -629,7 +708,7 @@ async def test_wrong_case_body_reference_cannot_be_published(setup):
     )
     with pytest.raises(ExternalCaseError) as error:
         await s.service.publish(
-            "session",
+            SECRET,
             csrf="csrf",
             origin="https://portal.example.test",
             case_ref=OTHER,

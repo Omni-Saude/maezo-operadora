@@ -13,8 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.external_cases.postgres import transaction
+from maezo.portal.api.session import ResolvedHumanSession
 from maezo.portal.contracts.communications import CommunicationReceipt, CommunicationSubmission
 
+from .admission import PostgresCommunicationAdmission
 from .models import CommunicationGrant, CommunicationScope, alive, fingerprint, identity
 
 
@@ -28,8 +30,18 @@ async def case_lock(connection: Any, scope: CommunicationScope, case_ref: str) -
 
 
 class PostgresCommunicationStore:
-    def __init__(self, engine: AsyncEngine, *, scope: CommunicationScope, seconds: float = 5) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        *,
+        scope: CommunicationScope,
+        seconds: float = 5,
+        admission: PostgresCommunicationAdmission | None = None,
+    ) -> None:
         self.engine, self.scope, self.seconds = engine, scope, seconds
+        if admission is not None and (admission.engine is not engine or admission.scope != scope):
+            raise ExternalCaseError("unavailable")
+        self.admission = admission
 
     def _params(self, grant: CommunicationGrant) -> dict[str, Any]:
         if grant.access.scope != self.scope or grant.access.principal.tenant != self.scope.tenant:
@@ -45,6 +57,8 @@ class PostgresCommunicationStore:
         *,
         sender_kind: str,
         deadline: datetime,
+        secret: str,
+        session: ResolvedHumanSession,
     ) -> CommunicationReceipt:
         params = self._params(grant)
         ceiling = alive(deadline, grant.ceiling())
@@ -73,7 +87,11 @@ class PostgresCommunicationStore:
             authority_digest=grant.authority_digest,
         )
         result = None
-        async with transaction(self.engine, self.seconds) as connection:
+        if self.admission is None:
+            raise ExternalCaseError("unavailable")
+        async with self.admission.acquire(
+            secret=secret, session=session, grant=grant, deadline=ceiling, seconds=self.seconds
+        ) as connection:
             await connection.execute(
                 text("SELECT pg_advisory_xact_lock(hashtextextended(:lock,0))"),
                 {
@@ -297,6 +315,8 @@ class PostgresCommunicationStore:
         receipt_ref: str,
         receipt_digest: str,
         deadline: datetime,
+        secret: str,
+        session: ResolvedHumanSession,
     ) -> str:
         params = self._params(grant)
         ceiling = alive(deadline, grant.ceiling())
@@ -305,7 +325,11 @@ class PostgresCommunicationStore:
         ):
             raise ExternalCaseError("denied")
         params.update(command=command_ref, receipt=receipt_ref, digest=receipt_digest, event=uuid4().hex)
-        async with transaction(self.engine, self.seconds) as connection:
+        if self.admission is None:
+            raise ExternalCaseError("unavailable")
+        async with self.admission.acquire(
+            secret=secret, session=session, grant=grant, deadline=ceiling, seconds=self.seconds
+        ) as connection:
             await case_lock(connection, self.scope, grant.access.case_ref)
             previous = (
                 (

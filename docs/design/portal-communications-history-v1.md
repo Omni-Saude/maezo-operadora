@@ -33,3 +33,60 @@ Receipt index is populated only by a server method that obtains an already authe
 RequestDocumentsWorker and SendDenialNoticeWorker are future producers through a separately authenticated system-publication adapter, with exact occurrence identity and human evidence provenance; this package cannot label a notice delivered without durable inbox rows. Source events/Kafka are not inbox delivery. No worker or engine mutation is authorized by this contract alone. AUTH/ESC free-text outputs stay in PHI and do not appear automatically in this history.
 
 E05 maps `communication_available` to a fixed safe label and preserves `inbox_available` as its own state. Subject/body preview are absent. `body_ref` may open only the independently authorized PHI content operation. Raw text is never accepted as instructions or read in General history. API OpenAPI is the only transport schema source; UI view models are not duplicate wire contracts.
+
+## Commit admission construction (E04 C2, independently approved colocation amendment)
+
+The construction mechanism follows the independently reviewed colocation successor
+`e04-communications-mechanism-colocation-repair/PROPOSAL.md` (SHA-256
+`d3a4dcf21c37b43ad8b8aa4a21cfb2a099477a4d54cf728d357b4df1e4c62384`), with
+construction approval `native-review/e04-communications-colocation-delta/REVIEW.md`
+(`69f95485ed8caa2c41fb79b8fedbe152c98f360dae3ec7359e659f872faf3790`). This is
+mechanical construction authorization; source authority, database installation,
+identity writer coverage and deployment qualification remain independent gates.
+
+`communications/admission.py` composes the concrete `PostgresCommunicationAuthority`,
+`PostgresCommunicationAdmission` and `PostgresCommunicationPublisher`. The admission
+uses the actual `PostgresIdentityStore` engine. Each service binds its resolver to that
+same store/engine; another identity or mutation engine is unavailable. A mutation
+without admission is unavailable. The metadata and PHI services can use separate
+qualified roles, but each role's identity and mutation operations must use its one
+colocated database connection and transaction. General remains unable to read content
+ciphertext or keys.
+
+For `preserve`, `publish` and `index_receipt`, the storage adapter opens admission's
+single existing bounded PostgreSQL transaction. It locks the exact authority head
+`FOR SHARE`, then the original session and membership rows through
+`portal_communication.lock_session`, then the existing command/case locks. It validates
+the current closed publication, original access/principal, authority digest, recipient
+revisions/policies, fields, session binding and all initial/current deadlines. Staff,
+beneficiary and provider use the same identity invariants; identity rows convey no
+communications permission. Inserts and commit occur in that same connection. A
+separate-store outer lease is unsupported. Unknown commit remains uncertain; the
+original command identity is retained for ordinary immutable recovery. Post-commit
+response authorization still applies and is not treated as protection of earlier writes.
+
+`authority_schema.sql` is an explicit DBA-installed addition, not runtime migration.
+Its function locks the original `public.portal_sessions` and `public.portal_memberships`,
+with an owner-installed login-to-tenant mapping; it never reads a copied identity view.
+No function/table role, source grant or tenant mapping is enabled by default. Independent
+installation must qualify exact original-table resolution, dedicated function ownership,
+consumer/publisher privilege separation, all invalidation writers and the original PHI
+role/key restrictions. A connection constructor does not establish that qualification.
+
+Authority publication is per exact access, avoiding an invented universal grant census.
+The source-owned freeze must cover every dependency/invalidation writer of that decision,
+including relationship, consent, recipient membership, resource/field policy and key or
+source-qualification revocations. `publish(access)` asks that mandatory source for a
+frozen, verified decision; it accepts no arbitrary grant argument. The concrete publisher
+locks the same authority head `FOR UPDATE`, compares its expected revision, persists the
+canonical payload and an immutable publication receipt, and acknowledges the source only
+after known commit. Revocation publishes a closed decision with no grant. Missing source
+or absent/expired/revoked publication refuses access. After ambiguous commit, the publisher
+retains the exact pending publication and source freeze; `reconcile()` reuses that identity
+and existing receipt instead of creating another revision. Source freeze survival through
+process loss and complete affected-access invalidation are mandatory upstream properties;
+no implementation of that qualified provider is supplied by this package.
+
+The offline controls execute the actual SQL adapters and existing transaction helper
+against a synthetic row-lock/commit model. They are construction evidence, not a claim
+of PostgreSQL concurrency, role, source coverage, PHI custody or runtime qualification.

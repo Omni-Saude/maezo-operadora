@@ -146,6 +146,8 @@ class CommunicationService(CommunicationSessionBoundary):
     ) -> None:
         super().__init__(resolver, authority, store.scope)
         self.store = store
+        if store.admission is not None:
+            store.admission.bind(resolver, store.engine)
 
     async def publish[T](
         self,
@@ -167,7 +169,12 @@ class CommunicationService(CommunicationSessionBoundary):
         )
         ceiling = alive(session.record.expires_at, session.membership.reviewed_until, grant.ceiling())
         receipt = await self.store.publish(
-            grant, body, sender_kind=session.membership.audience, deadline=ceiling
+            grant,
+            body,
+            sender_kind=session.membership.audience,
+            deadline=ceiling,
+            secret=secret,
+            session=session,
         )
         return await self.finish(secret, session, [grant], receipt, ceiling, freeze=freeze)
 
@@ -296,6 +303,8 @@ class CommunicationService(CommunicationSessionBoundary):
             receipt_ref=receipt.engine_receipt_ref,
             receipt_digest=digest,
             deadline=ceiling,
+            secret=secret,
+            session=session,
         )
         # Reuse the complete final-I/O/currentness path without publishing receipt bytes.
         value = HistoryEntry(event_ref=event)
