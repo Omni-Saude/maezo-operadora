@@ -2510,6 +2510,22 @@ export interface components {
             /** Valid Until */
             valid_until: string;
         };
+        /**
+         * StaffPage
+         * @description Authorized complete-checkpoint list page.
+         */
+        StaffPage: {
+            freshness: components["schemas"]["StaffFreshness"];
+            /** Items */
+            items: components["schemas"]["StaffSummary"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /**
+             * Schema
+             * @constant
+             */
+            schema: "portal-staff-case-page.v1";
+        };
         /** StaffSummary */
         StaffSummary: {
             /** Case Ref */
@@ -2690,7 +2706,14 @@ export interface operations {
     };
     list_cases_api_v1_portal_cases_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Staff accepts authorization only; external audiences retain their kinds. */
+                kind?: string;
+                /** @description Authorized page size for the current audience. */
+                limit?: string;
+                /** @description Opaque server cursor bound to the current audience and query. */
+                cursor?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2703,7 +2726,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CasePage"];
+                    "application/json": components["schemas"]["CasePage"] | components["schemas"]["StaffPage"];
                 };
             };
             /** @description Bad Request */

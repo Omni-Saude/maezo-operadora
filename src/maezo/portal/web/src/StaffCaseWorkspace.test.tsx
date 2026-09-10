@@ -3,15 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 
 import { StaffCaseWorkspace } from "./StaffCaseWorkspace";
-import type { StaffCaseClient, StaffCaseResult } from "./staffCaseClient";
+import type {
+  StaffCaseClient,
+  StaffCasePageResult,
+  StaffPage,
+} from "./staffCaseClient";
 
 const caseRef = "case_staff_abcdefghijklmnop";
+const nextCaseRef = "case_staff_bcdefghijklmnopq";
 
-function detail() {
+function detail(ref = caseRef) {
   return {
     schema: "portal-staff-case-detail.v1" as const,
     case: {
-      case_ref: caseRef,
+      case_ref: ref,
       kind: "authorization" as const,
       state: "active" as const,
       record_revision: "7",
@@ -19,7 +24,7 @@ function detail() {
     },
     identity: {
       upstream_resource_key: "guide-opaque",
-      case_ref: caseRef,
+      case_ref: ref,
       process_instance_ref: "instance-opaque",
       process_definition_id: "definition-opaque",
       process_definition_key: "SP-OP-AUTH-001",
@@ -46,8 +51,40 @@ function detail() {
   };
 }
 
-function service(readCase: StaffCaseClient["readCase"]): StaffCaseClient {
-  return { readCase };
+function page(
+  refs: readonly string[] = [caseRef],
+  nextCursor: string | null = "cursor.staff-page-2",
+): StaffPage {
+  return {
+    schema: "portal-staff-case-page.v1",
+    items: refs.map((ref, index) => ({
+      case_ref: ref,
+      kind: "authorization",
+      state: index === 0 ? "active" : "ended",
+      record_revision: String(index + 7),
+      state_observed_at: "2099-09-10T11:59:58.000000Z",
+    })),
+    next_cursor: nextCursor,
+    freshness: {
+      observed_at: "2099-09-10T12:00:00.000000Z",
+      source_observed_at: "2099-09-10T11:59:59.000000Z",
+      valid_until: "2099-09-10T12:00:10.000000Z",
+      refresh_after_seconds: 10,
+    },
+  };
+}
+
+function service(
+  readCase: StaffCaseClient["readCase"] = vi.fn().mockResolvedValue({
+    kind: "success",
+    value: detail(),
+  }),
+  listCases: StaffCaseClient["listCases"] = vi.fn().mockResolvedValue({
+    kind: "success",
+    value: page(),
+  }),
+): StaffCaseClient {
+  return { listCases, readCase };
 }
 
 function deferred<T>() {
@@ -58,60 +95,152 @@ function deferred<T>() {
 
 afterEach(() => vi.useRealTimers());
 
-it("consulta o caso e apresenta somente a projeção staff autorizada", async () => {
+it("lista a página autorizada na entrada e abre o detalhe existente pela linha", async () => {
+  const listCases = vi.fn().mockResolvedValue({ kind: "success", value: page() });
   const readCase = vi.fn().mockResolvedValue({ kind: "success", value: detail() });
-  render(<StaffCaseWorkspace service={service(readCase)} onSessionUnavailable={vi.fn()} />);
-  await userEvent.type(screen.getByLabelText("Referência exata do caso"), caseRef);
-  await userEvent.click(screen.getByRole("button", { name: "Consultar caso" }));
+  render(
+    <StaffCaseWorkspace
+      service={service(readCase, listCases)}
+      onSessionUnavailable={vi.fn()}
+    />,
+  );
+
+  expect(await screen.findByRole("heading", { name: "Página atual" })).toBeInTheDocument();
+  expect(screen.getByText(/somente a página liberada/i)).toBeInTheDocument();
+  expect(screen.queryByText(/total/i)).not.toBeInTheDocument();
+  expect(listCases).toHaveBeenCalledWith(null, expect.any(AbortSignal));
+
+  await userEvent.click(screen.getByRole("button", { name: new RegExp(caseRef) }));
   expect(await screen.findByRole("heading", { name: "Caso de autorização" })).toHaveFocus();
   expect(screen.getByText("UT_AnaliseMedicoAuditor")).toBeInTheDocument();
-  expect(screen.getByText("Sem prazo informado")).toBeInTheDocument();
-  expect(screen.getByText(/página completa de tarefas/i)).toBeInTheDocument();
   expect(readCase).toHaveBeenCalledWith(caseRef, expect.any(AbortSignal));
   expect(window.location.href).not.toContain(caseRef);
-  expect(screen.queryByText(/dossiê autorizado/i)).not.toBeInTheDocument();
 });
 
-it("aborta e descarta a resposta protegida quando o serviço da sessão muda", async () => {
-  const old = deferred<StaffCaseResult>();
-  const oldRead = vi.fn((_caseRef: string, _signal: AbortSignal) => old.promise);
-  const nextRead = vi.fn().mockResolvedValue({ kind: "failure", failure: "resource_unavailable" });
-  const view = render(
-    <StaffCaseWorkspace service={service(oldRead)} onSessionUnavailable={vi.fn()} />,
-  );
-  await userEvent.type(screen.getByLabelText("Referência exata do caso"), caseRef);
+it("acrescenta somente a próxima página ligada ao cursor opaco", async () => {
+  const listCases = vi.fn()
+    .mockResolvedValueOnce({ kind: "success", value: page() })
+    .mockResolvedValueOnce({ kind: "success", value: page([nextCaseRef], null) });
+  render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Carregar próxima página" }));
+  expect(await screen.findByRole("button", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: new RegExp(caseRef) })).toBeInTheDocument();
+  expect(listCases).toHaveBeenNthCalledWith(2, "cursor.staff-page-2", expect.any(AbortSignal));
+  expect(screen.queryByRole("button", { name: "Carregar próxima página" })).not.toBeInTheDocument();
+});
+
+it("atualiza a primeira página e mantém a origem da validade visível", async () => {
+  const listCases = vi.fn().mockResolvedValue({ kind: "success", value: page([], null) });
+  render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
+
+  expect(await screen.findByText(/lista válida até/i)).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Atualizar casos" }));
+  await waitFor(() => expect(listCases).toHaveBeenCalledTimes(2));
+  expect(listCases).toHaveBeenLastCalledWith(null, expect.any(AbortSignal));
+});
+
+it("aborta paginação e recusa a resposta tardia quando um caso é selecionado", async () => {
+  const later = deferred<StaffCasePageResult>();
+  const listCases = vi.fn()
+    .mockResolvedValueOnce({ kind: "success", value: page() })
+    .mockImplementationOnce((_cursor: string | null, _signal: AbortSignal) => later.promise);
+  const readCase = vi.fn().mockResolvedValue({ kind: "success", value: detail() });
+  render(<StaffCaseWorkspace service={service(readCase, listCases)} onSessionUnavailable={vi.fn()} />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Carregar próxima página" }));
+  const pageSignal = listCases.mock.calls[1][1];
+  const input = screen.getByLabelText("Abrir pela referência exata");
+  await userEvent.type(input, caseRef);
   await userEvent.click(screen.getByRole("button", { name: "Consultar caso" }));
-  const oldSignal = oldRead.mock.calls[0][1];
-  view.rerender(<StaffCaseWorkspace service={service(nextRead)} onSessionUnavailable={vi.fn()} />);
-  expect(oldSignal.aborted).toBe(true);
-  expect(screen.getByLabelText("Referência exata do caso")).toHaveValue("");
-  old.resolve({ kind: "success", value: detail() });
-  await waitFor(() => expect(screen.queryByText("UT_AnaliseMedicoAuditor")).not.toBeInTheDocument());
+  expect(pageSignal.aborted).toBe(true);
+  expect(await screen.findByRole("heading", { name: "Caso de autorização" })).toBeInTheDocument();
+
+  later.resolve({ kind: "success", value: page([nextCaseRef], null) });
+  await act(async () => Promise.resolve());
+  expect(screen.queryByText(nextCaseRef)).not.toBeInTheDocument();
 });
 
-it("invalida a sessão sem manter detalhes quando a leitura recebe 401", async () => {
+it("aborta e descarta a lista protegida quando o serviço da sessão muda", async () => {
+  const old = deferred<StaffCasePageResult>();
+  const oldList = vi.fn((_cursor: string | null, _signal: AbortSignal) => old.promise);
+  const nextList = vi.fn().mockResolvedValue({
+    kind: "success",
+    value: page([nextCaseRef], null),
+  });
   const onSessionUnavailable = vi.fn();
-  const readCase = vi.fn().mockResolvedValue({
+  const view = render(
+    <StaffCaseWorkspace
+      service={service(undefined, oldList)}
+      onSessionUnavailable={onSessionUnavailable}
+    />,
+  );
+  const oldSignal = oldList.mock.calls[0][1];
+
+  view.rerender(
+    <StaffCaseWorkspace
+      service={service(undefined, nextList)}
+      onSessionUnavailable={onSessionUnavailable}
+    />,
+  );
+  expect(oldSignal.aborted).toBe(true);
+  expect(await screen.findByRole("button", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
+
+  old.resolve({ kind: "success", value: page([caseRef], null) });
+  await act(async () => Promise.resolve());
+  expect(screen.queryByText(caseRef)).not.toBeInTheDocument();
+});
+
+it("mostra indisponibilidade da fonte sem inventar uma lista", async () => {
+  const listCases = vi.fn().mockResolvedValue({
+    kind: "failure",
+    failure: "dependency_unavailable",
+  });
+  render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/fonte autorizada de casos/i);
+  expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+});
+
+it("invalida a sessão sem manter a lista quando a leitura recebe 401", async () => {
+  const onSessionUnavailable = vi.fn();
+  const listCases = vi.fn().mockResolvedValue({
     kind: "failure",
     failure: "authentication_unavailable",
   });
-  render(<StaffCaseWorkspace service={service(readCase)} onSessionUnavailable={onSessionUnavailable} />);
-  await userEvent.type(screen.getByLabelText("Referência exata do caso"), caseRef);
-  await userEvent.click(screen.getByRole("button", { name: "Consultar caso" }));
+  render(
+    <StaffCaseWorkspace
+      service={service(undefined, listCases)}
+      onSessionUnavailable={onSessionUnavailable}
+    />,
+  );
+
   await waitFor(() => expect(onSessionUnavailable).toHaveBeenCalledOnce());
-  expect(screen.queryByText("UT_AnaliseMedicoAuditor")).not.toBeInTheDocument();
+  expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Tentar novamente" })).not.toBeInTheDocument();
 });
 
-it("renova a referência selecionada na cadência autorizada sem usar uma edição posterior", async () => {
+it("volta do detalhe por uma nova leitura da primeira página", async () => {
+  const listCases = vi.fn().mockResolvedValue({ kind: "success", value: page() });
+  render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
+
+  await userEvent.click(await screen.findByRole("button", { name: new RegExp(caseRef) }));
+  await userEvent.click(await screen.findByRole("button", { name: "Voltar para casos" }));
+  expect(await screen.findByRole("heading", { name: "Página atual" })).toBeInTheDocument();
+  expect(listCases).toHaveBeenNthCalledWith(2, null, expect.any(AbortSignal));
+});
+
+it("renova o detalhe selecionado na cadência autorizada", async () => {
   vi.useFakeTimers();
   const readCase = vi.fn().mockResolvedValue({ kind: "success", value: detail() });
-  render(<StaffCaseWorkspace service={service(readCase)} onSessionUnavailable={vi.fn()} />);
-  const input = screen.getByLabelText("Referência exata do caso");
-  fireEvent.change(input, { target: { value: caseRef } });
-  fireEvent.submit(input.closest("form")!);
+  const listCases = vi.fn().mockResolvedValue({ kind: "success", value: page() });
+  render(<StaffCaseWorkspace service={service(readCase, listCases)} onSessionUnavailable={vi.fn()} />);
+  await act(async () => Promise.resolve());
+
+  fireEvent.click(screen.getByRole("button", { name: new RegExp(caseRef) }));
   await act(async () => Promise.resolve());
   expect(readCase).toHaveBeenCalledTimes(1);
-  fireEvent.change(input, { target: { value: "case_edited_abcdefghijklmnop" } });
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
   expect(readCase).toHaveBeenNthCalledWith(2, caseRef, expect.any(AbortSignal));
 });
