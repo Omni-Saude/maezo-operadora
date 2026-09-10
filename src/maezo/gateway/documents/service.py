@@ -7,12 +7,14 @@ authenticated native receipt. Raw bytes never enter this General-zone service.
 """
 
 import secrets
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Literal, Protocol
 
 from pydantic import Field, field_validator
 
 from maezo.gateway.intake.models import IntakeError
+from maezo.gateway.intake.service import session_ceiling
 from maezo.portal.api.session import HumanSessionResolver
 from maezo.portal.contracts.documents import (
     DocumentPage,
@@ -75,6 +77,9 @@ class ProtectedDocumentProvider(Protocol):
         ...
 
 
+type DocumentResult = UploadReceipt | DocumentPage | DocumentRequestPage | DocumentResponseReceipt | str
+
+
 class DocumentService:
     def __init__(
         self,
@@ -95,8 +100,36 @@ class DocumentService:
         body: UploadInitiation | UploadCompletion | DocumentResponse | None = None,
         csrf: str | None = None,
         origin: str | None = None,
-    ) -> UploadReceipt | DocumentPage | DocumentRequestPage | DocumentResponseReceipt | str:
+    ) -> DocumentResult:
+        return await self.execute_frozen(
+            secret,
+            operation=operation,
+            resource_kind=resource_kind,
+            resource_ref=resource_ref,
+            case_ref=case_ref,
+            body=body,
+            csrf=csrf,
+            origin=origin,
+            freeze=lambda value: value,
+        )
+
+    async def execute_frozen[T](
+        self,
+        secret: str,
+        *,
+        freeze: Callable[[DocumentResult], T],
+        operation: Operation,
+        resource_kind: Literal["intake", "case", "upload", "document", "request"],
+        resource_ref: str,
+        case_ref: str | None = None,
+        body: UploadInitiation | UploadCompletion | DocumentResponse | None = None,
+        csrf: str | None = None,
+        origin: str | None = None,
+    ) -> T:
         session = await self.resolver.resolve(secret)
+        ceiling = session_ceiling(session)
+        if datetime.now(UTC) >= ceiling:
+            raise IntakeError("authentication_unavailable")
         mutation = operation in {"initiate_upload", "complete_upload", "respond"}
         if mutation and (
             origin != self.resolver.settings.public_origin
@@ -115,9 +148,11 @@ class DocumentService:
         if grant.access != access or datetime.now(UTC) >= grant.valid_until:
             raise IntakeError("operation_forbidden")
         current = await self.resolver.resolve(secret)
-        if current.principal != session.principal or datetime.now(UTC) >= grant.valid_until:
+        ceiling = min(ceiling, session_ceiling(current), grant.valid_until)
+        if current.principal != session.principal or datetime.now(UTC) >= ceiling:
             raise IntakeError("operation_forbidden")
-        result: UploadReceipt | DocumentPage | DocumentRequestPage | DocumentResponseReceipt | str
+        grant = grant.model_copy(update={"valid_until": ceiling})
+        result: DocumentResult
         if (
             operation == "initiate_upload"
             and isinstance(body, UploadInitiation)
@@ -161,7 +196,10 @@ class DocumentService:
             current.principal != session.principal
             or final.access != access
             or final.authority_digest != grant.authority_digest
-            or datetime.now(UTC) >= min(grant.valid_until, final.valid_until)
+            or datetime.now(UTC) >= min(ceiling, session_ceiling(current), final.valid_until)
         ):
             raise IntakeError("operation_forbidden")
-        return result
+        frozen = freeze(result)
+        if datetime.now(UTC) >= min(ceiling, session_ceiling(current), final.valid_until):
+            raise IntakeError("operation_forbidden")
+        return frozen

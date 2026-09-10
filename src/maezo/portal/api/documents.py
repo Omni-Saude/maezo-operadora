@@ -5,7 +5,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
 
-from maezo.gateway.documents.service import DocumentService, Operation
+from maezo.gateway.documents.service import DocumentResult, DocumentService, Operation
 from maezo.gateway.intake.models import IntakeError
 from maezo.portal.api.intakes import ERRORS, PREFIX, ProductRoute, reference, secret
 from maezo.portal.api.session import HumanSessionResolver
@@ -43,24 +43,29 @@ async def _execute(
         raise IntakeError()
     from typing import Literal, cast
 
-    result = await service.execute(
+    def freeze(result: DocumentResult) -> Response:
+        if isinstance(result, str):
+            # Protected reverse-proxy route must independently enforce current authority;
+            # this opaque path is not a signed URL or bearer grant and no raw bytes enter BFF.
+            return RedirectResponse(
+                "/api/v1/phi/documents/" + reference(result) + "/content", status_code=307
+            )
+        return Response(
+            content=result.model_dump_json(),
+            media_type="application/json",
+            status_code=202 if request.method == "POST" else 200,
+        )
+
+    return await service.execute_frozen(
         secret(request),
         operation=operation,
+        freeze=freeze,
         resource_kind=cast(Literal["intake", "case", "upload", "document", "request"], resource_kind),
         resource_ref=reference(resource_ref),
         case_ref=reference(case_ref) if case_ref else None,
         body=body,
         csrf=request.headers.get("x-csrf-token"),
         origin=request.headers.get("origin"),
-    )
-    if isinstance(result, str):
-        # Protected reverse-proxy route must independently enforce current authority;
-        # this opaque path is not a signed URL or bearer grant and no raw bytes enter BFF.
-        return RedirectResponse("/api/v1/phi/documents/" + reference(result) + "/content", status_code=307)
-    return Response(
-        content=result.model_dump_json(),
-        media_type="application/json",
-        status_code=202 if request.method == "POST" else 200,
     )
 
 

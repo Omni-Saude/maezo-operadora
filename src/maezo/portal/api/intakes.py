@@ -110,18 +110,26 @@ def service(request: Request) -> IntakeService:
 
 @intake_router.post(PREFIX + "/intakes/auth", response_model=IntakeReceipt, status_code=202, responses=ERRORS)
 async def submit_intake(request: Request, body: AuthIntakeSubmission) -> Response:
-    result = await service(request).submit(
-        secret(request), request.headers["x-csrf-token"], request.headers["origin"], body
+    return await service(request).submit_frozen(
+        secret(request),
+        request.headers["x-csrf-token"],
+        request.headers["origin"],
+        body,
+        freeze=lambda result: Response(
+            content=result.model_dump_json(), status_code=202, media_type="application/json"
+        ),
     )
-    return Response(content=result.model_dump_json(), status_code=202, media_type="application/json")
 
 
 @intake_router.get(PREFIX + "/intakes/{intake_ref}", response_model=IntakeReceipt, responses=ERRORS)
 async def read_intake(request: Request, intake_ref: str) -> Response:
     if request.scope.get("query_string", b""):
         raise IntakeError("invalid_request")
-    result = await service(request).read(secret(request), reference(intake_ref))
-    return Response(content=result.model_dump_json(), media_type="application/json")
+    return await service(request).read_frozen(
+        secret(request),
+        reference(intake_ref),
+        freeze=lambda result: Response(content=result.model_dump_json(), media_type="application/json"),
+    )
 
 
 def is_product_request(request: Request) -> bool:
