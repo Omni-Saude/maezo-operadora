@@ -109,7 +109,7 @@ def test_each_successor_refuses_a_clean_wrong_revision_without_creating_output(
 def test_recorder_preserves_virtualenv_invocation_and_records_binary_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from scripts.dev import record_pr356_ecs_command as recorder  # noqa: PLC0415
+    from scripts.dev import record_pr356_ecs_command as recorder
 
     source = _wrong_source(tmp_path / "source")
     head = subprocess.check_output(["/usr/bin/git", "-C", str(source), "rev-parse", "HEAD"]).decode().strip()

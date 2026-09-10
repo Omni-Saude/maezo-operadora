@@ -92,7 +92,7 @@ def _mutate(original: str, mutation: str) -> str:
 def verify(source: Path) -> list[dict[str, Any]]:
     sys.dont_write_bytecode = True
     sys.path[:0] = [str(source / "src"), str(source)]
-    from maezo.tools.mcp_whatsapp.server import WhatsAppServer  # noqa: PLC0415
+    from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 
     imported = Path(sys.modules[WhatsAppServer.__module__].__file__).resolve(strict=True)
     if not imported.is_relative_to(source):
