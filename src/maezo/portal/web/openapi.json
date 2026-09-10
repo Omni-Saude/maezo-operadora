@@ -1539,6 +1539,196 @@
         "title": "ClaimAssignment",
         "type": "object"
       },
+      "CommunicationPage": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Case Ref",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CommunicationSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "portal-communications.v1",
+            "default": "portal-communications.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_ref",
+          "items",
+          "next_cursor",
+          "observed_at",
+          "valid_until"
+        ],
+        "title": "CommunicationPage",
+        "type": "object"
+      },
+      "CommunicationReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "communication_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Communication Ref",
+            "type": "string"
+          },
+          "disposition": {
+            "const": "inbox_available",
+            "default": "inbox_available",
+            "title": "Disposition",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "portal-communication-receipt.v1",
+            "default": "portal-communication-receipt.v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "communication_ref",
+          "command_id"
+        ],
+        "title": "CommunicationReceipt",
+        "type": "object"
+      },
+      "CommunicationSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "body_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Body Ref",
+            "type": "string"
+          },
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "recipient_set_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Recipient Set Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "body_ref",
+          "recipient_set_ref"
+        ],
+        "title": "CommunicationSubmission",
+        "type": "object"
+      },
+      "CommunicationSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "authored_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authored At"
+          },
+          "body_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Body Ref"
+          },
+          "communication_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Communication Ref",
+            "type": "string"
+          },
+          "delivery_state": {
+            "anyOf": [
+              {
+                "const": "inbox_available",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery State"
+          },
+          "inbox_available_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbox Available At"
+          },
+          "sender_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "staff",
+                  "beneficiary",
+                  "provider",
+                  "system"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sender Kind"
+          }
+        },
+        "required": [
+          "communication_ref"
+        ],
+        "title": "CommunicationSummary",
+        "type": "object"
+      },
       "ContasCoordinationInputs": {
         "additionalProperties": false,
         "description": "CONTAS SLA takeover with the same human decision plus its coordination disposition.",
@@ -2770,6 +2960,157 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HistoryEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "command_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Command Ref"
+          },
+          "communication_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Communication Ref"
+          },
+          "event_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Event Ref",
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "communication_available",
+                  "command_receipt_indexed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          },
+          "receipt_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Ref"
+          },
+          "sequence": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sequence"
+          }
+        },
+        "required": [
+          "event_ref"
+        ],
+        "title": "HistoryEntry",
+        "type": "object"
+      },
+      "HistoryPage": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Case Ref",
+            "type": "string"
+          },
+          "history_scope": {
+            "const": "portal_events",
+            "default": "portal_events",
+            "title": "History Scope",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HistoryEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "portal-history.v1",
+            "default": "portal-history.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_ref",
+          "items",
+          "next_cursor",
+          "observed_at",
+          "valid_until"
+        ],
+        "title": "HistoryPage",
         "type": "object"
       },
       "InadDecisionInputs": {
@@ -5045,6 +5386,212 @@
         "summary": "Detail Case"
       }
     },
+    "/api/v1/portal/cases/{case_ref}/communications": {
+      "get": {
+        "operationId": "list_communications_api_v1_portal_cases__case_ref__communications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Communications"
+      },
+      "post": {
+        "operationId": "publish_communication_api_v1_portal_cases__case_ref__communications_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommunicationSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Publish Communication"
+      }
+    },
     "/api/v1/portal/cases/{case_ref}/document-requests": {
       "get": {
         "operationId": "requests_api_v1_portal_cases__case_ref__document_requests_get",
@@ -5468,6 +6015,105 @@
           }
         },
         "summary": "Documents"
+      }
+    },
+    "/api/v1/portal/cases/{case_ref}/history": {
+      "get": {
+        "operationId": "case_history_api_v1_portal_cases__case_ref__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Case History"
       }
     },
     "/api/v1/portal/commands/{command_id}": {

@@ -89,6 +89,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/cases/{case_ref}/communications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Communications */
+        get: operations["list_communications_api_v1_portal_cases__case_ref__communications_get"];
+        put?: never;
+        /** Publish Communication */
+        post: operations["publish_communication_api_v1_portal_cases__case_ref__communications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/cases/{case_ref}/document-requests": {
         parameters: {
             query?: never;
@@ -149,6 +167,23 @@ export interface paths {
         };
         /** Documents */
         get: operations["documents_api_v1_portal_cases__case_ref__documents_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/cases/{case_ref}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Case History */
+        get: operations["case_history_api_v1_portal_cases__case_ref__history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -915,6 +950,68 @@ export interface components {
             /** Task Id */
             task_id: string;
         };
+        /** CommunicationPage */
+        CommunicationPage: {
+            /** Case Ref */
+            case_ref: string;
+            /** Items */
+            items: components["schemas"]["CommunicationSummary"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Observed At */
+            observed_at: string;
+            /**
+             * Schema Version
+             * @default portal-communications.v1
+             * @constant
+             */
+            schema_version: "portal-communications.v1";
+            /** Valid Until */
+            valid_until: string;
+        };
+        /** CommunicationReceipt */
+        CommunicationReceipt: {
+            /** Command Id */
+            command_id: string;
+            /** Communication Ref */
+            communication_ref: string;
+            /**
+             * Disposition
+             * @default inbox_available
+             * @constant
+             */
+            disposition: "inbox_available";
+            /**
+             * Schema Version
+             * @default portal-communication-receipt.v1
+             * @constant
+             */
+            schema_version: "portal-communication-receipt.v1";
+        };
+        /** CommunicationSubmission */
+        CommunicationSubmission: {
+            /** Body Ref */
+            body_ref: string;
+            /** Command Id */
+            command_id: string;
+            /** Recipient Set Ref */
+            recipient_set_ref: string;
+        };
+        /** CommunicationSummary */
+        CommunicationSummary: {
+            /** Authored At */
+            authored_at?: string | null;
+            /** Body Ref */
+            body_ref?: string | null;
+            /** Communication Ref */
+            communication_ref: string;
+            /** Delivery State */
+            delivery_state?: "inbox_available" | null;
+            /** Inbox Available At */
+            inbox_available_at?: string | null;
+            /** Sender Kind */
+            sender_kind?: ("staff" | "beneficiary" | "provider" | "system") | null;
+        };
         /**
          * ContasCoordinationInputs
          * @description CONTAS SLA takeover with the same human decision plus its coordination disposition.
@@ -1320,6 +1417,48 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HistoryEntry */
+        HistoryEntry: {
+            /** Command Ref */
+            command_ref?: string | null;
+            /** Communication Ref */
+            communication_ref?: string | null;
+            /** Event Ref */
+            event_ref: string;
+            /** Kind */
+            kind?: ("communication_available" | "command_receipt_indexed") | null;
+            /** Occurred At */
+            occurred_at?: string | null;
+            /** Receipt Ref */
+            receipt_ref?: string | null;
+            /** Sequence */
+            sequence?: string | null;
+        };
+        /** HistoryPage */
+        HistoryPage: {
+            /** Case Ref */
+            case_ref: string;
+            /**
+             * History Scope
+             * @default portal_events
+             * @constant
+             */
+            history_scope: "portal_events";
+            /** Items */
+            items: components["schemas"]["HistoryEntry"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Observed At */
+            observed_at: string;
+            /**
+             * Schema Version
+             * @default portal-history.v1
+             * @constant
+             */
+            schema_version: "portal-history.v1";
+            /** Valid Until */
+            valid_until: string;
         };
         /**
          * InadDecisionInputs
@@ -2278,6 +2417,180 @@ export interface operations {
             };
         };
     };
+    list_communications_api_v1_portal_cases__case_ref__communications_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    publish_communication_api_v1_portal_cases__case_ref__communications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommunicationSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationReceipt"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
     requests_api_v1_portal_cases__case_ref__document_requests_get: {
         parameters: {
             query?: never;
@@ -2560,6 +2873,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DocumentPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    case_history_api_v1_portal_cases__case_ref__history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
                 };
             };
             /** @description Bad Request */
