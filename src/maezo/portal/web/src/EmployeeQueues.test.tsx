@@ -279,21 +279,25 @@ it("cancela e ignora a resposta ligada à sessão anterior", async () => {
 
 function queueOwnershipAssignmentcontext() {
   return {
-    schema_version: "portal-assignment-context.v1",
+    schema_version: "portal-assignment-context.v2",
+    binding_ref: "binding-opaque", binding_version: "1", binding_digest: digest,
+    policy_ref: "policy-opaque", policy_version: "1", policy_digest: digest,
+    source_revision: "1", generation_digest: digest,
+
     task_id: "task-1",
     process_definition_key: "SP-OP-AUTH-001",
-    process_definition_version: huge,
+    process_definition_version: "9007199254740993",
     process_definition_id: "AUTH:opaque",
     process_definition_digest: digest,
     task_definition_key: "UT_AnaliseMedicoAuditor",
     form_key: "auth_decisao",
-    form_version: huge,
+    form_version: "9007199254740993",
     form_digest: digest,
-    expected_task_revision: huge,
-    expected_evidence_revision: huge,
+    expected_task_revision: "9007199254740993",
+    expected_evidence_revision: "9007199254740993",
     expected_evidence_digest: digest,
-    expected_membership_revision: huge,
-    expected_authority_revision: huge,
+    expected_membership_revision: "9007199254740993",
+    expected_authority_revision: "9007199254740993",
     assignee_ref: null,
     allowed_operations: ["claim"],
     valid_until: "2026-09-09T15:05:00Z",
@@ -319,7 +323,15 @@ function queueOwnershipAdmission() {
 function queueOwnershipReceipt(status: "pending" | "committed" = "pending") {
   const committed = status === "committed";
   return {
-    schema_version: "human-public-receipt.v1",
+    schema_version: "human-public-assignment-receipt.v1",
+    command_schema: "human-assignment.v2", operation: "claim",
+    binding_ref: "binding-opaque", binding_version: "1", binding_digest: digest,
+    policy_ref: "policy-opaque", policy_version: "1", policy_digest: digest,
+    source_revision: "1", generation_digest: digest,
+    target_ref: null, target_membership_revision: null,
+    prior_assignee_ref: null, resulting_assignee_ref: committed ? "principal-hidden" : null,
+    assignment_disposition: committed ? "changed" : null,
+
     tenant: "tenant-hidden",
     task_id: "task-1",
     command_id: queueCommandId,
@@ -332,8 +344,8 @@ function queueOwnershipReceipt(status: "pending" | "committed" = "pending") {
     audit_result_ref: committed ? digest : null,
     engine_receipt_ref: committed ? "engine-opaque" : null,
     engine_recorded_at: committed ? "2026-09-09T15:00:02Z" : null,
-    consumed_task_revision: committed ? huge : null,
-    resulting_task_revision: committed ? huge : null,
+    consumed_task_revision: committed ? "9007199254740993" : null,
+    resulting_task_revision: committed ? "9007199254740993" : null,
     technical_code: null,
   };
 }
