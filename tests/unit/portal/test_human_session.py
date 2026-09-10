@@ -491,8 +491,16 @@ async def test_expired_session_and_transaction_fail_closed(h: Harness) -> None:
 
 
 async def test_no_refresh_or_engine_mutation_routes(h: Harness) -> None:
-    for suffix in ("/session/refresh", "/tasks/1/decisions", "/tasks/1/claim", "/engine/task/1/complete"):
+    for suffix in ("/session/refresh", "/tasks/1/claim", "/engine/task/1/complete"):
         assert (await h.client.post(PREFIX + suffix)).status_code == 404
+    # The typed human route exists, but malformed input cannot invoke its gateway.
+    refused = await h.client.post(PREFIX + "/tasks/1/decisions")
+    assert refused.status_code == 400
+    assert refused.json() == {
+        "schema_version": "portal-decision-error.v1",
+        "code": "invalid_request",
+    }
+    assert h.app.state.decision_service_factory is None
     assert (await h.client.get(PREFIX + "/auth/logout")).status_code == 405
     assert (
         await h.client.get(PREFIX + "/session", headers={"Authorization": "Bearer machine-token"})
