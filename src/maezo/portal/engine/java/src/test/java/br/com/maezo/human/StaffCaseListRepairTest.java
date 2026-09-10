@@ -10,6 +10,22 @@ import org.junit.jupiter.api.Test;
 
 /** Focal semantic/JDBC boundary controls, not a mocked engine integration test. */
 class StaffCaseListRepairTest {
+  @Test void retainedInactiveGenerationRemainsOnlySuccessorBase(){
+    var old=record("generation",7L,"checkpoint_digest","d".repeat(64),"active",false);
+    assertSame(old,StaffCaseStore.selectRetainedPredecessor(List.of(old,record("generation",6L))));
+    StaffCaseStore.requireCheckpointSuccessor(old,8L,"d".repeat(64));
+    assertThrows(Rejected.class,()->StaffCaseStore.requireCheckpointSuccessor(old,8L,null));
+    assertEquals(false,old.get("active"));
+  }
+  @Test void retainedForkCannotBeHiddenByInactiveStatus(){
+    assertThrows(Rejected.class,()->StaffCaseStore.selectRetainedPredecessor(List.of(
+      record("generation",7L,"active",false),record("generation",7L,"active",true))));
+  }
+  @Test void genuinelyAbsentRetainedLineageAloneAllowsNullPredecessor(){
+    assertNull(StaffCaseStore.selectRetainedPredecessor(List.of()));
+    StaffCaseStore.requireCheckpointSuccessor(null,1L,null);
+    assertThrows(Rejected.class,()->StaffCaseStore.requireCheckpointSuccessor(null,1L,"d".repeat(64)));
+  }
   static final Instant LONG=Instant.parse("2026-09-10T12:00:30Z"),SHORT=LONG.minusSeconds(20);
   Map<String,Object> state(Instant first,Instant second){
     return record("operation","list","pins",List.of(

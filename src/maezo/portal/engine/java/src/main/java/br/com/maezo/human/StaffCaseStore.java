@@ -81,9 +81,44 @@ final class StaffCaseStore {
     return optional("SELECT * FROM mzo_staff_case_checkpoint_accepted WHERE "+S+" AND issuer=? AND subject=? AND principal_ref=? AND membership_revision=? AND kind='authorization' AND active AND valid_until>statement_timestamp() FOR UPDATE",args(principal.get("issuer"),principal.get("subject"),principal.get("principal_ref"),number(principal.get("membership_revision"))));
   }
   Map<String,Object> checkpointPredecessor(Map<String,Object> principal){
-    // Expiry denies reads, but does not erase the durable predecessor or release
-    // active-index occupancy. Succession retires this row in the same transaction.
-    return optional("SELECT * FROM mzo_staff_case_checkpoint_accepted WHERE "+S+" AND issuer=? AND subject=? AND principal_ref=? AND membership_revision=? AND kind='authorization' AND active FOR UPDATE",args(principal.get("issuer"),principal.get("subject"),principal.get("principal_ref"),number(principal.get("membership_revision"))));
+    // Retained lineage survives both expiry and explicit revoke; asserted source
+    // or predecessor digest must never filter out a newer generation.
+    var rows=auth.rows("SELECT * FROM mzo_staff_case_checkpoint_accepted WHERE "+S+" AND issuer=? AND subject=? AND principal_ref=? AND membership_revision=? AND kind='authorization' ORDER BY generation DESC,checkpoint_ref COLLATE \"C\" LIMIT 2 FOR UPDATE",args(principal.get("issuer"),principal.get("subject"),principal.get("principal_ref"),number(principal.get("membership_revision"))));
+    var prior=selectRetainedPredecessor(rows);if(prior==null)return null;
+    var other=optional("SELECT checkpoint_ref FROM mzo_staff_case_checkpoint_accepted WHERE "+S+" AND issuer=? AND subject=? AND principal_ref=? AND membership_revision=? AND kind='authorization' AND active AND (checkpoint_ref<>? OR generation<>?) LIMIT 1 FOR UPDATE",args(principal.get("issuer"),principal.get("subject"),principal.get("principal_ref"),number(principal.get("membership_revision")),prior.get("checkpoint_ref"),prior.get("generation")));
+    if(other!=null)throw conflict();
+    var original=publication(str(prior,"publication_id"));if(original==null)throw unavailable();
+    var originalReceipt=receipt(str(prior,"publication_id"),hash(original));
+    requireRetainedCheckpoint(prior,original,originalReceipt,scope,principal);
+    return prior;
+  }
+  static Map<String,Object> selectRetainedPredecessor(List<Map<String,Object>> rows){
+    if(rows.size()>2)throw unavailable();if(rows.isEmpty())return null;
+    long highest=((Number)rows.get(0).get("generation")).longValue();
+    if(rows.size()==2&&highest<=((Number)rows.get(1).get("generation")).longValue())throw conflict();
+    return rows.get(0);
+  }
+  static void requireRetainedCheckpoint(Map<String,Object> row,Map<String,Object> original,Map<String,Object> receipt,Map<String,Object> scope,Map<String,Object> principal){
+    var checkpoint=StaffCaseModels.shape("scope_checkpoint",AuthStore.parse(row.get("canonical_checkpoint")));
+    StaffCaseModels.publication(original);
+    if(!"scope_checkpoint".equals(original.get("kind"))||!scope.equals(original.get("scope"))
+        ||!scope.equals(checkpoint.get("scope"))||!checkpoint.equals(original.get("payload"))
+        ||!hash(checkpoint).equals(row.get("checkpoint_digest"))||!hash(checkpoint).equals(original.get("payload_digest"))
+        ||!Objects.equals(row.get("publication_id"),original.get("publication_id"))
+        ||!Objects.equals(row.get("source_ref"),original.get("source_ref"))
+        ||number(checkpoint.get("generation"))!=((Number)row.get("generation")).longValue()
+        ||!Objects.equals(row.get("checkpoint_ref"),checkpoint.get("checkpoint_ref"))
+        ||!Objects.equals(row.get("principal_identity_digest"),checkpoint.get("principal_identity_digest"))
+        ||!Objects.equals(row.get("valid_until"),Timestamp.from(time(checkpoint.get("valid_until")))))throw unavailable();
+    for(String field:List.of("issuer","subject","principal_ref","kind"))
+      if(!Objects.equals(checkpoint.get(field),row.get(field))||!Objects.equals(checkpoint.get(field),principal.get(field)))throw unavailable();
+    if(number(checkpoint.get("membership_revision"))!=((Number)row.get("membership_revision")).longValue()
+        ||!Objects.equals(checkpoint.get("membership_revision"),principal.get("membership_revision")))throw unavailable();
+    if(receipt==null)throw unavailable();StaffCaseModels.shape("receipt",receipt);
+    if(!"committed".equals(receipt.get("disposition"))||!hash(original).equals(receipt.get("request_digest"))
+        ||!scope.equals(receipt.get("scope")))throw unavailable();
+    for(String field:List.of("publication_id","source_ref","source_revision","payload_digest"))
+      if(!Objects.equals(original.get(field),receipt.get(field)))throw unavailable();
   }
   List<Map<String,Object>> checkpointChunks(String ref,long generation,int expected){
     return readCheckpointChunks(auth.connection(),"SELECT * FROM mzo_staff_case_checkpoint_chunk WHERE "+S+" AND checkpoint_ref=? AND generation=? ORDER BY chunk_index",args(ref,generation),expected,timeout);
@@ -183,6 +218,7 @@ final class StaffCaseStore {
         ||!checkpoint.get("policy_scope_digest").equals(head.get("policy_digest")))throw denied();
     var prior=checkpointPredecessor(checkpoint);Object predecessor=checkpoint.get("predecessor_digest");
     requireCheckpointSuccessor(prior,generation,predecessor);
+    if(prior!=null&&!source.equals(prior.get("source_ref")))throw conflict();
     if(prior!=null)write("UPDATE mzo_staff_case_checkpoint_accepted SET active=false WHERE "+S+" AND checkpoint_ref=? AND generation=? AND active",args(prior.get("checkpoint_ref"),prior.get("generation")));
     write("INSERT INTO mzo_staff_case_checkpoint_accepted(tenant,environment,engine_name,database_incarnation,checkpoint_ref,generation,checkpoint_digest,publication_id,source_ref,principal_identity_digest,issuer,subject,principal_ref,membership_revision,kind,active,valid_until,canonical_checkpoint) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       args(ref,generation,hash(checkpoint),publication,source,checkpoint.get("principal_identity_digest"),checkpoint.get("issuer"),checkpoint.get("subject"),checkpoint.get("principal_ref"),number(checkpoint.get("membership_revision")),checkpoint.get("kind"),true,Timestamp.from(time(checkpoint.get("valid_until"))),AuthStore.text(checkpoint)));
