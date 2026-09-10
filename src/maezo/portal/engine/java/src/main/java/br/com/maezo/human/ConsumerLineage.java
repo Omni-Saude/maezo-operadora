@@ -10,13 +10,20 @@ import org.cibseven.bpm.engine.impl.persistence.entity.ExternalTaskEntity;
 /** P2 enlisted original provenance. No business-key/variable-based ancestry or PHI access. */
 public final class ConsumerLineage {
   private ConsumerLineage() {}
-  static final Map<String,String> SOURCES = Map.of(
+  static final Map<String,String> LEGACY_SOURCES = Map.of(
       "SP-OP-AUTH-001/UT_AnaliseMedicoAuditor", "auth_decisao",
       "SP-OP-AUTH-001/UT_CoordenacaoAssume", "auth_decisao",
       "SP-OP-AUTH-001/UT_RegistrarParecerJunta", "auth_junta",
       "SP-OP-PAGTO-001/UT_AnaliseAdmissibilidade", "pagto_admissibilidade",
       "SP-OP-ESCALATION-001/UT_TratarEscalonamento", "escalation",
       "SP-OP-ESCALATION-001/UT_SupervisorAssume", "escalation");
+
+  static final Map<String,String> SOURCES;
+  static {
+    var sources=new TreeMap<>(LEGACY_SOURCES);
+    sources.put("SP-OP-AUTH-001/UT_DecidirPendenciaExpirada","auth_pendencia");
+    SOURCES=Collections.unmodifiableMap(sources);
+  }
 
   static void require(boolean value) { if (!value) throw EngineStore.unavailable(); }
   static String text(byte[] bytes) { return new String(bytes, StandardCharsets.UTF_8); }

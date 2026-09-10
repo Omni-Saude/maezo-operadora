@@ -27,8 +27,12 @@ public final class HumanAuthConfiguration {
     serializers.add(new AuthDecimalSerializer());configuration.setCustomPreVariableSerializers(serializers);
   }
   AuthRuntime bind(ProcessEngineConfigurationImpl configuration) {
+    return bind(configuration,null);
+  }
+  AuthRuntime bind(ProcessEngineConfigurationImpl configuration,StaffCaseInstallation.Configuration staff) {
+    if(staff!=null&&!scope.equals(staff.authScope()))throw Rejected.denied();
     if(configuration.getVariableSerializers()==null
         ||configuration.getVariableSerializers().getSerializerByName(AuthDecimalSerializer.NAME).getClass()!=AuthDecimalSerializer.class)throw Rejected.denied();
-    return new AuthRuntime(configuration,scope,audience,maxLifetime,timeout,signer);
+    return new AuthRuntime(configuration,scope,audience,maxLifetime,timeout,signer,staff);
   }
 }

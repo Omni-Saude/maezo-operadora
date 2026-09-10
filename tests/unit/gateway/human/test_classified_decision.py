@@ -136,6 +136,14 @@ async def configured(form="auth_decisao", outcome="NEGAR"):
             allowed_inputs=("resultado", "notas_resolucao"),
         )
         inputs = dict(kind=form, resultado=outcome, notas_resolucao=PRIVATE)
+    elif form == "auth_pendencia":
+        changes.update(
+            task_definition_key="UT_DecidirPendenciaExpirada",
+            form_key=form,
+            form_source_status="BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+            allowed_inputs=("decisao_pendencia",),
+        )
+        inputs = dict(kind=form, decisao_pendencia=outcome)
     elif form == "pagto_admissibilidade":
         changes.update(
             process_definition_key="SP-OP-PAGTO-001",
@@ -475,3 +483,20 @@ async def test_retry_after_new_observation_keeps_same_immutable_digest():
     second = await submit(g, d)
     assert first == second
     assert admission.calls[0].canonical == admission.calls[1].canonical
+
+
+@pytest.mark.parametrize("outcome", ["cancelar_guia", "conceder_prazo_extra", "seguir_analise"])
+async def test_expired_pending_decision_preserves_custody_and_exact_outcome(outcome):
+    from maezo.portal.engine.decision import HumanDecisionCommand
+
+    g, d, _, custody, admission, *_ = await configured("auth_pendencia", outcome)
+    result = await submit(g, d)
+    assert result.status == "pending"
+    assert custody.requests[0].decision.inputs.model_dump() == {
+        "kind": "auth_pendencia",
+        "decisao_pendencia": outcome,
+    }
+    c = admission.calls[0]
+    assert c.outcome.model_dump() == {"kind": "auth_pendencia", "decisao_pendencia": outcome}
+    assert HumanDecisionCommand(c.canonical).raw == c.canonical
+    assert b"auditor_id" not in c.canonical and b"prazo_extra_dias" not in c.canonical

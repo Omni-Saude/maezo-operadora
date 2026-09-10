@@ -94,7 +94,7 @@ public final class BoundaryPolicyV2 {
     if("/maezo-workload/v2/readiness".equals(uri) && "GET".equals(r.getMethod())){
       if(r.getContentLengthLong()>0 || r.getHeader("Transfer-Encoding")!=null)throw Refused.body();return true;
     }
-    if(Set.of("/maezo-workload/v2/operations","/maezo-workload/v2/outcomes").contains(uri) && "POST".equals(r.getMethod())){
+    if(Set.of("/maezo-workload/v2/operations","/maezo-workload/v2/outcomes","/maezo-workload/v2/auth-document-request-context").contains(uri) && "POST".equals(r.getMethod())){
       if(!"application/json".equals(r.getContentType()) || r.getContentLengthLong()>Json.LIMIT)throw Refused.body();return true;
     }
     throw Refused.denied();

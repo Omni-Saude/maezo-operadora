@@ -697,7 +697,7 @@ async def test_read_rechecks_root_generation_after_native_reads(monkeypatch):
 
 def six_packets(state, keys):
     from maezo.gateway.human.decision_binding_qualification import batch_member
-    from maezo.portal.engine.decision import _BINDINGS
+    from maezo.portal.engine.decision import _LEGACY_BINDINGS as _BINDINGS
 
     materials = tuple(fixture(pair, keys=keys)[2].material for pair in _BINDINGS)
     batch = tuple(
@@ -756,7 +756,7 @@ async def test_signed_batch_cannot_omit_duplicate_or_add_seventh(monkeypatch, ca
 
 
 async def test_successive_single_installs_invalidate_old_authority_without_carry_forward(monkeypatch):
-    from maezo.portal.engine.decision import _BINDINGS
+    from maezo.portal.engine.decision import _LEGACY_BINDINGS as _BINDINGS
 
     installer, state, auth, first, keys = setup(monkeypatch)
     await installer.designate(auth)

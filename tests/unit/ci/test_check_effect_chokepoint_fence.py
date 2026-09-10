@@ -285,6 +285,16 @@ def test_httpx_client_imported_by_name_is_also_caught(tmp_path: Path) -> None:
             "        ) as client:\n"
             "            return client\n",
         ),
+        (
+            "gateway/document_requests/transport.py",
+            "import httpx\n\n"
+            "class NativeChannel:\n"
+            "    async def exchange(self):\n"
+            "        async with httpx.AsyncClient(\n"
+            "            verify=tls, trust_env=False, follow_redirects=False, timeout=30,\n"
+            "        ) as client:\n"
+            "            return client\n",
+        ),
     ],
 )
 def test_exact_registered_httpx_scoped_seams_are_allowed(
@@ -990,3 +1000,27 @@ def test_completeness_item4_missing_test_function_raises(tmp_path: Path) -> None
     violations, _counters = check_completeness(src_dir, tmp_path)
 
     assert any("item 4" in v and "no longer defines" in v for v in violations), violations
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("verify=tls", "verify=False"),
+        ("trust_env=False", "trust_env=True"),
+        ("follow_redirects=False", "follow_redirects=True"),
+        ("async def exchange", "async def unrelated"),
+    ],
+)
+def test_document_request_httpx_seam_rejects_tls_or_scope_drift(tmp_path: Path, old: str, new: str) -> None:
+    source = (
+        "import httpx\n"
+        "class NativeChannel:\n"
+        "    async def exchange(self):\n"
+        "        return httpx.AsyncClient(verify=tls, trust_env=False, "
+        "follow_redirects=False, timeout=30)\n"
+    )
+    assert old in source
+    _write(tmp_path / "gateway/document_requests/transport.py", source.replace(old, new))
+    result = scan_tree(tmp_path)
+    assert not result.ok
+    assert any("httpx.AsyncClient" in violation for violation in result.violations)

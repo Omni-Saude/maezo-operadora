@@ -16,6 +16,7 @@ import org.w3c.dom.*;
 public final class ConsumerEdgeInstallation {
   private ConsumerEdgeInstallation() {}
   static final String CONTRACT="c739693c1199cd68f8da95a2e39e0e8e192b7713ce22efbdf7de32d813f31368";
+  static final String CONTRACT_V2="fd6a9190d53aa2689bc4e7e04d05350d4ee2562955316adf6675008382d69048";
   static final String PURPOSE="native-consumer-edge-installation";
   static final String PREFIX="MZO_HUMAN_CONSUMER_";
   static final List<String> TABLES=List.of("DATABASE","TRUST","REVOKED","QUALIFICATION","HEAD","POINTER","POINTER_HEAD","LINK");
@@ -120,7 +121,7 @@ public final class ConsumerEdgeInstallation {
 
   static Map<String,Object> designation(Map<String,Object> d){
     Jcs.keys(d,"schema","issuer","key_id","public_key","purpose","authority_ref","contract_digest","source_freeze_contract_digest","valid_from_ms","valid_until_ms");
-    need("phi-consumer-edge-trust.v1".equals(d.get("schema")) && PURPOSE.equals(d.get("purpose")) && CONTRACT.equals(d.get("contract_digest")));
+    need("phi-consumer-edge-trust.v1".equals(d.get("schema")) && PURPOSE.equals(d.get("purpose")) && Set.of(CONTRACT,CONTRACT_V2).contains(d.get("contract_digest")));
     for(String k:List.of("issuer","key_id","authority_ref"))str(d,k);
     Jcs.hash(d,"source_freeze_contract_digest");decode(Jcs.string(d,"public_key"),32);
     need(num(d,"valid_until_ms",true)>num(d,"valid_from_ms",false));return parse(text(d));
@@ -169,8 +170,11 @@ public final class ConsumerEdgeInstallation {
       verifier.update(Jcs.canonical(unsigned));need(verifier.verify(decode(Jcs.string(envelope,"signature"),64)));
     }catch(GeneralSecurityException e){throw EngineStore.unavailable();}
     var body=Jcs.object(envelope.get("body"));
-    Jcs.keys(body,"schema","scope","qualification_ref","expected_generation","expected_authority_revision","native_build_digest","phi_build_digest","source_freeze","targets","valid_from_ms","valid_until_ms");
-    need("phi-consumer-edge-qualification.v1".equals(body.get("schema")) && tenant.equals(ConsumerLineage.scope(Jcs.object(body.get("scope"))).get("tenant")));
+    boolean v2="phi-consumer-edge-qualification.v2".equals(body.get("schema"));
+    if(v2)Jcs.keys(body,"schema","scope","qualification_ref","expected_generation","expected_authority_revision","native_build_digest","phi_build_digest","source_freeze","targets","valid_from_ms","valid_until_ms","cohort","cohort_digest");
+    else Jcs.keys(body,"schema","scope","qualification_ref","expected_generation","expected_authority_revision","native_build_digest","phi_build_digest","source_freeze","targets","valid_from_ms","valid_until_ms");
+    need((v2?CONTRACT_V2:CONTRACT).equals(d.get("contract_digest")));
+    need((v2 || "phi-consumer-edge-qualification.v1".equals(body.get("schema"))) && tenant.equals(ConsumerLineage.scope(Jcs.object(body.get("scope"))).get("tenant")));
     str(body,"qualification_ref");num(body,"expected_generation",false);num(body,"expected_authority_revision",false);
     Jcs.hash(body,"native_build_digest");Jcs.hash(body,"phi_build_digest");
     need(num(body,"valid_from_ms",false)<=now && now<num(body,"valid_until_ms",true) && num(body,"valid_until_ms",true)<=num(d,"valid_until_ms",true));
@@ -184,11 +188,17 @@ public final class ConsumerEdgeInstallation {
   }
 
   static List<Map<String,Object>> targets(Map<String,Object> body){
-    Object value=body.get("targets");need(value instanceof List<?>);List<?> values=(List<?>)value;need(values.size()==6);
+    boolean v2="phi-consumer-edge-qualification.v2".equals(body.get("schema"));
+    Map<String,Map<String,Object>> members=v2?cohort(body):Map.of();
+    Object value=body.get("targets");need(value instanceof List<?>);List<?> values=(List<?>)value;
+    need(v2?!values.isEmpty() && values.size()<=43:values.size()==6);
     List<Map<String,Object>> targets=new ArrayList<>();String previous="";Set<String> keys=new HashSet<>();
     for(Object item:values){
-      var t=Jcs.object(item);Jcs.keys(t,"process_definition_id","process_key","task_key","binding_digest","consumer_digest","process_digest","edges");
-      String key=str(t,"process_key")+"/"+str(t,"task_key");need(ConsumerLineage.SOURCES.containsKey(key)&&key.compareTo(previous)>0&&keys.add(key));previous=key;
+      var t=Jcs.object(item);
+      if(v2)Jcs.keys(t,"process_definition_id","process_key","task_key","binding_digest","consumer_digest","process_digest","edges","material_digest");
+      else Jcs.keys(t,"process_definition_id","process_key","task_key","binding_digest","consumer_digest","process_digest","edges");
+      String key=str(t,"process_key")+"/"+str(t,"task_key");need((v2?ConsumerLineage.SOURCES:ConsumerLineage.LEGACY_SOURCES).containsKey(key)&&key.compareTo(previous)>0&&keys.add(key));previous=key;
+      if(v2){var member=members.get(key);need(member!=null && member.get("process_definition_id").equals(t.get("process_definition_id")) && member.get("material_digest").equals(Jcs.hash(t,"material_digest")));}
       str(t,"process_definition_id");for(String k:List.of("binding_digest","consumer_digest","process_digest"))Jcs.hash(t,k);
       need(t.get("edges") instanceof List<?>);List<?> edges=(List<?>)t.get("edges");
       String kind=ConsumerLineage.SOURCES.get(key);Set<String> expected=switch(kind){case "auth_decisao"->Set.of("NEGAR","JUNTA_MEDICA");case "auth_junta"->Set.of("NEGAR");case "pagto_admissibilidade"->Set.of("DEVOLVER");default->Set.of();};
@@ -200,7 +210,20 @@ public final class ConsumerEdgeInstallation {
         String activity=switch(consumer){case "auth_denial_record"->"ST_EnviarNegativaFormal";case "auth_junta_forward"->"ST_ConvocarJunta";case "pagto_admissibility_return"->"ST_RegisterPaymentRefusal";default->"";};
         need(consumer.equals(edge.get("consumer_kind")) && topic.equals(edge.get("topic")) && activity.equals(edge.get("activity_id")));
       }need(observed.equals(expected));targets.add(parse(text(t)));
-    }need(keys.equals(ConsumerLineage.SOURCES.keySet()));return List.copyOf(targets);
+    }need(keys.equals(v2?members.keySet():ConsumerLineage.LEGACY_SOURCES.keySet()));return List.copyOf(targets);
+  }
+
+  /** Material digests precede packet signatures/binding digests: no hash cycle. */
+  static Map<String,Map<String,Object>> cohort(Map<String,Object> body){
+    var manifest=Jcs.object(body.get("cohort"));Jcs.keys(manifest,"schema","scope","members");
+    need("human-decision-cohort.v2".equals(manifest.get("schema")) && ConsumerLineage.scope(Jcs.object(manifest.get("scope"))).equals(body.get("scope")));
+    need(Jcs.digest(Jcs.canonical(Map.of("schema","human-decision-cohort-hash.v2","value",manifest))).equals(Jcs.hash(body,"cohort_digest")));
+    Object value=manifest.get("members");need(value instanceof List<?>);var members=(List<?>)value;need(!members.isEmpty() && members.size()<=43);
+    Map<String,Map<String,Object>> result=new TreeMap<>();String previous="";
+    for(Object item:members){var m=Jcs.object(item);Jcs.keys(m,"process_definition_id","process_definition_key","task_definition_key","material_digest");
+      String key=str(m,"process_definition_key")+"/"+str(m,"task_definition_key");str(m,"process_definition_id");Jcs.hash(m,"material_digest");
+      need(ConsumerLineage.SOURCES.containsKey(key) && key.compareTo(previous)>0 && result.put(key,m)==null);previous=key;
+    }return Collections.unmodifiableMap(result);
   }
 
   public static final class Installed {
@@ -272,7 +295,13 @@ public final class ConsumerEdgeInstallation {
     var b=binding(owner,tenant);session(owner,b,true);tables(owner,b);long revision=lock(owner,tenant),now=clock(owner);
     var body=verify(owner,tenant,raw,now);need(b.get("scope").equals(body.get("scope")) && num(body,"expected_authority_revision",false)==revision);
     nativeBuild(body);bindings(owner,body,revision,now,true);long previous=num(body,"expected_generation",false);need(previous<Long.MAX_VALUE);
-    var head=one(owner,"SELECT GENERATION_ FROM MZO_HUMAN_CONSUMER_HEAD WHERE TENANT_=?",tenant);need(((Number)head.get("generation_")).longValue()==previous);
+    var head=one(owner,"SELECT GENERATION_ FROM MZO_HUMAN_CONSUMER_HEAD WHERE TENANT_=?",tenant);
+    long observed=((Number)head.get("generation_")).longValue();
+    if("phi-consumer-edge-qualification.v2".equals(body.get("schema")) && observed==previous+1){
+      Installed prior=read(owner,tenant,true,str(Jcs.object(b.get("scope")),"engine_name"));
+      need(Arrays.equals(prior.envelope(),raw));return; // Exact lost-ACK replay, no second generation.
+    }
+    need(observed==previous);
     long next=previous+1;
     write(owner,"INSERT INTO MZO_HUMAN_CONSUMER_QUALIFICATION(TENANT_,GENERATION_,AUTHORITY_REV_,QUALIFICATION_,ENVELOPE_) VALUES(?,?,?,?,?)",tenant,next,revision,body.get("qualification_ref"),ConsumerLineage.text(raw));
     advance(owner,tenant,previous,next);
@@ -282,7 +311,13 @@ public final class ConsumerEdgeInstallation {
 
   static void bindings(Connection c,Map<String,Object> body,long revision,long now,boolean topology){
     var scope=Jcs.object(body.get("scope"));String tenant=str(scope,"tenant");
-    for(var target:targets(body)){
+    var selected=targets(body);
+    if("phi-consumer-edge-qualification.v2".equals(body.get("schema"))){
+      var actual=rows(c,"SELECT PROCESS_,TASK_KEY_,BINDING_DIGEST_ FROM MZO_HUMAN_DECISION_BINDING WHERE TENANT_=? AND ENVIRONMENT_=? AND AUTHORITY_REV_=? ORDER BY PROCESS_,TASK_KEY_ LIMIT 44",tenant,scope.get("environment"),revision);
+      need(actual.size()==selected.size());
+      for(var row:actual)need(selected.stream().filter(t->t.get("process_definition_id").equals(row.get("process_")) && t.get("task_key").equals(row.get("task_key_")) && t.get("binding_digest").equals(row.get("binding_digest_"))).count()==1);
+    }
+    for(var target:selected){
       var b=one(c,"SELECT * FROM MZO_HUMAN_DECISION_BINDING WHERE TENANT_=? AND ENVIRONMENT_=? AND PROCESS_=? AND TASK_KEY_=? AND AUTHORITY_REV_=?",tenant,scope.get("environment"),target.get("process_definition_id"),target.get("task_key"),revision);
       need(Boolean.TRUE.equals(b.get("active_")) && ((Number)b.get("valid_until_")).longValue()>now/1000
           && num(body,"valid_until_ms",true)<=Math.multiplyExact(((Number)b.get("valid_until_")).longValue(),1000));

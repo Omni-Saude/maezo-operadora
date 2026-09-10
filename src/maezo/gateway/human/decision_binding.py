@@ -1,4 +1,4 @@
-"""Concrete owner install/readback and SELECT-only six-binding qualification.
+"""Concrete owner install/readback and SELECT-only legacy/v2 cohort qualification.
 
 No gateway activation. Independently designated root/freeze issuers, actual consumer
 qualification and a mutation authority producer remain production prerequisites.
@@ -7,7 +7,9 @@ Only immutable, signed qualification records may populate the existing native ta
 
 from __future__ import annotations
 
+import base64
 import math
+import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -15,6 +17,7 @@ from importlib.resources import files
 from typing import Any, Literal
 
 import asyncpg  # type: ignore[import-untyped]
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from pydantic import Field, model_validator
 
 from maezo.portal.contracts.models import HumanPrincipal, OpaqueRef, Revision, Sha256Digest
@@ -22,8 +25,12 @@ from maezo.portal.engine.profile import canonicalize, strict_loads
 
 from .decision import DecisionBindingSource, QualifiedDecisionBinding
 from .decision_binding_qualification import (
+    COHORT_CONTRACT,
     BindingUnavailableError,
+    CohortManifest,
+    NativeCohortScope,
     QualificationPacket,
+    QualificationPacketV2,
     QualificationVerifier,
     Revocation,
     SignedAuthorities,
@@ -32,6 +39,9 @@ from .decision_binding_qualification import (
     batch_member,
     canonical,
     decode,
+    decode_packet,
+    member_order,
+    packet_cohort,
     sha,
 )
 from .decision_custody_connection import _pinned_tls_context
@@ -101,7 +111,7 @@ class BindingDatabase(Closed):
         return self
 
 
-class InstallationReceipt(Closed):
+class InstallationReceiptFields(Closed):
     operation_id: OpaqueRef
     kind: Literal["designate", "install", "revoke"]
     request_digest: Sha256Digest
@@ -110,20 +120,133 @@ class InstallationReceipt(Closed):
     recorded_at: datetime
     packet_digests: tuple[Sha256Digest, ...]
 
-    @model_validator(mode="after")
-    def closed_receipt(self) -> InstallationReceipt:
+    def validate_receipt(self, *, limit: int, digest: str) -> None:
         if self.resulting_revision != self.expected_revision + 1:
             raise ValueError("invalid installation receipt revision")
         if self.kind == "install":
             if (
-                not 1 <= len(self.packet_digests) <= 6
+                not 1 <= len(self.packet_digests) <= limit
                 or tuple(sorted(set(self.packet_digests))) != self.packet_digests
-                or self.request_digest != sha(canonicalize(list(self.packet_digests)))
+                or self.request_digest != digest
             ):
                 raise ValueError("invalid installation batch receipt")
         elif self.packet_digests:
             raise ValueError("unexpected installation batch")
+
+
+class InstallationReceipt(InstallationReceiptFields):
+    @model_validator(mode="after")
+    def closed_receipt(self) -> InstallationReceipt:
+        self.validate_receipt(limit=6, digest=sha(canonicalize(list(self.packet_digests))))
         return self
+
+
+class InstallationReceiptV2(InstallationReceiptFields):
+    schema_: Literal["human-decision-installation-receipt.v2"] = Field(alias="schema")
+    cohort_digest: Sha256Digest
+    kind: Literal["install"]
+
+    @model_validator(mode="after")
+    def closed_receipt(self) -> InstallationReceiptV2:
+        self.validate_receipt(limit=43, digest=install_digest(self.packet_digests, self.cohort_digest))
+        return self
+
+
+def install_digest(digests: tuple[str, ...], cohort: str | None) -> str:
+    return sha(
+        canonicalize(
+            list(digests)
+            if cohort is None
+            else {
+                "schema": "human-decision-install-request.v2",
+                "cohort_digest": cohort,
+                "packet_digests": list(digests),
+            }
+        )
+    )
+
+
+def install_record(digests: tuple[str, ...], cohort: str | None) -> str:
+    return canonicalize(
+        list(digests)
+        if cohort is None
+        else {
+            "schema": "human-decision-install-record.v2",
+            "cohort_digest": cohort,
+            "packet_digests": list(digests),
+        }
+    ).decode()
+
+
+def stored_receipt(row: Any) -> InstallationReceipt | InstallationReceiptV2:
+    raw = row["packet_digests_"].encode()
+    value = strict_loads(raw)
+    if canonicalize(value) != raw:
+        raise BindingUnavailableError()
+    fields = dict(
+        operation_id=row["operation_"],
+        kind=row["kind_"],
+        request_digest=row["request_digest_"],
+        expected_revision=row["expected_rev_"],
+        resulting_revision=row["resulting_rev_"],
+        recorded_at=row["recorded_at_"],
+    )
+    if type(value) is list:
+        return InstallationReceipt(**fields, packet_digests=tuple(value))
+    if (
+        type(value) is not dict
+        or set(value) != {"schema", "cohort_digest", "packet_digests"}
+        or value["schema"] != "human-decision-install-record.v2"
+        or type(value["packet_digests"]) is not list
+    ):
+        raise BindingUnavailableError()
+    return InstallationReceiptV2(
+        **fields,
+        schema="human-decision-installation-receipt.v2",
+        cohort_digest=value["cohort_digest"],
+        packet_digests=tuple(value["packet_digests"]),
+    )
+
+
+NATIVE_COHORT_RELATIONS = tuple(
+    "mzo_human_consumer_" + suffix for suffix in ("database", "trust", "revoked", "head", "qualification")
+)
+
+
+class NativeCohortReadConfiguration(Closed):
+    """Out-of-band qualified source pins. No default reader grant or inferred owner."""
+
+    scope: NativeCohortScope
+    binding_database_digest: Sha256Digest
+    designation_digest: Sha256Digest
+    native_build_digest: Sha256Digest
+    phi_build_digest: Sha256Digest
+    relations: tuple[RelationPin, ...]
+
+    @model_validator(mode="after")
+    def exact_relations(self) -> NativeCohortReadConfiguration:
+        if (
+            len(self.relations) != 5
+            or {p.name for p in self.relations} != set(NATIVE_COHORT_RELATIONS)
+            or len({p.oid for p in self.relations}) != 5
+        ):
+            raise ValueError("incomplete native cohort read pins")
+        return self
+
+
+def native_object(raw: str) -> dict[str, Any]:
+    encoded = raw.encode()
+    value = strict_loads(encoded)
+    if len(encoded) > 65536 or type(value) is not dict or canonicalize(value) != encoded:
+        raise BindingUnavailableError()
+    return value
+
+
+def native_url64(value: str, size: int) -> bytes:
+    raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    if len(raw) != size or base64.urlsafe_b64encode(raw).rstrip(b"=").decode() != value:
+        raise BindingUnavailableError()
+    return raw
 
 
 class BindingConnection:
@@ -136,6 +259,7 @@ class BindingConnection:
         identity: HumanTLSIdentity,
         verifier: QualificationVerifier,
         mode: Literal["installer", "reader"],
+        native_cohort_read: NativeCohortReadConfiguration | None = None,
         timeout_seconds: float = 10,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
@@ -152,9 +276,26 @@ class BindingConnection:
             raise BindingUnavailableError()
         self.database, self.identity, self.verifier, self.mode = database, identity, verifier, mode
         self.clock, self.timeout = clock, timeout_seconds
+        self.native_cohort_read = native_cohort_read
+        if native_cohort_read is not None:
+            n = NativeCohortReadConfiguration.model_validate(native_cohort_read)
+            if (
+                n.binding_database_digest != sha(canonical(database))
+                or (n.scope.tenant, n.scope.environment, n.scope.engine_name, n.scope.database_incarnation)
+                != (
+                    database.scope.tenant,
+                    database.scope.environment,
+                    database.engine_name,
+                    database.database_incarnation,
+                )
+                or any(p.owner != database.owner_role for p in n.relations)
+            ):
+                raise BindingUnavailableError()
 
     def table(self, name: str) -> str:
-        if name not in RELATIONS:
+        if name not in RELATIONS and not (
+            self.native_cohort_read is not None and name in NATIVE_COHORT_RELATIONS
+        ):
             raise BindingUnavailableError()
         return f'"{self.database.schema_name}"."{name}"'
 
@@ -197,9 +338,9 @@ class BindingConnection:
             )
             if r is None or any(v is not False for v in dict(r).values()):
                 raise BindingUnavailableError()
-        for pin in d.relations:
+        for pin in (*d.relations, *(self.native_cohort_read.relations if self.native_cohort_read else ())):
             r = await connection.fetchrow(
-                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind,
+                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind,c.relrowsecurity,
               has_table_privilege($3,c.oid,'SELECT') AS can_select,
               (has_table_privilege($3,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
               OR has_any_column_privilege($3,c.oid,'INSERT,UPDATE,REFERENCES')) AS writes
@@ -217,6 +358,43 @@ class BindingConnection:
                 False,
             ):
                 raise BindingUnavailableError()
+            if pin.name in NATIVE_COHORT_RELATIONS:
+                # Match the native owner's qualified source contract at every read,
+                # including same-OID drift that could hide a revocation row.
+                if r["relrowsecurity"] is not False:
+                    raise BindingUnavailableError()
+                native = await connection.fetchrow(
+                    """SELECT
+                  has_table_privilege($1,$2::oid,'SELECT') AS native_engine_select,
+                  has_any_column_privilege($1,$2::oid,'SELECT') AS native_engine_column_select,
+                  (has_table_privilege($1,$2::oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                   OR has_any_column_privilege($1,$2::oid,'INSERT,UPDATE,REFERENCES')) AS native_engine_writes""",
+                    d.engine_role,
+                    pin.oid,
+                )
+                if native is None or tuple(native.values()) != (True, True, False):
+                    raise BindingUnavailableError()
+                if pin.name != "mzo_human_consumer_head":
+                    trigger = await connection.fetchrow(
+                        """SELECT t.tgenabled,t.tgtype,p.prosrc,p.prosecdef,
+                      count(*) OVER () AS trigger_count
+                      FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+                      JOIN pg_namespace n ON n.oid=p.pronamespace
+                      WHERE t.tgrelid=$1::oid AND NOT t.tgisinternal
+                      AND p.proname='mzo_human_consumer_immutable' AND n.nspname=$2""",
+                        pin.oid,
+                        d.schema_name,
+                    )
+                    if (
+                        trigger is None
+                        or trigger["tgenabled"] != "O"
+                        or trigger["tgtype"] != 58
+                        or trigger["prosecdef"] is not False
+                        or trigger["trigger_count"] != 1
+                        or trigger["prosrc"].strip()
+                        != "BEGIN RAISE EXCEPTION 'immutable consumer evidence'; END"
+                    ):
+                        raise BindingUnavailableError()
             if pin.name in IMMUTABLE:
                 r = await connection.fetchrow(
                     """SELECT
@@ -265,6 +443,233 @@ class BindingConnection:
         finally:
             if connection is not None:
                 await connection.close()
+
+    async def native_cohort_current(
+        self, c: Any, qualified: tuple[VerifiedQualification, ...], revision: int
+    ) -> tuple[str, datetime] | None:
+        first = qualified[0].packet
+        if not isinstance(first, QualificationPacketV2):
+            return None
+        n, d = self.native_cohort_read, self.database
+        if n is None or n.scope != first.cohort.scope:
+            raise BindingUnavailableError()
+        row = await c.fetchrow(
+            "SELECT h.generation_,h.qualification_generation_,q.authority_rev_,"
+            "q.qualification_,q.envelope_,b.binding_ "
+            f"FROM {self.table('mzo_human_consumer_head')} h "
+            f"JOIN {self.table('mzo_human_consumer_qualification')} q ON q.tenant_=h.tenant_ "
+            "AND q.generation_=h.qualification_generation_ "
+            f"JOIN {self.table('mzo_human_consumer_database')} b ON b.tenant_=h.tenant_ WHERE h.tenant_=$1",
+            d.scope.tenant,
+        )
+        if (
+            row is None
+            or row["generation_"] != row["qualification_generation_"]
+            or row["authority_rev_"] != revision
+        ):
+            raise BindingUnavailableError()
+        binding = native_object(row["binding_"])
+        if (
+            set(binding)
+            != {
+                "schema",
+                "scope",
+                "database_name",
+                "database_oid",
+                "schema_name",
+                "schema_oid",
+                "owner_role",
+                "runtime_role",
+            }
+            or binding["schema"] != "phi-consumer-native-database.v1"
+            or parse_model(NativeCohortScope, binding["scope"]) != n.scope
+            or (
+                binding["database_name"],
+                binding["database_oid"],
+                binding["schema_name"],
+                binding["schema_oid"],
+                binding["owner_role"],
+                binding["runtime_role"],
+            )
+            != (
+                d.database,
+                str(d.database_oid),
+                d.schema_name,
+                str(d.schema_oid),
+                d.owner_role,
+                d.engine_role,
+            )
+        ):
+            raise BindingUnavailableError()
+        envelope = native_object(row["envelope_"])
+        if set(envelope) != {
+            "schema",
+            "issuer",
+            "key_id",
+            "purpose",
+            "authority_ref",
+            "contract_digest",
+            "body",
+            "signature",
+        }:
+            raise BindingUnavailableError()
+        trust = await c.fetchrow(
+            f"SELECT designation_ FROM {self.table('mzo_human_consumer_trust')} "
+            "WHERE tenant_=$1 AND key_id_=$2",
+            d.scope.tenant,
+            envelope["key_id"],
+        )
+        revoked = await c.fetchrow(
+            f"SELECT key_id_ FROM {self.table('mzo_human_consumer_revoked')} WHERE tenant_=$1 AND key_id_=$2",
+            d.scope.tenant,
+            envelope["key_id"],
+        )
+        if trust is None or revoked is not None:
+            raise BindingUnavailableError()
+        designation = native_object(trust["designation_"])
+        if (
+            sha(canonicalize(designation)) != n.designation_digest
+            or set(designation)
+            != {
+                "schema",
+                "issuer",
+                "key_id",
+                "public_key",
+                "purpose",
+                "authority_ref",
+                "contract_digest",
+                "source_freeze_contract_digest",
+                "valid_from_ms",
+                "valid_until_ms",
+            }
+            or designation["schema"] != "phi-consumer-edge-trust.v1"
+            or envelope["schema"] != "phi-consumer-edge-qualification-envelope.v1"
+            or envelope["contract_digest"] != COHORT_CONTRACT
+            or envelope["purpose"] != "native-consumer-edge-installation"
+            or any(
+                envelope[k] != designation[k]
+                for k in ("issuer", "key_id", "purpose", "authority_ref", "contract_digest")
+            )
+        ):
+            raise BindingUnavailableError()
+        unsigned = {k: v for k, v in envelope.items() if k != "signature"}
+        Ed25519PublicKey.from_public_bytes(native_url64(designation["public_key"], 32)).verify(
+            native_url64(envelope["signature"], 64), canonicalize(unsigned)
+        )
+        body = envelope["body"]
+        if (
+            type(body) is not dict
+            or set(body)
+            != {
+                "schema",
+                "scope",
+                "qualification_ref",
+                "expected_generation",
+                "expected_authority_revision",
+                "native_build_digest",
+                "phi_build_digest",
+                "source_freeze",
+                "targets",
+                "valid_from_ms",
+                "valid_until_ms",
+                "cohort",
+                "cohort_digest",
+            }
+            or body["schema"] != "phi-consumer-edge-qualification.v2"
+            or parse_model(NativeCohortScope, body["scope"]) != n.scope
+            or parse_model(CohortManifest, body["cohort"]) != first.cohort
+            or body["cohort_digest"] != first.cohort.digest
+            or body["expected_generation"] != str(row["generation_"] - 1)
+            or body["expected_authority_revision"] != str(revision)
+            or body["qualification_ref"] != row["qualification_"]
+            or body["native_build_digest"] != n.native_build_digest
+            or body["phi_build_digest"] != n.phi_build_digest
+        ):
+            raise BindingUnavailableError()
+        freeze = body["source_freeze"]
+        if (
+            type(freeze) is not dict
+            or set(freeze)
+            != {
+                "issuer_contract_digest",
+                "authority_ref",
+                "source_commit",
+                "source_tree",
+                "native_build_digest",
+                "phi_build_digest",
+                "source_artifacts_digest",
+            }
+            or freeze["issuer_contract_digest"] != designation["source_freeze_contract_digest"]
+            or freeze["authority_ref"] != designation["authority_ref"]
+            or any(freeze[k] != body[k] for k in ("native_build_digest", "phi_build_digest"))
+            or any(
+                type(freeze[k]) is not str or not re.fullmatch("[a-f0-9]{40}", freeze[k])
+                for k in ("source_commit", "source_tree")
+            )
+            or type(freeze["source_artifacts_digest"]) is not str
+            or not re.fullmatch("[a-f0-9]{64}", freeze["source_artifacts_digest"])
+        ):
+            raise BindingUnavailableError()
+        now = int(self.clock().timestamp() * 1000)
+        for record in (body, designation):
+            if any(
+                type(record[k]) is not str
+                or not re.fullmatch("0|[1-9][0-9]*", record[k])
+                or int(record[k]) >= 2**63
+                for k in ("valid_from_ms", "valid_until_ms")
+            ) or not int(record["valid_from_ms"]) <= now < int(record["valid_until_ms"]):
+                raise BindingUnavailableError()
+        if int(body["valid_until_ms"]) > int(designation["valid_until_ms"]):
+            raise BindingUnavailableError()
+        expected = []
+        for q in sorted(
+            qualified,
+            key=lambda q: (
+                q.packet.material.entry.process_definition_key,
+                q.packet.material.entry.task_definition_key,
+            ),
+        ):
+            e, m = q.packet.material.entry, q.packet.material
+            edges = []
+            choices = {
+                "auth_decisao": ("JUNTA_MEDICA", "NEGAR"),
+                "auth_junta": ("NEGAR",),
+                "pagto_admissibilidade": ("DEVOLVER",),
+            }.get(e.form_key, ())
+            for outcome in choices:
+                consumer, activity, topic = {
+                    "NEGAR": (
+                        "auth_denial_record",
+                        "ST_EnviarNegativaFormal",
+                        "operadora.auth.send_denial_notice",
+                    ),
+                    "JUNTA_MEDICA": (
+                        "auth_junta_forward",
+                        "ST_ConvocarJunta",
+                        "operadora.auth.convene_junta",
+                    ),
+                    "DEVOLVER": (
+                        "pagto_admissibility_return",
+                        "ST_RegisterPaymentRefusal",
+                        "operadora.pagto.register_payment_refusal",
+                    ),
+                }[outcome]
+                edges.append(dict(outcome=outcome, consumer_kind=consumer, activity_id=activity, topic=topic))
+            expected.append(
+                dict(
+                    process_definition_id=e.process_definition_id,
+                    process_key=e.process_definition_key,
+                    task_key=e.task_definition_key,
+                    binding_digest=q.binding_digest,
+                    consumer_digest=m.consumer.deployed_consumer.digest,
+                    process_digest=e.process_definition_digest,
+                    material_digest=sha(canonical(m)),
+                    edges=edges,
+                )
+            )
+        if body["targets"] != expected:
+            raise BindingUnavailableError()
+        return sha(canonicalize(envelope)), datetime.fromtimestamp(int(body["valid_until_ms"]) / 1000, UTC)
 
     async def revision(self, c: Any, *, lock: bool = False) -> int:
         suffix = " FOR UPDATE" if lock else ""
@@ -426,7 +831,7 @@ class _BindingRecords:
     def __init__(self, connection: BindingConnection) -> None:
         self._db = connection
 
-    async def _receipt(self, c: Any, operation: str) -> InstallationReceipt | None:
+    async def _receipt(self, c: Any, operation: str) -> InstallationReceipt | InstallationReceiptV2 | None:
         d = self._db.database
         r = await c.fetchrow(
             f"SELECT * FROM {self._db.table('mzo_human_decision_install_receipt')} "
@@ -437,15 +842,7 @@ class _BindingRecords:
         )
         if r is None:
             return None
-        return InstallationReceipt(
-            operation_id=r["operation_"],
-            kind=r["kind_"],
-            request_digest=r["request_digest_"],
-            expected_revision=r["expected_rev_"],
-            resulting_revision=r["resulting_rev_"],
-            recorded_at=r["recorded_at_"],
-            packet_digests=tuple(strict_loads(r["packet_digests_"].encode())),
-        )
+        return stored_receipt(r)
 
     async def _readback(self, c: Any, q: VerifiedQualification) -> None:
         db, d = self._db, self._db.database
@@ -491,7 +888,8 @@ class DecisionBindingInstaller(_BindingRecords):
         digest: str,
         revision: int,
         packet_digests: tuple[str, ...] = (),
-    ) -> InstallationReceipt:
+        cohort: str | None = None,
+    ) -> InstallationReceipt | InstallationReceiptV2:
         db, d = self._db, self._db.database
         changed = await c.fetchval(
             f"UPDATE {db.table('mzo_human_tenant')} SET rev_=rev_+1 "
@@ -513,7 +911,7 @@ class DecisionBindingInstaller(_BindingRecords):
             digest,
             revision,
             revision + 1,
-            canonicalize(list(packet_digests)).decode(),
+            install_record(packet_digests, cohort),
         )
         result = await self._receipt(c, operation)
         if result is None or (
@@ -527,7 +925,7 @@ class DecisionBindingInstaller(_BindingRecords):
             raise BindingUnavailableError()
         return result
 
-    async def designate(self, authorities: SignedAuthorities) -> InstallationReceipt:
+    async def designate(self, authorities: SignedAuthorities) -> InstallationReceipt | InstallationReceiptV2:
         db, d = self._db, self._db.database
         raw = canonical(authorities)
         async with db.transaction() as c:
@@ -570,12 +968,16 @@ class DecisionBindingInstaller(_BindingRecords):
             db.verifier.authorities(authorities, db.clock())
         return result
 
-    async def install(self, packet: QualificationPacket) -> InstallationReceipt:
+    async def install(
+        self, packet: QualificationPacket | QualificationPacketV2
+    ) -> InstallationReceipt | InstallationReceiptV2:
         return await self.install_batch((packet,))
 
-    async def install_batch(self, packets: tuple[QualificationPacket, ...]) -> InstallationReceipt:
+    async def install_batch(
+        self, packets: tuple[QualificationPacket | QualificationPacketV2, ...]
+    ) -> InstallationReceipt | InstallationReceiptV2:
         """One to six distinct existing bindings share one frozen operation and tenant CAS."""
-        if not 1 <= len(packets) <= 6:
+        if not packets or len(packets) > (43 if isinstance(packets[0], QualificationPacketV2) else 6):
             raise BindingUnavailableError()
         packets = tuple(sorted(packets, key=lambda p: sha(canonical(p))))
         db, d = self._db, self._db.database
@@ -584,6 +986,9 @@ class DecisionBindingInstaller(_BindingRecords):
             authorities = await db.authorities(c)
             qualified = tuple(db.verifier.verify(p, authorities, db.clock()) for p in packets)
             first = qualified[0]
+            cohort = packet_cohort(first.packet)
+            if any(packet_cohort(q.packet) != cohort for q in qualified):
+                raise BindingUnavailableError()
             if len(
                 {
                     (
@@ -613,13 +1018,13 @@ class DecisionBindingInstaller(_BindingRecords):
             batch = tuple(
                 sorted(
                     (batch_member(q.packet.material) for q in qualified),
-                    key=lambda m: (m.process_definition_id, m.task_definition_key),
+                    key=lambda m: member_order(m, v2=isinstance(first.packet, QualificationPacketV2)),
                 )
             )
             if any(q.packet.freeze.receipt.batch != batch for q in qualified):
                 raise BindingUnavailableError()
             digests = tuple(q.binding_digest for q in qualified)
-            request_digest = sha(canonicalize(list(digests)))
+            request_digest = install_digest(digests, cohort)
             prior = await self._receipt(c, first.operation_id)
             if prior is not None:
                 if (prior.kind, prior.request_digest, prior.packet_digests) != (
@@ -652,7 +1057,7 @@ class DecisionBindingInstaller(_BindingRecords):
                         *values.values(),
                     )
                 result = await self._cas_receipt(
-                    c, first.operation_id, "install", request_digest, revision, digests
+                    c, first.operation_id, "install", request_digest, revision, digests, cohort
                 )
             for q in qualified:
                 await self._readback(c, q)
@@ -665,7 +1070,7 @@ class DecisionBindingInstaller(_BindingRecords):
                 db.verifier.verify(packet, latest, db.clock())
         return result
 
-    async def revoke(self, value: Revocation) -> InstallationReceipt:
+    async def revoke(self, value: Revocation) -> InstallationReceipt | InstallationReceiptV2:
         db = self._db
         async with db.transaction() as c:
             revision = await db.revision(c, lock=True)
@@ -685,10 +1090,14 @@ class DecisionBindingInstaller(_BindingRecords):
             db.verifier.revocation(value, latest, db.clock())
         return result
 
-    async def reconcile_batch(self, packets: tuple[QualificationPacket, ...]) -> InstallationReceipt:
+    async def reconcile_batch(
+        self, packets: tuple[QualificationPacket | QualificationPacketV2, ...]
+    ) -> InstallationReceipt | InstallationReceiptV2:
         return await self.install_batch(packets)
 
-    async def reconcile(self, packet: QualificationPacket) -> InstallationReceipt:
+    async def reconcile(
+        self, packet: QualificationPacket | QualificationPacketV2
+    ) -> InstallationReceipt | InstallationReceiptV2:
         """Fresh real connection; same immutable operation. Never infer success from an ACK."""
         # install's existing-receipt path verifies byte-exact current native state and
         # qualification again. Missing receipt permits only original-revision retry.
@@ -722,17 +1131,22 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
             or selected.binding_digest not in receipt.packet_digests
         ):
             raise BindingUnavailableError()
-        # The seventh row is only an excess sentinel; never scan an unbounded batch.
+        cohort = packet_cohort(selected.packet)
+        if (receipt.cohort_digest if isinstance(receipt, InstallationReceiptV2) else None) != cohort:
+            raise BindingUnavailableError()
+        # One excess sentinel beyond this explicitly versioned finite cohort.
+        limit = 44 if cohort is not None else 7
         packets = await c.fetch(
             f"SELECT packet_,digest_ FROM {db.table('mzo_human_decision_qualification')} "
-            "WHERE tenant_=$1 AND installation_=$2 AND authority_rev_=$3 ORDER BY digest_ LIMIT 7",
+            f"WHERE tenant_=$1 AND installation_=$2 AND authority_rev_=$3 ORDER BY digest_ LIMIT {limit}",
             self.scope.tenant,
             d.installation_id,
             revision,
         )
         bindings = await c.fetch(
             f"SELECT binding_digest_ FROM {db.table('mzo_human_decision_binding')} "
-            "WHERE tenant_=$1 AND environment_=$2 AND authority_rev_=$3 ORDER BY binding_digest_ LIMIT 7",
+            "WHERE tenant_=$1 AND environment_=$2 AND authority_rev_=$3 "
+            f"ORDER BY binding_digest_ LIMIT {limit}",
             self.scope.tenant,
             self.scope.environment,
             revision,
@@ -743,30 +1157,34 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
         ):
             raise BindingUnavailableError()
         qualified = tuple(
-            db.verifier.verify(decode(QualificationPacket, p["packet_"].encode()), authorities, db.clock())
-            for p in packets
+            db.verifier.verify(decode_packet(p["packet_"].encode()), authorities, db.clock()) for p in packets
         )
         if tuple(q.binding_digest for q in qualified) != receipt.packet_digests:
             raise BindingUnavailableError()
         batch = tuple(
             sorted(
                 (batch_member(q.packet.material) for q in qualified),
-                key=lambda m: (m.process_definition_id, m.task_definition_key),
+                key=lambda m: member_order(m, v2=isinstance(selected.packet, QualificationPacketV2)),
             )
         )
         if len({(m.process_definition_key, m.task_definition_key) for m in batch}) != len(batch):
             raise BindingUnavailableError()
         for q in qualified:
-            if q.packet.freeze.receipt.batch != batch or (
-                q.operation_id,
-                q.expected_tenant_revision,
-                q.authority_generation,
-                q.packet.freeze.receipt.freeze_epoch,
-            ) != (
-                selected.operation_id,
-                selected.expected_tenant_revision,
-                selected.authority_generation,
-                selected.packet.freeze.receipt.freeze_epoch,
+            if (
+                packet_cohort(q.packet) != cohort
+                or q.packet.freeze.receipt.batch != batch
+                or (
+                    q.operation_id,
+                    q.expected_tenant_revision,
+                    q.authority_generation,
+                    q.packet.freeze.receipt.freeze_epoch,
+                )
+                != (
+                    selected.operation_id,
+                    selected.expected_tenant_revision,
+                    selected.authority_generation,
+                    selected.packet.freeze.receipt.freeze_epoch,
+                )
             ):
                 raise BindingUnavailableError()
             await records._readback(c, q)
@@ -797,13 +1215,16 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
                 )
                 if row is None:
                     raise BindingUnavailableError()
-                packet = decode(QualificationPacket, row["packet_"].encode())
+                packet = decode_packet(row["packet_"].encode())
                 q = db.verifier.verify(packet, authorities, db.clock())
                 if q.binding_digest != row["digest_"] or q.expected_tenant_revision + 1 != revision:
                     raise BindingUnavailableError()
                 qualified = await self._installed_batch(c, q, authorities, revision)
+                native_cohort = await db.native_cohort_current(c, qualified, revision)
                 evidence_ref, until = await self._native(c, q, principal, task, authority)
                 until = min(until, *(member.valid_until for member in qualified))
+                if native_cohort is not None:
+                    until = min(until, native_cohort[1])
                 if await db.revision(c) != revision or canonical(await db.authorities(c)) != canonical(
                     authorities
                 ):
@@ -811,6 +1232,8 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
                 await db.catalog(c)
                 for member in qualified:
                     db.verifier.verify(member.packet, authorities, db.clock())
+                if native_cohort != await db.native_cohort_current(c, qualified, revision):
+                    raise BindingUnavailableError()
                 if db.clock() >= until:
                     raise BindingUnavailableError()
                 result = QualifiedDecisionBinding(

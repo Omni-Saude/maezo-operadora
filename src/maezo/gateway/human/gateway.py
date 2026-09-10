@@ -901,6 +901,7 @@ class HumanGateway:
             if self._decision_ports is None or task.snapshot.form_key not in (
                 "auth_decisao",
                 "auth_junta",
+                "auth_pendencia",
                 "escalation",
                 "pagto_admissibilidade",
             ):

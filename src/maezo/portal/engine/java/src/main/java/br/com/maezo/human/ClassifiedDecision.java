@@ -21,6 +21,7 @@ record ClassifiedDecision(String environment, String bindingDigest, String reque
     String process = Jcs.ref(t, "process_definition_key"), task = Jcs.ref(t, "task_definition_key");
     String kind = switch (process + "/" + task) {
       case "SP-OP-AUTH-001/UT_AnaliseMedicoAuditor", "SP-OP-AUTH-001/UT_CoordenacaoAssume" -> "auth_decisao";
+      case "SP-OP-AUTH-001/UT_DecidirPendenciaExpirada" -> "auth_pendencia";
       case "SP-OP-AUTH-001/UT_RegistrarParecerJunta" -> "auth_junta";
       case "SP-OP-ESCALATION-001/UT_TratarEscalonamento", "SP-OP-ESCALATION-001/UT_SupervisorAssume" -> "escalation";
       case "SP-OP-PAGTO-001/UT_AnaliseAdmissibilidade" -> "pagto_admissibilidade";
@@ -30,6 +31,7 @@ record ClassifiedDecision(String environment, String bindingDigest, String reque
     String field = switch (kind) {
       case "auth_decisao", "auth_junta" -> "decisao_auditor";
       case "escalation" -> "resultado";
+      case "auth_pendencia" -> "decisao_pendencia";
       default -> "decisao_admissibilidade";
     };
     var o = Jcs.object(c.get("outcome"));
@@ -38,6 +40,7 @@ record ClassifiedDecision(String environment, String bindingDigest, String reque
     Set<String> allowed = switch (kind) {
       case "auth_decisao" -> Set.of("APROVAR", "NEGAR", "SOLICITAR_INFO", "JUNTA_MEDICA");
       case "auth_junta" -> Set.of("APROVAR", "NEGAR");
+      case "auth_pendencia" -> Set.of("cancelar_guia", "conceder_prazo_extra", "seguir_analise");
       case "escalation" -> Set.of("resolvido_humano", "devolvido_agente", "emergencia_acionada");
       default -> Set.of("PROSSEGUIR", "DEVOLVER");
     };

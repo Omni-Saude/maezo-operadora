@@ -29,11 +29,14 @@ type PageState =
   | { kind: "loading" }
   | { kind: "ready"; page: CasePageView; loadingMore: boolean }
   | { kind: "failure"; failure: CaseExperienceFailure };
+type CaseTarget = Readonly<{
+  caseRef: string;
+}>;
 type DetailState =
   | { kind: "none" }
-  | { kind: "loading"; summary: CaseSummaryView }
+  | { kind: "loading"; target: CaseTarget }
   | { kind: "ready"; workspace: CaseWorkspaceView }
-  | { kind: "failure"; summary: CaseSummaryView; failure: CaseExperienceFailure };
+  | { kind: "failure"; target: CaseTarget; failure: CaseExperienceFailure };
 
 const failureMessages: Record<CaseExperienceFailure, string> = {
   "session-unavailable": "Sua sessão não está mais disponível.",
@@ -211,9 +214,11 @@ function SelectedCasePanel({
 function ProviderAuthorizationIntake({
   service,
   onFailure,
+  onOpenCase,
 }: {
   service: ProviderAuthorizationService;
   onFailure: (failure: CaseExperienceFailure) => void;
+  onOpenCase: (caseRef: string) => void;
 }) {
   const [form, setForm] = useState<ExperienceResult<AuthorizationIntakeFormView> | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -498,16 +503,25 @@ function ProviderAuthorizationIntake({
             <p className="truthful-state">O caso ainda não foi confirmado como iniciado.</p>
           )}
           {progress.state === "started" && (
-            <dl className="receipt-facts">
-              <div><dt>Caso iniciado</dt><dd className="exact-value">{progress.caseRef}</dd></div>
-              <div><dt>Recibo de início</dt><dd className="exact-value">{progress.startReceiptRef}</dd></div>
-              {progress.revision && (
-                <div><dt>Revisão do acompanhamento</dt><dd className="exact-value">{progress.revision}</dd></div>
-              )}
-              {progress.updatedAt && (
-                <div><dt>Confirmado em</dt><dd>{formatTimestamp(progress.updatedAt)}</dd></div>
-              )}
-            </dl>
+            <>
+              <dl className="receipt-facts">
+                <div><dt>Caso iniciado</dt><dd className="exact-value">{progress.caseRef}</dd></div>
+                <div><dt>Recibo de início</dt><dd className="exact-value">{progress.startReceiptRef}</dd></div>
+                {progress.revision && (
+                  <div><dt>Revisão do acompanhamento</dt><dd className="exact-value">{progress.revision}</dd></div>
+                )}
+                {progress.updatedAt && (
+                  <div><dt>Confirmado em</dt><dd>{formatTimestamp(progress.updatedAt)}</dd></div>
+                )}
+              </dl>
+              <button
+                className="secondary-action compact-action"
+                type="button"
+                onClick={() => onOpenCase(progress.caseRef)}
+              >
+                Abrir caso iniciado
+              </button>
+            </>
           )}
         </section>
       )}
@@ -554,12 +568,12 @@ function AudienceAuthorizationContext({
     downloadUrl.current = null;
     setPreparedDownload(undefined);
   }, []);
-  const selectedSummary =
+  const selectedCaseRef =
     detailState.kind === "none"
       ? undefined
       : detailState.kind === "ready"
-        ? detailState.workspace.summary
-        : detailState.summary;
+        ? detailState.workspace.summary.caseRef
+        : detailState.target.caseRef;
 
   const handleFailure = useCallback((failure: CaseExperienceFailure) => {
     if (isAccessFailure(failure)) {
@@ -607,27 +621,32 @@ function AudienceAuthorizationContext({
     };
   }, [loadFirstPage, releaseDownload]);
 
-  const selectCase = useCallback(async (summary: CaseSummaryView) => {
+  const selectCase = useCallback(async (target: CaseTarget) => {
     releaseDownload();
     detailController.current?.abort();
     const request = new AbortController();
     detailController.current = request;
-    setDetailState({ kind: "loading", summary });
+    setDetailState({ kind: "loading", target });
     try {
-      const result = await service.readCase(summary.caseRef, request.signal);
+      const result = await service.readCase(target.caseRef, request.signal);
       if (request.signal.aborted) return;
       if (result.kind === "failure") {
-        setDetailState({ kind: "failure", summary, failure: result.failure });
+        setDetailState({ kind: "failure", target, failure: result.failure });
         handleFailure(result.failure);
         return;
       }
       setDetailState({ kind: "ready", workspace: result.value });
     } catch (caught) {
       if (!request.signal.aborted && !isAbort(caught)) {
-        setDetailState({ kind: "failure", summary, failure: "dependency-unavailable" });
+        setDetailState({ kind: "failure", target, failure: "dependency-unavailable" });
       }
     }
   }, [handleFailure, releaseDownload, service]);
+
+  const openStartedCase = useCallback((caseRef: string) => {
+    setActiveArea("requests");
+    void selectCase({ caseRef });
+  }, [selectCase]);
 
   const loadMore = useCallback(async () => {
     if (pageState.kind !== "ready" || pageState.page.nextCursor === null) return;
@@ -670,8 +689,12 @@ function AudienceAuthorizationContext({
       if (request.signal.aborted) return;
       if (result.kind === "failure") {
         releaseDownload();
-        if (!isAccessFailure(result.failure) && selectedSummary) {
-          setDetailState({ kind: "failure", summary: selectedSummary, failure: result.failure });
+        if (!isAccessFailure(result.failure) && selectedCaseRef) {
+          setDetailState({
+            kind: "failure",
+            target: { caseRef: selectedCaseRef },
+            failure: result.failure,
+          });
         }
         handleFailure(result.failure);
         return;
@@ -682,12 +705,16 @@ function AudienceAuthorizationContext({
       downloadUrl.current = url;
       setPreparedDownload(url);
     } catch (caught) {
-      if (!request.signal.aborted && !isAbort(caught) && selectedSummary) {
+      if (!request.signal.aborted && !isAbort(caught) && selectedCaseRef) {
         releaseDownload();
-        setDetailState({ kind: "failure", summary: selectedSummary, failure: "dependency-unavailable" });
+        setDetailState({
+          kind: "failure",
+          target: { caseRef: selectedCaseRef },
+          failure: "dependency-unavailable",
+        });
       }
     }
-  }, [accessFailure, detailState.kind, handleFailure, releaseDownload, selectedSummary, service]);
+  }, [accessFailure, detailState.kind, handleFailure, releaseDownload, selectedCaseRef, service]);
 
   const audienceLabel = audience === "beneficiary" ? "beneficiário" : "prestador";
   return (
@@ -720,15 +747,23 @@ function AudienceAuthorizationContext({
             <h2 id="case-list-heading">Suas solicitações</h2>
             <CasePicker
               state={pageState}
-              selectedRef={selectedSummary?.caseRef}
-              onSelect={selectCase}
+              selectedRef={selectedCaseRef}
+              onSelect={(summary) => void selectCase({ caseRef: summary.caseRef })}
               onRetry={() => void loadFirstPage()}
               onLoadMore={() => void loadMore()}
             />
             <SelectedCasePanel
               state={detailState}
               area="requests"
-              onRetry={() => selectedSummary && void selectCase(selectedSummary)}
+              onRetry={() => {
+                if (detailState.kind !== "none" && detailState.kind !== "ready") {
+                  void selectCase(detailState.target);
+                } else if (detailState.kind === "ready") {
+                  void selectCase({
+                    caseRef: detailState.workspace.summary.caseRef,
+                  });
+                }
+              }}
               onDownload={download}
               communicationsClient={communicationsClient}
               onSessionUnavailable={onSessionUnavailable}
@@ -736,10 +771,15 @@ function AudienceAuthorizationContext({
           </section>
           {audience === "provider" && !accessFailure && (
             <div className="stacked-sections">
-              <ProviderAuthorizationIntake service={service} onFailure={handleFailure} />
+              <ProviderAuthorizationIntake
+                service={service}
+                onFailure={handleFailure}
+                onOpenCase={openStartedCase}
+              />
               <IntakeRecoveryPanel
                 service={service}
                 onSessionUnavailable={onSessionUnavailable}
+                onOpenCase={openStartedCase}
               />
             </div>
           )}
@@ -751,8 +791,8 @@ function AudienceAuthorizationContext({
           <section className="selected-case-context" aria-label="Solicitação selecionada">
             <CasePicker
               state={pageState}
-              selectedRef={selectedSummary?.caseRef}
-              onSelect={selectCase}
+              selectedRef={selectedCaseRef}
+              onSelect={(summary) => void selectCase({ caseRef: summary.caseRef })}
               onRetry={() => void loadFirstPage()}
               onLoadMore={() => void loadMore()}
             />
@@ -760,7 +800,15 @@ function AudienceAuthorizationContext({
           <SelectedCasePanel
             state={detailState}
             area={area}
-            onRetry={() => selectedSummary && void selectCase(selectedSummary)}
+            onRetry={() => {
+              if (detailState.kind !== "none" && detailState.kind !== "ready") {
+                void selectCase(detailState.target);
+              } else if (detailState.kind === "ready") {
+                void selectCase({
+                  caseRef: detailState.workspace.summary.caseRef,
+                });
+              }
+            }}
             onDownload={download}
             communicationsClient={communicationsClient}
             onSessionUnavailable={onSessionUnavailable}

@@ -33,7 +33,7 @@ from maezo.gateway.human.decision_binding_qualification import (
 from maezo.gateway.human.models import Scope
 from maezo.gateway.human.read_profile import ArtifactPin, GroupDomain, ReadCatalogEntry
 from maezo.portal.contracts.models import _BINDINGS, _INPUTS_BY_FORM
-from maezo.portal.engine.decision import _BINDINGS as SIX
+from maezo.portal.engine.decision import _LEGACY_BINDINGS as SIX
 from maezo.portal.engine.decision import _OUTCOMES
 from maezo.portal.engine.profile import canonicalize
 
