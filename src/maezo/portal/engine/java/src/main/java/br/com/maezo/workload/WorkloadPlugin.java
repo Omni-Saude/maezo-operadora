@@ -49,6 +49,20 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     WorkloadPlugin value=running;if(value==null)throw Refused.unavailable();return value;
   }
   BoundaryPolicy policy() {policy.current(null);return policy;}
+  /** E04 read-only separation check; no peer enumeration or nested-command permit is returned. */
+  public void requireHumanAuthPeerSeparated(String spki) {
+    if(spki==null||!spki.matches("[0-9a-f]{64}"))throw Refused.denied();
+    if(policy==null||configuration==null||engine==null)throw Refused.unavailable();
+    policy.current(null);
+    if(policy.peers.stream().anyMatch(peer->peer.spki().equals(spki)))throw Refused.denied();
+    // An uninstalled v2 has no executable v2 entry point (v2() already refuses it).
+    // Once installed, its actual current mounted policy must also prove separation.
+    if(nativeV2!=null) {
+      nativeV2.current(null);
+      if(nativeV2.transport.peers.stream().anyMatch(peer->peer.spki().equals(spki)))throw Refused.denied();
+    }
+  }
+
   /** Public cross-classloader SPI bridge; a shared package name does not grant package-private access. */
   public BoundaryPolicy.Peer nativePeer(jakarta.servlet.http.HttpServletRequest request,String engineName) {
     BoundaryPolicy.Peer peer=policy().authenticate(request);
