@@ -88,6 +88,9 @@ async def _qualify_login(engine: AsyncEngine, expected: Connection, seconds: int
             raise PortalStaffBootstrapError()
         pin = expected.function_pin
         if pin is not None:
+            # This login may execute the pinned function only. Catalog privilege
+            # checks include column grants, PUBLIC/ownership and every selectable
+            # role, including NOINHERIT memberships; no identity rows are read.
             function = (
                 (
                     await connection.execute(
@@ -97,7 +100,24 @@ async def _qualify_login(engine: AsyncEngine, expected: Connection, seconds: int
                   has_function_privilege(session_user,p.oid,'EXECUTE') AS executable,
                   pg_has_role(session_user,p.proowner,'MEMBER') AS owner_member,
                   EXISTS(SELECT 1 FROM aclexplode(COALESCE(p.proacl,acldefault('f',p.proowner))) a
-                         WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_execute
+                         WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_execute,
+                  EXISTS(
+                    SELECT 1 FROM pg_class c
+                    JOIN pg_namespace n ON n.oid=c.relnamespace
+                    CROSS JOIN pg_roles candidate
+                    WHERE n.nspname IN ('public','portal_identity')
+                      AND c.relkind IN ('r','p','v','m','f','S')
+                      AND (candidate.rolname=session_user
+                           OR pg_has_role(session_user,candidate.oid,'MEMBER'))
+                      AND CASE WHEN c.relkind='S' THEN
+                        has_sequence_privilege(candidate.oid,c.oid,'USAGE,SELECT,UPDATE')
+                      ELSE
+                        has_table_privilege(candidate.oid,c.oid,
+                          'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                        OR has_any_column_privilege(candidate.oid,c.oid,
+                          'SELECT,INSERT,UPDATE,REFERENCES')
+                      END
+                  ) AS data_authority
                 FROM pg_proc p
                 WHERE p.oid=to_regprocedure('portal_identity.lock_external_session(text)')
             """)
@@ -113,6 +133,7 @@ async def _qualify_login(engine: AsyncEngine, expected: Connection, seconds: int
                 or not function["executable"]
                 or function["owner_member"]
                 or function["public_execute"]
+                or function["data_authority"] is not False
                 or function["proconfig"] != ["search_path=pg_catalog, portal_identity"]
                 or hashlib.sha256(function["definition"].encode()).hexdigest() != pin.definition_sha256
             ):

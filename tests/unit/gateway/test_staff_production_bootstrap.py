@@ -134,6 +134,8 @@ def test_engine_uses_real_hostname_validating_ssl(monkeypatch, tmp_path) -> None
         "owner",
         "definition",
         "public_execute",
+        "data_authority",
+        "unknown_data_authority",
         "owner_member",
         "prosecdef",
         "executable",
@@ -167,11 +169,14 @@ async def test_exact_installed_lock_function_qualification(monkeypatch, change) 
         executable=True,
         owner_member=False,
         public_execute=False,
+        data_authority=False,
         proconfig=["search_path=pg_catalog, portal_identity"],
     )
     if change == "login":
         login["login"] = "unexpected"
-    elif change in {"public_execute", "owner_member"}:
+    elif change == "unknown_data_authority":
+        function["data_authority"] = None
+    elif change in {"public_execute", "owner_member", "data_authority"}:
         function[change] = True
     elif change in {"prosecdef", "executable"}:
         function[change] = False
