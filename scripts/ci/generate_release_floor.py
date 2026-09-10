@@ -27,7 +27,8 @@ number:
                           engineering-gap xfail introduced nets a FLAT or IMPROVED total while a
                           real regression slipped in — audit §5's exact "override hides a P0
                           regression" shape). Must not increase, per priority, regardless of total.
-  - `unit_tests_passed` — the passing count from `<python> -m pytest tests/ -q` (the same invocation
+  - `unit_tests_passed` — the passing count from
+                          `<python> -m pytest tests/ -q -m "not integration"` (the same invocation
                           `make test` runs), parsed off pytest's own final summary line. No existing
                           artifact commits this number anywhere in the repo (unlike the census), so
                           this script performs the SAME measurement `make test` already performs and
@@ -257,15 +258,53 @@ def evaluate_unit_tests(
 _UNIT_TESTS_TIMEOUT_SECONDS = 1800
 
 
+def unit_failure_witness(output: str, repo_root: Path) -> dict[str, Any]:
+    """Bounded source-file groups only: never parameters, tracebacks or exception text."""
+    groups: dict[tuple[str, str], int] = {}
+    in_summary = False
+    unmatched = 0
+    root = repo_root.resolve()
+    for line in output.splitlines():
+        if re.fullmatch(r"=+ short test summary info =+", line.strip()):
+            in_summary = True
+            continue
+        if not in_summary or not line.startswith(("FAILED ", "ERROR ")):
+            continue
+        match = re.match(r"(FAILED|ERROR) (tests/[A-Za-z0-9_./-]+\.py)(?=::|\s|$)", line)
+        if match is None:
+            unmatched += 1
+            continue
+        relative = match.group(2)
+        candidate = root / relative
+        if (
+            ".." in Path(relative).parts
+            or not candidate.is_file()
+            or not candidate.resolve().is_relative_to(root / "tests")
+        ):
+            unmatched += 1
+            continue
+        key = (match.group(1).lower(), relative)
+        groups[key] = groups.get(key, 0) + 1
+    selected = sorted(groups.items())
+    return {
+        "short_summary_present": in_summary,
+        "file_groups": [
+            {"outcome": outcome, "path": path, "reports": count} for (outcome, path), count in selected[:40]
+        ],
+        "omitted_file_groups": max(0, len(selected) - 40),
+        "unmatched_reports": unmatched,
+    }
+
+
 def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int], int, str]:
-    """Runs the SAME invocation `make test` runs (`pytest tests/ -q`) and returns
+    """Runs the SAME invocation `make test` runs (`pytest tests/ -q -m "not integration"`) and returns
     (parsed_counts, returncode, raw_summary_line). Thin I/O wrapper — the fail-closed decision logic
     lives in the pure `evaluate_unit_tests` above so it can be unit-tested without a nested pytest
     subprocess. `stdin=DEVNULL` is deliberate: this subprocess must never be able to block waiting
     on a stdin that was never meant for it."""
     try:
         proc = subprocess.run(
-            [python_exe, "-m", "pytest", "tests/", "-q"],
+            [python_exe, "-m", "pytest", "tests/", "-q", "-m", "not integration"],
             cwd=repo_root,
             capture_output=True,
             text=True,
@@ -273,11 +312,19 @@ def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int]
             timeout=_UNIT_TESTS_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired as exc:
-        raw_line = f"TIMEOUT after {_UNIT_TESTS_TIMEOUT_SECONDS}s running pytest tests/ -q: {exc}"
+        partial = exc.stdout or ""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", errors="replace")
+        print("[release-floor] unit failure witness: " + json.dumps(unit_failure_witness(partial, repo_root)))
+        raw_line = f"TIMEOUT after {_UNIT_TESTS_TIMEOUT_SECONDS}s running unit pytest (not integration)"
         return {}, -1, raw_line
-    output_lines = [ln for ln in (proc.stdout + proc.stderr).splitlines() if ln.strip()]
+    output = proc.stdout + proc.stderr
+    output_lines = [ln for ln in output.splitlines() if ln.strip()]
     raw_line = output_lines[-1] if output_lines else ""
-    return parse_pytest_summary_line(raw_line), proc.returncode, raw_line
+    counts = parse_pytest_summary_line(raw_line)
+    if proc.returncode != 0 or counts.get("failed", 0) or counts.get("error", 0) or "passed" not in counts:
+        print("[release-floor] unit failure witness: " + json.dumps(unit_failure_witness(output, repo_root)))
+    return counts, proc.returncode, raw_line
 
 
 # ---------------------------------------------------------------------------
@@ -450,8 +497,9 @@ def build_floor_document(vector: CapabilityVector) -> dict[str, Any]:
                 "once the 'xfail-census-check' fence below proves it is not stale."
             ),
             "unit_tests_passed": (
-                "final summary line of `<python> -m pytest tests/ -q` (same invocation `make test` "
-                "runs), executed by this script itself; a non-zero exit or any failed/error count "
+                'final summary line of `<python> -m pytest tests/ -q -m "not integration"` '
+                "(same invocation `make test` runs), executed by this script itself; "
+                "a non-zero exit or any failed/error count "
                 "aborts the whole gate before any comparison."
             ),
             "fences_passing": (

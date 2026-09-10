@@ -251,7 +251,7 @@ def test_real_committed_floor_matches_the_measured_xfail_ground_truth() -> None:
 # ---------------------------------------------------------------------------
 #
 # `measure_unit_tests` is the ONE measurement this suite never re-runs for real: it shells out to
-# `<python> -m pytest tests/ -q`, and calling that from INSIDE the very suite it would be re-running
+# `<python> -m pytest tests/ -q -m "not integration"`; calling that from INSIDE the suite
 # is a recursive, ~40s-per-call cost this fast unit lane must not pay. It is monkeypatched here to a
 # canned (counts, returncode, raw_line) triple; `measure_fences` and the xfail census are exercised
 # for REAL against the actual repo (fast, no docker) so the rest of the CLI flow — argument parsing,
@@ -325,3 +325,58 @@ def test_cli_check_without_a_committed_floor_fails_closed(tmp_path: Path) -> Non
 def test_violation_render_shape() -> None:
     v = Violation("some-code", "some detail")
     assert v.render() == "[some-code] some detail"
+
+
+def test_measure_unit_tests_matches_make_unit_scope(tmp_path: Path, monkeypatch, capsys) -> None:
+    import shlex
+    from types import SimpleNamespace
+
+    from scripts.ci import generate_release_floor as floor
+
+    command = []
+
+    def fake_run(argv, **kwargs):
+        command.extend(argv)
+        assert kwargs["cwd"] == tmp_path
+        assert kwargs["timeout"] == 1800
+        assert kwargs["stdin"] == floor.subprocess.DEVNULL
+        return SimpleNamespace(stdout="2 passed in 0.1s\n", stderr="", returncode=0)
+
+    monkeypatch.setattr(floor.subprocess, "run", fake_run)
+    assert floor.measure_unit_tests(tmp_path, "python-scope-check") == (
+        {"passed": 2},
+        0,
+        "2 passed in 0.1s",
+    )
+    recipe = (_REPO_ROOT / "Makefile").read_text().split("test:", 1)[1].splitlines()[1].strip()
+    assert command[1:] == shlex.split(recipe)[1:]
+    assert capsys.readouterr().out == ""
+
+
+def test_unit_failure_witness_omits_parameters_messages_and_unknown_paths(tmp_path: Path) -> None:
+    from scripts.ci.generate_release_floor import unit_failure_witness
+
+    source = tmp_path / "tests/unit/test_example.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("# synthetic source file\n")
+    output = "\n".join(
+        [
+            "FAILED tests/unit/test_example.py::outside_summary[private] - ignored",
+            "==== short test summary info ====",
+            "FAILED tests/unit/test_example.py::test_case[private-value] - private-message",
+            "ERROR tests/unit/test_example.py::test_other - private-exception",
+            "FAILED tests/../secret.py::test_case - private-message",
+            "ERROR tests/not_present.py::test_case - private-message",
+        ]
+    )
+    witness = unit_failure_witness(output, tmp_path)
+    assert witness == {
+        "short_summary_present": True,
+        "file_groups": [
+            {"outcome": "error", "path": "tests/unit/test_example.py", "reports": 1},
+            {"outcome": "failed", "path": "tests/unit/test_example.py", "reports": 1},
+        ],
+        "omitted_file_groups": 0,
+        "unmatched_reports": 2,
+    }
+    assert "private" not in json.dumps(witness)
