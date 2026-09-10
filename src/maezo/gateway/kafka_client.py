@@ -182,6 +182,13 @@ class _MskTokenProvider(AbstractTokenProvider):  # type: ignore[misc]
             frozen = loaded.get_frozen_credentials()
             credentials = Credentials(frozen.access_key, frozen.secret_key, frozen.token)
             session = Session()
+            # Explicit credentials alone do not stop botocore from reading shared
+            # configuration. Close that separate file/profile discovery path too.
+            session.set_config_variable("config_file", os.devnull)
+            session.set_config_variable("credentials_file", os.devnull)
+            # ConfigValueStore's explicit None override stops the environment
+            # chain; Session.set_config_variable(None) would fall through it.
+            session.get_component("config_store").set_config_variable("profile", None)
             # Explicit endpoint/credentials/proxies/CA/retries override ambient SDK choices.
             client = session.create_client(
                 "kafka",

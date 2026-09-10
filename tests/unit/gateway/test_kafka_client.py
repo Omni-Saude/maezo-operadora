@@ -7,6 +7,7 @@ import base64
 import io
 import json
 import logging
+import os
 import ssl
 import time
 from dataclasses import replace
@@ -56,6 +57,9 @@ def wire(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "/v2/credentials/fixture-id")
     # These must never become credential authorities or endpoint overrides.
     monkeypatch.setenv("AWS_CONTAINER_CREDENTIALS_FULL_URI", "https://invalid.example/credentials")
+    monkeypatch.setenv("AWS_PROFILE", "must-not-load-an-ambient-profile")
+    monkeypatch.setenv("AWS_CONFIG_FILE", "/must-not-read-ambient-config")
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", "/must-not-read-ambient-credentials")
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "ambient-not-authority")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "ambient-not-authority")
     monkeypatch.setenv("AWS_ENDPOINT_URL_KAFKA", "https://invalid.example/kafka")
@@ -93,7 +97,24 @@ def wire(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     actual_session = m.Session
 
     class ApiSession:
+        def __init__(self) -> None:
+            self.config: dict[str, str] = {}
+            self.sdk_session = actual_session()
+
+        def get_component(self, name: str) -> Any:
+            assert name == "config_store"
+            return self.sdk_session.get_component(name)
+
+        def set_config_variable(self, name: str, value: str) -> None:
+            self.config[name] = value
+            self.sdk_session.set_config_variable(name, value)
+
         def create_client(self, service: str, **kwargs: Any) -> Any:
+            assert self.config == {
+                "config_file": os.devnull,
+                "credentials_file": os.devnull,
+            }
+            assert self.sdk_session.get_config_variable("profile") is None
             assert service == "kafka"
             assert kwargs["endpoint_url"] == "https://kafka.sa-east-1.amazonaws.com"
             assert kwargs["region_name"] == "sa-east-1" and kwargs["verify"] is True
@@ -101,7 +122,7 @@ def wire(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             assert kwargs["aws_session_token"] == data["Token"]
             assert kwargs["config"].retries == {"total_max_attempts": 1}
             assert kwargs["config"].proxies == {}
-            client = actual_session().create_client(service, **kwargs)
+            client = self.sdk_session.create_client(service, **kwargs)
             stub = Stubber(client)
             if state.get("api_failure"):
                 stub.add_client_error(
