@@ -140,6 +140,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/assignment-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Assignment Context */
+        get: operations["assignment_context_api_v1_portal_tasks__task_id__assignment_context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/portal/tasks/{task_id}/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit Assignment
+         * @description Admit only existing governed claim/release; acknowledgement remains pending.
+         */
+        post: operations["submit_assignment_api_v1_portal_tasks__task_id__assignments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/tasks/{task_id}/decision-context": {
         parameters: {
             query?: never;
@@ -318,6 +355,113 @@ export interface components {
             kind: "ans_revisao";
         };
         /**
+         * AssignmentContextResponse
+         * @description Minimal reviewed mutation basis, without decision inputs or read-only evidence.
+         */
+        AssignmentContextResponse: {
+            /** Allowed Operations */
+            allowed_operations: ("claim" | "release")[];
+            /** Assignee Ref */
+            assignee_ref: string | null;
+            /** Expected Authority Revision */
+            expected_authority_revision: string;
+            /** Expected Evidence Digest */
+            expected_evidence_digest: string;
+            /** Expected Evidence Revision */
+            expected_evidence_revision: string;
+            /** Expected Membership Revision */
+            expected_membership_revision: string;
+            /** Expected Task Revision */
+            expected_task_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            /** Form Version */
+            form_version: string;
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /**
+             * Schema Version
+             * @default portal-assignment-context.v1
+             * @constant
+             */
+            schema_version: "portal-assignment-context.v1";
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
+        };
+        /**
+         * AssignmentReceiptResponse
+         * @description Original assignment receipt with inherited actual proof/status validation.
+         */
+        AssignmentReceiptResponse: {
+            /** Audit Intent Hash */
+            audit_intent_hash: string;
+            /** Audit Intent Ref */
+            audit_intent_ref: string;
+            /** Audit Result Ref */
+            audit_result_ref?: string | null;
+            /** Command Id */
+            command_id: string;
+            /** Consumed Task Revision */
+            consumed_task_revision?: string | null;
+            /** Engine Receipt Ref */
+            engine_receipt_ref?: string | null;
+            /** Engine Recorded At */
+            engine_recorded_at?: string | null;
+            /** Payload Digest */
+            payload_digest: string;
+            /** Principal Ref */
+            principal_ref: string;
+            /** Resulting Task Revision */
+            resulting_task_revision?: string | null;
+            /**
+             * Schema Version
+             * @default human-public-receipt.v1
+             * @constant
+             */
+            schema_version: "human-public-receipt.v1";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "committed" | "conflict";
+            /** Task Id */
+            task_id: string;
+            /** Technical Code */
+            technical_code?: ("REVISION_CONFLICT" | "COMMAND_CONFLICT" | "FORM_NOT_ACTIVATED") | null;
+            /** Tenant */
+            tenant: string;
+            /** Workload Ref */
+            workload_ref: string;
+        };
+        /** AssignmentSubmission */
+        AssignmentSubmission: {
+            /** Command */
+            command: components["schemas"]["ClaimAssignment"] | components["schemas"]["ReleaseAssignment"];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "portal-assignment-submission.v1";
+        };
+        /**
          * AuthDecisionInputs
          * @description AUTH auditor form; ``auditor_id`` is injected later from the trusted principal.
          */
@@ -457,6 +601,49 @@ export interface components {
          *     direct from the canonical decimal string and never passes through float/JavaScript Number.
          */
         Centavos: string;
+        /** ClaimAssignment */
+        ClaimAssignment: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Authority Revision */
+            expected_authority_revision: string;
+            /** Expected Evidence Digest */
+            expected_evidence_digest: string;
+            /** Expected Evidence Revision */
+            expected_evidence_revision: string;
+            /** Expected Membership Revision */
+            expected_membership_revision: string;
+            /** Expected Task Revision */
+            expected_task_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            /** Form Version */
+            form_version: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            operation: "claim";
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+        };
         /**
          * ContasCoordinationInputs
          * @description CONTAS SLA takeover with the same human decision plus its coordination disposition.
@@ -974,6 +1161,45 @@ export interface components {
             /** Valor Aprovado Cents */
             valor_aprovado_cents?: string | null;
         };
+        /**
+         * PendingAdmission
+         * @description Returned by durable adapter after intent+outbox commit; never synthesized by gateway.
+         *
+         *     Shape validation cannot prove persistence. PostgresHumanAdmission constructs this
+         *     only after confirmed commit. The production factory still refuses absent verified
+         *     authority/credential provisioning. This is not an engine execution receipt.
+         */
+        PendingAdmission: {
+            /** Audit Intent Ref */
+            audit_intent_ref: string;
+            /** Command Id */
+            command_id: string;
+            /**
+             * Committed At
+             * Format: date-time
+             */
+            committed_at: string;
+            /** Outbox Ref */
+            outbox_ref: string;
+            /** Principal Ref */
+            principal_ref: string;
+            /** Schema Version */
+            schema_version: number;
+            /**
+             * Status
+             * @default pending
+             * @constant
+             */
+            status: "pending";
+            /** Task Id */
+            task_id: string;
+            /** Tenant */
+            tenant: string;
+            /** Transaction Ref */
+            transaction_ref: string;
+            /** Workload Ref */
+            workload_ref: string;
+        };
         /** PendingDecisionAdmission */
         PendingDecisionAdmission: {
             /** Audit Intent Ref */
@@ -1286,6 +1512,49 @@ export interface components {
              */
             kind: "reembolso_pendencia";
         };
+        /** ReleaseAssignment */
+        ReleaseAssignment: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Authority Revision */
+            expected_authority_revision: string;
+            /** Expected Evidence Digest */
+            expected_evidence_digest: string;
+            /** Expected Evidence Revision */
+            expected_evidence_revision: string;
+            /** Expected Membership Revision */
+            expected_membership_revision: string;
+            /** Expected Task Revision */
+            expected_task_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            /** Form Version */
+            form_version: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            operation: "release";
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+        };
         /**
          * SessionDTO
          * @description Minimal browser projection, never a principal accepted back as authority.
@@ -1466,7 +1735,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DecisionReceiptResponse"];
+                    "application/json": components["schemas"]["DecisionReceiptResponse"] | components["schemas"]["AssignmentReceiptResponse"];
                 };
             };
             /** @description Bad Request */
@@ -1544,7 +1813,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DecisionReceiptResponse"];
+                    "application/json": components["schemas"]["DecisionReceiptResponse"] | components["schemas"]["AssignmentReceiptResponse"];
                 };
             };
             /** @description Bad Request */
@@ -1778,6 +2047,162 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalReadError"];
+                };
+            };
+        };
+    };
+    assignment_context_api_v1_portal_tasks__task_id__assignment_context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentContextResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
+    submit_assignment_api_v1_portal_tasks__task_id__assignments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssignmentSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PendingAdmission"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
                 };
             };
         };

@@ -20,8 +20,14 @@ from starlette.routing import Match
 from maezo.gateway.human.decision import PendingDecisionAdmission
 from maezo.gateway.human.errors import GatewayRefusalError
 from maezo.gateway.human.gateway import HumanGateway
+from maezo.gateway.human.models import PendingAdmission
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.session import HumanSessionResolver
+from maezo.portal.contracts.assignments import (
+    AssignmentContextResponse,
+    AssignmentReceiptResponse,
+    AssignmentSubmission,
+)
 from maezo.portal.contracts.decisions import (
     DecisionContextResponse,
     DecisionErrorCode,
@@ -211,6 +217,57 @@ async def submit_decision(request: Request, task_id: str, body: DecisionSubmissi
         return decision_error("dependency_unavailable")
 
 
+@decision_router.get(
+    _PREFIX + "/tasks/{task_id}/assignment-context",
+    response_model=AssignmentContextResponse,
+    responses=_ERRORS,
+)
+async def assignment_context(request: Request, task_id: str) -> Response:
+    try:
+        task_id = _reference(task_id)
+        secret = _secret(request)
+        result = await _service(request).read_assignment_context(session_secret=secret, task_id=task_id)
+        value = AssignmentContextResponse.from_context(result)
+        content = value.model_dump_json()
+        if value.valid_until <= datetime.now(UTC):
+            return decision_error("authority_unavailable")
+        return Response(content=content, media_type="application/json")
+    except DecisionRequestError:
+        return decision_error("invalid_request")
+    except GatewayRefusalError as exc:
+        return decision_error(exc.code)
+    except Exception:
+        return decision_error("dependency_unavailable")
+
+
+@decision_router.post(
+    _PREFIX + "/tasks/{task_id}/assignments",
+    response_model=PendingAdmission,
+    status_code=202,
+    responses=_ERRORS,
+)
+async def submit_assignment(request: Request, task_id: str, body: AssignmentSubmission) -> Response:
+    """Admit only existing governed claim/release; acknowledgement remains pending."""
+    try:
+        task_id = _reference(task_id)
+        if task_id != body.command.task_id:
+            return decision_error("invalid_request")
+        secret = _secret(request)
+        result = await _service(request).submit_assignment(
+            session_secret=secret,
+            csrf_token=request.headers["x-csrf-token"],
+            origin=request.headers["origin"],
+            command=body.command.to_command(),
+        )
+        return Response(content=result.model_dump_json(), media_type="application/json", status_code=202)
+    except DecisionRequestError:
+        return decision_error("invalid_request")
+    except GatewayRefusalError as exc:
+        return decision_error(exc.code)
+    except Exception:
+        return decision_error("dependency_unavailable")
+
+
 def _receipt_query(request: Request) -> str:
     try:
         raw = request.scope.get("query_string", b"")
@@ -238,9 +295,11 @@ async def _receipt(request: Request, command_id: str, task_id: str) -> Response:
         secret = _secret(request)
         gateway = _service(request)
         result = await gateway.read_receipt(session_secret=secret, task_id=task_id, command_id=command_id)
-        if result.schema_version != "human-public-receipt.v2" or result.operation != "decision":
-            return decision_error("operation_forbidden")
-        value = DecisionReceiptResponse.model_validate(result.model_dump())
+        value: DecisionReceiptResponse | AssignmentReceiptResponse
+        if result.schema_version == "human-public-receipt.v1":
+            value = AssignmentReceiptResponse.model_validate(result.model_dump())
+        else:
+            value = DecisionReceiptResponse.model_validate(result.model_dump())
         content = value.model_dump_json()
         # Rendering may take time. Re-run the actual current receipt/resource/session
         # boundary after rendering; an evolving result is refreshed, never guessed.
@@ -256,11 +315,15 @@ async def _receipt(request: Request, command_id: str, task_id: str) -> Response:
         return decision_error("dependency_unavailable")
 
 
-@decision_router.get(_COMMAND_PATH, response_model=DecisionReceiptResponse, responses=_ERRORS)
+@decision_router.get(
+    _COMMAND_PATH, response_model=DecisionReceiptResponse | AssignmentReceiptResponse, responses=_ERRORS
+)
 async def command_status(request: Request, command_id: str, task_id: str) -> Response:
     return await _receipt(request, command_id, task_id)
 
 
-@decision_router.get(_RECEIPT_PATH, response_model=DecisionReceiptResponse, responses=_ERRORS)
+@decision_router.get(
+    _RECEIPT_PATH, response_model=DecisionReceiptResponse | AssignmentReceiptResponse, responses=_ERRORS
+)
 async def command_receipt(request: Request, command_id: str, task_id: str) -> Response:
     return await _receipt(request, command_id, task_id)

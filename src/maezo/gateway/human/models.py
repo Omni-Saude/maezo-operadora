@@ -112,6 +112,14 @@ class CurrentTaskAuthority(Timed):
     consent_scopes: tuple[OpaqueRef, ...]
 
 
+class AssignmentContext(Timed):
+    """Current mutation context, independent of the Q2 read-only projection."""
+
+    snapshot: TaskSnapshot = Field(repr=False)
+    expected_membership_revision: Revision
+    expected_authority_revision: Revision
+
+
 class AuthorizedAssignment(Closed):
     """Minimized request to the dedicated transactional admission port.
 

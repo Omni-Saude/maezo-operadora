@@ -306,6 +306,377 @@
         "title": "AnsSubmissionReviewInputs",
         "type": "object"
       },
+      "AssignmentContextResponse": {
+        "additionalProperties": false,
+        "description": "Minimal reviewed mutation basis, without decision inputs or read-only evidence.",
+        "properties": {
+          "allowed_operations": {
+            "items": {
+              "enum": [
+                "claim",
+                "release"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Operations",
+            "type": "array"
+          },
+          "assignee_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Ref"
+          },
+          "expected_authority_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Authority Revision",
+            "type": "string"
+          },
+          "expected_evidence_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Evidence Digest",
+            "type": "string"
+          },
+          "expected_evidence_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Evidence Revision",
+            "type": "string"
+          },
+          "expected_membership_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Membership Revision",
+            "type": "string"
+          },
+          "expected_task_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Task Revision",
+            "type": "string"
+          },
+          "form_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Form Digest",
+            "type": "string"
+          },
+          "form_key": {
+            "enum": [
+              "auth_decisao",
+              "auth_junta",
+              "escalation",
+              "pagto_admissibilidade",
+              "contas_decisao",
+              "contas_coordenacao",
+              "recurso_decisao",
+              "recurso_coordenacao",
+              "recurso_auditor",
+              "reembolso_pendencia",
+              "reembolso_decisao",
+              "reembolso_auditor",
+              "cancel_decisao",
+              "inad_decisao",
+              "programa_decisao",
+              "cred_descred",
+              "cred_cred",
+              "adequacao_decisao",
+              "adequacao_coordenacao",
+              "nip_minuta",
+              "nip_decisao",
+              "lgpd_decisao",
+              "auth_pendencia",
+              "pagto_aprovacao",
+              "pagto_coordenacao",
+              "fraude_decisao",
+              "fraude_referral",
+              "ans_revisao",
+              "ans_coordenacao",
+              "ans_pendencia",
+              "ans_nack"
+            ],
+            "title": "Form Key",
+            "type": "string"
+          },
+          "form_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Form Version",
+            "type": "string"
+          },
+          "process_definition_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Process Definition Digest",
+            "type": "string"
+          },
+          "process_definition_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Id",
+            "type": "string"
+          },
+          "process_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Key",
+            "type": "string"
+          },
+          "process_definition_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Process Definition Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "portal-assignment-context.v1",
+            "default": "portal-assignment-context.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "task_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "valid_until": {
+            "format": "date-time",
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "process_definition_key",
+          "process_definition_version",
+          "process_definition_id",
+          "process_definition_digest",
+          "task_definition_key",
+          "form_key",
+          "form_version",
+          "form_digest",
+          "expected_task_revision",
+          "expected_evidence_revision",
+          "expected_evidence_digest",
+          "expected_membership_revision",
+          "expected_authority_revision",
+          "assignee_ref",
+          "allowed_operations",
+          "valid_until"
+        ],
+        "title": "AssignmentContextResponse",
+        "type": "object"
+      },
+      "AssignmentReceiptResponse": {
+        "additionalProperties": false,
+        "description": "Original assignment receipt with inherited actual proof/status validation.",
+        "properties": {
+          "audit_intent_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Audit Intent Hash",
+            "type": "string"
+          },
+          "audit_intent_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Audit Intent Ref",
+            "type": "string"
+          },
+          "audit_result_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Result Ref"
+          },
+          "command_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "consumed_task_revision": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed Task Revision"
+          },
+          "engine_receipt_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Receipt Ref"
+          },
+          "engine_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Recorded At"
+          },
+          "payload_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Payload Digest",
+            "type": "string"
+          },
+          "principal_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Principal Ref",
+            "type": "string"
+          },
+          "resulting_task_revision": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resulting Task Revision"
+          },
+          "schema_version": {
+            "const": "human-public-receipt.v1",
+            "default": "human-public-receipt.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "committed",
+              "conflict"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "technical_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "REVISION_CONFLICT",
+                  "COMMAND_CONFLICT",
+                  "FORM_NOT_ACTIVATED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Code"
+          },
+          "tenant": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "workload_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Workload Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "task_id",
+          "command_id",
+          "payload_digest",
+          "principal_ref",
+          "workload_ref",
+          "status",
+          "audit_intent_ref",
+          "audit_intent_hash"
+        ],
+        "title": "AssignmentReceiptResponse",
+        "type": "object"
+      },
+      "AssignmentSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "discriminator": {
+              "mapping": {
+                "claim": "#/components/schemas/ClaimAssignment",
+                "release": "#/components/schemas/ReleaseAssignment"
+              },
+              "propertyName": "operation"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClaimAssignment"
+              },
+              {
+                "$ref": "#/components/schemas/ReleaseAssignment"
+              }
+            ],
+            "title": "Command"
+          },
+          "schema_version": {
+            "const": "portal-assignment-submission.v1",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command"
+        ],
+        "title": "AssignmentSubmission",
+        "type": "object"
+      },
       "AuthDecisionInputs": {
         "additionalProperties": false,
         "description": "AUTH auditor form; ``auditor_id`` is injected later from the trusted principal.",
@@ -803,6 +1174,160 @@
         "pattern": "^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$",
         "title": "Centavos",
         "type": "string"
+      },
+      "ClaimAssignment": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "expected_authority_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Authority Revision",
+            "type": "string"
+          },
+          "expected_evidence_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Evidence Digest",
+            "type": "string"
+          },
+          "expected_evidence_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Evidence Revision",
+            "type": "string"
+          },
+          "expected_membership_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Membership Revision",
+            "type": "string"
+          },
+          "expected_task_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Task Revision",
+            "type": "string"
+          },
+          "form_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Form Digest",
+            "type": "string"
+          },
+          "form_key": {
+            "enum": [
+              "auth_decisao",
+              "auth_junta",
+              "escalation",
+              "pagto_admissibilidade",
+              "contas_decisao",
+              "contas_coordenacao",
+              "recurso_decisao",
+              "recurso_coordenacao",
+              "recurso_auditor",
+              "reembolso_pendencia",
+              "reembolso_decisao",
+              "reembolso_auditor",
+              "cancel_decisao",
+              "inad_decisao",
+              "programa_decisao",
+              "cred_descred",
+              "cred_cred",
+              "adequacao_decisao",
+              "adequacao_coordenacao",
+              "nip_minuta",
+              "nip_decisao",
+              "lgpd_decisao",
+              "auth_pendencia",
+              "pagto_aprovacao",
+              "pagto_coordenacao",
+              "fraude_decisao",
+              "fraude_referral",
+              "ans_revisao",
+              "ans_coordenacao",
+              "ans_pendencia",
+              "ans_nack"
+            ],
+            "title": "Form Key",
+            "type": "string"
+          },
+          "form_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Form Version",
+            "type": "string"
+          },
+          "operation": {
+            "const": "claim",
+            "title": "Operation",
+            "type": "string"
+          },
+          "process_definition_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Process Definition Digest",
+            "type": "string"
+          },
+          "process_definition_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Id",
+            "type": "string"
+          },
+          "process_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Key",
+            "type": "string"
+          },
+          "process_definition_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Process Definition Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "task_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "operation",
+          "task_id",
+          "process_definition_key",
+          "process_definition_version",
+          "process_definition_id",
+          "process_definition_digest",
+          "task_definition_key",
+          "form_key",
+          "form_version",
+          "form_digest",
+          "expected_task_revision",
+          "expected_evidence_revision",
+          "expected_evidence_digest",
+          "expected_membership_revision",
+          "expected_authority_revision"
+        ],
+        "title": "ClaimAssignment",
+        "type": "object"
       },
       "ContasCoordinationInputs": {
         "additionalProperties": false,
@@ -2274,6 +2799,99 @@
         "title": "PagtoCoordinationInputs",
         "type": "object"
       },
+      "PendingAdmission": {
+        "additionalProperties": false,
+        "description": "Returned by durable adapter after intent+outbox commit; never synthesized by gateway.\n\nShape validation cannot prove persistence. PostgresHumanAdmission constructs this\nonly after confirmed commit. The production factory still refuses absent verified\nauthority/credential provisioning. This is not an engine execution receipt.",
+        "properties": {
+          "audit_intent_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Audit Intent Ref",
+            "type": "string"
+          },
+          "command_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "committed_at": {
+            "format": "date-time",
+            "title": "Committed At",
+            "type": "string"
+          },
+          "outbox_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Outbox Ref",
+            "type": "string"
+          },
+          "principal_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Principal Ref",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "status": {
+            "const": "pending",
+            "default": "pending",
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "tenant": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "transaction_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Transaction Ref",
+            "type": "string"
+          },
+          "workload_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Workload Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "tenant",
+          "task_id",
+          "command_id",
+          "principal_ref",
+          "workload_ref",
+          "audit_intent_ref",
+          "outbox_ref",
+          "transaction_ref",
+          "committed_at"
+        ],
+        "title": "PendingAdmission",
+        "type": "object"
+      },
       "PendingDecisionAdmission": {
         "additionalProperties": false,
         "properties": {
@@ -3209,6 +3827,160 @@
         "title": "ReembolsoPendingInputs",
         "type": "object"
       },
+      "ReleaseAssignment": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "expected_authority_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Authority Revision",
+            "type": "string"
+          },
+          "expected_evidence_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Evidence Digest",
+            "type": "string"
+          },
+          "expected_evidence_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Evidence Revision",
+            "type": "string"
+          },
+          "expected_membership_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Membership Revision",
+            "type": "string"
+          },
+          "expected_task_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Task Revision",
+            "type": "string"
+          },
+          "form_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Form Digest",
+            "type": "string"
+          },
+          "form_key": {
+            "enum": [
+              "auth_decisao",
+              "auth_junta",
+              "escalation",
+              "pagto_admissibilidade",
+              "contas_decisao",
+              "contas_coordenacao",
+              "recurso_decisao",
+              "recurso_coordenacao",
+              "recurso_auditor",
+              "reembolso_pendencia",
+              "reembolso_decisao",
+              "reembolso_auditor",
+              "cancel_decisao",
+              "inad_decisao",
+              "programa_decisao",
+              "cred_descred",
+              "cred_cred",
+              "adequacao_decisao",
+              "adequacao_coordenacao",
+              "nip_minuta",
+              "nip_decisao",
+              "lgpd_decisao",
+              "auth_pendencia",
+              "pagto_aprovacao",
+              "pagto_coordenacao",
+              "fraude_decisao",
+              "fraude_referral",
+              "ans_revisao",
+              "ans_coordenacao",
+              "ans_pendencia",
+              "ans_nack"
+            ],
+            "title": "Form Key",
+            "type": "string"
+          },
+          "form_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Form Version",
+            "type": "string"
+          },
+          "operation": {
+            "const": "release",
+            "title": "Operation",
+            "type": "string"
+          },
+          "process_definition_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Process Definition Digest",
+            "type": "string"
+          },
+          "process_definition_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Id",
+            "type": "string"
+          },
+          "process_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Key",
+            "type": "string"
+          },
+          "process_definition_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Process Definition Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "task_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "operation",
+          "task_id",
+          "process_definition_key",
+          "process_definition_version",
+          "process_definition_id",
+          "process_definition_digest",
+          "task_definition_key",
+          "form_key",
+          "form_version",
+          "form_digest",
+          "expected_task_revision",
+          "expected_evidence_revision",
+          "expected_evidence_digest",
+          "expected_membership_revision",
+          "expected_authority_revision"
+        ],
+        "title": "ReleaseAssignment",
+        "type": "object"
+      },
       "SessionDTO": {
         "additionalProperties": false,
         "description": "Minimal browser projection, never a principal accepted back as authority.",
@@ -3521,7 +4293,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DecisionReceiptResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DecisionReceiptResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssignmentReceiptResponse"
+                    }
+                  ],
+                  "title": "Response Command Status Api V1 Portal Commands  Command Id  Get"
                 }
               }
             },
@@ -3619,7 +4399,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DecisionReceiptResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DecisionReceiptResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AssignmentReceiptResponse"
+                    }
+                  ],
+                  "title": "Response Command Receipt Api V1 Portal Commands  Command Id  Receipt Get"
                 }
               }
             },
@@ -3882,6 +4670,195 @@
           }
         },
         "summary": "Read Task"
+      }
+    },
+    "/api/v1/portal/tasks/{task_id}/assignment-context": {
+      "get": {
+        "operationId": "assignment_context_api_v1_portal_tasks__task_id__assignment_context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Assignment Context"
+      }
+    },
+    "/api/v1/portal/tasks/{task_id}/assignments": {
+      "post": {
+        "description": "Admit only existing governed claim/release; acknowledgement remains pending.",
+        "operationId": "submit_assignment_api_v1_portal_tasks__task_id__assignments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingAdmission"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Assignment"
       }
     },
     "/api/v1/portal/tasks/{task_id}/decision-context": {
