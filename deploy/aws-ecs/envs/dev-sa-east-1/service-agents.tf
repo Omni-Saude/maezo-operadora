@@ -88,7 +88,12 @@ check "ratificacao_da_zona_da_narrativa" {
 
 locals {
   # Helena (ver comentario dentro de `agentes.helena`): o provedor dela segue a atestacao PHI.
-  helena_phi_ligado = trimspace(var.phi_vendor_dpa_ref) != ""
+  # DUAS condicoes, e a ordem importa: a atestacao existir (`phi_vendor_dpa_ref`) E o dono ter
+  # decidido que a TRIAGEM vai para o provedor de zona de saude (`helena_zona_phi`). A atestacao
+  # ja' existe no ambiente desde 20/08 (rafael/marina) — se ela sozinha ligasse a Helena, promover
+  # a imagem dos agentes passando os mesmos `-var` viraria a triagem para Mistral sem ninguem
+  # decidir isso. Medido em 09/09/2026 no plan da promocao. Ligar a Helena = `-var helena_zona_phi=true`.
+  helena_phi_ligado = var.helena_zona_phi && trimspace(var.phi_vendor_dpa_ref) != ""
   helena_provider   = local.helena_phi_ligado ? var.phi_zone_provider : var.inference_provider
 }
 

@@ -201,7 +201,7 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "40dc6d4"
+  default     = "c745fd94" # main de 09/09/2026 — promocao dos 5 servicos (worker primeiro); antes 40dc6d4 de 27/08, 1.304 commits atras
 }
 
 variable "webhook_receiver_image_tag" {
@@ -214,7 +214,7 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "31b81c34" # grupos canonicos com hifen + admissao regional PHI (09/09/2026)
+  default     = "c745fd94" # igual a image_tag desde a promocao de 09/09 — a separacao cumpriu o papel e pode ser unificada num proximo PR
 }
 
 variable "webhook_receiver_desired_count" {
@@ -227,6 +227,18 @@ variable "bridge_desired_count" {
   description = "Replicas da ponte de notificacao (consumer do topico interno -> start auditado de processos). 1 para o passo 9 existir; 0 para tirar do ar."
   type        = number
   default     = 1
+}
+
+variable "helena_zona_phi" {
+  description = <<-EOT
+    Decisao do dono (09/09/2026, ainda NAO tomada): a inferencia da Helena vai para o provedor da
+    zona de saude (`phi_zone_provider`, hoje bedrock_br/Mistral em sa-east-1)? O grafo dela marca
+    toda chamada como PHI; com `false` (default) e o `bedrock` comum, TODO turno cai em
+    `falha_tecnica` -> humano (seguro, nao o desejado). `true` so' tem efeito com
+    `phi_vendor_dpa_ref` preenchido — a atestacao continua sendo a outra metade.
+  EOT
+  type        = bool
+  default     = false
 }
 
 variable "log_retention_days" {
