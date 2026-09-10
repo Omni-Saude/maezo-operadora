@@ -313,7 +313,8 @@ def test_actual_main_modes_and_transitive_pin_gate_before_runner():
 
 
 @pytest.mark.parametrize("fit", [True, False])
-def test_actual_main_proof_branch_cannot_fall_through_to_startup(tmp_path, fit):
+@pytest.mark.parametrize("cleanup_failure", [False, True])
+def test_actual_main_proof_branch_cannot_fall_through_to_startup(tmp_path, fit, cleanup_failure):
 
     root = tmp_path.resolve()
     checkout = root / "materialized"
@@ -326,6 +327,7 @@ def test_actual_main_proof_branch_cannot_fall_through_to_startup(tmp_path, fit):
     lock.acquire.return_value = True
     lock.update.return_value = True
     runner = Mock()
+    runner._pending_groups = set()
     runner.LOCK_DIR = root / "lease"
     runner.EngineLock.create.return_value = lock
     runner.validate_checkout.return_value = (w.INPUT, None)
@@ -374,12 +376,16 @@ def test_actual_main_proof_branch_cannot_fall_through_to_startup(tmp_path, fit):
         patch.object(w, "read_context", context),
         patch.object(w, "Executor", return_value=fake_executor),
         patch.object(w, "_proof_identity_only", return_value=result) as proof,
-        patch.object(w, "finish") as finish,
+        patch.object(
+            w,
+            "finish",
+            side_effect=ValueError("synthetic private cleanup fault") if cleanup_failure else None,
+        ) as finish,
         patch.object(w.signal, "signal"),
         patch.object(w.subprocess, "Popen") as spawn,
     ):
         rc = w.main()
-    assert rc == (0 if fit else 1)
+    assert rc == (0 if fit and not cleanup_failure else 1)
     proof.assert_called_once()
     finish.assert_called_once()
     fake_executor.assert_not_called()
@@ -387,7 +393,12 @@ def test_actual_main_proof_branch_cannot_fall_through_to_startup(tmp_path, fit):
     final = json.loads((output / "state.json").read_text())
     assert final["actual_acceptance"] is False
     assert "actual_http_cases_passed" not in final
-    assert json.loads((output / "identity-proof.json").read_text())["cleanup_status"] == "VERIFIED_RELEASED"
+    assert json.loads((output / "identity-proof.json").read_text())["cleanup_status"] == (
+        "RETAINED" if cleanup_failure else "VERIFIED_RELEASED"
+    )
+    if cleanup_failure:
+        assert not final["identity_proof"]["identity_chain_fit"]
+        assert final["identity_proof"]["next_action"] == "ROOT_RECOVERY_REQUIRED"
 
 
 def test_measured_deadline_refuses_without_reset_then_owned_cleanup(tmp_path):
