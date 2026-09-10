@@ -300,7 +300,9 @@ class PhiDatabase:
         raise AssertionError(sql)
 
     @asynccontextmanager
-    async def acquire(self, grant, deadline):
+    async def acquire(self, grant, deadline, *, lifetime=None):
+        if lifetime is not None:
+            lifetime.intersect(deadline, grant.ceiling())
         alive(deadline, grant.ceiling())
         snapshot = copy.deepcopy((self.contents, self.provenance))
         try:
@@ -530,7 +532,9 @@ class MetadataDatabase:
         self.fail_recipient = None
 
     @asynccontextmanager
-    async def acquire(self, grant, deadline):
+    async def acquire(self, grant, deadline, *, lifetime=None):
+        if lifetime is not None:
+            lifetime.intersect(deadline, grant.ceiling())
         alive(deadline, grant.ceiling())
         snapshot = copy.deepcopy(self.tables)
         try:

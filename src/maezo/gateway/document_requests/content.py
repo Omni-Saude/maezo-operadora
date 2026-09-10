@@ -15,7 +15,7 @@ from maezo.gateway.human.read_profile import digest, parse_model, wire
 from maezo.gateway.intake.native_store import PostgresAuthDispatchStore
 from maezo.portal.engine.profile import canonicalize
 
-from .admission import SystemAdmission, lock_key, one
+from .admission import AdmissionLifetime, SystemAdmission, lock_key, one
 from .models import (
     BodyFound,
     BodyRefused,
@@ -178,12 +178,18 @@ class PhiRequestContent:
         )
 
     async def preserve(
-        self, grant: SystemGrant, body: RequestBodyCommand, deadline: datetime
+        self,
+        grant: SystemGrant,
+        body: RequestBodyCommand,
+        deadline: datetime,
+        *,
+        lifetime: AdmissionLifetime | None = None,
     ) -> RequestBodyReceipt:
         self._bind_preserve(grant, body)
-        ceiling = alive(deadline, grant.ceiling(), self.keys.valid_until)
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        ceiling = lifetime.intersect(deadline, grant.ceiling(), self.keys.valid_until)
         sender, command = body.sender_identity_digest, body.command_id
-        async with self.admission.acquire(grant, ceiling) as c:
+        async with self.admission.acquire(grant, ceiling, lifetime=lifetime) as c:
             await lock_key(c, {"scope": grant.access.scope.model_dump(), "sender": sender, "body": command})
             original = await self._original(c, sender, command)
             if original is not None:
@@ -250,14 +256,20 @@ class PhiRequestContent:
                     ),
                 )
             alive(ceiling)
-        alive(ceiling)
+        lifetime.current()
         return receipt
 
     async def read_receipt(
-        self, grant: SystemGrant, selected: RequestBodyReceiptSelector, deadline: datetime
+        self,
+        grant: SystemGrant,
+        selected: RequestBodyReceiptSelector,
+        deadline: datetime,
+        *,
+        lifetime: AdmissionLifetime | None = None,
     ) -> BodyFound | BodyRefused:
         a = grant.access
-        ceiling = alive(deadline, grant.ceiling(), self.keys.valid_until)
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        ceiling = lifetime.intersect(deadline, grant.ceiling(), self.keys.valid_until)
         require(
             a.operation == "read_request_body_receipt"
             and grant.body_bindings == (selected,)
@@ -280,7 +292,7 @@ class PhiRequestContent:
                 == actual
             )
         result: BodyFound | BodyRefused
-        async with self.admission.acquire(grant, ceiling) as c:
+        async with self.admission.acquire(grant, ceiling, lifetime=lifetime) as c:
             original = await self._original(c, selected.sender_identity_digest, selected.body_command_id)
             if original is None:
                 result = BodyRefused(state="refused")
@@ -303,21 +315,33 @@ class PhiRequestContent:
                     require(getattr(a, key) == getattr(origin.access, key))
                 result = BodyFound(state="found", selector_digest=digest(selected), receipt=receipt)
             alive(ceiling)
-        alive(ceiling)
+        lifetime.current()
         return result
 
     async def preserve_proven(
-        self, grant: SystemGrant, body: RequestBodyCommand, deadline: datetime
+        self,
+        grant: SystemGrant,
+        body: RequestBodyCommand,
+        deadline: datetime,
+        *,
+        lifetime: AdmissionLifetime | None = None,
     ) -> AuthenticatedBodyReceipt:
-        receipt = await self.preserve(grant, body, deadline)
-        alive(deadline, grant.ceiling(), self.keys.valid_until)
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        receipt = await self.preserve(grant, body, deadline, lifetime=lifetime)
+        lifetime.intersect(deadline, grant.ceiling(), self.keys.valid_until)
         return AuthenticatedBodyReceipt(receipt, _mint=_COMMITTED)
 
     async def recover_proven(
-        self, grant: SystemGrant, selected: RequestBodyReceiptSelector, deadline: datetime
+        self,
+        grant: SystemGrant,
+        selected: RequestBodyReceiptSelector,
+        deadline: datetime,
+        *,
+        lifetime: AdmissionLifetime | None = None,
     ) -> AuthenticatedBodyReceipt:
-        result = await self.read_receipt(grant, selected, deadline)
-        alive(deadline, grant.ceiling(), self.keys.valid_until)
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        result = await self.read_receipt(grant, selected, deadline, lifetime=lifetime)
+        lifetime.intersect(deadline, grant.ceiling(), self.keys.valid_until)
         require(isinstance(result, BodyFound), "uncertain")
         assert isinstance(result, BodyFound)
         return AuthenticatedBodyReceipt(result.receipt, _mint=_COMMITTED)

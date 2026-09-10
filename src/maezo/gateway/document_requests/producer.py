@@ -11,6 +11,7 @@ import os
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -27,7 +28,7 @@ from maezo.gateway.native_fetch.adapter import AcquiredInputs
 from maezo.gateway.native_fetch.models import decode, sha
 from maezo.portal.engine.profile import canonicalize
 
-from .admission import SystemPublisher, lock_key, one
+from .admission import AdmissionLifetime, SystemPublisher, lock_key, one
 from .completion import CompletionClient, CompletionOutcome, PreparedCompletion
 from .content import AuthenticatedBodyReceipt, PhiRequestContent
 from .models import (
@@ -71,6 +72,21 @@ class DocumentRequestPolicySource(ABC):
         self, observation: ProducerObservation, original: InputPublication | None
     ) -> AuthPublicationSnapshot:
         """Restore the exact original durable source freeze if already sealed."""
+        raise NotImplementedError
+
+    async def successor(
+        self,
+        observation: ProducerObservation,
+        predecessor: RequestDeliveryCommand,
+        invocation_ref: str,
+        original: InputPublication | None,
+    ) -> AuthPublicationSnapshot:
+        """Admit distinct source-owned W4/W5 work, restoring its exact freeze.
+
+        An invocation reference selects intent; it grants no authority. Existing
+        sources cannot implicitly reinterpret policy(None) as new permission.
+        """
+        require(False, "unavailable")
         raise NotImplementedError
 
     @abstractmethod
@@ -215,6 +231,11 @@ class ProducerJournal:
 class ProducerResult:
     inbox: RequestInboxReceipt
     completion: CompletionOutcome
+    _valid_until: datetime
+
+    def current(self) -> None:
+        """Retain the admitted minimum across the public composition handoff."""
+        alive(self._valid_until)
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -300,7 +321,7 @@ class DocumentRequestProducer:
             },
         )
 
-    async def _grant(self, access: SystemAccess, *, phi: bool) -> SystemGrant:
+    async def _grant(self, access: SystemAccess, *, phi: bool, lifetime: AdmissionLifetime) -> SystemGrant:
         publisher = self.phi_publisher if phi else self.inbox_publisher
         admission = self.content.admission if phi else self.inbox.admission
         # The source journals/verifies the exact publication before its own send.
@@ -310,7 +331,7 @@ class DocumentRequestProducer:
             "authority-" + digest(receipt),
             {"access": wire(access), "receipt": wire(receipt)},
         )
-        return await admission.authorize(access)
+        return await admission.authorize(access, lifetime=lifetime)
 
     def _command_access(self, operation: Any, command: RequestDeliveryCommand) -> SystemAccess:
         return self._access(
@@ -322,9 +343,17 @@ class DocumentRequestProducer:
             command,
         )
 
-    async def _read_inbox(self, command: RequestDeliveryCommand) -> tuple[RequestInboxReceipt, SystemGrant]:
-        grant = await self._grant(self._command_access("read_request_receipt", command), phi=False)
-        return await self.inbox.read_receipt(grant, command.sender_identity_digest, grant.ceiling()), grant
+    async def _read_inbox(
+        self, command: RequestDeliveryCommand, lifetime: AdmissionLifetime
+    ) -> tuple[RequestInboxReceipt, SystemGrant]:
+        grant = await self._grant(
+            self._command_access("read_request_receipt", command), phi=False, lifetime=lifetime
+        )
+        receipt = await self.inbox.read_receipt(
+            grant, command.sender_identity_digest, grant.ceiling(), lifetime=lifetime
+        )
+        lifetime.current()
+        return receipt, grant
 
     async def run(self, inputs: AcquiredInputs) -> ProducerResult:
         """Only authentic selected native inputs enter new work; restart uses recover()."""
@@ -372,6 +401,18 @@ class DocumentRequestProducer:
             observed,
             None if original is None else parse_model(InputPublication, original.payload["publication"]),
         )
+        return await self._plan(outer, observed, acquired, snapshot, acquired)
+
+    async def _plan(
+        self,
+        outer: str,
+        observed: ProducerObservation,
+        acquired: ProducerAcquisition,
+        snapshot: AuthPublicationSnapshot,
+        completion_acquisition: ProducerAcquisition | None,
+        lifetime: AdmissionLifetime | None = None,
+        predecessor: RequestDeliveryCommand | None = None,
+    ) -> ProducerResult:
         require(snapshot.publication.kind == "document_policy" and snapshot.publication.state == "active")
         policy = snapshot.publication.payload
         require(isinstance(policy, DocumentPolicy) and policy.submitted_response_digest is None)
@@ -391,6 +432,10 @@ class DocumentRequestProducer:
         prior = await self.journal.read(outer, "plan")
         if prior is None:
             plan = await self.source.notice(attached, policy, receipt)
+            if predecessor is not None:
+                # Its authenticated receipt covers all prior notice associations.
+                # Never replace an uncertain predecessor with a new body command.
+                require(plan.prior_commands == (predecessor,), "conflict")
             ids = [r.identity_digest for r in plan.recipients]
             require(
                 ids == sorted(set(ids))
@@ -411,11 +456,84 @@ class DocumentRequestProducer:
                 select_once=True,
             )
         # A subsequent live query never rebinds any sealed body to newer assessment bytes.
-        return await self._deliver(outer, prior.payload, acquired)
+        return await self._deliver(outer, prior.payload, completion_acquisition, lifetime)
+
+    async def successor(
+        self, inputs: AcquiredInputs, predecessor_command_id: str, invocation_ref: str
+    ) -> ProducerResult:
+        """Source-authorized same-occurrence refresh; no new native completion.
+
+        A successful historical read is required even when the predecessor's
+        native completion remains uncertain. Every predecessor journal stage is
+        retained. Repeated invocation selects its sealed outer command, never a
+        replacement for a possibly sent command.
+        """
+        require(isinstance(invocation_ref, str) and 16 <= len(invocation_ref) <= 128)
+        acquired = ProducerAcquisition(inputs)
+        observed = await self.context.observe(acquired)
+        observed.current()
+        lifetime = AdmissionLifetime()
+        stored = await self.journal.read(predecessor_command_id, "delivery")
+        require(stored is not None and stored.state != "sealed", "uncertain")
+        assert stored is not None
+        predecessor = parse_model(RequestDeliveryCommand, stored.payload["command"])
+        require(
+            predecessor.command_id == predecessor_command_id
+            and predecessor.request == observed.context.identity(),
+            "conflict",
+        )
+        require(predecessor.sender_identity_digest == self.producer.identity_digest, "conflict")
+        await self._read_inbox(predecessor, lifetime)
+        kind = "successor-" + digest({"invocation_ref": invocation_ref})
+        seed = await self.journal.seal(
+            observed.context.request_ref,
+            kind,
+            {
+                "outer_command_id": uuid4().hex,
+                "predecessor": wire(predecessor),
+                "request": wire(observed.context.identity()),
+                "producer": wire(self.producer),
+            },
+            select_once=True,
+        )
+        require(
+            seed.payload["predecessor"] == wire(predecessor)
+            and seed.payload["request"] == wire(observed.context.identity()),
+            "conflict",
+        )
+        self._original_producer(seed.payload["producer"])
+        outer = seed.payload["outer_command_id"]
+        plan = await self.journal.read(outer, "plan")
+        if plan is not None:
+            return await self._resume(outer, seed.payload, None, lifetime)
+        original = await self.journal.read(outer, "policy")
+        snapshot = await self.source.successor(
+            observed,
+            predecessor,
+            invocation_ref,
+            None if original is None else parse_model(InputPublication, original.payload["publication"]),
+        )
+        lifetime.current()
+        return await self._plan(outer, observed, acquired, snapshot, None, lifetime, predecessor)
+
+    async def recover_successor(self, request_ref: str, invocation_ref: str) -> ProducerResult:
+        """Receipt-only restart of an already sealed successor, without acquisition."""
+        require(isinstance(invocation_ref, str) and 16 <= len(invocation_ref) <= 128)
+        seed = await self.journal.read(request_ref, "successor-" + digest({"invocation_ref": invocation_ref}))
+        require(seed is not None, "uncertain")
+        assert seed is not None
+        self._original_producer(seed.payload["producer"])
+        require(seed.payload["request"]["request_ref"] == request_ref, "conflict")
+        return await self._resume(seed.payload["outer_command_id"], seed.payload, None, AdmissionLifetime())
 
     async def _deliver(
-        self, outer: str, payload: dict[str, Any], acquired: ProducerAcquisition | None
+        self,
+        outer: str,
+        payload: dict[str, Any],
+        acquired: ProducerAcquisition | None,
+        lifetime: AdmissionLifetime | None = None,
     ) -> ProducerResult:
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
         plan = parse_model(NoticePlan, payload["plan"])
         context = parse_model(ProducerContext, payload["context"])
         version = parse_model(PolicyAssessmentVersion, payload["version"])
@@ -432,7 +550,7 @@ class DocumentRequestProducer:
         historical: dict[str, DeliveryRecord] = {}
         for old_command in plan.prior_commands:
             require(old_command.request == context.identity())
-            old_receipt, _ = await self._read_inbox(old_command)
+            old_receipt, _ = await self._read_inbox(old_command, lifetime)
             for record in old_receipt.deliveries:
                 if record.recipient_identity_digest in ids:
                     require(record.recipient_identity_digest not in historical, "conflict")
@@ -479,7 +597,7 @@ class DocumentRequestProducer:
             access = self._access(
                 operation, body.command_id, digest(body), payload["context_query_digest"], body.request, pins
             )
-            grant = await self._grant(access, phi=True)
+            grant = await self._grant(access, phi=True, lifetime=lifetime)
             mutation = entry.state == "sealed" and await self.journal.claim_send(
                 outer, "body-" + recipient_id
             )
@@ -492,11 +610,11 @@ class DocumentRequestProducer:
                     body.request,
                     pins,
                 )
-                grant = await self._grant(access, phi=True)
+                grant = await self._grant(access, phi=True, lifetime=lifetime)
             if mutation:
-                proof = await self.content.preserve_proven(grant, body, grant.ceiling())
+                proof = await self.content.preserve_proven(grant, body, grant.ceiling(), lifetime=lifetime)
             else:
-                proof = await self.content.recover_proven(grant, selected, grant.ceiling())
+                proof = await self.content.recover_proven(grant, selected, grant.ceiling(), lifetime=lifetime)
             await self.journal.acknowledge(outer, "body-" + recipient_id, proof.receipt)
             proofs.append(proof)
             entries.append(
@@ -527,12 +645,16 @@ class DocumentRequestProducer:
         await self.journal.seal(outer, "delivery", {"command": wire(command)})
         mutation = await self.journal.claim_send(outer, "delivery")
         if mutation:
-            grant = await self._grant(self._command_access("publish_request_inbox", command), phi=False)
-            receipt = await self.inbox.publish(grant, command, version, tuple(proofs), grant.ceiling())
+            grant = await self._grant(
+                self._command_access("publish_request_inbox", command), phi=False, lifetime=lifetime
+            )
+            receipt = await self.inbox.publish(
+                grant, command, version, tuple(proofs), grant.ceiling(), lifetime=lifetime
+            )
         else:
-            receipt, grant = await self._read_inbox(command)
+            receipt, grant = await self._read_inbox(command, lifetime)
         await self.journal.acknowledge(outer, "delivery", receipt)
-        return await self._finish(outer, receipt, grant, acquired)
+        return await self._finish(outer, receipt, grant, acquired, lifetime)
 
     async def _finish(
         self,
@@ -540,15 +662,20 @@ class DocumentRequestProducer:
         receipt: RequestInboxReceipt,
         grant: SystemGrant,
         acquired: ProducerAcquisition | None,
+        lifetime: AdmissionLifetime | None = None,
     ) -> ProducerResult:
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        lifetime.intersect(grant.ceiling())
         try:
-            return await self._complete(outer, receipt, grant, acquired)
+            result = await self._complete(outer, receipt, grant, acquired, lifetime)
+            lifetime.current()
+            return result
         except Exception:
             # Actual inbox remains independently provable while native disposition is uncertain.
             # Cancellation is not swallowed; no exception text or replacement command escapes.
             self.journal.current()
-            alive(grant.ceiling())
-            return ProducerResult(receipt, CompletionOutcome("uncertain", None))
+            lifetime.current()
+            return ProducerResult(receipt, CompletionOutcome("uncertain", None), lifetime.deadline())
 
     async def _complete(
         self,
@@ -556,11 +683,15 @@ class DocumentRequestProducer:
         receipt: RequestInboxReceipt,
         grant: SystemGrant,
         acquired: ProducerAcquisition | None,
+        lifetime: AdmissionLifetime | None = None,
     ) -> ProducerResult:
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        lifetime.intersect(grant.ceiling())
         stored = await self.journal.read(outer, "completion")
         if stored is None:
             if acquired is None:
-                return ProducerResult(receipt, CompletionOutcome("not_prepared", None))
+                lifetime.current()
+                return ProducerResult(receipt, CompletionOutcome("not_prepared", None), lifetime.deadline())
             prepared = self.completion.prepare(
                 acquired, base64.urlsafe_b64encode(os.urandom(32)).rstrip(b"=").decode()
             )
@@ -581,34 +712,45 @@ class DocumentRequestProducer:
 
         # An expired acquisition may still recover its receipt. It never gets a new completion identity.
         def current_receipt() -> None:
-            alive(grant.ceiling())
+            lifetime.current()
 
         result = await self.completion.exchange(prepared, recovery=not mutation, before_send=current_receipt)
         if result.receipt is not None:
             await self.journal.acknowledge(outer, "completion", decode(result.receipt))
-        return ProducerResult(receipt, result)
+        lifetime.current()
+        return ProducerResult(receipt, result, lifetime.deadline())
 
     async def recover(self, request_ref: str) -> ProducerResult:
         """Protected original lineage; no fresh fetch or acquisition replacement."""
         return await self._recover(request_ref, None)
 
     async def _recover(self, request_ref: str, acquired: ProducerAcquisition | None) -> ProducerResult:
+        lifetime = AdmissionLifetime()
         seed = await self.journal.read(request_ref, "occurrence")
         require(seed is not None, "uncertain")
         assert seed is not None
         self._original_producer(seed.payload["producer"])
         outer = seed.payload["outer_command_id"]
+        return await self._resume(outer, seed.payload, acquired, lifetime)
+
+    async def _resume(
+        self,
+        outer: str,
+        seed: dict[str, Any],
+        acquired: ProducerAcquisition | None,
+        lifetime: AdmissionLifetime,
+    ) -> ProducerResult:
         stored = await self.journal.read(outer, "delivery")
         if stored is None or stored.state == "sealed":
             plan = await self.journal.read(outer, "plan")
             require(plan is not None, "uncertain")
             assert plan is not None
-            return await self._deliver(outer, plan.payload, acquired)
+            return await self._deliver(outer, plan.payload, acquired, lifetime)
         command = parse_model(RequestDeliveryCommand, stored.payload["command"])
         require(
-            wire(command.request) == seed.payload["request"]
+            wire(command.request) == seed["request"]
             and command.sender_identity_digest == self.producer.identity_digest
         )
-        receipt, grant = await self._read_inbox(command)
+        receipt, grant = await self._read_inbox(command, lifetime)
         await self.journal.acknowledge(outer, "delivery", receipt)
-        return await self._finish(outer, receipt, grant, acquired)
+        return await self._finish(outer, receipt, grant, acquired, lifetime)

@@ -64,6 +64,33 @@ def current(row: Any, access: SystemAccess) -> tuple[SystemGrant, datetime]:
     return grant, alive(publication.valid_until, grant.ceiling())
 
 
+class AdmissionLifetime:
+    """One invocation's monotone ceiling; never stored on a shared service.
+
+    New observations can only shorten the retained original authority. This is
+    deadline accounting, not a grant, renewal or a lock across external I/O.
+    """
+
+    def __init__(self) -> None:
+        self._ceiling: datetime | None = None
+
+    def intersect(self, *deadlines: datetime) -> datetime:
+        values = deadlines if self._ceiling is None else (*deadlines, self._ceiling)
+        require(bool(values), "unavailable")
+        self._ceiling = min(values)
+        return alive(self._ceiling)
+
+    def current(self) -> None:
+        require(self._ceiling is not None, "unavailable")
+        assert self._ceiling is not None
+        alive(self._ceiling)
+
+    def deadline(self) -> datetime:
+        self.current()
+        assert self._ceiling is not None
+        return self._ceiling
+
+
 class SystemAdmission:
     def __init__(self, engine: AsyncEngine, scope: CommunicationScope, *, seconds: float = 5) -> None:
         self.engine, self.scope, self.seconds = engine, scope, seconds
@@ -109,28 +136,34 @@ class SystemAdmission:
             require(bytes(row["identity_payload"]) == packed(access.producer))
         return alive(row["valid_until"])
 
-    async def authorize(self, access: SystemAccess) -> SystemGrant:
+    async def authorize(
+        self, access: SystemAccess, *, lifetime: AdmissionLifetime | None = None
+    ) -> SystemGrant:
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
         require(access.scope == self.scope)
         async with transaction(self.engine, self.seconds) as c:
             grant, ceiling = current(await head(c, access), access)
-            ceiling = alive(ceiling, await self.identity(c, access, "producer"))
-        alive(ceiling)
+            lifetime.intersect(ceiling, await self.identity(c, access, "producer"))
+        lifetime.current()
         return grant
 
     @asynccontextmanager
-    async def acquire(self, grant: SystemGrant, deadline: datetime) -> AsyncIterator[AsyncConnection]:
+    async def acquire(
+        self, grant: SystemGrant, deadline: datetime, *, lifetime: AdmissionLifetime | None = None
+    ) -> AsyncIterator[AsyncConnection]:
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
         require(grant.access.scope == self.scope)
-        ceiling = alive(deadline, grant.ceiling())
+        ceiling = lifetime.intersect(deadline, grant.ceiling())
         async with transaction(self.engine, self.seconds) as c:
             latest, until = current(await head(c, grant.access), grant.access)
             require(packed(latest) == packed(grant), "conflict")
-            ceiling = alive(ceiling, until, await self.identity(c, grant.access, "producer"))
+            lifetime.intersect(ceiling, until, await self.identity(c, grant.access, "producer"))
             require(c.in_transaction(), "unavailable")
             yield c
             require(c.in_transaction(), "unavailable")
-            alive(ceiling)
+            lifetime.current()
         # Original ceilings survive commit/connection cleanup, never re-authorized here.
-        alive(ceiling)
+        lifetime.current()
 
 
 @dataclass(frozen=True, repr=False)

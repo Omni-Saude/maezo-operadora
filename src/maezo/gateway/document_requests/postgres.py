@@ -10,7 +10,7 @@ from maezo.gateway.communications.models import CommunicationScope, alive
 from maezo.gateway.communications.postgres import case_lock
 from maezo.gateway.human.read_profile import digest, wire
 
-from .admission import SystemAdmission, lock_key, one
+from .admission import AdmissionLifetime, SystemAdmission, lock_key, one
 from .content import AuthenticatedBodyReceipt
 from .models import (
     DeliveryRecord,
@@ -203,6 +203,8 @@ class RequestInboxStore:
         version: PolicyAssessmentVersion,
         proofs: tuple[AuthenticatedBodyReceipt, ...],
         deadline: datetime,
+        *,
+        lifetime: AdmissionLifetime | None = None,
     ) -> RequestInboxReceipt:
         a = grant.access
         require(
@@ -243,8 +245,9 @@ class RequestInboxStore:
             request=command.request.request_ref,
             case=command.request.case_ref,
         )
-        ceiling = alive(deadline, grant.ceiling())
-        async with self.admission.acquire(grant, ceiling) as c:
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        ceiling = lifetime.intersect(deadline, grant.ceiling())
+        async with self.admission.acquire(grant, ceiling, lifetime=lifetime) as c:
             await lock_key(
                 c, {"scope": a.scope.model_dump(), "request": p["request"], "purpose": "request-delivery"}
             )
@@ -468,16 +471,22 @@ class RequestInboxStore:
                     dict(p, payload=packed(command), receipt=packed(result)),
                 )
             alive(ceiling)
-        alive(ceiling)
+        lifetime.current()
         return result
 
     async def read_receipt(
-        self, grant: SystemGrant, original_sender: str, deadline: datetime
+        self,
+        grant: SystemGrant,
+        original_sender: str,
+        deadline: datetime,
+        *,
+        lifetime: AdmissionLifetime | None = None,
     ) -> RequestInboxReceipt:
         a = grant.access
         require(a.operation == "read_request_receipt")
-        ceiling = alive(deadline, grant.ceiling())
-        async with self.admission.acquire(grant, ceiling) as c:
+        lifetime = lifetime if lifetime is not None else AdmissionLifetime()
+        ceiling = lifetime.intersect(deadline, grant.ceiling())
+        async with self.admission.acquire(grant, ceiling, lifetime=lifetime) as c:
             await case_lock(c, a.scope, a.request.case_ref)
             row = await one(
                 c,
@@ -531,5 +540,5 @@ class RequestInboxStore:
                     == delivery
                 )
             alive(ceiling)
-        alive(ceiling)
+        lifetime.current()
         return result

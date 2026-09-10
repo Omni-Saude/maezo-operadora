@@ -168,12 +168,30 @@ class InstalledProducer:
         await verify_database_roles(self.placement)
         result = await self.worker.run(inputs)
         self.placement.live()
+        result.current()
         return result
 
     async def recover(self, request_ref: str) -> ProducerResult:
         await verify_database_roles(self.placement)
         result = await self.worker.recover(request_ref)
         self.placement.live()
+        result.current()
+        return result
+
+    async def successor(
+        self, inputs: AcquiredInputs, predecessor_command_id: str, invocation_ref: str
+    ) -> ProducerResult:
+        await verify_database_roles(self.placement)
+        result = await self.worker.successor(inputs, predecessor_command_id, invocation_ref)
+        self.placement.live()
+        result.current()
+        return result
+
+    async def recover_successor(self, request_ref: str, invocation_ref: str) -> ProducerResult:
+        await verify_database_roles(self.placement)
+        result = await self.worker.recover_successor(request_ref, invocation_ref)
+        self.placement.live()
+        result.current()
         return result
 
     async def close(self, timeout: float | None = None) -> bool:  # noqa: ASYNC109
