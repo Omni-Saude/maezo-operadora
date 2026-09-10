@@ -320,9 +320,7 @@ def test_exact_registered_httpx_scoped_seams_are_allowed(
         ),
     ],
 )
-def test_registered_httpx_scope_rejects_security_shape_mutations(
-    tmp_path: Path, expression: str
-) -> None:
+def test_registered_httpx_scope_rejects_security_shape_mutations(tmp_path: Path, expression: str) -> None:
     _write(
         tmp_path / "gateway" / "human" / "assignment_transport.py",
         "import httpx\n\n"
