@@ -144,6 +144,168 @@ def test_identify_glosa_reason_codes_trigger_glosa() -> None:
     assert result.has_glosas is True
 
 
+class _CentIntSubclass(int):
+    pass
+
+
+_LINE_CENT_FIELDS = (
+    "valor_apresentado_centavos",
+    "valor_glosado_centavos",
+    "valor_pago_centavos",
+)
+
+
+def _assert_conservative_ingress(result: dict[str, Any]) -> None:
+    assert result["has_glosas"] is True
+    assert result["divergencia_valor"] is True
+    assert result["denial_ratio"] == 1.0
+    assert result["glosa_count"] == 0
+    assert result["total_glosado_candidato_centavos"] == 0
+    assert result["linhas_glosadas_candidatas"] == []
+
+
+def _ingress_variables(lines: Any) -> dict[str, Any]:
+    return {
+        "tenant_id": "synthetic-tenant",
+        "numero_lote_tiss": "synthetic-lote",
+        "valor_apresentado_brl": 1.0,
+        "linhas_conta_refs": lines,
+        "data_recebimento_lote": "2026-09-01",
+        "data_vencimento": " 2026-09-30 ",
+    }
+
+
+@pytest.mark.parametrize("field", _LINE_CENT_FIELDS)
+@pytest.mark.parametrize("value", [True, False, "12", "bad", 12.9, 12.0, _CentIntSubclass(12), {}])
+@pytest.mark.parametrize("brl_alternative", [False, True])
+def test_ingress_rejects_non_exact_cents_without_brl_salvage(field, value, brl_alternative):
+    """CONTAS input contract: malformed detail yields conservative facts, never coercion."""
+    from copy import deepcopy
+
+    line = {"valor_apresentado_centavos": 100, field: value}
+    if brl_alternative:
+        line[field.replace("_centavos", "_brl")] = 0.12
+    variables = _ingress_variables([line])
+    before = deepcopy(variables)
+    result = identify_glosa_entry(variables)
+    _assert_conservative_ingress(result)
+    assert result["data_recebimento_lote"] == "2026-09-01"
+    assert result["data_vencimento"] == "2026-09-30"
+    assert result["vencimento_ausente"] is False
+    assert variables == before
+
+
+@pytest.mark.parametrize(
+    "line", [{}, {"valor_glosado_centavos": 0}, {"valor_apresentado_centavos": None}, None, [], "bad"]
+)
+@pytest.mark.parametrize("position", [0, 1])
+def test_ingress_malformed_nonempty_line_does_not_clear_or_keep_partial_facts(line, position):
+    lines = [{"valor_apresentado_centavos": 100, "valor_glosado_centavos": 12}]
+    lines.insert(position, line)
+    _assert_conservative_ingress(identify_glosa_entry(_ingress_variables(lines)))
+
+
+@pytest.mark.parametrize("lines", [None, [], {}, {"valor_apresentado_centavos": 100}, "bad"])
+def test_ingress_missing_or_malformed_collection_is_conservative(lines):
+    _assert_conservative_ingress(identify_glosa_entry(_ingress_variables(lines)))
+
+
+@pytest.mark.parametrize("field", _LINE_CENT_FIELDS)
+@pytest.mark.parametrize("value", [-1, 0, 12, 2**63])
+def test_ingress_exact_cents_preserve_existing_arithmetic_without_new_line_cap(field, value):
+    line = {"valor_apresentado_centavos": 100, "reason_code_tiss": "synthetic", field: value}
+    result = identify_glosa_entry(_ingress_variables([line]))
+    presented = line["valor_apresentado_centavos"]
+    expected = (
+        value
+        if field == "valor_glosado_centavos" and value > 0
+        else (presented - value if field == "valor_pago_centavos" and value else presented)
+    )
+    assert result["total_glosado_candidato_centavos"] == expected
+    assert type(result["total_glosado_candidato_centavos"]) is int
+    assert result["glosa_count"] == 1
+    assert result["linhas_glosadas_candidatas"] == [line]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        {"valor_apresentado_centavos": 100},
+        {"valor_apresentado_brl": 1.0},
+        {
+            "valor_apresentado_centavos": None,
+            "valor_apresentado_brl": 1.0,
+            "valor_glosado_centavos": None,
+            "valor_pago_centavos": None,
+        },
+        {"valor_apresentado_centavos": 100, "unrelated_centavos": "untouched"},
+    ],
+)
+def test_ingress_preserves_optional_absence_null_brl_alternative_and_unrelated_fields(line):
+    result = identify_glosa_entry(_ingress_variables([line]))
+    assert result["has_glosas"] is False
+    assert result["divergencia_valor"] is False
+    assert result["denial_ratio"] == 0.0
+
+
+def test_ingress_keeps_existing_brl_conversion_and_display_for_separate_policy():
+    variables = _ingress_variables([{"valor_apresentado_brl": 1.15, "valor_glosado_brl": 1.15}])
+    variables["valor_apresentado_brl"] = 1.15
+    result = identify_glosa_entry(variables)
+    assert result["total_glosado_candidato_centavos"] == 114
+    assert (
+        calculate_impact(identify_glosa(GlosaInput(**variables)), 1.15)["total_glosado_candidato_brl"] == 1.14
+    )
+
+
+@pytest.mark.parametrize("field", _LINE_CENT_FIELDS)
+@pytest.mark.parametrize("value", [True, "12", 12.9, 12])
+async def test_ingress_public_producer_completes_conservative_or_exact_facts(field, value):
+    """Real entry and serializer, synthetic offline HTTP only; no claim of engine routing."""
+    import json
+
+    import httpx
+
+    from maezo.tools.workers.harness import CibSevenWorkerTransport
+
+    posts = []
+
+    def capture(request):
+        posts.append(json.loads(request.content))
+        return httpx.Response(204)
+
+    variables = _ingress_variables(
+        [{"valor_apresentado_centavos": 100, "reason_code_tiss": "synthetic", field: value}]
+    )
+    result = identify_glosa_entry(variables)
+    transport = CibSevenWorkerTransport("https://engine.invalid")
+    await transport._client.aclose()
+    async with httpx.AsyncClient(
+        base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+    ) as client:
+        transport._client = client
+        await transport.complete("synthetic-task", "synthetic-worker", result)
+    assert len(posts) == 1
+    wire = posts[0]["variables"]
+    assert wire["total_glosado_candidato_centavos"] == {
+        "type": "Long",
+        "value": result["total_glosado_candidato_centavos"],
+    }
+    if type(value) is not int:
+        _assert_conservative_ingress(result)
+        assert wire["has_glosas"] == {"type": "Boolean", "value": True}
+        assert wire["divergencia_valor"] == {"type": "Boolean", "value": True}
+        assert wire["denial_ratio"] == {"type": "Double", "value": 1.0}
+    else:
+        assert result["glosa_count"] == 1
+        assert (
+            result["total_glosado_candidato_centavos"]
+            == {"valor_apresentado_centavos": 12, "valor_glosado_centavos": 12, "valor_pago_centavos": 88}[
+                field
+            ]
+        )
+
+
 # ---------------------------------------------------------------------------
 # analyze_reason
 # ---------------------------------------------------------------------------
