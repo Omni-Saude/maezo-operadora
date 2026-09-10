@@ -7,13 +7,13 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
-from tests.unit.gateway.intake.native.test_wire_transport import NOW, command, receipt
 
 from maezo.gateway.human.auth_profile import HumanReceiptQuery, NativeReceiptLookup
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import digest
 from maezo.gateway.intake.native_dispatch import AuthDispatcher, AuthEffectLease
 from maezo.gateway.intake.native_store import DispatchClaim, PostgresAuthDispatchStore
+from tests.unit.gateway.intake.native.test_wire_transport import NOW, command, receipt
 
 
 class SQLSeam:
@@ -298,10 +298,9 @@ async def test_original_admission_ceiling_cannot_be_renewed_by_dispatch_claim(mo
 
 @pytest.mark.asyncio
 async def test_transactional_intake_native_outbox_failure_rolls_back_original_admission(monkeypatch):
-    from tests.unit.gateway.intake.test_postgres import Database, inputs
-
     from maezo.gateway.intake.models import IntakeError
     from maezo.gateway.intake.postgres import PostgresIntakeStore
+    from tests.unit.gateway.intake.test_postgres import Database, inputs
 
     class DB(Database):
         async def execute(self, sql, values):

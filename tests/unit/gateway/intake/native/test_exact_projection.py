@@ -99,9 +99,6 @@ def test_start_projection_binds_claimed_request_and_qualified_sources_without_id
     import json
     from datetime import timedelta
 
-    from tests.unit.gateway.intake.native.test_wire_transport import HASH, NOW, command, source
-    from tests.unit.portal.test_intake_documents import submission
-
     from maezo.gateway.human.auth_profile import (
         AuditIntent,
         DocumentPolicy,
@@ -116,6 +113,8 @@ def test_start_projection_binds_claimed_request_and_qualified_sources_without_id
     from maezo.gateway.intake.models import request_bytes
     from maezo.portal.contracts.intake import AuthIntakeSubmission
     from maezo.portal.engine.profile import strict_loads
+    from tests.unit.gateway.intake.native.test_wire_transport import HASH, NOW, command, source
+    from tests.unit.portal.test_intake_documents import submission
 
     c = command()
     raw = submission()

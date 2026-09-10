@@ -9,14 +9,14 @@ from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from tests.unit.portal.test_human_session import membership
-from tests.unit.portal.test_intake_documents import REF, REF2, submission
 
 from maezo.gateway.intake.models import AdmissionGrant, IntakeError, request_bytes
 from maezo.gateway.intake.postgres import PostgresIntakeStore
 from maezo.portal.contracts.intake import AuthIntakeSubmission
 from maezo.portal.contracts.models import HumanPrincipal
 from maezo.portal.engine.profile import canonicalize
+from tests.unit.portal.test_human_session import membership
+from tests.unit.portal.test_intake_documents import REF, REF2, submission
 
 
 class Database:

@@ -3,7 +3,6 @@
 from datetime import timedelta
 
 import pytest
-from tests.unit.gateway.intake.native.test_wire_transport import NOW, command, scope, source
 
 from maezo.gateway.human.auth_profile import (
     InputPublication,
@@ -15,6 +14,7 @@ from maezo.gateway.human.auth_publisher import AuthInputPublisher, AuthPublicati
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import digest
 from maezo.gateway.human.read_publisher import SourceFreezeLease, SourceSnapshot
+from tests.unit.gateway.intake.native.test_wire_transport import NOW, command, scope, source
 
 
 class Journal:

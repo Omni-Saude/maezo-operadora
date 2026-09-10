@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 import pytest
-from tests.unit.gateway.intake.native.test_wire_transport import HASH, NOW, command, source
 
 from maezo.gateway.human.auth_profile import (
     AuditIntentPayload,
@@ -14,6 +13,7 @@ from maezo.gateway.human.auth_profile import (
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import ArtifactPin, digest
 from maezo.gateway.intake.native_binding import bind_document_response
+from tests.unit.gateway.intake.native.test_wire_transport import HASH, NOW, command, source
 
 
 def inputs():
