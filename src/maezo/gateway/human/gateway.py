@@ -8,7 +8,7 @@ or production capability is inferred from port shape or successful unit substitu
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import TypeAdapter
 
@@ -40,11 +40,16 @@ from .models import (
     AssignmentContext,
     AuthoritativeTask,
     AuthorizedAssignment,
+    AuthorizedGovernedAssignment,
     CurrentTaskAuthority,
+    GovernedAssignmentCandidates,
+    GovernedAssignmentCommand,
+    GovernedAssignmentContext,
+    GovernedAssignmentReadContext,
     PendingAdmission,
     Scope,
 )
-from .ports import BoundHumanPorts
+from .ports import BoundGovernedAssignmentPorts, BoundHumanPorts
 from .queue import (
     CandidateWindow,
     CatalogExpectation,
@@ -58,7 +63,13 @@ from .queue import (
     TaskDisclosureGrant,
     TaskDisclosureSource,
 )
-from .receipt import BoundReceiptPorts, CurrentReceiptAuthority, PublicReceipt, ReceiptIdentity
+from .receipt import (
+    BoundReceiptPorts,
+    CurrentReceiptAuthority,
+    PublicReceipt,
+    ReceiptIdentity,
+    parse_public_receipt,
+)
 
 _ReadResult = TypeVar("_ReadResult")
 
@@ -88,8 +99,9 @@ class HumanGateway:
         *,
         resolver: HumanSessionResolver,
         scope: Scope,
-        ports: BoundHumanPorts,
+        ports: BoundHumanPorts | None,
         credentials: HumanCommandCredentialPartition,
+        governed_assignment_ports: BoundGovernedAssignmentPorts | None = None,
         receipt_ports: BoundReceiptPorts | None = None,
         decision_ports: BoundDecisionPorts | None = None,
         query: HumanTaskQuery | None = None,
@@ -101,6 +113,7 @@ class HumanGateway:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
         self._ports = ports
+        self._governed_assignment_ports = governed_assignment_ports
         self._credentials = credentials
         self._query = query
         self._catalog_anchor = catalog_anchor
@@ -113,9 +126,16 @@ class HumanGateway:
 
     def _check_scope(self) -> None:
         self._credentials.for_workload(self._scope)
+        if self._ports is None and self._governed_assignment_ports is None:
+            raise GatewayRefusalError("production_capabilities_unavailable")
+        provided: list[Any] = []
+        if self._ports is not None:
+            provided.extend((self._ports.task, self._ports.authority, self._ports.admission))
+        if self._governed_assignment_ports is not None:
+            g = self._governed_assignment_ports
+            provided.extend((g.context, g.authority, g.candidates, g.admission))
         if self._resolver.settings.tenant != self._scope.tenant or any(
-            port.scope != self._scope
-            for port in (self._ports.task, self._ports.authority, self._ports.admission)
+            port.scope != self._scope for port in provided
         ):
             raise GatewayRefusalError("credential_scope_mismatch")
         if self._receipt_ports is not None and any(
@@ -133,6 +153,16 @@ class HumanGateway:
         ):
             raise GatewayRefusalError("credential_scope_mismatch")
 
+    def _legacy_ports(self) -> BoundHumanPorts:
+        if self._ports is None:
+            raise GatewayRefusalError("production_capabilities_unavailable")
+        return self._ports
+
+    def _governed_ports(self) -> BoundGovernedAssignmentPorts:
+        if self._governed_assignment_ports is None:
+            raise GatewayRefusalError("production_capabilities_unavailable")
+        return self._governed_assignment_ports
+
     async def read_receipt(self, *, session_secret: str, task_id: str, command_id: str) -> PublicReceipt:
         """Current resource authority permits historical receipts after task completion.
 
@@ -146,7 +176,7 @@ class HumanGateway:
             command_id = TypeAdapter(OpaqueRef).validate_python(command_id)
             if self._receipt_ports is None:
                 raise ValueError("receipt ports unavailable")
-            result = PublicReceipt.model_validate(
+            result = parse_public_receipt(
                 await self._receipt_ports.store.read_owned(resolved.principal, task_id, command_id)
             )
             if (
@@ -205,8 +235,9 @@ class HumanGateway:
     async def _authorized(
         self, resolved: ResolvedHumanSession, task_id: str, *, _read_taxonomy: bool = False
     ) -> tuple[AuthoritativeTask, CurrentTaskAuthority]:
+        ports = self._legacy_ports()
         try:
-            task = AuthoritativeTask.model_validate(await self._ports.task.read_task(task_id))
+            task = AuthoritativeTask.model_validate(await ports.task.read_task(task_id))
             snap = task.snapshot
             if (
                 task.tenant != self._scope.tenant
@@ -238,7 +269,7 @@ class HumanGateway:
             raise GatewayRefusalError("operation_forbidden")
         try:
             authority = CurrentTaskAuthority.model_validate(
-                await self._ports.authority.current_authority(principal, task)
+                await ports.authority.current_authority(principal, task)
             )
             if (
                 not authority.read_permitted
@@ -637,7 +668,7 @@ class HumanGateway:
 
     @staticmethod
     def _expectations(
-        command: AssignmentCommand | TaskDecision,
+        command: AssignmentCommand | GovernedAssignmentCommand | TaskDecision,
         task: AuthoritativeTask,
         resolved: ResolvedHumanSession,
         revision: int,
@@ -695,7 +726,7 @@ class HumanGateway:
             raise GatewayRefusalError("authority_unavailable")
         try:
             result = PendingAdmission.model_validate(
-                await self._ports.admission.admit(
+                await self._legacy_ports().admission.admit(
                     AuthorizedAssignment(
                         scope=self._scope,
                         workload_ref=self._scope.workload_ref,
@@ -718,6 +749,150 @@ class HumanGateway:
             return result
         except Exception:
             raise GatewayRefusalError("admission_unavailable") from None
+
+    @staticmethod
+    def _governed_deadline(
+        sessions: tuple[ResolvedHumanSession, ...],
+        contexts: tuple[GovernedAssignmentReadContext, ...],
+        extra: tuple[datetime, ...] = (),
+    ) -> datetime:
+        limits = [
+            v for session in sessions for v in (session.record.expires_at, session.membership.reviewed_until)
+        ]
+        limits.extend(
+            v for context in contexts for v in (context.task.valid_until, context.context.valid_until)
+        )
+        limits.extend(extra)
+        deadline = min(limits)
+        if deadline <= datetime.now(UTC):
+            raise GatewayRefusalError("authority_unavailable")
+        return deadline
+
+    async def read_governed_assignment_context(
+        self, *, session_secret: str, task_id: str
+    ) -> GovernedAssignmentContext:
+        from .assignment_transport import validate_context
+
+        ports = self._governed_ports()
+        first = await self._session(session_secret)
+        task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        bound = GovernedAssignmentReadContext.model_validate(
+            await ports.context.read_context(first.principal, task_id)
+        )
+        if (
+            bound.principal != first.principal
+            or bound.scope != self._scope
+            or bound.context.task_id != task_id
+        ):
+            raise GatewayRefusalError("authority_unavailable")
+        validate_context(first.principal, self._scope, bound.task, bound.context)
+        final = await self._session(session_secret)
+        if final.principal != first.principal:
+            raise GatewayRefusalError("revision_conflict")
+        deadline = self._governed_deadline((first, final), (bound,))
+        return GovernedAssignmentContext.model_validate(
+            {**bound.context.model_dump(), "valid_until": deadline}
+        )
+
+    async def list_governed_assignment_candidates(
+        self, *, session_secret: str, task_id: str
+    ) -> GovernedAssignmentCandidates:
+        ports = self._governed_ports()
+        first = await self._session(session_secret)
+        task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        bound = GovernedAssignmentReadContext.model_validate(
+            await ports.context.read_context(first.principal, task_id)
+        )
+        if (
+            bound.principal != first.principal
+            or bound.scope != self._scope
+            or bound.context.task_id != task_id
+        ):
+            raise GatewayRefusalError("authority_unavailable")
+        if "reassign" not in bound.context.allowed_operations:
+            raise GatewayRefusalError("operation_forbidden")
+        result = GovernedAssignmentCandidates.model_validate(
+            await ports.candidates.list_candidates(first.principal, bound)
+        )
+        if result.context.model_dump(exclude={"valid_until"}) != bound.context.model_dump(
+            exclude={"valid_until"}
+        ):
+            raise GatewayRefusalError("revision_conflict")
+        final = await self._session(session_secret)
+        if final.principal != first.principal:
+            raise GatewayRefusalError("revision_conflict")
+        deadline = self._governed_deadline(
+            (first, final), (bound,), (result.valid_until, result.context.valid_until)
+        )
+        return GovernedAssignmentCandidates.model_validate({**result.model_dump(), "valid_until": deadline})
+
+    async def submit_governed_assignment(
+        self, *, session_secret: str, csrf_token: str, origin: str, command: GovernedAssignmentCommand
+    ) -> PendingAdmission:
+        from .assignment_transport import validate_authority, validate_context
+
+        ports = self._governed_ports()
+        first = await self._session(session_secret, csrf=csrf_token, origin=origin, mutation=True)
+        command = GovernedAssignmentCommand.model_validate(command)
+        bound = GovernedAssignmentReadContext.model_validate(
+            await ports.context.read_context(first.principal, command.task_id)
+        )
+        if bound.principal != first.principal or bound.scope != self._scope:
+            raise GatewayRefusalError("authority_unavailable")
+        validate_context(first.principal, self._scope, bound.task, bound.context)
+        self._expectations(command, bound.task, first, command.expected_authority_revision)
+        c = bound.context
+        if command.expected_assignee_ref != c.assignee_ref or any(
+            str(getattr(command, "expected_" + name)) != str(getattr(c, name))
+            for name in (
+                "binding_ref",
+                "binding_version",
+                "binding_digest",
+                "policy_ref",
+                "policy_version",
+                "policy_digest",
+                "source_revision",
+                "generation_digest",
+            )
+        ):
+            raise GatewayRefusalError("revision_conflict")
+        authority = CurrentTaskAuthority.model_validate(
+            await ports.authority.current_authority(
+                first.principal,
+                bound,
+                command.operation,
+                command.target_ref,
+                command.expected_target_membership_revision,
+            )
+        )
+        validate_authority(first.principal, bound, authority, command.operation)
+        final = await self._session(session_secret, csrf=csrf_token, origin=origin, mutation=True)
+        if final.principal != first.principal:
+            raise GatewayRefusalError("revision_conflict")
+        deadline = self._governed_deadline((first, final), (bound,), (authority.valid_until,))
+        result = PendingAdmission.model_validate(
+            await ports.admission.admit(
+                AuthorizedGovernedAssignment(
+                    scope=self._scope,
+                    principal=first.principal,
+                    read_context=bound,
+                    authority=authority,
+                    command=command,
+                    valid_until=deadline,
+                )
+            )
+        )
+        if (
+            result.tenant != self._scope.tenant
+            or result.task_id != command.task_id
+            or result.command_id != command.command_id
+            or result.principal_ref != first.principal.principal_ref
+            or result.workload_ref != self._scope.workload_ref
+            or result.committed_at > datetime.now(UTC)
+            or result.committed_at >= deadline
+        ):
+            raise GatewayRefusalError("admission_unavailable")
+        return result
 
     async def _decision_binding(
         self, resolved: ResolvedHumanSession, task: AuthoritativeTask, authority: CurrentTaskAuthority

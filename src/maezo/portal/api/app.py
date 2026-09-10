@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.portal.api.auth import AuthenticationError
@@ -137,6 +138,7 @@ def create_app(
     task_read_service_factory: ReadServiceFactory | None = None,
     engine_read_composition: EngineReadComposition | None = None,
     decision_service_factory: DecisionServiceFactory | None = None,
+    assignment_runtime: AssignmentRuntime | None = None,
     case_service_factory: CaseServiceFactory | None = None,
     intake_service_factory: IntakeServiceFactory | None = None,
     document_service_factory: DocumentServiceFactory | None = None,
@@ -151,6 +153,10 @@ def create_app(
         if task_read_service_factory is not None:
             raise ValueError("Composição de leitura ambígua.")
         task_read_service_factory = engine_read_composition.build
+    if assignment_runtime is not None:
+        if decision_service_factory is not None or assignment_runtime.scope.tenant != config.tenant:
+            raise ValueError("Composição de atribuição ambígua.")
+        decision_service_factory = assignment_runtime.build
     adapters = build_human_identity_adapters(config, store=store, oidc_client=oidc_client)
     store = adapters.store
     resolver = HumanSessionResolver(config, store)
@@ -163,17 +169,23 @@ def create_app(
                 await store.purge_expired(datetime.now(UTC))
             except Exception:
                 raise RuntimeError("Persistência de identidade indisponível.") from None
+            if assignment_runtime is not None:
+                await assignment_runtime.start()
             yield
         finally:
             try:
-                if engine_read_composition is not None:
-                    await engine_read_composition.close()
+                if assignment_runtime is not None:
+                    await assignment_runtime.close()
             finally:
                 try:
-                    await service.authenticator.close()
-                    await store.close()
-                except Exception:
-                    raise RuntimeError("Encerramento da identidade indisponível.") from None
+                    if engine_read_composition is not None:
+                        await engine_read_composition.close()
+                finally:
+                    try:
+                        await service.authenticator.close()
+                        await store.close()
+                    except Exception:
+                        raise RuntimeError("Encerramento da identidade indisponível.") from None
 
     app = FastAPI(
         title="Portal Maezo",

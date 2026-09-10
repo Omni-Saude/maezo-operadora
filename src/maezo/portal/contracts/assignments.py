@@ -2,9 +2,16 @@
 
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, SerializerFunctionWrapHandler, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, StrictInt, model_validator
 
-from maezo.gateway.human.models import AssignmentCommand, AssignmentContext, Closed
+from maezo.gateway.human.models import (
+    AssignmentCommand,
+    AssignmentContext,
+    Closed,
+    GovernedAssignmentCandidates,
+    GovernedAssignmentCommand,
+    GovernedAssignmentContext,
+)
 from maezo.gateway.human.projection import decimal_revision
 from maezo.gateway.human.receipt import PublicReceipt
 
@@ -135,3 +142,61 @@ class AssignmentReceiptResponse(PublicReceipt):
     def preserve_assignment_wire(self, handler: SerializerFunctionWrapHandler):  # type: ignore[no-untyped-def]
         # Field exclusion preserves the exact v1 wire and typed OpenAPI response.
         return handler(self)
+
+
+class GovernedBrowserAssignment(BrowserAssignment):
+    schema_version: Annotated[StrictInt, Field(ge=2, le=2)]
+    operation: Literal["claim", "release", "reassign"]  # type: ignore[assignment]  # frozen distinct wire discriminator
+    expected_assignee_ref: OpaqueRef | None
+    expected_binding_ref: OpaqueRef
+    expected_binding_version: DecimalVersion
+    expected_binding_digest: Sha256Digest
+    expected_policy_ref: OpaqueRef
+    expected_policy_version: DecimalVersion
+    expected_policy_digest: Sha256Digest
+    expected_source_revision: DecimalRevision
+    expected_generation_digest: Sha256Digest
+    target_ref: OpaqueRef | None
+    expected_target_membership_revision: DecimalRevision | None
+
+    def to_command(self) -> GovernedAssignmentCommand:
+        data = self.model_dump()
+        for name in (
+            *_NUMBERS,
+            "expected_binding_version",
+            "expected_policy_version",
+            "expected_source_revision",
+            "expected_target_membership_revision",
+        ):
+            if data[name] is not None:
+                data[name] = revision_from_decimal(data[name])
+        return GovernedAssignmentCommand.model_validate(data)
+
+    @classmethod
+    def from_command(cls, command: AssignmentCommand) -> "GovernedBrowserAssignment":
+        value = GovernedAssignmentCommand.model_validate(command)
+        data = value.model_dump()
+        for name in (
+            *_NUMBERS,
+            "expected_binding_version",
+            "expected_policy_version",
+            "expected_source_revision",
+            "expected_target_membership_revision",
+        ):
+            if data[name] is not None:
+                data[name] = decimal_revision(data[name])
+        return cls.model_validate(data)
+
+
+class GovernedAssignmentSubmission(Closed):
+    schema_version: Literal["portal-assignment-submission.v2"]
+    command: GovernedBrowserAssignment
+
+
+class GovernedAssignmentContextResponse(GovernedAssignmentContext):
+    valid_until: UTCDateTime
+
+
+class AssignmentCandidatesResponse(GovernedAssignmentCandidates):
+    valid_until: UTCDateTime
+    context: GovernedAssignmentContextResponse

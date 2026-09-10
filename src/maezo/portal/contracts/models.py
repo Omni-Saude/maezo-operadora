@@ -171,7 +171,7 @@ FormKey = Literal[
     "ans_nack",
 ]
 FormSourceStatus = Literal["BPMN_FORMDATA", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"]
-TaskAction = Literal["claim", "release", "decision"]
+TaskAction = Literal["claim", "release", "decision", "reassign"]
 AllowedInput = Literal[
     "decisao_auditor",
     "justificativa_clinica",

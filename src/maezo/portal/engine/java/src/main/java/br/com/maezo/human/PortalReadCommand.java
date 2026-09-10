@@ -32,6 +32,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
   final PortalReadEnvelope.Verified envelope;
   final PortalReadTrust.Admission admission;
   final PortalReadTrust.NativeKeySet keys;
+  private Runnable assignmentGuard;
   PortalReadStore db;
   CommandContext context;
   Instant last;
@@ -44,6 +45,33 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     this.admission = admission;
     this.keys = keys;
   }
+  /** Internal constraint facts only: no read envelope or assignment permit is minted. */
+  PortalReadCommand(PortalReadTrust trust, PortalReadTrust.Admission admission, Runnable guard) {
+    this.trust=trust;this.admission=admission;this.envelope=null;this.keys=null;this.assignmentGuard=guard;
+  }
+  record AssignmentFacts(Map<String,Object> facts, Runnable current) {}
+  AssignmentFacts assignmentConstraints(CommandContext context, Map<String,Object> principal,
+      Map<String,Object> binding, Map<String,Object> designation) {
+    this.context=context;db=new PortalReadStore(context,trust,admission.statementTimeoutSeconds());
+    guard();ceiling("native_admission",admission.providerRef(),admission.providerRevision(),admission.capabilityDigest(),admission.observedAt(),admission.validUntil());
+    // The outer assignment command already holds the tenant lock. Retain original
+    // complete tuple/source/catalog/classification/identity policy checks.
+    var anchor=record("scope",trust.scope,"catalog_ref",binding.get("catalog_ref"),"publisher_ref",
+      str(map(Jcs.parse(java.util.Base64.getDecoder().decode(str(assignmentCatalog(binding),"bytes_base64")))),"publisher_ref"));
+    State state=state(str(designation,"task_id"),anchor,str(principal,"principal_ref"));
+    if(!state.resource.get("resource_ref").equals(designation.get("resource_ref"))
+      ||!state.resource.get("resource_revision").equals(designation.get("resource_revision"))
+      ||!state.resource.get("resource_digest").equals(designation.get("resource_digest")))throw conflict();
+    var authority=authorityState(state,principal);guard();
+    return new AssignmentFacts(record("resource",state.resource,"grant",authority.get("matching_resource_grant"),"valid_until",time(until())), () -> guard());
+  }
+  private Map<String,Object> assignmentCatalog(Map<String,Object> binding) {
+    // Current authenticated catalog designation is verified by catalogRow below;
+    // this preliminary publisher lookup supplies only the closed lookup anchor.
+    var row=db.catalog(str(binding,"catalog_ref"));if(row==null)throw unavailable();
+    var artifact=validate("artifactcatalog",PortalReadStore.json(row.get("artifact_")));
+    return record("bytes_base64",java.util.Base64.getEncoder().encodeToString(Jcs.canonical(artifact)));
+  }
   Instant guard() {
     Instant now = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     if (last != null && now.isBefore(last))
@@ -52,8 +80,8 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     admission.requireCurrent();
     if (now.isBefore(admission.observedAt()) || !now.isBefore(admission.validUntil()))
       throw unavailable();
-    envelope.current(now);
-    keys.requireCurrent();
+    if (assignmentGuard != null) assignmentGuard.run();
+    else { envelope.current(now); keys.requireCurrent(); }
     for (var c : ceilings) {
       if (time(c.get("observed_at")).isAfter(now))
         throw unavailable();

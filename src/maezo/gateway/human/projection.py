@@ -15,10 +15,11 @@ from typing import Annotated, Literal
 from pydantic import Field, StringConstraints, model_validator
 
 from maezo.portal.contracts.models import OpaqueRef, Revision, Sha256Digest
+from maezo.portal.engine.assignment import GOVERNED_FIELDS, HumanAssignmentCommand
 from maezo.portal.engine.decision import HumanDecisionCommand
 from maezo.portal.engine.profile import HumanCommand, canonicalize, strict_loads
 
-from .models import AuthorizedAssignment, Closed, Scope, Timed
+from .models import AuthorizedAssignment, AuthorizedGovernedAssignment, Closed, Scope, Timed
 
 
 class ProjectionError(ValueError):
@@ -131,6 +132,96 @@ def project_assignment(assignment: AuthorizedAssignment, evidence: EvidenceRefer
         raise ProjectionError("assignment projection unavailable") from None
 
 
+class GovernedEvidenceReferenceSource(ABC):
+    scope: Scope
+
+    @abstractmethod
+    async def current_reference(self, assignment: AuthorizedGovernedAssignment) -> EvidenceReference:
+        raise NotImplementedError
+
+
+def project_governed_assignment(
+    assignment: AuthorizedGovernedAssignment, evidence: EvidenceReference
+) -> HumanAssignmentCommand:
+    from .assignment_transport import PINS, validate_authority, validate_context
+
+    a = AuthorizedGovernedAssignment.model_validate(assignment)
+    e = EvidenceReference.model_validate(evidence)
+    c, p, b = a.command, a.principal, a.read_context
+    s, ctx = b.task.snapshot, b.context
+    if b.scope != a.scope or b.principal != p or a.valid_until <= datetime.now(UTC):
+        raise ProjectionError("assignment projection unavailable")
+    validate_context(p, a.scope, b.task, ctx)
+    validate_authority(p, b, a.authority, c.operation)
+    if (
+        any(getattr(c, k) != getattr(s, k) for k in PINS)
+        or c.expected_task_revision != s.task_revision
+        or c.expected_evidence_revision != s.evidence_revision
+        or c.expected_evidence_digest != s.evidence_digest
+        or c.expected_membership_revision != p.membership_revision
+        or c.expected_authority_revision != b.task.authority_revision
+        or c.expected_assignee_ref != s.assignee_ref
+        or any(
+            str(getattr(c, "expected_" + name)) != str(getattr(ctx, name))
+            for name in (
+                "binding_ref",
+                "binding_version",
+                "binding_digest",
+                "policy_ref",
+                "policy_version",
+                "policy_digest",
+                "source_revision",
+                "generation_digest",
+            )
+        )
+        or e.tenant != a.scope.tenant
+        or e.task_id != c.task_id
+        or e.revision != s.evidence_revision
+        or e.digest != s.evidence_digest
+        or e.valid_until <= datetime.now(UTC)
+    ):
+        raise ProjectionError("assignment projection unavailable")
+    return HumanAssignmentCommand(
+        tenant=a.scope.tenant,
+        workload_ref=a.scope.workload_ref,
+        task_id=c.task_id,
+        command_id=c.command_id,
+        principal_ref=p.principal_ref,
+        principal_issuer=p.issuer,
+        principal_subject=p.subject,
+        operation=c.operation,
+        process_definition_id=s.process_definition_id,
+        process_definition_key=s.process_definition_key,
+        process_definition_version=str(s.process_definition_version),
+        process_definition_digest=s.process_definition_digest,
+        task_definition_key=s.task_definition_key,
+        form_key=s.form_key,
+        form_version=str(s.form_version),
+        form_digest=s.form_digest,
+        task_revision=str(s.task_revision),
+        authority_revision=str(b.task.authority_revision),
+        membership_revision=str(p.membership_revision),
+        evidence_revision=str(e.revision),
+        evidence_ref=e.evidence_ref,
+        evidence_digest=e.digest,
+        assignee_ref=s.assignee_ref,
+        audit_intent_ref=intent_reference(a.scope, c.task_id, c.command_id),
+        outcome=None,
+        binding_ref=ctx.binding_ref,
+        binding_version=ctx.binding_version,
+        binding_digest=ctx.binding_digest,
+        policy_ref=ctx.policy_ref,
+        policy_version=ctx.policy_version,
+        policy_digest=ctx.policy_digest,
+        source_revision=ctx.source_revision,
+        generation_digest=ctx.generation_digest,
+        target_ref=c.target_ref,
+        target_membership_revision=None
+        if c.expected_target_membership_revision is None
+        else str(c.expected_target_membership_revision),
+    )
+
+
 class EngineReceipt(Closed):
     """Exact D5 wire schema; validation alone does not authenticate its origin."""
 
@@ -164,13 +255,46 @@ class EngineReceipt(Closed):
         return datetime.fromtimestamp(int(self.recorded_at), UTC)
 
 
+class GovernedEngineReceipt(EngineReceipt):
+    schema_: Literal["human-engine-assignment-receipt.v1"] = Field(alias="schema")  # type: ignore[assignment]  # frozen distinct wire discriminator
+    operation: Literal["claim", "release", "reassign"]  # type: ignore[assignment]  # frozen distinct wire discriminator
+    command_schema: Literal["human-assignment.v2"]
+    binding_ref: OpaqueRef
+    binding_version: DecimalRevision
+    binding_digest: Sha256Digest
+    policy_ref: OpaqueRef
+    policy_version: DecimalRevision
+    policy_digest: Sha256Digest
+    source_revision: DecimalRevision
+    generation_digest: Sha256Digest
+    target_ref: OpaqueRef | None
+    target_membership_revision: DecimalRevision | None
+    prior_assignee_ref: OpaqueRef | None
+    resulting_assignee_ref: OpaqueRef | None
+    assignment_disposition: Literal["changed", "unchanged"]
+
+    @model_validator(mode="after")
+    def operation_shape(self) -> GovernedEngineReceipt:
+        if self.resulting_task_revision is None:
+            raise ValueError("governed receipt lacks actual revision")
+        if self.assignment_disposition != (
+            "unchanged" if self.prior_assignee_ref == self.resulting_assignee_ref else "changed"
+        ):
+            raise ValueError("invalid assignment disposition")
+        return self
+
+
 def verify_engine_receipt(raw: bytes, command: HumanCommand | HumanDecisionCommand) -> EngineReceipt:
     """Use only on the authenticated dedicated endpoint or linked durable local bytes."""
     try:
         value = strict_loads(raw)
-        receipt = EngineReceipt.model_validate(value)
+        receipt = (
+            GovernedEngineReceipt if isinstance(command, HumanAssignmentCommand) else EngineReceipt
+        ).model_validate(value)
         expected_schema = (
-            "human-engine-receipt.v2"
+            "human-engine-assignment-receipt.v1"
+            if isinstance(command, HumanAssignmentCommand)
+            else "human-engine-receipt.v2"
             if isinstance(command, HumanDecisionCommand)
             else "human-engine-receipt.v1"
         )
@@ -192,6 +316,24 @@ def verify_engine_receipt(raw: bytes, command: HumanCommand | HumanDecisionComma
             or receipt.consumed_task_revision != command.task_revision
         ):
             raise ProjectionError("receipt mismatch")
+        if isinstance(command, HumanAssignmentCommand):
+            if not isinstance(receipt, GovernedEngineReceipt):
+                raise ProjectionError("governed receipt schema mismatch")
+            for field in GOVERNED_FIELDS:
+                if getattr(receipt, field) != getattr(command, field):
+                    raise ProjectionError("governed receipt pin mismatch")
+            expected = (
+                command.principal_ref
+                if command.operation == "claim"
+                else None
+                if command.operation == "release"
+                else command.target_ref
+            )
+            if (
+                receipt.prior_assignee_ref != command.assignee_ref
+                or receipt.resulting_assignee_ref != expected
+            ):
+                raise ProjectionError("governed receipt assignee mismatch")
         # Engine registration metadata is not an authorization freshness clock.
         # Keep UTC datetime representability validation without cross-clock ordering.
         _ = receipt.engine_recorded_at
@@ -203,6 +345,11 @@ def verify_engine_receipt(raw: bytes, command: HumanCommand | HumanDecisionComma
 def restore_command(raw: bytes) -> HumanCommand | HumanDecisionCommand:
     try:
         value = strict_loads(raw)
+        if isinstance(value, dict) and value.get("schema") == "human-assignment.v2":
+            command: HumanCommand = HumanAssignmentCommand(**value)
+            if command.canonical != raw:
+                raise ProjectionError("noncanonical governed command")
+            return command
         if isinstance(value, dict) and value.get("schema") == "human-classified-decision.v1":
             return HumanDecisionCommand(raw)
         command = HumanCommand(**value)

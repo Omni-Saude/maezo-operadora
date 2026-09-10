@@ -8,7 +8,10 @@ from maezo.portal.contracts.models import HumanPrincipal
 from .models import (
     AuthoritativeTask,
     AuthorizedAssignment,
+    AuthorizedGovernedAssignment,
     CurrentTaskAuthority,
+    GovernedAssignmentCandidates,
+    GovernedAssignmentReadContext,
     PendingAdmission,
     Scope,
 )
@@ -59,3 +62,52 @@ class BoundHumanPorts:
     task: HumanTaskTransport
     authority: AuthorityProjection
     admission: DurableAdmission
+
+
+class GovernedAssignmentContextTransport(ABC):
+    scope: Scope
+
+    @abstractmethod
+    async def read_context(self, principal: HumanPrincipal, task_id: str) -> "GovernedAssignmentReadContext":
+        raise NotImplementedError
+
+
+class GovernedAssignmentAuthorityProjection(ABC):
+    scope: Scope
+
+    @abstractmethod
+    async def current_authority(
+        self,
+        principal: HumanPrincipal,
+        context: "GovernedAssignmentReadContext",
+        requested_operation: str,
+        target_ref: str | None,
+        target_membership_revision: int | None,
+    ) -> CurrentTaskAuthority:
+        raise NotImplementedError
+
+
+class GovernedAssignmentCandidateProjection(ABC):
+    scope: Scope
+
+    @abstractmethod
+    async def list_candidates(
+        self, principal: HumanPrincipal, context: "GovernedAssignmentReadContext"
+    ) -> "GovernedAssignmentCandidates":
+        raise NotImplementedError
+
+
+class GovernedAssignmentAdmission(ABC):
+    scope: Scope
+
+    @abstractmethod
+    async def admit(self, command: AuthorizedGovernedAssignment) -> PendingAdmission:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class BoundGovernedAssignmentPorts:
+    context: GovernedAssignmentContextTransport
+    authority: GovernedAssignmentAuthorityProjection
+    candidates: GovernedAssignmentCandidateProjection
+    admission: GovernedAssignmentAdmission

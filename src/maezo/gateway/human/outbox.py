@@ -21,20 +21,23 @@ import asyncpg  # type: ignore[import-untyped]
 from maezo.gateway.audit import AuditRecord
 from maezo.gateway.audit_postgres import PostgresAuditSink, _row_to_record, schema_for_tenant
 from maezo.portal.contracts.models import HumanPrincipal
+from maezo.portal.engine.assignment import HumanAssignmentCommand
 from maezo.portal.engine.decision import HumanDecisionCommand
 from maezo.portal.engine.profile import HumanCommand
 
 from .decision import ClassifiedDecision, DecisionAdmission, PendingDecisionAdmission
-from .models import AuthorizedAssignment, PendingAdmission, Scope
-from .ports import DurableAdmission
+from .models import AuthorizedAssignment, AuthorizedGovernedAssignment, PendingAdmission, Scope
+from .ports import DurableAdmission, GovernedAssignmentAdmission
 from .projection import (
     EvidenceReference,
     EvidenceReferenceSource,
+    GovernedEvidenceReferenceSource,
     project_assignment,
+    project_governed_assignment,
     restore_command,
     verify_engine_receipt,
 )
-from .receipt import PublicReceipt, ReceiptStore
+from .receipt import PublicReceipt, ReceiptStore, parse_public_receipt
 
 
 class HumanOutboxError(RuntimeError):
@@ -116,7 +119,7 @@ class PostgresHumanOutbox(ReceiptStore):
             or command.principal_ref == self.scope.workload_ref
             or (
                 command.operation not in ("claim", "release")
-                and not isinstance(command, HumanDecisionCommand)
+                and not isinstance(command, (HumanDecisionCommand, HumanAssignmentCommand))
             )
             or (isinstance(command, HumanDecisionCommand) and command.environment != self.scope.environment)
         ):
@@ -185,6 +188,20 @@ class PostgresHumanOutbox(ReceiptStore):
         if len(command.canonical) > 65536:
             raise HumanOutboxError("human command size unavailable")
         async with self._transaction(audit_lock=True) as conn:
+            if isinstance(command, HumanAssignmentCommand):
+                source = await conn.fetchrow(
+                    "SELECT state,source_revision,active_generation_digest,pending_publication_id "
+                    "FROM portal_assignment_source WHERE tenant=$1 FOR SHARE",
+                    self.scope.tenant,
+                )
+                if (
+                    source is None
+                    or source["state"] != "active"
+                    or source["pending_publication_id"] is not None
+                    or str(source["source_revision"]) != command.source_revision
+                    or source["active_generation_digest"] != command.generation_digest
+                ):
+                    raise HumanOutboxError("assignment source frozen or changed")
             audit = await self._audit.emit_once_on(
                 conn, _audit(command, "intent", {}), dedup_key="human:intent:" + command.audit_intent_ref
             )
@@ -429,6 +446,22 @@ class PostgresHumanOutbox(ReceiptStore):
             )
             if isinstance(c, HumanDecisionCommand):
                 result.update(schema_version="human-public-receipt.v2", operation="decision")
+            if isinstance(c, HumanAssignmentCommand):
+                from maezo.portal.engine.assignment import GOVERNED_FIELDS
+
+                result.update({field: getattr(c, field) for field in GOVERNED_FIELDS})
+                result.update(
+                    schema_version="human-public-assignment-receipt.v1",
+                    operation=c.operation,
+                    command_schema=c.schema,
+                    prior_assignee_ref=None,
+                    resulting_assignee_ref=None,
+                    assignment_disposition=None,
+                    engine_receipt_ref=None,
+                    engine_recorded_at=None,
+                    consumed_task_revision=None,
+                    resulting_task_revision=None,
+                )
             if row["status"] == "committed":
                 raw = bytes(row["engine_receipt"])
                 verified = verify_engine_receipt(raw, c)
@@ -444,6 +477,17 @@ class PostgresHumanOutbox(ReceiptStore):
                         "engine_receipt_digest": hashlib.sha256(raw).hexdigest(),
                     },
                 )
+                if isinstance(c, HumanAssignmentCommand):
+                    result.update(
+                        {
+                            field: getattr(verified, field)
+                            for field in (
+                                "prior_assignee_ref",
+                                "resulting_assignee_ref",
+                                "assignment_disposition",
+                            )
+                        }
+                    )
                 result.update(
                     engine_receipt_ref=verified.engine_receipt_ref,
                     engine_recorded_at=verified.engine_recorded_at,
@@ -458,7 +502,7 @@ class PostgresHumanOutbox(ReceiptStore):
                     row["audit_result_hash"],
                     {"status": "conflict", "technical_code": row["technical_code"]},
                 )
-            return PublicReceipt.model_validate(result)
+            return parse_public_receipt(result)
 
 
 class PostgresHumanAdmission(DurableAdmission):
@@ -476,6 +520,28 @@ class PostgresHumanAdmission(DurableAdmission):
         reference = EvidenceReference.model_validate(await self._evidence.current_reference(value))
         wire = project_assignment(value, reference)
         return await self._outbox.persist(wire, evidence_valid_until=reference.valid_until)
+
+
+class PostgresGovernedAssignmentAdmission(GovernedAssignmentAdmission):
+    def __init__(self, outbox: PostgresHumanOutbox, evidence: GovernedEvidenceReferenceSource) -> None:
+        if evidence.scope != outbox.scope:
+            raise HumanOutboxError("human evidence scope mismatch")
+        self.scope, self._outbox, self._evidence = outbox.scope, outbox, evidence
+
+    async def admit(self, command: AuthorizedGovernedAssignment) -> PendingAdmission:
+        value = AuthorizedGovernedAssignment.model_validate(command)
+        if value.scope != self.scope:
+            raise HumanOutboxError("human admission scope mismatch")
+        reference = EvidenceReference.model_validate(await self._evidence.current_reference(value))
+        projected = project_governed_assignment(value, reference)
+        deadline = min(
+            value.valid_until,
+            value.read_context.context.valid_until,
+            value.read_context.task.valid_until,
+            value.authority.valid_until,
+            reference.valid_until,
+        )
+        return await self._outbox.persist(projected, evidence_valid_until=deadline)
 
 
 class PostgresDecisionAdmission(DecisionAdmission):

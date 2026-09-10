@@ -123,3 +123,71 @@ class ReceiptStore(ABC):
 class BoundReceiptPorts:
     store: ReceiptStore
     authority: ReceiptResourceAuthority
+
+
+class PublicAssignmentReceipt(PublicReceipt):
+    """C9 closed governed status: command pins always present, effect proof only on commit."""
+
+    schema_version: Literal["human-public-assignment-receipt.v1"]  # type: ignore[assignment]
+    operation: Literal["claim", "release", "reassign"]  # type: ignore[assignment]
+    audit_result_ref: Sha256Digest | None
+    engine_receipt_ref: OpaqueRef | None
+    engine_recorded_at: datetime | None
+    consumed_task_revision: DecimalRevision | None
+    resulting_task_revision: DecimalRevision | None
+    technical_code: Literal["REVISION_CONFLICT", "COMMAND_CONFLICT", "FORM_NOT_ACTIVATED"] | None
+    command_schema: Literal["human-assignment.v2"]
+    binding_ref: OpaqueRef
+    binding_version: DecimalRevision
+    binding_digest: Sha256Digest
+    policy_ref: OpaqueRef
+    policy_version: DecimalRevision
+    policy_digest: Sha256Digest
+    source_revision: DecimalRevision
+    generation_digest: Sha256Digest
+    target_ref: OpaqueRef | None
+    target_membership_revision: DecimalRevision | None
+    prior_assignee_ref: OpaqueRef | None
+    resulting_assignee_ref: OpaqueRef | None
+    assignment_disposition: Literal["changed", "unchanged"] | None
+
+    @model_validator(mode="after")
+    def status_shape(self) -> "PublicAssignmentReceipt":
+        if self.operation == "reassign":
+            if self.target_ref is None or self.target_membership_revision is None:
+                raise ValueError("governed target missing")
+        elif self.target_ref is not None or self.target_membership_revision is not None:
+            raise ValueError("unexpected governed target")
+        # Reuse exactly the existing v1 audit/proof shape on its own closed projection.
+        legacy = self.model_dump(include=set(PublicReceipt.model_fields) - {"schema_version", "operation"})
+        PublicReceipt.model_validate(legacy)
+        if self.status != "committed":
+            if any(
+                v is not None
+                for v in (self.prior_assignee_ref, self.resulting_assignee_ref, self.assignment_disposition)
+            ):
+                raise ValueError("noncommitted receipt cannot claim assignment effect")
+        else:
+            expected = (
+                self.principal_ref
+                if self.operation == "claim"
+                else None
+                if self.operation == "release"
+                else self.target_ref
+            )
+            if self.resulting_assignee_ref != expected or self.assignment_disposition != (
+                "unchanged" if self.prior_assignee_ref == self.resulting_assignee_ref else "changed"
+            ):
+                raise ValueError("governed effect mismatch")
+        return self
+
+
+def parse_public_receipt(value: Any) -> PublicReceipt:
+    if isinstance(value, PublicReceipt):
+        value = value.model_dump()
+    cls = (
+        PublicAssignmentReceipt
+        if isinstance(value, dict) and value.get("schema_version") == "human-public-assignment-receipt.v1"
+        else PublicReceipt
+    )
+    return cls.model_validate(value)

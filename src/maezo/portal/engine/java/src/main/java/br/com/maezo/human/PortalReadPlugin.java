@@ -54,6 +54,23 @@ public final class PortalReadPlugin extends AbstractProcessEnginePlugin {
       throw unavailable();
     return p;
   }
+  /** Acquired outside the engine command before its tenant lock. Optional only for
+   * an explicitly qualified assignment binding with constraint_mode=none. */
+  static final class AssignmentConstraintLease {
+    final PortalReadTrust trust; final PortalReadTrust.Admission admission;
+    AssignmentConstraintLease(PortalReadTrust trust,PortalReadTrust.Admission admission){this.trust=trust;this.admission=admission;}
+    PortalReadCommand.AssignmentFacts verify(org.cibseven.bpm.engine.impl.interceptor.CommandContext context,
+        java.util.Map<String,Object> principal, java.util.Map<String,Object> binding,
+        java.util.Map<String,Object> designation,Runnable current) {
+      if(!trust.scope.get("tenant").equals(binding.get("tenant"))||!trust.scope.get("environment").equals(binding.get("environment"))||!trust.incarnation.equals(binding.get("database_incarnation")))throw denied();
+      return new PortalReadCommand(trust,admission,current).assignmentConstraints(context,principal,binding,designation);
+    }
+  }
+  static AssignmentConstraintLease assignmentConstraints(String tenant,String environment){
+    var p=running;if(p==null)return null;
+    if(!p.trust.scope.get("tenant").equals(tenant)||!p.trust.scope.get("environment").equals(environment))throw denied();
+    return new AssignmentConstraintLease(p.trust,p.trust.acquire("portal-task-read"));
+  }
   byte[] execute(byte[] raw, String peer, String route) {
     String purpose = route.equals("publications") ? "portal-read-publication" : "portal-task-read";
     var verified = PortalReadEnvelope.verify(raw, trust, purpose, peer, Instant.now());

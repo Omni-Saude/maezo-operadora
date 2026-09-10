@@ -7,6 +7,9 @@ import org.cibseven.bpm.engine.impl.cfg.*;
 /** Registered explicitly in Tomcat /camunda/conf/bpm-platform.xml, ADR0049 D5. */
 public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
   private Trust trust;
+  private AssignmentTrust assignmentTrust;
+  private ExternalCaseModels.Configuration receiptCaseConfiguration;
+  private String receiptCaseConfigurationDigest;
   private ProcessEngineConfigurationImpl configuration;
   private static volatile HumanCommandPlugin running;
 
@@ -14,6 +17,13 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
 
   HumanCommandPlugin(Trust trust) {
     this.trust = trust;
+  }
+
+  /** Deployment-owner injection of the SAME independently installed W6 configuration.
+   * It is immutable after engine initialization; no runtime source/config provider is created. */
+  public synchronized void setAssignmentReceiptCaseConfiguration(ExternalCaseModels.Configuration value) {
+    if(value==null||configuration!=null||receiptCaseConfiguration!=null)throw new IllegalStateException("receipt case configuration unavailable");
+    receiptCaseConfiguration=value;receiptCaseConfigurationDigest=value.digest();
   }
 
   @Override
@@ -27,6 +37,14 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
       } catch (java.io.IOException ex) {
         throw new IllegalStateException("human trust configuration unavailable");
       }
+    }
+    String assignmentFile=System.getenv("MAEZO_HUMAN_ASSIGNMENT_TRUST_FILE");
+    if(assignmentFile!=null && !assignmentFile.isBlank())try{assignmentTrust=AssignmentTrust.load(Path.of(assignmentFile),trust);}catch(java.io.IOException ex){throw new IllegalStateException("assignment trust configuration unavailable");}
+    if(receiptCaseConfiguration!=null){
+      if(assignmentTrust==null||!receiptCaseConfiguration.digest().equals(receiptCaseConfigurationDigest))throw new IllegalStateException("receipt case configuration unavailable");
+      assignmentTrust.scope(receiptCaseConfiguration.scope());
+      var used=new java.util.HashSet<String>();trust.keys.values().forEach(k->used.add(k.fingerprint()));assignmentTrust.readKeys.values().forEach(k->used.add(k.fingerprint()));used.add(Jcs.digest(assignmentTrust.sourceKey.getEncoded()));if(assignmentTrust.receiptSourceKey!=null)used.add(Jcs.digest(assignmentTrust.receiptSourceKey.getEncoded()));
+      if(used.contains(Jcs.digest(receiptCaseConfiguration.installationKey().getEncoded()))||used.contains(receiptCaseConfiguration.transportFingerprint()))throw new IllegalStateException("receipt case key partition unavailable");
     }
     if (!trust.engineName.equals(configuration.getProcessEngineName()))
       throw new IllegalStateException("human engine name mismatch");
@@ -47,6 +65,7 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
     configuration
         .getCommandExecutorTxRequired()
         .execute(context -> new EngineStore(context, trust.tenant).lockTenant());
+    if(assignmentTrust!=null)configuration.getCommandExecutorTxRequired().execute(context->{AssignmentInstallation.acquire(context,new EngineStore(context,trust.tenant),assignmentTrust);return null;});
     running = this;
   }
 
@@ -57,6 +76,16 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
   }
 
   byte[] execute(byte[] raw, String peer, String purpose) {
+    var outer=Jcs.object(Jcs.parse(raw));var command=Jcs.object(outer.get("command"));
+    if(purpose.equals("human-command") && "human-assignment.v2".equals(command.get("schema"))){
+      if(assignmentTrust==null)throw EngineStore.unavailable();
+      byte[] immutable=raw.clone();
+      return GovernedAssignment.withConstraints(configuration.getCommandExecutorTxRequired(),
+        constraints->new GovernedAssignment(assignmentTrust,immutable,peer,constraints,receiptCaseConfiguration),
+        ()->PortalReadPlugin.assignmentConstraints(assignmentTrust.tenant,assignmentTrust.environment));
+    }
+    if(purpose.equals("human-authority") && "human-assignment-receipt-publication.v1".equals(command.get("schema")))return configuration.getCommandExecutorTxRequired().execute(new AssignmentReceiptPublication(assignmentTrust,raw,peer));
+    if(purpose.equals("human-authority") && "human-assignment-publication.v1".equals(command.get("schema")))return configuration.getCommandExecutorTxRequired().execute(new AssignmentPublication(assignmentTrust,raw,peer));
     return switch (purpose) {
       case "human-command" ->
           configuration
@@ -69,6 +98,18 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
               .execute(new AuthorityCommand(trust, raw, peer));
       default -> throw Rejected.invalid();
     };
+  }
+
+  byte[] assignmentQuery(byte[] raw,String peer,String operation){
+    if(operation.equals("receipt-authority")){
+      if(receiptCaseConfiguration!=null&&!receiptCaseConfiguration.digest().equals(receiptCaseConfigurationDigest))throw EngineStore.unavailable();
+      return configuration.getCommandExecutorTxRequired().execute(new AssignmentReceiptAuthority(assignmentTrust,raw,peer,receiptCaseConfiguration));
+    }
+    if(assignmentTrust==null)throw EngineStore.unavailable();
+    byte[] immutable=raw.clone();
+    return GovernedAssignment.withConstraints(configuration.getCommandExecutorTxRequired(),
+      constraints->new AssignmentQuery(assignmentTrust,immutable,peer,operation,constraints),
+      ()->PortalReadPlugin.assignmentConstraints(assignmentTrust.tenant,assignmentTrust.environment));
   }
 
   byte[] receipt(byte[] raw, String peer, String task, String command) {

@@ -21,6 +21,10 @@ final class Envelope {
       String peerSpki,
       long now,
       Predicate<String> revoked) {
+    return verify(raw,trust,purpose,peerSpki,now,revoked,Map.of());
+  }
+  static Verified verify(byte[] raw,Trust trust,String purpose,String peerSpki,long now,
+      Predicate<String> revoked,Map<String,Trust.Key> assignmentReadKeys) {
     var e = Jcs.object(Jcs.parse(raw));
     Jcs.keys(
         e,
@@ -41,7 +45,7 @@ final class Envelope {
         || !purpose.equals(e.get("purpose"))
         || !trust.tenant.equals(e.get("tenant"))
         || !trust.audience.equals(e.get("audience"))) throw Rejected.denied();
-    Trust.Key key = trust.keys.get(Jcs.ref(e, "key_id"));
+    Trust.Key key = (purpose.equals("human-assignment-read") ? assignmentReadKeys : trust.keys).get(Jcs.ref(e, "key_id"));
     String keyPurpose = purpose.equals("human-receipt") ? "human-command" : purpose;
     if (key == null
         || !keyPurpose.equals(key.purpose())
