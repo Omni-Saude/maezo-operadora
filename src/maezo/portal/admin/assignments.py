@@ -193,6 +193,9 @@ class PostgresStaffAssignmentAdministration:
                 )
             )
         )
+        if self.auth_source is not None:
+            for record in changes:
+                await self.auth_source.recover_membership(record)
         auth_changes: dict[str, str] = {}
         applied_auth: list[str] = []
         # Native assignment disable/ACK must have completed before AUTH source

@@ -2021,6 +2021,41 @@ class PostgresAuthSourceLifecycle:
         for secret_hash in rows:
             await self.revoke_session(secret_hash)
 
+    async def recover_membership(self, record: MembershipRecord) -> str | None:
+        """Finish only the exact already-committed source change after lost ACK.
+
+        This never applies a pending source mutation outside the assignment
+        writer's independently locked disable/ACK transaction.
+        """
+        async with self.reader.connect() as db:
+            await self.qualified(db, self.binding.reader_role)
+            rows = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT change_id,state,new_record FROM portal_auth.source_change "
+                            "WHERE tenant=:tenant AND category='membership' AND identity_ref=:ref "
+                            "AND new_record=CAST(:record AS jsonb)"
+                        ),
+                        {
+                            "tenant": self.binding.tenant,
+                            "ref": record.principal_ref,
+                            "record": canonicalize(wire(record)).decode(),
+                        },
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        if len(rows) > 1:
+            raise AuthUnavailableError()
+        if not rows:
+            return None
+        change_id = rows[0]["change_id"]
+        if rows[0]["state"] in ("source_committed", "complete"):
+            await self.finish_change(change_id)
+        return str(change_id)
+
     async def prepare_membership(self, record: MembershipRecord) -> str:
         async with self.reader.connect() as db:
             await self.qualified(db, self.binding.reader_role)

@@ -74,3 +74,55 @@ async def test_revoke_recovers_same_source_change_before_missing_row_shortcut():
     # public entry point must not read absent source state or mint another intent.
     await source.revoke_session("synthetic-secret-hash")
     source._resume_session_change.assert_awaited_once_with(revoked_hash="synthetic-secret-hash")
+
+
+@pytest.mark.asyncio
+async def test_final_publication_checkpoint_refuses_disclosure_but_retains_committed_receipt():
+    from maezo.gateway.human.auth_profile import InputPublication, PublicationReceipt
+    from tests.unit.gateway.intake.native.test_wire_transport import scope, source
+
+    publication = InputPublication(
+        schema="human-auth-input-publication.v1",
+        scope=scope(),
+        workload_ref="publisher",
+        publication_id="publication",
+        kind="actor",
+        resource_ref="principal",
+        expected_generation=1,
+        source=source(),
+        state="frozen",
+        payload=None,
+        payload_digest=None,
+        valid_until=NOW + timedelta(seconds=30),
+    )
+    receipt = PublicationReceipt(
+        schema="human-auth-input-receipt.v1",
+        scope=scope(),
+        publication_id=publication.publication_id,
+        request_digest=digest(publication),
+        kind="actor",
+        resource_ref="principal",
+        previous_generation=1,
+        head_generation=2,
+        state="frozen",
+        payload_digest=None,
+        committed_at=NOW,
+    )
+    lifecycle = object.__new__(PostgresAuthSourceLifecycle)
+    lifecycle.clock = lambda: NOW
+    committed = []
+
+    async def acknowledge(p, r):
+        committed.append((p, r))
+
+    lifecycle.journal = SimpleNamespace(freeze=AsyncMock(return_value=receipt), acknowledge=acknowledge)
+    lifecycle.native = SimpleNamespace(execute=AsyncMock())
+
+    async def current():
+        if committed:
+            raise AuthUnavailableError()
+
+    with pytest.raises(AuthUnavailableError):
+        await lifecycle._native_publication_receipt(publication, current)
+    assert committed == [(publication, receipt)]
+    lifecycle.native.execute.assert_not_awaited()
