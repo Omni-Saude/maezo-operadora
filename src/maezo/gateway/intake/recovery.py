@@ -112,16 +112,22 @@ class IntakeRecoveryService:
         # The extra next-page candidate must also be authorized, never hidden by
         # count/cursor metadata or silently omitted when authority is unavailable.
         ceiling = await self._authorize(first, scan.candidates, ceiling)
-        # Final reads may shorten the original page ceiling. Persist only that
-        # retained minimum; an immutable cursor must never outlive this page.
-        ceiling = await self._final_ceiling(secret, first, scan.candidates, ceiling)
         next_cursor = None
         if len(scan.candidates) > PAGE_SIZE:
+            # Capture narrowed ceilings before persisting an immutable cursor.
+            ceiling = await self._final_ceiling(secret, first, scan.candidates, ceiling)
             next_cursor = await self.store.cursor(first.principal, scan, ceiling)
             self._current(ceiling)
         result = IntakeRecoveryPage(
             items=tuple(c.item for c in scan.candidates[:PAGE_SIZE]), next_cursor=next_cursor
         )
+        # Cursor commit/cleanup may change membership or resource authorization.
+        # Revalidate after that I/O, retaining every earlier ceiling. An already
+        # persisted immutable cursor cannot be shortened here without more I/O;
+        # refuse its disclosure if this last read further narrows its lifetime.
+        final_ceiling = await self._final_ceiling(secret, first, scan.candidates, ceiling)
+        if next_cursor is not None and final_ceiling < ceiling:
+            raise IntakeError("operation_forbidden")
         frozen = freeze(result)
-        self._current(ceiling)
+        self._current(final_ceiling)
         return frozen

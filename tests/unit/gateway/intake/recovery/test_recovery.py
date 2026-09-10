@@ -358,7 +358,7 @@ async def test_real_keyset_pages_and_cursors_do_not_filter_terminal_rows(setup):
         add(h, i, state="started" if i % 2 else "reconciling")
     first = await discover(h)
     assert len(first.items) == 50 and first.next_cursor is not None
-    assert len(h.authority.calls) == 102  # including the lookahead row, twice
+    assert len(h.authority.calls) == 153  # lookahead included before and after cursor I/O
     second = await discover(h, first.next_cursor)
     assert len(second.items) == 3 and second.next_cursor is None
     assert not {i.command_id for i in first.items} & {i.command_id for i in second.items}
@@ -526,7 +526,7 @@ async def test_cursor_retains_every_final_read_ceiling_after_renewal(setup, phas
     first = await discover(h)
     assert first.next_cursor is not None
     assert h.db.cursors[first.next_cursor]["valid_until"] == shortened
-    assert len(h.authority.calls) == 102 and h.sessions.calls == 3
+    assert len(h.authority.calls) == 153 and h.sessions.calls == 5
     h.authority.on_read = h.sessions.on_resolve = lambda: None
     h.authority.until = h.sessions.until = NOW + timedelta(seconds=60)
     h.clock[0] = NOW + timedelta(seconds=20)
@@ -568,3 +568,34 @@ async def test_shortened_final_ceiling_survives_cursor_io_and_serialization(setu
         await h.service.discover_frozen("s" * 43, None, freeze=freeze)
     assert len(h.db.cursors) == 1  # Technical committed cursor is not a delivered response.
     assert next(iter(h.db.cursors.values()))["valid_until"] == shortened
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change", ["resource_denied", "membership_changed", "resource_shortened", "session_shortened"]
+)
+async def test_cursor_commit_is_followed_by_current_authority_before_disclosure(setup, change):
+    h = setup
+    for index in range(51):
+        add(h, index)
+    disclosed = []
+
+    def after_cursor():
+        if not h.db.cursors:
+            return
+        if change == "resource_denied":
+            h.authority.deny.add(f"{1000:032x}")
+        elif change == "membership_changed":
+            h.sessions.principal = PRINCIPAL.model_copy(update={"membership_revision": 2})
+        elif change == "resource_shortened":
+            h.authority.until = NOW + timedelta(seconds=10)
+        else:
+            h.sessions.until = NOW + timedelta(seconds=10)
+
+    h.db.on_release = after_cursor
+    with pytest.raises(IntakeError, match="operation_forbidden"):
+        await h.service.discover_frozen("s" * 43, None, freeze=lambda value: disclosed.append(value))
+    assert disclosed == []
+    assert len(h.db.cursors) == 1  # Technical cursor committed, but never disclosed.
+    assert next(iter(h.db.cursors.values()))["valid_until"] == NOW + timedelta(seconds=30)
+    assert all(not query.lstrip().startswith(("UPDATE", "DELETE")) for query, _ in h.db.queries)
