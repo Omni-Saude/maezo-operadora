@@ -66,6 +66,31 @@ def test_root_read_and_native_exceptions_keep_every_sibling_excluded() -> None:
     assert {".env", ".env.*", "*.env"}.issubset(lines)
 
 
+def test_staged_read_webapp_copy_is_owned_by_inherited_nonroot_user() -> None:
+    """Keep both mv and recursive removal usable beneath the image's sticky /tmp.
+
+    Docker COPY defaults to root ownership. This source fence complements the
+    complete RUN controls below; it does not simulate Docker ownership or a build.
+    """
+    dockerfile = (ROOT / "deploy/cibseven/Dockerfile.human").read_text()
+    logical = re.sub(r"\\\n\s*", " ", dockerfile).splitlines()
+    # Select the actual source path, not comments or an unrelated COPY option.
+    copies = [
+        shlex.split(line)
+        for line in logical
+        if line.startswith("COPY ") and "deploy/cibseven/read-webapp" in shlex.split(line)
+    ]
+    assert copies == [
+        [
+            "COPY",
+            "--chown=camunda:camunda",
+            "deploy/cibseven/read-webapp",
+            "/tmp/maezo-human-read",
+        ]
+    ]
+    assert not any(line.startswith("USER ") for line in logical)
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="RUN requires Linux sed -i; image UID remains unverified")
 @pytest.mark.parametrize("flag", ["true", "false", "invalid"])
 def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str) -> None:
