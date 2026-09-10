@@ -20,6 +20,7 @@ import pytest
 from tests.unit.platform.engine_bootstrap import test_controller_contracts as v
 from tests.unit.platform.engine_bootstrap.test_controller_storage import H, U, preparation
 
+from maezo.platform.engine_bootstrap import controller_contracts as c
 from maezo.platform.engine_bootstrap import controller_storage as s
 
 ROOT = Path(__file__).parents[4]
@@ -90,6 +91,32 @@ def input_record() -> dict[str, Any]:
     )
 
 
+def forbidden_statements(sql: str) -> list[str]:
+    # Remove literal/identifier contents and comments, retaining PL/pgSQL statements
+    # inside dollar-quoted bodies. Keywords inside a JSON enum are not statements.
+    tokens = re.sub(r"--[^\n]*|/\*.*?\*/|'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"", " ", sql, flags=re.S)
+    return re.findall(
+        r"\b(?:COMMIT|ROLLBACK|CREATE\s+ROLE|CREATE\s+EXTENSION|IF\s+NOT\s+EXISTS)\b", tokens, re.I
+    )
+
+
+@pytest.mark.parametrize(
+    "sql, expected",
+    [
+        ("SELECT 'ROLLBACK'; -- COMMIT\n", False),
+        ("SELECT 'it''s COMMIT';", False),
+        ('SELECT "ROLLBACK";', False),
+        ("COMMIT;", True),
+        ("DO $d7$ BEGIN ROLLBACK; END $d7$;", True),
+        ("CREATE\nROLE intrusive;", True),
+        ("CREATE EXTENSION pgcrypto;", True),
+        ("CREATE TABLE IF NOT EXISTS bad(x int);", True),
+    ],
+)
+def test_statement_inspection_distinguishes_executable_tokens(sql: str, expected: bool) -> None:
+    assert bool(forbidden_statements(sql)) is expected
+
+
 def function_body(name: str) -> str:
     pattern = r"CREATE FUNCTION maezo_d7_control\." + re.escape(name) + r"\(.*?AS \$d7\$(.*?)\$d7\$;"
     result = re.search(pattern, SQL, re.S)
@@ -107,7 +134,7 @@ def test_actual_migration_has_exact_seven_relations_complete_columns_and_pinned_
         columns = re.findall(r'^  "([a-z_0-9]+)" ', block, re.M)
         assert set(columns) == set(table["columns"])
         assert 'CREATE TRIGGER d7_immutable BEFORE UPDATE OR DELETE ON maezo_d7_control."' + name + '"' in SQL
-    assert not re.search(r"\b(COMMIT|ROLLBACK|CREATE ROLE|CREATE EXTENSION|IF NOT EXISTS)\b", SQL)
+    assert not forbidden_statements(SQL)
 
 
 def test_fixed_public_overloads_and_private_validators_are_hardened() -> None:
@@ -229,8 +256,8 @@ def test_real_owner_receipt_insert_constructor_carries_all_seventh_table_columns
         def execute(self, sql: str, params: Any = ()) -> None:
             self.calls.append((sql, params))
 
-        def fetchone(self) -> tuple[int]:
-            return (100,)
+        def fetchone(self) -> tuple[int, int]:
+            return (100, 99)
 
     class Authority:
         pass
@@ -299,3 +326,353 @@ def test_bounded_nofollow_package_custody(tmp_path: Path) -> None:
             expected_package_sha256=hashlib.sha256(package.read_bytes()).hexdigest(),
             expected_uid=package.stat().st_uid,
         )
+
+
+def receipt_mapping() -> list[dict[str, Any]]:
+    return sorted(
+        [
+            dict(
+                purpose="receipt_read",
+                native_actor="native-" + r["role_name"],
+                login_name=r["role_name"],
+                login_oid=r["role_oid"],
+            )
+            for r in catalog()["roles"]
+            if r["role_class"] in {"actual issuer login", "scoped D observer login"}
+        ],
+        key=lambda p: tuple(p[k] for k in ("purpose", "native_actor", "login_name", "login_oid")),
+    )
+
+
+def test_owner_singleton_mapping_accepts_both_qualified_receipt_readers() -> None:
+    owner.singleton_receipt_principals(catalog()["roles"], receipt_mapping())
+
+
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "foreign_oid", "foreign_name", "wrong_purpose"])
+def test_owner_singleton_mapping_refuses_incomplete_or_foreign_tuple(fault: str) -> None:
+    mapping = receipt_mapping()
+    if fault == "missing":
+        mapping.pop()
+    elif fault == "duplicate":
+        mapping.append(mapping[0] | {"native_actor": "other-actor"})
+    else:
+        field, replacement = {
+            "foreign_oid": ("login_oid", 999),
+            "foreign_name": ("login_name", "other"),
+            "wrong_purpose": ("purpose", "grant"),
+        }[fault]
+        mapping[0][field] = replacement
+    mapping.sort(key=lambda p: tuple(p[k] for k in ("purpose", "native_actor", "login_name", "login_oid")))
+    with pytest.raises(s.Refusal):
+        owner.singleton_receipt_principals(catalog()["roles"], mapping)
+
+
+def test_singleton_sql_has_current_guarded_read_and_origin_dependent_catalog_mutation() -> None:
+    read = function_body("read_issuer_operation")
+    assert "PERFORM maezo_d7_control._need(false,'P7D09');RETURN NULL" not in read.split("EXCEPTION", 1)[0]
+    assert read.index("lock_provisioning_scope") < read.index("SELECT * INTO r")
+    assert "q-ARRAY['protocol','read_guard']" in read
+    issuer = function_body("_issuer")
+    assert issuer.index("_permit_origin(body") < issuer.index("SELECT * INTO r")
+    assert "p.state='ISSUED'" in issuer[: issuer.index("SELECT * INTO r")]
+    assert (
+        "p.principal_origin->>'kind'='owner_prepared_one_shot' THEN PERFORM maezo_d7_control._login" in issuer
+    )
+    assert "CREATE UNIQUE INDEX d7_singleton_issued" in SQL
+    resolver = function_body("_permit_origin")
+    assert "matches=1 AND actor=origin->>'native_actor'" in resolver
+    assert "binding->'issuer_scopes'" in resolver
+    assert "RETURN actor" in resolver
+
+
+def test_installation_scope_retention_is_required_in_source_and_metadata() -> None:
+    source = INSTALLER_PATH.read_text()
+    assert '"issuer_scopes": value["issuer_scopes"]' in source
+    assert "singleton_receipt_principals(roles, operational)" in source
+    assert "issuer_scopes" in PACKAGE["installation"]["closed_records"]["InstallationBinding"]["fields"]
+
+
+class InstallationProtocolConnection:
+    """Actual installer SQL/insert constructor calls against finite DB-API responses."""
+
+    def __init__(self) -> None:
+        self.autocommit = False
+        self.info = SimpleNamespace(transaction_status=0)
+        self.calls: list[Any] = []
+        self.row: Any = None
+        self.version: dict[str, Any] | None = None
+        self.manifest = catalog()
+        self.manifest["roles"].sort(key=lambda r: (r["role_class"], r["role_name"]))
+        self.manifest["operational_principals"] = receipt_mapping()
+        rehash(self.manifest)
+
+    def cursor(self) -> Any:
+        return self
+
+    def execute(self, sql: str, params: Any = ()) -> None:
+        self.calls.append((sql, params))
+        if sql == owner.SESSION_SQL:
+            self.row = ("migration", "migration", 999, 1, "synthetic", 160004, "read committed")
+        elif sql == owner.ROLE_SQL:
+            r = next(r for r in self.manifest["roles"] if r["role_name"] == params[0])
+            self.row = (r["role_oid"], r["role_name"], *(r[k] for k in owner.ROLE_FIELDS.split()[3:]))
+        elif sql.startswith("SELECT pg_catalog.pg_has_role"):
+            self.row = (True, True)
+        elif "to_regnamespace" in sql:
+            self.row = (77 if self.version else None,)
+        elif sql == owner.VERSION_SQL:
+            self.row = (self.version,)
+        elif sql.startswith("SELECT maezo_d7_control._owner_catalog"):
+            self.row = (self.manifest,)
+        elif sql == owner.OBJECTS_SQL:
+            self.row = ([dict(object_class="table", object_name=name) for name in PACKAGE["tables"]],)
+        elif "SELECT oid::bigint FROM pg_catalog.pg_namespace" in sql:
+            self.row = (77,)
+        elif sql == "SELECT maezo_d7_control._now_ms()":
+            self.row = (100,)
+
+    def fetchone(self) -> Any:
+        return self.row
+
+    def fetchall(self) -> list[Any]:
+        return [
+            (f["name"].split(".")[-1], ",".join(f["arguments"]).replace("pg_catalog.", ""), 200 + i)
+            for i, f in enumerate(
+                PACKAGE["functions"]["functions"] + PACKAGE["functions"]["private_wire_validators"]
+            )
+        ]
+
+    def commit(self) -> None:
+        self.calls.append("commit")
+
+    def rollback(self) -> None:
+        self.calls.append("rollback")
+
+    def close(self) -> None:
+        self.calls.append("close")
+
+
+class InstallationProtocolAuthority:
+    def __init__(self) -> None:
+        from tests.unit.platform.engine_bootstrap.test_controller_dynamodb import initial_root
+
+        self.initial = initial_root()
+        self.calls: list[Any] = []
+
+    def installation(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        return owner.InstallationPrerequisites((self.initial,), s.canonical(receipt_mapping()))
+
+    def catalog(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+
+
+def test_actual_installer_initial_columns_and_exact_empty_installation_replay() -> None:
+    conn, authority = InstallationProtocolConnection(), InstallationProtocolAuthority()
+    installer = owner.OwnerInstaller(conn, PACKAGE, SQL.encode(), authority)
+    value = input_record()
+    result = installer.install(s.canonical(value))
+    assert result.kind == "COMMITTED", result.code
+    binding = s.parse_wire(result.receipt_wire)
+    assert binding["issuer_scopes"] == value["issuer_scopes"]
+    inserts = [row for row in conn.calls if isinstance(row, tuple) and row[0].startswith("INSERT")]
+    assert len(inserts) == 2
+    version_sql, version_values = inserts[0]
+    fields = re.findall(r'"([a-z_0-9]+)"', version_sql)
+    conn.version = {
+        k: ("\\x" + v.hex() if isinstance(v, bytes) else v)
+        for k, v in zip(fields, version_values, strict=True)
+    }
+    conn.calls.clear()
+    replay = installer.install(s.canonical(value))
+    assert replay.kind == "COMMITTED" and replay.receipt_wire == result.receipt_wire
+    assert not [row for row in conn.calls if isinstance(row, tuple) and row[0].startswith("INSERT")]
+
+
+@pytest.mark.parametrize("clock_now,previous", [(100, 100), (99, 100)])
+def test_owner_receipt_never_invents_future_commit_time(clock_now: int, previous: int) -> None:
+    class ClockCursor:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def execute(self, sql: str, params: Any = ()) -> None:
+            self.calls.append(sql)
+
+        def fetchone(self) -> tuple[int, int]:
+            return clock_now, previous
+
+    cursor = ClockCursor()
+    installer = owner.OwnerInstaller(SimpleNamespace(), PACKAGE, SQL.encode(), SimpleNamespace())
+    with pytest.raises(s.Refusal, match="UNAVAILABLE"):
+        installer._owner_receipt(cursor, {}, b"{}", (), {}, {}, None, {}, H, H, "PREPARED", None)
+    assert len(cursor.calls) == 1 and "INSERT" not in cursor.calls[0]
+
+
+@pytest.mark.parametrize("authorized", [False, True])
+def test_prepare_replay_rechecks_full_catalog_and_current_external_authority(authorized: bool) -> None:
+    value = preparation()
+    calls: list[Any] = []
+
+    class Cursor:
+        def execute(self, sql: str, params: Any = ()) -> None:
+            calls.append(sql)
+
+    class Authority:
+        def replay(self, **kwargs: Any) -> None:
+            calls.append(kwargs)
+            if not authorized:
+                raise s.Refusal("AUTH_REFUSED")
+
+    class ReplayInstaller(owner.OwnerInstaller):
+        def _role(self, *args: Any) -> dict[str, Any]:
+            return {"role_oid": 17}
+
+        def _owner_context(self, *args: Any) -> tuple[Any, Any, Any]:
+            return (
+                dict(
+                    mode="CLOSED",
+                    current_generation_id=None,
+                    restore_state="RECONCILED",
+                    database_binding_bytes="\\x" + s.canonical(value["database_binding"]).hex(),
+                ),
+                {},
+                None,
+            )
+
+        def _replay(self, *args: Any) -> bytes:
+            return b'{"retained":"exact"}'
+
+    installer = ReplayInstaller(SimpleNamespace(), PACKAGE, SQL.encode(), Authority())
+    if authorized:
+        assert installer._prepare(Cursor(), s.canonical(value), ("owner",)) == b'{"retained":"exact"}'
+    else:
+        with pytest.raises(s.Refusal, match="AUTH_REFUSED"):
+            installer._prepare(Cursor(), s.canonical(value), ("owner",))
+    assert calls[0] == "SELECT maezo_d7_control._assert_catalog()"
+    assert calls[1]["input_wire"] == s.canonical(value)
+    assert calls[1]["retained_result_wire"] == b'{"retained":"exact"}'
+
+
+def test_native_append_result_projection_uses_actual_closed_body_grammar() -> None:
+    """Schema/source projection control, explicitly not PostgreSQL execution."""
+    sql = function_body("append_provisioning_receipt")
+    projection = sql[sql.index("body:=maezo_d7_control._wire(result_wire)") : sql.index("SELECT * INTO r")]
+    fields = set(re.findall(r"body->>?'([^']+)'", projection))
+    permitted = set(c._DEFINITIONS["DeployResultBody"]["properties"]) | set(
+        c._DEFINITIONS["GrantResultBody"]["properties"]
+    )
+    assert fields <= permitted
+    assert fields == {"operation", "tenant", "deployment_receipt"}
+
+
+def prepare_through_actual_owner_source(
+    reserved: s.Document,
+    reserved_wire: bytes,
+    purpose: str = "candidate",
+    credential_binding_sha256: str | None = None,
+) -> tuple[Any, Any]:
+    """Execute the owner constructor using finite SQL responses, not real PG authority."""
+    value = preparation(purpose)
+    if credential_binding_sha256 is not None:
+        value["principal"]["credential_binding_sha256"] = credential_binding_sha256
+    value.update(
+        scope=reserved.value()["scope"], run_id=reserved.value()["run_id"], epoch=reserved.value()["epoch"]
+    )
+    value["principal"]["generation_id"] = s.parse_wire(reserved_wire)["generation_id"]
+    prepared_role = dict(
+        role_class="generation login",
+        role_name=value["principal"]["login_name"],
+        role_oid=17,
+        **{k: False for k in owner.ROLE_FIELDS.split()[3:]},
+    )
+
+    class PreparationConnection(InstallationProtocolConnection):
+        def __init__(self) -> None:
+            super().__init__()
+            self.version = dict(
+                installation_id=U,
+                migration_sha256=PACKAGE["sql_sha256"],
+                role_acl_manifest_bytes="\\x" + s.canonical(self.manifest).hex(),
+                installation_binding_bytes="\\x" + s.canonical({"control_scope_id": U}).hex(),
+            )
+            self.fence = dict(
+                **{
+                    k: value["scope"][k]
+                    for k in ("account", "region", "tenant", "environment", "engine_name")
+                },
+                epoch=value["epoch"],
+                owner_run_id=value["run_id"],
+                mode="CLOSED",
+                current_generation_id=None,
+                restore_state="RECONCILED",
+                database_binding_bytes="\\x" + s.canonical(value["database_binding"]).hex(),
+            )
+
+        def execute(self, sql: str, params: Any = ()) -> None:
+            if sql == owner.ROLE_SQL and params[0] == prepared_role["role_name"]:
+                self.calls.append((sql, params))
+                self.row = (
+                    17,
+                    prepared_role["role_name"],
+                    *(prepared_role[k] for k in owner.ROLE_FIELDS.split()[3:]),
+                )
+                return
+            super().execute(sql, params)
+            if sql == owner.FENCE_LOCK:
+                self.row = (self.fence,)
+            elif sql == owner.GENERATION_LOCK:
+                self.row = None
+            elif sql == owner.OWNER_LOCK:
+                self.row = (self.version,)
+            elif sql.startswith("SELECT request_bytes,result_bytes") or sql.startswith(
+                "SELECT result_bytes FROM"
+            ):
+                self.row = None
+            elif sql.startswith("SELECT pg_catalog.has_database_privilege"):
+                self.row = (False,)
+            elif sql.startswith("SELECT count(*)"):
+                self.row = (0,)
+            elif sql.startswith("SELECT maezo_d7_control._owner_catalog"):
+                after = copy.deepcopy(self.manifest)
+                after["roles"].append(prepared_role)
+                after["roles"].sort(key=lambda r: (r["role_class"], r["role_name"]))
+                self.row = (rehash(after),)
+            elif sql.startswith("SELECT maezo_d7_control._now_ms(),COALESCE"):
+                self.row = (100, -1)
+
+    class PreparationAuthority:
+        def preparation(self, **kwargs: Any) -> str:
+            request = s.Document("OwnerPreparationInput", kwargs["input_wire"]).value()
+            reservation = s.parse_wire(reserved_wire)
+            assert reservation["state"] == "RESERVED" and reservation["tombstone"] is True
+            assert (
+                request["principal"]["generation_id"]
+                == reservation["generation_id"]
+                < reserved.value()["next_generation_id"]
+            )
+            assert kwargs["actual_login_oid"] == 17
+            return H
+
+        def catalog(self, **kwargs: Any) -> None:
+            before, after = s.parse_wire(kwargs["before_wire"]), s.parse_wire(kwargs["after_wire"])
+            assert [r for r in after["roles"] if r["role_oid"] != 17] == before["roles"]
+            assert (
+                after["memberships"] == before["memberships"]
+                and after["object_grants"] == before["object_grants"]
+            )
+
+    connection = PreparationConnection()
+    installer = owner.OwnerInstaller(connection, PACKAGE, SQL.encode(), PreparationAuthority())
+    result = installer.prepare(s.canonical(value))
+    assert result.kind == "COMMITTED", result
+    return s.Document("OwnerPreparationResult", result.receipt_wire), connection
+
+
+def test_embedded_sql_definitions_equal_current_contract_byte_for_byte() -> None:
+    match = re.search(
+        r"CREATE FUNCTION maezo_d7_control\._definitions\(\).*?SELECT '(.*?)'::pg_catalog.jsonb", SQL, re.S
+    )
+    assert match is not None
+    embedded = match.group(1).replace("''", "'")
+    assert embedded.encode() == json.dumps(c._DEFINITIONS, separators=(",", ":"), ensure_ascii=False).encode()
+    assert json.loads(embedded) == c._DEFINITIONS

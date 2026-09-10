@@ -9,7 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, cast
 
 from maezo.platform.engine_bootstrap import controller_contracts as c
 
@@ -25,6 +25,12 @@ MAX_DEPTH = 32
 Refusal = c.ContractError
 
 
+def present[T](value: T | None, code: c.RefusalCode = "INVALID_BODY") -> T:
+    if value is None:
+        raise Refusal(code)
+    return value
+
+
 def require(condition: bool, code: c.RefusalCode = "INVALID_BODY") -> None:
     if not condition:
         raise Refusal(code)
@@ -34,8 +40,8 @@ def canonical(value: Any) -> bytes:
     return c.canonical_json(value)
 
 
-def parse_wire(raw: bytes) -> Any:
-    return c.decode_json(raw)
+def parse_wire(raw: bytes | None) -> Any:
+    return c.decode_json(present(raw))
 
 
 def digest(raw: bytes) -> str:
@@ -55,7 +61,7 @@ def decode64(value: str) -> bytes:
 def exact(value: Any, fields: str | tuple[str, ...] | list[str]) -> dict[str, Any]:
     names = fields.split() if isinstance(fields, str) else fields
     require(type(value) is dict and set(value) == set(names))
-    return value
+    return cast(dict[str, Any], value)
 
 
 def scalar(name: str, value: Any) -> Any:
@@ -76,7 +82,8 @@ ROOT_FIELDS = (
     "schema_version control_scope_id scope owner_subject run_id epoch revision state "
     "candidate_sha256 trust_profile_sha256 lease_deadline_ms db_fence_epoch current_generation_id "
     "next_generation_id journal_revision pending_operation_ids pending_index_sha256 "
-    "managed_registry_sha256 retired_index_sha256 activation_decision_sha256 restore_receipt_sha256 "
+    "managed_registry_sha256 retired_index_sha256 "
+    "activation_decision_sha256 restore_receipt_sha256 "
     "readiness_result_sha256 restore_state current_owner_claim_sha256"
 )
 OPERATION_PROOF_FIELDS = (
@@ -166,8 +173,14 @@ REQUEST_FIELDS = {
     "close_runtime_fence": "operation candidate_sha256 trust_profile_sha256",
     "mark_recovery": "operation reason",
     "reconcile_fence": RECONCILE_FIELDS,
-    "record_current_proof": "operation generation_id expected_generation_revision phase_proof_bytes phase_proof_sha256",
-    "issue_permit": "operation permit_id native_operation permit_purpose logical_request_sha256 login_name login_oid controller_task_identity_sha256",
+    "record_current_proof": (
+        "operation generation_id expected_generation_revision phase_proof_bytes phase_proof_sha256"
+    ),
+    "issue_permit": (
+        "operation permit_id native_operation permit_purpose "
+        "logical_request_sha256 login_name login_oid "
+        "controller_task_identity_sha256 principal_origin"
+    ),
     "revoke_permit": "operation permit_id reason",
 }
 NULLABLE_DIGESTS = frozenset(
@@ -326,7 +339,7 @@ def validate_lineage(v: dict[str, Any]) -> None:
     for claim in chain:
         validate_claim(claim)
         same(claim, v, "scope control_scope_id table_identity_sha256")
-    for prev, nxt in zip(chain, chain[1:]):
+    for prev, nxt in zip(chain[:-1], chain[1:], strict=True):
         require(nxt["previous_claim_sha256"] == digest(canonical(prev)))
         require(prev["successor_owner"] == nxt["previous_owner"])
         require(nxt["previous_root_revision"] >= prev["committed_root_revision"])
@@ -504,7 +517,7 @@ class Document:
         return cls(kind, canonical(value))
 
     def value(self) -> dict[str, Any]:
-        return parse_wire(self.wire)
+        return cast(dict[str, Any], parse_wire(self.wire))
 
     def digest(self) -> str:
         return digest(self.wire)
@@ -513,7 +526,8 @@ class Document:
 def prepare_request(
     request: c.IssuerRequest, decision: c.CandidateDecision | c.ActivationDecision
 ) -> dict[str, Any]:
-    require(type(request) is c.IssuerRequest and type(request.body) is c.IssuerPrepare)
+    if type(request) is not c.IssuerRequest or not isinstance(request.body, c.IssuerPrepare):
+        raise Refusal("INVALID_BODY")
     c.check_issuer_request(request, generation=request.body.generation, decision=decision)
     require(request.body.generation.status == "PREPARED" and request.body.generation.revision == 1)
     result = {
@@ -527,6 +541,30 @@ def prepare_request(
     }
     canonical(result)
     return result
+
+
+def validate_principal_origin(origin: Any, *, operation: str, purpose: str) -> dict[str, Any]:
+    """Storage-only provenance selector; owner/catalog qualification remains mandatory."""
+    require(type(origin) is dict and len(canonical(origin)) <= 4096)
+    if origin.get("kind") == "owner_prepared_one_shot":
+        exact(origin, "kind preparation_id")
+        scalar("Uuid", origin["preparation_id"])
+    else:
+        exact(
+            origin,
+            (
+                "kind installation_id installation_binding_sha256 "
+                "role_acl_manifest_sha256 role_class native_actor"
+            ),
+        )
+        require(origin["kind"] == "installation_receipt_reader")
+        require(operation == "receipt" and purpose == "receipt_read", "PURPOSE_REFUSED")
+        scalar("Uuid", origin["installation_id"])
+        for field in ("installation_binding_sha256", "role_acl_manifest_sha256"):
+            scalar("Sha256", origin[field])
+        scalar("Id", origin["native_actor"])
+        require(origin["role_class"] in {"actual issuer login", "scoped D observer login"}, "AUTH_REFUSED")
+    return cast(dict[str, Any], origin)
 
 
 def validate_store_call(operation: str, value: dict[str, Any]) -> dict[str, Any]:
@@ -591,6 +629,11 @@ def validate_store_call(operation: str, value: dict[str, Any]) -> dict[str, Any]
             if operation in {"mark_recovery", "revoke_permit"}:
                 scalar("RefusalCode", request["reason"])
             if operation == "issue_permit":
+                validate_principal_origin(
+                    request["principal_origin"],
+                    operation=request["native_operation"],
+                    purpose=request["permit_purpose"],
+                )
                 require(
                     (request["native_operation"], request["permit_purpose"])
                     in {("deploy", "deploy"), ("grant", "grant"), ("receipt", "receipt_read")}
@@ -599,13 +642,13 @@ def validate_store_call(operation: str, value: dict[str, Any]) -> dict[str, Any]
     same(value, op_proof, "scope run_id epoch")
     if operation != "record_current_proof":
         require(op_proof["operation"] == operation)
-    return parse_wire(canonical(value))
+    return cast(dict[str, Any], parse_wire(canonical(value)))
 
 
 def logical_request_digest(operation: str, value: dict[str, Any]) -> str:
     checked = validate_store_call(operation, value)
     if operation in GENERATION_OPERATIONS:
-        return checked["request"]["request_sha256"]
+        return cast(str, checked["request"]["request_sha256"])
     return digest(canonical({k: v for k, v in checked.items() if k != "proof"}))
 
 
@@ -615,7 +658,8 @@ def historical_retirement(
     decision: c.CandidateDecision | c.ActivationDecision,
     owner: dict[str, Any],
 ) -> None:
-    require(type(request.body) is c.IssuerRetire)
+    if not isinstance(request.body, c.IssuerRetire):
+        raise Refusal("INVALID_BODY")
     c.check_generation_decision(generation, decision)
     require(
         request.scope == generation.binding.scope
@@ -638,7 +682,7 @@ def partition(control_scope_id: str) -> str:
 
 def key(
     control_scope_id: str,
-    kind: Literal["ROOT", "INTENT", "OUTCOME", "GENERATION", "RESOURCE", "PROOF", "OWNERCLAIM"],
+    kind: str,
     identity: str | int | None = None,
     *,
     ordinal: int | None = None,
@@ -709,3 +753,77 @@ class ChunkSet:
         wire = b"".join(parts)
         require(digest(wire) == expected_digest)
         return cls(wire, tuple(parts), tuple(expected_hashes))
+
+
+RECOVERY_STOP_FIELDS = (
+    "protocol action external_operation_id scope logical_run_id epoch owner_subject "
+    "origin_external_operation_id origin_intent_sha256 generation_id generation_core_sha256 "
+    "decision_sha256 managed_resource_sha256 expected_precondition expected_root_sha256 "
+    "current_owner_claim_sha256 request request_bytes request_sha256 idempotency_class client_token"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryStopTaskIntent:
+    """ROOT-accepted storage-only recovery variant; never a re-stamped stage1 intent."""
+
+    wire: bytes
+
+    def __post_init__(self) -> None:
+        value = exact(parse_wire(self.wire), RECOVERY_STOP_FIELDS)
+        _scalars(value)
+        require(value["protocol"] == "maezo.provisioning-recovery-stop.v1" and value["action"] == "StopTask")
+        require(value["idempotency_class"] == "SINGLE_DISPATCH_RECONCILE" and value["client_token"] is None)
+        for field in ("external_operation_id", "origin_external_operation_id", "logical_run_id"):
+            scalar("Uuid", value[field])
+        require(value["external_operation_id"] != value["origin_external_operation_id"], "REQUEST_CONFLICT")
+        typed("ExpectedPrecondition", value["expected_precondition"])
+        request = typed("StopTaskProviderRequest", value["request"])
+        require(
+            request.canonical_bytes() == decode64(value["request_bytes"])
+            and request.digest() == value["request_sha256"]
+        )
+
+    def to_wire(self) -> dict[str, Any]:
+        return exact(parse_wire(self.wire), RECOVERY_STOP_FIELDS)
+
+    def canonical_bytes(self) -> bytes:
+        return self.wire
+
+    def digest(self) -> str:
+        return digest(self.wire)
+
+    @property
+    def scope(self) -> c.Scope:
+        return cast(c.Scope, typed("Scope", self.to_wire()["scope"]))
+
+    @property
+    def external_operation_id(self) -> str:
+        return cast(str, self.to_wire()["external_operation_id"])
+
+    @property
+    def logical_run_id(self) -> str:
+        return cast(str, self.to_wire()["logical_run_id"])
+
+    @property
+    def epoch(self) -> int:
+        return cast(int, self.to_wire()["epoch"])
+
+    @property
+    def target_generation(self) -> int:
+        return cast(int, self.to_wire()["generation_id"])
+
+    @property
+    def action(self) -> str:
+        return "StopTask"
+
+    @property
+    def request(self) -> c.StopTaskProviderRequest:
+        return cast(c.StopTaskProviderRequest, typed("StopTaskProviderRequest", self.to_wire()["request"]))
+
+
+def parse_intent(wire: bytes) -> c.RunTaskIntent | c.StopTaskIntent | RecoveryStopTaskIntent:
+    value = parse_wire(wire)
+    if value.get("protocol") == "maezo.provisioning-recovery-stop.v1":
+        return RecoveryStopTaskIntent(wire)
+    return cast(c.RunTaskIntent | c.StopTaskIntent, c.parse("AdmittedExternalIntent", wire))

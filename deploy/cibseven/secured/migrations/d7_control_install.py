@@ -7,9 +7,10 @@ creates roles, installs an extension, changes native objects or runs on import.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from maezo.platform.engine_bootstrap import controller_contracts as c
 from maezo.platform.engine_bootstrap.controller_storage import (
@@ -21,6 +22,7 @@ from maezo.platform.engine_bootstrap.controller_storage import (
     encode64,
     exact,
     parse_wire,
+    present,
     require,
     scalar,
     validate_native_qualification,
@@ -49,27 +51,65 @@ ROLE_FIELDS = (
 )
 ROLE_SQL = """SELECT oid::bigint,rolname,rolcanlogin,rolsuper,rolcreaterole,rolcreatedb,
  rolreplication,rolbypassrls,rolinherit FROM pg_catalog.pg_roles WHERE rolname=%s"""
-SESSION_SQL = """SELECT SESSION_USER,CURRENT_USER,r.oid::bigint,d.oid::bigint,d.datname,
- pg_catalog.current_setting('server_version_num')::int,
- pg_catalog.current_setting('transaction_isolation') FROM pg_catalog.pg_roles r
- CROSS JOIN pg_catalog.pg_database d WHERE r.rolname=SESSION_USER AND d.datname=pg_catalog.current_database()"""
-VERSION_SQL = 'SELECT pg_catalog.to_jsonb(v) FROM maezo_d7_control."MZO_PROVISIONING_SCHEMA_VERSION" v WHERE component=%s AND version=1'
-FENCE_LOCK = 'SELECT pg_catalog.to_jsonb(f) FROM maezo_d7_control."MZO_PROVISIONING_FENCE" f WHERE tenant=%s AND environment=%s AND engine_name=%s FOR UPDATE'
-GENERATION_LOCK = 'SELECT pg_catalog.to_jsonb(g) FROM maezo_d7_control."MZO_RUNTIME_ADMISSION" g WHERE tenant=%s AND environment=%s AND engine_name=%s AND generation_id=%s FOR UPDATE'
-OWNER_LOCK = 'SELECT pg_catalog.to_jsonb(v) FROM maezo_d7_control."MZO_PROVISIONING_SCHEMA_VERSION" v WHERE component=%s AND version=1 FOR UPDATE'
-OBJECTS_SQL = """WITH objects AS (
- SELECT 'schema'::text AS object_class,n.oid,n.nspowner AS owner_oid,n.nspname AS object_name FROM pg_catalog.pg_namespace n WHERE n.nspname='maezo_d7_control'
- UNION ALL SELECT 'table',c.oid,c.relowner,c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='maezo_d7_control' AND c.relkind='r'
- UNION ALL SELECT 'function',p.oid,p.proowner,p.proname FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='maezo_d7_control')
- SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('schema_name','maezo_d7_control',
- 'object_name',o.object_name,'object_class',o.object_class,'object_oid',o.oid::bigint,
- 'owner_name',r.rolname,'owner_oid',o.owner_oid::bigint,
- 'definition_sha256',maezo_d7_control._object_definition(o.oid,o.object_class),
- 'function_argument_types',CASE WHEN o.object_class='function' THEN pg_catalog.to_jsonb(COALESCE(pg_catalog.string_to_array(pg_catalog.oidvectortypes(p.proargtypes),', '),ARRAY[]::text[])) ELSE '[]'::jsonb END,
- 'security_definer',p.prosecdef,'volatility',p.provolatile::text,'parallel',p.proparallel::text,
- 'search_path',CASE WHEN o.object_class='function' THEN pg_catalog.to_jsonb(p.proconfig) ELSE NULL END)
- ORDER BY o.object_class COLLATE "C",o.object_name COLLATE "C",o.oid)
- FROM objects o JOIN pg_catalog.pg_roles r ON r.oid=o.owner_oid LEFT JOIN pg_catalog.pg_proc p ON p.oid=o.oid AND o.object_class='function'"""
+SESSION_SQL = (
+    "SELECT "
+    "SESSION_USER,CURRENT_USER,r.oid::bigint,d.oid::bigint,d.datname,\n "
+    "pg_catalog.current_setting('server_version_num')::int,\n "
+    "pg_catalog.current_setting('transaction_isolation') FROM "
+    "pg_catalog.pg_roles r\n CROSS JOIN pg_catalog.pg_database d WHERE "
+    "r.rolname=SESSION_USER AND "
+    "d.datname=pg_catalog.current_database()"
+)
+VERSION_SQL = (
+    "SELECT pg_catalog.to_jsonb(v) FROM "
+    'maezo_d7_control."MZO_PROVISIONING_SCHEMA_VERSION" v WHERE '
+    "component=%s AND version=1"
+)
+FENCE_LOCK = (
+    "SELECT pg_catalog.to_jsonb(f) FROM "
+    'maezo_d7_control."MZO_PROVISIONING_FENCE" f WHERE tenant=%s AND '
+    "environment=%s AND engine_name=%s FOR UPDATE"
+)
+GENERATION_LOCK = (
+    "SELECT pg_catalog.to_jsonb(g) FROM "
+    'maezo_d7_control."MZO_RUNTIME_ADMISSION" g WHERE tenant=%s AND '
+    "environment=%s AND engine_name=%s AND generation_id=%s FOR UPDATE"
+)
+OWNER_LOCK = (
+    "SELECT pg_catalog.to_jsonb(v) FROM "
+    'maezo_d7_control."MZO_PROVISIONING_SCHEMA_VERSION" v WHERE '
+    "component=%s AND version=1 FOR UPDATE"
+)
+OBJECTS_SQL = (
+    "WITH objects AS (\n SELECT 'schema'::text AS "
+    "object_class,n.oid,n.nspowner AS owner_oid,n.nspname AS "
+    "object_name FROM pg_catalog.pg_namespace n WHERE "
+    "n.nspname='maezo_d7_control'\n UNION ALL SELECT "
+    "'table',c.oid,c.relowner,c.relname FROM pg_catalog.pg_class c "
+    "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE "
+    "n.nspname='maezo_d7_control' AND c.relkind='r'\n UNION ALL SELECT "
+    "'function',p.oid,p.proowner,p.proname FROM pg_catalog.pg_proc p "
+    "JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE "
+    "n.nspname='maezo_d7_control')\n SELECT "
+    "pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('schema_name',"
+    "'maezo_d7_control',\n "
+    "'object_name',o.object_name,'object_class',o.object_class,'object"
+    "_oid',o.oid::bigint,\n "
+    "'owner_name',r.rolname,'owner_oid',o.owner_oid::bigint,\n "
+    "'definition_sha256',maezo_d7_control._object_definition(o.oid,o.o"
+    "bject_class),\n 'function_argument_types',CASE WHEN "
+    "o.object_class='function' THEN "
+    "pg_catalog.to_jsonb(COALESCE(pg_catalog.string_to_array(pg_catalo"
+    "g.oidvectortypes(p.proargtypes),', '),ARRAY[]::text[])) ELSE "
+    "'[]'::jsonb END,\n "
+    "'security_definer',p.prosecdef,'volatility',p.provolatile::text,'"
+    "parallel',p.proparallel::text,\n 'search_path',CASE WHEN "
+    "o.object_class='function' THEN pg_catalog.to_jsonb(p.proconfig) "
+    'ELSE NULL END)\n ORDER BY o.object_class COLLATE "C",o.object_name '
+    'COLLATE "C",o.oid)\n FROM objects o JOIN pg_catalog.pg_roles r ON '
+    "r.oid=o.owner_oid LEFT JOIN pg_catalog.pg_proc p ON p.oid=o.oid "
+    "AND o.object_class='function'"
+)
 FUNCTIONS_SQL = """SELECT p.proname,pg_catalog.oidvectortypes(p.proargtypes),p.oid::bigint
  FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='maezo_d7_control' ORDER BY p.proname COLLATE "C",p.oid LIMIT 1025"""
@@ -123,6 +163,9 @@ class OwnerAuthority(Protocol):
     def removal(
         self, *, input_wire: bytes, birth_wire: bytes, session: tuple[Any, ...], fence_wire: bytes
     ) -> str: ...
+    def replay(
+        self, *, input_wire: bytes, retained_result_wire: bytes, fence_wire: bytes, session: tuple[Any, ...]
+    ) -> None: ...
     def catalog(
         self, *, before_wire: bytes | None, after_wire: bytes, input_wire: bytes, session: tuple[Any, ...]
     ) -> None: ...
@@ -176,6 +219,27 @@ def _operational(values: Any) -> None:
     require(keys == sorted(set(keys)))
 
 
+def singleton_receipt_principals(roles: list[dict[str, Any]], operational: list[dict[str, Any]]) -> None:
+    """Compare qualified owner output to exact persistent receipt-reader identities."""
+    _operational(operational)
+    for role_class in ("actual issuer login", "scoped D observer login"):
+        selected = [r for r in roles if r["role_class"] == role_class]
+        require(len(selected) == 1, "AUTH_REFUSED")
+        role = selected[0]
+        matches = [
+            p
+            for p in operational
+            if p["purpose"] == "receipt_read"
+            and (p["login_name"] == role["role_name"] or p["login_oid"] == role["role_oid"])
+        ]
+        require(
+            len(matches) == 1
+            and matches[0]["login_name"] == role["role_name"]
+            and matches[0]["login_oid"] == role["role_oid"],
+            "AUTH_REFUSED",
+        )
+
+
 def installation_input(wire: bytes) -> dict[str, Any]:
     value = exact(parse_wire(wire), OWNER_INPUT)
     require(
@@ -223,7 +287,7 @@ def catalog_check(manifest: dict[str, Any], *, owner_login_oid: int) -> None:
     """Reject privilege routes even if a caller copied them into an expected manifest."""
     exact(
         manifest,
-        "protocol installation_id roles memberships object_grants operational_principals catalog_sha256",
+        ("protocol installation_id roles memberships object_grants operational_principals catalog_sha256"),
     )
     require(manifest["protocol"] == "maezo.d7-role-acl-manifest.v1")
     require(
@@ -308,7 +372,11 @@ def catalog_check(manifest: dict[str, Any], *, owner_login_oid: int) -> None:
     for grant in grants:
         exact(
             grant,
-            "object_class schema_name object_name object_oid function_argument_types column_names grantee_oid grantor_oid privilege grantable",
+            (
+                "object_class schema_name object_name object_oid "
+                "function_argument_types column_names grantee_oid grantor_oid "
+                "privilege grantable"
+            ),
         )
         scalar("Oid", grant["grantee_oid"])
         scalar("Oid", grant["grantor_oid"])
@@ -413,7 +481,7 @@ class OwnerInstaller:
         self.connection = connection
         self.metadata = parse_wire(canonical(metadata))
         self.sql_wire = bytes(sql_wire)
-        self.authority = authority
+        self.authority = present(authority, "UNAVAILABLE")
         self.native_authority = native_authority
 
     @staticmethod
@@ -445,7 +513,11 @@ class OwnerInstaller:
     @staticmethod
     def _owner(cursor: OwnerCursor, session: tuple[Any, ...], owner: dict[str, Any]) -> None:
         cursor.execute(
-            "SELECT pg_catalog.pg_has_role(%s::oid,%s::oid,'USAGE'),pg_catalog.has_database_privilege(%s::oid,pg_catalog.current_database(),'CREATE')",
+            (
+                "SELECT "
+                "pg_catalog.pg_has_role(%s::oid,%s::oid,'USAGE'),pg_catalog.has_da"
+                "tabase_privilege(%s::oid,pg_catalog.current_database(),'CREATE')"
+            ),
             (session[2], owner["role_oid"], session[2]),
         )
         row = cursor.fetchone()
@@ -467,10 +539,13 @@ class OwnerInstaller:
         operational: list[dict[str, Any]],
         installation_id: str,
     ) -> dict[str, Any]:
-        return self._json(
-            cursor,
-            "SELECT maezo_d7_control._owner_catalog(%s::jsonb,%s::jsonb,%s::uuid)",
-            (canonical(roles).decode(), canonical(operational).decode(), installation_id),
+        return cast(
+            dict[str, Any],
+            self._json(
+                cursor,
+                "SELECT maezo_d7_control._owner_catalog(%s::jsonb,%s::jsonb,%s::uuid)",
+                (canonical(roles).decode(), canonical(operational).decode(), installation_id),
+            ),
         )
 
     def _install_grants(self, cursor: OwnerCursor, roles: list[dict[str, Any]]) -> None:
@@ -588,6 +663,51 @@ class OwnerInstaller:
             require(
                 sorted(canonical(r["scope"]) for r in roots) == [canonical(s) for s in value["issuer_scopes"]]
             )
+            cursor.execute("SELECT pg_catalog.to_regnamespace('maezo_d7_control')::oid")
+            namespace = cursor.fetchone()
+            require(namespace is not None, "UNAVAILABLE")
+            if namespace != (None,):
+                version = self._json(cursor, VERSION_SQL, (COMPONENT,))
+                binding_wire = self._catalog_wire(version["installation_binding_bytes"])
+                binding = parse_wire(binding_wire)
+                require(
+                    version["installation_binding_sha256"] == digest(binding_wire), "PRECONDITION_MISMATCH"
+                )
+                require(
+                    version["migration_sha256"] == self.metadata["sql_sha256"]
+                    and version["manifest_sha256"] == value["source_manifest_sha256"],
+                    "REQUEST_CONFLICT",
+                )
+                for field in (
+                    "installation_id",
+                    "control_scope_id",
+                    "component",
+                    "version",
+                    "database_binding",
+                    "act_schema_name",
+                    "controller_table_arn",
+                    "issuer_scopes",
+                    "cib_abi_sha256",
+                ):
+                    require(binding[field] == value[field], "REQUEST_CONFLICT")
+                manifest = parse_wire(self._catalog_wire(version["role_acl_manifest_bytes"]))
+                require(
+                    [{k: r[k] for k in ("role_class", "role_name")} for r in manifest["roles"]]
+                    == value["roles"],
+                    "REQUEST_CONFLICT",
+                )
+                require(not value["prepared_principals"], "REQUEST_CONFLICT")
+                singleton_receipt_principals(roles, parse_wire(prerequisites.operational_principals_wire))
+                require(
+                    manifest["operational_principals"]
+                    == parse_wire(prerequisites.operational_principals_wire),
+                    "AUTH_REFUSED",
+                )
+                cursor.execute("SELECT maezo_d7_control._assert_catalog()")
+                result = OwnerResult("COMMITTED", binding_wire, None)
+                committing = True
+                self.connection.commit()
+                return result
             for root in roots:
                 require(
                     root["control_scope_id"] == value["control_scope_id"]
@@ -597,12 +717,11 @@ class OwnerInstaller:
                     and not root["pending_operation_ids"]
                     and root["restore_state"] == "UNRECONCILED"
                 )
-            cursor.execute("SELECT pg_catalog.to_regnamespace('maezo_d7_control')::oid")
-            require(cursor.fetchone() == (None,), "REQUEST_CONFLICT")
             sent = True
             cursor.execute(self.sql_wire.decode("utf8"))
             self._install_grants(cursor, roles)
             operational = parse_wire(prerequisites.operational_principals_wire)
+            singleton_receipt_principals(roles, operational)
             manifest = self._catalog(cursor, value["roles"], operational, value["installation_id"])
             catalog_check(manifest, owner_login_oid=session[2])
             self.authority.catalog(
@@ -636,6 +755,7 @@ class OwnerInstaller:
                 "act_schema_oid": act[0],
                 "control_schema_oid": control[0],
                 "controller_table_arn": value["controller_table_arn"],
+                "issuer_scopes": value["issuer_scopes"],
                 "role_acl_manifest_sha256": digest(role_wire),
                 "object_manifest_sha256": digest(object_wire),
                 "migration_sha256": self.metadata["sql_sha256"],
@@ -670,9 +790,11 @@ class OwnerInstaller:
             }
             self._insert(cursor, "MZO_PROVISIONING_SCHEMA_VERSION", record)
             for root in roots:
-                f = {k: None for k in self.metadata["tables"]["MZO_PROVISIONING_FENCE"]["columns"]}
+                f: dict[str, Any] = {
+                    k: None for k in self.metadata["tables"]["MZO_PROVISIONING_FENCE"]["columns"]
+                }
                 f.update(
-                    root["scope"],
+                    {k: v for k, v in root["scope"].items() if k != "database_binding"},
                     database_incarnation=value["database_binding"]["database_incarnation"],
                     database_binding_bytes=canonical(value["database_binding"]),
                     database_binding_sha256=digest(canonical(value["database_binding"])),
@@ -704,10 +826,8 @@ class OwnerInstaller:
             return self._failure(error, cursor, sent, committing)
         finally:
             if cursor is not None:
-                try:
+                with contextlib.suppress(Exception):
                     cursor.close()
-                except Exception:
-                    pass
 
     def _insert(self, cursor: OwnerCursor, table: str, record: dict[str, Any]) -> None:
         require(table in self.metadata["tables"])
@@ -729,7 +849,7 @@ class OwnerInstaller:
     def _failure(
         self, error: Exception, cursor: OwnerCursor | None, sent: bool, committing: bool
     ) -> OwnerResult:
-        code = error.code if isinstance(error, Refusal) else "UNAVAILABLE"
+        code: str = error.code if isinstance(error, Refusal) else "UNAVAILABLE"
         state = getattr(error, "sqlstate", None)
         if state in {
             "P7D01",
@@ -781,10 +901,8 @@ class OwnerInstaller:
             return self._failure(error, cursor, cursor is not None, committing)
         finally:
             if cursor is not None:
-                try:
+                with contextlib.suppress(Exception):
                     cursor.close()
-                except Exception:
-                    pass
 
     def _owner_context(
         self,
@@ -816,7 +934,11 @@ class OwnerInstaller:
         owner = next(r for r in manifest["roles"] if r["role_class"] == "D schema owner")
         self._owner(cursor, session, owner)
         cursor.execute(
-            'SELECT maezo_d7_control._database(f) FROM maezo_d7_control."MZO_PROVISIONING_FENCE" f WHERE tenant=%s AND environment=%s AND engine_name=%s',
+            (
+                "SELECT maezo_d7_control._database(f) FROM "
+                'maezo_d7_control."MZO_PROVISIONING_FENCE" f WHERE tenant=%s AND '
+                "environment=%s AND engine_name=%s"
+            ),
             params,
         )
         cursor.execute("SELECT maezo_d7_control._assert_catalog(%s::oid)", (target_oid,))
@@ -835,7 +957,12 @@ class OwnerInstaller:
 
     def _latest_manifest(self, cursor: OwnerCursor, version: dict[str, Any]) -> bytes:
         cursor.execute(
-            'SELECT result_bytes FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE installation_id=%s ORDER BY recorded_before_commit_at_ms DESC LIMIT 1',
+            (
+                "SELECT result_bytes FROM "
+                'maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE '
+                "installation_id=%s ORDER BY recorded_before_commit_at_ms DESC "
+                "LIMIT 1"
+            ),
             (version["installation_id"],),
         )
         row = cursor.fetchone()
@@ -847,7 +974,11 @@ class OwnerInstaller:
 
     def _replay(self, cursor: OwnerCursor, value: dict[str, Any], input_wire: bytes) -> bytes | None:
         cursor.execute(
-            'SELECT request_bytes,result_bytes FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE owner_operation_id=%s',
+            (
+                "SELECT request_bytes,result_bytes FROM "
+                'maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE '
+                "owner_operation_id=%s"
+            ),
             (value["owner_operation_id"],),
         )
         row = cursor.fetchone()
@@ -877,6 +1008,11 @@ class OwnerInstaller:
         )
         replay = self._replay(cursor, value, input_wire)
         if replay is not None:
+            # Replaying history still requires today's owner and complete catalog.
+            cursor.execute("SELECT maezo_d7_control._assert_catalog()")
+            self.authority.replay(
+                input_wire=input_wire, retained_result_wire=replay, fence_wire=canonical(f), session=session
+            )
             return replay
         require(g is None, "STALE_GENERATION")
         role = self._role(
@@ -910,7 +1046,12 @@ class OwnerInstaller:
             else p["resource_identity_sha256"]
         )
         cursor.execute(
-            "SELECT count(*) FROM maezo_d7_control.\"MZO_OWNER_PREPARATION_RECEIPT\" WHERE event='PREPARED' AND (login_name=%s OR login_oid=%s OR resource_identity_sha256=%s OR preparation_id=%s)",
+            (
+                "SELECT count(*) FROM "
+                'maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE '
+                "event='PREPARED' AND (login_name=%s OR login_oid=%s OR "
+                "resource_identity_sha256=%s OR preparation_id=%s)"
+            ),
             (p["login_name"], role["role_oid"], resource_sha, value["preparation_id"]),
         )
         require(cursor.fetchone() == (0,), "REQUEST_CONFLICT")
@@ -979,9 +1120,13 @@ class OwnerInstaller:
         native: Any,
     ) -> bytes:
         cursor.execute(
-            'SELECT GREATEST(maezo_d7_control._now_ms(),COALESCE(MAX(recorded_before_commit_at_ms)+1,0)) FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT"'
+            "SELECT "
+            "maezo_d7_control._now_ms(),COALESCE(MAX(recorded_before_commit_at"
+            '_ms),-1) FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT"'
         )
-        now = cursor.fetchone()[0]
+        observed = cursor.fetchone()
+        now = observed[0]
+        require(now > observed[1], "UNAVAILABLE")
         result = {
             "protocol": "maezo.d7-owner-preparation-result.v1",
             "installation_id": value["installation_id"],
@@ -1038,14 +1183,22 @@ class OwnerInstaller:
     def _event(self, cursor: OwnerCursor, input_wire: bytes, session: tuple[Any, ...]) -> bytes:
         value = exact(
             parse_wire(input_wire),
-            "protocol installation_id owner_operation_id preparation_id event expected_previous_event_sha256 native_qualification terminal_proof_bytes terminal_proof_sha256",
+            (
+                "protocol installation_id owner_operation_id preparation_id event "
+                "expected_previous_event_sha256 native_qualification "
+                "terminal_proof_bytes terminal_proof_sha256"
+            ),
         )
         require(
             value["protocol"] == "maezo.d7-owner-preparation-event.v1"
             and value["event"] in {"NATIVE_QUALIFIED", "REMOVED"}
         )
         cursor.execute(
-            "SELECT result_bytes,result_sha256,resource_identity_sha256 FROM maezo_d7_control.\"MZO_OWNER_PREPARATION_RECEIPT\" WHERE preparation_id=%s AND event='PREPARED'",
+            (
+                "SELECT result_bytes,result_sha256,resource_identity_sha256 FROM "
+                'maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE '
+                "preparation_id=%s AND event='PREPARED'"
+            ),
             (value["preparation_id"],),
         )
         birth = cursor.fetchone()
@@ -1061,9 +1214,19 @@ class OwnerInstaller:
         v["database_binding_sha256"] = f["database_binding_sha256"]
         replay = self._replay(cursor, value, input_wire)
         if replay is not None:
+            # Replaying history still requires today's owner and complete catalog.
+            cursor.execute("SELECT maezo_d7_control._assert_catalog()")
+            self.authority.replay(
+                input_wire=input_wire, retained_result_wire=replay, fence_wire=canonical(f), session=session
+            )
             return replay
         cursor.execute(
-            'SELECT result_sha256 FROM maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE preparation_id=%s ORDER BY recorded_before_commit_at_ms DESC LIMIT 1',
+            (
+                "SELECT result_sha256 FROM "
+                'maezo_d7_control."MZO_OWNER_PREPARATION_RECEIPT" WHERE '
+                "preparation_id=%s ORDER BY recorded_before_commit_at_ms DESC "
+                "LIMIT 1"
+            ),
             (value["preparation_id"],),
         )
         require(cursor.fetchone() == (value["expected_previous_event_sha256"],), "REQUEST_CONFLICT")
@@ -1094,12 +1257,12 @@ class OwnerInstaller:
                 and native["login_name"] == principal["login_name"]
                 and native["login_oid"] == principal["login_oid"]
                 and native["generation_core_sha256"] == digest(canonical(old["generation_core"]))
-                and native["decision_sha256"] == g["activation_decision_sha256"]
+                and native["decision_sha256"] == present(g)["activation_decision_sha256"]
                 and native["database_binding_sha256"] == f["database_binding_sha256"],
                 "PRECONDITION_MISMATCH",
             )
             require(self.native_authority is not None, "UNAVAILABLE")
-            self.native_authority.verify(
+            present(self.native_authority, "UNAVAILABLE").verify(
                 qualification_wire=canonical(native),
                 birth_wire=birth_wire,
                 generation_wire=canonical(g),
@@ -1124,7 +1287,12 @@ class OwnerInstaller:
             scalar("Sha256", external)
             if g is not None:
                 cursor.execute(
-                    "UPDATE maezo_d7_control.\"MZO_RUNTIME_ADMISSION\" SET quiescence_state='PROVEN_TERMINAL',terminal_proof_sha256=%s,revision=revision+1 WHERE tenant=%s AND environment=%s AND engine_name=%s AND generation_id=%s",
+                    (
+                        'UPDATE maezo_d7_control."MZO_RUNTIME_ADMISSION" SET '
+                        "quiescence_state='PROVEN_TERMINAL',terminal_proof_sha256=%s,revis"
+                        "ion=revision+1 WHERE tenant=%s AND environment=%s AND "
+                        "engine_name=%s AND generation_id=%s"
+                    ),
                     (
                         value["terminal_proof_sha256"],
                         *[value["scope"][k] for k in ("tenant", "environment", "engine_name")],

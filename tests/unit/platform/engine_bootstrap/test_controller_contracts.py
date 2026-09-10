@@ -26,7 +26,13 @@ CLUSTER = "arn:aws:ecs:sa-east-1:123456789012:cluster/cluster-one"
 
 
 def sample(name: str) -> Any:
-    return copy.deepcopy(SAMPLES[name])
+    value = copy.deepcopy(SAMPLES[name])
+    if name == "InventoryBound":
+        return {"collection_path": c.INVENTORY_FAMILIES[0], "max_entries": 1024}
+    if name == "InventoryBounds":
+        value["protocol"] = "maezo.provisioning-inventory-bounds.v2"
+        value["bounds"] = [{"collection_path": path, "max_entries": 1024} for path in c.INVENTORY_FAMILIES]
+    return value
 
 
 def raw(value: Any) -> bytes:
@@ -483,7 +489,12 @@ def test_canonical_base64_bounds_and_tail_bits(name: str, size: int) -> None:
 def test_entire_reviewed_closed_shape_catalogue(v: dict[str, Any]) -> None:
     # These fixtures are expressly structural only, often relationally inconsistent.
     # Test the independent structural checker without calling them positive authorities.
-    c._shape({"$ref": "#/$defs/" + v["type"]}, v["value"])
+    if v["type"] in {"InventoryBound", "InventoryBounds"}:
+        # Frozen v1 vectors are retained byte-exact and explicitly rejected by v2.
+        with pytest.raises(c.ContractError):
+            c._shape({"$ref": "#/$defs/" + v["type"]}, v["value"])
+    else:
+        c._shape({"$ref": "#/$defs/" + v["type"]}, v["value"])
     assert c.canonical_json(v["value"]) == c.decode_base64(v["canonical_utf8_b64"])
     assert sha(v["value"]) == v["canonical_sha256"]
 
@@ -503,7 +514,15 @@ def test_every_record_rejects_unknown_and_missing_fields(name: str) -> None:
 
 
 def test_shared_catalogue_is_exact_and_classes_cover_all_objects() -> None:
-    assert PACKAGE["schema"]["$defs"] == c._DEFINITIONS
+    # Frozen v1 evidence remains intact. Only the ROOT-approved v2 bounds delta
+    # changes generated wire grammar; terminal P6/P9 changes relations only.
+    expected = copy.deepcopy(PACKAGE["schema"]["$defs"])
+    expected["InventoryBound"]["required"].remove("expected_inventory_sha256")
+    del expected["InventoryBound"]["properties"]["expected_inventory_sha256"]
+    expected["InventoryBound"]["properties"]["collection_path"] = {"enum": list(c.INVENTORY_FAMILIES)}
+    expected["InventoryBounds"]["properties"]["protocol"]["const"] = "maezo.provisioning-inventory-bounds.v2"
+    expected["InventoryBounds"]["properties"]["bounds"].update(minItems=35, maxItems=35)
+    assert expected == c._DEFINITIONS
     assert len(c._DEFINITIONS) == 133
     for name, schema in c._DEFINITIONS.items():
         if schema.get("type") == "object":
@@ -1058,20 +1077,6 @@ def test_constructor_projects_unknown_arguments_to_safe_code() -> None:
 
 def profile_and_bounds(obs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     bounds = sample("InventoryBounds")
-    bounds["bounds"] = []
-
-    def collect(value: Any, path: str) -> None:
-        if type(value) is dict:
-            for k, child in value.items():
-                collect(child, path + "." + k)
-        elif type(value) is list:
-            bounds["bounds"].append(
-                {"collection_path": path, "max_entries": len(value), "expected_inventory_sha256": sha(value)}
-            )
-            for i, child in enumerate(value):
-                collect(child, path + "." + str(i))
-
-    collect(obs["payload"], obs["kind"] + ".payload")
     profile = sample("TrustProfile")
     profile["inventory_bounds_sha256"] = sha(bounds)
     profile["control_keys"][0].update(
@@ -1121,7 +1126,9 @@ def test_profile_bindings_fail_closed(mutation: str) -> None:
     if mutation == "missing-bound":
         bounds["bounds"].pop(0)
     elif mutation == "small-bound":
-        next(b for b in bounds["bounds"] if b["max_entries"] > 0)["max_entries"] = 0
+        next(b for b in bounds["bounds"] if b["collection_path"] == "control.payload.tasks")[
+            "max_entries"
+        ] = 0
     elif mutation == "wrong-inventory":
         bounds["bounds"][0]["expected_inventory_sha256"] = "b" * 64
     elif mutation == "expired":
@@ -1197,8 +1204,9 @@ def test_live_settlement_tracks_current_managed_resources_not_retirement() -> No
     obs["payload"]["journal"] = [row]
     assert parsed("ControlObservation", obs).payload.journal[0].state == "SETTLED"
     obs["payload"]["managed_resources"][0]["desired_state"] = "STOPPED"
-    with pytest.raises(c.ContractError):
-        parsed("ControlObservation", obs)
+    unresolved = parsed("ControlObservation", obs)
+    assert not c.live_ready(unresolved.payload, unresolved.payload.managed_resources[0])
+    assert not c.task_terminal_witness(unresolved.payload, unresolved.payload.managed_resources[0])
     retired = journal("SETTLED")
     retired["settlement"].update(settlement_class="RETIRED_RESOURCES_TERMINAL", resource_proofs=[])
     with pytest.raises(c.ContractError):
@@ -1466,3 +1474,224 @@ def test_issuer_complete_decision_identity(operation: str) -> None:
     c.check_issuer_request(r, **inputs)
     with pytest.raises(c.ContractError):
         c.check_issuer_request(replace(r, run_id=U[:-1] + "2"), **inputs)
+
+
+def retired_creator_observation() -> dict[str, Any]:
+    """Structural vector only: retained later StopTask is not external qualification."""
+    obs = control_observation()
+    creator = journal("SETTLED")
+    creator["provider_outcome"]["returned_resource_ids"] = [TASK]
+    creator["settlement"].update(settlement_class="CURRENT_LIVE_TRACKED", resource_proofs=[])
+    stop = journal("SETTLED")
+    stop.update(external_operation_id=U[:-1] + "2", action="StopTask")
+    stop["provider_outcome"]["returned_resource_ids"] = [TASK]
+    proof = sample("ResourceTerminalProof")
+    proof.update(resource_id=TASK, terminal_kind="TASK_STOPPED")
+    stop["settlement"].update(settlement_class="RETIRED_RESOURCES_TERMINAL", resource_proofs=[proof])
+    resource = obs["payload"]["managed_resources"][0]
+    resource.update(
+        desired_state="STOPPED",
+        current_observed_state="STOPPED",
+        retired_terminal_proof_sha256=sha(proof),
+        observation_sha256=proof["observation_sha256"],
+    )
+    obs["payload"]["tasks"][0]["last_status"] = "STOPPED"
+    obs["payload"]["journal"] = [creator, stop]
+    return obs
+
+
+def test_terminal_witness_retains_creation_settlement_and_hashes() -> None:
+    obs = retired_creator_observation()
+    original = raw(obs["payload"]["journal"][0])
+    typed = parsed("ControlObservation", obs)
+    assert typed.payload.journal[0].canonical_bytes() == original
+    assert c.task_terminal_witness(typed.payload, typed.payload.managed_resources[0])
+    assert not c.live_ready(typed.payload, typed.payload.managed_resources[0])
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "creator",
+        "stop",
+        "hash",
+        "proof_target",
+        "proof_generation",
+        "proof_observation",
+        "action",
+        "class",
+        "ambiguous",
+        "running",
+        "rebound",
+        "creator_relabel",
+    ],
+)
+def test_terminal_witness_rejects_missing_substituted_or_contradictory_history(fault: str) -> None:
+    obs = retired_creator_observation()
+    payload = obs["payload"]
+    stop = payload["journal"][1]
+    proof = stop["settlement"]["resource_proofs"][0]
+    if fault == "creator":
+        payload["journal"].pop(0)
+    elif fault == "stop":
+        payload["journal"].pop()
+    elif fault == "hash":
+        payload["managed_resources"][0]["retired_terminal_proof_sha256"] = "b" * 64
+    elif fault == "proof_target":
+        proof["resource_id"] += "foreign"
+    elif fault == "proof_generation":
+        proof["generation_id"] += 1
+    elif fault == "proof_observation":
+        proof["observation_sha256"] = "b" * 64
+    elif fault == "action":
+        stop["action"] = "RunTask"
+    elif fault == "class":
+        stop["settlement"]["settlement_class"] = "NO_EFFECT"
+    elif fault == "ambiguous":
+        other = copy.deepcopy(stop)
+        other["external_operation_id"] = U[:-1] + "3"
+        payload["journal"].append(other)
+    elif fault == "running":
+        payload["tasks"][0]["last_status"] = "RUNNING"
+    elif fault == "rebound":
+        payload["tasks"][0]["image_sha256"] = "b" * 64
+    else:
+        payload["managed_resources"][0]["external_operation_id"] = stop["external_operation_id"]
+    with pytest.raises(c.ContractError):
+        parsed("ControlObservation", obs)
+
+
+@pytest.mark.parametrize("state", ["READY", "STOPPING", "STOPPED"])
+def test_fresh_stopped_task_with_unsettled_registry_is_representable_but_not_ready_or_terminal(
+    state: str,
+) -> None:
+    obs = retired_creator_observation()
+    obs["payload"]["journal"].pop()
+    resource = obs["payload"]["managed_resources"][0]
+    resource.update(desired_state="STOPPED", current_observed_state=state, retired_terminal_proof_sha256=None)
+    typed = parsed("ControlObservation", obs)
+    assert not c.live_ready(typed.payload, typed.payload.managed_resources[0])
+    assert not c.task_terminal_witness(typed.payload, typed.payload.managed_resources[0])
+
+
+def activation_with_terminal_history() -> dict[str, Any]:
+    active = activation()
+
+    # Current generation 2 and its independent READY task; historical task keeps 1.
+    def current_generation(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key in {"generation_id", "runtime_admission_generation"} and child is not None:
+                    value[key] = 2
+                else:
+                    current_generation(child)
+        elif isinstance(value, list):
+            for child in value:
+                current_generation(child)
+
+    current_generation(active)
+    payload = active["controller_observation"]["payload"]
+    payload["tasks"][0]["task_arn"] += "current"
+    payload["managed_resources"][0]["provider_resource_id"] += "current"
+    payload["managed_resources"][0]["external_operation_id"] = U[:-1] + "3"
+    old = retired_creator_observation()["payload"]
+    payload["tasks"].extend(old["tasks"])
+    payload["managed_resources"].extend(old["managed_resources"])
+    payload["journal"] = old["journal"]
+    return active
+
+
+def test_active_accepts_exact_witnessed_history_and_rejects_old_unresolved_or_live_task() -> None:
+    active = activation_with_terminal_history()
+    assert parsed("ActivationActive", active).kind == "ACTIVE"
+    for status in ("STOPPED", "RUNNING"):
+        changed = copy.deepcopy(active)
+        payload = changed["controller_observation"]["payload"]
+        payload["journal"].pop()
+        payload["managed_resources"][1].update(
+            current_observed_state="READY" if status == "RUNNING" else "STOPPED",
+            retired_terminal_proof_sha256=None,
+        )
+        payload["tasks"][1]["last_status"] = status
+        with pytest.raises(c.ContractError):
+            parsed("ActivationActive", changed)
+
+
+def test_successor_stop_reservation_uses_actual_historical_target_scoped_credential() -> None:
+    row = journal("RESERVED")
+    row.update(epoch=2, logical_run_id=U[:-1] + "2", action="StopTask", generation_id=1)
+    row["reservation"]["credential_session"]["generation_id"] = 1
+    assert parsed("JournalObservation", row).reservation.credential_session.generation_id == 1
+    row["reservation"]["credential_session"]["generation_id"] = 2
+    with pytest.raises(c.ContractError):
+        parsed("JournalObservation", row)
+
+
+@pytest.mark.parametrize(
+    "fault", ["v1", "mixed", "missing", "duplicate", "unknown", "numeric", "wildcard", "unsorted"]
+)
+def test_v2_inventory_policy_rejects_ambiguous_or_unreviewed_family_grammar(fault: str) -> None:
+    policy = sample("InventoryBounds")
+    if fault == "v1":
+        policy["protocol"] = "maezo.provisioning-inventory-bounds.v1"
+    elif fault == "mixed":
+        policy["bounds"][0]["expected_inventory_sha256"] = H
+    elif fault == "missing":
+        policy["bounds"].pop()
+    elif fault == "duplicate":
+        policy["bounds"][1] = copy.deepcopy(policy["bounds"][0])
+    elif fault == "unsorted":
+        policy["bounds"].reverse()
+    else:
+        policy["bounds"][0]["collection_path"] = {
+            "unknown": "control.payload.invented",
+            "numeric": "control.payload.tasks.0",
+            "wildcard": "control.payload.tasks.*",
+        }[fault]
+    with pytest.raises(c.ContractError):
+        parsed("InventoryBounds", policy)
+
+
+def test_v2_policy_checks_second_nested_occurrence_without_instance_index_or_overwrite() -> None:
+    observation = control_observation()
+    second = copy.deepcopy(observation["payload"]["task_definitions"][0])
+    second["arn"] = second["arn"].replace("engine:7", "other:7")
+    second["network_binding"]["subnet_ids"] = ["subnet-a", "subnet-b"]
+    observation["payload"]["task_definitions"].append(second)
+    profile, policy = profile_and_bounds(observation)
+    family = "control.payload.task_definitions.network_binding.subnet_ids"
+    bound = next(row for row in policy["bounds"] if row["collection_path"] == family)
+    bound["max_entries"] = 2
+    profile["inventory_bounds_sha256"] = sha(policy)
+    observation["trust_profile_sha256"] = sha(profile)
+    typed = parsed("ControlObservation", observation)
+    c.check_observation_profile(typed, parsed("TrustProfile", profile), parsed("InventoryBounds", policy))
+    bound["max_entries"] = 1
+    profile["inventory_bounds_sha256"] = sha(policy)
+    observation["trust_profile_sha256"] = sha(profile)
+    with pytest.raises(c.ContractError):
+        c.check_observation_profile(
+            parsed("ControlObservation", observation),
+            parsed("TrustProfile", profile),
+            parsed("InventoryBounds", policy),
+        )
+
+
+def test_v2_family_allowlist_is_exactly_derived_from_frozen_observation_schema() -> None:
+    families: set[str] = set()
+    definitions = PACKAGE["schema"]["$defs"]
+
+    def visit(rule: dict[str, Any], path: str) -> None:
+        if "$ref" in rule:
+            visit(definitions[rule["$ref"].split("/")[-1]], path)
+        for variant in rule.get("oneOf", []):
+            visit(variant, path)
+        for name, child in rule.get("properties", {}).items():
+            visit(child, path + "." + name)
+        if rule.get("type") == "array":
+            families.add(path)
+            visit(rule["items"], path)
+
+    visit(definitions["ControlPayload"], "control.payload")
+    visit(definitions["DatabasePayload"], "database.payload")
+    assert tuple(sorted(families)) == c.INVENTORY_FAMILIES and len(families) == 35

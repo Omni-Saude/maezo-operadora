@@ -262,3 +262,80 @@ def test_fixed_keys_forbid_selector_injection_and_reuse_variants() -> None:
     ):
         with pytest.raises(s.Refusal):
             s.key(U, **kwargs)
+
+
+def singleton_origin(role_class: str = "actual issuer login") -> dict[str, Any]:
+    return dict(
+        kind="installation_receipt_reader",
+        installation_id=U,
+        installation_binding_sha256=H,
+        role_acl_manifest_sha256=H,
+        role_class=role_class,
+        native_actor="owner-native-reader",
+    )
+
+
+def issue_call(origin: dict[str, Any] | None = None) -> dict[str, Any]:
+    return dict(
+        protocol="maezo.d7-store-call.v1",
+        scope=vectors.sample("Scope"),
+        run_id=U,
+        epoch=1,
+        issuer_operation_id=U2,
+        expected_fence_revision=44,
+        request=dict(
+            operation="issue_permit",
+            permit_id=U,
+            native_operation="receipt",
+            permit_purpose="receipt_read",
+            logical_request_sha256=H,
+            login_name="issuer",
+            login_oid=17,
+            controller_task_identity_sha256=H,
+            principal_origin=singleton_origin() if origin is None else origin,
+        ),
+        proof=operation_proof("issue_permit"),
+    )
+
+
+@pytest.mark.parametrize("role_class", ["actual issuer login", "scoped D observer login"])
+def test_singleton_issue_retains_origin_in_actual_logical_hash(role_class: str) -> None:
+    call = issue_call(singleton_origin(role_class))
+    checked = s.validate_store_call("issue_permit", call)
+    assert checked == call
+    old = s.logical_request_digest("issue_permit", call)
+    call["request"]["principal_origin"]["native_actor"] = "different-reader"
+    assert s.logical_request_digest("issue_permit", call) != old
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        None,
+        {},
+        {"kind": "unknown"},
+        singleton_origin() | {"extra": True},
+        singleton_origin() | {"kind": None},
+        singleton_origin() | {"role_class": "generation login"},
+        singleton_origin() | {"native_actor": None},
+        singleton_origin() | {"installation_id": H},
+        singleton_origin() | {"installation_binding_sha256": "BAD"},
+        {"kind": "owner_prepared_one_shot", "preparation_id": None},
+        {"kind": "owner_prepared_one_shot", "preparation_id": U, "native_actor": "bad"},
+    ],
+)
+def test_origin_is_required_closed_and_never_inferred(origin: Any) -> None:
+    call = issue_call()
+    call["request"]["principal_origin"] = origin
+    with pytest.raises(s.Refusal):
+        s.validate_store_call("issue_permit", call)
+
+
+@pytest.mark.parametrize("operation", ["deploy", "grant"])
+def test_singleton_origin_cannot_authorize_effects(operation: str) -> None:
+    call = issue_call()
+    call["request"].update(native_operation=operation, permit_purpose=operation)
+    with pytest.raises(s.Refusal, match="PURPOSE_REFUSED"):
+        s.validate_store_call("issue_permit", call)
+    call["request"]["principal_origin"] = {"kind": "owner_prepared_one_shot", "preparation_id": U}
+    assert s.validate_store_call("issue_permit", call) == call

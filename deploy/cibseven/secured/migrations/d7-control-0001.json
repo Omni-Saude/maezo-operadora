@@ -5,9 +5,9 @@
   "migration_id": "maezo-d7-control-0001",
   "predecessor": null,
   "sql_path": "src/maezo/portal/engine/java/src/main/resources/provisioning-schema-postgres.sql",
-  "sql_sha256": "8099c6b11fb8b5e726f1529a52678f308790acaf7c05e5305ce2635f5d226140",
-  "contract_sha256": "736d48c7a5f715d54d9f26459b3c688f7e34b68ddfeeea40cbd16f6a8e661363",
-  "review_manifest_sha256": "99fbae5e5726a282284c4f148abe3fbbad820d95bc65c33a7c6b2949c4203ab0",
+  "sql_sha256": "c857042bd26626dbd14f4e7c6b82280ddcafd156183f3ddb56f18fba1b210606",
+  "contract_sha256": "e2016346110bb98c9eff15f14b827a823bb12e66b7c1c951e9d925c75c98c309",
+  "review_manifest_sha256": "8843f3a2c7faefa19c197419b7ca1c0654df8f5a230e693708272cffcb5cbd8b",
   "helper_abi_sha256": "b0c5e39a02becb61903559a58dceecd440d7102efcb6c66ef3878876632dd71d",
   "max_depth": 32,
   "tables": {
@@ -512,11 +512,15 @@
         },
         "owner_preparation_id": {
           "type": "uuid",
-          "nullable": false
+          "nullable": true
         },
         "revoked_by_issuer_operation_id": {
           "type": "uuid",
           "nullable": true
+        },
+        "principal_origin": {
+          "type": "permit_principal_origin",
+          "nullable": false
         }
       },
       "primary_key": [
@@ -535,7 +539,13 @@
       "notes": [
         "Unique permit_id installation-wide; no reuse. Exact caller login+task+logical request+purpose+epoch binding. Read-purpose permit can read current-authorized receipt while runtime ACTIVE; effect permit only CLOSED quiescent fence.",
         "Only issuer inserts/revokes. TTL expiry never deletes, grants new permit, proves transaction terminal or unlocks runtime.",
-        "F->permit->provisioning receipt; receipt lookup before absent-only historical before-state."
+        "F->permit->provisioning receipt; receipt lookup before absent-only historical before-state.",
+        "owner_prepared_one_shot: owner_preparation_id NOT NULL equals principal_origin.preparation_id and the exact PREPARED birth; all original one-shot purpose/lifetime/catalog rules remain.",
+        "installation_receipt_reader: owner_preparation_id IS NULL, operation=receipt, purpose=receipt_read; exact V installation reference and singleton role/name/OID/native_actor/current scope provenance checked; no V UUID can enter owner_preparation_id.",
+        "All principal_origin fields immutable and included in logical issue request binding; caller values are expectations only. V/read-profile/current issuer authority and actual catalog comparisons precede issue/read/replay.",
+        "At most one ISSUED installation_receipt_reader permit per (tenant,environment,engine_name,login_oid); expiry denies use but does not change ISSUED state. Explicitly revoke the prior permit before issuing another fresh ID.",
+        "Singleton revoke/handoff changes permit state/revision/revocation receipt only; baseline singleton LOGIN/CONNECT/native_actor/fixed ACL remain exact. True one-shot revoke/handoff still closes its LOGIN/CONNECT.",
+        "No extra relation; principal_origin is the sole new immutable permit column. Database/incarnation/scope/login fields remain the existing exact columns and must agree with the referenced installation/protected state."
       ]
     },
     "MZO_PROVISIONING_RECEIPT": {
@@ -935,7 +945,7 @@
     }
   },
   "functions": {
-    "status": "PROPOSED_THIRD_REPAIR_REQUIRES_ORIGINAL_REVIEWER",
+    "status": "PROPOSED_SINGLETON_READ_PERMIT_DELTA_REQUIRES_SAME_ORIGINAL_REVIEWER",
     "common_function_properties": {
       "security": "DEFINER",
       "volatility": "VOLATILE",
@@ -1119,7 +1129,8 @@
           "issuer receipt"
         ],
         "output_type": "ResultEnvelope",
-        "dynamic_function_or_sql_selector": false
+        "dynamic_function_or_sql_selector": false,
+        "singleton_read_rule": "Apply CONTRACT singleton branch; existing function signature/owner/execute caller classes unchanged. Installation metadata is read through existing function owner rights, no new V FOR UPDATE lock or public owner read route."
       },
       {
         "name": "maezo_d7_control.issue_permit",
@@ -1131,14 +1142,15 @@
         "execute_caller_classes": [
           "actual issuer login"
         ],
-        "input_type": "StoreCall: fixed issue_permit request from CONTRACT",
+        "input_type": "StoreCall with closed IssuePermitStorageRequest; public SQL signature unchanged",
         "lock_order": [
           "F",
           "permit (absent protected by F)",
           "issuer receipt"
         ],
         "output_type": "ResultEnvelope",
-        "dynamic_function_or_sql_selector": false
+        "dynamic_function_or_sql_selector": false,
+        "singleton_read_rule": "Apply CONTRACT singleton branch; existing function signature/owner/execute caller classes unchanged. Installation metadata is read through existing function owner rights, no new V FOR UPDATE lock or public owner read route."
       },
       {
         "name": "maezo_d7_control.revoke_permit",
@@ -1157,7 +1169,8 @@
           "issuer receipt"
         ],
         "output_type": "ResultEnvelope",
-        "dynamic_function_or_sql_selector": false
+        "dynamic_function_or_sql_selector": false,
+        "singleton_read_rule": "Apply CONTRACT singleton branch; existing function signature/owner/execute caller classes unchanged. Installation metadata is read through existing function owner rights, no new V FOR UPDATE lock or public owner read route."
       },
       {
         "name": "maezo_d7_control.lock_provisioning_scope",
@@ -1176,7 +1189,8 @@
           "permit"
         ],
         "output_type": "ProvisioningGuardResult",
-        "dynamic_function_or_sql_selector": false
+        "dynamic_function_or_sql_selector": false,
+        "singleton_read_rule": "Apply CONTRACT singleton branch; existing function signature/owner/execute caller classes unchanged. Installation metadata is read through existing function owner rights, no new V FOR UPDATE lock or public owner read route."
       },
       {
         "name": "maezo_d7_control.read_provisioning_receipt",
@@ -1196,7 +1210,8 @@
           "provisioning receipt"
         ],
         "output_type": "unchanged approved ReceiptRead: ReceiptFound/ReceiptNotFound; fixed SQLSTATE on refusal",
-        "dynamic_function_or_sql_selector": false
+        "dynamic_function_or_sql_selector": false,
+        "singleton_read_rule": "Apply CONTRACT singleton branch; existing function signature/owner/execute caller classes unchanged. Installation metadata is read through existing function owner rights, no new V FOR UPDATE lock or public owner read route."
       },
       {
         "name": "maezo_d7_control.append_provisioning_receipt",
@@ -1231,11 +1246,13 @@
         "input_type": "IssuerReceiptReadCall",
         "lock_order": [
           "F",
-          "G when applicable",
+          "G only where previously required by current authority",
+          "permit",
           "issuer receipt"
         ],
         "output_type": "IssuerReceiptReadResult",
-        "dynamic_function_or_sql_selector": false
+        "dynamic_function_or_sql_selector": false,
+        "singleton_read_rule": "Apply CONTRACT singleton branch; existing function signature/owner/execute caller classes unchanged. Installation metadata is read through existing function owner rights, no new V FOR UPDATE lock or public owner read route."
       }
     ],
     "closed_types": {
@@ -1282,7 +1299,7 @@
           "database_clock_ms"
         ],
         "protocol": "maezo.d7-provisioning-guard-result.v1",
-        "semantics": "All non-null, actual protected permit projections. Native actor is exact owner-installed purpose principal from installation manifest; no caller-chosen user."
+        "semantics": "All non-null, actual protected permit projections. Native actor is exact owner-installed purpose principal from installation manifest; no caller-chosen user. For installation_receipt_reader resolve native_actor from the unique existing owner RoleAclManifest receipt_read tuple for actual permit login/OID; compare expected origin actor, never echo supplied actor as authority."
       },
       "ProvisioningReceiptReadCall": {
         "fields": [
@@ -1317,7 +1334,7 @@
         ],
         "protocol": "maezo.d7-issuer-receipt-read.v1",
         "read_guard": "ProvisioningGuardCall with receipt_read purpose and actual issuer/observer login bound by permit",
-        "semantics": "Actual current issuer or scoped observer identity plus current read permit. Guard request hash covers canonical {scope,issuer_operation_id,request_sha256}, not itself. Supplied hash is not authority. No task data; unavailable complete history refuses."
+        "semantics": "Actual current issuer or scoped observer identity plus current read permit. Guard request hash covers canonical {scope,issuer_operation_id,request_sha256}, not itself. Supplied hash is not authority. No task data; unavailable complete history refuses. Installation-origin permit allowed only for actual issuer/scoped observer; no new one-shot caller. Current guard checks both origin and exact canonical query before receipt lookup."
       },
       "IssuerReceiptReadResult": {
         "fields": [
@@ -1520,6 +1537,57 @@
         "claim_id": "UUID or null for current_owner_reconcile",
         "claim_receipt_sha256": "SHA256 or null for current_owner_reconcile",
         "types": "next_generation_id positive; retired_generation_index_sha256 SHA256; strict mode semantics in CONTRACT"
+      },
+      "PermitPrincipalOrigin": {
+        "discriminant": "kind",
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "scalar_profile": "existing approved D Id/UUID/SHA256 aliases; entire canonical record <=4096 UTF8 bytes; no null members",
+        "variants": {
+          "owner_prepared_one_shot": {
+            "fields": [
+              "kind",
+              "preparation_id"
+            ],
+            "kind": "owner_prepared_one_shot",
+            "preparation_id": "uuid; exact unique PREPARED one-shot event, matching immutable owner_preparation_id and existing purpose/name/OID/scope/resource provenance"
+          },
+          "installation_receipt_reader": {
+            "fields": [
+              "kind",
+              "installation_id",
+              "installation_binding_sha256",
+              "role_acl_manifest_sha256",
+              "role_class",
+              "native_actor"
+            ],
+            "kind": "installation_receipt_reader",
+            "installation_id": "uuid; actual immutable V installation identity, never a PREPARED event",
+            "installation_binding_sha256": "sha256; exact current owner-bound V bytes/hash including issuer_scopes",
+            "role_acl_manifest_sha256": "sha256; exact immutable V RoleAclManifest bytes/hash",
+            "role_class": [
+              "actual issuer login",
+              "scoped D observer login"
+            ],
+            "native_actor": "id; expectation compared to unique existing owner-produced operational_principals receipt_read/name/OID tuple; guard returns the protected tuple value"
+          }
+        }
+      },
+      "IssuePermitStorageRequest": {
+        "fields": [
+          "operation",
+          "permit_id",
+          "native_operation",
+          "permit_purpose",
+          "logical_request_sha256",
+          "login_name",
+          "login_oid",
+          "controller_task_identity_sha256",
+          "principal_origin"
+        ],
+        "operation": "issue_permit",
+        "principal_origin": "PermitPrincipalOrigin; required and part of exact W1 logical StoreCall request digest",
+        "semantics": "All prior issue_permit types/bounds preserved. Origin is storage-only expected provenance, checked against actual owner state; installation branch receipt/receipt_read only."
       }
     },
     "excluded": [
@@ -1597,12 +1665,20 @@
     "third_repair_rules": [
       "StoreCall top-level and ResultEnvelope constants/fields unchanged; this explicitly supersedes unimplemented operation-specific v1 allocation, not a silent stage1 protocol edit. All sibling generation requests remain exact two-field records.",
       "Retire parsing uses existing IssuerRequest schema, then storage-specific current request/F authority and historical full generation/decision validation separately. Do not call check_issuer_request with mismatching old-generation epoch/run, do not modify that pure predicate.",
-      "revoke_permit sets recorded one-shot NOLOGIN and revokes its exact CONNECT in same transaction with permit REVOKED and issuer receipt; already terminal exact replay performs no mutation.",
+      "For owner_prepared_one_shot only, revoke_permit sets recorded one-shot NOLOGIN and revokes its exact CONNECT in same transaction with permit REVOKED and issuer receipt; already terminal exact replay performs no mutation.",
       "No new SQL caller endpoint for owner preparation. Fixed owner installer operation via actual schema-owner migration session owns new receipt INSERT; no runtime or issuer-login EXECUTE privilege added."
+    ],
+    "singleton_read_rules": [
+      "No function signature, public helper bytes, stage1 wire or execute caller class changes. Existing authorized read wrappers use their owned guard logic; do not grant actual issuer/observer a new direct lock_provisioning_scope EXECUTE.",
+      "read_issuer_operation keeps actual issuer login/scoped D observer only; read_provisioning_receipt keeps its existing classes, so installation-origin permits reach it only via the existing scoped observer route, not a new issuer route.",
+      "Issuer-function owner ADMIN targets remain true owner-prepared generation/one-shot roles; permanent issuer/observer roles are never targets.",
+      "An installation-origin permit cannot authorize deploy/grant, append_provisioning_receipt, any generation open/refresh or lock_runtime_v2_scope action. Storage issuer receipts for issuing/revoking a read permit remain mandatory.",
+      "Exact current issue replay returns identical result and captured deadlines only while permit remains current ISSUED and unexpired; changed request/ID reuse conflicts; expired/revoked/old-owner permit does not become current through replay.",
+      "F serializes absent permit keys and per-scope singleton concurrency. Handoff revokes all affected old permits; role catalog closure is conditional on origin. Old singleton connections are not declared terminated or disabled."
     ]
   },
   "installation": {
-    "status": "PROPOSED_THIRD_REPAIR_REQUIRES_ORIGINAL_REVIEWER",
+    "status": "PROPOSED_SINGLETON_READ_PERMIT_DELTA_REQUIRES_SAME_ORIGINAL_REVIEWER",
     "closed_records": {
       "OwnerInstallationInput": {
         "fields": [
@@ -1627,7 +1703,7 @@
         },
         "roles": "array exact {role_class,role_name}; exactly one each singleton: D schema owner, D guard-function owner, D issuer-function owner, D receipt-function owner, actual issuer login, native function owner, scoped D observer login. No generation or one-shot class here.",
         "issuer_scopes": "array<=1024 full approved Scope; exact DB binding/account/region; no wildcard scopes",
-        "notes": "Owner-authenticated protected input; parsing never confers permission. Existing expected role names must be actual owned prerequisites, unowned collision refuses.",
+        "notes": "Owner-authenticated protected input; parsing never confers permission. Existing expected role names must be actual owned prerequisites, unowned collision refuses. Persist issuer_scopes exactly in InstallationBinding. Require bytewise lexical order of each existing W1 full Scope encoding; reject duplicate or unsorted scopes without silent normalization. No new input field or singleton role class is added.",
         "prepared_principals": "array 0..1024 OwnerPreparationInput; repeatable generation and one-shot classes; role/name/OID/resources globally unique for lifetime; full actual receipt produced per entry"
       },
       "RoleAclManifest": {
@@ -1644,7 +1720,7 @@
         "roles": "RoleCatalogEntry array, exact full protected-role inventory",
         "memberships": "MembershipEntry array, complete relevant recursive closure; no truncation/nulls",
         "object_grants": "ObjectGrant array, exact role/function/table/column/schema privileges, no implicit PUBLIC path",
-        "operational_principals": "exact array {purpose,native_actor,login_name,login_oid}; purpose deploy|grant|receipt_read, each binds actual seeded non-human native operational principal",
+        "operational_principals": "exact array {purpose,native_actor,login_name,login_oid}; purpose deploy|grant|receipt_read, each binds actual seeded non-human native operational principal; installation receipt readers use exactly one existing receipt_read tuple for selected actual singleton name/OID. Owner validates fixed approved operational mapping plus actual pre-existing non-human native principal/read-purpose readback; no issue_permit-supplied tuple, fabricated actor, new native task grant or later inferred mapping. Missing/duplicate/unqualified mapping makes that singleton read branch unavailable.",
         "catalog_sha256": "SHA256 of W1 manifest body excluding only catalog_sha256, never self-referential; actual catalog inputs and owner validation still required"
       },
       "RoleCatalogEntry": {
@@ -1761,10 +1837,12 @@
           "role_acl_manifest_sha256",
           "object_manifest_sha256",
           "migration_sha256",
-          "cib_abi_sha256"
+          "cib_abi_sha256",
+          "issuer_scopes"
         ],
         "protocol": "maezo.d7-installation-binding.v1",
-        "types": "existing D aliases; actual OIDs and externally qualified controller table ARN/region, no placeholders"
+        "types": "existing D aliases; actual OIDs and externally qualified controller table ARN/region, no placeholders",
+        "issuer_scopes": "Exact complete canonical sorted unique 0..1024 Scope array copied from existing owner-authenticated OwnerInstallationInput.issuer_scopes; retained in immutable V installation_binding_bytes/hash, not inferred from mutable F. Membership is necessary but never sufficient for any read; current per-reader profile/issuer/controller/query authority remains required."
       },
       "OwnerPreparationInput": {
         "fields": [
@@ -1911,6 +1989,25 @@
         "missing_keys": "REFUSE",
         "protocol": "maezo.d7-native-principal-qualification-binding.v1",
         "authority": "DEPENDENCY: exact byte receipt from separately qualified native-owner preparation operation, not currently implemented or authorized by D packet. D verifies through owner-bound native readback; fields never grant native authority."
+      },
+      "InstallationReceiptReaderOrigin": {
+        "fields": [
+          "kind",
+          "installation_id",
+          "installation_binding_sha256",
+          "role_acl_manifest_sha256",
+          "role_class",
+          "native_actor"
+        ],
+        "kind": "installation_receipt_reader",
+        "installation_id": "uuid; actual immutable V installation identity, never a PREPARED event",
+        "installation_binding_sha256": "sha256; exact current owner-bound V bytes/hash including issuer_scopes",
+        "role_acl_manifest_sha256": "sha256; exact immutable V RoleAclManifest bytes/hash",
+        "role_class": [
+          "actual issuer login",
+          "scoped D observer login"
+        ],
+        "native_actor": "id; expectation compared to unique existing owner-produced operational_principals receipt_read/name/OID tuple; guard returns the protected tuple value"
       }
     },
     "global_constraints": [
@@ -1921,20 +2018,42 @@
       "No PUBLIC grants to D namespace/tables/functions. Required privileges are exact; extras to untrusted roles fail readback.",
       "Only actual owner migration output can populate MZO_PROVISIONING_SCHEMA_VERSION and its bytea/digest projections. Consumer also compares installed catalogs and pinned expected package; table content alone is insufficient.",
       "Maximum1024 lifetime prepared principals per installation across initial and later owner events; exceeded bounds refuse. New owner preparation does not consume/rewind generation ID; controller must reserve monotonically before owner preparation and preserve failed reservations.",
-      "Preparation field names and nested typed values are closed; canonical complete bytes <=1MiB, arrays<=1024 and W1 depth<=64. Each event actual catalog compares full prior overlay, then own exact delta. No nullable success on missing external/native qualification."
+      "Preparation field names and nested typed values are closed; canonical complete bytes <=1MiB, arrays<=1024 and W1 depth<=64. Each event actual catalog compares full prior overlay, then own exact delta. No nullable success on missing external/native qualification.",
+      "This uninstalled initial contract adds issuer_scopes to InstallationBinding and one permit principal_origin column. Existing installed different version1/source/bytes refuses; no rewrite, UUID relabel or automatic backfill. Actual migration numbering for installed targets remains separately owner allocated.",
+      "Singleton origin is resolved only from actual existing owner installation, current role/catalog and native operational-principal readback; retained bytes/digests are not self-authentication. Database restore/unavailable catalog/current identity mismatch refuses.",
+      "A fresh current read permit for a persistent singleton is not lifetime identity reuse. One ISSUED singleton permit per scope/login; revoke expired previous permit explicitly. Every permit ID and logical request remain immutable and never reused."
     ],
     "third_repair_catalog_matrix": {
       "immutable": "all role attributes except rolcanlogin; all recursive ADMIN/INHERIT/SET/grantors, owners, OIDs, definitions/properties, fixed ACLs exact; owner-recorded later prepared targets extend inventory without rewriting earlier snapshot",
       "PREPARED": "rolcanlogin=false, direct/effective CONNECT absent; all fixed privileges equal owner birth",
       "OPEN": "rolcanlogin=true, exact direct CONNECT edge granted by pinned issuer-function owner; protected G OPEN + matching committed open/admit issuer receipt + native qualification where native-facing; no other catalog delta",
       "RETIRED": "rolcanlogin=false, exact CONNECT edge absent; corresponding protected retirement receipt, old open receipt cannot justify reopening",
-      "PERMIT_ISSUED": "rolcanlogin=true, exact CONNECT edge; current protected ISSUED permit with matching issue receipt; expiration stops guard authority without pretending catalog autoupdate",
-      "PERMIT_REVOKED": "rolcanlogin=false, exact CONNECT edge absent; revoked_by_issuer_operation_id references exact current revoke or whole-scope handoff receipt; latter request expected old owner covers revoked permit epoch/run",
+      "PERMIT_ISSUED": "owner_prepared_one_shot only: rolcanlogin=true, exact CONNECT edge; matching protected issue receipt. installation_receipt_reader: baseline singleton LOGIN/CONNECT/native_actor/fixed ACL unchanged; ISSUED permit supplies only current exact read authority. Expiry only stops permit authorization.",
+      "PERMIT_REVOKED": "owner_prepared_one_shot only: rolcanlogin=false, exact CONNECT edge absent, matching revoke/handoff receipt. installation_receipt_reader: permit REVOKED with matching receipt; baseline singleton LOGIN/CONNECT/native_actor/fixed ACL unchanged.",
       "REMOVED": "historical complete OID/name/birth snapshot retained; qualified terminal proof plus actual role/resource absence matches REMOVED event; name/OID/resource reincarnation always refuses",
-      "NATIVE_ACL": "only native owner-qualified exact generation-specific ACL delta to fixed existing native objects; native birth receipt immutable. Unqualified extra native grant refuses. No broad allowlist or ignored ACL fields."
+      "NATIVE_ACL": "only native owner-qualified exact generation-specific ACL delta to fixed existing native objects; native birth receipt immutable. Unqualified extra native grant refuses. No broad allowlist or ignored ACL fields.",
+      "INSTALLATION_RECEIPT_READER": "Persistent actual issuer/scoped observer singleton from immutable V installation/catalog, including retained issuer_scopes; baseline LOGIN/CONNECT and fixed privileges exact before/during/after read permits. No ADMIN OPTION target extension or one-shot PREPARED/NATIVE_QUALIFIED/REMOVED event applies."
     }
   },
   "source_implementation": true,
   "execution_authorized": false,
-  "native_later_principal_qualification": "UNAVAILABLE_UNTIL_SEPARATE_NATIVE_OWNER_IMPLEMENTATION"
+  "native_later_principal_qualification": "UNAVAILABLE_UNTIL_SEPARATE_NATIVE_OWNER_IMPLEMENTATION",
+  "accepted_storage_amendments": [
+    {
+      "name": "current-owner-historical-stop",
+      "decision_manifest_sha256": "2de1b5cf2988a840290cc7933522b1da4ead7df55d8b0a519218b2f19c4c6247"
+    },
+    {
+      "name": "empty-initial-reconciliation",
+      "decision_manifest_sha256": "3e0da6ae2d07779e017ff7ca3d9ffcc44e96aad86991fc4be4a0d95fc20cb960"
+    },
+    {
+      "name": "stage1-terminal-observation-P6-P9",
+      "decision_manifest_sha256": "07158a601d67ec8a27aa87a771b1b7260cd15d99ac8525b43fbf04dabcd1e94a"
+    },
+    {
+      "name": "stable-inventory-bounds-v2",
+      "decision_sha256": "2f22f18610b024b12d7a1ca209ef96e3555f8df7781a03310db1561ccbb25d14"
+    }
+  ]
 }

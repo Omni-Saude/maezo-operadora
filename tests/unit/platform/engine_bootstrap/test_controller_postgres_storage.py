@@ -255,3 +255,154 @@ def test_closed_request_rejects_sql_selector_and_carrier_omission() -> None:
     assert set(p.FUNCTIONS) == s.OPERATIONS and all(
         "maezo_d7_control." in sql for sql in p.FUNCTIONS.values()
     )
+
+
+def read_call() -> dict[str, Any]:
+    from tests.unit.platform.engine_bootstrap.test_controller_storage import U2, U
+
+    query = dict(scope=v.sample("Scope"), issuer_operation_id=U, request_sha256=H)
+    return dict(
+        protocol="maezo.d7-issuer-receipt-read.v1",
+        **query,
+        read_guard=dict(
+            protocol="maezo.d7-provisioning-guard.v1",
+            scope=query["scope"],
+            epoch=1,
+            run_id=U,
+            permit_id=U2,
+            operation="receipt",
+            purpose="receipt_read",
+            request_sha256=s.digest(s.canonical(query)),
+        ),
+    )
+
+
+def reader_binding(role_class: str) -> p.ReceiptReadBinding:
+    b = binding()
+    operations = (
+        ["read_issuer_operation"] if role_class == "actual issuer login" else sorted(p.READ_FUNCTIONS)
+    )
+    return p.ReceiptReadBinding(
+        b.database,
+        b.scope,
+        "issuer",
+        17,
+        H,
+        tuple(p.FunctionBinding(op, 300 + i, 22, H) for i, op in enumerate(operations)),
+        role_class,
+    )
+
+
+class ReaderConnection:
+    """Protocol fixture validates emitted SQL and client checks, not server authority."""
+
+    def __init__(self, result: dict[str, Any], role_class: str = "actual issuer login") -> None:
+        self.autocommit = False
+        self.info = SimpleNamespace(transaction_status=0)
+        self.calls: list[Any] = []
+        self.result = result
+        self.row: Any = None
+        self.binding = reader_binding(role_class)
+        self.bad_identity = False
+        self.commit_error = False
+
+    def cursor(self) -> Any:
+        return self
+
+    def execute(self, sql: str, params: Any = None) -> None:
+        self.calls.append((sql, params))
+        if sql == p.IDENTITY_SQL:
+            self.row = (
+                "other" if self.bad_identity else "issuer",
+                "issuer",
+                17,
+                1,
+                "synthetic",
+                "read committed",
+                160004,
+            )
+        elif sql == p.FUNCTION_SQL:
+            f = next(f for f in self.binding.functions if f.operation in params[0])
+            self.row = (f.oid, 22, H, True, "v", "u", ["search_path=pg_catalog,pg_temp"], True)
+        elif sql in p.READ_FUNCTIONS.values():
+            self.row = (self.result,)
+
+    def fetchone(self) -> Any:
+        return self.row
+
+    def commit(self) -> None:
+        self.calls.append("commit")
+        if self.commit_error:
+            raise RuntimeError("unavailable")
+
+    def rollback(self) -> None:
+        self.calls.append("rollback")
+
+    def close(self) -> None:
+        self.calls.append("close")
+
+
+@pytest.mark.parametrize("role", ["actual issuer login", "scoped D observer login"])
+@pytest.mark.parametrize("found", [False, True])
+def test_actual_fixed_issuer_receipt_reader(role: str, found: bool) -> None:
+    call = read_call()
+    wire = s.canonical(
+        v.issuer("candidate", "PREPARED")
+        | {k: call[k] for k in ("scope", "issuer_operation_id", "request_sha256")}
+    )
+    result = dict(
+        protocol="maezo.d7-issuer-receipt-read-result.v1",
+        kind="FOUND" if found else "NOT_FOUND",
+        canonical_result_bytes=s.encode64(wire) if found else None,
+        result_sha256=s.digest(wire) if found else None,
+    )
+    conn = ReaderConnection(result, role)
+    authority = QualifiedSpy()
+    output = p.ReceiptReader(conn.binding, authority).read_issuer_operation(conn, call)
+    assert s.parse_wire(output) == result and "commit" in conn.calls
+    assert authority.calls[0]["request_wire"] == s.canonical(call)
+    sent = [
+        entry
+        for entry in conn.calls
+        if isinstance(entry, tuple) and entry[0] == p.READ_FUNCTIONS["read_issuer_operation"]
+    ]
+    assert sent == [(p.READ_FUNCTIONS["read_issuer_operation"], (s.canonical(call).decode(),))]
+
+
+@pytest.mark.parametrize(
+    "fault", ["query", "identity", "commit", "result_extra", "result_digest", "missing_authority"]
+)
+def test_fixed_reader_rejects_before_publication(fault: str) -> None:
+    call = read_call()
+    result = dict(
+        protocol="maezo.d7-issuer-receipt-read-result.v1",
+        kind="NOT_FOUND",
+        canonical_result_bytes=None,
+        result_sha256=None,
+    )
+    conn = ReaderConnection(result)
+    if fault == "query":
+        call["request_sha256"] = "b" * 64
+    elif fault == "identity":
+        conn.bad_identity = True
+    elif fault == "commit":
+        conn.commit_error = True
+    elif fault == "result_extra":
+        result["extra"] = True
+    elif fault == "result_digest":
+        result["result_sha256"] = H
+    with pytest.raises(s.Refusal):
+        p.ReceiptReader(
+            conn.binding, None if fault == "missing_authority" else QualifiedSpy()
+        ).read_issuer_operation(conn, call)
+    if fault in {"query", "missing_authority"}:
+        assert not conn.calls
+    elif fault != "commit":
+        assert "commit" not in conn.calls
+
+
+def test_actual_issuer_reader_cannot_use_provisioning_route() -> None:
+    conn = ReaderConnection({})
+    with pytest.raises(s.Refusal, match="AUTH_REFUSED"):
+        p.ReceiptReader(conn.binding, QualifiedSpy()).read_provisioning_receipt(conn, {})
+    assert not conn.calls

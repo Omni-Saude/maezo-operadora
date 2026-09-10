@@ -17,12 +17,16 @@ from maezo.platform.engine_bootstrap import controller_contracts as c
 from maezo.platform.engine_bootstrap.controller_storage import (
     MAX_INVENTORY,
     Document,
+    RecoveryStopTaskIntent,
     Refusal,
     canonical,
     decode64,
     digest,
+    encode64,
     exact,
+    parse_intent,
     parse_wire,
+    present,
     require,
     same,
     scalar,
@@ -242,7 +246,7 @@ class DocumentUpdate:
         after = parse_wire(self.replacement_wire)
         before = parse_wire(self.expected_wire) if self.expected_wire is not None else None
         if self.key.startswith("GENERATION#"):
-            require(before is not None)
+            before = present(before)
             exact(before, "scope run_id epoch generation_id state core decision tombstone")
             exact(after, "scope run_id epoch generation_id state core decision_sha256 tombstone")
             same(before, after, "scope run_id epoch generation_id tombstone")
@@ -269,11 +273,14 @@ class DocumentUpdate:
             }
             require(self.key == "RESOURCE#task#" + digest(canonical(identity)))
             if before is not None:
-                c.parse("ManagedResource", self.expected_wire)
+                c.parse("ManagedResource", present(self.expected_wire))
                 same(
                     before,
                     after,
-                    "scope generation_id external_operation_id provider_resource_id task_definition_revision image_sha256 config_set_sha256",
+                    (
+                        "scope generation_id external_operation_id provider_resource_id "
+                        "task_definition_revision image_sha256 config_set_sha256"
+                    ),
                 )
                 if before["retired_terminal_proof_sha256"] is not None:
                     require(before == after, "REQUEST_CONFLICT")
@@ -442,12 +449,23 @@ def publish_generation(
     r = root.value()
     reserved = parse_wire(reserved_wire)
     c.check_generation_decision(generation, decision)
+    same(decision.to_wire(), r, "scope run_id epoch trust_profile_sha256", "STALE_EPOCH")
+    require(
+        [
+            g
+            for g in pair.database.payload.generations
+            if g.binding.generation_id == generation.binding.generation_id
+        ]
+        == [generation],
+        "PRECONDITION_MISMATCH",
+    )
     require(
         generation.status == "PREPARED"
         and issuer.status == "PREPARED"
         and issuer.binding_sha256 == generation.binding.digest()
         and issuer.activation_decision_sha256 == decision.digest()
         and issuer.generation_id == generation.binding.generation_id
+        and issuer.revision == generation.revision
     )
     require(
         issuer.scope == generation.binding.scope
@@ -456,12 +474,19 @@ def publish_generation(
     )
     same(reserved, r, "scope run_id epoch")
     require(generation.binding.generation_id == reserved["generation_id"] < r["next_generation_id"])
-    require(qualification is not None, "UNAVAILABLE")
+    qualification = present(qualification, "UNAVAILABLE")
     qualification.check(
         target="PREPARED_GENERATION",
         root_wire=root.wire,
         observation_pair_sha256=pair.digest(),
-        evidence_wire=issuer.canonical_bytes(),
+        evidence_wire=canonical(
+            {
+                "reservation_bytes": encode64(reserved_wire),
+                "generation": generation.to_wire(),
+                "decision": decision.to_wire(),
+                "issuer_receipt": issuer.to_wire(),
+            }
+        ),
         deadline_ms=pair.deadline_ms,
     )
     replacement = {k: reserved[k] for k in ("scope", "run_id", "epoch", "generation_id", "tombstone")}
@@ -482,14 +507,12 @@ def append_intent(
     *,
     generation: c.RuntimeAdmissionGeneration,
     decision: c.CandidateDecision | c.ActivationDecision,
+    managed_resource: c.ManagedResource | None = None,
 ) -> Transition:
     pair.current(root, now_ms)
     r = root.value()
-    c.check_intent_binding(intent, generation=generation, decision=decision)
-    require(
-        intent.target_generation == r["current_generation_id"]
-        and decision.digest() == r["activation_decision_sha256"],
-        "STALE_GENERATION",
+    c.check_intent_binding(
+        intent, generation=generation, decision=decision, managed_resource=managed_resource
     )
     require(type(intent) in {c.RunTaskIntent, c.StopTaskIntent})
     require(
@@ -500,7 +523,32 @@ def append_intent(
         "STALE_EPOCH",
     )
     require(intent.target_generation < r["next_generation_id"], "STALE_GENERATION")
+    expected = intent.expected_precondition
+    require(
+        expected.controller_revision == r["revision"]
+        and expected.journal_revision == r["journal_revision"]
+        and expected.pending_index_sha256 == r["pending_index_sha256"]
+        and expected.db_fence_revision == pair.database.payload.fence.revision,
+        "PRECONDITION_MISMATCH",
+    )
+    require(
+        [g for g in pair.database.payload.generations if g.binding.generation_id == intent.target_generation]
+        == [generation],
+        "PRECONDITION_MISMATCH",
+    )
+    if type(intent) is c.StopTaskIntent:
+        require(
+            managed_resource is not None and managed_resource in pair.control.payload.managed_resources,
+            "PRECONDITION_MISMATCH",
+        )
+        require(present(managed_resource).retired_terminal_proof_sha256 is None, "PRECONDITION_MISMATCH")
     if type(intent) is c.RunTaskIntent:
+        require(
+            generation.status == "OPEN"
+            and intent.target_generation == r["current_generation_id"]
+            and decision.digest() == r["activation_decision_sha256"],
+            "STALE_GENERATION",
+        )
         require(r["state"] in {"CANDIDATE_ADMITTED", "RESTORING"}, "PRECONDITION_MISMATCH")
         require(not r["pending_operation_ids"], "PENDING_UNKNOWN")
     pending = r["pending_operation_ids"]
@@ -515,6 +563,158 @@ def append_intent(
             journal_revision=r["journal_revision"] + 1,
         ),
         (("INTENT#" + intent.external_operation_id, intent.canonical_bytes()),),
+    )
+
+
+def append_recovery_stop(
+    root: Document,
+    intent: RecoveryStopTaskIntent,
+    pair: ObservationPair,
+    now_ms: int,
+    *,
+    lineage: Document,
+    origin: c.RunTaskIntent | c.StopTaskIntent,
+    origin_generation: c.RuntimeAdmissionGeneration,
+    decision: c.CandidateDecision | c.ActivationDecision,
+    origin_journal: c.JournalObservation,
+    managed_resource: c.ManagedResource,
+    pending_intents: tuple[bytes, ...],
+    qualification: JournalQualification | None,
+) -> Transition:
+    """New current-owner stop; historical creator, unknown work and stage1 are immutable."""
+    pair.current(root, now_ms)
+    value, current = intent.to_wire(), root.value()
+    require(
+        current["state"] == "RECOVERY_REQUIRED" and current["current_generation_id"] is None,
+        "PRECONDITION_MISMATCH",
+    )
+    require(current["restore_state"] == "RECONCILED", "UNAVAILABLE")
+    require(
+        value["expected_root_sha256"] == root.digest()
+        and value["current_owner_claim_sha256"] == current["current_owner_claim_sha256"],
+        "PRECONDITION_MISMATCH",
+    )
+    same(value, current, "scope epoch owner_subject", "STALE_EPOCH")
+    require(value["logical_run_id"] == current["run_id"], "STALE_EPOCH")
+    require(
+        lineage.kind == "OwnerLineageRead" and decode64(lineage.value()["root_bytes"]) == root.wire,
+        "AUTH_REFUSED",
+    )
+    require(now_ms < lineage.value()["deadline_ms"], "UNAVAILABLE")
+    precondition = value["expected_precondition"]
+    require(
+        precondition["controller_revision"] == current["revision"]
+        and precondition["journal_revision"] == current["journal_revision"]
+        and precondition["pending_index_sha256"] == current["pending_index_sha256"]
+        and precondition["db_fence_revision"] == pair.database.payload.fence.revision,
+        "PRECONDITION_MISMATCH",
+    )
+    c.check_intent_binding(
+        origin,
+        generation=origin_generation,
+        decision=decision,
+        managed_resource=managed_resource if type(origin) is c.StopTaskIntent else None,
+    )
+    require(origin.scope == intent.scope == managed_resource.scope, "SCOPE_REFUSED")
+    require(
+        value["origin_external_operation_id"] == origin.external_operation_id
+        and value["origin_intent_sha256"] == origin.digest()
+        and value["generation_id"] == origin_generation.binding.generation_id
+        and value["generation_core_sha256"] == origin_generation.binding.digest()
+        and value["decision_sha256"] == decision.digest()
+        and value["managed_resource_sha256"] == managed_resource.digest(),
+        "PRECONDITION_MISMATCH",
+    )
+    require(
+        origin_generation.binding.epoch <= current["epoch"]
+        and value["generation_id"] < current["next_generation_id"],
+        "STALE_GENERATION",
+    )
+    observed = [
+        g for g in pair.database.payload.generations if g.binding.generation_id == value["generation_id"]
+    ]
+    require(
+        len(observed) == 1
+        and observed[0].binding == origin_generation.binding
+        and observed[0].activation_decision_sha256 == decision.digest()
+        and observed[0].status == precondition["target_generation_status"],
+        "STALE_GENERATION",
+    )
+    require(
+        managed_resource in pair.control.payload.managed_resources
+        and managed_resource.retired_terminal_proof_sha256 is None,
+        "PRECONDITION_MISMATCH",
+    )
+    require(
+        intent.request.task == managed_resource.provider_resource_id
+        and intent.request.cluster == decision.topology.cluster_arn,
+        "SCOPE_REFUSED",
+    )
+    require(
+        precondition["target_inventory_sha256"]
+        == digest(canonical([m.to_wire() for m in pair.control.payload.managed_resources])),
+        "PRECONDITION_MISMATCH",
+    )
+    _current_journal(pair, origin_journal)
+    require(
+        origin_journal.intent_sha256 == origin.digest()
+        and origin_journal.external_operation_id == origin.external_operation_id,
+        "REQUEST_CONFLICT",
+    )
+    if type(origin) is c.RunTaskIntent:
+        outcome = present(origin_journal.provider_outcome, "PENDING_UNKNOWN")
+        require(
+            managed_resource.external_operation_id == origin.external_operation_id
+            and managed_resource.provider_resource_id in outcome.returned_resource_ids
+            and origin_journal.state == "SETTLED",
+            "PENDING_UNKNOWN",
+        )
+    else:
+        require(origin_journal.state in _TERMINAL, "PENDING_UNKNOWN")
+    pending = [parse_intent(wire) for wire in pending_intents]
+    require(
+        len({p.external_operation_id for p in pending}) == len(pending)
+        and sorted(p.external_operation_id for p in pending) == current["pending_operation_ids"],
+        "PENDING_UNKNOWN",
+    )
+    journals = {j.external_operation_id: j for j in pair.control.payload.journal}
+    require(intent.external_operation_id not in journals, "REQUEST_CONFLICT")
+    for previous in pending:
+        journal = journals.get(previous.external_operation_id)
+        require(
+            journal is not None
+            and journal.intent_sha256 == previous.digest()
+            and journal.state not in _TERMINAL,
+            "PENDING_UNKNOWN",
+        )
+        if isinstance(previous, (c.StopTaskIntent, RecoveryStopTaskIntent)):
+            require(previous.request.task != intent.request.task, "PENDING_UNKNOWN")
+    evidence = canonical(
+        {
+            "recovery_intent": value,
+            "lineage": lineage.value(),
+            "origin_intent": origin.to_wire(),
+            "origin_generation": origin_generation.to_wire(),
+            "decision": decision.to_wire(),
+            "managed_resource": managed_resource.to_wire(),
+            "observation_pair_sha256": pair.digest(),
+            "pending_intents": [parse_wire(wire) for wire in pending_intents],
+        }
+    )
+    _journal_qualified(
+        qualification, "append_recovery_stop", root, origin_journal, evidence, pair.deadline_ms
+    )
+    pending_ids = sorted([*current["pending_operation_ids"], intent.external_operation_id])
+    require(len(pending_ids) <= MAX_INVENTORY)
+    return Transition(
+        root,
+        _replacement(
+            root,
+            pending_operation_ids=pending_ids,
+            pending_index_sha256=digest(canonical(pending_ids)),
+            journal_revision=current["journal_revision"] + 1,
+        ),
+        (("INTENT#" + intent.external_operation_id, intent.wire),),
     )
 
 
@@ -535,7 +735,7 @@ def _journal_qualified(
     evidence: bytes,
     deadline_ms: int,
 ) -> None:
-    require(qualification is not None, "UNAVAILABLE")
+    qualification = present(qualification, "UNAVAILABLE")
     qualification.check(
         operation=operation,
         root_wire=root.wire,
@@ -603,17 +803,35 @@ def record_outcome(
         journal.state in {"RESERVED", "DISPATCHED_UNKNOWN", "ACKNOWLEDGED", "RECONCILING"},
         "PRECONDITION_MISMATCH",
     )
+    current_acknowledged = (
+        journal.state in {"RESERVED", "ACKNOWLEDGED"}
+        and journal.action == "RunTask"
+        and journal.epoch == r["epoch"]
+        and journal.logical_run_id == r["run_id"]
+        and journal.generation_id == r["current_generation_id"]
+        and r["state"] not in {"RECOVERY_REQUIRED", "ACTIVE"}
+        and now_ms < r["lease_deadline_ms"]
+        and bool(outcome.returned_resource_ids)
+        and not outcome.failures
+    )
     value = journal.to_wire()
-    value.update(state="DISPATCHED_UNKNOWN", provider_outcome=outcome.to_wire())
+    value.update(
+        state="ACKNOWLEDGED" if current_acknowledged else "DISPATCHED_UNKNOWN",
+        provider_outcome=outcome.to_wire(),
+    )
     updated = c.parse("JournalObservation", canonical(value))
-    closed = _replacement(
-        root,
-        state="RECOVERY_REQUIRED",
-        current_generation_id=None,
-        activation_decision_sha256=None,
-        restore_receipt_sha256=None,
-        readiness_result_sha256=None,
-        journal_revision=revision,
+    closed = (
+        _replacement(root, journal_revision=revision)
+        if current_acknowledged
+        else _replacement(
+            root,
+            state="RECOVERY_REQUIRED",
+            current_generation_id=None,
+            activation_decision_sha256=None,
+            restore_receipt_sha256=None,
+            readiness_result_sha256=None,
+            journal_revision=revision,
+        )
     )
     return Transition(
         root,
@@ -632,36 +850,75 @@ def settle(
     managed: tuple[c.ManagedResource, ...],
     *,
     qualification: JournalQualification | None = None,
+    recovery_intent: RecoveryStopTaskIntent | None = None,
 ) -> tuple[c.JournalObservation, Transition]:
     pair.current(root, now_ms)
     r = root.value()
     require(journal.external_operation_id in r["pending_operation_ids"], "PRECONDITION_MISMATCH")
     _current_journal(pair, journal)
-    _journal_qualified(qualification, "settle", root, journal, settlement.canonical_bytes(), pair.deadline_ms)
+    settlement_evidence = settlement.canonical_bytes()
+    if recovery_intent is not None:
+        settlement_evidence = canonical(
+            {
+                "settlement": settlement.to_wire(),
+                "recovery_intent": recovery_intent.to_wire(),
+                "managed_preimage": [m.to_wire() for m in pair.control.payload.managed_resources],
+                "managed_replacement": [m.to_wire() for m in managed],
+                "observation_pair_sha256": pair.digest(),
+            }
+        )
+    _journal_qualified(qualification, "settle", root, journal, settlement_evidence, pair.deadline_ms)
     require(journal.state not in _TERMINAL and journal.reservation is not None, "PRECONDITION_MISMATCH")
     require(
-        settlement.dispatch_terminal.invocation_id == journal.reservation.invocation_id
+        settlement.dispatch_terminal.invocation_id == present(journal.reservation).invocation_id
         and settlement.dispatch_terminal.intent_sha256 == journal.intent_sha256,
         "PRECONDITION_MISMATCH",
     )
     previous = {m.provider_resource_id: m for m in pair.control.payload.managed_resources}
     current = {m.provider_resource_id: m for m in managed}
+    require([m.provider_resource_id for m in managed] == sorted(current), "INVALID_BODY")
     require(
         len(current) == len(managed) <= MAX_INVENTORY and set(previous) <= set(current), "PENDING_UNKNOWN"
     )
-    for identity, old in previous.items():
+    for resource_id, old in previous.items():
         same(
             old.to_wire(),
-            current[identity].to_wire(),
-            "scope provider_resource_id generation_id external_operation_id task_definition_revision image_sha256 config_set_sha256",
+            current[resource_id].to_wire(),
+            (
+                "scope provider_resource_id generation_id external_operation_id "
+                "task_definition_revision image_sha256 config_set_sha256"
+            ),
         )
         if old.generation_id != journal.generation_id:
-            require(old == current[identity], "PENDING_UNKNOWN")
-    affected = tuple(m for m in managed if m.generation_id == journal.generation_id)
+            require(old == current[resource_id], "PENDING_UNKNOWN")
+    if recovery_intent is not None:
+        require(
+            recovery_intent.digest() == journal.intent_sha256
+            and recovery_intent.external_operation_id == journal.external_operation_id
+            and settlement.settlement_class == "RETIRED_RESOURCES_TERMINAL",
+            "PRECONDITION_MISMATCH",
+        )
+        affected = tuple(m for m in managed if m.provider_resource_id == recovery_intent.request.task)
+        require(
+            len(affected) == 1 and affected[0].generation_id == journal.generation_id, "PRECONDITION_MISMATCH"
+        )
+        require(
+            all(m == previous.get(m.provider_resource_id) for m in managed if m not in affected),
+            "PRECONDITION_MISMATCH",
+        )
+    else:
+        affected = tuple(m for m in managed if m.generation_id == journal.generation_id)
     if settlement.settlement_class == "CURRENT_LIVE_TRACKED":
         require(journal.epoch == r["epoch"] and journal.logical_run_id == r["run_id"], "STALE_EPOCH")
+        require(journal.state == "ACKNOWLEDGED" and r["state"] != "RECOVERY_REQUIRED", "PENDING_UNKNOWN")
         require(
-            bool(affected) and all(m.current_observed_state == "READY" for m in affected),
+            bool(affected)
+            and journal.generation_id == r["current_generation_id"]
+            and all(c.live_ready(pair.control.payload, m) for m in affected)
+            and all(m.external_operation_id == journal.external_operation_id for m in affected)
+            and journal.provider_outcome is not None
+            and set(journal.provider_outcome.returned_resource_ids)
+            == {m.provider_resource_id for m in affected},
             "PRECONDITION_MISMATCH",
         )
     else:
@@ -673,6 +930,16 @@ def settle(
             ),
             "PENDING_UNKNOWN",
         )
+    if recovery_intent is not None:
+        for resource in affected:
+            proofs = [p for p in settlement.resource_proofs if p.resource_id == resource.provider_resource_id]
+            require(
+                len(proofs) == 1
+                and proofs[0].generation_id == resource.generation_id
+                and proofs[0].terminal_kind == "TASK_STOPPED"
+                and resource.retired_terminal_proof_sha256 == proofs[0].digest(),
+                "PENDING_UNKNOWN",
+            )
     deltas = []
     for resource in managed:
         previous_resource = previous.get(resource.provider_resource_id)
@@ -695,6 +962,13 @@ def settle(
     value = journal.to_wire()
     value.update(state="SETTLED", settlement=settlement.to_wire())
     updated = c.parse("JournalObservation", canonical(value))
+    projection = pair.control.payload.to_wire()
+    projection["journal"] = [
+        updated.to_wire() if j.external_operation_id == journal.external_operation_id else j.to_wire()
+        for j in pair.control.payload.journal
+    ]
+    projection["managed_resources"] = [m.to_wire() for m in managed]
+    c.parse("ControlPayload", canonical(projection))
     pending = [p for p in r["pending_operation_ids"] if p != journal.external_operation_id]
     next_root = _replacement(
         root,
@@ -763,21 +1037,170 @@ def cancel_unsent(
 
 def _closed_observations(pair: ObservationPair) -> None:
     control, database = pair.control.payload, pair.database.payload
+    require(all(j.state in _TERMINAL for j in control.journal), "PENDING_UNKNOWN")
     require(
         not control.live_dispatchers and not any(p.enabled for p in control.start_paths), "PENDING_UNKNOWN"
     )
     require(control.desired_count == control.running_count == control.pending_count == 0, "PENDING_UNKNOWN")
     require(not database.sessions and not database.prepared_transactions, "PENDING_UNKNOWN")
     require(
-        all(
-            m.current_observed_state in {"STOPPED", "ABSENT"} and m.retired_terminal_proof_sha256 is not None
-            for m in control.managed_resources
-        ),
+        all(c.task_terminal_witness(control, m) for m in control.managed_resources),
         "PENDING_UNKNOWN",
     )
     require(not any(r.enabled or r.in_flight_admissions for r in database.routes), "PENDING_UNKNOWN")
     require(not any(role.owned and role.can_login for role in database.roles), "PENDING_UNKNOWN")
     require(database.fence.state in {"CLOSED", "RECOVERY_REQUIRED"}, "PRECONDITION_MISMATCH")
+
+
+def complete_initial_reconciliation(
+    root: Document,
+    owner: dict[str, Any],
+    pair: ObservationPair,
+    *,
+    now_ms: int,
+    evidence_wire: bytes,
+    qualification: StageQualification | None,
+) -> Transition:
+    """Apply authenticated empty-install reconcile/close receipts under exact ROOT CAS.
+
+    The qualifier authenticates committed SQL receipts, full initial installation,
+    retained control-table inventory and actual F restore/highwater/catalog closure.
+    Signed stage1 F observations do not carry restore_state or highwater; the full
+    readback is therefore separately qualified, never inferred from a signature.
+    """
+    from maezo.platform.engine_bootstrap.controller_postgres_storage import result_bytes
+    from maezo.platform.engine_bootstrap.controller_storage import validate_store_call
+
+    r = root.value()
+    same(r, owner, "owner_subject run_id epoch", "STALE_EPOCH")
+    pair.current(root, now_ms)
+    require(r["state"] == "REVIEWED" and r["restore_state"] == "UNRECONCILED")
+    require(r["epoch"] == r["revision"] == r["next_generation_id"] == 1)
+    require(r["db_fence_epoch"] == r["journal_revision"] == 0)
+    require(
+        not r["pending_operation_ids"]
+        and all(
+            r[k] is None
+            for k in (
+                "current_owner_claim_sha256",
+                "current_generation_id",
+                "activation_decision_sha256",
+                "restore_receipt_sha256",
+                "readiness_result_sha256",
+            )
+        )
+    )
+    require(
+        all(
+            r[k] == digest(b"[]")
+            for k in ("pending_index_sha256", "managed_registry_sha256", "retired_index_sha256")
+        )
+    )
+    _closed_observations(pair)
+    require(not pair.control.payload.journal and not pair.control.payload.managed_resources)
+    require(not pair.database.payload.generations and pair.database.payload.fence.state == "CLOSED")
+    evidence = parse_wire(evidence_wire)
+    exact(
+        evidence,
+        "protocol root_bytes installation_binding_bytes reconcile_call reconcile_result "
+        "close_call close_result current_fence observation_pair_sha256",
+    )
+    require(evidence["protocol"] == "maezo.d7-initial-reconciliation-evidence.v1")
+    require(
+        decode64(evidence["root_bytes"]) == root.wire
+        and evidence["observation_pair_sha256"] == pair.digest(),
+        "PRECONDITION_MISMATCH",
+    )
+    installation = parse_wire(decode64(evidence["installation_binding_bytes"]))
+    exact(
+        installation,
+        "protocol installation_id control_scope_id component version database_binding "
+        "act_schema_name act_schema_oid control_schema_oid controller_table_arn issuer_scopes "
+        "role_acl_manifest_sha256 object_manifest_sha256 migration_sha256 cib_abi_sha256",
+    )
+    require(installation["component"] == "maezo-d7-control" and installation["version"] == 1)
+    for name in ("installation_id", "control_scope_id"):
+        scalar("Uuid", installation[name])
+    for name in ("role_acl_manifest_sha256", "object_manifest_sha256", "migration_sha256", "cib_abi_sha256"):
+        scalar("Sha256", installation[name])
+    scalar("Arn", installation["controller_table_arn"])
+    for name in ("act_schema_oid", "control_schema_oid"):
+        scalar("Oid", installation[name])
+    scalar("Id", installation["act_schema_name"])
+    require(
+        installation["protocol"] == "maezo.d7-installation-binding.v1"
+        and installation["control_scope_id"] == r["control_scope_id"]
+        and installation["database_binding"] == r["scope"]["database_binding"]
+        and r["scope"] in installation["issuer_scopes"],
+        "SCOPE_REFUSED",
+    )
+    fence = evidence["current_fence"]
+    exact(
+        fence,
+        "scope owner_subject run_id epoch revision next_generation_id current_generation_id "
+        "mode restore_state installation_binding_sha256",
+    )
+    same(fence, r, "scope owner_subject run_id epoch", "STALE_EPOCH")
+    require(
+        fence["mode"] == "CLOSED"
+        and fence["restore_state"] == "RECONCILED"
+        and fence["next_generation_id"] == 1
+        and fence["current_generation_id"] is None
+        and fence["revision"] == pair.database.payload.fence.revision
+        and fence["installation_binding_sha256"] == digest(decode64(evidence["installation_binding_bytes"]))
+    )
+    receipts = []
+    for prefix, operation in (("reconcile", "reconcile_fence"), ("close", "close_runtime_fence")):
+        call = validate_store_call(operation, evidence[prefix + "_call"])
+        same(call, r, "scope run_id epoch", "STALE_EPOCH")
+        result = exact(
+            evidence[prefix + "_result"],
+            "protocol issuer_operation_id request_sha256 result_sha256 canonical_result_bytes",
+        )
+        receipt = parse_wire(decode64(result["canonical_result_bytes"]))
+        result_bytes(operation, call, result, receipt["issuer_login_oid"])
+        require(receipt["generation_id"] is receipt["permit_id"] is None)
+        receipts.append(receipt)
+    reconcile, close = receipts
+    handoff = evidence["reconcile_call"]["proof"]
+    lineage = parse_wire(decode64(handoff["owner_lineage_bytes"]))
+    require(decode64(lineage["root_bytes"]) == root.wire and lineage["claim_receipt_bytes"] is None)
+    require(evidence["reconcile_call"]["expected_fence_revision"] == 1 and reconcile["fence_revision"] == 2)
+    request = evidence["reconcile_call"]["request"]
+    same(request["expected_owner"], r, "owner_subject run_id epoch", "STALE_EPOCH")
+    require(
+        request["expected_owner"]["revision"] == request["expected_owner"]["next_generation_id"] == 1
+        and request["expected_owner"]["current_generation_id"] is None
+    )
+    require(
+        request["mode"] == "current_owner_reconcile"
+        and request["claim_id"] is None
+        and request["claim_receipt_sha256"] is None
+        and request["next_generation_id"] == 1
+    )
+    require(reconcile["state"] == "RECOVERY_REQUIRED" and close["state"] == "CLOSED")
+    require(
+        evidence["close_call"]["expected_fence_revision"] == reconcile["fence_revision"]
+        and close["fence_revision"] == reconcile["fence_revision"] + 1 == fence["revision"]
+    )
+    require(
+        reconcile["issuer_operation_id"] != close["issuer_operation_id"]
+        and reconcile["recorded_before_commit_at_ms"]
+        <= close["recorded_before_commit_at_ms"]
+        <= min(pair.control.issued_at_ms, pair.database.issued_at_ms, now_ms)
+    )
+    present(qualification, "UNAVAILABLE").check(
+        target="INITIAL_RECONCILIATION",
+        root_wire=root.wire,
+        observation_pair_sha256=pair.digest(),
+        evidence_wire=evidence_wire,
+        deadline_ms=pair.deadline_ms,
+    )
+    return Transition(
+        root,
+        _replacement(root, restore_state="RECONCILED", db_fence_epoch=1),
+        (("PROOF#" + digest(evidence_wire), evidence_wire),),
+    )
 
 
 def advance(
@@ -806,7 +1229,11 @@ def advance(
     facts = parse_wire(evidence_wire)
     exact(
         facts,
-        "scope run_id epoch previous_state target_state root_sha256 observation_pair_sha256 stage_evidence_bytes stage_evidence_sha256",
+        (
+            "scope run_id epoch previous_state target_state root_sha256 "
+            "observation_pair_sha256 stage_evidence_bytes "
+            "stage_evidence_sha256"
+        ),
     )
     same(facts, r, "scope run_id epoch")
     require(facts["previous_state"] == r["state"] and facts["target_state"] == target)
@@ -814,7 +1241,7 @@ def advance(
     retained = decode64(facts["stage_evidence_bytes"])
     require(digest(retained) == facts["stage_evidence_sha256"])
     parse_wire(retained)
-    require(qualification is not None, "UNAVAILABLE")
+    qualification = present(qualification, "UNAVAILABLE")
     qualification.check(
         target=target,
         root_wire=root.wire,
@@ -842,7 +1269,8 @@ def advance(
         "READINESS_VERIFIED",
         "ACTIVE",
     }:
-        require(decision is not None, "PRECONDITION_MISMATCH")
+        if decision is None:
+            raise Refusal("PRECONDITION_MISMATCH")
         same(decision.to_wire(), r, "scope run_id epoch trust_profile_sha256")
         require(decision.generation_core.generation_id < r["next_generation_id"], "STALE_GENERATION")
         require(
@@ -852,6 +1280,9 @@ def advance(
         changes["current_generation_id"] = decision.generation_core.generation_id
     if target in {"RESTORED", "READINESS_VERIFIED", "ACTIVE"}:
         require(type(issuer) is c.IssuerReceipt and type(decision) is c.ActivationDecision)
+        issuer = present(issuer)
+        if decision is None:
+            raise Refusal("INVALID_BODY")
         matches = [g for g in pair.database.payload.generations if g.binding == decision.generation_core]
         require(len(matches) == 1 and matches[0].status == "OPEN", "STALE_GENERATION")
         c.check_generation_decision(matches[0], decision)
@@ -868,11 +1299,15 @@ def advance(
         )
         changes["restore_receipt_sha256"] = issuer.digest()
     if target in {"READINESS_VERIFIED", "ACTIVE"}:
+        require(all(j.state in _TERMINAL for j in pair.control.payload.journal), "PENDING_UNKNOWN")
         require(
             type(binding) is c.RuntimeActivationBinding
             and type(decision) is c.ActivationDecision
             and type(issuer) is c.IssuerReceipt
         )
+        binding, issuer = present(binding), present(issuer)
+        if decision is None:
+            raise Refusal("INVALID_BODY")
         require(
             binding.scope == decision.scope
             and binding.controller_epoch == r["epoch"]
@@ -887,9 +1322,14 @@ def advance(
             and binding.settled_journal_sha256 == decision.settled_journal_sha256
         )
         require(
-            all(
+            any(
                 m.generation_id == binding.runtime_admission_generation
-                and m.current_observed_state == "READY"
+                for m in pair.control.payload.managed_resources
+            )
+            and all(
+                c.live_ready(pair.control.payload, m)
+                if m.generation_id == binding.runtime_admission_generation
+                else c.task_terminal_witness(pair.control.payload, m)
                 for m in pair.control.payload.managed_resources
             ),
             "PENDING_UNKNOWN",

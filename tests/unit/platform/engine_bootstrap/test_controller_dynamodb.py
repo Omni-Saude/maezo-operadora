@@ -295,3 +295,86 @@ def test_missing_qualified_client_or_wrong_actual_table_never_mutates() -> None:
     with pytest.raises(s.Refusal, match="SCOPE_REFUSED"):
         d.DynamoDBStore(client, binding(), AuthoritySpy()).apply(claim_change())
     assert not any(kind == "write" for kind, _ in client.calls)
+
+
+class InitialAuthority:
+    def __init__(self) -> None:
+        self.calls: list[Any] = []
+
+    def qualify_initial_root(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+
+
+def initial_root() -> s.Document:
+    return root(
+        epoch=1,
+        revision=1,
+        next_generation_id=1,
+        journal_revision=0,
+        db_fence_epoch=0,
+        restore_state="UNRECONCILED",
+    )
+
+
+def test_initial_root_uses_qualified_absent_only_single_send() -> None:
+    client, authority = ProtocolClient([]), InitialAuthority()
+    store = d.DynamoDBStore(client, binding(), AuthoritySpy())
+    initial = initial_root()
+    result = store.initialize(initial, authority=authority)
+    assert result.kind == "COMMITTED" and result.root_sha256 == initial.digest()
+    sends = [r for operation, r in client.calls if operation == "write"]
+    assert len(sends) == 1 and len(sends[0]["TransactItems"]) == 1
+    put = sends[0]["TransactItems"][0]["Put"]
+    assert put["ConditionExpression"] == "attribute_not_exists(PK) AND attribute_not_exists(SK)"
+    assert d.unitem(put["Item"]) == {**s.key(U, "ROOT"), **initial.value()}
+    assert authority.calls == [
+        {"root_wire": initial.wire, "table_identity_sha256": binding().identity_digest()}
+    ]
+
+
+@pytest.mark.parametrize("fault", ["missing_authority", "restore", "epoch", "pending", "unknown"])
+def test_initial_root_refuses_unqualified_shape_and_never_retries(fault: str) -> None:
+    client = ProtocolClient([])
+    store = d.DynamoDBStore(client, binding(), AuthoritySpy())
+    initial, authority = initial_root(), InitialAuthority()
+    if fault == "unknown":
+        client.error = OSError("transport lost")
+        result = store.initialize(initial, authority=authority)
+        assert result.kind == "UNKNOWN"
+        assert len([1 for op, _ in client.calls if op == "write"]) == 1
+        return
+    changes = {
+        "restore": {"restore_state": "RECONCILED"},
+        "epoch": {"epoch": 2},
+        "pending": {"pending_operation_ids": [U], "pending_index_sha256": s.digest(s.canonical([U]))},
+    }
+    if fault in changes:
+        initial = s.Document.create("Root", initial.value() | changes[fault])
+    with pytest.raises(s.Refusal):
+        store.initialize(initial, authority=None if fault == "missing_authority" else authority)
+    assert not [1 for op, _ in client.calls if op == "write"]
+
+
+@pytest.mark.parametrize(
+    "fault", [None, "omitted_intent", "wrong_revision", "extra_chunk", "omitted_resource"]
+)
+def test_complete_semantic_inventory_checks_manifest_pending_and_registry(fault: str | None) -> None:
+    rows = rows_for(intent_change())
+    rows[0]["journal_revision"] = 1  # Exactly one actual append, with no omitted prior history.
+    if fault == "omitted_intent":
+        rows = [rows[0]]
+    elif fault == "wrong_revision":
+        rows[1]["revision"] = 2
+    elif fault == "extra_chunk":
+        extra = copy.deepcopy(rows[2])
+        extra["SK"] = extra["SK"][:-1] + "1"
+        rows.append(extra)
+    elif fault == "omitted_resource":
+        rows[0]["managed_registry_sha256"] = H
+    store = d.DynamoDBStore(ProtocolClient(rows), binding(), AuthoritySpy())
+    if fault is None:
+        observed, journals, resources = store.read_inventory()
+        assert observed.value()["journal_revision"] == 1 and len(journals) == 1 and resources == ()
+    else:
+        with pytest.raises(s.Refusal):
+            store.read_inventory()

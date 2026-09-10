@@ -8,7 +8,7 @@ requires the separately qualified owner installation and live lane.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from maezo.platform.engine_bootstrap import controller_contracts as c
 from maezo.platform.engine_bootstrap.controller import Transition
@@ -27,7 +27,9 @@ from maezo.platform.engine_bootstrap.controller_storage import (
     encode64,
     exact,
     key,
+    parse_intent,
     parse_wire,
+    present,
     require,
     scalar,
 )
@@ -39,6 +41,22 @@ class ControlAuthority(Protocol):
     def qualify(
         self, *, client: object, table_arn: str, table_id: str, installation_sha256: str, scope_wire: bytes
     ) -> None: ...
+
+
+class InitialRootAuthority(Protocol):
+    """Owner-qualified bootstrap of a never-used control scope, distinct from table access."""
+
+    def qualify_initial_root(self, *, root_wire: bytes, table_identity_sha256: str) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class InitialWriteResult:
+    kind: str
+    root_sha256: str
+
+    def __post_init__(self) -> None:
+        require(self.kind in {"COMMITTED", "CONFLICT", "UNKNOWN"})
+        scalar("Sha256", self.root_sha256)
 
 
 class DynamoClient(Protocol):
@@ -182,7 +200,11 @@ def transaction(binding: ControlBinding, change: Transition) -> dict[str, Any]:
     root_put = {
         "TableName": binding.table_arn,
         "Item": item({**rk, **new}),
-        "ConditionExpression": "#revision = :revision AND #epoch = :epoch AND #run = :run AND #owner = :owner AND #pending = :pending AND #scope = :scope AND #lease = :lease AND #high = :high",
+        "ConditionExpression": (
+            "#revision = :revision AND #epoch = :epoch AND #run = :run AND "
+            "#owner = :owner AND #pending = :pending AND #scope = :scope AND "
+            "#lease = :lease AND #high = :high"
+        ),
         "ExpressionAttributeNames": {
             "#revision": "revision",
             "#epoch": "epoch",
@@ -216,7 +238,7 @@ def transaction(binding: ControlBinding, change: Transition) -> dict[str, Any]:
         else:
             require(value["scope"] == old["scope"], "SCOPE_REFUSED")
         if sk.startswith("INTENT#"):
-            intent = c.parse("RunTaskIntent" if value.get("action") == "RunTask" else "StopTaskIntent", wire)
+            intent = parse_intent(wire)
             require(intent.external_operation_id == sk.split("#")[1])
             chunks = ChunkSet.split(wire)
             manifest = {
@@ -346,23 +368,23 @@ def transaction(binding: ControlBinding, change: Transition) -> dict[str, Any]:
                 }
             }
         )
-    for delta in change.documents:
-        physical = _append_key(binding, delta.key)
-        values = {
+    for document_delta in change.documents:
+        physical = _append_key(binding, document_delta.key)
+        document_values: dict[str, Any] = {
             **physical,
-            "document_bytes": delta.replacement_wire,
-            "document_sha256": digest(delta.replacement_wire),
+            "document_bytes": document_delta.replacement_wire,
+            "document_sha256": digest(document_delta.replacement_wire),
         }
-        put = {"TableName": binding.table_arn, "Item": item(values)}
-        if delta.expected_wire is None:
+        put = {"TableName": binding.table_arn, "Item": item(document_values)}
+        if document_delta.expected_wire is None:
             put["ConditionExpression"] = "attribute_not_exists(PK) AND attribute_not_exists(SK)"
         else:
             put.update(
                 ConditionExpression="#digest = :digest AND #bytes = :bytes",
                 ExpressionAttributeNames={"#digest": "document_sha256", "#bytes": "document_bytes"},
                 ExpressionAttributeValues={
-                    ":digest": attribute(digest(delta.expected_wire)),
-                    ":bytes": attribute(delta.expected_wire),
+                    ":digest": attribute(digest(document_delta.expected_wire)),
+                    ":bytes": attribute(document_delta.expected_wire),
                 },
             )
         actions.append({"Put": put})
@@ -393,7 +415,7 @@ class DynamoDBStore:
         self._client = client
         self.binding = binding
         require(authority is not None, "UNAVAILABLE")
-        self._authority = authority
+        self._authority = present(authority, "UNAVAILABLE")
 
     def _identity(self) -> None:
         """Read actual table identity on the injected already authenticated connection."""
@@ -444,6 +466,70 @@ class DynamoDBStore:
         except Exception:
             raise Refusal("UNAVAILABLE") from None
 
+    def initialize(self, root: Document, *, authority: InitialRootAuthority | None) -> InitialWriteResult:
+        """One absent-only ROOT insertion; ambiguity never retries or bootstraps a new identity."""
+        self._identity()
+        require(root.kind == "Root")
+        value = root.value()
+        require(
+            value["control_scope_id"] == self.binding.control_scope_id
+            and value["scope"] == parse_wire(self.binding.scope_wire),
+            "SCOPE_REFUSED",
+        )
+        require(
+            value["state"] == "REVIEWED"
+            and value["restore_state"] == "UNRECONCILED"
+            and value["epoch"] == value["revision"] == value["next_generation_id"] == 1
+            and value["journal_revision"] == 0
+            and value["db_fence_epoch"] == 0
+            and not value["pending_operation_ids"],
+            "PRECONDITION_MISMATCH",
+        )
+        require(
+            all(
+                value[k] is None
+                for k in (
+                    "current_owner_claim_sha256",
+                    "current_generation_id",
+                    "activation_decision_sha256",
+                    "restore_receipt_sha256",
+                    "readiness_result_sha256",
+                )
+            )
+        )
+        require(
+            all(
+                value[k] == digest(canonical([]))
+                for k in ("pending_index_sha256", "managed_registry_sha256", "retired_index_sha256")
+            )
+        )
+        present(authority, "UNAVAILABLE").qualify_initial_root(
+            root_wire=root.wire, table_identity_sha256=self.binding.identity_digest()
+        )
+        request = {
+            "TransactItems": [
+                {
+                    "Put": {
+                        "TableName": self.binding.table_arn,
+                        "Item": item({**key(self.binding.control_scope_id, "ROOT"), **value}),
+                        "ConditionExpression": "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+                    }
+                }
+            ]
+        }
+        try:
+            response = self._client.transact_write_items(**request)
+            require(response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 200, "UNAVAILABLE")
+        except Exception as error:
+            response = getattr(error, "response", {})
+            conflict = (
+                isinstance(response, dict)
+                and response.get("Error", {}).get("Code") == "TransactionCanceledException"
+                and response.get("CancellationReasons") == [{"Code": "ConditionalCheckFailed"}]
+            )
+            return InitialWriteResult("CONFLICT" if conflict else "UNKNOWN", root.digest())
+        return InitialWriteResult("COMMITTED", root.digest())
+
     def apply(self, change: Transition) -> WriteResult:
         self._identity()
         request = transaction(self.binding, change)
@@ -456,11 +542,11 @@ class DynamoDBStore:
         except Exception as exc:
             # Cancellation must prove every action uncommitted; an unclassified service
             # error or network exception remains UNKNOWN. Never retry here.
-            response = getattr(exc, "response", None)
-            reasons = response.get("CancellationReasons") if isinstance(response, dict) else None
+            error_response = getattr(exc, "response", None)
+            reasons = error_response.get("CancellationReasons") if isinstance(error_response, dict) else None
             conflict = (
-                isinstance(response, dict)
-                and response.get("Error", {}).get("Code") == "TransactionCanceledException"
+                isinstance(error_response, dict)
+                and error_response.get("Error", {}).get("Code") == "TransactionCanceledException"
                 and isinstance(reasons, list)
                 and len(reasons) == len(request["TransactItems"])
                 and any(r.get("Code") == "ConditionalCheckFailed" for r in reasons)
@@ -485,12 +571,17 @@ class DynamoDBStore:
                 wire = row["document_bytes"]
                 require(digest(wire) == row["document_sha256"])
                 parse_wire(wire)
-                return wire
+                return cast(bytes, wire)
             intent_manifest = sk.startswith("INTENT#")
             if intent_manifest:
                 exact(
                     row,
-                    "schema_version scope external_operation_id run_id epoch generation_id intent_sha256 body_bytes body_chunk_count body_chunk_sha256s state revision reservation provider_outcome settlement cancellation_unsent_proof",
+                    (
+                        "schema_version scope external_operation_id run_id epoch "
+                        "generation_id intent_sha256 body_bytes body_chunk_count "
+                        "body_chunk_sha256s state revision reservation provider_outcome "
+                        "settlement cancellation_unsent_proof"
+                    ),
                 )
                 require(row["schema_version"] == 1 and row["external_operation_id"] == sk.split("#")[1])
                 scalar("Positive", row["revision"])
@@ -540,8 +631,7 @@ class DynamoDBStore:
 
     @staticmethod
     def _journal(row: dict[str, Any], wire: bytes) -> c.JournalObservation:
-        value = parse_wire(wire)
-        intent = c.parse("RunTaskIntent" if value.get("action") == "RunTask" else "StopTaskIntent", wire)
+        intent = parse_intent(wire)
         require(
             intent.scope.to_wire() == row["scope"]
             and intent.external_operation_id == row["external_operation_id"]
@@ -550,7 +640,7 @@ class DynamoDBStore:
             and intent.target_generation == row["generation_id"]
             and intent.digest() == row["intent_sha256"]
         )
-        return c.parse(
+        parsed = c.parse(
             "JournalObservation",
             canonical(
                 {
@@ -574,6 +664,8 @@ class DynamoDBStore:
             ),
         )
 
+        return cast(c.JournalObservation, parsed)
+
     def read_journal(self, external_operation_id: str) -> c.JournalObservation:
         before = self.read_root()
         wire = self.read_document("INTENT#" + external_operation_id)
@@ -586,7 +678,7 @@ class DynamoDBStore:
         row = unitem(response["Item"])
         row.pop("PK")
         row.pop("SK")
-        result = self._journal(row, wire)
+        result = self._journal(row, present(wire))
         require(self.read_root().wire == before.wire, "PRECONDITION_MISMATCH")
         return result
 
@@ -627,11 +719,77 @@ class DynamoDBStore:
             after = self.read_root()
             require(before.wire == after.wire, "PRECONDITION_MISMATCH")
             require("ROOT" in seen, "UNAVAILABLE")
+            retained_root = next(row for row in rows if row["SK"] == "ROOT")
+            require(
+                Document.create(
+                    "Root", {k: v for k, v in retained_root.items() if k not in {"PK", "SK"}}
+                ).wire
+                == before.wire,
+                "PRECONDITION_MISMATCH",
+            )
             return before, tuple(rows)
         except Refusal:
             raise
         except Exception:
             raise Refusal("UNAVAILABLE") from None
+
+    def read_inventory(
+        self,
+    ) -> tuple[Document, tuple[c.JournalObservation, ...], tuple[c.ManagedResource, ...]]:
+        """Strong complete manifested journal/resource inventory under stable ROOT.
+
+        Raw physical pagination is not sufficient to sign a control observation.
+        Every journal body/chunk is reassembled, pending and revision sums are
+        matched, all managed bytes are checked, and ROOT is reread after all reads.
+        The independent observer still authenticates provider and causal evidence.
+        """
+        before, rows = self.read_complete()
+        journals = []
+        resources = []
+        revision_sum = 0
+        expected_chunks = {
+            key(self.binding.control_scope_id, row["SK"].split("#")[0], row["SK"].split("#")[1], ordinal=i)[
+                "SK"
+            ]
+            for row in rows
+            if "body_chunk_count" in row
+            for i in range(row["body_chunk_count"])
+        }
+        require(expected_chunks == {row["SK"] for row in rows if "#BODY#" in row["SK"]}, "UNAVAILABLE")
+        for row in rows:
+            sk = row["SK"]
+            if sk.startswith("INTENT#") and "#BODY#" not in sk:
+                wire = present(self.read_document(sk), "UNAVAILABLE")
+                journals.append(self._journal(row, wire))
+                revision_sum += row["revision"]
+            elif sk.startswith("RESOURCE#task#"):
+                resource = c.parse("ManagedResource", present(self.read_document(sk), "UNAVAILABLE"))
+                identity = {
+                    "scope": resource.scope.to_wire(),
+                    "resource_kind": "task",
+                    "provider_resource_id": resource.provider_resource_id,
+                }
+                require(sk == "RESOURCE#task#" + digest(canonical(identity)), "PRECONDITION_MISMATCH")
+                require(resource.scope.canonical_bytes() == self.binding.scope_wire, "SCOPE_REFUSED")
+                resources.append(resource)
+        journals.sort(key=lambda j: j.external_operation_id)
+        resources.sort(key=lambda r: r.provider_resource_id)
+        value = before.value()
+        pending = [
+            j.external_operation_id
+            for j in journals
+            if j.state not in {"SETTLED", "REJECTED", "CANCELLED_UNSENT"}
+        ]
+        require(
+            pending == value["pending_operation_ids"] and revision_sum == value["journal_revision"],
+            "PENDING_UNKNOWN",
+        )
+        require(
+            digest(canonical([r.to_wire() for r in resources])) == value["managed_registry_sha256"],
+            "PENDING_UNKNOWN",
+        )
+        require(self.read_root().wire == before.wire, "PRECONDITION_MISMATCH")
+        return before, tuple(journals), tuple(resources)
 
     def read_owner_lineage(
         self,
@@ -652,10 +810,10 @@ class DynamoDBStore:
             if row["SK"].startswith("OWNERCLAIM#"):
                 raw = self.read_document(row["SK"])
                 require(raw is not None, "UNAVAILABLE")
-                claim = Document("OwnerClaimReceipt", raw)
+                claim = Document("OwnerClaimReceipt", present(raw))
                 claims[claim.digest()] = claim
         pointer = root["current_owner_claim_sha256"]
-        chain = []
+        chain: list[Document] = []
         while pointer is not None:
             require(pointer in claims and len(chain) < 32, "UNAVAILABLE")
             claim = claims[pointer]

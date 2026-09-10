@@ -6,6 +6,7 @@ Success bytes are decoded/checked before commit and published only after it retu
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -20,11 +21,16 @@ from maezo.platform.engine_bootstrap.controller_storage import (
     exact,
     logical_request_digest,
     parse_wire,
+    present,
     require,
     scalar,
     validate_store_call,
 )
 
+READ_FUNCTIONS = {
+    name: f"SELECT maezo_d7_control.{name}(%s::pg_catalog.jsonb)"
+    for name in ("read_issuer_operation", "read_provisioning_receipt")
+}
 FUNCTIONS = {name: f"SELECT maezo_d7_control.{name}(%s::pg_catalog.jsonb)" for name in sorted(OPERATIONS)}
 SQLSTATES = {
     "P7D01": "AUTH_REFUSED",
@@ -39,16 +45,26 @@ SQLSTATES = {
     "P7D10": "PENDING_UNKNOWN",
     "P7D11": "UNSUPPORTED_ADAPTER",
 }
-IDENTITY_SQL = """SELECT SESSION_USER::pg_catalog.text, CURRENT_USER::pg_catalog.text,
- (SELECT oid::pg_catalog.bigint FROM pg_catalog.pg_roles WHERE rolname=SESSION_USER),
- (SELECT oid::pg_catalog.bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()),
- pg_catalog.current_database(), pg_catalog.current_setting('transaction_isolation'),
- pg_catalog.current_setting('server_version_num')::pg_catalog.integer"""
-FUNCTION_SQL = """SELECT p.oid::pg_catalog.bigint,p.proowner::pg_catalog.bigint,
- pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.pg_get_functiondef(p.oid),'UTF8')),'hex'),
- p.prosecdef,p.provolatile,p.proparallel,p.proconfig,
- pg_catalog.has_function_privilege(SESSION_USER,p.oid,'EXECUTE')
- FROM pg_catalog.pg_proc p WHERE p.oid=pg_catalog.to_regprocedure(%s)"""
+IDENTITY_SQL = (
+    "SELECT SESSION_USER::pg_catalog.text, "
+    "CURRENT_USER::pg_catalog.text,\n (SELECT oid::pg_catalog.bigint "
+    "FROM pg_catalog.pg_roles WHERE rolname=SESSION_USER),\n (SELECT "
+    "oid::pg_catalog.bigint FROM pg_catalog.pg_database WHERE "
+    "datname=pg_catalog.current_database()),\n "
+    "pg_catalog.current_database(), "
+    "pg_catalog.current_setting('transaction_isolation'),\n "
+    "pg_catalog.current_setting('server_version_num')::pg_catalog.inte"
+    "ger"
+)
+FUNCTION_SQL = (
+    "SELECT p.oid::pg_catalog.bigint,p.proowner::pg_catalog.bigint,\n "
+    "pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_cata"
+    "log.pg_get_functiondef(p.oid),'UTF8')),'hex'),\n "
+    "p.prosecdef,p.provolatile,p.proparallel,p.proconfig,\n "
+    "pg_catalog.has_function_privilege(SESSION_USER,p.oid,'EXECUTE')\n "
+    "FROM pg_catalog.pg_proc p WHERE "
+    "p.oid=pg_catalog.to_regprocedure(%s)"
+)
 
 
 class Cursor(Protocol):
@@ -93,7 +109,7 @@ class FunctionBinding:
     definition_sha256: str
 
     def __post_init__(self) -> None:
-        require(self.operation in OPERATIONS)
+        require(self.operation in OPERATIONS | READ_FUNCTIONS.keys())
         scalar("Oid", self.oid)
         scalar("Oid", self.owner_oid)
         scalar("Sha256", self.definition_sha256)
@@ -117,6 +133,37 @@ class PostgresBinding:
             type(self.functions) is tuple
             and {f.operation for f in self.functions} == OPERATIONS
             and len(self.functions) == len(OPERATIONS)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ReceiptReadBinding:
+    database: c.DatabaseBinding
+    scope: c.Scope
+    issuer_login: str
+    issuer_login_oid: int
+    installation_receipt_sha256: str
+    functions: tuple[FunctionBinding, ...]
+    role_class: str
+
+    def __post_init__(self) -> None:
+        require(type(self.database) is c.DatabaseBinding and type(self.scope) is c.Scope)
+        require(self.scope.database_binding == self.database, "SCOPE_REFUSED")
+        scalar("Id", self.issuer_login)
+        scalar("Oid", self.issuer_login_oid)
+        scalar("Sha256", self.installation_receipt_sha256)
+        require(self.role_class in {"actual issuer login", "scoped D observer login", "one-shot login"})
+        allowed = (
+            {"read_issuer_operation"}
+            if self.role_class == "actual issuer login"
+            else (
+                {"read_provisioning_receipt"} if self.role_class == "one-shot login" else set(READ_FUNCTIONS)
+            )
+        )
+        require(
+            type(self.functions) is tuple
+            and len(self.functions) == len(allowed)
+            and {f.operation for f in self.functions} == allowed
         )
 
 
@@ -205,7 +252,13 @@ def result_bytes(operation: str, call: dict[str, Any], result: Any, expected_log
     else:
         exact(
             value,
-            "protocol scope run_id epoch issuer_operation_id operation request_sha256 fence_revision generation_id permit_id state issuer_session_user issuer_login_oid issuer_current_user issuer_definer_oid recorded_before_commit_at_ms provisioning_schema_version",
+            (
+                "protocol scope run_id epoch issuer_operation_id operation "
+                "request_sha256 fence_revision generation_id permit_id state "
+                "issuer_session_user issuer_login_oid issuer_current_user "
+                "issuer_definer_oid recorded_before_commit_at_ms "
+                "provisioning_schema_version"
+            ),
         )
         require(
             value["protocol"] == "maezo.d7-store-transition-receipt.v1" and value["operation"] == operation
@@ -230,8 +283,10 @@ def result_bytes(operation: str, call: dict[str, Any], result: Any, expected_log
 
 
 class PostgresStore:
-    def __init__(self, binding: PostgresBinding, authority: IssuerAuthority | None) -> None:
-        require(type(binding) is PostgresBinding)
+    def __init__(
+        self, binding: PostgresBinding | ReceiptReadBinding, authority: IssuerAuthority | None
+    ) -> None:
+        require(type(binding) in {PostgresBinding, ReceiptReadBinding})
         self.binding, self.authority = binding, authority
 
     def _verify_connection(self, cursor: Cursor, operation: str) -> None:
@@ -265,10 +320,11 @@ class PostgresStore:
         )
 
     def mutate(self, connection: Connection, operation: str, value: dict[str, Any]) -> MutationResult:
+        require(type(self.binding) is PostgresBinding, "AUTH_REFUSED")
         call = validate_store_call(operation, value)
         require(call["scope"] == self.binding.scope.to_wire(), "SCOPE_REFUSED")
-        require(self.authority is not None, "UNAVAILABLE")
-        self.authority.qualify(
+        authority = present(self.authority, "UNAVAILABLE")
+        authority.qualify(
             operation=operation,
             request_wire=canonical(call["request"]),
             proof_wire=canonical(call["proof"]),
@@ -297,10 +353,8 @@ class PostgresStore:
             return completed
         except Exception as exc:
             state = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
-            try:
+            with contextlib.suppress(Exception):
                 connection.rollback()
-            except Exception:
-                pass
             if not commit_started and state in SQLSTATES:
                 return MutationResult("REFUSED", None, None, SQLSTATES[state])
             if not sent and isinstance(exc, Refusal):
@@ -308,8 +362,176 @@ class PostgresStore:
             return MutationResult("UNKNOWN", None, None, "PENDING_UNKNOWN")
         finally:
             if cursor is not None:
-                try:
+                # Closing a cursor after successful commit cannot revoke its result.
+                with contextlib.suppress(Exception):
                     cursor.close()
-                except Exception:
-                    # Closing a cursor after successful commit cannot revoke its result.
-                    pass
+
+
+class ReceiptReader(PostgresStore):
+    """Fixed current-permit reads on an injected qualified singleton/one-shot connection."""
+
+    def read_issuer_operation(self, connection: Connection, value: dict[str, Any]) -> bytes:
+        return self._read(connection, "read_issuer_operation", value)
+
+    def read_provisioning_receipt(self, connection: Connection, value: dict[str, Any]) -> bytes:
+        return self._read(connection, "read_provisioning_receipt", value)
+
+    def _read(self, connection: Connection, operation: str, value: dict[str, Any]) -> bytes:
+        require(isinstance(self.binding, ReceiptReadBinding), "AUTH_REFUSED")
+        require(operation in {f.operation for f in self.binding.functions}, "AUTH_REFUSED")
+        issuer = operation == "read_issuer_operation"
+        exact(
+            value,
+            "protocol scope issuer_operation_id request_sha256 read_guard"
+            if issuer
+            else "protocol receipt_key request_sha256 guard",
+        )
+        require(
+            value["protocol"]
+            == ("maezo.d7-issuer-receipt-read.v1" if issuer else "maezo.d7-provisioning-receipt-read.v1")
+        )
+        guard = exact(
+            value["read_guard" if issuer else "guard"],
+            "protocol scope run_id epoch permit_id request_sha256 operation purpose",
+        )
+        require(guard["protocol"] == "maezo.d7-provisioning-guard.v1")
+        require(guard["scope"] == self.binding.scope.to_wire(), "SCOPE_REFUSED")
+        require(
+            (guard["operation"], guard["purpose"])
+            in (
+                {("receipt", "receipt_read")}
+                if issuer
+                else {("receipt", "receipt_read"), ("deploy", "deploy"), ("grant", "grant")}
+            ),
+            "PURPOSE_REFUSED",
+        )
+        for name in ("run_id", "permit_id"):
+            scalar("Uuid", guard[name])
+        scalar("Positive", guard["epoch"])
+        scalar("Sha256", value["request_sha256"])
+        if issuer:
+            scalar("Uuid", value["issuer_operation_id"])
+            require(value["scope"] == guard["scope"], "SCOPE_REFUSED")
+            query = {k: value[k] for k in ("scope", "issuer_operation_id", "request_sha256")}
+        else:
+            scalar("ReceiptKey", value["receipt_key"])
+            require(
+                all(
+                    value["receipt_key"][k] == guard["scope"][k]
+                    for k in ("tenant", "environment", "engine_name")
+                ),
+                "SCOPE_REFUSED",
+            )
+            query = {k: value[k] for k in ("receipt_key", "request_sha256")}
+        require(
+            guard["request_sha256"]
+            == (digest(canonical(query)) if guard["purpose"] == "receipt_read" else value["request_sha256"]),
+            "REQUEST_CONFLICT",
+        )
+        if guard["purpose"] != "receipt_read":
+            require(
+                value["receipt_key"]["operation"] == guard["operation"]
+                and value["receipt_key"]["run_id"] == guard["run_id"],
+                "REQUEST_CONFLICT",
+            )
+        present(self.authority, "UNAVAILABLE").qualify(
+            operation=operation,
+            request_wire=canonical(value),
+            proof_wire=canonical(guard),
+            scope_wire=self.binding.scope.canonical_bytes(),
+            expected_database_wire=self.binding.database.canonical_bytes(),
+        )
+        require(
+            connection.autocommit is False and connection.info.transaction_status == 0,
+            "PRECONDITION_MISMATCH",
+        )
+        cursor = connection.cursor()
+        try:
+            cursor.execute("BEGIN ISOLATION LEVEL READ COMMITTED")
+            self._verify_connection(cursor, operation)
+            cursor.execute(READ_FUNCTIONS[operation], (canonical(value).decode("utf8"),))
+            row = cursor.fetchone()
+            require(type(row) in {tuple, list} and len(row) == 1)
+            result = row[0]
+            require(type(result) is dict)
+            if issuer:
+                exact(result, "protocol kind canonical_result_bytes result_sha256")
+                require(result["protocol"] == "maezo.d7-issuer-receipt-read-result.v1")
+                require(result["kind"] in {"FOUND", "NOT_FOUND"})
+                if result["kind"] == "NOT_FOUND":
+                    require(result["canonical_result_bytes"] is result["result_sha256"] is None)
+                else:
+                    retained = decode64(result["canonical_result_bytes"])
+                    require(digest(retained) == result["result_sha256"])
+                    historical = parse_wire(retained)
+                    if historical.get("protocol") == "maezo.provisioning-issuer-receipt.v1":
+                        c.parse("IssuerReceipt", retained)
+                    else:
+                        exact(
+                            historical,
+                            "protocol scope run_id epoch issuer_operation_id operation request_sha256 "
+                            "fence_revision generation_id permit_id state issuer_session_user "
+                            "issuer_login_oid issuer_current_user issuer_definer_oid "
+                            "recorded_before_commit_at_ms provisioning_schema_version",
+                        )
+                        require(
+                            historical["protocol"] == "maezo.d7-store-transition-receipt.v1"
+                            and historical["operation"] in OPERATIONS - GENERATION_OPERATIONS
+                            and historical["provisioning_schema_version"] == 1
+                        )
+                        scalar("Scope", historical["scope"])
+                        for name in ("run_id", "issuer_operation_id"):
+                            scalar("Uuid", historical[name])
+                        for name in ("epoch", "fence_revision"):
+                            scalar("Positive", historical[name])
+                        for name in ("issuer_login_oid", "issuer_definer_oid"):
+                            scalar("Oid", historical[name])
+                        for name in ("issuer_session_user", "issuer_current_user"):
+                            scalar("Id", historical[name])
+                        scalar("UInt", historical["recorded_before_commit_at_ms"])
+                        scalar("Sha256", historical["request_sha256"])
+                        require(
+                            historical["state"]
+                            in {
+                                "CLOSED",
+                                "CANDIDATE",
+                                "RESTORING",
+                                "OPEN",
+                                "RECOVERY_REQUIRED",
+                                "ISSUED",
+                                "REVOKED",
+                            }
+                        )
+                        for name, grammar in (("generation_id", "Positive"), ("permit_id", "Uuid")):
+                            if historical[name] is not None:
+                                scalar(grammar, historical[name])
+                    require(
+                        all(
+                            historical[k] == value[k]
+                            for k in ("scope", "issuer_operation_id", "request_sha256")
+                        ),
+                        "REQUEST_CONFLICT",
+                    )
+            else:
+                parsed = c.parse("ReceiptRead", canonical(result))
+                require(parsed.receipt_key.to_wire() == value["receipt_key"], "REQUEST_CONFLICT")
+                if result["kind"] == "FOUND":
+                    require(result["request_sha256"] == value["request_sha256"], "REQUEST_CONFLICT")
+            wire = canonical(result)
+            connection.commit()
+            return wire
+        except Exception as error:
+            with contextlib.suppress(Exception):
+                connection.rollback()
+            if isinstance(error, Refusal):
+                raise
+            state = getattr(error, "sqlstate", None)
+            raise Refusal(
+                scalar(
+                    "RefusalCode",
+                    SQLSTATES.get(state, "UNAVAILABLE") if isinstance(state, str) else "UNAVAILABLE",
+                )
+            ) from None
+        finally:
+            with contextlib.suppress(Exception):
+                cursor.close()
