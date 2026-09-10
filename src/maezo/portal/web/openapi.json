@@ -740,6 +740,90 @@
         "title": "AuthDecisionInputs",
         "type": "object"
       },
+      "AuthIntakeSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "beneficiary_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Beneficiary Ref",
+            "type": "string"
+          },
+          "carater_atendimento": {
+            "enum": [
+              "urgencia",
+              "eletivo"
+            ],
+            "title": "Carater Atendimento",
+            "type": "string"
+          },
+          "categoria_procedimento": {
+            "enum": [
+              "consulta",
+              "exame_simples",
+              "exame_especial",
+              "terapia",
+              "internacao",
+              "opme",
+              "alta_complexidade"
+            ],
+            "title": "Categoria Procedimento",
+            "type": "string"
+          },
+          "codigo_procedimento_tuss": {
+            "minLength": 1,
+            "title": "Codigo Procedimento Tuss",
+            "type": "string"
+          },
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "document_refs": {
+            "items": {
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "type": "string"
+            },
+            "title": "Document Refs",
+            "type": "array"
+          },
+          "guide_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Guide Ref",
+            "type": "string"
+          },
+          "provider_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Provider Ref",
+            "type": "string"
+          },
+          "schema_version": {
+            "default": 1,
+            "maximum": 1.0,
+            "minimum": 1.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "valor_estimado_centavos": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Valor Estimado Centavos",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "beneficiary_ref",
+          "provider_ref",
+          "guide_ref",
+          "codigo_procedimento_tuss",
+          "categoria_procedimento",
+          "carater_atendimento",
+          "valor_estimado_centavos",
+          "document_refs"
+        ],
+        "title": "AuthIntakeSubmission",
+        "type": "object"
+      },
       "AuthJuntaInputs": {
         "additionalProperties": false,
         "description": "AUTH medical-board form, whose outcome set is narrower than the auditor form.",
@@ -1167,6 +1251,132 @@
           "decisao_cancelamento"
         ],
         "title": "CancelDecisionInputs",
+        "type": "object"
+      },
+      "CaseDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_actions": {
+            "default": [],
+            "maxItems": 0,
+            "minItems": 0,
+            "title": "Allowed Actions",
+            "type": "array"
+          },
+          "case": {
+            "$ref": "#/components/schemas/CaseSummary"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "schema": {
+            "const": "portal-external-case-detail.v1",
+            "title": "Schema",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "case",
+          "freshness"
+        ],
+        "title": "CaseDetail",
+        "type": "object"
+      },
+      "CasePage": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "enum": [
+              "beneficiary",
+              "provider"
+            ],
+            "title": "Audience",
+            "type": "string"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/Freshness"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaseSummary"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "pattern": "^[A-Za-z0-9_-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "schema": {
+            "const": "portal-external-case-page.v1",
+            "title": "Schema",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "audience",
+          "items",
+          "next_cursor",
+          "freshness"
+        ],
+        "title": "CasePage",
+        "type": "object"
+      },
+      "CaseSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Case Ref",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "authorization",
+              "reimbursement",
+              "account"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "record_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Record Revision",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "ended"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "state_observed_at": {
+            "title": "State Observed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_ref",
+          "kind",
+          "state",
+          "record_revision",
+          "state_observed_at"
+        ],
+        "title": "CaseSummary",
         "type": "object"
       },
       "Centavos": {
@@ -2171,6 +2381,208 @@
         "title": "DecisionSubmission",
         "type": "object"
       },
+      "DocumentPage": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Case Ref",
+            "type": "string"
+          },
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "case_ref",
+          "documents"
+        ],
+        "title": "DocumentPage",
+        "type": "object"
+      },
+      "DocumentRequestPage": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Case Ref",
+            "type": "string"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentRequestSummary"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "case_ref",
+          "requests"
+        ],
+        "title": "DocumentRequestPage",
+        "type": "object"
+      },
+      "DocumentRequestSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "enum": [
+              "open",
+              "answered",
+              "expired",
+              "replaced"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "policy_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Policy Ref",
+            "type": "string"
+          },
+          "request_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Request Ref",
+            "type": "string"
+          },
+          "requested_document_type_refs": {
+            "items": {
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "type": "string"
+            },
+            "title": "Requested Document Type Refs",
+            "type": "array"
+          },
+          "revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_ref",
+          "revision",
+          "disposition",
+          "policy_ref",
+          "requested_document_type_refs"
+        ],
+        "title": "DocumentRequestSummary",
+        "type": "object"
+      },
+      "DocumentResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "document_refs": {
+            "items": {
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "type": "string"
+            },
+            "title": "Document Refs",
+            "type": "array"
+          },
+          "expected_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "expected_revision",
+          "document_refs"
+        ],
+        "title": "DocumentResponse",
+        "type": "object"
+      },
+      "DocumentResponseReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "correlation_receipt_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Receipt Ref"
+          },
+          "disposition": {
+            "enum": [
+              "admitted",
+              "waiting_for_subscription",
+              "reconciling",
+              "correlated",
+              "conflict",
+              "rejected"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "request_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Request Ref",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "request_ref",
+          "revision",
+          "disposition"
+        ],
+        "title": "DocumentResponseReceipt",
+        "type": "object"
+      },
+      "DocumentSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "const": "verified",
+            "title": "Disposition",
+            "type": "string"
+          },
+          "document_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Document Ref",
+            "type": "string"
+          },
+          "document_type_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Document Type Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_ref",
+          "document_type_ref",
+          "disposition"
+        ],
+        "title": "DocumentSummary",
+        "type": "object"
+      },
       "EscalationDecisionInputs": {
         "additionalProperties": false,
         "properties": {
@@ -2328,6 +2740,25 @@
         "title": "FraudReferralInputs",
         "type": "object"
       },
+      "Freshness": {
+        "additionalProperties": false,
+        "properties": {
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "observed_at",
+          "valid_until"
+        ],
+        "title": "Freshness",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2426,6 +2857,75 @@
           "decisao_inadimplencia"
         ],
         "title": "InadDecisionInputs",
+        "type": "object"
+      },
+      "IntakeReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Ref"
+          },
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "disposition": {
+            "enum": [
+              "admitted",
+              "dispatching",
+              "reconciling",
+              "started",
+              "rejected"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "intake_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Intake Ref",
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Revision",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "start_receipt_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Receipt Ref"
+          }
+        },
+        "required": [
+          "intake_ref",
+          "command_id",
+          "revision",
+          "disposition"
+        ],
+        "title": "IntakeReceipt",
         "type": "object"
       },
       "LgpdDsrDecisionInputs": {
@@ -3029,6 +3529,28 @@
           "code"
         ],
         "title": "PortalDecisionError",
+        "type": "object"
+      },
+      "PortalIntakeError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "authentication_unavailable",
+              "operation_forbidden",
+              "resource_unavailable",
+              "conflict",
+              "dependency_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalIntakeError",
         "type": "object"
       },
       "PortalReadError": {
@@ -4174,6 +4696,87 @@
         "title": "TaskReadResponse",
         "type": "object"
       },
+      "UploadCompletion": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id"
+        ],
+        "title": "UploadCompletion",
+        "type": "object"
+      },
+      "UploadInitiation": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "document_type_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Document Type Ref",
+            "type": "string"
+          },
+          "policy_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Policy Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "policy_ref",
+          "document_type_ref"
+        ],
+        "title": "UploadInitiation",
+        "type": "object"
+      },
+      "UploadReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "disposition": {
+            "enum": [
+              "awaiting_content",
+              "screening",
+              "verified",
+              "quarantined",
+              "rejected"
+            ],
+            "title": "Disposition",
+            "type": "string"
+          },
+          "document_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Ref"
+          },
+          "upload_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Upload Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upload_ref",
+          "disposition"
+        ],
+        "title": "UploadReceipt",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -4263,6 +4866,608 @@
           }
         },
         "summary": "Logout"
+      }
+    },
+    "/api/v1/portal/cases": {
+      "get": {
+        "operationId": "list_cases_api_v1_portal_cases_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "List Cases"
+      }
+    },
+    "/api/v1/portal/cases/{case_ref}": {
+      "get": {
+        "operationId": "detail_case_api_v1_portal_cases__case_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Detail Case"
+      }
+    },
+    "/api/v1/portal/cases/{case_ref}/document-requests": {
+      "get": {
+        "operationId": "requests_api_v1_portal_cases__case_ref__document_requests_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentRequestPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Requests"
+      }
+    },
+    "/api/v1/portal/cases/{case_ref}/document-requests/{request_ref}/responses": {
+      "post": {
+        "operationId": "respond_api_v1_portal_cases__case_ref__document_requests__request_ref__responses_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_ref",
+            "required": true,
+            "schema": {
+              "title": "Request Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DocumentResponse"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentResponseReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Respond"
+      }
+    },
+    "/api/v1/portal/cases/{case_ref}/document-uploads": {
+      "post": {
+        "operationId": "case_upload_api_v1_portal_cases__case_ref__document_uploads_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadInitiation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Case Upload"
+      }
+    },
+    "/api/v1/portal/cases/{case_ref}/documents": {
+      "get": {
+        "operationId": "documents_api_v1_portal_cases__case_ref__documents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Documents"
       }
     },
     "/api/v1/portal/commands/{command_id}": {
@@ -4475,6 +5680,518 @@
           }
         },
         "summary": "Command Receipt"
+      }
+    },
+    "/api/v1/portal/document-uploads/{upload_ref}/complete": {
+      "post": {
+        "operationId": "complete_upload_api_v1_portal_document_uploads__upload_ref__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_ref",
+            "required": true,
+            "schema": {
+              "title": "Upload Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadCompletion"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Complete Upload"
+      }
+    },
+    "/api/v1/portal/documents/{document_ref}/content": {
+      "get": {
+        "operationId": "download_api_v1_portal_documents__document_ref__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_ref",
+            "required": true,
+            "schema": {
+              "title": "Document Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "307": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Download"
+      }
+    },
+    "/api/v1/portal/intakes/auth": {
+      "post": {
+        "operationId": "submit_intake_api_v1_portal_intakes_auth_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthIntakeSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Submit Intake"
+      }
+    },
+    "/api/v1/portal/intakes/{intake_ref}": {
+      "get": {
+        "operationId": "read_intake_api_v1_portal_intakes__intake_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intake_ref",
+            "required": true,
+            "schema": {
+              "title": "Intake Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Intake"
+      }
+    },
+    "/api/v1/portal/intakes/{intake_ref}/document-uploads": {
+      "post": {
+        "operationId": "intake_upload_api_v1_portal_intakes__intake_ref__document_uploads_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "intake_ref",
+            "required": true,
+            "schema": {
+              "title": "Intake Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadInitiation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Intake Upload"
       }
     },
     "/api/v1/portal/session": {
