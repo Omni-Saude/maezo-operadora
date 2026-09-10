@@ -156,8 +156,15 @@ public final class StaffCaseInstallation {
     if(!Set.of("detail","list","finalize").contains(op)||!purpose.equals(op.equals("finalize")?"staff-case-finalize.v1":"staff-case-read.v1"))throw invalid();
     shape("principal",r.get("principal"));shape("membership",r.get("membership_witness"));shape(op,r.get("query"));check("r",r.get("request_id"));
     verifyTransport(r,peer,"read_requester",purpose);
-    StaffCaseModels.requireReadCapabilities(entry(str(r,"key_fingerprint"),"read_requester",purpose,null,null),op.equals("finalize")?"detail":op);
+    // Finalization authenticates transport/purpose here. Projection authority is
+    // checked only after the exact immutable original operation is recovered.
+    requireInitialReadCapabilities(entry(str(r,"key_fingerprint"),"read_requester",purpose,null,null),op);
     retain(time(r.get("session_valid_until")));return r;
+  }
+  static void requireInitialReadCapabilities(Map<String,Object> entry,String operation){
+    if(!Set.of("detail","list","finalize").contains(operation))throw invalid();
+    if(!"read_requester".equals(entry.get("role")))throw denied();
+    if(!operation.equals("finalize"))StaffCaseModels.requireReadCapabilities(entry,operation);
   }
   Map<String,Object> signedPublication(byte[] raw,String peer){
     var e=canonical(raw);Jcs.keys(e,"schema","purpose","scope","key_fingerprint","configuration_digest","issued_at","expires_at","request","signature");

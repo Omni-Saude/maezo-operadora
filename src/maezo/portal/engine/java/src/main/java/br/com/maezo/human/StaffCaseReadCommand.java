@@ -54,7 +54,15 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     Instant observed=retained==null?installed.current():time(retained.get("observed_at"));
     Instant until=installed.until().isBefore(q2.read.until())?installed.until():q2.read.until();
     installed.retain(until);
+    // All grants and Q2 ceilings have now been acquired. Pin/cursor lifetimes
+    // cannot depend on the order in which individual grants were encountered.
+    Instant frozenUntil=retained==null?until:time(retained.get("valid_until"));
+    normalizePins(initial,frozenUntil);
     var projection=projection(initial,observed,until);
+    if("list".equals(initial.get("operation"))){
+      String next=materializeCursor(store::pageCursor,store::cursor,initial,frozenUntil,retained==null?null:obj(retained,"projection"));
+      projection.put("next_cursor",next);
+    }
     List<Object> pins=readPins(store,installed,original,initial,until);
     Map<String,Object> continuity;
     if(retained==null){
@@ -78,7 +86,9 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     context.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->{
       out.current.run();q2.finalReads();
       var currentQ2=lease.enter(context,principal,installed::current);
-      if(!expected.equals(hash(collect(store,installed,currentQ2,originalRead))))throw conflict();
+      var current=collect(store,installed,currentQ2,originalRead);
+      installed.retain(currentQ2.read.until());normalizePins(current,frozenUntil);
+      if(!expected.equals(hash(current)))throw conflict();
       currentQ2.finalReads();installed.finalDesignation();out.current.run();
     });
     context.getTransactionContext().addTransactionListener(TransactionState.COMMITTED,ignored->out.committed=true);
@@ -151,7 +161,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
           ||!queryDigest.equals(cursor.get("query_digest"))||!accepted.get("checkpoint_digest").equals(cursor.get("checkpoint_digest"))
           ||!accepted.get("checkpoint_ref").equals(cursor.get("checkpoint_ref"))||!query.get("limit").equals(cursor.get("limit")))throw conflict();
       installed.retain(time(cursor.get("initial_valid_until")));after=str(cursor,"after_ref");}
-    var items=new ArrayList<Object>();var pins=new ArrayList<Object>();var policyPins=new TreeMap<String,Object>();String last=null;int limit=(int)number(query.get("limit"));
+    var items=new ArrayList<Object>();var pins=new ArrayList<Object>();var policyPins=new TreeMap<String,Map<String,Object>>();String last=null;int limit=(int)number(query.get("limit"));
     for(var entry:store.checkpointEntries(accepted)){String caseRef=str(entry,"case_ref");if(after!=null&&caseRef.compareTo(after)<=0)continue;
       var row=store.exactGrant(caseRef,principal);if(row==null||!entry.get("grant_ref").equals(row.get("grant_ref")))throw unavailable();
       var publication=store.publication(str(row,"publication_id"));if(publication==null)throw unavailable();var grant=obj(publication,"payload");var policies=store.policyPins(grant);
@@ -172,17 +182,55 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     pins.add(0,pin("designation",str(installed.designation,"designation_ref"),installed.designation.get("designation_revision"),hash(installed.designation),installed.until()));
     for(var current:policyPins.values())pins.add(pin("policy_head",str(current,"policy_ref"),current.get("head_revision"),hash(current),installed.until()));
     for(String fingerprint:new TreeSet<>(installed.usedKeys))pins.add(pin("source_key",fingerprint,installed.designation.get("designation_revision"),hash(installed.entries.get(fingerprint)),installed.until()));
-    String next=null;if(more&&last!=null){var value=record("cursor_ref",UUID.randomUUID().toString(),"scope",store.scope,
+    Map<String,Object> cursor=null;if(more&&last!=null){cursor=record("scope",store.scope,
         "principal_identity_digest",hash(StaffCaseModels.actor(principal)),"membership_revision",principal.get("membership_revision"),"session_ref",principal.get("session_ref"),
         "operation","list","query_digest",queryDigest,"kind","authorization","checkpoint_ref",checkpoint.get("checkpoint_ref"),"generation",checkpoint.get("generation"),
-        "checkpoint_digest",hash(checkpoint),"case_ref",null,"native_revision",null,"after_ref",last,"limit",query.get("limit"),"source_pins",pins,
-        "initial_valid_until",time(installed.until()));next=str(store.pageCursor(value),"cursor_ref");}
-    q2.current();installed.current();return record("operation","list","membership",member,"checkpoint",checkpoint,"accepted",copy(accepted),
-      "items",items,"next_cursor",next,"pins",pins,"q2",q2.semantic());
+        "checkpoint_digest",hash(checkpoint),"case_ref",null,"native_revision",null,"after_ref",last,"limit",query.get("limit"));}
+    q2.current();installed.current();return record("operation","list","membership",member,"checkpoint",checkpoint,"accepted",acceptedCheckpoint(accepted),
+      "items",items,"cursor_template",cursor,"pins",pins,"q2",q2.semantic());
+  }
+  static Map<String,Object> acceptedCheckpoint(Map<String,Object> row){
+    // A JDBC row is not number-free wire. Preserve its exact closed acceptance
+    // identity while converting only the two declared bigint fields and SQL time.
+    Jcs.keys(row,"tenant","environment","engine_name","database_incarnation","checkpoint_ref","generation",
+      "checkpoint_digest","publication_id","source_ref","principal_identity_digest","issuer","subject","principal_ref",
+      "membership_revision","kind","active","valid_until","canonical_checkpoint");
+    var result=new TreeMap<String,Object>();
+    for(String name:row.keySet()){
+      Object value=row.get(name);
+      if(name.equals("generation")||name.equals("membership_revision")){
+        if(!(value instanceof Long)&&!(value instanceof Integer))throw unavailable();
+        long number=((Number)value).longValue();if(number<0)throw unavailable();result.put(name,Long.toString(number));
+      }else if(name.equals("valid_until")){
+        if(!(value instanceof Timestamp timestamp))throw unavailable();result.put(name,time(timestamp.toInstant()));
+      }else if(name.equals("active")){
+        if(!(value instanceof Boolean))throw unavailable();result.put(name,value);
+      }else{if(!(value instanceof String))throw unavailable();result.put(name,value);}
+    }
+    return copy(result);
+  }
+  static void normalizePins(Map<String,Object> state,Instant until){
+    if(!"list".equals(state.get("operation")))return;
+    var normalized=new ArrayList<Object>();
+    for(Object item:list(state.get("pins"))){var value=copy(map(item));value.put("valid_until",time(until));
+      normalized.add(StaffCaseModels.shape("readpin",value));}
+    state.put("pins",normalized);
+  }
+  static String materializeCursor(java.util.function.Function<Map<String,Object>,Map<String,Object>> create,
+      java.util.function.Function<String,Map<String,Object>> read,Map<String,Object> state,Instant until,Map<String,Object> retainedProjection){
+    if(state.get("cursor_template")==null){
+      if(retainedProjection!=null&&retainedProjection.get("next_cursor")!=null)throw conflict();return null;
+    }
+    var value=copy(obj(state,"cursor_template"));value.put("source_pins",state.get("pins"));
+    value.put("initial_valid_until",time(until));
+    if(retainedProjection==null){value.put("cursor_ref",UUID.randomUUID().toString());return str(create.apply(value),"cursor_ref");}
+    if(retainedProjection.get("next_cursor")==null)throw conflict();
+    String ref=str(retainedProjection,"next_cursor");value.put("cursor_ref",ref);
+    if(!value.equals(read.apply(ref)))throw conflict();return ref;
   }
   static Map<String,Object> projection(Map<String,Object> state,Instant observed,Instant until){
     if("list".equals(state.get("operation"))){var checkpoint=obj(state,"checkpoint");return record("schema","portal-staff-case-page.v1",
-      "items",state.get("items"),"next_cursor",state.get("next_cursor"),"freshness",record("observed_at",time(observed),
+      "items",state.get("items"),"next_cursor",null,"freshness",record("observed_at",time(observed),
       "source_observed_at",checkpoint.get("observed_at"),"valid_until",time(until),"refresh_after_seconds","10"));}
     var identityState=obj(state,"identity");var identity=obj(identityState,"identity");var event=obj(state,"event");
     return record("schema","portal-staff-case-detail.v1","case",record("case_ref",identity.get("case_ref"),"kind","authorization",

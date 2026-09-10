@@ -94,7 +94,7 @@ CREATE TABLE mzo_staff_case_cursor (
  after_ref text NOT NULL, limit_ bigint NOT NULL CHECK(limit_ BETWEEN 1 AND 100), initial_valid_until timestamptz NOT NULL,
  canonical_cursor text NOT NULL CHECK(octet_length(canonical_cursor)<=65536),
  PRIMARY KEY(tenant,environment,engine_name,database_incarnation,cursor_ref),
- UNIQUE(tenant,environment,engine_name,database_incarnation,principal_identity_digest,membership_revision,session_ref,checkpoint_digest,query_digest,after_ref,limit_)
+ UNIQUE(tenant,environment,engine_name,database_incarnation,principal_identity_digest,membership_revision,session_ref,checkpoint_digest,query_digest,after_ref,limit_,initial_valid_until)
 );
 CREATE TABLE mzo_staff_case_policy_version (
  tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
