@@ -304,7 +304,21 @@ class Transition:
         )
         require(type(self.append) is tuple and len(self.append) <= 10)
         require(len({k for k, _ in self.append}) == len(self.append))
-        require(type(self.documents) is tuple and len(self.documents) <= 8)
+        require(type(self.documents) is tuple and len(self.documents) <= 10)
+        if len(self.documents) > 8:
+            require(
+                len(self.journals) == len(self.append) == 1
+                and self.journals[0].replacement.state == "SETTLED"
+                and self.append[0]
+                == (
+                    "OUTCOME#"
+                    + self.journals[0].replacement.external_operation_id
+                    + "#"
+                    + str(after["journal_revision"]),
+                    self.journals[0].replacement.canonical_bytes(),
+                )
+                and all(d.key.startswith("RESOURCE#task#") for d in self.documents)
+            )
         require(len({d.key for d in self.documents}) == len(self.documents))
         require(type(self.journals) is tuple and len(self.journals) <= 1)
         if self.journals:
