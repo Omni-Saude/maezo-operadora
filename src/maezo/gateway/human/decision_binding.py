@@ -340,7 +340,7 @@ class BindingConnection:
                 raise BindingUnavailableError()
         for pin in (*d.relations, *(self.native_cohort_read.relations if self.native_cohort_read else ())):
             r = await connection.fetchrow(
-                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind,
+                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind,c.relrowsecurity,
               has_table_privilege($3,c.oid,'SELECT') AS can_select,
               (has_table_privilege($3,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
               OR has_any_column_privilege($3,c.oid,'INSERT,UPDATE,REFERENCES')) AS writes
@@ -358,6 +358,43 @@ class BindingConnection:
                 False,
             ):
                 raise BindingUnavailableError()
+            if pin.name in NATIVE_COHORT_RELATIONS:
+                # Match the native owner's qualified source contract at every read,
+                # including same-OID drift that could hide a revocation row.
+                if r["relrowsecurity"] is not False:
+                    raise BindingUnavailableError()
+                native = await connection.fetchrow(
+                    """SELECT
+                  has_table_privilege($1,$2::oid,'SELECT') AS native_engine_select,
+                  has_any_column_privilege($1,$2::oid,'SELECT') AS native_engine_column_select,
+                  (has_table_privilege($1,$2::oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                   OR has_any_column_privilege($1,$2::oid,'INSERT,UPDATE,REFERENCES')) AS native_engine_writes""",
+                    d.engine_role,
+                    pin.oid,
+                )
+                if native is None or tuple(native.values()) != (True, True, False):
+                    raise BindingUnavailableError()
+                if pin.name != "mzo_human_consumer_head":
+                    trigger = await connection.fetchrow(
+                        """SELECT t.tgenabled,t.tgtype,p.prosrc,p.prosecdef,
+                      count(*) OVER () AS trigger_count
+                      FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+                      JOIN pg_namespace n ON n.oid=p.pronamespace
+                      WHERE t.tgrelid=$1::oid AND NOT t.tgisinternal
+                      AND p.proname='mzo_human_consumer_immutable' AND n.nspname=$2""",
+                        pin.oid,
+                        d.schema_name,
+                    )
+                    if (
+                        trigger is None
+                        or trigger["tgenabled"] != "O"
+                        or trigger["tgtype"] != 58
+                        or trigger["prosecdef"] is not False
+                        or trigger["trigger_count"] != 1
+                        or trigger["prosrc"].strip()
+                        != "BEGIN RAISE EXCEPTION 'immutable consumer evidence'; END"
+                    ):
+                        raise BindingUnavailableError()
             if pin.name in IMMUTABLE:
                 r = await connection.fetchrow(
                     """SELECT
