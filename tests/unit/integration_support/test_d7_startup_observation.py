@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 PACKET = Path(
-    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-instrumentation-repair"
+    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-proof-budget-repair"
 )
 sys.path.insert(0, str(PACKET))
 import d7_startup_observation as m  # noqa: E402
@@ -353,10 +353,16 @@ class Controls(unittest.TestCase):
             b = next(x for x in after.body if isinstance(x, ast.FunctionDef) and x.name == name)
             self.assertEqual(ast.dump(a), ast.dump(b))
 
-    def test33_byte_pinned_guard_child(self):
+    def test33_byte_pinned_unmodified_dependencies_and_child_behavior(self):
+        import hashlib
+        import re
+
+        before = (PACKET / "inputs/d7_child.py").read_text()
+        after = (PACKET / "d7_child.py").read_text()
+        pattern = r'GUARD_SHA256 = "[0-9a-f]+"'
+        self.assertEqual(re.sub(pattern, "PIN", before), re.sub(pattern, "PIN", after))
+        self.assertIn(hashlib.sha256((PACKET / "d7_guard.py").read_bytes()).hexdigest(), after)
         for name in [
-            "d7_guard.py",
-            "d7_child.py",
             "d7_diagnostics.py",
             "tool-pins.json",
         ]:
@@ -386,7 +392,7 @@ class Controls(unittest.TestCase):
         e = Executor(c)
 
         class Owned:
-            def __init__(self, *args):
+            def __init__(self, *args, **kwargs):
                 self.c = c
 
             def engine(self):
