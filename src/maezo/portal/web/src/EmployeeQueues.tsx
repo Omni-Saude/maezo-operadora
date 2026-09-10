@@ -1,3 +1,4 @@
+import { DecisionWorkspace } from "./DecisionWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
@@ -116,7 +117,7 @@ function BooleanValue({ value }: { value: boolean }) {
   return <>{value ? "Sim" : "Não"}</>;
 }
 
-function TaskDetail({ state, refreshQueue }: { state: DetailState; refreshQueue: () => void }) {
+function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refreshQueue: () => void; prepare?: (taskId: string) => void }) {
   if (state.kind === "none") return null;
   if (state.kind === "loading") {
     return (
@@ -152,9 +153,9 @@ function TaskDetail({ state, refreshQueue }: { state: DetailState; refreshQueue:
         <p className="freshness">Consultado em {formatTimestamp(state.observedAt)}</p>
       </div>
       <p className="read-only-note">
-        Este recorte não oferece claim, release nem decisão. As ações humanas dependem das interfaces
-        de mutação qualificadas.
+        Esta consulta é somente leitura. A decisão exige uma nova consulta de autorização e revisão humana.
       </p>
+      {prepare && <button type="button" className="primary-action" onClick={() => prepare(task.task_id)}>Preparar decisão humana</button>}
       <dl className="task-facts">
         <div><dt>Processo</dt><dd>{task.process_definition_key}</dd></div>
         <div><dt>Versão do processo</dt><dd className="exact-value">{task.process_definition_version}</dd></div>
@@ -185,11 +186,14 @@ function TaskDetail({ state, refreshQueue }: { state: DetailState; refreshQueue:
 
 export function EmployeeQueues({
   sessionBinding,
+  csrfToken,
   onSessionUnavailable,
 }: {
   sessionBinding: string;
+  csrfToken?: string;
   onSessionUnavailable: () => void;
 }) {
+  const [decisionTask, setDecisionTask] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueName>("mine");
   const [queueState, setQueueState] = useState<QueueState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
@@ -211,6 +215,7 @@ export function EmployeeQueues({
     queueRequest.current?.abort();
     queueRequest.current = null;
     suspended.current = error !== undefined;
+    setDecisionTask(null);
     invalidateDetail();
     setQueueState(error === undefined ? { kind: "loading" } : { kind: "error", error });
   }, [invalidateDetail]);
@@ -303,6 +308,7 @@ export function EmployeeQueues({
 
   const openTask = useCallback(
     async (taskId: string) => {
+      setDecisionTask(null);
       if (queueState.kind !== "ready" || !isCurrent(queueState.validUntil) ||
           !queueState.items.some((item) => item.task_id === taskId)) {
         invalidateWorkspace("refresh_required");
@@ -425,7 +431,8 @@ export function EmployeeQueues({
         </>
       )}
 
-      <TaskDetail state={detailState} refreshQueue={() => void loadFirstPage()} />
+      <TaskDetail state={detailState} refreshQueue={() => void loadFirstPage()} prepare={csrfToken ? setDecisionTask : undefined} />
+      {decisionTask && csrfToken && <DecisionWorkspace key={`${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
     </section>
   );
 }

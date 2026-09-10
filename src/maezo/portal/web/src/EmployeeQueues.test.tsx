@@ -199,7 +199,7 @@ it("abre apenas o snapshot público e preserva valores exatos sem ações de mut
   expect(within(detail).getAllByText(huge)).toHaveLength(5);
   expect(screen.getByText(/não confirma obrigação nem autoriza pagamento/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /claim|assumir|liberar|decidir/i })).not.toBeInTheDocument();
-  expect(screen.getByText(/não oferece claim, release nem decisão/)).toBeInTheDocument();
+  expect(screen.getByText(/Esta consulta é somente leitura/)).toBeInTheDocument();
 });
 
 it("remove conteúdo da fila quando a sessão expira no endpoint de leitura", async () => {
