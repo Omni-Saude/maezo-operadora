@@ -333,7 +333,10 @@ export function createCaseExperienceService(
         pending = undefined;
         return { kind: "success", progress: mapIntake(result.value) };
       }
-      if (result.failure === "outcome-unknown") attempt.uncertain = true;
+      // Initial authority/disclosure refusals can follow durable admission too.
+      // Preserve the copied command/payload unless this endpoint supplies the
+      // narrow pre-admission classification; it cannot settle an earlier unknown.
+      if (result.preAdmissionRejected !== true) attempt.uncertain = true;
       if (!attempt.uncertain) pending = undefined;
       return { kind: "failure", failure: mapFailure(result.failure) };
     },

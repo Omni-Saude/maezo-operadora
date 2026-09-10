@@ -23,7 +23,13 @@ export type ProductApiFailure =
 
 export type ProductApiResult<T> =
   | Readonly<{ kind: "success"; value: T }>
-  | Readonly<{ kind: "failure"; failure: ProductApiFailure }>;
+  | Readonly<{
+    kind: "failure";
+    failure: ProductApiFailure;
+    // Local client classification, not a server phase receipt or authorization.
+    // Absent means no evidence that the mutation avoided durable admission.
+    preAdmissionRejected?: true;
+  }>;
 
 export type ProductApiFetch = typeof fetch;
 
@@ -233,6 +239,13 @@ async function requestJson<T>(options: RequestOptions<T>): Promise<ProductApiRes
   }
   if (response.status !== options.successStatus) {
     const error = await parseError(response, options.signal);
+    // Only this concrete AUTH POST's validated 400 is known to precede
+    // admission (C4 ProductRoute body/Pydantic validation). The shared error
+    // DTO has no phase proof: never extend this to other endpoints or 4xx.
+    if (mutating && options.path === `${prefix}/intakes/auth` &&
+        response.status === 400 && error === "invalid_request") {
+      return { kind: "failure", failure: error, preAdmissionRejected: true };
+    }
     // The server also uses structured 503 for an unknown database commit.
     // A dependency error is therefore not evidence that a POST had no effect.
     return failure(mutating && error === "dependency_unavailable"
@@ -277,7 +290,9 @@ export function createPortalProductClient(options: Readonly<{
     validate: (value: unknown) => T | null,
   ): Promise<ProductApiResult<T>> => {
     if (csrfToken.length === 0 || !validSubmission(body, schema)) {
-      return Promise.resolve(failure("invalid_request"));
+      return Promise.resolve(path === `${prefix}/intakes/auth`
+        ? { kind: "failure", failure: "invalid_request", preAdmissionRejected: true }
+        : failure("invalid_request"));
     }
     return requestJson({ fetcher, path, body, csrfToken, signal, successStatus: 202, validate });
   };
@@ -310,7 +325,7 @@ export function createPortalProductClient(options: Readonly<{
     },
     submitAuthorization(submission, signal) {
       if (!validAuthIntakeSubmission(submission)) {
-        return Promise.resolve(failure("invalid_request"));
+        return Promise.resolve({ kind: "failure", failure: "invalid_request", preAdmissionRejected: true });
       }
       return post(
         `${prefix}/intakes/auth`,

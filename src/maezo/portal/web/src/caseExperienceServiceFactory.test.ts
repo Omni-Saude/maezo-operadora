@@ -306,3 +306,51 @@ it("revalida a página após a conclusão assíncrona do cliente", async () => {
   })));
   expect(await api.listCases(signal())).toEqual({ kind: "failure", failure: "refresh-required" });
 });
+
+it.each([
+  [401, "authentication_unavailable", "session-unavailable"],
+  [403, "operation_forbidden", "access-revoked"],
+  [409, "conflict", "refresh-required"],
+  [503, "dependency_unavailable", "outcome-unknown"],
+] as const)("preserva o primeiro comando após possível commit seguido de %s", async (status, code, failure) => {
+  const bodies: string[] = [];
+  const api = recoveryService(vi.fn(async (_input, init) => {
+    bodies.push(String(init?.body));
+    return bodies.length === 1 ? json({ code }, status) : admitted(JSON.parse(bodies[0]).command_id);
+  }));
+  expect(await api.submitAuthorization(recoveryDraft, signal())).toEqual({ kind: "failure", failure });
+  const competing = { ...recoveryDraft, guideRef: ref("competing_guide") };
+  expect(await api.submitAuthorization(competing, signal())).toEqual({ kind: "failure", failure: "outcome-unknown" });
+  expect(bodies).toHaveLength(1);
+  expect((await api.submitAuthorization(recoveryDraft, signal())).kind).toBe("success");
+  expect(bodies).toEqual([bodies[0], bodies[0]]);
+  expect((await api.submitAuthorization(competing, signal())).kind).toBe("failure");
+  // Its response uses the OLD command and is rejected, not accepted as resolution.
+  expect(JSON.parse(bodies[2]).command_id).not.toBe(JSON.parse(bodies[0]).command_id);
+});
+
+it("não perde a identidade após recusa inicial seguida de 400", async () => {
+  const bodies: string[] = [];
+  const api = recoveryService(vi.fn(async (_input, init) => {
+    bodies.push(String(init?.body));
+    if (bodies.length === 1) return json({ code: "operation_forbidden" }, 403);
+    return bodies.length === 2 ? json({ code: "invalid_request" }, 400)
+      : admitted(JSON.parse(bodies[0]).command_id);
+  }));
+  await api.submitAuthorization(recoveryDraft, signal());
+  await api.submitAuthorization(recoveryDraft, signal());
+  expect((await api.submitAuthorization(recoveryDraft, signal())).kind).toBe("success");
+  expect(bodies).toEqual([bodies[0], bodies[0], bodies[0]]);
+});
+
+it("não interpreta 404 inicial como prova de que nenhum intake foi admitido", async () => {
+  const bodies: string[] = [];
+  const api = recoveryService(vi.fn(async (_input, init) => {
+    bodies.push(String(init?.body));
+    return bodies.length === 1 ? json({ code: "resource_unavailable" }, 404)
+      : admitted(JSON.parse(bodies[0]).command_id);
+  }));
+  await api.submitAuthorization(recoveryDraft, signal());
+  expect((await api.submitAuthorization(recoveryDraft, signal())).kind).toBe("success");
+  expect(bodies).toEqual([bodies[0], bodies[0]]);
+});

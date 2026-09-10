@@ -211,3 +211,34 @@ it("503 estruturado em POST permanece desconhecido e GET mantém dependência in
   expect(await api.submitAuthorization(intake, signal())).toEqual({ kind: "failure", failure: "outcome-unknown" });
   expect(await api.readAuthorizationIntake(ref("intake"), signal())).toEqual({ kind: "failure", failure: "dependency_unavailable" });
 });
+
+it.each([
+  [401, "authentication_unavailable"], [403, "operation_forbidden"],
+  [404, "resource_unavailable"], [409, "conflict"], [503, "dependency_unavailable"],
+] as const)("não atesta ausência de admissão AUTH por HTTP %s", async (status, code) => {
+  const api = client(vi.fn(async () => json({ code }, status)));
+  const result = await api.submitAuthorization(intake, signal());
+  expect(result).toEqual({ kind: "failure", failure: status === 503 ? "outcome-unknown" : code });
+});
+
+it("classifica apenas 400 AUTH validado e validação local como pré-admissão", async () => {
+  const fetcher = vi.fn(async () => json({ code: "invalid_request" }, 400));
+  const api = client(fetcher);
+  expect(await api.submitAuthorization(intake, signal())).toEqual({
+    kind: "failure", failure: "invalid_request", preAdmissionRejected: true,
+  });
+  expect(await api.submitAuthorization({ ...intake, document_refs: [ref("doc"), ref("doc")] }, signal()))
+    .toEqual({ kind: "failure", failure: "invalid_request", preAdmissionRejected: true });
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(await api.readAuthorizationIntake(ref("intake"), signal())).toEqual({
+    kind: "failure", failure: "invalid_request",
+  });
+  expect(await api.completeUpload(ref("upload"), { command_id: ref("command") }, signal())).toEqual({
+    kind: "failure", failure: "invalid_request",
+  });
+});
+
+it("não considera código incompatível com status como rejeição pré-admissão", async () => {
+  const api = client(vi.fn(async () => json({ code: "operation_forbidden" }, 400)));
+  expect(await api.submitAuthorization(intake, signal())).toEqual({ kind: "failure", failure: "outcome-unknown" });
+});
