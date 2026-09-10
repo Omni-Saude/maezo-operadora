@@ -72,7 +72,7 @@ function taskResponse() {
   } as const;
 }
 
-const addedBindings = [
+const priorAddedBindings = [
   ["SP-OP-ADEQUACAO-001", "UT_CoordenacaoRede", "adequacao_coordenacao"],
   ["SP-OP-ADEQUACAO-001", "UT_DecisaoFallback", "adequacao_decisao"],
   ["SP-OP-CRED-001", "UT_AnaliseCredenciamento", "cred_cred"],
@@ -85,10 +85,26 @@ const addedBindings = [
   ["SP-OP-NIP-001", "UT_RevisaoJuridicaNip", "nip_decisao"],
 ] as const;
 
+const finalAddedBindings = [
+  ["SP-OP-ANS-SUBMIT-001", "UT_CoordenacaoEnvioAssume", "ans_coordenacao"],
+  ["SP-OP-ANS-SUBMIT-001", "UT_CorrigirPendenciaEnvio", "ans_pendencia"],
+  ["SP-OP-ANS-SUBMIT-001", "UT_RevisarEnvio", "ans_revisao"],
+  ["SP-OP-ANS-SUBMIT-001", "UT_RevisarEnvioJuridico", "ans_revisao"],
+  ["SP-OP-ANS-SUBMIT-001", "UT_TratarNack", "ans_nack"],
+  ["SP-OP-AUTH-001", "UT_DecidirPendenciaExpirada", "auth_pendencia"],
+  ["SP-OP-FRAUDE-001", "UT_CoordenacaoInvestigacao", "fraude_decisao"],
+  ["SP-OP-FRAUDE-001", "UT_DecisaoInvestigador", "fraude_decisao"],
+  ["SP-OP-FRAUDE-001", "UT_RevisaoReferral", "fraude_referral"],
+  ["SP-OP-PAGTO-001", "UT_AprovacaoAlcada", "pagto_aprovacao"],
+  ["SP-OP-PAGTO-001", "UT_CoordenacaoAlcada", "pagto_coordenacao"],
+] as const;
+
+const propagatedBindings = [...priorAddedBindings, ...finalAddedBindings] as const;
+
 function addedTaskResponse(
-  process: (typeof addedBindings)[number][0],
-  task: (typeof addedBindings)[number][1],
-  form: (typeof addedBindings)[number][2],
+  process: (typeof propagatedBindings)[number][0],
+  task: (typeof propagatedBindings)[number][1],
+  form: (typeof propagatedBindings)[number][2],
   taskId = `${process}-${task}`,
 ) {
   const value = taskResponse();
@@ -261,14 +277,21 @@ describe("validação fechada do snapshot público", () => {
     expect(result?.task.read_only_evidence?.valor_pagamento_cents).toBe(cents);
   });
 
-  it("deriva exatamente os 32 bindings e 22 mapas de inputs do registro Q1 atual", () => {
-    expect(taskReadBindings).toHaveLength(32);
-    expect(Object.keys(taskReadInputs)).toHaveLength(22);
-    expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(32);
+  it("deriva exatamente os 43 bindings e 31 mapas de inputs do registro Q1 atual", () => {
+    expect(taskReadBindings).toHaveLength(43);
+    expect(Object.keys(taskReadInputs)).toHaveLength(31);
+    expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(43);
+    expect(taskReadBindings.filter(({ source }) => source === "BPMN_FORMDATA")).toHaveLength(5);
+    expect(
+      taskReadBindings.filter(
+        ({ source }) => source === "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+      ),
+    ).toHaveLength(38);
     for (const binding of taskReadBindings) {
       expect(taskReadInputs[binding.form]).toBeDefined();
     }
-    for (const [process, task, form] of addedBindings) {
+    expect(finalAddedBindings).toHaveLength(11);
+    for (const [process, task, form] of propagatedBindings) {
       expect(taskReadBindings).toContainEqual({
         process,
         task,
@@ -278,7 +301,7 @@ describe("validação fechada do snapshot público", () => {
     }
   });
 
-  it.each(addedBindings)(
+  it.each(propagatedBindings)(
     "aceita o binding atual %s/%s e seus inputs gerados",
     async (process, task, form) => {
       const taskId = `${process}-${task}`;
@@ -292,7 +315,7 @@ describe("validação fechada do snapshot público", () => {
     },
   );
 
-  it.each(addedBindings)(
+  it.each(propagatedBindings)(
     "recusa input forjado no binding atual %s/%s",
     (process, task, form) => {
       const value = addedTaskResponse(process, task, form);
@@ -305,7 +328,7 @@ describe("validação fechada do snapshot público", () => {
     },
   );
 
-  it.each(addedBindings)(
+  it.each(propagatedBindings)(
     "recusa formulário de outra tarefa para %s/%s",
     (process, task, form) => {
       const value = addedTaskResponse(process, task, form);
@@ -322,7 +345,7 @@ describe("validação fechada do snapshot público", () => {
     },
   );
 
-  it.each(addedBindings)(
+  it.each(propagatedBindings)(
     "recusa correlação de task_id divergente no GET de %s/%s",
     async (process, task, form) => {
       const requestedTaskId = `${process}-${task}`;
