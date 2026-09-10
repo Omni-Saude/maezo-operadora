@@ -262,6 +262,8 @@ final class WorkloadCommand implements Command<java.util.function.Supplier<byte[
     };
   }
   static Map<String,Object> wire(TypedValue typed) {
+    var exactAuth=br.com.maezo.human.AuthDecimalSerializer.wire(typed);
+    if(exactAuth!=null)return exactAuth;
     Map<String,Object> result=new HashMap<>();result.put("type",typed.getType().getName());result.put("value",value(typed));return result;
   }
 }
