@@ -71,3 +71,13 @@ d3c5ac141e0f43587bf6278579e43afe05bb9aa3:.gitleaksignore:generic-api-key:46
 # fingerprints preserve scanning of every other occurrence and all default rules.
 92f98281696b31a0151d8ba0d48bdabe2d80a8be:tests/unit/gateway/human/test_receipt_recording_metadata.py:generic-api-key:42
 1dd1afe304d62f8d4dd78304272ec64294112e70:tests/unit/portal/test_engine_profile.py:generic-api-key:42
+
+# Independently reviewed immutable-history false positives: key type annotations
+# and a synthetic BPMN fixture correlation identifier. No live credential values.
+# Independently reviewed historical false positives: three Ed25519 dataclass
+# type annotations with field(repr=False), and one synthetic BPMN businessKey.
+# Exact commit:path:rule:line only; no credential literals or broad exclusions.
+6770eb848bec667e3476d2032e2e13fac77d2118:src/maezo/gateway/human/credentials.py:generic-api-key:72
+9253328bbae54d0a6b947db7bf792eef006c02c0:src/maezo/gateway/human/auth_transport.py:generic-api-key:64
+262f004d3b976abaa1a2421a2f0e2d44dc35ddcf:src/maezo/gateway/human/read_credentials.py:generic-api-key:72
+a71a14e15fde4515567d65564a019ce9a7c0f021:deploy/cibseven/secured/prepare_fixture.py:generic-api-key:349
