@@ -1,8 +1,8 @@
 """Always-enforcing D4 human authorization. No shadow/flip/test allowlist or agent gateway.
 
-This service belongs inside the PHI boundary. Current decision DTOs can contain mandatory
-raw human justification; no classified projection contract exists for these bindings.
-They are refused intact before admission; no fields are dropped, scrubbed or remapped.
+This service belongs inside the PHI boundary. Qualified decision ports preserve full
+human basis in PHI and admit only a closed General projection. No source qualification
+or production capability is inferred from port shape or successful unit substitution.
 """
 
 import secrets
@@ -25,6 +25,15 @@ from maezo.portal.contracts.queues import (
 )
 
 from .credentials import HumanCommandCredentialPartition
+from .decision import (
+    AuthorizedDecision,
+    BoundDecisionPorts,
+    DecisionContext,
+    DecisionCustodyRecord,
+    PendingDecisionAdmission,
+    QualifiedDecisionBinding,
+    project_decision,
+)
 from .errors import GatewayRefusalError
 from .models import (
     AssignmentCommand,
@@ -81,6 +90,7 @@ class HumanGateway:
         ports: BoundHumanPorts,
         credentials: HumanCommandCredentialPartition,
         receipt_ports: BoundReceiptPorts | None = None,
+        decision_ports: BoundDecisionPorts | None = None,
         query: HumanTaskQuery | None = None,
         catalog_anchor: CatalogTrustAnchor | None = None,
         catalog_source: CatalogExpectationSource | None = None,
@@ -97,6 +107,7 @@ class HumanGateway:
         self._cursor_custody = cursor_custody
         self._disclosure_source = disclosure_source
         self._receipt_ports = receipt_ports
+        self._decision_ports = decision_ports
         self._check_scope()
 
     def _check_scope(self) -> None:
@@ -108,6 +119,16 @@ class HumanGateway:
             raise GatewayRefusalError("credential_scope_mismatch")
         if self._receipt_ports is not None and any(
             port.scope != self._scope for port in (self._receipt_ports.store, self._receipt_ports.authority)
+        ):
+            raise GatewayRefusalError("credential_scope_mismatch")
+
+        if self._decision_ports is not None and any(
+            port.scope != self._scope
+            for port in (
+                self._decision_ports.binding,
+                self._decision_ports.custody,
+                self._decision_ports.admission,
+            )
         ):
             raise GatewayRefusalError("credential_scope_mismatch")
 
@@ -601,6 +622,8 @@ class HumanGateway:
         task: AuthoritativeTask,
         authority: CurrentTaskAuthority,
         resolved: ResolvedHumanSession,
+        *,
+        qualified_decision: bool = False,
     ) -> None:
         snap = task.snapshot
         if (
@@ -612,7 +635,9 @@ class HumanGateway:
             )
         ):
             raise GatewayRefusalError("operation_forbidden")
-        if snap.form_source_status != "BPMN_FORMDATA":
+        if snap.form_source_status != "BPMN_FORMDATA" and not (
+            operation == "decision" and qualified_decision
+        ):
             raise GatewayRefusalError("form_contract_unavailable")
 
     async def submit_assignment(
@@ -657,6 +682,76 @@ class HumanGateway:
         except Exception:
             raise GatewayRefusalError("admission_unavailable") from None
 
+    async def _decision_binding(
+        self, resolved: ResolvedHumanSession, task: AuthoritativeTask, authority: CurrentTaskAuthority
+    ) -> QualifiedDecisionBinding:
+        try:
+            if self._decision_ports is None or task.snapshot.form_key not in (
+                "auth_decisao",
+                "auth_junta",
+                "escalation",
+                "pagto_admissibilidade",
+            ):
+                raise ValueError("decision ports unavailable")
+            result = QualifiedDecisionBinding.model_validate(
+                await self._decision_ports.binding.qualify(resolved.principal, task, authority)
+            )
+            if (
+                result.scope != self._scope
+                or result.principal != resolved.principal
+                or result.task != task
+                or result.authority != authority
+                or result.valid_until <= datetime.now(UTC)
+            ):
+                raise ValueError("decision qualification unavailable")
+            return result
+        except Exception:
+            raise GatewayRefusalError("form_projection_unavailable") from None
+
+    @staticmethod
+    def _decision_deadline(
+        sessions: tuple[ResolvedHumanSession, ...],
+        bindings: tuple[QualifiedDecisionBinding, ...],
+        custody: DecisionCustodyRecord | None = None,
+    ) -> datetime:
+        limits = [
+            limit
+            for session in sessions
+            for limit in (session.record.expires_at, session.membership.reviewed_until)
+        ] + [
+            limit
+            for binding in bindings
+            for limit in (binding.valid_until, binding.task.valid_until, binding.authority.valid_until)
+        ]
+        if custody is not None:
+            limits.append(custody.valid_until)
+        deadline = min(limits)
+        if deadline <= datetime.now(UTC):
+            raise GatewayRefusalError("authority_unavailable")
+        return deadline
+
+    async def read_decision_context(self, *, session_secret: str, task_id: str) -> DecisionContext:
+        """Current assigned-task mutation context, separate from the immutable Q1 read API."""
+        first = await self._session(session_secret)
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise GatewayRefusalError("operation_forbidden") from None
+        task, authority = await self._authorized(first, task_id)
+        binding = await self._decision_binding(first, task, authority)
+        self._operation("decision", task, authority, first, qualified_decision=True)
+        final = await self._session(session_secret)
+        if final.principal != first.principal:
+            raise GatewayRefusalError("revision_conflict")
+        return DecisionContext(
+            schema_version=1,
+            snapshot=task.snapshot,
+            expected_membership_revision=first.principal.membership_revision,
+            expected_authority_revision=task.authority_revision,
+            binding_digest=binding.binding_digest,
+            valid_until=self._decision_deadline((first, final), (binding,)),
+        )
+
     async def submit_decision(
         self,
         *,
@@ -665,7 +760,8 @@ class HumanGateway:
         origin: str,
         decision: TaskDecision,
         expected_authority_revision: int,
-    ) -> None:
+        expected_binding_digest: str | None = None,
+    ) -> PendingDecisionAdmission:
         resolved = await self._session(session_secret, csrf=csrf_token, origin=origin, mutation=True)
         try:
             decision = TaskDecision.model_validate(decision)
@@ -674,14 +770,68 @@ class HumanGateway:
             raise GatewayRefusalError("operation_forbidden") from None
         task, authority = await self._authorized(resolved, decision.task_id)
         self._expectations(decision, task, resolved, revision)
-        self._operation("decision", task, authority, resolved)
+        # Preserve the historical refusal for callers without any qualified composition.
+        if self._decision_ports is None:
+            self._operation("decision", task, authority, resolved)
+            raise GatewayRefusalError("form_projection_unavailable")
+        binding = await self._decision_binding(resolved, task, authority)
+        self._operation("decision", task, authority, resolved, qualified_decision=True)
+        if binding.binding_digest != expected_binding_digest:
+            raise GatewayRefusalError("revision_conflict")
         if not set(decision.inputs.model_fields_set - {"kind"}).issubset(task.snapshot.allowed_inputs):
             raise GatewayRefusalError("operation_forbidden")
-        # ADR-0049 D3 explicit dependency, not permission to drop mandatory justification.
-        # All current AUTH/ESC bindings lack a validated PHI->General projection contract.
-        # PAGTO DRAFT is rejected above. Future binding reconciliation must supply a closed
-        # projection and PHI custody/reference contract before any decision admission exists.
-        raise GatewayRefusalError("form_projection_unavailable")
+        self._decision_deadline((resolved,), (binding,))
+        try:
+            request = AuthorizedDecision(
+                scope=self._scope,
+                principal=resolved.principal,
+                decision=decision,
+                authority_revision=revision,
+                binding_digest=binding.binding_digest,
+                evidence_ref=binding.evidence_ref,
+            )
+            custody = DecisionCustodyRecord.model_validate(
+                await self._decision_ports.custody.preserve(request)
+            )
+            classified = project_decision(request, custody)
+        except Exception:
+            raise GatewayRefusalError("form_projection_unavailable") from None
+        # PHI custody may have awaited I/O. Refresh task, authority, qualification and
+        # session before General admission; D5 still serializes current state at execution.
+        latest_task, latest_authority = await self._authorized(resolved, decision.task_id)
+        self._expectations(decision, latest_task, resolved, revision)
+        self._operation("decision", latest_task, latest_authority, resolved, qualified_decision=True)
+        latest_binding = await self._decision_binding(resolved, latest_task, latest_authority)
+        if (
+            latest_binding.binding_digest != binding.binding_digest
+            or latest_binding.evidence_ref != binding.evidence_ref
+        ):
+            raise GatewayRefusalError("revision_conflict")
+        current = await self._session(session_secret, csrf=csrf_token, origin=origin, mutation=True)
+        if current.principal != resolved.principal:
+            raise GatewayRefusalError("revision_conflict")
+        deadline = self._decision_deadline((resolved, current), (binding, latest_binding), custody)
+        try:
+            result = PendingDecisionAdmission.model_validate(
+                await self._decision_ports.admission.admit(classified, valid_until=deadline)
+            )
+            if (
+                result.tenant != self._scope.tenant
+                or result.task_id != decision.task_id
+                or result.command_id != decision.command_id
+                or result.principal_ref != resolved.principal.principal_ref
+                or result.workload_ref != self._scope.workload_ref
+                or result.payload_digest != classified.digest
+                or result.request_digest != classified.request_digest
+                or result.audit_intent_ref != classified.audit_intent_ref
+                or result.committed_at > datetime.now(UTC)
+                or result.committed_at >= deadline
+            ):
+                raise ValueError("invalid acknowledgement")
+            return result
+        except Exception:
+            # May be committed already. Caller retains immutable identity for recovery.
+            raise GatewayRefusalError("admission_unavailable") from None
 
 
 def create_production_gateway(*, resolver: HumanSessionResolver, scope: Scope) -> HumanGateway:

@@ -373,7 +373,7 @@ def test_valid_history_obligations_cannot_be_replaced_by_current_pass(
     assert len(result["rows"]) == 2
     assert result["current_status"] == "ACCEPTED"
     assert len({row["current"]["run_id"] for row in result["rows"]}) == 2
-    assert all(row["history"] == "REQUIRED_NOT_COMPOSED" for row in result["rows"])
+    assert all(row["history"] == "UNRESOLVED" for row in result["rows"])
 
 
 @pytest.mark.parametrize("returncode", [1, 2, 3, 4, 5, None, False])
@@ -389,3 +389,155 @@ def test_observation_schema_rejects_duplicate_keys_and_bad_phase_type(observed_p
     observation, binding = copy.deepcopy(observed_pass)
     observation["reports"][0]["phase"] = []
     assert current.validate_observation(observation, binding, 0)
+
+
+# Reuse the immutable producer's tiny fixture construction. These catalogues are
+# explicitly synthetic representation seams, never production handle authority.
+@pytest.fixture(scope="module")
+def history_producer() -> Any:
+    from scripts.ci import ledger_history_proofs as proof
+
+    with proof.producer_capsule(ROOT) as producer:
+        yield producer
+
+
+@pytest.fixture(scope="module")
+def adapter_historical(
+    tmp_path_factory: pytest.TempPathFactory, history_producer: Any, request: pytest.FixtureRequest
+) -> Any:
+    from tests.unit.ci import test_ledger_operational_history as fixtures
+
+    return fixtures.historical.__wrapped__(tmp_path_factory, history_producer, request)
+
+
+@pytest.fixture
+def adapter_candidate(tmp_path: Path, adapter_historical: Any, history_producer: Any) -> Any:
+    from tests.unit.ci import test_ledger_operational_history as fixtures
+
+    return fixtures.candidate.__wrapped__(tmp_path, adapter_historical, history_producer)
+
+
+@pytest.mark.parametrize(
+    "adapter_historical",
+    [b"from maezo import VALUE\ndef test_old(): assert VALUE == 7\n", {"valid": True}],
+    indirect=True,
+)
+def test_actual_finite_operational_adapter_fixture_scope(
+    adapter_candidate: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.ci import ledger_current_relations as relations
+    from scripts.ci import ledger_history_proofs as proof
+
+    root, reviewed, _, _, _, _ = adapter_candidate
+    base = reviewed.source
+    runner = current.HistoryRunner(root, tmp_path / "adapter", base=base)
+    edge = relations.plan_current_relations(root, base).relations[0]
+    # The real production catalogue has no synthetic entry: no imports/runs/credit.
+    missing = runner.run(edge.identity)
+    assert missing.status == "UNRESOLVED", missing
+    assert missing.execution_count == 0
+    assert not runner.consume(missing, edge.identity)
+    packet = tmp_path / "synthetic-operational"
+    packet.mkdir(mode=0o700)
+    own_lock = edge.claim.kind == "V3_VERIFIED_OWN_LOCK"
+    monkeypatch.setattr(proof, "VALID_CATALOG" if own_lock else "INVALID_CATALOG", (reviewed,))
+    # Actual unchanged capsule + prove_relation; only the finite catalogue is a
+    # labelled fixture seam. The returned internal data is not an issued handle.
+    data = runner._operational(edge, packet)
+    assert data["status"] == ("VERIFIED_HISTORY_OWN_LOCK" if own_lock else "CORRECTED_WITH_INVALID_HISTORY")
+    assert data["historical_claim_verified"] is own_lock
+    assert data["execution_count"] == 2
+    assert (packet / "producer-before.json").read_bytes() == (packet / "producer-after.json").read_bytes()
+    report = json.loads((packet / "operational.json").read_text())
+    assert report["historical"]["source"]["commit"] == reviewed.source
+    assert report["current"]["source"]["commit"] != reviewed.source
+    assert report["historical"]["environment"]["inventory"] != report["current"]["environment"]["inventory"]
+    refused = runner.run(edge.identity)
+    assert refused.status == "REFUSED"
+    assert "HISTORY_LOADED_POLICY_DRIFT" in refused.reasons
+    assert not runner.consume(refused, edge.identity)
+
+
+@pytest.mark.parametrize(
+    "adapter_historical",
+    [b"import os\ndef test_old(): assert 'fresh-historical' not in os.environ['HISTORICAL_PHASE_RECEIPT']\n"],
+    indirect=True,
+)
+def test_actual_operational_failed_fresh_history_retains_failure(
+    adapter_candidate: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.ci import ledger_current_relations as relations
+    from scripts.ci import ledger_history_proofs as proof
+
+    root, reviewed, _, _, _, _ = adapter_candidate
+    runner = current.HistoryRunner(root, tmp_path / "adapter", base=reviewed.source)
+    edge = relations.plan_current_relations(root, reviewed.source).relations[0]
+    monkeypatch.setattr(proof, "INVALID_CATALOG", (reviewed,))
+    packet = tmp_path / "failed-history"
+    packet.mkdir(mode=0o700)
+    data = runner._operational(edge, packet)
+    assert data["status"] == "FAILED"
+    assert data["historical_claim_verified"] is False
+    assert data["execution_count"] == 1
+    command = packet / "producer" / edge.successor.row_sha256 / "fresh-historical/pytest.command.json"
+    assert json.loads(command.read_text())["rc"] == 1
+    assert not command.parent.parent.joinpath("fresh-current").exists()
+    assert not (packet / "operational.json").exists()
+
+
+@pytest.fixture(scope="module")
+def async_history_producer() -> Any:
+    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
+
+    yield from fixtures.adapter.__wrapped__()
+
+
+@pytest.fixture(scope="module")
+def async_adapter_history(tmp_path_factory: pytest.TempPathFactory, async_history_producer: Any) -> Any:
+    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
+
+    return fixtures.history.__wrapped__(tmp_path_factory, async_history_producer)
+
+
+def test_actual_finite_async_operational_adapter_fixture_scope(
+    tmp_path: Path, async_adapter_history: Any, async_history_producer: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import contextmanager
+
+    from scripts.ci import ledger_current_relations as relations
+    from scripts.ci import ledger_history_proofs as proof
+
+    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
+
+    candidate = fixtures.candidate.__wrapped__(
+        tmp_path, async_adapter_history, async_history_producer, monkeypatch
+    )
+    capsule = proof.async_producer_capsule
+
+    @contextmanager
+    def synthetic_catalogue_capsule(repository: Path) -> Any:
+        # Carry the existing synthetic source catalogue into the fresh actual
+        # capsule. Its pinned source bytes and both real captures are unchanged.
+        with capsule(repository) as selected:
+            selected.async_catalogue.SOURCE_CATALOG_V1 = (candidate[-1],)
+            yield selected
+
+    monkeypatch.setattr(proof, "async_producer_capsule", synthetic_catalogue_capsule)
+    root, reviewed = candidate[:2]
+    runner = current.HistoryRunner(root, tmp_path / "async-adapter", base=reviewed.source)
+    edge = relations.plan_current_relations(root, reviewed.source).relations[0]
+    packet = tmp_path / "synthetic-async-operational"
+    packet.mkdir(mode=0o700)
+    data = runner._operational(edge, packet)
+    assert data["status"] == "CORRECTED_WITH_INVALID_HISTORY"
+    assert data["historical_claim_verified"] is False
+    assert data["execution_count"] == 2
+    assert (packet / "producer-before.json").read_bytes() == (packet / "producer-after.json").read_bytes()
+    result = json.loads((packet / "operational.json").read_text())
+    assert result["archive_validation"] == "D7_ASYNC_ARCHIVED_PRODUCER_IDENTITY_BOUND"
+    assert result["historical"]["coverage"]["selected_count"] == 1
+    assert result["current"]["coverage"]["selected_count"] == 2
+    # Synthetic archive/catalogue fixtures still cannot mint production handles.
+    refused = runner.run(edge.identity)
+    assert refused.status == "REFUSED"
+    assert not runner.consume(refused, edge.identity)
