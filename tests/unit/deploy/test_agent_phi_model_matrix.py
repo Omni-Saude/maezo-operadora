@@ -1,6 +1,6 @@
 """Evaluate shipped HCL locals and model expressions, without AWS or a Terraform plan.
 
-PR358 F2: Helena follows DPA admission independently of the narrative zone. These
+Helena requires the explicit PHI flag AND DPA, independently of the narrative zone. These
 are configuration proofs; synthetic ratification here never changes the real policy.
 """
 
@@ -27,12 +27,13 @@ def _model_expression(source: str) -> str:
     return matches[0]
 
 
+@pytest.mark.parametrize("helena_phi", [False, True])
 @pytest.mark.parametrize("zone", ["phi", "synthetic", "ratified"])
 @pytest.mark.parametrize("dpa", ["", " \t ", "test-only-operator-reference"])
 @pytest.mark.parametrize("model", ["", "test-only-explicit-model"])
 @pytest.mark.parametrize("provider", ["bedrock_br", "br_resident", "phi_zone_mock"])
 def test_actual_hcl_provider_model_and_receiver_parity(
-    tmp_path: Path, zone: str, dpa: str, provider: str, model: str
+    tmp_path: Path, zone: str, dpa: str, provider: str, model: str, helena_phi: bool
 ) -> None:
     terraform = shutil.which("terraform")
     if terraform is None:
@@ -68,6 +69,7 @@ def test_actual_hcl_provider_model_and_receiver_parity(
         "inference_provider": "bedrock",
         "phi_zone_provider": provider,
         "phi_vendor_dpa_ref": dpa,
+        "helena_zona_phi": helena_phi,
         "phi_model_id": model,
     }
     for name, value in values.items():
@@ -92,9 +94,10 @@ def test_actual_hcl_provider_model_and_receiver_parity(
     )
     assert result.returncode == 0, result.stderr
     actual = json.loads(json.loads(result.stdout))
-    helena_provider = provider if dpa.strip() else "bedrock"
+    helena_admitted = helena_phi and bool(dpa.strip())
+    helena_provider = provider if helena_admitted else "bedrock"
     assert actual["helena"]["provider"] == helena_provider
-    assert actual["helena"]["required"] == bool(dpa.strip())
+    assert actual["helena"]["required"] == helena_admitted
     expected_model = model if helena_provider in {"bedrock_br", "br_resident"} else ""
     assert actual["helena"]["model"] == expected_model
     assert actual["receiver_model"] == expected_model

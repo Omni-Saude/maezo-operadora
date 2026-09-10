@@ -641,6 +641,7 @@ async def test_acknowledgement_identity_is_exact(field, value):
 
 
 async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
+    import ast
     import inspect
     from pathlib import Path
 
@@ -650,10 +651,34 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     assert set(n for n in dir(HumanTaskTransport) if not n.startswith("_")) == {"read_task"}
     assert set(n for n in dir(DurableAdmission) if not n.startswith("_")) == {"admit"}
     source = "\n".join(p.read_text() for p in Path(module.__file__).parent.glob("*.py"))
-    # D6 adds the dedicated, authenticated transport. D4 authorization/admission
-    # and every other human module remain forbidden from making HTTP requests.
-    assert "import httpx" not in "\n".join(
-        p.read_text() for p in Path(module.__file__).parent.glob("*.py") if p.name != "transport.py"
+    # D6 command and Q2 read transports own HTTP. Exact constructor scopes/options
+    # remain fenced by test_portal_credential_boundary; authorization/admission do not.
+    http_owners = {
+        p.name
+        for p in Path(module.__file__).parent.glob("*.py")
+        if any(
+            (isinstance(node, ast.Import) and any(a.name.split(".")[0] == "httpx" for a in node.names))
+            or (isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx")
+            for node in ast.walk(ast.parse(p.read_text()))
+        )
+    }
+    assert http_owners == {"transport.py", "read_transport.py", "engine_reads.py"}
+    # Q2 composition only annotates its borrowed application-owned pool here.
+    # It gets no constructor/request exemption from the two transport owners.
+    pool_module = ast.parse((Path(module.__file__).parent / "engine_reads.py").read_text())
+    pool_uses = [node for node in ast.walk(pool_module) if isinstance(node, ast.Name) and node.id == "httpx"]
+    parents = {
+        id(child): parent for parent in ast.walk(pool_module) for child in ast.iter_child_nodes(parent)
+    }
+    assert pool_uses
+    for use in pool_uses:
+        attribute = parents[id(use)]
+        assert isinstance(attribute, ast.Attribute) and attribute.attr == "AsyncBaseTransport"
+        argument = parents[id(attribute)]
+        assert isinstance(argument, ast.arg) and argument.annotation is attribute
+    assert not any(
+        isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx"
+        for node in ast.walk(pool_module)
     )
     for forbidden in (
         "import requests",

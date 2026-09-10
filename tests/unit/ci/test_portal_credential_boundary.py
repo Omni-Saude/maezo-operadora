@@ -8,6 +8,8 @@ from scripts.ci.check_effect_chokepoint_fence import scan_tree
 ROOT = Path(__file__).resolve().parents[3]
 MTLS = "gateway/human/transport.py"
 OIDC = "gateway/portal_identity.py"
+ENGINE = "gateway/engine_transport.py"
+READ = "gateway/human/read_transport.py"
 CALL = "httpx.AsyncClient(verify=True, trust_env=False, follow_redirects=False, timeout=10.0)"
 
 
@@ -21,11 +23,11 @@ def scan(tmp_path, path, source):
 def test_exact_production_seams_and_credential_read_are_nonvacuous():
     result = scan_tree(ROOT / "src/maezo")
     assert result.ok, result.render()
-    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 2
+    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 4
     assert result.counters["8.3_secret_scoped_seam_sanctioned"] == 1
 
 
-@pytest.mark.parametrize("path", [MTLS, OIDC, "portal/api/app.py", "gateway/human/nearby.py"])
+@pytest.mark.parametrize("path", [MTLS, OIDC, ENGINE, READ, "portal/api/app.py", "gateway/human/nearby.py"])
 @pytest.mark.parametrize(
     "source",
     [
@@ -69,7 +71,7 @@ def test_duplicate_or_nested_constructor_does_not_inherit_seam(tmp_path, body):
     assert not result.ok
 
 
-@pytest.mark.parametrize("path", [MTLS, OIDC, "portal/api/app.py", "agents/helena/escape.py"])
+@pytest.mark.parametrize("path", [MTLS, OIDC, ENGINE, READ, "portal/api/app.py", "agents/helena/escape.py"])
 @pytest.mark.parametrize(
     "body",
     [
@@ -84,7 +86,7 @@ def test_escaped_or_adjacent_credential_extraction_refuses(tmp_path, path, body)
     assert any("[8.3-secret]" in v for v in result.violations)
 
 
-@pytest.mark.parametrize("path", [MTLS, OIDC, "portal/api/app.py"])
+@pytest.mark.parametrize("path", [MTLS, OIDC, ENGINE, READ, "portal/api/app.py"])
 def test_raw_engine_operation_has_no_new_rest_exemption(tmp_path, path):
     result = scan(tmp_path, path, "def raw(client): return client.post('/message', json={})")
     assert not result.ok
@@ -103,5 +105,114 @@ def test_mtls_exact_constructor_security_mutants_refuse(tmp_path, replacement):
     old = key + ("=self._tls" if key == "verify" else "=False")
     assert source.count(old) == 1
     result = scan(tmp_path, MTLS, source.replace(old, replacement))
+    assert not result.ok
+    assert any("[8.2]" in v for v in result.violations)
+
+
+# Pin independently from the gate registry: a registry edit alone cannot redefine
+# which constructor, class, method, or TLS source this evidence authorizes.
+NEW_SEAMS = [
+    (
+        ENGINE,
+        "EngineOperationsClient",
+        "_exchange",
+        "httpx.AsyncClient(verify=context, trust_env=False, "
+        "follow_redirects=False, timeout=self._config.timeout)",
+    ),
+    (
+        READ,
+        "PortalReadClient",
+        "__init__",
+        "httpx.AsyncClient(verify=tls_context, transport=_BorrowedTransport(self._transport), "
+        "follow_redirects=False, trust_env=False, timeout=timeout_seconds)",
+    ),
+]
+
+
+def scoped_source(cls, method, body, imports="import httpx"):
+    return f"{imports}\nclass {cls}:\n    def {method}(self):\n        {body}\n"
+
+
+@pytest.mark.parametrize("path,cls,method,call", NEW_SEAMS)
+def test_new_exact_constructor_in_its_own_scope_is_allowed(tmp_path, path, cls, method, call):
+    result = scan(tmp_path, path, scoped_source(cls, method, f"return {call}"))
+    assert result.ok, result.render()
+    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 1
+
+
+@pytest.mark.parametrize("path,cls,method,call", NEW_SEAMS)
+@pytest.mark.parametrize("flag", ["verify", "trust_env", "follow_redirects", "timeout"])
+def test_new_constructor_security_options_are_exact(tmp_path, path, cls, method, call, flag):
+    import ast
+
+    node = ast.parse(call, mode="eval").body
+    keyword = next(k for k in node.keywords if k.arg == flag)
+    keyword.value = ast.Constant(value=False if flag == "verify" else None if flag == "timeout" else True)
+    result = scan(tmp_path, path, scoped_source(cls, method, f"return {ast.unparse(node)}"))
+    assert not result.ok
+    assert any("[8.2]" in v for v in result.violations)
+
+
+def test_read_constructor_cannot_substitute_an_unowned_pool(tmp_path):
+    path, cls, method, call = NEW_SEAMS[1]
+    altered = call.replace("_BorrowedTransport(self._transport)", "self._transport")
+    result = scan(tmp_path, path, scoped_source(cls, method, f"return {altered}"))
+    assert not result.ok
+    assert any("[8.2]" in v for v in result.violations)
+
+
+@pytest.mark.parametrize("path,cls,method,call", NEW_SEAMS)
+@pytest.mark.parametrize("relocation", ["file", "class", "method", "nested", "lambda", "comprehension"])
+def test_exact_new_call_cannot_move_or_nest(tmp_path, path, cls, method, call, relocation):
+    body = f"return {call}"
+    if relocation == "file":
+        path = "gateway/human/copied_transport.py"
+    elif relocation == "class":
+        cls += "Copy"
+    elif relocation == "method":
+        method += "_copy"
+    elif relocation == "nested":
+        body = f"def inner(): return {call}"
+    elif relocation == "lambda":
+        body = f"return lambda: {call}"
+    else:
+        body = f"return [{call} for _ in range(1)]"
+    result = scan(tmp_path, path, scoped_source(cls, method, body))
+    assert not result.ok
+    assert any("[8.2]" in v for v in result.violations)
+
+
+@pytest.mark.parametrize("path,cls,method,call", NEW_SEAMS)
+@pytest.mark.parametrize("copy", ["same_method", "duplicate_class", "adjacent_method", "definition_time"])
+def test_new_scope_does_not_authorize_extra_constructors(tmp_path, path, cls, method, call, copy):
+    source = scoped_source(cls, method, f"return {call}")
+    if copy == "same_method":
+        source = scoped_source(cls, method, f"return ({call}, {call})")
+    elif copy == "duplicate_class":
+        source += scoped_source(cls, method, f"return {call}")
+    elif copy == "adjacent_method":
+        source += f"    def adjacent(self): return {call}\n"
+    else:
+        source = f"import httpx\nclass {cls}:\n    def {method}(self, client={call}): pass\n"
+    result = scan(tmp_path, path, source)
+    assert not result.ok
+    assert any("[8.2]" in v for v in result.violations)
+
+
+@pytest.mark.parametrize("path,cls,method,call", NEW_SEAMS)
+@pytest.mark.parametrize(
+    "imports,constructor",
+    [
+        ("import httpx as h", "h.AsyncClient"),
+        ("from httpx import AsyncClient as C", "C"),
+        ("import httpx\nC = httpx.AsyncClient", "C"),
+        ("import httpx\nh = httpx\nC = h.AsyncClient", "C"),
+    ],
+)
+def test_new_exact_scope_does_not_authorize_constructor_aliases(
+    tmp_path, path, cls, method, call, imports, constructor
+):
+    source = scoped_source(cls, method, "return " + call.replace("httpx.AsyncClient", constructor), imports)
+    result = scan(tmp_path, path, source)
     assert not result.ok
     assert any("[8.2]" in v for v in result.violations)

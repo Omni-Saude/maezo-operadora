@@ -343,7 +343,7 @@ _HTTPX_CLIENT_ADDITIONAL_MODULES: Final[frozenset[str]] = frozenset(
 HTTPX_SANCTIONED_MODULES: Final[frozenset[str]] = _HTTPX_DESIGN_MODULES | _HTTPX_CLIENT_ADDITIONAL_MODULES
 
 # PFSU-01 / ADR-0049 D4-D6: exact construction expressions in exact lexical scopes.
-# Neither file joins HTTPX_SANCTIONED_MODULES or REST_PATH_SANCTIONED_MODULES.
+# None of these files joins HTTPX_SANCTIONED_MODULES or REST_PATH_SANCTIONED_MODULES.
 # AST shape pins TLS/proxy/redirect controls; runtime endpoint/identity guards have
 # separate adversarial tests. Duplicate, nested and adjacent constructions refuse.
 _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
@@ -355,6 +355,22 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "gateway/portal_identity.py",
         "build_human_identity_adapters",
     ): "httpx.AsyncClient(verify=True, trust_env=False, follow_redirects=False, timeout=10.0)",
+    # D7-C: deployment-pinned workload operations, with native capability enforcement.
+    (
+        "gateway/engine_transport.py",
+        "EngineOperationsClient._exchange",
+    ): (
+        "httpx.AsyncClient(verify=context, trust_env=False, "
+        "follow_redirects=False, timeout=self._config.timeout)"
+    ),
+    # Q2: fixed-route signed reads/publications, current credential partition and peer SPKI.
+    (
+        "gateway/human/read_transport.py",
+        "PortalReadClient.__init__",
+    ): (
+        "httpx.AsyncClient(verify=tls_context, transport=_BorrowedTransport(self._transport), "
+        "follow_redirects=False, trust_env=False, timeout=timeout_seconds)"
+    ),
 }
 _SECRET_SCOPED_SEAM: Final[tuple[str, str]] = (
     "gateway/portal_identity.py",
@@ -693,17 +709,20 @@ def scan_module(path: Path) -> _ModuleScan:
 
             # -- §8.2a: httpx client construction --------------------------------------------
             func = node.func
+            httpx_constructor = None
             if (
                 isinstance(func, ast.Attribute)
                 and func.attr in _HTTPX_CLIENT_ATTRS
                 and isinstance(func.value, ast.Name)
                 and func.value.id in httpx_modules
             ):
-                scan.httpx_clients.append((func.attr, node.lineno))
+                httpx_constructor = func.attr
             elif isinstance(func, ast.Name) and func.id in imported_from_httpx:
-                scan.httpx_clients.append((imported_from_httpx[func.id], node.lineno))
+                httpx_constructor = imported_from_httpx[func.id]
 
-            if scan.httpx_clients and scan.httpx_clients[-1][1] == node.lineno:
+            if httpx_constructor is not None:
+                scan.httpx_clients.append((httpx_constructor, node.lineno))
+                # A nested non-HTTP call on this line must not replace this AST.
                 scan.scoped_httpx[node.lineno] = (scope_of(node), ast.dump(node))
             if (
                 isinstance(func, ast.Name)
