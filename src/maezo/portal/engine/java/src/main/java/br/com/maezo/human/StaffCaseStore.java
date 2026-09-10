@@ -143,7 +143,7 @@ final class StaffCaseStore {
     String ref=str(checkpoint,"checkpoint_ref");long generation=number(checkpoint.get("generation"));
     var chunks=checkpointChunks(ref,generation);var pins=list(checkpoint.get("chunks"));
     if(chunks.size()!=pins.size())throw unavailable();long total=0;
-    for(int i=0;i<pins.size();i++){var pin=map(pins.get(i)),row=chunks.get(i);
+    for(int i=0;i<pins.size();i++){var pin=map(pins.get(i));var row=chunks.get(i);
       if(((Number)row.get("chunk_index")).longValue()!=i||!pin.get("chunk_digest").equals(row.get("chunk_digest"))
           ||number(pin.get("entry_count"))!=((Number)row.get("entry_count")).longValue()||!source.equals(row.get("source_ref")))throw unavailable();
       total=Math.addExact(total,number(pin.get("entry_count")));

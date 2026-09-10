@@ -52,7 +52,7 @@ public final class StaffCasePublicationCommand implements Command<StaffCasePubli
         var witness=obj(request,"membership_witness");installed.membership(read,witness,null);
         installed.proof(obj(request,"proof"),withoutProof(request,"proof"),"case_issuer","scope_complete",str(request,"source_ref"),null);
       } else if(kind.equals("scope_checkpoint")) {
-        var witness=obj(request,"membership_witness"),actor=obj(witness,"actor");installed.membership(read,witness,null);
+        var witness=obj(request,"membership_witness");var actor=obj(witness,"actor");installed.membership(read,witness,null);
         if(!payload.get("issuer").equals(actor.get("issuer"))||!payload.get("subject").equals(actor.get("subject"))
             ||!payload.get("principal_ref").equals(actor.get("principal_ref"))||!payload.get("membership_revision").equals(actor.get("membership_revision"))
             ||!payload.get("principal_identity_digest").equals(hash(actor)))throw denied();

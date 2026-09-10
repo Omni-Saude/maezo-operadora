@@ -56,8 +56,8 @@ final class StaffCaseModels {
     if(name.equals("decision")){var fs=list(m.get("fields"));if(fs.isEmpty()||!FIELDS.get(str(m,"projection")).containsAll(fs))throw invalid();}
     if(name.equals("grant")){var ds=list(m.get("decisions"));if(ds.isEmpty()||ds.size()>256)throw invalid();var seen=new HashSet<>();for(Object d:ds)if(!seen.add(map(d).get("decision_ref")))throw invalid();}
     if(name.equals("scope_chunk")){var entries=list(m.get("entries"));if(entries.isEmpty()||entries.size()>256)throw invalid();String prior=null;
-      for(Object value:entries){var entry=map(value);String key=str(entry,"case_ref")+"\u0000"+str(entry,"grant_ref");if(prior!=null&&prior.compareTo(key)>=0)throw invalid();prior=key;}}
-    if(name.equals("scope_checkpoint")){var chunks=list(m.get("chunks"));long total=0,index=0;for(Object value:chunks){var chunk=map(value);
+      for(Object item:entries){var entry=map(item);String key=str(entry,"case_ref")+"\u0000"+str(entry,"grant_ref");if(prior!=null&&prior.compareTo(key)>=0)throw invalid();prior=key;}}
+    if(name.equals("scope_checkpoint")){var chunks=list(m.get("chunks"));long total=0,index=0;for(Object item:chunks){var chunk=map(item);
       if(number(chunk.get("chunk_index"))!=index++)throw invalid();total=Math.addExact(total,number(chunk.get("entry_count")));}
       if(total!=number(m.get("total_entries"))||total==0&&!chunks.isEmpty()||!list(m.get("operations")).equals(List.of("list"))
           ||!"scope_complete".equals(obj(m,"proof").get("purpose")))throw invalid();}

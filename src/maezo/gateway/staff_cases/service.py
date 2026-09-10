@@ -38,6 +38,7 @@ class ReadPin(Closed):
         "identity",
         "membership",
         "case_grant",
+        "checkpoint",
         "native_case",
         "native_task",
         "task_disclosure",

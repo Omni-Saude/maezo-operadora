@@ -134,12 +134,12 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       "event",event,"tasks",tasks,"created",created,"q2",q2.semantic());
   }
   static Map<String,Object> collectList(StaffCaseStore store,StaffCaseInstallation installed,Q2Intersection q2,Map<String,Object> request){
-    var query=StaffCaseModels.shape("list",request.get("query"));var principal=obj(request,"principal"),witness=obj(request,"membership_witness");
+    var query=StaffCaseModels.shape("list",request.get("query"));var principal=obj(request,"principal");var witness=obj(request,"membership_witness");
     var member=installed.membership(q2.read,witness,principal);var accepted=store.activeCheckpoint(principal);if(accepted==null)throw unavailable();
     var checkpoint=StaffCaseModels.shape("scope_checkpoint",AuthStore.parse(accepted.get("canonical_checkpoint")));
     if(!hash(checkpoint).equals(accepted.get("checkpoint_digest"))||!hash(StaffCaseModels.actor(principal)).equals(checkpoint.get("principal_identity_digest"))
         ||!principal.get("session_ref").equals(witness.get("session_ref"))||!list(checkpoint.get("operations")).contains("list"))throw unavailable();
-    installed.fresh(checkpoint,"observed_at","valid_until");installed.proof(obj(checkpoint,"proof"),withoutProof(checkpoint,"proof"),
+    installed.fresh(checkpoint,"observed_at","valid_until");installed.proof(obj(checkpoint,"proof"),StaffCaseModels.withoutProof(checkpoint,"proof"),
       "case_issuer","scope_complete",str(accepted,"source_ref"),null);
     var scopePolicy=store.policyHead(str(checkpoint,"policy_scope_ref"));if(scopePolicy==null)throw unavailable();var scopeHead=AuthStore.parse(scopePolicy.get("canonical_head"));
     if(!"active".equals(scopeHead.get("state"))||!checkpoint.get("policy_scope_revision").equals(scopeHead.get("policy_revision"))
@@ -154,7 +154,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     var items=new ArrayList<Object>();var pins=new ArrayList<Object>();String last=null;int limit=(int)number(query.get("limit"));
     for(var entry:store.checkpointEntries(accepted)){String caseRef=str(entry,"case_ref");if(after!=null&&caseRef.compareTo(after)<=0)continue;
       var row=store.exactGrant(caseRef,principal);if(row==null||!entry.get("grant_ref").equals(row.get("grant_ref")))throw unavailable();
-      var publication=store.publication(str(row,"publication_id"));if(publication==null)throw unavailable();var grant=obj(publication,"payload"),policies=store.policyPins(grant);
+      var publication=store.publication(str(row,"publication_id"));if(publication==null)throw unavailable();var grant=obj(publication,"payload");var policies=store.policyPins(grant);
       store.requireRecordedPolicies(row,policies);var identityState=new NativeCaseIdentityReader(store.auth).read(caseRef);var identity=obj(identityState,"identity");
       installed.grant(publication,principal,identity,policies,"list");var event=new StaffCaseEventStore(store.auth).read(caseRef);
       if(!identity.get("process_instance_ref").equals(event.get("process_instance_id")))throw unavailable();
