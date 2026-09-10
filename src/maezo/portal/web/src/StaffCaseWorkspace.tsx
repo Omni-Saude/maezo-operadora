@@ -6,7 +6,7 @@ import type {
   StaffDetail,
   StaffPage,
 } from "./staffCaseClient";
-import { expiryDelay } from "./taskReadTime";
+import { expiryDelay, isCurrent, retainedCeiling } from "./taskReadTime";
 
 type ListState =
   | Readonly<{ kind: "loading" }>
@@ -93,7 +93,17 @@ function joinedPage(previous: StaffPage, next: StaffPage): StaffPage | null {
   const priorLast = previous.items.at(-1)?.case_ref;
   const nextFirst = next.items[0]?.case_ref;
   if (priorLast !== undefined && nextFirst !== undefined && nextFirst <= priorLast) return null;
-  return { ...next, items: [...previous.items, ...next.items] };
+  if (!isCurrent(previous.freshness.valid_until) || !isCurrent(next.freshness.valid_until)) return null;
+  return {
+    ...next,
+    items: [...previous.items, ...next.items],
+    freshness: {
+      ...next.freshness,
+      observed_at: retainedCeiling(previous.freshness.observed_at, next.freshness.observed_at),
+      source_observed_at: retainedCeiling(previous.freshness.source_observed_at, next.freshness.source_observed_at),
+      valid_until: retainedCeiling(previous.freshness.valid_until, next.freshness.valid_until),
+    },
+  };
 }
 
 export function StaffCaseWorkspace({
@@ -185,12 +195,17 @@ export function StaffCaseWorkspace({
       const timer = window.setTimeout(() => void readCase(detailState.detail.case.case_ref), delay);
       return () => window.clearTimeout(timer);
     }
-    if (detailState === null && listState.kind === "ready" && !listState.loadingMore) {
-      const delay = Math.min(listState.page.freshness.refresh_after_seconds * 1000, expiryDelay(listState.page.freshness.valid_until));
-      const timer = window.setTimeout(() => void loadList(null, false), delay);
-      return () => window.clearTimeout(timer);
-    }
-  }, [detailState, listState, loadList, readCase]);
+  }, [detailState, readCase]);
+
+  // The displayed page keeps its retirement timer while pagination is pending.
+  // loadingMore changes do not replace the retained page or extend its deadline.
+  const visiblePage = detailState === null && listState.kind === "ready" ? listState.page : null;
+  useEffect(() => {
+    if (visiblePage === null) return;
+    const delay = Math.min(visiblePage.freshness.refresh_after_seconds * 1000, expiryDelay(visiblePage.freshness.valid_until));
+    const timer = window.setTimeout(() => void loadList(null, false), delay);
+    return () => window.clearTimeout(timer);
+  }, [visiblePage, loadList]);
 
   if (detailState !== null) {
     return (

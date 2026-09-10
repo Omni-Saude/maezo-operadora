@@ -244,3 +244,56 @@ it("renova o detalhe selecionado na cadência autorizada", async () => {
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
   expect(readCase).toHaveBeenNthCalledWith(2, caseRef, expect.any(AbortSignal));
 });
+
+
+it("retira a página ao expirar mesmo com paginação pendente e recusa o append tardio", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2099-09-10T12:00:00Z"));
+  const next = deferred<StaffCasePageResult>();
+  const refresh = deferred<StaffCasePageResult>();
+  const listCases = vi.fn()
+    .mockResolvedValueOnce({ kind: "success", value: page() })
+    .mockReturnValueOnce(next.promise)
+    .mockReturnValueOnce(refresh.promise);
+  render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
+  await act(async () => Promise.resolve());
+  await act(async () => vi.advanceTimersByTimeAsync(9_000));
+  fireEvent.click(screen.getByRole("button", { name: "Carregar próxima página" }));
+  const pageSignal = listCases.mock.calls[1][1] as AbortSignal;
+  expect(screen.getByRole("button", { name: new RegExp(caseRef) })).toBeInTheDocument();
+  await act(async () => vi.advanceTimersByTimeAsync(1_001));
+  expect(pageSignal.aborted).toBe(true);
+  expect(listCases).toHaveBeenNthCalledWith(3, null, expect.any(AbortSignal));
+  expect(screen.queryByRole("button", { name: new RegExp(caseRef) })).not.toBeInTheDocument();
+  const laterPage = page([nextCaseRef], null);
+  laterPage.freshness.valid_until = "2099-09-10T12:00:30.000000Z";
+  await act(async () => {
+    next.resolve({ kind: "success", value: laterPage });
+    await next.promise;
+  });
+  expect(screen.queryByText(nextCaseRef)).not.toBeInTheDocument();
+  expect(screen.getByText("Consultando seus casos autorizados.")).toBeInTheDocument();
+});
+
+it("retém o prazo anterior ao acrescentar uma página com validade posterior", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2099-09-10T12:00:00Z"));
+  const refresh = deferred<StaffCasePageResult>();
+  const laterPage = page([nextCaseRef], null);
+  laterPage.freshness.valid_until = "2099-09-10T12:00:30.000000Z";
+  const listCases = vi.fn()
+    .mockResolvedValueOnce({ kind: "success", value: page() })
+    .mockResolvedValueOnce({ kind: "success", value: laterPage })
+    .mockReturnValueOnce(refresh.promise);
+  render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
+  await act(async () => Promise.resolve());
+  await act(async () => vi.advanceTimersByTimeAsync(4_000));
+  fireEvent.click(screen.getByRole("button", { name: "Carregar próxima página" }));
+  await act(async () => Promise.resolve());
+  expect(screen.getByRole("button", { name: new RegExp(caseRef) })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
+  await act(async () => vi.advanceTimersByTimeAsync(6_001));
+  expect(listCases).toHaveBeenNthCalledWith(3, null, expect.any(AbortSignal));
+  expect(screen.queryByRole("button", { name: new RegExp(caseRef) })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: new RegExp(nextCaseRef) })).not.toBeInTheDocument();
+});
