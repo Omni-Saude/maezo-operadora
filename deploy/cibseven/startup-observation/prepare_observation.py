@@ -9,7 +9,7 @@ from pathlib import Path
 AREA = "/run/maezo-startup-observation"
 INPUT = "/run/maezo-startup-observation-input"
 DEFAULT_JAVA_OPTS = "-Xms128m -Xmx512m"
-TMPFS = AREA + ":rw,nosuid,nodev,noexec,size=33554432,mode=0700"
+TMPFS = AREA + ":rw,nosuid,nodev,noexec,size=33554432,mode=0700,uid=1000,gid=1000"
 
 
 def instrument(compose: dict, bundle: Path, project: str) -> dict:
