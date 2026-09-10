@@ -17,6 +17,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.portal.api.auth import AuthenticationError
+from maezo.portal.api.cases import CaseServiceFactory, case_router
 from maezo.portal.api.config import PortalSettings
 from maezo.portal.api.decisions import (
     DecisionServiceFactory,
@@ -24,6 +25,8 @@ from maezo.portal.api.decisions import (
     decision_router,
     is_decision_request,
 )
+from maezo.portal.api.documents import DocumentServiceFactory, document_router
+from maezo.portal.api.intakes import IntakeServiceFactory, intake_error, intake_router, is_product_request
 from maezo.portal.api.records import SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
@@ -129,6 +132,9 @@ def create_app(
     task_read_service_factory: ReadServiceFactory | None = None,
     engine_read_composition: EngineReadComposition | None = None,
     decision_service_factory: DecisionServiceFactory | None = None,
+    case_service_factory: CaseServiceFactory | None = None,
+    intake_service_factory: IntakeServiceFactory | None = None,
+    document_service_factory: DocumentServiceFactory | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
     try:
@@ -179,6 +185,12 @@ def create_app(
     app.include_router(task_router)
     app.state.decision_service_factory = decision_service_factory
     app.include_router(decision_router)
+    app.state.case_service_factory = case_service_factory
+    app.state.intake_service_factory = intake_service_factory
+    app.state.document_service_factory = document_service_factory
+    app.include_router(case_router)
+    app.include_router(intake_router)
+    app.include_router(document_router)
 
     @app.middleware("http")
     async def deployment_host(
@@ -188,6 +200,8 @@ def create_app(
             len(request.headers.getlist("host")) != 1
             or request.headers["host"] != urlsplit(config.public_origin).netloc
         ):
+            if is_product_request(request):
+                return intake_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
             return read_error("invalid_request") if is_task_read(request) else _refused(400)
@@ -199,6 +213,8 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> Response:
+        if is_product_request(request):
+            return intake_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
         return read_error("invalid_request") if is_task_read(request) else _refused(400)
