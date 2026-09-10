@@ -56,7 +56,7 @@ class PostgresIntakeStore:
             start_receipt_ref=row["start_receipt_ref"],
         )
 
-    async def admit(self, grant: AdmissionGrant, request: AuthIntakeSubmission) -> IntakeReceipt:
+    async def admit(self, grant: AdmissionGrant, request: AuthIntakeSubmission, *, caller: Any = None) -> IntakeReceipt:
         raw = request_bytes(request)
         if (
             grant.principal.tenant != self.tenant
@@ -75,6 +75,22 @@ class PostgresIntakeStore:
             authority_digest=grant.authority_digest,
             key_id=self.key_id,
         )
+        admitted_digest = hashlib.sha256(canonicalize({"schema":"human-auth-admission.v1","request":strict_loads(raw),"guide_identity_ref":grant.guide_identity_ref})).hexdigest()
+        reservation=None
+        if self.native_dispatch is not None:
+            from .native_source_lifecycle import AuthCallerBinding
+            source=self.native_dispatch.source
+            if type(caller) is not AuthCallerBinding or caller.principal!=grant.principal or source is None or self.native_dispatch.scope is None:
+                raise IntakeError("dependency_unavailable")
+            async with transaction(self.engine,self.seconds) as connection:
+                prior=(await connection.execute(text("SELECT intake_ref,request_digest,guide_identity_ref FROM portal_intake.intake WHERE tenant=:tenant AND principal_ref=:principal AND command_id=:command"),values)).mappings().one_or_none()
+                if prior is not None:
+                    if (prior['request_digest'],prior['guide_identity_ref'])!=(grant.request_digest,grant.guide_identity_ref): raise IntakeError("conflict")
+                    values['intake']=prior['intake_ref']
+            reservation=await source.reserve(caller,scope=self.native_dispatch.scope,command_id=request.command_id,admission_ref=values['intake'],operation='auth.start',request_digest=grant.request_digest,admitted_digest=admitted_digest,valid_until=grant.valid_until)
+            await source.verify_reservation(reservation)
+            values['intake']=reservation.admission_ref
+            grant=grant.model_copy(update={'valid_until':min(grant.valid_until,reservation.session_binding.authorization_until)})
         nonce = os.urandom(12)
         ciphertext = self._cipher.encrypt(nonce, raw, canonicalize(values))
         result = None
@@ -147,6 +163,7 @@ class PostgresIntakeStore:
                         values,
                     )
                     if self.native_dispatch is not None:
+                        if reservation is None: raise IntakeError("dependency_unavailable")
                         admitted_digest = hashlib.sha256(
                             canonicalize(
                                 {
@@ -163,6 +180,7 @@ class PostgresIntakeStore:
                             command_id=request.command_id,
                             admitted_digest=admitted_digest,
                             valid_until=grant.valid_until,
+                            reservation=reservation,
                         )
                     result = IntakeReceipt(
                         intake_ref=values["intake"],

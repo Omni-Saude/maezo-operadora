@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -27,11 +27,14 @@ from maezo.gateway.human.auth_profile import (
     HumanDocumentCommand,
     HumanStartCommand,
     NativeEffectReceipt,
+    Scope,
+    SessionBinding,
 )
 from maezo.gateway.human.auth_transport import AuthUnavailableError, bind_receipt
 from maezo.gateway.human.read_profile import digest, parse_model, wire
 from maezo.portal.contracts.models import HumanPrincipal
 from maezo.portal.engine.profile import canonicalize, strict_loads
+from .native_source_lifecycle import AuthCallerBinding, IdentitySourceReservation, ProtectedAdmissionIdentity
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -65,6 +68,40 @@ class PostgresAuthDispatchStore:
             clock,
         )
         self._cipher = AESGCM(key)
+        self.source: Any = None
+        self.scope: Scope | None = None
+
+    def bind_source(self, source: Any, scope: Scope) -> None:
+        from .native_source_lifecycle import PostgresAuthSourceLifecycle
+        if type(source) is not PostgresAuthSourceLifecycle or source.protected is not self or scope not in source.binding.scopes or self.source is not None:
+            raise AuthUnavailableError()
+        self.source,self.scope=source,scope
+
+    def _identity_record(self, command_id: str, row: Any) -> ProtectedAdmissionIdentity | HumanPrincipal:
+        value=self.unseal("identity",command_id,row["key_id"],row["nonce"],row["ciphertext"])
+        if isinstance(value,dict) and value.get("schema")=="human-auth-admission-identity.v2":
+            return parse_model(ProtectedAdmissionIdentity,value)
+        return parse_model(HumanPrincipal,value) # Historical read only; never active v2 publication.
+
+    async def original_identity(self, command_id: str) -> ProtectedAdmissionIdentity:
+        async with transaction(self.engine,self.seconds) as c:
+            outbox=await self._lock(c,command_id)
+            row=(await c.execute(text("SELECT * FROM portal_intake.native_identity WHERE tenant=:tenant AND command_id=:command"),{"tenant":self.tenant,"command":command_id})).mappings().one()
+            value=self._identity_record(command_id,row)
+            if not isinstance(value,ProtectedAdmissionIdentity): raise AuthUnavailableError()
+            r=value.reservation
+            if (r.tenant,r.command_id,r.admission_ref,r.admitted_digest,r.principal_ref,r.operation,value.session_binding.authorization_until)!=(self.tenant,command_id,outbox["admission_ref"],outbox["admitted_digest"],outbox["principal_ref"],outbox["operation"],outbox["authorization_until"]): raise AuthUnavailableError()
+        return value
+
+    async def prepared_command(self, command_id: str) -> EffectCommand:
+        async with transaction(self.engine,self.seconds) as c:
+            return self._command(await self._lock(c,command_id))
+
+    def admission_identity(self, principal: HumanPrincipal, reservation: IdentitySourceReservation, command_id: str, admission_ref: str, admitted_digest: str, valid_until: datetime) -> ProtectedAdmissionIdentity:
+        if (reservation.tenant,reservation.command_id,reservation.admission_ref,reservation.principal_ref,reservation.admitted_digest,reservation.session_binding.session_ref,reservation.session_binding.authenticated_at)!=(self.tenant,command_id,admission_ref,principal.principal_ref,admitted_digest,principal.session_ref,principal.authenticated_at) or valid_until>reservation.session_binding.authorization_until:
+            raise AuthUnavailableError()
+        binding=parse_model(SessionBinding,wire(reservation.session_binding.model_copy(update={"authorization_until":valid_until})))
+        return ProtectedAdmissionIdentity(schema="human-auth-admission-identity.v2",principal=principal,session_binding=binding,reservation=reservation)
 
     def seal(self, kind: str, ref: str, value: Any) -> tuple[bytes, bytes]:
         nonce = os.urandom(12)
@@ -126,16 +163,10 @@ class PostgresAuthDispatchStore:
                     .mappings()
                     .one()
                 )
-                principal = parse_model(
-                    HumanPrincipal,
-                    self.unseal(
-                        "identity",
-                        command.command_id,
-                        identity["key_id"],
-                        identity["nonce"],
-                        identity["ciphertext"],
-                    ),
-                )
+                identity_value=self._identity_record(command.command_id,identity)
+                principal=identity_value.principal if isinstance(identity_value,ProtectedAdmissionIdentity) else identity_value
+                if not isinstance(identity_value,ProtectedAdmissionIdentity) and row['state']!='executed':
+                    raise AuthUnavailableError()
                 actor = command.actor
                 if (actor.principal_ref, actor.issuer, actor.subject, actor.membership_revision) != (
                     principal.principal_ref,
@@ -294,8 +325,9 @@ class PostgresAuthDispatchStore:
         ) or self.clock() >= min(claim.lease_until, row["lease_until"]):
             raise ExternalCaseError("conflict")
 
-    async def mark_sending(self, claim: DispatchClaim, current: Callable[[], None]) -> DispatchClaim:
+    async def mark_sending(self, claim: DispatchClaim, current: Callable[[], None], *, checkpoint: Callable[[],Awaitable[None]]) -> DispatchClaim:
         try:
+            await checkpoint()
             async with transaction(self.engine, self.seconds) as c:
                 row = await self._lock(c, claim.command.command_id)
                 self._owned(row, claim)
@@ -304,6 +336,7 @@ class PostgresAuthDispatchStore:
                 if row["state"] not in ("claimed", "reconciling"):
                     raise ExternalCaseError("conflict")
                 current()
+                await checkpoint()
                 await c.execute(
                     text(
                         "UPDATE portal_intake.native_outbox SET state='sending',revision=revision+1 "
@@ -312,9 +345,11 @@ class PostgresAuthDispatchStore:
                     dict(tenant=self.tenant, command=claim.command.command_id, revision=claim.revision),
                 )
                 current()
+                await checkpoint()
                 if self.clock() >= row["authorization_until"]:
                     raise ExternalCaseError("denied")
                 self._owned(row, claim)
+            await checkpoint()
             current()
             if self.clock() >= min(claim.lease_until, row["authorization_until"]):
                 raise AuthUnavailableError()
@@ -426,6 +461,7 @@ class PostgresAuthDispatchStore:
         command_id: str,
         admitted_digest: str,
         valid_until: datetime,
+        reservation: IdentitySourceReservation,
     ) -> None:
         """Called only within PostgresIntakeStore's admission transaction."""
         values = dict(
@@ -455,7 +491,8 @@ class PostgresAuthDispatchStore:
             ),
             values,
         )
-        nonce, ciphertext = self.seal("identity", command_id, principal)
+        identity=self.admission_identity(principal,reservation,command_id,intake_ref,admitted_digest,valid_until)
+        nonce, ciphertext = self.seal("identity", command_id, identity)
         await c.execute(
             text(
                 "INSERT INTO "
@@ -474,6 +511,7 @@ class PostgresAuthDispatchStore:
         request: Any,
         current: Callable[[], None],
         valid_until: datetime,
+        caller: AuthCallerBinding,
     ) -> Any:
         """Durable submitted subset only. Caller supplies current qualified admission
         authority/custody; no completeness boolean or native binding is invented.
@@ -484,6 +522,10 @@ class PostgresAuthDispatchStore:
 
         if type(request) is not DocumentResponse or principal.tenant != self.tenant:
             raise AuthUnavailableError()
+        if type(caller) is not AuthCallerBinding or caller.principal!=principal or self.source is None or self.scope is None:
+            raise AuthUnavailableError()
+        await caller.revalidate()
+        valid_until=min(valid_until,caller.valid_until)
         public = request.model_dump(mode="json")
         admitted = digest(
             {
@@ -494,6 +536,15 @@ class PostgresAuthDispatchStore:
             }
         )
         response_ref = uuid4().hex
+        async with transaction(self.engine,self.seconds) as connection:
+            previous=(await connection.execute(text("SELECT admission_ref,principal_ref,admitted_digest FROM portal_intake.native_outbox WHERE tenant=:tenant AND command_id=:command"),{"tenant":self.tenant,"command":request.command_id})).mappings().one_or_none()
+            if previous is not None:
+                if (previous['principal_ref'],previous['admitted_digest'])!=(principal.principal_ref,admitted): raise AuthUnavailableError()
+                response_ref=previous['admission_ref']
+        reservation=await self.source.reserve(caller,scope=self.scope,command_id=request.command_id,admission_ref=response_ref,operation='auth.documents.respond',request_digest=digest(public),admitted_digest=admitted,valid_until=valid_until)
+        await self.source.verify_reservation(reservation)
+        response_ref=reservation.admission_ref
+        valid_until=min(valid_until,reservation.session_binding.authorization_until)
         values = dict(
             tenant=self.tenant,
             command=request.command_id,
@@ -563,7 +614,8 @@ class PostgresAuthDispatchStore:
                         ),
                         values,
                     )
-                    n, sealed = self.seal("identity", request.command_id, principal)
+                    original=self.admission_identity(principal,reservation,request.command_id,response_ref,admitted,valid_until)
+                    n, sealed = self.seal("identity", request.command_id, original)
                     await c.execute(
                         text(
                             "INSERT INTO portal_intake.native_identity(tenant,command_id,key_id,nonce"
@@ -655,12 +707,12 @@ class PostgresAuthDispatchStore:
                     .mappings()
                     .one()
                 )
-                principal = parse_model(
-                    HumanPrincipal,
-                    self.unseal(
-                        "identity", command_id, identity["key_id"], identity["nonce"], identity["ciphertext"]
-                    ),
-                )
+                identity_value=self._identity_record(command_id,identity)
+                if not isinstance(identity_value,ProtectedAdmissionIdentity):
+                    raise AuthUnavailableError()
+                principal=identity_value.principal
+                if identity_value.session_binding.authorization_until!=row['authorization_until']:
+                    raise AuthUnavailableError()
                 if (actor.principal_ref, actor.issuer, actor.subject, actor.membership_revision) != (
                     principal.principal_ref,
                     principal.issuer,
@@ -692,6 +744,7 @@ class PostgresAuthDispatchStore:
                     operation=row["operation"],
                     state="committed",
                     admitted_at=audit["recorded_at"],
+                    session_binding=identity_value.session_binding,
                 )
             return result
         except Exception:
