@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import subprocess
 import sys
+import venv
 from pathlib import Path
 
 import pytest
@@ -101,3 +104,48 @@ def test_each_successor_refuses_a_clean_wrong_revision_without_creating_output(
     assert "source is not the required Git revision" in result.stderr
     assert "Traceback" not in result.stderr
     assert not output.exists()
+
+
+def test_recorder_preserves_virtualenv_invocation_and_records_binary_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.dev import record_pr356_ecs_command as recorder  # noqa: PLC0415
+
+    source = _wrong_source(tmp_path / "source")
+    head = subprocess.check_output(["/usr/bin/git", "-C", str(source), "rev-parse", "HEAD"]).decode().strip()
+    monkeypatch.setattr(recorder, "HEAD", head)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    (evidence / "terraform-cli.tfrc").write_text("")
+    environment = tmp_path / "selected-venv"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(environment)
+    executable = environment / "bin/python"
+    assert executable.is_symlink()
+    output = tmp_path / "recorded"
+    command = "import json,sys; print(json.dumps({'prefix':sys.prefix,'base':sys.base_prefix}))"
+
+    result = recorder.main(
+        [
+            "--source",
+            str(source),
+            "--evidence",
+            str(evidence),
+            "--output",
+            str(output),
+            "--label",
+            "venv",
+            str(executable),
+            "-c",
+            command,
+        ]
+    )
+
+    assert result == 0
+    observed = json.loads((output / "venv.stdout").read_text())
+    assert Path(observed["prefix"]).resolve() == environment.resolve()
+    assert observed["prefix"] != observed["base"]
+    receipt = json.loads((output / "venv.json").read_text())
+    assert receipt["argv"][0] == str(executable)
+    assert receipt["tool"]["path"] == str(executable)
+    assert receipt["tool"]["resolved_path"] == str(executable.resolve())
+    assert receipt["tool"]["sha256"] == hashlib.sha256(executable.resolve().read_bytes()).hexdigest()
