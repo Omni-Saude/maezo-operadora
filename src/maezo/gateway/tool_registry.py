@@ -104,6 +104,7 @@ from typing import Any, Final
 
 import structlog
 
+from maezo.gateway.amh import AmhRuntime, AmhSubjectContextExecutor, GatedAmhContext
 from maezo.gateway.credential_vault import (
     AgentCredentialView,
     CredentialVault,
@@ -552,6 +553,19 @@ def build_inference_seam(*, seam: SeamContext, inner: Any = None) -> GatedInfere
     return gate_inference(inner, seam)
 
 
+def build_amh_context(*, runtime: AmhRuntime, seam: SeamContext) -> GatedAmhContext:
+    """Build the actual canonical port; registration does not add agent capabilities.
+
+    Explicit tenant/legal-entity/issuer binding and current producers are supplied
+    by server composition. The executor receives only the vault's agent view.
+    Caller closes this dependency with aclose(); each HTTP call also owns its
+    transport lifetime. Missing runtime binding never selects a demo transport.
+    """
+    credentials = runtime.credentials.get_agent_view(seam.principal)
+    executor = AmhSubjectContextExecutor(runtime=runtime, seam=seam, credentials=credentials)
+    return executor.context
+
+
 def build_fhir_seam(*, seam: SeamContext, base_url: str, adapter: str = "read_patient") -> GatedFhirReader:
     """A gated FHIR reader over `FhirServer`.
 
@@ -725,6 +739,7 @@ def build_agent_seams(
     agent_id: str,
     inference: Any = None,
     approvals_path: str | Path | None = None,
+    amh_runtime: AmhRuntime | None = None,
 ) -> dict[str, Any]:
     """Build EVERY effect seam `agent_id`'s graph needs, GATED. The single sanctioned constructor.
 
@@ -780,6 +795,9 @@ def build_agent_seams(
         deps["whatsapp"] = build_whatsapp_seam(
             seam=seam, adapter=whatsapp_adapter, dedup=_outbound_dedup_registry(settings)
         )
+
+    if amh_runtime is not None:
+        deps["clinical_context"] = build_amh_context(runtime=amh_runtime, seam=seam)
 
     fhir_seam = build_agent_fhir_seam(settings=settings, agent_id=agent_id, seam=seam)
     if fhir_seam is not None:
@@ -901,6 +919,7 @@ __all__ = [
     "build_agent_fhir_seam",
     "build_agent_seam_context",
     "build_agent_seams",
+    "build_amh_context",
     "build_cibseven_seam",
     "build_dmn_seam",
     "build_fhir_seam",

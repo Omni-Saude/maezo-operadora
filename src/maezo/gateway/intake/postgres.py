@@ -18,19 +18,32 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from maezo.gateway.external_cases.models import ExternalCaseError
 from maezo.gateway.external_cases.postgres import transaction
 from maezo.portal.contracts.intake import AuthIntakeSubmission, IntakeReceipt
-from maezo.portal.engine.profile import canonicalize
+from maezo.portal.engine.profile import canonicalize, strict_loads
 
 from .models import AdmissionGrant, IntakeError, request_bytes
+from .native_store import PostgresAuthDispatchStore
 
 
 class PostgresIntakeStore:
     def __init__(
-        self, engine: AsyncEngine, *, tenant: str, key_id: str, encryption_key: bytes, seconds: float = 5
+        self,
+        engine: AsyncEngine,
+        *,
+        tenant: str,
+        key_id: str,
+        encryption_key: bytes,
+        seconds: float = 5,
+        native_dispatch: PostgresAuthDispatchStore | None = None,
     ) -> None:
         if not tenant or not key_id or len(encryption_key) != 32:
             raise IntakeError()
         self.engine, self.tenant, self.key_id, self.seconds = engine, tenant, key_id, seconds
         self._cipher = AESGCM(encryption_key)
+        if native_dispatch is not None and (
+            native_dispatch.engine is not engine or native_dispatch.tenant != tenant
+        ):
+            raise IntakeError()
+        self.native_dispatch = native_dispatch
 
     @staticmethod
     def _receipt(row: Any) -> IntakeReceipt:
@@ -133,6 +146,24 @@ class PostgresIntakeStore:
                         ),
                         values,
                     )
+                    if self.native_dispatch is not None:
+                        admitted_digest = hashlib.sha256(
+                            canonicalize(
+                                {
+                                    "schema": "human-auth-admission.v1",
+                                    "request": strict_loads(raw),
+                                    "guide_identity_ref": grant.guide_identity_ref,
+                                }
+                            )
+                        ).hexdigest()
+                        await self.native_dispatch.stage_intake(
+                            connection,
+                            principal=grant.principal,
+                            intake_ref=values["intake"],
+                            command_id=request.command_id,
+                            admitted_digest=admitted_digest,
+                            valid_until=grant.valid_until,
+                        )
                     result = IntakeReceipt(
                         intake_ref=values["intake"],
                         command_id=request.command_id,

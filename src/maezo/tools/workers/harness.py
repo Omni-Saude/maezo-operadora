@@ -673,6 +673,10 @@ def _from_camunda_var(entry: Mapping[str, Any]) -> Any:
     with `value: null` (unset) decodes to `None`, never attempted through `json.loads` (which
     would raise `TypeError` on a non-str/bytes argument).
     """
+    if entry.get("type") == "maezo-auth-exact-decimal.v1":
+        # This exact type belongs to the qualified native AUTH acquisition adapter.
+        # Generic legacy hydration must never erase its type and route it through float.
+        raise ValueError("AUTH exact amount requires native profile hydration")
     value = entry.get("value")
     if entry.get("type") == "Json" and isinstance(value, str):
         return json.loads(value)
