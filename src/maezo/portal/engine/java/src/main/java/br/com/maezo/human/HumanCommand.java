@@ -28,8 +28,9 @@ record HumanCommand(
     String evidenceDigest,
     String assigneeRef,
     String auditIntentRef,
-    String outcome) {
+    String outcome, ClassifiedDecision classified) {
   static HumanCommand parse(Map<String, Object> c) {
+    if ("human-classified-decision.v1".equals(c.get("schema"))) return ClassifiedDecision.parse(c);
     Jcs.keys(
         c,
         "schema",
@@ -89,6 +90,6 @@ record HumanCommand(
         Jcs.hash(c, "evidence_digest"),
         c.get("assignee_ref") == null ? null : Jcs.ref(c, "assignee_ref"),
         Jcs.ref(c, "audit_intent_ref"),
-        outcome);
+        outcome, null);
   }
 }

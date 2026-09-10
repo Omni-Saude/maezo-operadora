@@ -21,8 +21,10 @@ import asyncpg  # type: ignore[import-untyped]
 from maezo.gateway.audit import AuditRecord
 from maezo.gateway.audit_postgres import PostgresAuditSink, _row_to_record, schema_for_tenant
 from maezo.portal.contracts.models import HumanPrincipal
+from maezo.portal.engine.decision import HumanDecisionCommand
 from maezo.portal.engine.profile import HumanCommand
 
+from .decision import ClassifiedDecision, DecisionAdmission, PendingDecisionAdmission
 from .models import AuthorizedAssignment, PendingAdmission, Scope
 from .ports import DurableAdmission
 from .projection import (
@@ -50,7 +52,7 @@ class LeaseLostError(HumanOutboxError):
 @dataclass(frozen=True)
 class DeliveryLease:
     scope: Scope
-    command: HumanCommand
+    command: HumanCommand | HumanDecisionCommand
     lease_id: str
     fence: int
     lease_until: datetime
@@ -63,11 +65,11 @@ def _positive_seconds(value: int) -> int:
     return value
 
 
-def _audit(command: HumanCommand, phase: str, details: dict[str, Any]) -> AuditRecord:
+def _audit(command: HumanCommand | HumanDecisionCommand, phase: str, details: dict[str, Any]) -> AuditRecord:
     return AuditRecord(
         agent_id=command.workload_ref,
         tenant_id=command.tenant,
-        agent_version="human-command.v1",
+        agent_version=command.schema,
         action=f"human_command.{phase}",
         decision="REQUIRE_HUMAN",
         details={
@@ -107,19 +109,23 @@ class PostgresHumanOutbox(ReceiptStore):
         except Exception:
             raise HumanOutboxError("human durable transaction unavailable") from None
 
-    def _scope(self, command: HumanCommand) -> None:
+    def _scope(self, command: HumanCommand | HumanDecisionCommand) -> None:
         if (
             command.tenant != self.scope.tenant
             or command.workload_ref != self.scope.workload_ref
             or command.principal_ref == self.scope.workload_ref
-            or command.operation not in ("claim", "release")
+            or (
+                command.operation not in ("claim", "release")
+                and not isinstance(command, HumanDecisionCommand)
+            )
+            or (isinstance(command, HumanDecisionCommand) and command.environment != self.scope.environment)
         ):
             raise HumanOutboxError("human command scope mismatch")
 
     async def _verify_link(
         self,
         conn: asyncpg.Connection,
-        command: HumanCommand,
+        command: HumanCommand | HumanDecisionCommand,
         phase: str,
         record_hash: str,
         details: dict[str, Any],
@@ -147,7 +153,7 @@ class PostgresHumanOutbox(ReceiptStore):
         if claimed != record_hash:
             raise HumanOutboxError("human audit linkage unavailable")
 
-    def _command(self, row: Any) -> HumanCommand:
+    def _command(self, row: Any) -> HumanCommand | HumanDecisionCommand:
         command = restore_command(bytes(row["canonical_payload"]))
         self._scope(command)
         if (
@@ -170,7 +176,9 @@ class PostgresHumanOutbox(ReceiptStore):
             raise HumanOutboxError("human command linkage unavailable")
         return command
 
-    async def persist(self, command: HumanCommand, *, evidence_valid_until: datetime) -> PendingAdmission:
+    async def persist(
+        self, command: HumanCommand | HumanDecisionCommand, *, evidence_valid_until: datetime
+    ) -> PendingAdmission:
         self._scope(command)
         if evidence_valid_until.tzinfo is None or evidence_valid_until <= datetime.now(UTC):
             raise HumanOutboxError("evidence validity unavailable")
@@ -419,6 +427,8 @@ class PostgresHumanOutbox(ReceiptStore):
                 audit_result_ref=row["audit_result_hash"],
                 technical_code=row["technical_code"],
             )
+            if isinstance(c, HumanDecisionCommand):
+                result.update(schema_version="human-public-receipt.v2", operation="decision")
             if row["status"] == "committed":
                 raw = bytes(row["engine_receipt"])
                 verified = verify_engine_receipt(raw, c)
@@ -466,3 +476,32 @@ class PostgresHumanAdmission(DurableAdmission):
         reference = EvidenceReference.model_validate(await self._evidence.current_reference(value))
         wire = project_assignment(value, reference)
         return await self._outbox.persist(wire, evidence_valid_until=reference.valid_until)
+
+
+class PostgresDecisionAdmission(DecisionAdmission):
+    """D3 carrier -> existing single tenant audit/outbox TX, without engine dispatch.
+
+    Requires the separately owned gateway decision module in the final composition.
+    No local persistence fallback or dependency inference is permitted.
+    """
+
+    def __init__(self, outbox: PostgresHumanOutbox) -> None:
+        self.scope = outbox.scope
+        self._outbox = outbox
+
+    async def admit(self, command: ClassifiedDecision, *, valid_until: datetime) -> PendingDecisionAdmission:
+
+        try:
+            if not isinstance(command, ClassifiedDecision):
+                raise HumanOutboxError("human decision shape unavailable")
+            value = ClassifiedDecision.model_validate(command.model_dump(by_alias=True))
+            if value.scope != self.scope:
+                raise HumanOutboxError("human decision admission scope mismatch")
+            wire = HumanDecisionCommand(value.canonical)
+            admitted = await self._outbox.persist(wire, evidence_valid_until=valid_until)
+            return PendingDecisionAdmission(
+                **admitted.model_dump(), payload_digest=wire.digest, request_digest=value.request_digest
+            )
+        except Exception:
+            # Includes uncertain commit: retry identical identity, never infer rollback.
+            raise HumanOutboxError("human decision admission unavailable") from None

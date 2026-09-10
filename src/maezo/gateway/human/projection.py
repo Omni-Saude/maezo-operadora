@@ -12,9 +12,10 @@ from abc import ABC, abstractmethod
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints
+from pydantic import Field, StringConstraints, model_validator
 
 from maezo.portal.contracts.models import OpaqueRef, Revision, Sha256Digest
+from maezo.portal.engine.decision import HumanDecisionCommand
 from maezo.portal.engine.profile import HumanCommand, canonicalize, strict_loads
 
 from .models import AuthorizedAssignment, Closed, Scope, Timed
@@ -133,20 +134,29 @@ def project_assignment(assignment: AuthorizedAssignment, evidence: EvidenceRefer
 class EngineReceipt(Closed):
     """Exact D5 wire schema; validation alone does not authenticate its origin."""
 
-    schema_: Literal["human-engine-receipt.v1"] = Field(alias="schema")
+    schema_: Literal["human-engine-receipt.v1", "human-engine-receipt.v2"] = Field(alias="schema")
     status: Literal["committed"]
     tenant: OpaqueRef
     task_id: OpaqueRef
     command_id: OpaqueRef
-    operation: Literal["claim", "release"]
+    operation: Literal["claim", "release", "decision"]
     payload_digest: Sha256Digest
     principal_ref: OpaqueRef
     workload_ref: OpaqueRef
     audit_intent_ref: OpaqueRef
     consumed_task_revision: DecimalRevision
-    resulting_task_revision: DecimalRevision
+    resulting_task_revision: DecimalRevision | None
     engine_receipt_ref: OpaqueRef
     recorded_at: DecimalRevision
+
+    @model_validator(mode="after")
+    def operation_shape(self) -> EngineReceipt:
+        if self.schema_ == "human-engine-receipt.v2":
+            if self.operation != "decision" or self.resulting_task_revision is not None:
+                raise ValueError("invalid completed decision receipt")
+        elif self.operation not in ("claim", "release") or self.resulting_task_revision is None:
+            raise ValueError("invalid assignment receipt")
+        return self
 
     @property
     def engine_recorded_at(self) -> datetime:
@@ -154,11 +164,18 @@ class EngineReceipt(Closed):
         return datetime.fromtimestamp(int(self.recorded_at), UTC)
 
 
-def verify_engine_receipt(raw: bytes, command: HumanCommand) -> EngineReceipt:
+def verify_engine_receipt(raw: bytes, command: HumanCommand | HumanDecisionCommand) -> EngineReceipt:
     """Use only on the authenticated dedicated endpoint or linked durable local bytes."""
     try:
         value = strict_loads(raw)
         receipt = EngineReceipt.model_validate(value)
+        expected_schema = (
+            "human-engine-receipt.v2"
+            if isinstance(command, HumanDecisionCommand)
+            else "human-engine-receipt.v1"
+        )
+        if receipt.schema_ != expected_schema:
+            raise ProjectionError("receipt mismatch")
         for field in (
             "tenant",
             "task_id",
@@ -183,9 +200,12 @@ def verify_engine_receipt(raw: bytes, command: HumanCommand) -> EngineReceipt:
         raise ProjectionError("receipt verification unavailable") from None
 
 
-def restore_command(raw: bytes) -> HumanCommand:
+def restore_command(raw: bytes) -> HumanCommand | HumanDecisionCommand:
     try:
-        command = HumanCommand(**strict_loads(raw))
+        value = strict_loads(raw)
+        if isinstance(value, dict) and value.get("schema") == "human-classified-decision.v1":
+            return HumanDecisionCommand(raw)
+        command = HumanCommand(**value)
         if command.canonical != raw or command.operation not in ("claim", "release"):
             raise ProjectionError("immutable command unavailable")
         return command

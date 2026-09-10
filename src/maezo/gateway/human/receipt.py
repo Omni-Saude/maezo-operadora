@@ -9,9 +9,9 @@ of task/command IDs or the original admission is never a read capability.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal, cast
 
-from pydantic import field_validator, model_validator
+from pydantic import SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 
 from maezo.portal.contracts.models import HumanPrincipal, OpaqueRef, Revision, Sha256Digest
 
@@ -29,7 +29,8 @@ class ReceiptIdentity(Closed):
 
 
 class PublicReceipt(ReceiptIdentity):
-    schema_version: Literal["human-public-receipt.v1"] = "human-public-receipt.v1"
+    schema_version: Literal["human-public-receipt.v1", "human-public-receipt.v2"] = "human-public-receipt.v1"
+    operation: Literal["decision"] | None = None
     status: Literal["pending", "committed", "conflict"]
     audit_intent_ref: OpaqueRef
     audit_intent_hash: Sha256Digest
@@ -40,6 +41,13 @@ class PublicReceipt(ReceiptIdentity):
     resulting_task_revision: DecimalRevision | None = None
     technical_code: Literal["REVISION_CONFLICT", "COMMAND_CONFLICT", "FORM_NOT_ACTIVATED"] | None = None
 
+    @model_serializer(mode="wrap")
+    def preserve_assignment_wire(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        value = cast(dict[str, Any], handler(self))
+        if self.schema_version == "human-public-receipt.v1":
+            value.pop("operation", None)
+        return value
+
     @field_validator("engine_recorded_at")
     @classmethod
     def utc_timestamp(cls, value: datetime | None) -> datetime | None:
@@ -49,6 +57,13 @@ class PublicReceipt(ReceiptIdentity):
 
     @model_validator(mode="after")
     def status_shape(self) -> "PublicReceipt":
+        decision = self.schema_version == "human-public-receipt.v2"
+        if not decision and "operation" in self.model_fields_set:
+            raise ValueError("assignment receipt cannot contain decision operation")
+        if decision != (self.operation == "decision"):
+            raise ValueError("receipt operation schema mismatch")
+        if decision and self.resulting_task_revision is not None:
+            raise ValueError("completed decision cannot retain task revision")
         engine = (
             self.engine_receipt_ref,
             self.engine_recorded_at,
@@ -57,7 +72,7 @@ class PublicReceipt(ReceiptIdentity):
         )
         if self.status == "committed":
             if (
-                any(v is None for v in engine)
+                any(v is None for v in (engine[:3] if decision else engine))
                 or self.audit_result_ref is None
                 or self.technical_code is not None
             ):
