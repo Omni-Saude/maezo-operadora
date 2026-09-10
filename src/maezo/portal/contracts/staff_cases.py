@@ -13,7 +13,7 @@ class Freshness(Closed):
     observed_at: T
     source_observed_at: T
     valid_until: T
-    refresh_after_seconds: Literal[10]
+    refresh_after_seconds: Literal["10"]
 
 
 class StaffSummary(Closed):

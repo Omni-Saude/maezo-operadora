@@ -44,7 +44,12 @@ final class NativeCaseIdentityReader {
         AND identity->>'case_ref'=? ORDER BY source_ref COLLATE "C"
       """, db.scope.get("tenant"),db.scope.get("environment"),db.scope.get("engine_name"),
       db.scope.get("database_incarnation"),caseRef);
-    for (var old : external) identity = reconcile(identity, ExternalCaseStore.json(old.get("identity")));
+    String canonicalUpstream=null;
+    for (var old : external) {
+      var prior=ExternalCaseStore.json(old.get("identity"));
+      if(canonicalUpstream!=null&&!canonicalUpstream.equals(prior.get("upstream_resource_key")))throw unavailable();
+      identity=reconcile(identity,prior);canonicalUpstream=str(identity,"upstream_resource_key");
+    }
     // Reuse the existing exact runtime/historic/tenant/deployed-bytes predicate.
     var projection = ExternalCaseStore.nativeProjection(identity,db.tenant,row);
     return record("identity",identity,"native",projection,"claim_digest",hash(claim),

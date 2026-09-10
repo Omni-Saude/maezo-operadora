@@ -36,14 +36,14 @@ def _time(value: str) -> str:
 N = Annotated[str, AfterValidator(_number)]
 T = Annotated[str, AfterValidator(_time)]
 Purpose = Literal[
-    "installation", "membership_current", "staff_case_grant", "native_case_facts", "native_result",
+    "installation", "membership_current", "staff_case_grant", "staff_policy_head", "native_case_facts", "native_result",
 ]
 EnvelopePurpose = Literal["staff-case-publication.v1", "staff-case-read.v1", "staff-case-finalize.v1"]
 Projection = Literal["staff_summary.v1", "staff_identity.v1", "staff_current_task.v1"]
 ROLE_PURPOSES: dict[str, frozenset[str]] = {
     "installer": frozenset({"installation"}),
     "identity_verifier": frozenset({"membership_current"}),
-    "case_issuer": frozenset({"staff_case_grant"}),
+    "case_issuer": frozenset({"staff_case_grant", "staff_policy_head"}),
     "publication_importer": frozenset({"staff-case-publication.v1"}),
     "native_facts": frozenset({"native_case_facts"}),
     "read_requester": frozenset({"staff-case-read.v1", "staff-case-finalize.v1"}),
@@ -174,7 +174,7 @@ class StaffCaseGrant(Closed):
     grant_revision: N
     source_ref: Ref
     source_revision: N
-    decisions: tuple[PolicyDecision, ...] = Field(min_length=1, max_length=3)
+    decisions: tuple[PolicyDecision, ...] = Field(min_length=1, max_length=256)
     observed_at: T
     valid_until: T
     state: Literal["active", "revoked"]
@@ -186,8 +186,8 @@ class StaffCaseGrant(Closed):
 
     @model_validator(mode="after")
     def unique_decisions(self) -> Self:
-        pairs = {(d.operation, d.projection) for d in self.decisions}
-        if len(pairs) != len(self.decisions):
+        refs = {d.decision_ref for d in self.decisions}
+        if len(refs) != len(self.decisions):
             raise ValueError("duplicate staff decision")
         return self
 
@@ -217,6 +217,54 @@ class Revoke(Closed):
     expected_revision: N
 
 
+class StaffCurrentTaskResource(Closed):
+    scope: Scope
+    case_ref: CaseRef
+    process_instance_id: Ref
+    task_id: Ref
+    task_definition_key: Ref
+
+
+class StaffCurrentTaskCreatedAt(Closed):
+    resource: StaffCurrentTaskResource
+    task_revision: N
+    created_at: T
+
+
+class StaffPolicyHeadPublication(Closed):
+    schema_: Literal["staff-policy-head.v1"] = Field(alias="schema")
+    scope: Scope
+    policy_ref: Ref
+    policy_revision: N
+    policy_digest: Digest
+    head_revision: N
+    expected_head_revision: N
+    state: Literal["active", "revoked"]
+    decision_issuer_key_fingerprint: Digest
+    decision_purpose: Purpose
+    source_ref: Ref
+    source_revision: N
+    observed_at: T
+    valid_until: T
+    proof: Proof
+
+    @model_validator(mode="after")
+    def exact_head(self) -> Self:
+        if (int(self.head_revision) != int(self.expected_head_revision) + 1
+                or int(self.policy_revision) < 1 or self.proof.purpose != "staff_policy_head"
+                or self.decision_purpose != "staff_case_grant"):
+            raise ValueError("invalid staff policy head")
+        return self
+
+
+class PolicyHeadPin(Closed):
+    policy_ref: Ref
+    policy_revision: N
+    policy_digest: Digest
+    head_revision: N
+    head_digest: Digest
+
+
 class StaffPublication(Closed):
     schema_: Literal["staff-case-publication.v1"] = Field(alias="schema")
     scope: Scope
@@ -224,9 +272,9 @@ class StaffPublication(Closed):
     expected_source_revision: N
     source_ref: Ref
     source_revision: N
-    kind: Literal["case_grant", "revoke"]
+    kind: Literal["case_grant", "revoke", "policy_head"]
     membership_witness: MembershipWitness | None
-    payload: StaffCaseGrant | Revoke
+    payload: StaffCaseGrant | Revoke | StaffPolicyHeadPublication
     payload_digest: Digest
     observed_at: T
     valid_until: T
@@ -239,6 +287,9 @@ class StaffPublication(Closed):
         if self.kind == "case_grant":
             if not isinstance(self.payload, StaffCaseGrant) or self.membership_witness is None:
                 raise ValueError("missing staff grant witness")
+        elif self.kind == "policy_head":
+            if not isinstance(self.payload, StaffPolicyHeadPublication) or self.membership_witness is not None:
+                raise ValueError("invalid staff policy publication")
         elif not isinstance(self.payload, Revoke):
             raise ValueError("invalid staff tombstone")
         return self

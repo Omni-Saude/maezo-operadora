@@ -86,6 +86,7 @@ class VerifiedGrant:
     actor_digest: str
     membership_digest: str
     fields: Mapping[str, frozenset[str]]
+    task_decisions: tuple[PolicyDecision, ...]
     valid_until: datetime
 
 
@@ -196,16 +197,26 @@ class InstalledStaffAuthority:
                     self.proof(publication.proof, signed_publication, role="case_issuer", purpose="staff_case_grant",
                                source_ref=grant.source_ref, now=now))
         fields: dict[str, frozenset[str]] = {}
+        task_decisions: list[PolicyDecision] = []
         for decision in grant.decisions:
             until = min(until, self._decision(decision, grant, principal, now))
-            fields[decision.projection] = frozenset(decision.fields)
+            if decision.resource_identity_digest == grant.identity_digest:
+                if decision.projection in fields:
+                    raise StaffCaseError("denied")
+                fields[decision.projection] = frozenset(decision.fields) - (
+                    {"created_at"} if decision.projection == "staff_current_task.v1" else set()
+                )
+            else:
+                # Exact task resource must be matched against current native facts
+                # before this additional decision can expose created_at.
+                task_decisions.append(decision)
         # Exact detail always discloses the complete closed summary and canonical identity.
         # A narrow field grant must not be widened by a DTO's required fields/defaults.
         for projection in ("staff_summary.v1", "staff_identity.v1"):
             if fields.get(projection) != FIELDS[projection]:
                 raise StaffCaseError("denied")
         return VerifiedGrant(grant, identity, actor_digest(principal), digest(witness.wire()),
-                             MappingProxyType(fields), until)
+                             MappingProxyType(fields), tuple(task_decisions), until)
 
     def _decision(
         self, decision: PolicyDecision, grant: StaffCaseGrant,
@@ -213,7 +224,8 @@ class InstalledStaffAuthority:
     ) -> datetime:
         if (decision.state != "active" or decision.subject_identity_digest != actor_digest(principal)
                 or decision.membership_revision != grant.membership_revision
-                or decision.resource_identity_digest != grant.identity_digest):
+                or (decision.resource_identity_digest != grant.identity_digest and (
+                    decision.projection != "staff_current_task.v1" or "created_at" not in decision.fields))):
             raise StaffCaseError("denied")
         payload = decision.wire()
         payload.pop("decision_proof")

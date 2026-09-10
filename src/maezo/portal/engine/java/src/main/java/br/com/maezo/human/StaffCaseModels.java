@@ -12,21 +12,24 @@ final class StaffCaseModels {
     "staff_current_task.v1",Set.of("task_id","task_definition_key","task_revision","created_at","due_at","assignee_ref"));
   static final Map<String,Set<String>> PURPOSES=Map.of(
     "installer",Set.of("installation"),"publication_importer",Set.of("staff-case-publication.v1"),
-    "identity_verifier",Set.of("membership_current"),"case_issuer",Set.of("staff_case_grant"),
+    "identity_verifier",Set.of("membership_current"),"case_issuer",Set.of("staff_case_grant","staff_policy_head"),
     "native_facts",Set.of("native_case_facts"),"native_result",Set.of("native_result"),
     "read_requester",Set.of("staff-case-read.v1","staff-case-finalize.v1"));
   static final String PROJECTIONS="staff_summary.v1|staff_identity.v1|staff_current_task.v1";
   static final Map<String,String> SHAPES=Map.ofEntries(
-    Map.entry("proof","schema:staff-case-proof.v1 purpose:installation|membership_current|staff_case_grant|native_case_facts|native_result algorithm:Ed25519 key_fingerprint:h issued_at:t expires_at:t statement_digest:h signature:b64"),
+    Map.entry("proof","schema:staff-case-proof.v1 purpose:installation|membership_current|staff_case_grant|staff_policy_head|native_case_facts|native_result algorithm:Ed25519 key_fingerprint:h issued_at:t expires_at:t statement_digest:h signature:b64"),
     Map.entry("entry","entry_ref:r role:installer|publication_importer|identity_verifier|case_issuer|native_facts|read_requester|native_result source_namespace:r source_ref:r key_fingerprint:h certificate_spki:?h public_key:b64 login_role:r purposes:[purpose projections:[projection operations:[detail not_before:t valid_until:t"),
     Map.entry("designation","schema:staff-case-designation.v1 scope:@scope designation_ref:r designation_revision:n expected_previous_revision:n authority_ref:r authority_revision:n entries:[@entry issued_at:t valid_until:t state:active|revoked"),
     Map.entry("decision","decision_ref:r policy_ref:r policy_revision:n policy_digest:h subject_identity_digest:h membership_revision:n resource_identity_digest:h operation:detail projection:projection fields:[r receipt_ref:r receipt_digest:h decision_proof:@proof observed_at:t valid_until:t state:active|revoked"),
     Map.entry("grant","grant_ref:r scope:@scope case_ref:case identity_digest:h issuer:s subject:r principal_ref:r membership_revision:n audience:staff grant_revision:n source_ref:r source_revision:n decisions:[@decision observed_at:t valid_until:t state:active|revoked"),
     Map.entry("membership","schema:staff-case-membership-witness.v1 scope:@scope actor:@actor session_ref:r principal_record_revision:n principal_record_digest:h source:@source observed_at:t valid_until:t proof:@proof"),
+    Map.entry("policy_head","schema:staff-policy-head.v1 scope:@scope policy_ref:r policy_revision:p policy_digest:h head_revision:p expected_head_revision:n state:active|revoked decision_issuer_key_fingerprint:h decision_purpose:staff_case_grant source_ref:r source_revision:n observed_at:t valid_until:t proof:@proof"),
+    Map.entry("task_resource","scope:@scope case_ref:case process_instance_id:r task_id:r task_definition_key:r"),
+    Map.entry("task_created","resource:@task_resource task_revision:n created_at:t"),
     Map.entry("revoke","target_kind:case_grant target_ref:r expected_revision:n"),
     Map.entry("detail","case_ref:case task_limit:n task_cursor:?r"),
     Map.entry("finalize","continuity_ref:r frozen_projection_digest:h subordinate_continuities:[r"),
-    Map.entry("readpin","kind:designation|identity|membership|case_grant|native_case|native_task|task_disclosure|source_key ref:r revision:n digest:h valid_until:t"),
+    Map.entry("readpin","kind:designation|identity|membership|case_grant|native_case|native_task|task_disclosure|source_key|policy_head|native_task_created_at ref:r revision:n digest:h valid_until:t"),
     Map.entry("receipt","schema:staff-case-publication-receipt.v1 publication_id:r request_digest:h scope:@scope source_ref:r source_revision:n payload_digest:h disposition:committed committed_at:t native_receipt_ref:r valid_until:t proof:@proof")
   );
   static Map<String,Object> shape(String name,Object value){
@@ -39,7 +42,7 @@ final class StaffCaseModels {
     if(!m.keySet().equals(names))throw invalid();
     if(name.equals("membership")&&(!"staff".equals(obj(m,"actor").get("audience"))||!"membership_current".equals(obj(m,"proof").get("purpose"))))throw invalid();
     if(name.equals("decision")){var fs=list(m.get("fields"));if(fs.isEmpty()||!FIELDS.get(str(m,"projection")).containsAll(fs))throw invalid();}
-    if(name.equals("grant")){var ds=list(m.get("decisions"));if(ds.isEmpty()||ds.size()>3)throw invalid();var seen=new HashSet<>();for(Object d:ds)if(!seen.add(map(d).get("projection")))throw invalid();}
+    if(name.equals("grant")){var ds=list(m.get("decisions"));if(ds.isEmpty()||ds.size()>256)throw invalid();var seen=new HashSet<>();for(Object d:ds)if(!seen.add(map(d).get("decision_ref")))throw invalid();}
     if(name.equals("detail")&&(number(m.get("task_limit"))<1||number(m.get("task_limit"))>100))throw invalid();
     return m;
   }
@@ -47,6 +50,7 @@ final class StaffCaseModels {
     if(type.startsWith("?")){if(value!=null)check(type.substring(1),value);return;}
     if(type.startsWith("[")){var seen=new HashSet<String>();for(Object x:list(value)){check(type.substring(1),x);if(!seen.add(hash(x)))throw invalid();}return;}
     if(type.startsWith("@")){shape(type.substring(1),value);return;}
+    if(type.equals("p")){if(number(value)<1)throw invalid();return;}
     if(type.equals("b64")){base64(value);return;}
     if(type.equals("case")){ExternalCaseModels.check(type,value);return;}
     if(type.equals("projection")){if(!FIELDS.containsKey(value))throw invalid();return;}
@@ -71,12 +75,18 @@ final class StaffCaseModels {
     if(number(r.get("source_revision"))!=Math.addExact(number(r.get("expected_source_revision")),1))throw conflict();
     check("h",r.get("payload_digest"));check("t",r.get("observed_at"));check("t",r.get("valid_until"));shape("proof",r.get("proof"));
     if(r.get("membership_witness")!=null)shape("membership",r.get("membership_witness"));
-    String kind=str(r,"kind");if(!Set.of("case_grant","revoke").contains(kind))throw invalid();
-    var payload=shape(kind.equals("case_grant")?"grant":"revoke",r.get("payload"));
+    String kind=str(r,"kind");if(!Set.of("case_grant","revoke","policy_head").contains(kind))throw invalid();
+    var payload=shape(kind.equals("case_grant")?"grant":kind,r.get("payload"));
     if(!hash(payload).equals(r.get("payload_digest")))throw denied();
     if(kind.equals("case_grant")){
       if(r.get("membership_witness")==null||!r.get("scope").equals(payload.get("scope"))
           ||!r.get("source_ref").equals(payload.get("source_ref"))||!r.get("source_revision").equals(payload.get("source_revision")))throw denied();
+    }
+    if(kind.equals("policy_head")){
+      if(r.get("membership_witness")!=null||!r.get("scope").equals(payload.get("scope"))
+          ||!r.get("source_ref").equals(payload.get("source_ref"))||!r.get("source_revision").equals(payload.get("source_revision"))
+          ||number(payload.get("head_revision"))!=Math.addExact(number(payload.get("expected_head_revision")),1)
+          ||!"staff_policy_head".equals(obj(payload,"proof").get("purpose")))throw denied();
     }
     return r;
   }

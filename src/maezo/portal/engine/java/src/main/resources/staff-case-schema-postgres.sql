@@ -47,28 +47,50 @@ CREATE TABLE mzo_staff_case_grant (
  publication_id text NOT NULL, source_ref text NOT NULL, case_ref text NOT NULL,
  issuer text NOT NULL, subject text NOT NULL, principal_ref text NOT NULL,
  membership_revision bigint NOT NULL CHECK(membership_revision>=0),
- state text NOT NULL CHECK(state IN ('active','revoked')), identity_digest char(64) NOT NULL,
+ state text NOT NULL CHECK(state IN ('active','revoked')), identity_digest char(64) NOT NULL, effective boolean NOT NULL,
  PRIMARY KEY(tenant,environment,engine_name,database_incarnation,grant_ref),
  FOREIGN KEY(tenant,environment,engine_name,database_incarnation,publication_id)
  REFERENCES mzo_staff_case_source_event(tenant,environment,engine_name,database_incarnation,publication_id)
 );
 CREATE UNIQUE INDEX mzo_staff_case_one_active_detail ON mzo_staff_case_grant
  (tenant,environment,engine_name,database_incarnation,case_ref,issuer,subject,principal_ref,membership_revision)
- WHERE state='active';
+ WHERE state='active' AND effective;
 CREATE TABLE mzo_staff_case_continuity (
  tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
  continuity_ref text NOT NULL, continuity_digest char(64) NOT NULL,
  canonical_continuity text NOT NULL CHECK(octet_length(canonical_continuity)<=65536),
  PRIMARY KEY(tenant,environment,engine_name,database_incarnation,continuity_ref)
 );
-CREATE TABLE mzo_staff_case_cursor (
+CREATE TABLE mzo_staff_case_policy_version (
  tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
- cursor_ref text NOT NULL, canonical_cursor text NOT NULL CHECK(octet_length(canonical_cursor)<=65536),
- PRIMARY KEY(tenant,environment,engine_name,database_incarnation,cursor_ref)
+ policy_ref text NOT NULL, head_revision bigint NOT NULL CHECK(head_revision>0), head_digest char(64) NOT NULL,
+ publication_id text NOT NULL, canonical_head text NOT NULL CHECK(octet_length(canonical_head)<=65536),
+ PRIMARY KEY(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision),
+ UNIQUE(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision,head_digest),
+ FOREIGN KEY(tenant,environment,engine_name,database_incarnation,publication_id)
+ REFERENCES mzo_staff_case_source_event(tenant,environment,engine_name,database_incarnation,publication_id)
 );
+CREATE TABLE mzo_staff_case_policy_current (
+ tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
+ policy_ref text NOT NULL, head_revision bigint NOT NULL, head_digest char(64) NOT NULL,
+ PRIMARY KEY(tenant,environment,engine_name,database_incarnation,policy_ref),
+ FOREIGN KEY(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision,head_digest)
+ REFERENCES mzo_staff_case_policy_version
+);
+CREATE TABLE mzo_staff_case_policy_dependency (
+ tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
+ grant_ref text NOT NULL, grant_revision bigint NOT NULL CHECK(grant_revision>0), policy_ref text NOT NULL,
+ head_revision bigint NOT NULL, head_digest char(64) NOT NULL,
+ PRIMARY KEY(tenant,environment,engine_name,database_incarnation,grant_ref,grant_revision,policy_ref),
+ FOREIGN KEY(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision,head_digest)
+ REFERENCES mzo_staff_case_policy_version
+);
+CREATE INDEX mzo_staff_policy_dependents ON mzo_staff_case_policy_dependency
+ (tenant,environment,engine_name,database_incarnation,policy_ref,grant_ref,grant_revision);
 REVOKE ALL ON mzo_staff_case_designation_event,mzo_staff_case_designation_current,
  mzo_staff_case_source_event,mzo_staff_case_source_head,mzo_staff_case_publication_receipt,
- mzo_staff_case_grant,mzo_staff_case_continuity,mzo_staff_case_cursor FROM PUBLIC;
+ mzo_staff_case_grant,mzo_staff_case_continuity,
+ mzo_staff_case_policy_version,mzo_staff_case_policy_current,mzo_staff_case_policy_dependency FROM PUBLIC;
 DO $$
 DECLARE native_role name := current_setting('maezo.staff_native_role')::name;
 BEGIN
@@ -77,8 +99,8 @@ BEGIN
    RAISE EXCEPTION 'invalid staff native role';
  END IF;
  EXECUTE format('GRANT SELECT ON mzo_staff_case_designation_event,mzo_staff_case_designation_current TO %I',native_role);
- EXECUTE format('GRANT SELECT,INSERT ON mzo_staff_case_source_event,mzo_staff_case_publication_receipt,mzo_staff_case_continuity,mzo_staff_case_cursor TO %I',native_role);
- EXECUTE format('GRANT SELECT,INSERT,UPDATE ON mzo_staff_case_source_head,mzo_staff_case_grant TO %I',native_role);
+ EXECUTE format('GRANT SELECT,INSERT ON mzo_staff_case_source_event,mzo_staff_case_publication_receipt,mzo_staff_case_continuity,mzo_staff_case_policy_version,mzo_staff_case_policy_dependency TO %I',native_role);
+ EXECUTE format('GRANT SELECT,INSERT,UPDATE ON mzo_staff_case_source_head,mzo_staff_case_grant,mzo_staff_case_policy_current TO %I',native_role);
 END $$;
 -- No current designation/source/head/grant row is inserted here. Those rows
 -- require authenticated installation or the native signed publication command.
