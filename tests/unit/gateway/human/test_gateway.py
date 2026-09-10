@@ -1,5 +1,6 @@
 """D4 port/unit security proofs; no real engine, outbox or cloud execution claimed."""
 
+import ast
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -640,8 +641,71 @@ async def test_acknowledgement_identity_is_exact(field, value):
         await submit(g)
 
 
+def _assert_httpx_annotation_only(module: ast.Module) -> None:
+    """A borrowed-pool type annotation grants no HTTPX executable access."""
+    imports = [
+        alias
+        for node in ast.walk(module)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name.split(".")[0] == "httpx"
+    ]
+    assert len(imports) == 1
+    assert imports[0].name == "httpx" and imports[0].asname is None
+    assert not any(
+        isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx"
+        for node in ast.walk(module)
+    )
+    # Literal dynamic imports/namespace lookup cannot hide the module from Name checks.
+    assert not any(
+        isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.split(".")[0] == "httpx"
+        for node in ast.walk(module)
+    )
+    uses = [node for node in ast.walk(module) if isinstance(node, ast.Name) and node.id == "httpx"]
+    parents = {id(child): parent for parent in ast.walk(module) for child in ast.iter_child_nodes(parent)}
+    assert uses
+    for use in uses:
+        attribute = parents[id(use)]
+        assert isinstance(attribute, ast.Attribute) and attribute.attr == "AsyncBaseTransport"
+        argument = parents[id(attribute)]
+        assert isinstance(argument, ast.arg) and argument.annotation is attribute
+
+
+async def test_borrowed_pool_annotation_does_not_authorize_httpx_execution():
+    _assert_httpx_annotation_only(ast.parse("import httpx\ndef accept(pool: httpx.AsyncBaseTransport): pass"))
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "import httpx as alternate_http\ndef probe(): return alternate_http.get('https://synthetic.invalid/resource')",
+        "import httpx as httpx",
+        "import httpx._client",
+        "import httpx._client as alternate_http",
+        "from httpx import AsyncClient as Client",
+        "from httpx import get as request",
+        "from httpx._client import AsyncClient",
+        "import httpx",
+        "client = httpx.AsyncClient",
+        "request = httpx.get",
+        "transport = httpx.AsyncBaseTransport",
+        "httpx.get('https://synthetic.invalid/resource')",
+        "httpx.request('GET', 'https://synthetic.invalid/resource')",
+        "getattr(httpx, 'get')('https://synthetic.invalid/resource')",
+        "__import__('httpx').get('https://synthetic.invalid/resource')",
+        "import importlib\nimportlib.import_module('httpx').get('https://synthetic.invalid/resource')",
+        "globals()['httpx'].get('https://synthetic.invalid/resource')",
+        "def accept(pool=httpx.AsyncBaseTransport): pass",
+        "def accept(pool: list[httpx.AsyncBaseTransport]): pass",
+    ],
+)
+async def test_borrowed_pool_annotation_rejects_import_and_use_bypasses(extra):
+    source = "import httpx\ndef accept(pool: httpx.AsyncBaseTransport): pass\n" + extra
+    with pytest.raises(AssertionError):
+        _assert_httpx_annotation_only(ast.parse(source))
+
+
 async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
-    import ast
     import inspect
     from pathlib import Path
 
@@ -666,20 +730,7 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     # Q2 composition only annotates its borrowed application-owned pool here.
     # It gets no constructor/request exemption from the two transport owners.
     pool_module = ast.parse((Path(module.__file__).parent / "engine_reads.py").read_text())
-    pool_uses = [node for node in ast.walk(pool_module) if isinstance(node, ast.Name) and node.id == "httpx"]
-    parents = {
-        id(child): parent for parent in ast.walk(pool_module) for child in ast.iter_child_nodes(parent)
-    }
-    assert pool_uses
-    for use in pool_uses:
-        attribute = parents[id(use)]
-        assert isinstance(attribute, ast.Attribute) and attribute.attr == "AsyncBaseTransport"
-        argument = parents[id(attribute)]
-        assert isinstance(argument, ast.arg) and argument.annotation is attribute
-    assert not any(
-        isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx"
-        for node in ast.walk(pool_module)
-    )
+    _assert_httpx_annotation_only(pool_module)
     for forbidden in (
         "import requests",
         "import anthropic",
