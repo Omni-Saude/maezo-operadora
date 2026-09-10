@@ -1,5 +1,7 @@
 # PROJECT.md — Arquitetura e Operação
 
+> **Current continuity — 2026-09-10, WIP preservation complete:** [Current checkpoint](https://github.com/Omni-Saude/maezo-operadora/blob/completion/product-c27-auth-lifecycle/CHECKPOINT.md) supersedes historical scheduling/status below. Fresh status inspection covered 488 registered worktrees plus four standalone repositories; all 22 discovered uncommitted source files exactly match nine remotely verified recovery commits. Use `docs/prompts/maezo-wip-preservation-only.md` for a lower-cost WIP-only pass. Product implementation and release gates remain paused/pending. Frozen historical handoffs retain their original bytes; they are evidence, not current dispatch instructions.
+
 > **Session paused at user request — 2026-09-10T01:19:37.373948+00:00.** Current resume state: [HANDOFF.md](/Users/familia/code/maezo-completion-evidence/successor-graceful-handoff-20260910/HANDOFF.md). All specialists returned; full completion remains unproved. Resume only on a new user instruction. Read the new `final-ready.json` receipt before using this snapshot. Historical states below are preserved for provenance and do not supersede this handoff.
 
 > Current completion/deployment target is defined in `docs/plan.md` (ECS/Fargate, sa-east-1). Older architecture and deployment statements below are historical, not current deployment evidence.

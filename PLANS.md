@@ -1,5 +1,7 @@
 # PLANS.md — Maezo Operadora (Greenfield v2) — STATUS REAL (GROUND-TRUTH, corrigido 2026-07-19)
 
+> **Current continuity — 2026-09-10, WIP preservation complete:** [Current checkpoint](https://github.com/Omni-Saude/maezo-operadora/blob/completion/product-c27-auth-lifecycle/CHECKPOINT.md) supersedes historical scheduling/status below. Fresh status inspection covered 488 registered worktrees plus four standalone repositories; all 22 discovered uncommitted source files exactly match nine remotely verified recovery commits. Use `docs/prompts/maezo-wip-preservation-only.md` for a lower-cost WIP-only pass. Product implementation and release gates remain paused/pending. Frozen historical handoffs retain their original bytes; they are evidence, not current dispatch instructions.
+
 > **PAUSED 2026-09-10:** Current restart checkpoint: `/Users/familia/code/maezo-completion-wt/product-c16-auth-read-catalog/CHECKPOINT.md`; GitHub `completion/product-c27-auth-lifecycle` at `07e0818cc966963380787a89b61ab8ac56789cc0`. All specialist WIP remotely preserved; resume from that checkpoint.
 
 ## Current execution — product-first delivery, 2026-09-10

@@ -1,5 +1,7 @@
 # Maezo completion plan — consolidated with verified orphan recovery
 
+> **Current continuity — 2026-09-10, WIP preservation complete:** [Current checkpoint](https://github.com/Omni-Saude/maezo-operadora/blob/completion/product-c27-auth-lifecycle/CHECKPOINT.md) supersedes historical scheduling/status below. Fresh status inspection covered 488 registered worktrees plus four standalone repositories; all 22 discovered uncommitted source files exactly match nine remotely verified recovery commits. Use `docs/prompts/maezo-wip-preservation-only.md` for a lower-cost WIP-only pass. Product implementation and release gates remain paused/pending. Frozen historical handoffs retain their original bytes; they are evidence, not current dispatch instructions.
+
 ## Product-first execution authorized — 2026-09-10
 
 The user explicitly authorized full execution of [the product-first guide](prompts/maezo-product-first-execution-plan.md), with maximum safe specialist parallelism and independent gates. That execution is now active; the planning-only paragraph below records the previous state. Live ownership/queue is in ROOT PLANS and CHECKPOINT. Preserve reviewed sources, WIP and the retained D7 recovery boundary; product execution does not authorize fabricated external approvals or production activation.
