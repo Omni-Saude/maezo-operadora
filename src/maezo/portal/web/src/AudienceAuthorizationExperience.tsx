@@ -223,6 +223,8 @@ function ProviderAuthorizationIntake({
   const [observationFailure, setObservationFailure] = useState<CaseExperienceFailure>();
   const [notObservedCommand, setNotObservedCommand] = useState<string>();
   const controller = useRef<AbortController | null>(null);
+  const submitController = useRef<AbortController | null>(null);
+  const observationController = useRef<AbortController | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const headingId = useId();
   const valueHelpId = `${headingId}-value-help`;
@@ -254,8 +256,11 @@ function ProviderAuthorizationIntake({
       });
     return () => {
       request.abort();
-      // The current owner may be a later submission, not this initial form read.
       controller.current?.abort();
+      submitController.current?.abort();
+      observationController.current?.abort();
+      submitController.current = null;
+      observationController.current = null;
     };
   }, [onFailure, service]);
 
@@ -268,6 +273,8 @@ function ProviderAuthorizationIntake({
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // Ref ownership also fences keyboard/double events before React rerenders.
+    if (submitController.current !== null || observationController.current !== null) return;
     const element = event.currentTarget;
     if (!element.reportValidity()) return;
     const values = new FormData(element);
@@ -291,9 +298,8 @@ function ProviderAuthorizationIntake({
       estimatedValueCents,
       protectedDocumentRefs: values.getAll("protectedDocumentRefs").map(String),
     };
-    controller.current?.abort();
     const request = new AbortController();
-    controller.current = request;
+    submitController.current = request;
     setSubmitting(true);
     setError(undefined);
     setObservationFailure(undefined);
@@ -312,14 +318,17 @@ function ProviderAuthorizationIntake({
     } catch (caught) {
       if (!request.signal.aborted && !isAbort(caught)) setError("dependency-unavailable");
     } finally {
-      if (!request.signal.aborted) setSubmitting(false);
+      if (submitController.current === request) {
+        submitController.current = null;
+        if (!request.signal.aborted) setSubmitting(false);
+      }
     }
   };
 
   const observePending = async () => {
-    controller.current?.abort();
+    if (submitController.current !== null || observationController.current !== null) return;
     const request = new AbortController();
-    controller.current = request;
+    observationController.current = request;
     setObserving(true);
     setObservationFailure(undefined);
     setNotObservedCommand(undefined);
@@ -350,7 +359,10 @@ function ProviderAuthorizationIntake({
         setObservationFailure("dependency-unavailable");
       }
     } finally {
-      if (!request.signal.aborted) setObserving(false);
+      if (observationController.current === request) {
+        observationController.current = null;
+        if (!request.signal.aborted) setObserving(false);
+      }
     }
   };
 
@@ -430,7 +442,7 @@ function ProviderAuthorizationIntake({
         <p className="form-notice">
           O envio registra a solicitação para processamento. Ele não representa autorização concedida.
         </p>
-        <button className="primary-action" type="submit" disabled={submitting}>
+        <button className="primary-action" type="submit" disabled={submitting || observing}>
           {submitting ? "Enviando com segurança…" : "Enviar solicitação"}
         </button>
       </form>
