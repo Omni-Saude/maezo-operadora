@@ -270,3 +270,226 @@ def test_receipt_must_bind_exact_request_and_original_provenance(field, value):
     receipt = receipt_for(s, request.canonical()).model_copy(update={field: value})
     with pytest.raises(ExternalCaseError):
         bind_receipt(request, receipt)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry_failure", ["expired", "cancelled"])
+async def test_failed_entry_awaits_cleanup_before_publisher_refuses(entry_failure):
+    s = scenario()
+    engine = PublisherEngine(s)
+    src = source(s, engine)
+    transport = Transport(s, engine)
+    original_capture = src.capture
+    original_rollback = engine.connection.rollback
+    cleanup_started = asyncio.Event()
+    allow_cleanup = asyncio.Event()
+    captured = []
+
+    async def delayed_rollback():
+        cleanup_started.set()
+        await allow_cleanup.wait()
+        await original_rollback()
+
+    async def capture_then_fail(*args):
+        lease = await original_capture(*args)
+        captured.append(lease)
+        if entry_failure == "expired":
+            s["now"] += timedelta(seconds=6)
+        else:
+
+            def cancelled_clock():
+                raise asyncio.CancelledError()
+
+            src.clock = cancelled_clock
+        return lease
+
+    src.capture = capture_then_fail
+    engine.connection.rollback = delayed_rollback
+    task = asyncio.create_task(
+        ExternalCasePublisher(src, transport).publish("case", "publication-test", "claim-test")
+    )
+    # A refusal cannot finish while its cleanup is still owned by the task.
+    try:
+        await asyncio.wait_for(cleanup_started.wait(), timeout=1)
+        assert not task.done() and engine.connection.active
+    finally:
+        allow_cleanup.set()
+        expected = ExternalCaseError if entry_failure == "expired" else asyncio.CancelledError
+        with pytest.raises(expected) as result:
+            await task
+    if entry_failure == "expired":
+        assert result.value.code == "conflict"
+    assert captured[0].state == "released"
+    assert not engine.connection.active and not engine.connection.is_active
+    names = [name for name, _ in engine.events]
+    assert names.count("rollback") == names.count("close") == 1
+    assert not transport.sent and engine.persisted is None
+    await captured[0].release()
+    assert [name for name, _ in engine.events] == names
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sqlstate,code",
+    [
+        ("P7E01", "invalid"),
+        ("P7E02", "conflict"),
+        ("P7E03", "unavailable"),
+        ("P7E04", "denied"),
+        ("XX000", "uncertain"),
+    ],
+)
+async def test_persist_provider_failure_is_closed_after_real_lease_exit(sqlstate, code):
+    s = scenario()
+    engine = PublisherEngine(s)
+    transport = Transport(s, engine)
+    execute = engine.connection.execute
+
+    class ProviderError(Exception):
+        pass
+
+    problem = ProviderError("SYNTHETIC_PROVIDER_PAYLOAD")
+    problem.sqlstate = sqlstate
+    problem.add_note("SYNTHETIC_PROVIDER_NOTE")
+    problem.__cause__ = RuntimeError("SYNTHETIC_PROVIDER_CAUSE")
+
+    async def fail_persist(sql, params):
+        if "persist_external_" in str(sql):
+            raise problem
+        return await execute(sql, params)
+
+    engine.connection.execute = fail_persist
+    with pytest.raises(ExternalCaseError) as result:
+        await ExternalCasePublisher(source(s, engine), transport).publish(
+            "case", "publication-test", "claim-test"
+        )
+    error = result.value
+    assert error is not problem and error.code == code
+    assert error.__cause__ is None and error.__context__ is None
+    assert not getattr(error, "__notes__", ())
+    assert "SYNTHETIC" not in str(error)
+    assert not engine.connection.active and not engine.connection.is_active
+    names = [name for name, _ in engine.events]
+    assert names.count("rollback") == names.count("close") == 1
+    assert "capture_commit" not in names and not transport.sent
+    assert engine.persisted is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalidation_fails", [False, True])
+async def test_failed_entry_invalidation_is_awaited_and_failure_stays_unavailable(invalidation_fails):
+    s = scenario()
+    engine = PublisherEngine(s)
+    src = source(s, engine)
+    lease = await src.capture("case", "publication-test", "claim-test")
+    s["now"] += timedelta(seconds=6)
+    events = []
+
+    async def failed_rollback():
+        events.append("rollback_failed")
+        raise RuntimeError("SYNTHETIC_ROLLBACK_PAYLOAD")
+
+    async def invalidate():
+        await asyncio.sleep(0)
+        if invalidation_fails:
+            events.append("invalidation_failed")
+            raise RuntimeError("SYNTHETIC_INVALIDATION_PAYLOAD")
+        events.append("invalidated")
+        engine.connection.active = engine.connection.is_active = False
+
+    engine.connection.rollback = failed_rollback
+    engine.connection.invalidate = invalidate
+    with pytest.raises(ExternalCaseError) as result:
+        async with lease:
+            pytest.fail("failed entry must not reach the body")
+    error = result.value
+    assert error.code == ("unavailable" if invalidation_fails else "conflict")
+    assert error.__cause__ is None and error.__context__ is None
+    assert not getattr(error, "__notes__", ()) and "SYNTHETIC" not in str(error)
+    if invalidation_fails:
+        assert events == ["rollback_failed", "invalidation_failed"]
+        assert lease.state == "captured"
+        assert not any(name == "close" for name, _ in engine.events)
+    else:
+        assert events == ["rollback_failed", "invalidated"]
+        assert lease.state == "released" and not engine.connection.active
+        assert sum(name == "close" for name, _ in engine.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_persist_cancellation_rolls_back_without_dispatch():
+    s = scenario()
+    engine = PublisherEngine(s)
+    transport = Transport(s, engine)
+    execute = engine.connection.execute
+
+    async def cancelled_persist(sql, params):
+        if "persist_external_" in str(sql):
+            raise asyncio.CancelledError()
+        return await execute(sql, params)
+
+    engine.connection.execute = cancelled_persist
+    with pytest.raises(asyncio.CancelledError):
+        await ExternalCasePublisher(source(s, engine), transport).publish(
+            "case", "publication-test", "claim-test"
+        )
+    assert not transport.sent and engine.persisted is None
+    names = [name for name, _ in engine.events]
+    assert names.count("rollback") == names.count("close") == 1
+    assert not engine.connection.active and not engine.connection.is_active
+
+
+@pytest.mark.asyncio
+async def test_capture_commit_failure_remains_uncertain_without_dispatch():
+    s = scenario()
+    engine = PublisherEngine(s)
+    transport = Transport(s, engine)
+
+    async def unknown_commit():
+        raise RuntimeError("SYNTHETIC_LOST_COMMIT_ACK")
+
+    engine.connection.commit = unknown_commit
+    with pytest.raises(ExternalCaseError, match="uncertain") as result:
+        await ExternalCasePublisher(source(s, engine), transport).publish(
+            "case", "publication-test", "claim-test"
+        )
+    assert result.value.code == "uncertain"
+    assert result.value.__cause__ is None and result.value.__context__ is None
+    assert not transport.sent and engine.persisted is not None
+    assert not engine.connection.active and not engine.connection.is_active
+    assert not any(params and params.get("action") == "committed" for _, params, _ in engine.calls)
+
+
+@pytest.mark.asyncio
+async def test_persist_cleanup_failure_refuses_without_returning_suspect_connection():
+    s = scenario()
+    engine = PublisherEngine(s)
+    transport = Transport(s, engine)
+    execute = engine.connection.execute
+
+    class ProviderError(Exception):
+        sqlstate = "P7E02"
+
+    async def failed_cleanup():
+        raise RuntimeError("SYNTHETIC_CLEANUP_PAYLOAD")
+
+    async def fail_persist(sql, params):
+        if "persist_external_" in str(sql):
+            problem = ProviderError("SYNTHETIC_PROVIDER_PAYLOAD")
+            problem.add_note("SYNTHETIC_PROVIDER_NOTE")
+            raise problem
+        return await execute(sql, params)
+
+    engine.connection.execute = fail_persist
+    engine.connection.rollback = failed_cleanup
+    engine.connection.invalidate = failed_cleanup
+    with pytest.raises(ExternalCaseError) as result:
+        await ExternalCasePublisher(source(s, engine), transport).publish(
+            "case", "publication-test", "claim-test"
+        )
+    error = result.value
+    assert error.code == "unavailable"
+    assert error.__cause__ is None and error.__context__ is None
+    assert not getattr(error, "__notes__", ()) and "SYNTHETIC" not in str(error)
+    assert not any(name == "close" for name, _ in engine.events)
+    assert not transport.sent and engine.persisted is None

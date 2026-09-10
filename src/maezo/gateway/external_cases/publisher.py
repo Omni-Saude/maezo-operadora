@@ -262,7 +262,20 @@ class ExternalPublicationLease:
         self._request = snapshot.persisted_request
 
     async def __aenter__(self) -> ExternalPublicationLease:
-        await self.verify_capture(self.snapshot)
+        try:
+            try:
+                await self.verify_capture(self.snapshot)
+            except BaseException:
+                # capture() owns the transaction; failed entry never calls __aexit__.
+                await self.release()
+                raise
+        except ExternalCaseError as safe:
+            # Clear chains at the actual context boundary, including failed cleanup.
+            safe.__context__ = None
+            safe.__cause__ = None
+            if hasattr(safe, "__notes__"):
+                del safe.__notes__
+            raise
         return self
 
     async def __aexit__(self, *unused: object) -> None:
@@ -313,14 +326,21 @@ class ExternalPublicationLease:
             and self._request != raw
         ):
             raise ExternalCaseError("conflict")
-        await self._connection.execute(
-            text(
-                "SELECT maezo_external.persist_external_"
-                + self.snapshot.kind
-                + "(CAST(:scope AS jsonb),:publication,:claimant,:epoch,:request)"
-            ),
-            self._params() | {"request": raw},
-        )
+        failure = None
+        try:
+            await self._connection.execute(
+                text(
+                    "SELECT maezo_external.persist_external_"
+                    + self.snapshot.kind
+                    + "(CAST(:scope AS jsonb),:publication,:claimant,:epoch,:request)"
+                ),
+                self._params() | {"request": raw},
+            )
+        except Exception as exc:
+            failure = sql_failure(exc)
+        if failure is not None:
+            # Raise outside the provider handler, without its message, chains or notes.
+            raise ExternalCaseError(failure)
         self._request = raw
 
     async def release_capture(self) -> None:
@@ -405,6 +425,18 @@ class ExternalCasePublisher:
         self.source, self.transport = source, transport
 
     async def publish(self, kind: Kind, publication_id: str, claimant_ref: str) -> PublicationReceipt:
+        try:
+            return await self._publish(kind, publication_id, claimant_ref)
+        except ExternalCaseError as safe:
+            # async-with may reattach its body error when exit cleanup also refuses.
+            # Clear only after the complete context has unwound, before exposing it.
+            safe.__context__ = None
+            safe.__cause__ = None
+            if hasattr(safe, "__notes__"):
+                del safe.__notes__
+            raise
+
+    async def _publish(self, kind: Kind, publication_id: str, claimant_ref: str) -> PublicationReceipt:
         if self.transport is None:
             raise ExternalCaseError("unavailable")
         async with await self.source.capture(kind, publication_id, claimant_ref) as lease:
