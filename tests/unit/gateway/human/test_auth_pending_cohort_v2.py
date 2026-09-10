@@ -5,6 +5,7 @@ import copy
 from datetime import timedelta
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 from tests.unit.gateway.human.test_decision_binding import native_context, setup
 from tests.unit.gateway.human.test_decision_binding_qualification import (
@@ -17,10 +18,14 @@ from tests.unit.gateway.human.test_decision_binding_qualification import (
 )
 
 from maezo.gateway.human.decision_binding import (
+    NATIVE_COHORT_RELATIONS,
     BindingConnection,
     DecisionBindingInstaller,
     InstallationReceiptV2,
+    NativeCohortReadConfiguration,
     PostgresDecisionBindingSource,
+    RelationPin,
+    native_object,
     stored_receipt,
 )
 from maezo.gateway.human.decision_binding_qualification import (
@@ -40,7 +45,7 @@ from maezo.gateway.human.decision_binding_qualification import (
     member_order,
     sha,
 )
-from maezo.gateway.human.read_profile import wire
+from maezo.gateway.human.read_profile import parse_model, wire
 from maezo.portal.engine.decision import _LEGACY_BINDINGS
 from maezo.portal.engine.profile import canonicalize
 
@@ -250,14 +255,14 @@ async def test_durable_v2_lost_ack_reconstruction_exact_replay_and_native_stagin
 
 
 def native_read_fixture(monkeypatch):
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from maezo.gateway.human.decision_binding import native_object
-
     old, state, _, _, keys = setup(monkeypatch)
     v, a, packets, _ = seven_fixture(database=state.d, keys=keys)
     qualified = tuple(v.verify(p, a, NOW) for p in packets)
     signer = Ed25519PrivateKey.generate()
-    url = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+    def url(b):
+        return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
     start = str(int(NOW.timestamp() * 1000))
     end = str(int(END.timestamp() * 1000))
     designation = dict(
@@ -465,3 +470,64 @@ async def test_even_validly_signed_native_body_cannot_override_current_cohort(mo
         body["expected_generation"] = "1"
     with pytest.raises(BindingUnavailableError):
         await conn.native_cohort_current(rows, qualified, 2)
+
+
+def test_shared_native_cohort_known_answer_vector():
+    value = {
+        "schema": "human-decision-cohort.v2",
+        "scope": {
+            "database_binding_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "database_incarnation": "synthetic-incarnation",
+            "engine_name": "synthetic-engine",
+            "environment": "synthetic-env",
+            "tenant": "synthetic-tenant",
+        },
+        "members": [
+            {
+                "process_definition_key": "SP-OP-AUTH-001",
+                "task_definition_key": "UT_AnaliseMedicoAuditor",
+                "process_definition_id": "SP-OP-AUTH-001:1:synthetic",
+                "material_digest": "e03f119e50aa9dfd99277ff5c5d5c93a70fd1b6d33dc1dba23eb6bbb1d716185",
+            },
+            {
+                "process_definition_key": "SP-OP-AUTH-001",
+                "task_definition_key": "UT_CoordenacaoAssume",
+                "process_definition_id": "SP-OP-AUTH-001:1:synthetic",
+                "material_digest": "2a68db92535447960880357e50c78f40677c6cdc854d4880601463ccfb0bc899",
+            },
+            {
+                "process_definition_key": "SP-OP-AUTH-001",
+                "task_definition_key": "UT_DecidirPendenciaExpirada",
+                "process_definition_id": "SP-OP-AUTH-001:1:synthetic",
+                "material_digest": "871c36d708783499dcbb8972157e0255f4a02c9fd46504a4e641a474b25a7018",
+            },
+            {
+                "process_definition_key": "SP-OP-AUTH-001",
+                "task_definition_key": "UT_RegistrarParecerJunta",
+                "process_definition_id": "SP-OP-AUTH-001:1:synthetic",
+                "material_digest": "dac8fac0dbf6e986a77b711802937a9f73637781ca4f7e18dd1491327efb71ec",
+            },
+            {
+                "process_definition_key": "SP-OP-ESCALATION-001",
+                "task_definition_key": "UT_SupervisorAssume",
+                "process_definition_id": "SP-OP-ESCALATION-001:1:synthetic",
+                "material_digest": "e683c0d534405db59431b6c076c8d061be79a423346f00f93073ca0c769c04df",
+            },
+            {
+                "process_definition_key": "SP-OP-ESCALATION-001",
+                "task_definition_key": "UT_TratarEscalonamento",
+                "process_definition_id": "SP-OP-ESCALATION-001:1:synthetic",
+                "material_digest": "7fe0f8bf3add60c49c9f05a3c775257e21e2ef1023bf2bf6fe11e108d97356db",
+            },
+            {
+                "process_definition_key": "SP-OP-PAGTO-001",
+                "task_definition_key": "UT_AnaliseAdmissibilidade",
+                "process_definition_id": "SP-OP-PAGTO-001:1:synthetic",
+                "material_digest": "80f7aa9b49f24abd0c60a85cacba313141583e2e8b99afa3d605e9022e1574c8",
+            },
+        ],
+    }
+    assert (
+        parse_model(CohortManifest, value).digest
+        == "f433f0a454bb97987823bddf1bb8db4e556d56f6368397997fdf14392109ea26"
+    )

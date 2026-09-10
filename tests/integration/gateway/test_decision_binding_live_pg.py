@@ -43,7 +43,7 @@ from maezo.gateway.human.decision_binding_qualification import (
     sha,
 )
 from maezo.gateway.human.transport import HumanTLSIdentity
-from maezo.portal.engine.decision import _BINDINGS
+from maezo.portal.engine.decision import _LEGACY_BINDINGS as _BINDINGS
 
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 CONFIG = {

@@ -530,7 +530,12 @@ class QualificationVerifier:
     def revocation(self, value: Revocation, authorities: SignedAuthorities, now: datetime) -> Receipt:
         d = self.authorities(authorities, now)
         r = self._receipt(SignedReceipt(receipt=value.receipt, signature=value.signature), d, now)
-        if not isinstance(r, Receipt) or r.purpose != "freeze" or r.source_ref != "decision-binding-revocation" or r.receipt_digests:
+        if (
+            not isinstance(r, Receipt)
+            or r.purpose != "freeze"
+            or r.source_ref != "decision-binding-revocation"
+            or r.receipt_digests
+        ):
             raise BindingUnavailableError()
         if r.source_digest != r.material_digest:
             raise BindingUnavailableError()
