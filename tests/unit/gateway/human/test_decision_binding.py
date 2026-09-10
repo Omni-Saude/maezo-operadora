@@ -196,6 +196,20 @@ class Connection:
 
     async def fetch(self, sql, *args):
         self.step(sql)
+        if "SELECT packet_,digest_" in sql:
+            assert args[:2] == (SCOPE.tenant, self.state.d.installation_id)
+            assert "ORDER BY digest_ LIMIT 7" in sql
+            return sorted(
+                (r for (revision, _), r in self.state.rows["qualification"].items() if revision == args[2]),
+                key=lambda r: r["digest_"],
+            )[:7]
+        if "SELECT binding_digest_" in sql:
+            assert args[:2] == (SCOPE.tenant, SCOPE.environment)
+            assert "ORDER BY binding_digest_ LIMIT 7" in sql
+            return sorted(
+                (r for r in self.state.rows["bindings"].values() if r["authority_rev_"] == args[2]),
+                key=lambda r: r["binding_digest_"],
+            )[:7]
         if "SELECT p.id_" in sql:
             materials = (
                 self.state.material if isinstance(self.state.material, tuple) else (self.state.material,)
@@ -544,8 +558,8 @@ def native_context(state, packet):
         classification=FullTaskClassification(
             classification_ref="classification-1",
             classification_digest="d" * 64,
-            policy_ref="policy",
-            policy_digest=e.resource_policy.digest,
+            policy_ref=e.disclosure_policy.artifact_ref,
+            policy_digest=e.disclosure_policy.digest,
             projection="full_task_detail.v1",
             fields_digest="f" * 64,
             valid_until=END,
@@ -801,3 +815,199 @@ async def test_decision_operations_cannot_override_denied_current_read_authority
     principal, task, authority = context
     with pytest.raises(BindingUnavailableError):
         await source.qualify(principal, task, authority.model_copy(update={"read_permitted": False}))
+
+
+@pytest.mark.parametrize("count", range(1, 7))
+async def test_runtime_readback_complete_batches_one_through_six(monkeypatch, count):
+    from maezo.gateway.human.decision_binding_qualification import batch_member
+
+    installer, state, auth, _, keys = setup(monkeypatch)
+    packets = six_packets(state, keys)[:count]
+    batch = tuple(
+        sorted(
+            (batch_member(p.material) for p in packets),
+            key=lambda m: (m.process_definition_id, m.task_definition_key),
+        )
+    )
+    packets = tuple(
+        fixture(
+            (p.material.entry.process_definition_key, p.material.entry.task_definition_key),
+            material=p.material,
+            keys=keys,
+            batch=batch,
+        )[2]
+        for p in packets
+    )
+    await installer.designate(auth)
+    receipt = await installer.install_batch(packets)
+    reader = PostgresDecisionBindingSource(
+        BindingConnection(
+            database=state.d,
+            identity=installer._db.identity,
+            verifier=installer._db.verifier,
+            mode="reader",
+            clock=lambda: state.at,
+        )
+    )
+    for packet in packets:
+        assert (await reader.qualify(*native_context(state, packet))).binding_digest == sha(canonical(packet))
+    assert len(receipt.packet_digests) == count
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    [
+        "receipt-subset",
+        "missing-qualification",
+        "missing-binding",
+        "extra-qualification",
+        "extra-binding",
+        "duplicate-binding",
+        "sibling-bytes",
+        "sibling-binding",
+        "sibling-operation",
+        "sibling-freeze",
+        "sibling-batch",
+        "sibling-expired",
+    ],
+)
+async def test_complete_batch_corruption_refuses_without_effects(monkeypatch, corruption):
+    from datetime import timedelta
+
+    from tests.unit.gateway.human.test_decision_binding_qualification import resign_sources
+
+    from maezo.portal.engine.profile import canonicalize
+
+    installer, state, auth, _, keys = setup(monkeypatch)
+    packets = six_packets(state, keys)
+    await installer.designate(auth)
+    receipt = await installer.install_batch(packets)
+    reader = PostgresDecisionBindingSource(
+        BindingConnection(
+            database=state.d,
+            identity=installer._db.identity,
+            verifier=installer._db.verifier,
+            mode="reader",
+            clock=lambda: state.at,
+        )
+    )
+    context = native_context(state, packets[0])
+    assert (await reader.qualify(*context)).binding_digest == sha(canonical(packets[0]))
+    sibling = packets[1]
+    digest = sha(canonical(sibling))
+    key = next(k for k, r in state.rows["bindings"].items() if r["binding_digest_"] == digest)
+    if corruption == "receipt-subset":
+        digests = [sha(canonical(packets[0]))]
+        stored = state.rows["receipts"][receipt.operation_id]
+        stored["packet_digests_"] = canonicalize(digests).decode()
+        stored["request_digest_"] = sha(canonicalize(digests))
+    elif corruption == "missing-qualification":
+        state.rows["qualification"].pop((2, digest))
+    elif corruption == "missing-binding":
+        state.rows["bindings"].pop(key)
+    elif corruption == "extra-qualification":
+        state.rows["qualification"][(2, "0" * 64)] = dict(packet_="{}", digest_="0" * 64)
+    elif corruption in ("extra-binding", "duplicate-binding"):
+        row = dict(state.rows["bindings"][key])
+        if corruption == "extra-binding":
+            row["binding_digest_"] = "0" * 64
+        state.rows["bindings"]["extra"] = row
+    elif corruption == "sibling-bytes":
+        state.rows["qualification"][(2, digest)]["packet_"] = "{}"
+    elif corruption == "sibling-binding":
+        state.rows["bindings"][key]["consumer_digest_"] = "0" * 64
+    else:
+        updates = {
+            "sibling-operation": {"operation_id": "other-install"},
+            "sibling-freeze": {"freeze_epoch": 3},
+            "sibling-batch": {"batch": sibling.freeze.receipt.batch[:1]},
+            "sibling-expired": {"valid_until": NOW + timedelta(seconds=1)},
+        }[corruption]
+        altered = resign_sources(
+            sibling, keys, source_updates={i: updates for i in range(3)}, freeze_updates=updates
+        )
+        # Recompute every durable digest/column/receipt: only the signed relation is wrong.
+        q = installer._db.verifier.verify(altered, auth, NOW) if corruption != "sibling-batch" else None
+        changed = sha(canonical(altered))
+        state.rows["qualification"].pop((2, digest))
+        state.rows["qualification"][(2, changed)] = dict(packet_=canonical(altered).decode(), digest_=changed)
+        if q is not None:
+            state.rows["bindings"][key] = module.binding_columns(q, SCOPE)
+        else:
+            state.rows["bindings"][key]["binding_digest_"] = changed
+        digests = sorted(changed if d == digest else d for d in receipt.packet_digests)
+        stored = state.rows["receipts"][receipt.operation_id]
+        stored["packet_digests_"] = canonicalize(digests).decode()
+        stored["request_digest_"] = sha(canonicalize(digests))
+        if corruption == "sibling-expired":
+
+            def expire_on_native(sql):
+                if "SELECT r.payload_" in sql:
+                    state.at = NOW + timedelta(seconds=2)
+
+            state.after_query = expire_on_native
+    before = copy.deepcopy(state.rows)
+    with pytest.raises(BindingUnavailableError, match="^decision binding unavailable$"):
+        await reader.qualify(*context)
+    assert state.rows == before
+
+
+@pytest.mark.parametrize("field", ["policy_ref", "policy_digest"])
+async def test_classification_policy_matches_disclosure_not_resource_policy(monkeypatch, field):
+    from maezo.portal.engine.profile import canonicalize, strict_loads
+
+    source, state, context, *_ = await prepared_source(monkeypatch)
+    assert (await source.qualify(*context)).evidence_ref == "evidence-1"
+    resource = strict_loads(state.resource["payload_"].encode())
+    resource["classification"][field] = "foreign-policy" if field == "policy_ref" else "0" * 64
+    proof = strict_loads(state.resource["receipt_"].encode())
+    proof["record_digest"] = sha(canonicalize(resource))
+    state.resource["payload_"] = canonicalize(resource).decode()
+    state.resource["receipt_"] = canonicalize(proof).decode()
+    before = copy.deepcopy(state.rows)
+    with pytest.raises(BindingUnavailableError):
+        await source.qualify(*context)
+    assert state.rows == before
+
+
+async def test_distinct_disclosure_policy_positive_and_resource_policy_is_not_substitute(monkeypatch):
+    from maezo.gateway.human.read_profile import ArtifactPin
+    from maezo.portal.engine.profile import canonicalize, strict_loads
+
+    installer, state, auth, packet, keys = setup(monkeypatch)
+    material = packet.material.model_copy(
+        update={
+            "entry": packet.material.entry.model_copy(
+                update={
+                    "disclosure_policy": ArtifactPin(
+                        artifact_ref="distinct-disclosure-policy", digest="9" * 64
+                    ),
+                }
+            ),
+        }
+    )
+    packet = fixture(material=material, keys=keys)[2]
+    state.material = material
+    await installer.designate(auth)
+    await installer.install(packet)
+    reader = PostgresDecisionBindingSource(
+        BindingConnection(
+            database=state.d,
+            identity=installer._db.identity,
+            verifier=installer._db.verifier,
+            mode="reader",
+            clock=lambda: state.at,
+        )
+    )
+    context = native_context(state, packet)
+    assert (await reader.qualify(*context)).binding_digest == sha(canonical(packet))
+    resource = strict_loads(state.resource["payload_"].encode())
+    assert resource["classification"]["policy_digest"] != resource["resource_policy"]["digest"]
+    resource["classification"]["policy_ref"] = material.entry.resource_policy.artifact_ref
+    resource["classification"]["policy_digest"] = material.entry.resource_policy.digest
+    proof = strict_loads(state.resource["receipt_"].encode())
+    proof["record_digest"] = sha(canonicalize(resource))
+    state.resource["payload_"] = canonicalize(resource).decode()
+    state.resource["receipt_"] = canonicalize(proof).decode()
+    with pytest.raises(BindingUnavailableError):
+        await reader.qualify(*context)

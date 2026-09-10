@@ -354,3 +354,63 @@ def test_seventh_binding_and_missing_consumer_evidence_refuse():
     raw = canonical(packet).replace(b'"deployment_receipt":', b'"missing_deployment_receipt":')
     with pytest.raises(BindingUnavailableError):
         decode(QualificationPacket, raw)
+
+
+def resign_sources(packet, keys, *, source_updates=None, freeze_updates=None):
+    """Authenticate deliberately conflicting synthetic declarations; no invalid signatures."""
+    receipts = []
+    for index, signed in enumerate(packet.receipts):
+        r = signed.receipt.model_copy(update=(source_updates or {}).get(index, {}))
+        receipts.append(SignedReceipt(receipt=r, signature=sign(r, r.purpose, keys[r.purpose])))
+    digests = tuple(sha(canonical(s)) for s in receipts)
+    freeze = packet.freeze.receipt.model_copy(
+        update={
+            "receipt_digests": digests,
+            "source_digest": sha(canonicalize(list(digests))),
+            **(freeze_updates or {}),
+        }
+    )
+    return packet.model_copy(
+        update={
+            "receipts": tuple(receipts),
+            "freeze": SignedReceipt(receipt=freeze, signature=sign(freeze, "freeze", keys["freeze"])),
+        }
+    )
+
+
+@pytest.mark.parametrize("position", [0, 1, 2])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "material_digest",
+        "process_definition_id",
+        "process_definition_key",
+        "task_definition_key",
+        "order",
+        "omission",
+        "duplicate",
+    ],
+)
+def test_each_source_receipt_binds_every_ordered_batch_field(position, change):
+    verifier, auth, first, keys = fixture()
+    other = fixture(list(SIX)[1], keys=keys)[2]
+    batch = tuple(
+        sorted(
+            (batch_member(first.material), batch_member(other.material)),
+            key=lambda m: (m.process_definition_id, m.task_definition_key),
+        )
+    )
+    packet = fixture(material=first.material, keys=keys, batch=batch)[2]
+    assert verifier.verify(packet, auth, NOW).binding_digest == sha(canonical(packet))
+    if change == "order":
+        wrong = tuple(reversed(batch))
+    elif change == "omission":
+        wrong = batch[:1]
+    elif change == "duplicate":
+        wrong = (batch[0], batch[0])
+    else:
+        value = "0" * 64 if change == "material_digest" else "foreign-target"
+        wrong = (batch[0].model_copy(update={change: value}), batch[1])
+    bad = resign_sources(packet, keys, source_updates={position: {"batch": wrong}})
+    with pytest.raises(BindingUnavailableError):
+        verifier.verify(bad, auth, NOW)

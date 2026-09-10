@@ -702,6 +702,77 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
         self._db = connection
         self.scope = connection.database.scope
 
+    async def _installed_batch(
+        self,
+        c: Any,
+        selected: VerifiedQualification,
+        authorities: SignedAuthorities,
+        revision: int,
+    ) -> tuple[VerifiedQualification, ...]:
+        """Independently authenticate the complete finite installation at this revision."""
+        db, d = self._db, self._db.database
+        records = _BindingRecords(db)
+        receipt = await records._receipt(c, selected.operation_id)
+        if (
+            receipt is None
+            or receipt.kind != "install"
+            or receipt.operation_id != selected.operation_id
+            or receipt.expected_revision != selected.expected_tenant_revision
+            or receipt.resulting_revision != revision
+            or selected.binding_digest not in receipt.packet_digests
+        ):
+            raise BindingUnavailableError()
+        # The seventh row is only an excess sentinel; never scan an unbounded batch.
+        packets = await c.fetch(
+            f"SELECT packet_,digest_ FROM {db.table('mzo_human_decision_qualification')} "
+            "WHERE tenant_=$1 AND installation_=$2 AND authority_rev_=$3 ORDER BY digest_ LIMIT 7",
+            self.scope.tenant,
+            d.installation_id,
+            revision,
+        )
+        bindings = await c.fetch(
+            f"SELECT binding_digest_ FROM {db.table('mzo_human_decision_binding')} "
+            "WHERE tenant_=$1 AND environment_=$2 AND authority_rev_=$3 ORDER BY binding_digest_ LIMIT 7",
+            self.scope.tenant,
+            self.scope.environment,
+            revision,
+        )
+        if (
+            tuple(p["digest_"] for p in packets) != receipt.packet_digests
+            or tuple(b["binding_digest_"] for b in bindings) != receipt.packet_digests
+        ):
+            raise BindingUnavailableError()
+        qualified = tuple(
+            db.verifier.verify(decode(QualificationPacket, p["packet_"].encode()), authorities, db.clock())
+            for p in packets
+        )
+        if tuple(q.binding_digest for q in qualified) != receipt.packet_digests:
+            raise BindingUnavailableError()
+        batch = tuple(
+            sorted(
+                (batch_member(q.packet.material) for q in qualified),
+                key=lambda m: (m.process_definition_id, m.task_definition_key),
+            )
+        )
+        if len({(m.process_definition_key, m.task_definition_key) for m in batch}) != len(batch):
+            raise BindingUnavailableError()
+        for q in qualified:
+            if q.packet.freeze.receipt.batch != batch or (
+                q.operation_id,
+                q.expected_tenant_revision,
+                q.authority_generation,
+                q.packet.freeze.receipt.freeze_epoch,
+            ) != (
+                selected.operation_id,
+                selected.expected_tenant_revision,
+                selected.authority_generation,
+                selected.packet.freeze.receipt.freeze_epoch,
+            ):
+                raise BindingUnavailableError()
+            await records._readback(c, q)
+            await db.process(c, q.packet.material)
+        return qualified
+
     async def qualify(
         self, principal: HumanPrincipal, task: AuthoritativeTask, authority: CurrentTaskAuthority
     ) -> QualifiedDecisionBinding:
@@ -730,26 +801,16 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
                 q = db.verifier.verify(packet, authorities, db.clock())
                 if q.binding_digest != row["digest_"] or q.expected_tenant_revision + 1 != revision:
                     raise BindingUnavailableError()
-                # Share the exact owner readback logic without changing connection role.
-                installer = _BindingRecords(db)
-                await installer._readback(c, q)
-                receipt = await installer._receipt(c, q.operation_id)
-                if (
-                    receipt is None
-                    or receipt.kind != "install"
-                    or receipt.resulting_revision != revision
-                    or q.binding_digest not in receipt.packet_digests
-                    or receipt.request_digest != sha(canonicalize(list(receipt.packet_digests)))
-                ):
-                    raise BindingUnavailableError()
-                await db.process(c, packet.material)
+                qualified = await self._installed_batch(c, q, authorities, revision)
                 evidence_ref, until = await self._native(c, q, principal, task, authority)
+                until = min(until, *(member.valid_until for member in qualified))
                 if await db.revision(c) != revision or canonical(await db.authorities(c)) != canonical(
                     authorities
                 ):
                     raise BindingUnavailableError()
                 await db.catalog(c)
-                db.verifier.verify(packet, authorities, db.clock())
+                for member in qualified:
+                    db.verifier.verify(member.packet, authorities, db.clock())
                 if db.clock() >= until:
                     raise BindingUnavailableError()
                 result = QualifiedDecisionBinding(
@@ -904,6 +965,8 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
             or source.observed_at > db.clock()
             or source.valid_until <= db.clock()
             or resource.resource_policy != e.resource_policy
+            or resource.classification.policy_ref != e.disclosure_policy.artifact_ref
+            or resource.classification.policy_digest != e.disclosure_policy.digest
             or resource.read_only_evidence != s.read_only_evidence
         ):
             raise BindingUnavailableError()

@@ -388,11 +388,16 @@ class QualificationVerifier:
             ):
                 raise BindingUnavailableError()
             for r in (*receipts, f):
-                if r.material_digest != material_digest or (
-                    r.operation_id,
-                    r.expected_tenant_revision,
-                    r.freeze_epoch,
-                ) != (f.operation_id, f.expected_tenant_revision, f.freeze_epoch):
+                if (
+                    r.batch != members
+                    or r.material_digest != material_digest
+                    or (
+                        r.operation_id,
+                        r.expected_tenant_revision,
+                        r.freeze_epoch,
+                    )
+                    != (f.operation_id, f.expected_tenant_revision, f.freeze_epoch)
+                ):
                     raise BindingUnavailableError()
             return VerifiedQualification(
                 packet=packet,
