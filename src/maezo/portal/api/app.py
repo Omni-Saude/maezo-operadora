@@ -32,6 +32,11 @@ from maezo.portal.api.decisions import (
     is_decision_request,
 )
 from maezo.portal.api.documents import DocumentServiceFactory, document_router
+from maezo.portal.api.intake_recovery import (
+    IntakeRecoveryFactory,
+    intake_recovery_router,
+    is_intake_recovery_request,
+)
 from maezo.portal.api.intakes import IntakeServiceFactory, intake_error, intake_router, is_product_request
 from maezo.portal.api.records import SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
@@ -141,6 +146,7 @@ def create_app(
     assignment_runtime: AssignmentRuntime | None = None,
     case_service_factory: CaseServiceFactory | None = None,
     intake_service_factory: IntakeServiceFactory | None = None,
+    intake_recovery_factory: IntakeRecoveryFactory | None = None,
     document_service_factory: DocumentServiceFactory | None = None,
     communication_service_factory: CommunicationServiceFactory | None = None,
 ) -> FastAPI:
@@ -205,9 +211,11 @@ def create_app(
     app.include_router(decision_router)
     app.state.case_service_factory = case_service_factory
     app.state.intake_service_factory = intake_service_factory
+    app.state.intake_recovery_factory = intake_recovery_factory
     app.state.document_service_factory = document_service_factory
     app.include_router(case_router)
     app.include_router(intake_router)
+    app.include_router(intake_recovery_router)
     app.include_router(document_router)
     app.state.communication_service_factory = communication_service_factory
     app.include_router(communication_router)
@@ -220,7 +228,11 @@ def create_app(
             len(request.headers.getlist("host")) != 1
             or request.headers["host"] != urlsplit(config.public_origin).netloc
         ):
-            if is_product_request(request) or is_communication_request(request):
+            if (
+                is_product_request(request)
+                or is_communication_request(request)
+                or is_intake_recovery_request(request)
+            ):
                 return intake_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
@@ -233,7 +245,11 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> Response:
-        if is_product_request(request) or is_communication_request(request):
+        if (
+            is_product_request(request)
+            or is_communication_request(request)
+            or is_intake_recovery_request(request)
+        ):
             return intake_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
