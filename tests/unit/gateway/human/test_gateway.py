@@ -640,6 +640,93 @@ async def test_acknowledgement_identity_is_exact(field, value):
         await submit(g)
 
 
+def _assert_engine_read_pool_type_only(source: str) -> None:
+    import ast
+
+    tree = ast.parse(source)
+    imports = [
+        node
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "httpx" for alias in node.names))
+        or (isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx")
+    ]
+    assert len(imports) == 1
+    imported = imports[0]
+    assert imported in tree.body
+    assert isinstance(imported, ast.Import)
+    assert len(imported.names) == 1
+    assert imported.names[0].name == "httpx" and imported.names[0].asname is None
+    uses = [node for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "httpx"]
+    assert len(uses) == 1
+    parents = {id(child): parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    attribute = parents[id(uses[0])]
+    assert isinstance(attribute, ast.Attribute) and attribute.attr == "AsyncBaseTransport"
+    argument = parents[id(attribute)]
+    assert isinstance(argument, ast.arg) and argument.annotation is attribute
+    assert argument.arg == "transport_pool"
+    arguments = parents[id(argument)]
+    assert isinstance(arguments, ast.arguments) and argument in arguments.kwonlyargs
+    constructor = parents[id(arguments)]
+    assert isinstance(constructor, ast.FunctionDef) and constructor.name == "__init__"
+    owner = parents[id(constructor)]
+    assert isinstance(owner, ast.ClassDef) and owner.name == "EngineReadComposition"
+    assert parents[id(owner)] is tree
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "additional_alias",
+        "replace_alias",
+        "from_import",
+        "submodule_alias",
+        "module_assignment",
+        "direct_request",
+        "annotation_assignment",
+        "duplicate_import",
+        "nested_import",
+        "mixed_import",
+        "wrong_owner",
+        "wrong_constructor",
+        "wrong_argument",
+        "positional_argument",
+        "second_type_use",
+    ],
+)
+async def test_read_pool_type_only_rejects_aliases_requests_and_relocations(mutation):
+    source = (
+        "import httpx\n"
+        "class EngineReadComposition:\n"
+        "    def __init__(self, *, transport_pool: httpx.AsyncBaseTransport): pass\n"
+    )
+    _assert_engine_read_pool_type_only(source)
+    suffixes = {
+        "additional_alias": "import httpx as alternate_http\ndef request(): return alternate_http.get('https://invalid')\n",
+        "from_import": "from httpx import get as request\n",
+        "submodule_alias": "import httpx._client as alternate_http\n",
+        "module_assignment": "alternate_http = httpx\n",
+        "direct_request": "def request(): return httpx.get('https://invalid')\n",
+        "annotation_assignment": "Pool = httpx.AsyncBaseTransport\n",
+        "duplicate_import": "import httpx\n",
+        "nested_import": "def request():\n    import httpx as alternate_http\n",
+        "second_type_use": "def extra(pool: httpx.AsyncBaseTransport): pass\n",
+    }
+    replacements = {
+        "replace_alias": ("import httpx", "import httpx as alternate_http"),
+        "mixed_import": ("import httpx", "import httpx, os"),
+        "wrong_owner": ("class EngineReadComposition:", "class OtherComposition:"),
+        "wrong_constructor": ("def __init__", "def request"),
+        "wrong_argument": ("transport_pool:", "other_pool:"),
+        "positional_argument": ("self, *, transport_pool", "self, transport_pool"),
+    }
+    if mutation in suffixes:
+        source += suffixes[mutation]
+    else:
+        source = source.replace(*replacements[mutation])
+    with pytest.raises(AssertionError):
+        _assert_engine_read_pool_type_only(source)
+
+
 async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     import ast
     import inspect
@@ -665,21 +752,7 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     assert http_owners == {"transport.py", "read_transport.py", "engine_reads.py"}
     # Q2 composition only annotates its borrowed application-owned pool here.
     # It gets no constructor/request exemption from the two transport owners.
-    pool_module = ast.parse((Path(module.__file__).parent / "engine_reads.py").read_text())
-    pool_uses = [node for node in ast.walk(pool_module) if isinstance(node, ast.Name) and node.id == "httpx"]
-    parents = {
-        id(child): parent for parent in ast.walk(pool_module) for child in ast.iter_child_nodes(parent)
-    }
-    assert pool_uses
-    for use in pool_uses:
-        attribute = parents[id(use)]
-        assert isinstance(attribute, ast.Attribute) and attribute.attr == "AsyncBaseTransport"
-        argument = parents[id(attribute)]
-        assert isinstance(argument, ast.arg) and argument.annotation is attribute
-    assert not any(
-        isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx"
-        for node in ast.walk(pool_module)
-    )
+    _assert_engine_read_pool_type_only((Path(module.__file__).parent / "engine_reads.py").read_text())
     for forbidden in (
         "import requests",
         "import anthropic",
