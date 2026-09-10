@@ -25,6 +25,9 @@ variable "portal" {
     certificate_arn         = string
     public_subnet_ids       = set(string)
     https_egress_ipv4_cidrs = set(string)
+    # Preserve unknown keys until the exact-key validation below; object coercion
+    # would silently discard them. No arbitrary environment map is accepted.
+    staff = optional(any)
   })
   default = null
 
@@ -75,4 +78,46 @@ variable "portal" {
     )
     error_message = "Require at least two public subnets and explicit approved IPv4 /32 HTTPS destinations; empty or universal egress is forbidden."
   }
+  validation {
+    condition = var.portal == null ? true : var.portal.staff == null ? true : try(
+      toset(keys(var.portal.staff)) == toset([
+        "material_secret_arn", "material_secret_version_id", "material_kms_key_arn",
+        "portal_image_digest", "public_manifest_sha256", "root_key_sha256",
+        "designation_sha256", "native_configuration_sha256", "scope", "native_origin",
+        "native_server_spki_sha256", "read_key_sha256", "witness_key_sha256", "maximum_seconds",
+        "native_https_security_group_id", "native_database_security_group_id", "native_database_port"
+      ]) &&
+      toset(keys(var.portal.staff.scope)) == toset(["tenant", "environment", "engine_name", "database_incarnation"]) &&
+      alltrue([for name, value in var.portal.staff : can(regex("^\"", jsonencode(value))) if !contains(["scope", "maximum_seconds", "native_database_port"], name)]) &&
+      alltrue([for value in values(var.portal.staff.scope) : can(regex("^\"", jsonencode(value)))]) &&
+      can(regex("^[0-9]+$", jsonencode(var.portal.staff.maximum_seconds))) &&
+      can(regex("^[0-9]+$", jsonencode(var.portal.staff.native_database_port))) &&
+      var.portal.staff.scope.tenant == var.portal.tenant &&
+      alltrue([for value in values(var.portal.staff.scope) :
+        can(regex("^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$", value))
+      ]) &&
+      alltrue([for value in [
+        var.portal.staff.public_manifest_sha256, var.portal.staff.root_key_sha256,
+        var.portal.staff.designation_sha256, var.portal.staff.native_configuration_sha256,
+        var.portal.staff.native_server_spki_sha256, var.portal.staff.read_key_sha256,
+        var.portal.staff.witness_key_sha256
+      ] : can(regex("^[0-9a-f]{64}$", value))]) &&
+      length(toset([var.portal.staff.root_key_sha256, var.portal.staff.read_key_sha256, var.portal.staff.witness_key_sha256])) == 3 &&
+      can(regex("^sha256:[0-9a-f]{64}$", var.portal.staff.portal_image_digest)) &&
+      can(regex("^[A-Za-z0-9-]{32,64}$", var.portal.staff.material_secret_version_id)) &&
+      startswith(var.portal.staff.material_secret_arn, "arn:aws:secretsmanager:sa-east-1:${var.aws_account_id}:secret:maezo-operadora/dev/portal/${var.portal.tenant}/staff-materials-") &&
+      can(regex("^arn:aws:secretsmanager:sa-east-1:[0-9]{12}:secret:maezo-operadora/dev/portal/[A-Za-z0-9_-]+/staff-materials-[A-Za-z0-9]{6}$", var.portal.staff.material_secret_arn)) &&
+      startswith(var.portal.staff.material_kms_key_arn, "arn:aws:kms:sa-east-1:${var.aws_account_id}:key/") &&
+      can(regex("^arn:aws:kms:sa-east-1:[0-9]{12}:key/[0-9a-f-]{36}$", var.portal.staff.material_kms_key_arn)) &&
+      can(regex("^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:443)?$", var.portal.staff.native_origin)) &&
+      alltrue([for id in [var.portal.staff.native_https_security_group_id, var.portal.staff.native_database_security_group_id] : can(regex("^sg-[0-9a-f]{8,17}$", id))]) &&
+      var.portal.staff.maximum_seconds == floor(var.portal.staff.maximum_seconds) &&
+      var.portal.staff.maximum_seconds >= 1 && var.portal.staff.maximum_seconds <= 10 &&
+      var.portal.staff.native_database_port == floor(var.portal.staff.native_database_port) &&
+      var.portal.staff.native_database_port >= 1 && var.portal.staff.native_database_port <= 65535,
+      false
+    )
+    error_message = "Staff requires the complete exact public input set, explicit tenant scope, distinct installed key pins, immutable image/secret version, account/regional secret+CMK and fixed native HTTPS/SG/port; no defaults or extra keys."
+  }
+
 }

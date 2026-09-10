@@ -132,3 +132,53 @@ output "portal_prerequisites" {
     activated              = var.portal_enabled
   } }
 }
+
+# Exact native target metadata only. The external owner retains counterpart ingress.
+data "aws_security_group" "portal_staff_native_https" {
+  for_each = local.portal_staff_config
+  id       = each.value.native_https_security_group_id
+}
+data "aws_security_group" "portal_staff_native_database" {
+  for_each = local.portal_staff_config
+  id       = each.value.native_database_security_group_id
+}
+resource "aws_vpc_security_group_egress_rule" "portal_staff_native_https" {
+  # Reuse the existing Aurora rule if its complete destination tuple matches.
+  for_each = { for key, staff in local.portal_staff_config : key => staff
+    if staff.native_https_security_group_id != local.aurora_security_group_id || local.aurora_port != 443
+  }
+  security_group_id            = aws_security_group.portal[each.key].id
+  referenced_security_group_id = each.value.native_https_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = 443
+  to_port                      = 443
+  description                  = "Qualified staff native mTLS destination; no raw engine authority"
+  lifecycle {
+    precondition {
+      condition = (data.aws_security_group.portal_staff_native_https[each.key].owner_id == var.aws_account_id &&
+      data.aws_security_group.portal_staff_native_https[each.key].vpc_id == data.aws_vpc.this.id)
+      error_message = "Staff native HTTPS SG must be explicitly owner-qualified in this account/VPC."
+    }
+  }
+}
+resource "aws_vpc_security_group_egress_rule" "portal_staff_native_database" {
+  # One effective rule per SG/TCP/port tuple: Aurora first, then HTTPS, then DB.
+  # Target metadata is still independently qualified by the task definition.
+  for_each = { for key, staff in local.portal_staff_config : key => staff
+    if(staff.native_database_security_group_id != local.aurora_security_group_id || staff.native_database_port != local.aurora_port) &&
+    (staff.native_database_security_group_id != staff.native_https_security_group_id || staff.native_database_port != 443)
+  }
+  security_group_id            = aws_security_group.portal[each.key].id
+  referenced_security_group_id = each.value.native_database_security_group_id
+  ip_protocol                  = "tcp"
+  from_port                    = each.value.native_database_port
+  to_port                      = each.value.native_database_port
+  description                  = "Qualified staff native SELECT-only witness DB destination"
+  lifecycle {
+    precondition {
+      condition = (data.aws_security_group.portal_staff_native_database[each.key].owner_id == var.aws_account_id &&
+      data.aws_security_group.portal_staff_native_database[each.key].vpc_id == data.aws_vpc.this.id)
+      error_message = "Staff native witness DB SG must be explicitly owner-qualified in this account/VPC."
+    }
+  }
+}

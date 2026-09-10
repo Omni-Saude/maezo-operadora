@@ -13,7 +13,7 @@ os serviços existentes. Não use `-target` como receita de implantação.
 
 ## Entradas obrigatórias e donos
 
-Todos os campos do objeto `portal` são obrigatórios; não há tfvars com IDs, segredo,
+Os campos originais do objeto `portal` são obrigatórios; `staff` é opcional e nulo por default; não há tfvars com IDs, segredo,
 origins ou digest fictícios de implantação. Os valores em `tests/` são sintéticos.
 
 | Entrada | Origem e pré-requisito verificável |
@@ -78,11 +78,11 @@ em subnets privadas para tasks, sem public IP ou proxy protocol. Host HTTP perma
 intacto; o BFF recusa Host diferente do origin fixo e não confia em Forwarded headers.
 Não se afirma criptografia ponta a ponta desse trecho. ADR-0006/0049 exigem zonas,
 TLS e isolamento, mas não especificam mTLS para o ingresso BFF; o mTLS obrigatório
-do transporte humano ao engine é outra fronteira, não conectada por esta composição.
+do transporte humano ao engine é outra fronteira, conectada somente pelo perfil staff completo abaixo.
 Revisão e prova real da topologia continuam no gate de staging.
 
-BFF → Cognito e BFF → Aurora verificam TLS e hostname. O SG não tem egress para
-engine, agentes, HAPI ou internet universal. Endpoints privados S3/ECR podem ser
+BFF → Cognito e BFF → Aurora verificam TLS e hostname. No perfil identity o SG não tem egress para
+engine, agentes, HAPI ou internet universal. O perfil staff acrescenta somente os dois destinos nativos explícitos abaixo. Endpoints privados S3/ECR podem ser
 necessários para obter layers sem abrir internet; seus IPs/SGs/policies devem ser
 fornecidos pela plataforma. `/32` é controle IP, **não enforcement FQDN**: mudança
 de IP/DNS requer atualização revisada, e IP compartilhado de CDN não isola hostname.
@@ -127,3 +127,110 @@ recuperação, backup, login Cognito e decisões humanas permanecem gates separa
 Referências primárias: [NLB health checks](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/target-group-health-checks.html),
 [NLB listeners/TLS](https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-listeners.html),
 [Terraform provider mocks](https://developer.hashicorp.com/terraform/language/tests/mocking).
+
+
+## Bootstrap staff exact-case (SC1; ADR-0049 D4/D8/D9/D11)
+
+`portal.staff = null` injeta `MAEZO_PORTAL_CAPABILITIES=identity`, usa o `portal.image_digest`
+original e não cria init, volumes ou egress nativo. Um objeto staff completo injeta
+`identity,staff_cases` e usa **o mesmo** `staff.portal_image_digest` no init e no BFF.
+O entrypoint continua `python -m maezo.portal.api`, cuja implementação aprovada deve
+chamar `portal.api.production:create_production_app`. Este patch exige essa composição
+no artefato final; uma imagem antiga sem bootstrap não é aceita apenas pelo digest.
+`portal_enabled` continua falso por default, independente de ambos os perfis.
+
+Campos **exatos** de `portal.staff` (nenhum segredo literal):
+
+| Campo | Consumo e qualificação externa |
+|---|---|
+| `material_secret_arn`, `material_secret_version_id`, `material_kms_key_arn` | Secret externo `maezo-operadora/dev/portal/{tenant}/staff-materials` com sufixo real, na conta/região configuradas; versão imutável explícita, CMK ARN exato. Terraform lê só metadados e confere a chave resolvida. Não usa SecretVersion/SecretString data source. |
+| `portal_image_digest` | Imagem portal derivada revisada, publicada no repositório de aplicação existente; fonte concreta, dependências, CA de identidade, SBOM/assinatura e mounts qualificados. |
+| `public_manifest_sha256`, `root_key_sha256`, `designation_sha256`, `native_configuration_sha256` | Pins públicos aprovados independentemente pelo dono. Não calculados de um bundle não confiável nem de URL/recibo fictício. |
+| `scope` | Objeto fechado `tenant`, `environment`, `engine_name`, `database_incarnation`; strings exatas do domínio instalado. Tenant igual ao portal. Nome do diretório Terraform não escolhe engine/incarnation/environment. |
+| `native_origin`, `native_server_spki_sha256` | Origin DNS HTTPS fixo (porta443 somente), pin real do servidor mTLS, vínculo owner-qualified ao destino SG. Formato/SG não prova que DNS aponta ao endpoint correto. |
+| `read_key_sha256`, `witness_key_sha256` | Pins distintos entre si e do root; papéis/purposes e separação de todas as outras chaves verificados pelo loader/native. |
+| `maximum_seconds` | Inteiro1–10; env decimal; não pode exceder o máximo do native instalado. |
+| `native_https_security_group_id` | Destino mTLS porta443, metadados de conta/VPC conferidos; dono instala ingress correspondente e peer mapping. Sem administração REST genérica. |
+| `native_database_security_group_id`, `native_database_port` | Destino/porta exatos do banco native para login witness SELECT-only. Dono qualifica igualdade com host/porta da conexão declarada no manifesto e roles/grants/OIDs; SG não confere identidade SQL. |
+
+As entradas públicas viram exatamente `MAEZO_PORTAL_STAFF_MATERIAL_DIRECTORY`
+(`/run/maezo-staff-materials/current`), `..._MATERIAL_VERSION_ID`,
+`..._PUBLIC_MANIFEST_SHA256`, `..._ROOT_KEY_SHA256`, `..._DESIGNATION_SHA256`,
+`..._NATIVE_CONFIGURATION_SHA256`, `..._SCOPE` (JSON com quatro strings),
+`..._NATIVE_ORIGIN`, `..._NATIVE_SERVER_SPKI_SHA256`, `..._READ_KEY_SHA256`,
+`..._WITNESS_KEY_SHA256`, `..._MAXIMUM_SECONDS`. Ambos os containers recebem os
+mesmos pins públicos/tenant/issuer. O init recebe **somente** o segredo novo
+`MAEZO_PORTAL_STAFF_SECRET_BUNDLE` por `arn:::version-id`; o BFF recebe somente sua
+DSN de identidade já existente. Não há segredo novo no environment principal,
+comando, Terraform state/output, imagem ou log. O environment privado do init é
+transitório; não se alega zeroização ou ausência de exposição à plataforma ECS.
+
+Bundle: JSON canônico sem números, schema `portal-staff-secret-bundle.v1`, exatamente
+`schema`, `material_version_id`, `public_manifest`, `files` (valores base64), limite
+65.536 bytes. Manifesto schema `portal-staff-material.v1` com os campos fechados no
+bootstrap aprovado. O mapa files tem exatamente12 basenames:
+
+- Públicos, SHA256 obrigatório no manifesto: `designation.json`, `installation-proof.json`,
+  `installation-root.der`, `native-ca.pem`, `read-client-certificate.pem`,
+  `session-lock-ca.pem`, `native-witness-ca.pem`.
+- Privados, hash **null** obrigatório no manifesto: `read-signing-key.pem`,
+  `witness-signing-key.pem`, `read-client-key.pem`, `session-lock-dsn.txt`,
+  `native-witness-dsn.txt`. Não publicar hashes de DSNs/chaves privadas.
+
+`session_lock_connection` e `native_witness_connection` incluem host, port, database,
+login, tls_server_name, ca_file e function_pin. Porta/OID/maximum_seconds no manifesto
+são strings decimais. Session lock usa a **mesma DB de identidade**, login separado e
+`function_pin={oid,owner,definition_sha256}` para a função instalada
+`portal_identity.lock_external_session(text)`. Native witness usa outro login
+SELECT-only no banco do engine e `function_pin=null`. Exact relation pins:
+`mzo_portal_read_membership` e `mzo_human_principal`, OID/owner reais. Nada cria ou
+move banco/schema, instala função, concede grants ou usa a role writer/master.
+O manifesto inclui snapshot de revogação qualificado; sua expiração só reduz a
+validade local. A autoridade nativa atual continua obrigatória a cada operação.
+
+`deploy/portal.Dockerfile` exige `APP_REPOSITORY` e `APP_DIGEST`, com FROM explícito
+`repository@digest`; não baixa CAs/material/dependências. A imagem base revisada deve
+incluir o bootstrap e a confiança CA real para a conexão de identidade existente.
+Cria só os dois diretórios0700/UID:GID1000 e declara VOLUME com paths iguais aos
+mountPoints. O runtime confere ownership/modes; qualificação real deve demonstrar
+propagação de ownership no Fargate, nenhum conteúdo privado pré-embutido e a CA/TLS
+original. Acrescentar diretórios **não fecha** a pendência de confiança RDS anterior.
+
+Init `python -m maezo.gateway.staff_cases.materialize`: nonessential, UID:GID1000,
+root filesystem read-only, capabilities ALL removidas, sem porta/listener, logs,
+ECS Exec, healthcheck ou restart automático. Publica uma geração `current` exclusiva
+com rename atômico após validação/fsync, diretório0500 e treze arquivos0400 (os doze materiais mais manifesto público `manifest.json`); não sobrescreve
+conteúdo existente. BFF depende de init SUCCESS e monta material read-only. Somente
+BFF monta scratch read-write, `TMPDIR=/run/maezo-staff-scratch`, diretório0700/1000.
+Não há bind de host/EFS ou persistência entre tasks. Fargate1.4 usa orçamento explícito
+**21GiB total** de ephemeral storage compartilhado por imagem, material e scratch;
+isso não é quota por diretório nem tmpfs. Fonte limita bundle/arquivos e utiliza
+scratch para o certificado público retido; sem expansão automática de disco.
+
+Execution role acrescenta GetSecretValue só no ARN staff e Decrypt só na CMK exata,
+com ViaService regional e EncryptionContext:SecretARN. A task role permanece sem
+políticas AWS; init não chama SDK para obter segredo. Metadados/inputs não qualificam
+owner/state/revogações/versão/imagem. Se o SG/porta native DB coincide exatamente com a saída Aurora existente, reutiliza-se
+a regra para evitar DuplicatePermission; conta/VPC do destino explícito ainda são
+verificadas. Isso não confunde as três conexões, databases ou roles.
+Ingress dos dois destinos nativos permanece
+exclusivamente no state do dono; aqui só se acrescenta egress do SG portal. Nenhum
+CIDR universal novo, grant de engine, propriedade de recurso externo ou conta
+escolhida por inferência.
+
+Rotação exige nova versão, manifesto/pins e task/image compatíveis; nunca reload ou
+mutação de arquivos na task existente. Revogação emergencial acontece primeiro na
+autoridade nativa real, seguida de drain/substituição; rollback de aplicação não
+reverte revogações/head/recibos nem renova material expirado. Init falho impede o BFF;
+falha de fonte/TLS/material impede startup staff, sem fallback silencioso identity.
+A sonda session401 continua liveness. Startup/SELECT1 não prova staff readiness;
+aceitação requer resposta real autorizada de caso exato e negações/currentness.
+
+Checks mínimos propostos: `terraform fmt -check` nos arquivos alterados;
+`terraform validate` com provider já disponível; `terraform test -filter=tests/portal.tftest.hcl`
+(mock AWS) mantém identidade, init/env/versão/CMK/roles/mounts/egress e recusas. Nenhum
+provider install, teste, build ou cloud apply faz parte desta construção de patch.
+Preparação zero tasks não equivale a autorização de ativação.
+
+Mecânicas primárias: [versão explícita ECS](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/secrets-envvar-secrets-manager.html),
+[ownership e armazenamento dos bind mounts](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/bind-mounts.html).

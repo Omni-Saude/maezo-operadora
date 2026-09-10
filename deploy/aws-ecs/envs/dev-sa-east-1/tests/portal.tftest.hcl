@@ -12,6 +12,7 @@ mock_provider "aws" {
   mock_resource "aws_cloudwatch_log_group" { defaults = { arn = "arn:aws:logs:sa-east-1:203312548462:log-group:test-portal" } }
 
   mock_data "aws_iam_policy_document" { defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" } }
+  mock_data "aws_security_group" { defaults = { owner_id = "203312548462", vpc_id = "vpc-00000000000000001" } }
   mock_data "aws_partition" { defaults = { partition = "aws" } }
   mock_data "aws_vpc" { defaults = { id = "vpc-00000000000000001", cidr_block = "10.40.0.0/16" } }
   mock_data "aws_rds_cluster" {
@@ -115,6 +116,7 @@ run "enabled_consumer" {
       MAEZO_PORTAL_MACHINE_CLIENT_ID = var.fhir_cognito_client_id
       MAEZO_PORTAL_PUBLIC_ORIGIN     = var.portal.public_origin
       MAEZO_PORTAL_MODE              = "production"
+      MAEZO_PORTAL_CAPABILITIES      = "identity"
       PYTHONDONTWRITEBYTECODE        = "1"
     }
     error_message = "All identity settings must feed the real consumer with production mode and fixed tenant."
@@ -338,5 +340,366 @@ run "cmk_scoped_secret_context" {
       anytrue([for c in s.condition : c.test == "StringEquals" && c.variable == "kms:ViaService" && toset(c.values) == toset(["secretsmanager.sa-east-1.amazonaws.com"])])
     ])
     error_message = "CMK must resolve to exact ARN and restrict decrypt to this secret through regional Secrets Manager."
+  }
+}
+
+# Synthetic staff deployment metadata only. No bundle/private value enters Terraform.
+override_data {
+  target = data.aws_secretsmanager_secret.portal_staff["this"]
+  values = { kms_key_id = "alias/test-staff-material" }
+}
+override_data {
+  target = data.aws_kms_key.portal_staff["this"]
+  values = { arn = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111" }
+}
+run "staff_material_delivery" {
+  command = apply
+  plan_options { target = [aws_ecs_service.portal, aws_iam_role_policy.portal_execution, aws_vpc_security_group_egress_rule.portal_staff_native_https, aws_vpc_security_group_egress_rule.portal_staff_native_database] }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    } })
+  }
+  assert {
+    condition = (
+      aws_ecs_service.portal["this"].desired_count == 0 &&
+      length(jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)) == 2 &&
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].image == jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1].image &&
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].image == "${aws_ecr_repository.app.repository_url}@${var.portal.staff.portal_image_digest}" &&
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].dependsOn == [{ containerName = "portal-staff-materialize", condition = "SUCCESS" }] &&
+      aws_ecs_task_definition.portal["this"].ephemeral_storage[0].size_in_gib == 21 &&
+      toset([for v in aws_ecs_task_definition.portal["this"].volume : v.name]) == toset(["staff-materials", "staff-scratch"])
+    )
+    error_message = "Prepared staff task must use one immutable image, init SUCCESS, exact volumes and finite shared disk without activation."
+  }
+  assert {
+    condition = (
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].mountPoints == [
+        { sourceVolume = "staff-materials", containerPath = "/run/maezo-staff-materials", readOnly = true },
+        { sourceVolume = "staff-scratch", containerPath = "/run/maezo-staff-scratch", readOnly = false }
+      ] &&
+      alltrue([for c in jsondecode(aws_ecs_task_definition.portal["this"].container_definitions) : c.user == "1000:1000" && c.readonlyRootFilesystem && c.linuxParameters.capabilities.drop == ["ALL"]]) &&
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].secrets == [{ name = "MAEZO_PORTAL_DATABASE_URL", valueFrom = var.portal.database_secret_arn }]
+    )
+    error_message = "Main BFF must retain only identity DSN, read-only material, writable fixed scratch and nonroot/no-capabilities posture."
+  }
+  assert {
+    condition = (
+      !jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1].essential &&
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1].command == ["python", "-m", "maezo.gateway.staff_cases.materialize"] &&
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1].mountPoints == [{ sourceVolume = "staff-materials", containerPath = "/run/maezo-staff-materials", readOnly = false }] &&
+      jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1].secrets == [{ name = "MAEZO_PORTAL_STAFF_SECRET_BUNDLE", valueFrom = "${var.portal.staff.material_secret_arn}:::${var.portal.staff.material_secret_version_id}" }] &&
+      !contains(keys(jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1]), "logConfiguration") &&
+      !contains(keys(jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1]), "portMappings") &&
+      !contains(keys(jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1]), "restartPolicy")
+    )
+    error_message = "Only the nonessential finite materializer may receive the exact secret version, with no logs, listener or automatic restart."
+  }
+  assert {
+    condition = (
+      { for item in jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].environment : item.name => item.value if startswith(item.name, "MAEZO_PORTAL_STAFF_") } ==
+      { for item in jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[1].environment : item.name => item.value if startswith(item.name, "MAEZO_PORTAL_STAFF_") } &&
+      { for item in jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].environment : item.name => item.value if startswith(item.name, "MAEZO_PORTAL_STAFF_") } == {
+        MAEZO_PORTAL_STAFF_MATERIAL_DIRECTORY          = "/run/maezo-staff-materials/current"
+        MAEZO_PORTAL_STAFF_MATERIAL_VERSION_ID         = var.portal.staff.material_secret_version_id
+        MAEZO_PORTAL_STAFF_PUBLIC_MANIFEST_SHA256      = var.portal.staff.public_manifest_sha256
+        MAEZO_PORTAL_STAFF_ROOT_KEY_SHA256             = var.portal.staff.root_key_sha256
+        MAEZO_PORTAL_STAFF_DESIGNATION_SHA256          = var.portal.staff.designation_sha256
+        MAEZO_PORTAL_STAFF_NATIVE_CONFIGURATION_SHA256 = var.portal.staff.native_configuration_sha256
+        MAEZO_PORTAL_STAFF_SCOPE                       = jsonencode(var.portal.staff.scope)
+        MAEZO_PORTAL_STAFF_NATIVE_ORIGIN               = var.portal.staff.native_origin
+        MAEZO_PORTAL_STAFF_NATIVE_SERVER_SPKI_SHA256   = var.portal.staff.native_server_spki_sha256
+        MAEZO_PORTAL_STAFF_READ_KEY_SHA256             = var.portal.staff.read_key_sha256
+        MAEZO_PORTAL_STAFF_WITNESS_KEY_SHA256          = var.portal.staff.witness_key_sha256
+        MAEZO_PORTAL_STAFF_MAXIMUM_SECONDS             = tostring(var.portal.staff.maximum_seconds)
+      } &&
+      one([for item in jsondecode(aws_ecs_task_definition.portal["this"].container_definitions)[0].environment : item.value if item.name == "TMPDIR"]) == "/run/maezo-staff-scratch" &&
+      alltrue([for c in jsondecode(aws_ecs_task_definition.portal["this"].container_definitions) : one([for item in c.environment : item.value if item.name == "MAEZO_PORTAL_CAPABILITIES"]) == "identity,staff_cases"])
+    )
+    error_message = "Both consumers require identical exact public material pins and scope; only main uses fixed scratch."
+  }
+  assert {
+    condition = (
+      anytrue([for st in data.aws_iam_policy_document.portal_execution["this"].statement : st.actions == toset(["secretsmanager:GetSecretValue"]) && st.resources == toset([var.portal.staff.material_secret_arn])]) &&
+      anytrue([for st in data.aws_iam_policy_document.portal_execution["this"].statement : st.actions == toset(["kms:Decrypt"]) && st.resources == toset([var.portal.staff.material_kms_key_arn]) && length(st.condition) == 2 &&
+        anytrue([for c in st.condition : c.variable == "kms:ViaService" && c.test == "StringEquals" && toset(c.values) == toset(["secretsmanager.sa-east-1.amazonaws.com"])]) &&
+        anytrue([for c in st.condition : c.variable == "kms:EncryptionContext:SecretARN" && c.test == "StringEquals" && toset(c.values) == toset([var.portal.staff.material_secret_arn])])
+      ]) &&
+      aws_ecs_task_definition.portal["this"].execution_role_arn == aws_iam_role.portal_execution["this"].arn &&
+      aws_ecs_task_definition.portal["this"].task_role_arn == aws_iam_role.portal_task["this"].arn &&
+      !aws_ecs_service.portal["this"].enable_execute_command
+    )
+    error_message = "Only execution role may resolve material via exact CMK/secret context; runtime role and Exec posture remain separate."
+  }
+  assert {
+    condition = (
+      aws_vpc_security_group_egress_rule.portal_staff_native_https["this"].referenced_security_group_id == var.portal.staff.native_https_security_group_id &&
+      aws_vpc_security_group_egress_rule.portal_staff_native_https["this"].from_port == 443 &&
+      aws_vpc_security_group_egress_rule.portal_staff_native_https["this"].to_port == 443 &&
+      aws_vpc_security_group_egress_rule.portal_staff_native_database["this"].referenced_security_group_id == var.portal.staff.native_database_security_group_id &&
+      aws_vpc_security_group_egress_rule.portal_staff_native_database["this"].from_port == var.portal.staff.native_database_port &&
+      aws_vpc_security_group_egress_rule.portal_staff_native_database["this"].to_port == var.portal.staff.native_database_port
+    )
+    error_message = "Staff egress must reach only owner-specified native HTTPS and witness DB SG/ports; no owner ingress is created."
+  }
+}
+run "staff_mutable_version_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { material_secret_version_id = "AWSCURRENT" }) })
+  }
+  expect_failures = [var.portal]
+}
+run "staff_duplicate_signer_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { witness_key_sha256 = "1111111111111111111111111111111111111111111111111111111111111111" }) })
+  }
+  expect_failures = [var.portal]
+}
+run "staff_unknown_field_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { arbitrary_environment = "prohibited" }) })
+  }
+  expect_failures = [var.portal]
+}
+
+run "staff_reuses_exact_existing_database_egress" {
+  command = apply
+  plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database] }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000003"
+      native_database_port              = 5432
+    } })
+  }
+  assert {
+    condition = (
+      length(aws_vpc_security_group_egress_rule.portal_staff_native_database) == 0 &&
+      aws_vpc_security_group_egress_rule.portal_postgres["this"].referenced_security_group_id == var.portal.staff.native_database_security_group_id &&
+      aws_vpc_security_group_egress_rule.portal_postgres["this"].from_port == var.portal.staff.native_database_port &&
+      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+    )
+    error_message = "An explicitly identical Aurora SG/port reuses its existing rule while retaining native target qualification."
+  }
+}
+
+run "staff_db_reuses_https_egress" {
+  command = apply
+  plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database, aws_vpc_security_group_egress_rule.portal_staff_native_https] }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000004"
+      native_database_port              = 443
+    } })
+  }
+  assert {
+    condition = (
+      length(aws_vpc_security_group_egress_rule.portal_postgres) +
+      length(aws_vpc_security_group_egress_rule.portal_staff_native_https) +
+      length(aws_vpc_security_group_egress_rule.portal_staff_native_database) == 2 &&
+      length(toset([for rule in concat(
+        values(aws_vpc_security_group_egress_rule.portal_postgres),
+        values(aws_vpc_security_group_egress_rule.portal_staff_native_https),
+        values(aws_vpc_security_group_egress_rule.portal_staff_native_database)
+      ) : jsonencode([rule.security_group_id, rule.referenced_security_group_id, rule.ip_protocol, rule.from_port, rule.to_port])])) == 2 &&
+      data.aws_security_group.portal_staff_native_https["this"].owner_id == var.aws_account_id &&
+      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+    )
+    error_message = "All selected destinations retain qualified metadata and exactly one effective SG/TCP/port tuple."
+  }
+}
+
+run "staff_https_reuses_aurora_egress" {
+  override_data {
+    target = data.aws_rds_cluster.shared
+    values = { port = 443 }
+  }
+  command = apply
+  plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database, aws_vpc_security_group_egress_rule.portal_staff_native_https] }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000003"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    } })
+  }
+  assert {
+    condition = (
+      length(aws_vpc_security_group_egress_rule.portal_postgres) +
+      length(aws_vpc_security_group_egress_rule.portal_staff_native_https) +
+      length(aws_vpc_security_group_egress_rule.portal_staff_native_database) == 2 &&
+      length(toset([for rule in concat(
+        values(aws_vpc_security_group_egress_rule.portal_postgres),
+        values(aws_vpc_security_group_egress_rule.portal_staff_native_https),
+        values(aws_vpc_security_group_egress_rule.portal_staff_native_database)
+      ) : jsonencode([rule.security_group_id, rule.referenced_security_group_id, rule.ip_protocol, rule.from_port, rule.to_port])])) == 2 &&
+      data.aws_security_group.portal_staff_native_https["this"].owner_id == var.aws_account_id &&
+      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+    )
+    error_message = "All selected destinations retain qualified metadata and exactly one effective SG/TCP/port tuple."
+  }
+}
+
+run "staff_all_destinations_share_one_egress" {
+  override_data {
+    target = data.aws_rds_cluster.shared
+    values = { port = 443 }
+  }
+  command = apply
+  plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database, aws_vpc_security_group_egress_rule.portal_staff_native_https] }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000003"
+      native_database_security_group_id = "sg-00000000000000003"
+      native_database_port              = 443
+    } })
+  }
+  assert {
+    condition = (
+      length(aws_vpc_security_group_egress_rule.portal_postgres) +
+      length(aws_vpc_security_group_egress_rule.portal_staff_native_https) +
+      length(aws_vpc_security_group_egress_rule.portal_staff_native_database) == 1 &&
+      length(toset([for rule in concat(
+        values(aws_vpc_security_group_egress_rule.portal_postgres),
+        values(aws_vpc_security_group_egress_rule.portal_staff_native_https),
+        values(aws_vpc_security_group_egress_rule.portal_staff_native_database)
+      ) : jsonencode([rule.security_group_id, rule.referenced_security_group_id, rule.ip_protocol, rule.from_port, rule.to_port])])) == 1 &&
+      data.aws_security_group.portal_staff_native_https["this"].owner_id == var.aws_account_id &&
+      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+    )
+    error_message = "All selected destinations retain qualified metadata and exactly one effective SG/TCP/port tuple."
   }
 }
