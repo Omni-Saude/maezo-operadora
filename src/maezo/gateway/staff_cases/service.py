@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 from datetime import datetime
 from typing import Any, Literal
 
@@ -16,7 +17,7 @@ from pydantic import Field
 from maezo.gateway.external_cases.models import CaseRef, Digest, Ref, timestamp
 from maezo.gateway.human.read_profile import parse_model, wire
 from maezo.portal.api.session import HumanSessionResolver
-from maezo.portal.contracts.staff_cases import StaffDetail
+from maezo.portal.contracts.staff_cases import ObservationTimes, StaffDetail, StaffDetailShape
 from maezo.portal.engine.profile import canonicalize
 
 from .models import Closed, N, Proof, StaffCaseError, T
@@ -43,10 +44,18 @@ class ReadPin(Closed):
     valid_until: T
 
 
+class NativeFreshness(ObservationTimes):
+    refresh_after_seconds: Literal["10"]
+
+
+class NativeStaffDetail(StaffDetailShape[NativeFreshness]):
+    """Exact number-free native projection, retained unchanged for finalization."""
+
+
 class NativeObservation(Closed):
     schema_: Literal["staff-case-observation.v1"] = Field(alias="schema")
     request_digest: Digest
-    projection: StaffDetail
+    projection: NativeStaffDetail
     continuity_ref: Ref
     continuity_digest: Digest
     source_pins: tuple[ReadPin, ...]
@@ -161,6 +170,14 @@ class StaffCaseService:
             value, request_digest=request_digest, case_ref=ref, limit=int(task_limit), now=self.lease.clock()
         )
         frozen = canonicalize(wire(observed.projection))
+        # Only the already validated fixed cadence crosses representations. Keep
+        # the original native bytes/digest for finalization and freeze public
+        # bytes before any final authority or session-release checks.
+        public = wire(observed.projection)
+        public["freshness"]["refresh_after_seconds"] = 10
+        public_frozen = (
+            StaffDetail.model_validate_json(json.dumps(public)).model_dump_json(by_alias=True).encode("utf-8")
+        )
         # An identity transaction holds the real session and membership through the
         # native final check. It does not call the resolver or replace the witness.
         async with self.lease.acquire(secret, principal) as locked:
@@ -194,7 +211,7 @@ class StaffCaseService:
                 raise StaffCaseError("conflict")
             locked.current(self.lease.clock())
         # Both native response cleanup and identity transaction release have completed.
-        # Return the original frozen bytes, with no reserialization or awaited work.
+        # Return the pre-frozen public bytes, with no reserialization or awaited work.
         if self.lease.clock() >= min(session_until, timestamp(observed.valid_until)):
             raise StaffCaseError("unavailable")
-        return frozen
+        return public_frozen

@@ -450,8 +450,14 @@ async def test_service_freezes_original_and_checks_after_all_awaited_release(mod
         Lease(),
     )
     if mode == "accepted":
+        import json
+
         raw = await service.read("s" * 43, case_ref=identity.case_ref)
-        assert raw == canonicalize(original["projection"])
+        expected_public = deepcopy(original["projection"])
+        expected_public["freshness"]["refresh_after_seconds"] = 10
+        assert json.loads(raw) == expected_public
+        assert type(json.loads(raw)["freshness"]["refresh_after_seconds"]) is int
+        assert original["projection"]["freshness"]["refresh_after_seconds"] == "10"
         assert [c["operation"] for c in calls] == ["detail", "finalize"]
     else:
         with pytest.raises(StaffCaseError):
@@ -460,6 +466,17 @@ async def test_service_freezes_original_and_checks_after_all_awaited_release(mod
             )
         if mode in {"cursor", "beneficiary"}:
             assert not calls
+
+
+@pytest.mark.parametrize("cadence", ["11", 10, 10.0, True])
+def test_native_cadence_refuses_values_outside_exact_signed_grammar(cadence):
+    from maezo.gateway.staff_cases.service import observation
+
+    _, _, identity, witness, _, now, _, _ = scenario()
+    value = _detail_observation(identity, witness, now)
+    value["projection"]["freshness"]["refresh_after_seconds"] = cadence
+    with pytest.raises((StaffCaseError, ProfileError)):
+        observation(value, request_digest="a" * 64, case_ref=identity.case_ref, limit=25, now=now)
 
 
 @pytest.mark.asyncio

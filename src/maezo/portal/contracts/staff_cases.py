@@ -10,11 +10,14 @@ from maezo.gateway.external_cases.models import CaseRef, Closed, Identity, Ref
 from maezo.gateway.staff_cases.models import N, T
 
 
-class Freshness(Closed):
+class ObservationTimes(Closed):
     observed_at: T
     source_observed_at: T
     valid_until: T
-    refresh_after_seconds: Literal["10"]
+
+
+class Freshness(ObservationTimes):
+    refresh_after_seconds: Literal[10]
 
 
 class StaffSummary(Closed):
@@ -34,14 +37,14 @@ class LinkedTask(Closed):
     assignee_ref: Ref | None
 
 
-class StaffDetail(Closed):
+class StaffDetailShape[FreshnessT: ObservationTimes](Closed):
     schema_: Literal["portal-staff-case-detail.v1"] = Field(alias="schema")
     case: StaffSummary
     identity: Identity
     active_tasks: tuple[LinkedTask, ...] = Field(max_length=100)
     next_task_cursor: Ref | None
     tasks_complete: bool
-    freshness: Freshness
+    freshness: FreshnessT
 
     @model_validator(mode="after")
     def consistent_identity_and_page(self) -> Self:
@@ -55,3 +58,7 @@ class StaffDetail(Closed):
         if self.case.state == "ended" and self.active_tasks:
             raise ValueError("inconsistent ended staff case")
         return self
+
+
+class StaffDetail(StaffDetailShape[Freshness]):
+    """Public JSON contract; cadence is numeric independently of native signing."""
