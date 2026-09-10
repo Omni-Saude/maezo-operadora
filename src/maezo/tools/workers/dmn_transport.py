@@ -76,7 +76,11 @@ import httpx
 import structlog
 
 from maezo.tools.workers._audit_ctx import record_dmn_version
-from maezo.tools.workers.engine_var_types import camunda_int_type, validate_declared_long_var
+from maezo.tools.workers.engine_var_types import (
+    camunda_int_type,
+    validate_centavos_engine_var,
+    validate_declared_long_var,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -223,6 +227,7 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
         validate_declared_long_var(k, v)
+        validate_centavos_engine_var(k, v)
         if isinstance(v, dict) and "value" in v:
             camunda_vars[k] = v  # declared Long validated; other engine-shaped values unchanged
         elif isinstance(v, bool):
