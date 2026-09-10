@@ -349,7 +349,11 @@ class AuditIntentPayload(Closed):
 
     @model_validator(mode="after")
     def admitted_session(self) -> AuditIntentPayload:
-        if not self.session_binding.authenticated_at <= self.admitted_at < self.session_binding.authorization_until:
+        if (
+            not self.session_binding.authenticated_at
+            <= self.admitted_at
+            < self.session_binding.authorization_until
+        ):
             raise ValueError("invalid admission session interval")
         return self
 

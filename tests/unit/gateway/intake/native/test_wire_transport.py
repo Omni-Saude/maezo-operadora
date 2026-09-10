@@ -21,9 +21,11 @@ from maezo.gateway.human.auth_profile import (
     NativeReceiptLookup,
     Pin,
     Scope,
+    SessionBinding,
 )
 from maezo.gateway.human.auth_transport import (
     AuthCredentialLease,
+    AuthEffectCeiling,
     AuthNativeTrustLease,
     AuthUnavailableError,
     sign_request,
@@ -102,6 +104,22 @@ def command():
         start_facts_ref="facts",
         start_facts_digest=HASH,
         projected_variables_digest=HASH,
+    )
+
+
+def effect_cap(c=None, seconds=20):
+    c = c or command()
+    return AuthEffectCeiling(
+        digest(c),
+        SessionBinding(
+            session_ref="session",
+            authenticated_at=NOW - timedelta(seconds=5),
+            session_expires_at=NOW + timedelta(seconds=60),
+            authorization_until=NOW + timedelta(seconds=seconds),
+            session_source_revision=1,
+            session_record_digest=HASH,
+        ),
+        NOW + timedelta(seconds=seconds),
     )
 
 
@@ -185,7 +203,7 @@ def envelope(result, expires=30):
 
 def test_command_roundtrip_and_independent_signature_layout():
     c = command()
-    raw = sign_request(c, signing(), NOW)
+    raw = sign_request(c, signing(), NOW, effect_ceiling=effect_cap(c))
     value = strict_loads(raw)
     assert value["digest"] == hashlib.sha256(canonicalize(wire(c))).hexdigest()
     signature = base64.urlsafe_b64decode(value.pop("signature") + "==")
@@ -400,6 +418,9 @@ async def test_real_http_client_peer_boundaries_and_final_io_deadlines(mode):
         if not live[0]:
             raise AuthUnavailableError()
 
+    async def checkpoint():
+        current()
+
     client = AuthNativeClient(
         origin="https://native.test",
         tls_context=ssl.create_default_context(),
@@ -410,10 +431,17 @@ async def test_real_http_client_peer_boundaries_and_final_io_deadlines(mode):
     )
     try:
         if mode == "valid":
-            assert await client.execute(command(), current=current) == receipt()
+            assert (
+                await client.execute(
+                    command(), current=current, checkpoint=checkpoint, effect_ceiling=effect_cap()
+                )
+                == receipt()
+            )
         else:
             with pytest.raises(AuthUnavailableError):
-                await client.execute(command(), current=current)
+                await client.execute(
+                    command(), current=current, checkpoint=checkpoint, effect_ceiling=effect_cap()
+                )
         assert len(sent) == 1
     finally:
         await client.close()

@@ -25,11 +25,16 @@ from maezo.gateway.human.auth_profile import (
     Pin,
     Scope,
 )
-from maezo.gateway.human.auth_transport import AuthEffectCeiling, AuthNativeClient, AuthUnavailableError, bind_receipt
+from maezo.gateway.human.auth_transport import (
+    AuthEffectCeiling,
+    AuthNativeClient,
+    AuthUnavailableError,
+    bind_receipt,
+)
 from maezo.gateway.human.read_profile import digest, parse_model, wire
 
-from .native_store import PostgresAuthDispatchStore
 from .native_source_lifecycle import AuthCallerBinding
+from .native_store import PostgresAuthDispatchStore
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -73,7 +78,9 @@ class AuthEffectLease:
 
 class AuthEffectAuthorizationSource(ABC):
     @abstractmethod
-    async def current(self, command: EffectCommand, *, read: bool, caller: AuthCallerBinding | None = None) -> AuthEffectLease:
+    async def current(
+        self, command: EffectCommand, *, read: bool, caller: AuthCallerBinding | None = None
+    ) -> AuthEffectLease:
         """Actual current session + explicit resource action + published source leases.
 
         Execution requires exact original immutable pins. Read authority is independent;
@@ -93,12 +100,16 @@ class AuthDispatcher:
     ) -> None:
         self.store, self.client, self.authority, self.clock = store, client, authority, clock
 
-    async def dispatch_documents(self, command: HumanDocumentCommand, *, caller: AuthCallerBinding | None = None) -> NativeEffectReceipt:
+    async def dispatch_documents(
+        self, command: HumanDocumentCommand, *, caller: AuthCallerBinding | None = None
+    ) -> NativeEffectReceipt:
         if type(command) is not HumanDocumentCommand:
             raise AuthUnavailableError()
-        return await self._dispatch(command,caller=caller)
+        return await self._dispatch(command, caller=caller)
 
-    async def _dispatch(self, command: EffectCommand, *, caller: AuthCallerBinding | None = None) -> NativeEffectReceipt:
+    async def _dispatch(
+        self, command: EffectCommand, *, caller: AuthCallerBinding | None = None
+    ) -> NativeEffectReceipt:
         command = parse_model(type(command), wire(command))
         await self.store.prove(command)
         completed = await self.store.completed(command)
@@ -128,7 +139,9 @@ class AuthDispatcher:
                 else command.case_ref,
             )
             result = await self.client.execute(
-                query, current=lambda: read.guard(command, self.clock(), read=True), checkpoint=read.revalidate
+                query,
+                current=lambda: read.guard(command, self.clock(), read=True),
+                checkpoint=read.revalidate,
             )
             read.guard(command, self.clock(), read=True)
             if not isinstance(result, NativeReceiptLookup):
@@ -151,7 +164,9 @@ class AuthDispatcher:
         current()
         claim = await self.store.mark_sending(claim, current, checkpoint=effect.revalidate)
         current()
-        receipt = await self.client.execute(command, current=current, checkpoint=effect.revalidate, effect_ceiling=effect.effect_ceiling)
+        receipt = await self.client.execute(
+            command, current=current, checkpoint=effect.revalidate, effect_ceiling=effect.effect_ceiling
+        )
         if not isinstance(receipt, NativeEffectReceipt):
             raise AuthUnavailableError()
         bind_receipt(receipt, command)
@@ -209,7 +224,12 @@ class HumanIntakeStartTransport:
     """Concrete dedicated capability; no structural fallback to an agent transport."""
 
     def __init__(
-        self, *, dispatcher: AuthDispatcher, workload_ref: str, projection: Callable[[dict[str, Any]], str], caller: AuthCallerBinding | None = None
+        self,
+        *,
+        dispatcher: AuthDispatcher,
+        workload_ref: str,
+        projection: Callable[[dict[str, Any]], str],
+        caller: AuthCallerBinding | None = None,
     ) -> None:
         self.dispatcher, self.workload_ref, self._projection = dispatcher, workload_ref, projection
         self._identity = object()
@@ -228,20 +248,24 @@ class HumanIntakeStartTransport:
             or authorized.transport_identity is not self._identity
         ):
             raise AuthUnavailableError()
-        return await self.dispatcher._dispatch(authorized.command,caller=self._caller)
+        return await self.dispatcher._dispatch(authorized.command, caller=self._caller)
 
     async def query_human_start(self, query: HumanReceiptQuery) -> NativeReceiptLookup:
         # Native revalidates the current independent read grant; callers must not
         # use this lower-level result as a browser disclosure without BFF finalization.
         if query.operation != "auth.start" or query.workload_ref != self.workload_ref:
             raise AuthUnavailableError()
-        command=await self.dispatcher.store.prepared_command(query.command_id)
-        if digest(command)!=query.expected_command_digest or command.scope!=query.scope:
+        command = await self.dispatcher.store.prepared_command(query.command_id)
+        if digest(command) != query.expected_command_digest or command.scope != query.scope:
             raise AuthUnavailableError()
-        read=await self.dispatcher.authority.current(command,read=True,caller=self._caller)
-        if read.actor!=query.actor:
+        read = await self.dispatcher.authority.current(command, read=True, caller=self._caller)
+        if read.actor != query.actor:
             raise AuthUnavailableError()
-        result = await self.dispatcher.client.execute(query,current=lambda:read.guard(command,self.dispatcher.clock(),read=True),checkpoint=read.revalidate)
+        result = await self.dispatcher.client.execute(
+            query,
+            current=lambda: read.guard(command, self.dispatcher.clock(), read=True),
+            checkpoint=read.revalidate,
+        )
         await read.revalidate()
         if not isinstance(result, NativeReceiptLookup):
             raise AuthUnavailableError()

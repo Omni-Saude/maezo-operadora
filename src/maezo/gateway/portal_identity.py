@@ -46,6 +46,13 @@ def build_human_identity_adapters(
             database_url, hide_parameters=True, echo=False, connect_args={"ssl": ssl.create_default_context()}
         )
         store = PostgresIdentityStore(config.tenant, engine)
+        if config.auth_lifecycle_binding_path is not None:
+            from .intake.native_authority import load_auth_lifecycle
+
+            composition = load_auth_lifecycle(
+                config.auth_lifecycle_binding_path, tenant=config.tenant, identity_writer=engine
+            )
+            store.bind_auth_lifecycle(composition)
     client = oidc_client or httpx.AsyncClient(
         verify=True, trust_env=False, follow_redirects=False, timeout=10.0
     )

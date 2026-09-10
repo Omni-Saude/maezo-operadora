@@ -28,10 +28,10 @@ from .native_dispatch import (
     HumanIntakeProvenance,
     HumanIntakeStartTransport,
 )
+from .native_source_lifecycle import AuthCallerBinding
 from .native_store import PostgresAuthDispatchStore
 from .postgres import PostgresIntakeStore
 from .service import IntakeService
-from .native_source_lifecycle import AuthCallerBinding
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -47,7 +47,9 @@ class AuthIntakeComponents:
             raise ValueError("invalid AUTH tenant composition")
         return IntakeService(resolver, self.authority, self.admission)
 
-    async def dispatch_prepared_start(self, command: HumanStartCommand, facts: StartFacts, *, caller: AuthCallerBinding | None = None) -> ProcessInstance:
+    async def dispatch_prepared_start(
+        self, command: HumanStartCommand, facts: StartFacts, *, caller: AuthCallerBinding | None = None
+    ) -> ProcessInstance:
         if digest(facts) != command.start_facts_digest:
             raise AuthUnavailableError()
         variables = start_variables(command.scope.tenant, facts)
@@ -69,7 +71,12 @@ class AuthIntakeComponents:
             projected_variables_digest=command.projected_variables_digest,
         )
         return await start_process_idempotent(
-            HumanIntakeStartTransport(dispatcher=self.dispatcher,workload_ref=command.workload_ref,projection=projection_digest,caller=caller),
+            HumanIntakeStartTransport(
+                dispatcher=self.dispatcher,
+                workload_ref=command.workload_ref,
+                projection=projection_digest,
+                caller=caller,
+            ),
             process_key="SP-OP-AUTH-001",
             business_key="AUTHI-" + command.guide_identity_ref,
             variables=variables,
@@ -77,9 +84,11 @@ class AuthIntakeComponents:
             provenance=provenance,
         )
 
-    async def dispatch_prepared_documents(self, command: HumanDocumentCommand, *, caller: AuthCallerBinding | None = None) -> NativeEffectReceipt:
+    async def dispatch_prepared_documents(
+        self, command: HumanDocumentCommand, *, caller: AuthCallerBinding | None = None
+    ) -> NativeEffectReceipt:
         await self.dispatch_store.prepare(command)
-        return await self.dispatcher.dispatch_documents(command,caller=caller)
+        return await self.dispatcher.dispatch_documents(command, caller=caller)
 
 
 def compose_auth_intake(

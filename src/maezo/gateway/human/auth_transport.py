@@ -129,7 +129,10 @@ class AuthEffectCeiling:
     valid_until: datetime
 
     def until(self, request: Request) -> datetime:
-        if not isinstance(request, HumanStartCommand | HumanDocumentCommand) or digest(request) != self.command_digest:
+        if (
+            not isinstance(request, HumanStartCommand | HumanDocumentCommand)
+            or digest(request) != self.command_digest
+        ):
             raise AuthUnavailableError()
         return min(self.session.session_expires_at, self.session.authorization_until, self.valid_until)
 
@@ -427,10 +430,54 @@ class AuthNativeClient:
     ) -> Result:
         try:
             request = parse_model(type(request), wire(request))
-            if isinstance(request, HumanStartCommand | HumanDocumentCommand) and (checkpoint is None or effect_ceiling is None):
+            if isinstance(request, HumanStartCommand | HumanDocumentCommand) and (
+                checkpoint is None or effect_ceiling is None
+            ):
                 raise AuthUnavailableError()
 
+            signing: AuthCredentialLease | None = None
+            trust: AuthNativeTrustLease | None = None
+
             async def observe() -> None:
+                # Reacquire through the actual credential source after each await;
+                # a captured key lease alone cannot observe installed revocation.
+                if signing is not None:
+                    refreshed = await self._credentials.acquire(request.scope, purpose)
+                    refreshed.guard(self.clock())
+                    names = (
+                        "scope",
+                        "purpose",
+                        "workload_ref",
+                        "key_id",
+                        "audience",
+                        "public_key_sha256",
+                        "peer_spki_sha256",
+                        "not_before",
+                        "valid_until",
+                        "max_envelope_seconds",
+                    )
+                    if any(getattr(refreshed, name) != getattr(signing, name) for name in names):
+                        raise AuthUnavailableError()
+                if trust is not None:
+                    refreshed_trust = await self._credentials.native_trust(request.scope)
+                    refreshed_trust.guard(self.clock())
+                    trust_names = (
+                        "scope",
+                        "issuer",
+                        "key_id",
+                        "audience",
+                        "server_spki_sha256",
+                        "not_before",
+                        "valid_until",
+                        "max_envelope_seconds",
+                    )
+                    if any(
+                        getattr(refreshed_trust, name) != getattr(trust, name) for name in trust_names
+                    ) or (
+                        refreshed_trust.key.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+                        != trust.key.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+                    ):
+                        raise AuthUnavailableError()
                 if checkpoint is not None:
                     await checkpoint()
                 current()

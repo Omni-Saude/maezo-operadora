@@ -71,11 +71,14 @@ class IntakeService:
             raise IntakeError("operation_forbidden")
         grant = grant.model_copy(update={"valid_until": ceiling})
         from .postgres import PostgresIntakeStore
-        if isinstance(self.store,PostgresIntakeStore) and self.store.native_dispatch is not None:
+
+        if isinstance(self.store, PostgresIntakeStore) and self.store.native_dispatch is not None:
             from .native_source_lifecycle import AuthCallerBinding
-            caller=await AuthCallerBinding.resolve(self.resolver,secret,ceiling=ceiling)
-            if caller.principal!=first.principal: raise IntakeError("operation_forbidden")
-            result=await self.store.admit(grant,request,caller=caller)
+
+            caller = await AuthCallerBinding.resolve(self.resolver, secret, ceiling=ceiling)
+            if caller.principal != first.principal:
+                raise IntakeError("operation_forbidden")
+            result = await self.store.admit(grant, request, caller=caller)
         else:
             result = await self.store.admit(grant, request)
         if result.command_id != request.command_id:

@@ -1,4 +1,5 @@
 -- AUTH-SL1 owner-installed identity SOURCE database upgrade, never the PHI/native DB.
+-- Owner supplies psql source_schema from the qualified identity binding; no public default.
 -- Installation deliberately seeds no scope, principal, source receipt, key or active head.
 -- Owner assigns distinct control/receipt/writer/reader roles after code/DDL readback.
 CREATE SCHEMA portal_auth;
@@ -11,7 +12,7 @@ CREATE TABLE portal_auth.installation (
  CHECK(control_role<>receipt_role AND control_role<>writer_role AND receipt_role<>writer_role)
 );
 CREATE UNIQUE INDEX portal_sessions_tenant_session_ref
- ON public.portal_sessions(tenant,((payload::jsonb)->>'session_ref'));
+ ON :"source_schema".portal_sessions(tenant,((payload::jsonb)->>'session_ref'));
 
 CREATE TABLE portal_auth.source_head (
  tenant text NOT NULL REFERENCES portal_auth.installation(tenant),
@@ -90,28 +91,30 @@ BEGIN
  END IF;
  RETURN CASE WHEN TG_OP='DELETE' THEN OLD ELSE NEW END;
 END $$;
-CREATE TRIGGER portal_auth_session_write BEFORE INSERT OR UPDATE OR DELETE ON public.portal_sessions
+CREATE TRIGGER portal_auth_session_write BEFORE INSERT OR UPDATE OR DELETE ON :"source_schema".portal_sessions
  FOR EACH ROW EXECUTE FUNCTION portal_auth.source_write_guard();
-CREATE TRIGGER portal_auth_session_truncate BEFORE TRUNCATE ON public.portal_sessions
+CREATE TRIGGER portal_auth_session_truncate BEFORE TRUNCATE ON :"source_schema".portal_sessions
  FOR EACH STATEMENT EXECUTE FUNCTION portal_auth.source_write_guard();
-CREATE TRIGGER portal_auth_membership_write BEFORE INSERT OR UPDATE OR DELETE ON public.portal_memberships
+CREATE TRIGGER portal_auth_membership_write BEFORE INSERT OR UPDATE OR DELETE ON :"source_schema".portal_memberships
  FOR EACH ROW EXECUTE FUNCTION portal_auth.source_write_guard();
-CREATE TRIGGER portal_auth_membership_truncate BEFORE TRUNCATE ON public.portal_memberships
+CREATE TRIGGER portal_auth_membership_truncate BEFORE TRUNCATE ON :"source_schema".portal_memberships
  FOR EACH STATEMENT EXECUTE FUNCTION portal_auth.source_write_guard();
-ALTER TABLE public.portal_sessions ENABLE ALWAYS TRIGGER portal_auth_session_write;
-ALTER TABLE public.portal_sessions ENABLE ALWAYS TRIGGER portal_auth_session_truncate;
-ALTER TABLE public.portal_memberships ENABLE ALWAYS TRIGGER portal_auth_membership_write;
-ALTER TABLE public.portal_memberships ENABLE ALWAYS TRIGGER portal_auth_membership_truncate;
+ALTER TABLE :"source_schema".portal_sessions ENABLE ALWAYS TRIGGER portal_auth_session_write;
+ALTER TABLE :"source_schema".portal_sessions ENABLE ALWAYS TRIGGER portal_auth_session_truncate;
+ALTER TABLE :"source_schema".portal_memberships ENABLE ALWAYS TRIGGER portal_auth_membership_write;
+ALTER TABLE :"source_schema".portal_memberships ENABLE ALWAYS TRIGGER portal_auth_membership_truncate;
 
 CREATE FUNCTION portal_auth.apply_change(p_tenant text,p_change text) RETURNS void
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,portal_auth AS $$
 DECLARE change portal_auth.source_change%ROWTYPE; installed portal_auth.installation%ROWTYPE;
- old_digest text; dependency text;
+ source_schema text; affected bigint; dependency text;
 BEGIN
  SELECT * INTO STRICT installed FROM portal_auth.installation WHERE tenant=p_tenant FOR SHARE;
  IF session_user<>installed.writer_role OR clock_timestamp()>=installed.valid_until THEN
    RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE';
  END IF;
+ source_schema:=installed.binding->>'source_schema_name';
+ IF source_schema IS NULL OR source_schema !~ '^[a-z][a-z0-9_]{0,62}$' THEN RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE'; END IF;
  SELECT * INTO STRICT change FROM portal_auth.source_change WHERE tenant=p_tenant AND change_id=p_change FOR UPDATE;
  IF change.state IN ('source_committed','complete') THEN RETURN; END IF;
  IF change.state<>'native_frozen' THEN RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE'; END IF;
@@ -123,6 +126,23 @@ BEGIN
    PERFORM 1 FROM portal_auth.reservation WHERE tenant=p_tenant AND reservation_ref=dependency
      AND state IN ('issuance_disabled','frozen_ack','revoked_ack') FOR UPDATE;
    IF NOT FOUND THEN RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE'; END IF;
+   IF EXISTS(SELECT 1 FROM portal_auth.reservation r WHERE r.tenant=p_tenant
+       AND r.reservation_ref=dependency AND r.state='issuance_disabled') THEN
+     IF EXISTS(SELECT 1 FROM portal_auth.issuance WHERE tenant=p_tenant AND reservation_ref=dependency) THEN
+       RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE';
+     END IF;
+   ELSE
+     PERFORM 1 FROM portal_auth.issuance i JOIN portal_auth.reservation r USING(tenant,reservation_ref)
+       WHERE i.tenant=p_tenant AND i.reservation_ref=dependency AND i.state='acknowledged'
+       AND i.target_state IN ('frozen','revoked') AND i.receipt->>'state'=i.target_state
+       AND i.receipt->>'publication_id'=i.publication_id
+       AND i.receipt->>'request_digest'=i.request_digest
+       AND i.receipt->>'resource_ref'=r.admission_ref AND i.receipt->>'kind'='audit_intent'
+       AND i.receipt->'scope'=r.scope
+       AND (i.receipt->>'previous_generation')::bigint=i.expected_generation
+       AND (i.receipt->>'head_generation')::bigint=i.committed_generation;
+     IF NOT FOUND THEN RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE'; END IF;
+   END IF;
  END LOOP;
  IF EXISTS(SELECT 1 FROM portal_auth.issuance i JOIN portal_auth.reservation r USING(tenant,reservation_ref)
    WHERE r.tenant=p_tenant AND ((change.category='session' AND r.session_ref=change.identity_ref)
@@ -137,17 +157,15 @@ BEGIN
  UPDATE portal_auth.source_change SET applying_xid=pg_current_xact_id() WHERE tenant=p_tenant AND change_id=p_change;
  IF change.category='session' THEN
    IF change.old_record IS NOT NULL THEN
-     DELETE FROM public.portal_sessions WHERE tenant=p_tenant AND payload::jsonb=change.old_record;
-     IF NOT FOUND THEN RAISE EXCEPTION 'AUTH_SOURCE_CONFLICT'; END IF;
+     EXECUTE format('DELETE FROM %I.portal_sessions WHERE tenant=$1 AND payload::jsonb=$2',source_schema) USING p_tenant,change.old_record;
+     GET DIAGNOSTICS affected=ROW_COUNT;
+     IF affected<>1 THEN RAISE EXCEPTION 'AUTH_SOURCE_CONFLICT'; END IF;
    END IF;
    IF change.new_record IS NOT NULL THEN
-     INSERT INTO public.portal_sessions(tenant,secret_hash,expires_at,payload)
-       VALUES(p_tenant,change.new_record->>'secret_hash',(change.new_record->>'expires_at')::timestamptz,change.new_record::text);
+     EXECUTE format('INSERT INTO %I.portal_sessions(tenant,secret_hash,expires_at,payload) VALUES($1,$2,$3,$4)',source_schema) USING p_tenant,change.new_record->>'secret_hash',(change.new_record->>'expires_at')::timestamptz,change.new_record::text;
    END IF;
  ELSE
-   INSERT INTO public.portal_memberships(tenant,issuer,subject,principal_ref,payload)
-     VALUES(p_tenant,change.new_record->>'issuer',change.new_record->>'subject',change.new_record->>'principal_ref',change.new_record::text)
-   ON CONFLICT(tenant,issuer,subject) DO UPDATE SET payload=EXCLUDED.payload;
+   EXECUTE format('INSERT INTO %I.portal_memberships(tenant,issuer,subject,principal_ref,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT(tenant,issuer,subject) DO UPDATE SET payload=EXCLUDED.payload',source_schema) USING p_tenant,change.new_record->>'issuer',change.new_record->>'subject',change.new_record->>'principal_ref',change.new_record::text;
  END IF;
  UPDATE portal_auth.source_head SET revision=revision+1,state='revoked',pending_change=NULL
    WHERE tenant=p_tenant AND category=change.category AND identity_ref=change.identity_ref;

@@ -18,10 +18,10 @@ from maezo.gateway.external_cases.postgres import transaction
 from maezo.gateway.intake.native_store import PostgresAuthDispatchStore
 from maezo.portal.engine.profile import canonicalize
 
-from .auth_profile import InputPublication, PublicationLookup, PublicationQuery, PublicationReceipt
+from .auth_profile import Actor, InputPublication, PublicationLookup, PublicationQuery, PublicationReceipt
 from .auth_transport import AuthNativeClient, AuthUnavailableError, bind_result
 from .read_profile import digest, parse_model, wire
-from .read_publisher import SourceSnapshot
+from .read_publisher import SourceFreezeLease, SourceSnapshot
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -63,6 +63,7 @@ class PostgresAuthPublicationJournal:
         result = None
         try:
             async with transaction(s.engine, s.seconds) as c:
+                await s.qualify(c)
                 key = canonicalize(
                     [s.tenant, "publication", publication.kind, publication.resource_ref]
                 ).decode()
@@ -143,6 +144,7 @@ class PostgresAuthPublicationJournal:
         nonce, ciphertext = s.seal("publication-receipt", publication.publication_id, receipt)
         try:
             async with transaction(s.engine, s.seconds) as c:
+                await s.qualify(c)
                 row = (
                     (
                         await c.execute(
@@ -238,7 +240,7 @@ class PostgresAuthAuditIntentSource:
     def __init__(self, store: PostgresAuthDispatchStore) -> None:
         self.store = store
 
-    async def read(self, command_id: str, actor: object, lease: object) -> SourceSnapshot:
+    async def read(self, command_id: str, actor: Actor, lease: SourceFreezeLease) -> SourceSnapshot:
         from .auth_profile import Actor
         from .read_publisher import SourceFreezeLease
 
