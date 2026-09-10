@@ -32,6 +32,7 @@ function isAbort(error: unknown) {
 type Props = Readonly<{
   service: ProviderAuthorizationService;
   onSessionUnavailable: () => void;
+  onOpenCase?: (caseRef: string) => void;
 }>;
 
 export function IntakeRecoveryPanel(props: Props) {
@@ -46,6 +47,7 @@ export function IntakeRecoveryPanel(props: Props) {
 function IntakeRecoveryContext({
   service,
   onSessionUnavailable,
+  onOpenCase,
 }: Props) {
   const headingId = useId();
   const controller = useRef<AbortController | null>(null);
@@ -173,6 +175,15 @@ function IntakeRecoveryContext({
                       </>
                     )}
                   </dl>
+                  {progress.state === "started" && onOpenCase && (
+                    <button
+                      className="secondary-action compact-action"
+                      type="button"
+                      onClick={() => onOpenCase(progress.caseRef)}
+                    >
+                      Abrir caso iniciado
+                    </button>
+                  )}
                 </li>
               ))}
             </ol>
