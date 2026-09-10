@@ -54,14 +54,13 @@ class IntakeRecoveryService:
             ceiling = self._current(ceiling, until)
         return self._current(ceiling)
 
-    async def _finish[T](
+    async def _final_ceiling(
         self,
         secret: str,
         first: ResolvedHumanSession,
         candidates: tuple[RecoveryCandidate, ...],
         ceiling: datetime,
-        freeze: Callable[[], T],
-    ) -> T:
+    ) -> datetime:
         current = await self._session(secret)
         if current.principal != first.principal:
             raise IntakeError("operation_forbidden")
@@ -70,7 +69,17 @@ class IntakeRecoveryService:
         current = await self._session(secret)
         if current.principal != first.principal:
             raise IntakeError("operation_forbidden")
-        ceiling = self._current(ceiling, session_ceiling(current))
+        return self._current(ceiling, session_ceiling(current))
+
+    async def _finish[T](
+        self,
+        secret: str,
+        first: ResolvedHumanSession,
+        candidates: tuple[RecoveryCandidate, ...],
+        ceiling: datetime,
+        freeze: Callable[[], T],
+    ) -> T:
+        ceiling = await self._final_ceiling(secret, first, candidates, ceiling)
         frozen = freeze()
         self._current(ceiling)
         return frozen
@@ -103,6 +112,9 @@ class IntakeRecoveryService:
         # The extra next-page candidate must also be authorized, never hidden by
         # count/cursor metadata or silently omitted when authority is unavailable.
         ceiling = await self._authorize(first, scan.candidates, ceiling)
+        # Final reads may shorten the original page ceiling. Persist only that
+        # retained minimum; an immutable cursor must never outlive this page.
+        ceiling = await self._final_ceiling(secret, first, scan.candidates, ceiling)
         next_cursor = None
         if len(scan.candidates) > PAGE_SIZE:
             next_cursor = await self.store.cursor(first.principal, scan, ceiling)
@@ -110,4 +122,6 @@ class IntakeRecoveryService:
         result = IntakeRecoveryPage(
             items=tuple(c.item for c in scan.candidates[:PAGE_SIZE]), next_cursor=next_cursor
         )
-        return await self._finish(secret, first, scan.candidates, ceiling, lambda: freeze(result))
+        frozen = freeze(result)
+        self._current(ceiling)
+        return frozen

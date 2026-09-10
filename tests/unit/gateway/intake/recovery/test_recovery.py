@@ -498,3 +498,73 @@ async def test_page_final_currentness(setup, phase):
 
     with pytest.raises(IntakeError):
         await h.service.discover_frozen("s" * 43, None, freeze=freeze)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["final_resource", "final_session", "last_session", "early_resource"])
+async def test_cursor_retains_every_final_read_ceiling_after_renewal(setup, phase):
+    h = setup
+    for index in range(51):
+        add(h, index)
+    shortened = NOW + timedelta(seconds=10)
+    if phase in {"final_resource", "early_resource"}:
+
+        def shorten_resource():
+            if phase == "final_resource" and len(h.authority.calls) > 51:
+                h.authority.until = shortened
+            elif phase == "early_resource":
+                h.authority.until = shortened if len(h.authority.calls) == 1 else NOW + timedelta(seconds=60)
+
+        h.authority.on_read = shorten_resource
+    else:
+
+        def shorten_session():
+            if h.sessions.calls >= (2 if phase == "final_session" else 3):
+                h.sessions.until = shortened
+
+        h.sessions.on_resolve = shorten_session
+    first = await discover(h)
+    assert first.next_cursor is not None
+    assert h.db.cursors[first.next_cursor]["valid_until"] == shortened
+    assert len(h.authority.calls) == 102 and h.sessions.calls == 3
+    h.authority.on_read = h.sessions.on_resolve = lambda: None
+    h.authority.until = h.sessions.until = NOW + timedelta(seconds=60)
+    h.clock[0] = NOW + timedelta(seconds=20)
+    with pytest.raises(IntakeError, match="operation_forbidden"):
+        await discover(h, first.next_cursor)
+    assert len(h.db.cursors) == 1
+    assert all(not query.lstrip().startswith(("UPDATE", "DELETE")) for query, _ in h.db.queries)
+    assert all("recovery_cursor" in query for query, _ in h.db.queries if query.startswith("INSERT"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["cursor_commit", "serialization"])
+async def test_shortened_final_ceiling_survives_cursor_io_and_serialization(setup, phase):
+    h = setup
+    for index in range(51):
+        add(h, index)
+    shortened = NOW + timedelta(seconds=10)
+
+    def shorten_session():
+        if h.sessions.calls == 3:
+            h.sessions.until = shortened
+
+    h.sessions.on_resolve = shorten_session
+
+    def expire_and_renew():
+        h.clock[0] = shortened
+        h.sessions.until = h.authority.until = NOW + timedelta(seconds=60)
+
+    if phase == "cursor_commit":
+        h.db.on_release = lambda: expire_and_renew() if h.db.cursors else None
+
+    def freeze(value):
+        raw = value.model_dump_json()
+        if phase == "serialization":
+            expire_and_renew()
+        return raw
+
+    with pytest.raises(IntakeError, match="operation_forbidden"):
+        await h.service.discover_frozen("s" * 43, None, freeze=freeze)
+    assert len(h.db.cursors) == 1  # Technical committed cursor is not a delivered response.
+    assert next(iter(h.db.cursors.values()))["valid_until"] == shortened
