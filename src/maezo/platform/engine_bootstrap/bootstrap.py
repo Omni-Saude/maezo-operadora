@@ -24,9 +24,26 @@ GRUPO_ADMIN: Final[str] = "camunda-admin"
 #: signifique compartilhar a senha do administrador: cria-se o usuário da pessoa e
 #: coloca-se neste grupo, sem tocar em permissão.
 #:
-#: Sem hífen porque a lista branca de identificadores do engine é `[a-zA-Z0-9]+` — o
-#: `camunda-admin` é exceção embutida, o resto não pode.
+#: Identidade existente preservada. O default do engine e alfanumerico; a imagem
+#: amplia apenas groupResourceWhitelistPattern para os grupos canonicos dos contratos.
 GRUPO_LEITURA: Final[str] = "maezoleitura"
+
+#: As FILAS de atendimento humano — os `candidateGroups` de `UT_TratarEscalonamento`
+#: (SP-OP-ESCALATION-001) e os `grupo_atendimento` que `escalation_routing.dmn` emite.
+#:
+#: Identidades canonicas preservadas (ADR-0049 / SP-OP-ESCALATION-001). A imagem
+#: configura groupResourceWhitelistPattern para admitir os grupos contratuais com
+#: hifen sem mudar a admissao de usuarios/tenants. O default alfanumerico observado
+#: nao e uma proibicao da plataforma; nao ha autorizacao independente para rename.
+#: O bootstrap cria somente filas ausentes, sem memberships ou grants para elas.
+#: Nomes/papeis de negocio continuam DRAFT/verify, dependentes de R-034. Nenhuma
+#: migracao ou exclusao de identidades implantadas e feita por esta lista.
+GRUPOS_DE_ATENDIMENTO: Final[tuple[tuple[str, str], ...]] = (
+    ("plantao-clinico", "Plantao clinico (P1)"),
+    ("enfermagem-triagem", "Enfermagem de triagem (P2)"),
+    ("atendimento-humano", "Atendimento humano (P3)"),
+    ("supervisao-atendimento", "Supervisao de atendimento (fallback)"),
+)
 
 #: O que o grupo de leitura pode: ver o motor, e nada mais.
 #:
@@ -63,6 +80,7 @@ class Plano:
     filtros_a_apagar: list[tuple[str, str]] = field(default_factory=list)
     autorizacoes_a_apagar: list[tuple[str, str]] = field(default_factory=list)
     grupo_leitura_a_criar: bool = False
+    filas_a_criar: list[str] = field(default_factory=list)
     grants_de_leitura_a_criar: list[str] = field(default_factory=list)
 
 
@@ -154,6 +172,7 @@ def _planejar_grupo_de_leitura(http: httpx.Client, plano: Plano, *, grupos: set[
     o erro" produziria lixo crescente a cada execução.
     """
     plano.grupo_leitura_a_criar = GRUPO_LEITURA not in grupos
+    plano.filas_a_criar = [gid for gid, _ in GRUPOS_DE_ATENDIMENTO if gid not in grupos]
 
     existentes = {
         (a["resourceType"], str(a["resourceId"]))
@@ -251,6 +270,7 @@ def _imprimir(plano: Plano, *, executar: bool) -> None:
     for aid, desc in plano.autorizacoes_a_apagar:
         print(f"    - {aid[:8]}  {desc}")
     criar = "SIM" if plano.grupo_leitura_a_criar else "ja existe"
+    print(f"  filas de atendimento a criar: {plano.filas_a_criar or 'nenhuma (todas existem)'}")
     print(f"  grupo de leitura {GRUPO_LEITURA!r}: {criar}")
     print(f"  grants de leitura a criar: {len(plano.grants_de_leitura_a_criar)}")
     for g in plano.grants_de_leitura_a_criar:
@@ -340,6 +360,15 @@ def _executar(http: httpx.Client, plano: Plano, *, admin: str, senha: str) -> No
 
     # 6) O grupo de leitura. Depois da limpeza de propósito: criar permissão antes de
     #    remover a antiga deixaria as duas coexistindo se algo falhasse no meio.
+    for gid, nome in GRUPOS_DE_ATENDIMENTO:
+        if gid not in plano.filas_a_criar:
+            continue
+        _exigir_ok(
+            http.post(base + "/group/create", json={"id": gid, "name": nome, "type": "WORKFLOW"}),
+            f"criar fila {gid}",
+        )
+        print(f"  criada fila {gid}")
+
     if plano.grupo_leitura_a_criar:
         _exigir_ok(
             http.post(

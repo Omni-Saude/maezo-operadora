@@ -536,6 +536,10 @@ async def test_no_prompt_content_reaches_any_log_event(monkeypatch: pytest.Monke
     assert _DPA_REF not in serialized, "the DPA reference is an owner's private identifier"
     # OVER-FIRE CONTROL: the events really were captured, so "absent" is not "nothing was logged".
     assert any(event.get("event") == "inference_br_resident_generate" for event in logs)
+    event = next(event for event in logs if event.get("event") == "inference_br_resident_generate")
+    assert event["region_evidence_source"] == "synthetic"
+    assert event["endpoint_evidence_source"] == "synthetic"
+    assert event["retention_evidence_source"] == "synthetic"
 
 
 def test_the_redaction_is_a_hand_written_repr_and_repr_false_is_its_failsafe() -> None:
