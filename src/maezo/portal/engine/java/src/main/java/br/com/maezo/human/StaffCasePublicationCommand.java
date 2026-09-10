@@ -41,21 +41,37 @@ public final class StaffCasePublicationCommand implements Command<StaffCasePubli
         checks.add(()->{if(!membershipDigest.equals(hash(installed.membership(read,witness,null))))throw conflict();});
         var identityReader=new NativeCaseIdentityReader(store.auth);var identity=identityReader.read(str(payload,"case_ref"));String identityDigest=hash(identity);
         var pins=store.policyPins(payload);
-        installed.grant(request,obj(witness,"actor"),obj(identity,"identity"),pins);
+        installed.grant(request,obj(witness,"actor"),obj(identity,"identity"),pins,null);
         String pinDigest=hash(pins);checks.add(()->{
           var current=store.policyPins(payload);if(!pinDigest.equals(hash(current)))throw conflict();
           for(var pin:current)installed.policy(obj(pin,"head"));
           if(!identityDigest.equals(hash(identityReader.read(str(payload,"case_ref")))))throw conflict();
           store.requireRecordedPolicies(store.grant(str(payload,"grant_ref")),current);
         });
+      } else if(kind.equals("scope_chunk")) {
+        var witness=obj(request,"membership_witness");installed.membership(read,witness,null);
+        installed.proof(obj(request,"proof"),withoutProof(request,"proof"),"case_issuer","scope_complete",str(request,"source_ref"),null);
+      } else if(kind.equals("scope_checkpoint")) {
+        var witness=obj(request,"membership_witness"),actor=obj(witness,"actor");installed.membership(read,witness,null);
+        if(!payload.get("issuer").equals(actor.get("issuer"))||!payload.get("subject").equals(actor.get("subject"))
+            ||!payload.get("principal_ref").equals(actor.get("principal_ref"))||!payload.get("membership_revision").equals(actor.get("membership_revision"))
+            ||!payload.get("principal_identity_digest").equals(hash(actor)))throw denied();
+        installed.proof(obj(payload,"proof"),withoutProof(payload,"proof"),"case_issuer","scope_complete",str(request,"source_ref"),null);
+        installed.proof(obj(request,"proof"),withoutProof(request,"proof"),"case_issuer","scope_complete",str(request,"source_ref"),null);
+        var provisional=record("checkpoint_ref",payload.get("checkpoint_ref"),"generation",number(payload.get("generation")),"canonical_checkpoint",AuthStore.text(payload));
+        var entries=store.checkpointEntries(provisional);for(var entry:entries){var publication=store.publication(str(store.grant(str(entry,"grant_ref")),"publication_id"));
+          var identity=new NativeCaseIdentityReader(store.auth).read(str(entry,"case_ref"));var policies=store.policyPins(obj(publication,"payload"));
+          store.requireRecordedPolicies(store.grant(str(entry,"grant_ref")),policies);installed.grant(publication,actor,obj(identity,"identity"),policies,"list");}
+        String censusDigest=hash(entries);checks.add(()->{var latest=store.checkpointEntries(provisional);if(!censusDigest.equals(hash(latest)))throw conflict();});
       } else if(kind.equals("policy_head")) {
         installed.policyStatement(payload);
         installed.proof(obj(request,"proof"),withoutProof(request,"proof"),"case_issuer","staff_policy_head",str(request,"source_ref"),str(payload,"policy_ref"));
         checks.add(()->{var current=store.policyHead(str(payload,"policy_ref"));
           if(current==null||!hash(payload).equals(current.get("head_digest")))throw conflict();installed.policyStatement(payload);});
       } else {
-        // Explicit issuer-authorized grant tombstone; no policy revocation alias.
-        installed.proof(obj(request,"proof"),withoutProof(request,"proof"),"case_issuer","staff_case_grant",str(request,"source_ref"),null);
+        // Explicit issuer-authorized tombstone; no policy revocation alias.
+        String purpose="scope_checkpoint".equals(payload.get("target_kind"))?"scope_complete":"staff_case_grant";
+        installed.proof(obj(request,"proof"),withoutProof(request,"proof"),"case_issuer",purpose,str(request,"source_ref"),null);
       }
       installed.fresh(request,"observed_at","valid_until");installed.current();
       Instant committedAt=installed.current();

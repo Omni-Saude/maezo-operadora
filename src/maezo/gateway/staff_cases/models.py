@@ -2,7 +2,7 @@
 
 A parsed grant is not authority. Installation, signature, current source/policy,
 current membership and native identity verification are separate mandatory steps.
-Only the first detail/publication slice is accepted by these entry points.
+Detail and complete-checkpoint-backed list reads are accepted by these entry points.
 """
 
 from __future__ import annotations
@@ -50,6 +50,7 @@ Purpose = Literal[
     "membership_current",
     "staff_case_grant",
     "staff_policy_head",
+    "scope_complete",
     "native_case_facts",
     "native_result",
 ]
@@ -58,7 +59,7 @@ Projection = Literal["staff_summary.v1", "staff_identity.v1", "staff_current_tas
 ROLE_PURPOSES: dict[str, frozenset[str]] = {
     "installer": frozenset({"installation"}),
     "identity_verifier": frozenset({"membership_current"}),
-    "case_issuer": frozenset({"staff_case_grant", "staff_policy_head"}),
+    "case_issuer": frozenset({"staff_case_grant", "staff_policy_head", "scope_complete"}),
     "publication_importer": frozenset({"staff-case-publication.v1"}),
     "native_facts": frozenset({"native_case_facts"}),
     "read_requester": frozenset({"staff-case-read.v1", "staff-case-finalize.v1"}),
@@ -116,7 +117,7 @@ class DesignationEntry(Closed):
     login_role: Ref
     purposes: tuple[Purpose | EnvelopePurpose, ...]
     projections: tuple[Projection, ...]
-    operations: tuple[Literal["detail"], ...]
+    operations: tuple[Literal["detail", "list"], ...]
     not_before: T
     valid_until: T
 
@@ -128,8 +129,8 @@ class DesignationEntry(Closed):
             if len(values) != len(set(values)):
                 raise ValueError("duplicate staff capability")
         if self.role in {"case_issuer", "read_requester"}:
-            if self.operations != ("detail",) or not self.projections:
-                raise ValueError("missing exact detail capability")
+            if not self.projections or self.operations not in {("detail",), ("detail", "list")}:
+                raise ValueError("missing exact staff capability")
         elif self.projections or self.operations:
             raise ValueError("unexpected staff projection authority")
         return self
@@ -169,7 +170,7 @@ class PolicyDecision(Closed):
     subject_identity_digest: Digest
     membership_revision: N
     resource_identity_digest: Digest
-    operation: Literal["detail"]
+    operation: Literal["detail", "list"]
     projection: Projection
     fields: tuple[Ref, ...]
     receipt_ref: Ref
@@ -239,9 +240,80 @@ class MembershipWitness(Closed):
 
 
 class Revoke(Closed):
-    target_kind: Literal["case_grant"]
+    target_kind: Literal["case_grant", "scope_checkpoint"]
     target_ref: Ref
     expected_revision: N
+
+
+class GrantEntry(Closed):
+    case_ref: CaseRef
+    identity_digest: Digest
+    grant_ref: Ref
+    grant_revision: N
+    grant_digest: Digest
+    source_ref: Ref
+    source_revision: N
+
+
+class ScopeChunk(Closed):
+    checkpoint_ref: Ref
+    generation: N
+    chunk_index: N
+    entries: tuple[GrantEntry, ...] = Field(max_length=256)
+
+    @model_validator(mode="after")
+    def ordered_entries(self) -> Self:
+        keys = [(entry.case_ref, entry.grant_ref) for entry in self.entries]
+        if keys != sorted(set(keys)):
+            raise ValueError("invalid staff scope chunk ordering")
+        return self
+
+
+class ScopeChunkPin(Closed):
+    chunk_index: N
+    chunk_digest: Digest
+    entry_count: N
+
+
+class ScopeCheckpoint(Closed):
+    scope: Scope
+    checkpoint_ref: Ref
+    generation: N
+    predecessor_digest: Digest | None
+    principal_identity_digest: Digest
+    issuer: str = Field(repr=False, max_length=2048)
+    subject: Ref = Field(repr=False)
+    principal_ref: Ref
+    membership_revision: N
+    kind: Literal["authorization"]
+    operations: tuple[Literal["list"], ...]
+    chunks: tuple[ScopeChunkPin, ...]
+    total_entries: N
+    policy_scope_ref: Ref
+    policy_scope_revision: N
+    policy_scope_digest: Digest
+    observed_at: T
+    valid_until: T
+    coverage: Literal["complete"]
+    proof: Proof
+
+    @field_validator("issuer")
+    @classmethod
+    def issuer_origin(cls, value: str) -> str:
+        return HumanPrincipal._issuer_is_an_origin_url(value)
+
+    @model_validator(mode="after")
+    def complete_scope(self) -> Self:
+        indices = [int(chunk.chunk_index) for chunk in self.chunks]
+        if self.operations != ("list",) or indices != list(range(len(indices))):
+            raise ValueError("invalid complete staff scope")
+        if sum(int(chunk.entry_count) for chunk in self.chunks) != int(self.total_entries):
+            raise ValueError("invalid staff scope cardinality")
+        if int(self.total_entries) == 0 and self.chunks:
+            raise ValueError("invalid empty staff scope")
+        if self.proof.purpose != "scope_complete":
+            raise ValueError("invalid staff scope proof")
+        return self
 
 
 class StaffCurrentTaskResource(Closed):
@@ -302,9 +374,9 @@ class StaffPublication(Closed):
     expected_source_revision: N
     source_ref: Ref
     source_revision: N
-    kind: Literal["case_grant", "revoke", "policy_head"]
+    kind: Literal["case_grant", "scope_chunk", "scope_checkpoint", "revoke", "policy_head"]
     membership_witness: MembershipWitness | None
-    payload: StaffCaseGrant | Revoke | StaffPolicyHeadPublication
+    payload: StaffCaseGrant | ScopeChunk | ScopeCheckpoint | Revoke | StaffPolicyHeadPublication
     payload_digest: Digest
     observed_at: T
     valid_until: T
@@ -317,6 +389,10 @@ class StaffPublication(Closed):
         if self.kind == "case_grant":
             if not isinstance(self.payload, StaffCaseGrant) or self.membership_witness is None:
                 raise ValueError("missing staff grant witness")
+        elif self.kind in {"scope_chunk", "scope_checkpoint"}:
+            expected = ScopeChunk if self.kind == "scope_chunk" else ScopeCheckpoint
+            if not isinstance(self.payload, expected) or self.membership_witness is None:
+                raise ValueError("missing staff scope witness")
         elif self.kind == "policy_head":
             if (
                 not isinstance(self.payload, StaffPolicyHeadPublication)

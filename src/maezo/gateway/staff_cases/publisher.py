@@ -279,10 +279,10 @@ class StaffNativeClient:
         principal: HumanPrincipal,
         witness: MembershipWitness,
         session_until: datetime,
-        operation: Literal["detail", "finalize"],
+        operation: Literal["detail", "list", "finalize"],
         query: dict[str, Any],
     ) -> tuple[dict[str, Any], str]:
-        purpose = "staff-case-read.v1" if operation == "detail" else "staff-case-finalize.v1"
+        purpose = "staff-case-finalize.v1" if operation == "finalize" else "staff-case-read.v1"
         now = self.signer.guard(purpose)
         until = min(
             session_until,

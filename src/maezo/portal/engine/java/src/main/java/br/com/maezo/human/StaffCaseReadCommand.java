@@ -39,8 +39,9 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       if(!"staff-case-continuity.v1".equals(retained.get("schema"))||!store.scope.equals(retained.get("scope"))
           ||!query.get("frozen_projection_digest").equals(hash(retained.get("projection"))))throw conflict();
       original=obj(retained,"request");
-      if(!"detail".equals(original.get("operation"))||!principal.equals(original.get("principal"))
+      if(!Set.of("detail","list").contains(original.get("operation"))||!principal.equals(original.get("principal"))
           ||!request.get("membership_witness").equals(original.get("membership_witness")))throw conflict();
+      StaffCaseModels.requireReadCapabilities(installed.entries.get(str(request,"key_fingerprint")),str(original,"operation"));
       // A newly admitted signer cannot replace an original retained source key.
       for(Object value:list(retained.get("source_pins"))){var pin=StaffCaseModels.shape("readpin",value);
         if("source_key".equals(pin.get("kind"))){var entry=installed.entries.get(str(pin,"ref"));
@@ -84,6 +85,10 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     out.current.run();return out;
   }
   static Map<String,Object> collect(StaffCaseStore store,StaffCaseInstallation installed,Q2Intersection q2,Map<String,Object> request){
+    if("list".equals(request.get("operation")))return collectList(store,installed,q2,request);
+    return collectDetail(store,installed,q2,request);
+  }
+  static Map<String,Object> collectDetail(StaffCaseStore store,StaffCaseInstallation installed,Q2Intersection q2,Map<String,Object> request){
     var query=StaffCaseModels.shape("detail",request.get("query"));
     if(query.get("task_cursor")!=null)throw unavailable(); // Required checkpoint provider is the next product slice.
     var principal=obj(request,"principal");String caseRef=str(query,"case_ref");
@@ -125,10 +130,56 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     });
     if("ended".equals(obj(identityState,"native").get("state"))&&!tasks.isEmpty())throw unavailable();
     q2.current();installed.current();
-    return record("identity",identityState,"membership",member,"publication",publication,"policies",policies,
+    return record("operation","detail","identity",identityState,"membership",member,"publication",publication,"policies",policies,
       "event",event,"tasks",tasks,"created",created,"q2",q2.semantic());
   }
+  static Map<String,Object> collectList(StaffCaseStore store,StaffCaseInstallation installed,Q2Intersection q2,Map<String,Object> request){
+    var query=StaffCaseModels.shape("list",request.get("query"));var principal=obj(request,"principal"),witness=obj(request,"membership_witness");
+    var member=installed.membership(q2.read,witness,principal);var accepted=store.activeCheckpoint(principal);if(accepted==null)throw unavailable();
+    var checkpoint=StaffCaseModels.shape("scope_checkpoint",AuthStore.parse(accepted.get("canonical_checkpoint")));
+    if(!hash(checkpoint).equals(accepted.get("checkpoint_digest"))||!hash(StaffCaseModels.actor(principal)).equals(checkpoint.get("principal_identity_digest"))
+        ||!principal.get("session_ref").equals(witness.get("session_ref"))||!list(checkpoint.get("operations")).contains("list"))throw unavailable();
+    installed.fresh(checkpoint,"observed_at","valid_until");installed.proof(obj(checkpoint,"proof"),withoutProof(checkpoint,"proof"),
+      "case_issuer","scope_complete",str(accepted,"source_ref"),null);
+    var scopePolicy=store.policyHead(str(checkpoint,"policy_scope_ref"));if(scopePolicy==null)throw unavailable();var scopeHead=AuthStore.parse(scopePolicy.get("canonical_head"));
+    if(!"active".equals(scopeHead.get("state"))||!checkpoint.get("policy_scope_revision").equals(scopeHead.get("policy_revision"))
+        ||!checkpoint.get("policy_scope_digest").equals(scopeHead.get("policy_digest")))throw conflict();installed.policy(scopeHead);
+    String queryDigest=hash(record("kind",query.get("kind"),"limit",query.get("limit")));String after=null;
+    if(query.get("cursor")!=null){var cursor=store.cursor(str(query,"cursor"));
+      if(!store.scope.equals(cursor.get("scope"))||!hash(StaffCaseModels.actor(principal)).equals(cursor.get("principal_identity_digest"))
+          ||!principal.get("membership_revision").equals(cursor.get("membership_revision"))||!principal.get("session_ref").equals(cursor.get("session_ref"))
+          ||!queryDigest.equals(cursor.get("query_digest"))||!accepted.get("checkpoint_digest").equals(cursor.get("checkpoint_digest"))
+          ||!accepted.get("checkpoint_ref").equals(cursor.get("checkpoint_ref"))||!query.get("limit").equals(cursor.get("limit")))throw conflict();
+      installed.retain(time(cursor.get("initial_valid_until")));after=str(cursor,"after_ref");}
+    var items=new ArrayList<Object>();var pins=new ArrayList<Object>();String last=null;int limit=(int)number(query.get("limit"));
+    for(var entry:store.checkpointEntries(accepted)){String caseRef=str(entry,"case_ref");if(after!=null&&caseRef.compareTo(after)<=0)continue;
+      var row=store.exactGrant(caseRef,principal);if(row==null||!entry.get("grant_ref").equals(row.get("grant_ref")))throw unavailable();
+      var publication=store.publication(str(row,"publication_id"));if(publication==null)throw unavailable();var grant=obj(publication,"payload"),policies=store.policyPins(grant);
+      store.requireRecordedPolicies(row,policies);var identityState=new NativeCaseIdentityReader(store.auth).read(caseRef);var identity=obj(identityState,"identity");
+      installed.grant(publication,principal,identity,policies,"list");var event=new StaffCaseEventStore(store.auth).read(caseRef);
+      if(!identity.get("process_instance_ref").equals(event.get("process_instance_id")))throw unavailable();
+      if(items.size()<limit){items.add(record("case_ref",caseRef,"kind","authorization","state",obj(identityState,"native").get("state"),
+          "record_revision",event.get("revision"),"state_observed_at",event.get("observed_at")));last=caseRef;
+        pins.add(pin("case_grant",caseRef,grant.get("grant_revision"),hash(grant),installed.until()));
+        pins.add(pin("native_case",caseRef,event.get("revision"),hash(event),installed.until()));
+      }else{last=last==null?caseRef:last;break;}}
+    boolean more=false;if(last!=null){for(var entry:store.checkpointEntries(accepted))if(str(entry,"case_ref").compareTo(last)>0){more=true;break;}}
+    pins.add(0,pin("checkpoint",str(checkpoint,"checkpoint_ref"),checkpoint.get("generation"),hash(checkpoint),installed.until()));
+    pins.add(0,pin("membership",str(obj(witness,"actor"),"principal_ref"),obj(witness,"actor").get("membership_revision"),hash(witness),installed.until()));
+    pins.add(0,pin("designation",str(installed.designation,"designation_ref"),installed.designation.get("designation_revision"),hash(installed.designation),installed.until()));
+    for(String fingerprint:new TreeSet<>(installed.usedKeys))pins.add(pin("source_key",fingerprint,installed.designation.get("designation_revision"),hash(installed.entries.get(fingerprint)),installed.until()));
+    String next=null;if(more&&last!=null){var value=record("cursor_ref",UUID.randomUUID().toString(),"scope",store.scope,
+        "principal_identity_digest",hash(StaffCaseModels.actor(principal)),"membership_revision",principal.get("membership_revision"),"session_ref",principal.get("session_ref"),
+        "operation","list","query_digest",queryDigest,"kind","authorization","checkpoint_ref",checkpoint.get("checkpoint_ref"),"generation",checkpoint.get("generation"),
+        "checkpoint_digest",hash(checkpoint),"case_ref",null,"native_revision",null,"after_ref",last,"limit",query.get("limit"),"source_pins",pins,
+        "initial_valid_until",time(installed.until()));next=str(store.pageCursor(value),"cursor_ref");}
+    q2.current();installed.current();return record("operation","list","membership",member,"checkpoint",checkpoint,"accepted",copy(accepted),
+      "items",items,"next_cursor",next,"pins",pins,"q2",q2.semantic());
+  }
   static Map<String,Object> projection(Map<String,Object> state,Instant observed,Instant until){
+    if("list".equals(state.get("operation"))){var checkpoint=obj(state,"checkpoint");return record("schema","portal-staff-case-page.v1",
+      "items",state.get("items"),"next_cursor",state.get("next_cursor"),"freshness",record("observed_at",time(observed),
+      "source_observed_at",checkpoint.get("observed_at"),"valid_until",time(until),"refresh_after_seconds","10"));}
     var identityState=obj(state,"identity");var identity=obj(identityState,"identity");var event=obj(state,"event");
     return record("schema","portal-staff-case-detail.v1","case",record("case_ref",identity.get("case_ref"),"kind","authorization",
       "state",obj(identityState,"native").get("state"),"record_revision",event.get("revision"),"state_observed_at",event.get("observed_at")),
@@ -136,6 +187,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       "freshness",record("observed_at",time(observed),"source_observed_at",event.get("observed_at"),"valid_until",time(until),"refresh_after_seconds","10"));
   }
   static List<Object> readPins(StaffCaseStore store,StaffCaseInstallation installed,Map<String,Object> request,Map<String,Object> state,Instant until){
+    if("list".equals(state.get("operation")))return new ArrayList<>(list(state.get("pins")));
     var pins=new ArrayList<Object>();var designation=installed.designation;var identity=obj(obj(state,"identity"),"identity");
     var witness=obj(request,"membership_witness");var grant=obj(obj(state,"publication"),"payload");var event=obj(state,"event");
     pins.add(pin("designation",str(designation,"designation_ref"),designation.get("designation_revision"),hash(designation),until));

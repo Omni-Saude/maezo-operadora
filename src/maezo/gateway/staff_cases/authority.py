@@ -31,6 +31,7 @@ from .models import (
     MembershipWitness,
     PolicyDecision,
     Proof,
+    ScopeCheckpoint,
     StaffCaseError,
     StaffCaseGrant,
     StaffPublication,
@@ -160,6 +161,7 @@ class InstalledStaffAuthority:
         source_ref: str | None = None,
         projection: str | None = None,
         fields: frozenset[str] = frozenset(),
+        operation: str | None = None,
     ) -> datetime:
         if now >= self.valid_until:
             raise StaffCaseError("unavailable")
@@ -174,7 +176,7 @@ class InstalledStaffAuthority:
             raise StaffCaseError("denied")
         if projection is not None and (
             projection not in entry.projections
-            or entry.operations != ("detail",)
+            or operation not in entry.operations
             or not fields <= FIELDS[projection]
         ):
             raise StaffCaseError("denied")
@@ -232,6 +234,7 @@ class InstalledStaffAuthority:
         now: datetime,
         native_revision: str,
         native_digest: str,
+        operation: str = "detail",
     ) -> VerifiedGrant:
         if publication.kind != "case_grant" or not isinstance(publication.payload, StaffCaseGrant):
             raise StaffCaseError("denied")
@@ -276,6 +279,8 @@ class InstalledStaffAuthority:
         fields: dict[str, frozenset[str]] = {}
         task_decisions: list[PolicyDecision] = []
         for decision in grant.decisions:
+            if decision.operation != operation:
+                continue
             until = min(until, self._decision(decision, grant, principal, now))
             if decision.resource_identity_digest == grant.identity_digest:
                 if decision.projection in fields:
@@ -289,7 +294,10 @@ class InstalledStaffAuthority:
                 task_decisions.append(decision)
         # Exact detail always discloses the complete closed summary and canonical identity.
         # A narrow field grant must not be widened by a DTO's required fields/defaults.
-        for projection in ("staff_summary.v1", "staff_identity.v1"):
+        required = (
+            ("staff_summary.v1", "staff_identity.v1") if operation == "detail" else ("staff_summary.v1",)
+        )
+        for projection in required:
             if fields.get(projection) != FIELDS[projection]:
                 raise StaffCaseError("denied")
         return VerifiedGrant(
@@ -332,5 +340,60 @@ class InstalledStaffAuthority:
                 fields=frozenset(decision.fields),
                 source_ref=grant.source_ref,
                 now=now,
+                operation=decision.operation,
             ),
         )
+
+    def checkpoint(
+        self,
+        publication: StaffPublication,
+        principal: HumanPrincipal,
+        witness: MembershipWitness,
+        *,
+        now: datetime,
+        native_revision: str,
+        native_digest: str,
+    ) -> tuple[ScopeCheckpoint, datetime]:
+        if publication.kind != "scope_checkpoint" or not isinstance(publication.payload, ScopeCheckpoint):
+            raise StaffCaseError("denied")
+        checkpoint = publication.payload
+        if (
+            publication.scope != checkpoint.scope
+            or publication.payload_digest != digest(checkpoint.wire())
+            or checkpoint.scope != self.designation.scope
+            or checkpoint.principal_identity_digest != actor_digest(principal)
+            or checkpoint.issuer != principal.issuer
+            or checkpoint.subject != principal.subject
+            or checkpoint.principal_ref != principal.principal_ref
+            or checkpoint.membership_revision != str(principal.membership_revision)
+        ):
+            raise StaffCaseError("denied")
+        membership_until = self.membership(
+            witness, principal, now=now, native_revision=native_revision, native_digest=native_digest
+        )
+        signed_checkpoint = checkpoint.wire()
+        signed_checkpoint.pop("proof")
+        signed_publication = publication.wire()
+        signed_publication.pop("proof")
+        until = min(
+            membership_until,
+            _window(checkpoint.observed_at, checkpoint.valid_until, now),
+            _window(publication.observed_at, publication.valid_until, now),
+            self.proof(
+                checkpoint.proof,
+                signed_checkpoint,
+                role="case_issuer",
+                purpose="scope_complete",
+                source_ref=publication.source_ref,
+                now=now,
+            ),
+            self.proof(
+                publication.proof,
+                signed_publication,
+                role="case_issuer",
+                purpose="scope_complete",
+                source_ref=publication.source_ref,
+                now=now,
+            ),
+        )
+        return checkpoint, until

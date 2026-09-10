@@ -62,3 +62,21 @@ class StaffDetailShape[FreshnessT: ObservationTimes](Closed):
 
 class StaffDetail(StaffDetailShape[StaffFreshness]):
     """Public JSON contract; cadence is numeric independently of native signing."""
+
+
+class StaffPageShape[FreshnessT: ObservationTimes](Closed):
+    schema_: Literal["portal-staff-case-page.v1"] = Field(alias="schema")
+    items: tuple[StaffSummary, ...] = Field(max_length=100)
+    next_cursor: Ref | None
+    freshness: FreshnessT
+
+    @model_validator(mode="after")
+    def ordered_page(self) -> Self:
+        refs = [item.case_ref for item in self.items]
+        if refs != sorted(set(refs)):
+            raise ValueError("inconsistent staff case page ordering")
+        return self
+
+
+class StaffPage(StaffPageShape[StaffFreshness]):
+    """Authorized complete-checkpoint list page."""

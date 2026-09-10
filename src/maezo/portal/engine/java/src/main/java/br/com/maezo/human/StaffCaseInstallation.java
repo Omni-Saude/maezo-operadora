@@ -54,7 +54,8 @@ public final class StaffCaseInstallation {
           ||entry.get("certificate_spki")!=null&&!peers.add(str(entry,"certificate_spki")))throw denied();
       var purposes=list(entry.get("purposes"));if(purposes.isEmpty()||!PURPOSES.get(role).containsAll(purposes))throw denied();
       if(Set.of("case_issuer","read_requester").contains(role)){
-        if(!list(entry.get("operations")).equals(List.of("detail"))||list(entry.get("projections")).isEmpty())throw denied();
+        var operations=list(entry.get("operations"));
+        if(!(operations.equals(List.of("detail"))||operations.equals(List.of("detail","list")))||list(entry.get("projections")).isEmpty())throw denied();
       }else if(!list(entry.get("operations")).isEmpty()||!list(entry.get("projections")).isEmpty())throw denied();
       if(!time(entry.get("not_before")).isBefore(time(entry.get("valid_until"))))throw invalid();
       entries.put(fingerprint,entry);
@@ -118,6 +119,9 @@ public final class StaffCaseInstallation {
     read.guard();return record("witness",copy(witness),"membership",m,"source",source,"publication_id",row.get("publication_"),"native_principal",human);
   }
   Map<String,Set<String>> grant(Map<String,Object> publication,Map<String,Object> principal,Map<String,Object> identity,List<Map<String,Object>> pins) {
+    return grant(publication,principal,identity,pins,"detail");
+  }
+  Map<String,Set<String>> grant(Map<String,Object> publication,Map<String,Object> principal,Map<String,Object> identity,List<Map<String,Object>> pins,String operation) {
     StaffCaseModels.publication(publication);var grant=obj(publication,"payload");shape("grant",grant);
     if(!store.scope.equals(grant.get("scope"))||!identity.get("case_ref").equals(grant.get("case_ref"))
         ||!hash(identity).equals(grant.get("identity_digest"))||!"active".equals(grant.get("state")))throw denied();
@@ -133,25 +137,26 @@ public final class StaffCaseInstallation {
         ||!d.get("membership_revision").equals(principal.get("membership_revision"))||!d.get("subject_identity_digest").equals(hash(subject))
         ||!head.get("decision_issuer_key_fingerprint").equals(obj(d,"decision_proof").get("key_fingerprint")))throw denied();
       var issuer=entry(str(obj(d,"decision_proof"),"key_fingerprint"),"case_issuer","staff_case_grant",str(grant,"source_ref"),str(d,"policy_ref"));
-      if(!list(issuer.get("projections")).contains(projection)||!list(issuer.get("operations")).contains("detail"))throw denied();
+      if(!list(issuer.get("projections")).contains(projection)||!list(issuer.get("operations")).contains(d.get("operation")))throw denied();
       proof(obj(d,"decision_proof"),withoutProof(d,"decision_proof"),"case_issuer","staff_case_grant",str(grant,"source_ref"),str(d,"policy_ref"));fresh(d,"observed_at","valid_until");
-      if(d.get("resource_identity_digest").equals(hash(identity))){
+      if((operation==null||operation.equals(d.get("operation")))&&d.get("resource_identity_digest").equals(hash(identity))){
         var fs=new HashSet<String>();for(Object f:list(d.get("fields")))fs.add((String)f);
         if(projection.equals("staff_current_task.v1"))fs.remove("created_at");
         if(fields.put(projection,Set.copyOf(fs))!=null)throw denied();
       }else if(!projection.equals("staff_current_task.v1")||!list(d.get("fields")).contains("created_at"))throw denied();
     }
-    for(String projection:List.of("staff_summary.v1","staff_identity.v1"))if(!FIELDS.get(projection).equals(fields.get(projection)))throw denied();
+    var required=operation==null?List.<String>of():operation.equals("list")?List.of("staff_summary.v1"):List.of("staff_summary.v1","staff_identity.v1");
+    for(String projection:required)if(!FIELDS.get(projection).equals(fields.get(projection)))throw denied();
     current();return fields;
   }
   Map<String,Object> signedRead(byte[] raw,String peer){
     var r=canonical(raw);Jcs.keys(r,"schema","purpose","scope","installation_digest","request_id","principal","membership_witness","session_valid_until","operation","query","issued_at","expires_at","key_fingerprint","signature");
     if(!"staff-case-native-read.v1".equals(r.get("schema"))||!store.scope.equals(r.get("scope"))||!config.designationDigest().equals(r.get("installation_digest")))throw denied();
     String op=str(r,"operation"),purpose=str(r,"purpose");
-    if(!Set.of("detail","finalize").contains(op)||!purpose.equals(op.equals("detail")?"staff-case-read.v1":"staff-case-finalize.v1"))throw invalid();
+    if(!Set.of("detail","list","finalize").contains(op)||!purpose.equals(op.equals("finalize")?"staff-case-finalize.v1":"staff-case-read.v1"))throw invalid();
     shape("principal",r.get("principal"));shape("membership",r.get("membership_witness"));shape(op,r.get("query"));check("r",r.get("request_id"));
     verifyTransport(r,peer,"read_requester",purpose);
-    StaffCaseModels.requireReadCapabilities(entry(str(r,"key_fingerprint"),"read_requester",purpose,null,null));
+    StaffCaseModels.requireReadCapabilities(entry(str(r,"key_fingerprint"),"read_requester",purpose,null,null),op.equals("finalize")?"detail":op);
     retain(time(r.get("session_valid_until")));return r;
   }
   Map<String,Object> signedPublication(byte[] raw,String peer){
