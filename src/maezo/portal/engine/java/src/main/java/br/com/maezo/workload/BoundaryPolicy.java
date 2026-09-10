@@ -33,6 +33,10 @@ public final class BoundaryPolicy {
     try { return new BoundaryPolicy(path,digest,Json.parse(read(path,digest))); }
     catch (RuntimeException e) { throw Refused.unavailable(); }
   }
+  /** V2 reuses only the strict mTLS/file validator; its grants are validated separately. */
+  static BoundaryPolicy transportV2(Path path,String digest,Map<String,Object> transport) {
+    return new BoundaryPolicy(path,digest,transport);
+  }
   private BoundaryPolicy(Path path,String digest,Map<String,Object> m) {
     this.path=path; this.digest=digest; this.document=m;
     Json.keys(m,"protocol","tenant","environment","engine_name","not_before","expires_at","roots","peers","files","listener_port","max_tasks","max_lock_millis","max_poll_millis");
