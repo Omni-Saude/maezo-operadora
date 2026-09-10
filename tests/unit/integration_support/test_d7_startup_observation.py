@@ -12,7 +12,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-PACKET = Path("/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-repair")
+PACKET = Path(
+    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-instrumentation-repair"
+)
 sys.path.insert(0, str(PACKET))
 import d7_startup_observation as m  # noqa: E402
 import prepare_observation as prep  # noqa: E402
@@ -365,7 +367,10 @@ class Controls(unittest.TestCase):
             result = prep.instrument(self.compose, self.root, self.project)
         self.assertNotIn("AMBIENT_CANARY", json.dumps(result))
 
-    def run_collect(self, stop_rc=0, partial=False, uncertain=False, stop_error=None):
+    def run_collect(
+        self, stop_rc=0, partial=False, uncertain=False, stop_error=None,
+        tmpfs_options="rw,nosuid,nodev,noexec,size=33554432,mode=0700,uid=1000,gid=1000",
+    ):
         parent = self.root / "retained"
         parent.mkdir(mode=0o700)
         c = {
@@ -399,7 +404,7 @@ class Controls(unittest.TestCase):
             self.assertGreater(timeout, 0)
             self.assertLessEqual(timeout, 15)
             if "inspect" in argv:
-                return json.dumps({m.AREA: "rw,nosuid,nodev,noexec,size=33554432,mode=0700"}).encode(), 0
+                return json.dumps({m.AREA: tmpfs_options}).encode(), 0
             if "JFR.stop" in argv:
                 if stop_error is not None:
                     raise stop_error
@@ -796,6 +801,48 @@ class Controls(unittest.TestCase):
             for process in processes:
                 process.stdout.close()
                 process.stderr.close()
+
+    def test58_tmpfs_ownership_is_closed(self):
+        result = prep.instrument(self.compose, self.root, self.project)
+        self.assertEqual(result["services"]["engine"]["tmpfs"], [
+            prep.AREA + ":rw,nosuid,nodev,noexec,size=33554432,mode=0700,uid=1000,gid=1000",
+        ])
+        self.assertNotIn("user", result["services"]["engine"])
+        self.assertEqual(self.compose["services"]["engine"]["volumes"], [])
+
+    def test59_existing_fixture_user_and_entrypoint_are_preserved(self):
+        for user in ("0:0", "1000:1000", "camunda"):
+            with self.subTest(user=user):
+                self.compose["services"]["engine"]["user"] = user
+                self.compose["services"]["engine"]["entrypoint"] = ["/fixed/public-entrypoint"]
+                result = prep.instrument(self.compose, self.root, self.project)
+                self.assertEqual(result["services"]["engine"]["user"], user)
+                self.assertEqual(result["services"]["engine"]["entrypoint"],
+                                 ["/fixed/public-entrypoint"])
+
+    def test60_only_tmpfs_owner_changes_generated_configuration(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "prior_prepare", PACKET / "baseline/prepare_observation.py"
+        )
+        prior = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(prior)
+        before = prior.instrument(self.compose, self.root, self.project)
+        after = prep.instrument(self.compose, self.root, self.project)
+        after["services"]["engine"]["tmpfs"] = before["services"]["engine"]["tmpfs"]
+        self.assertEqual(after, before)
+
+    def test61_legacy_tmpfs_is_refused_before_mutating_attach(self):
+        state, directory, e, calls = self.run_collect(
+            tmpfs_options="rw,nosuid,nodev,noexec,size=33554432,mode=0700",
+        )
+        self.assertEqual(state["startup_observation"]["status"], "UNAVAILABLE")
+        self.assertFalse(e.uncertain)
+        self.assertEqual(state["returncode"], 1)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse((directory / "status").exists())
+        self.assertFalse((directory / "recording.tar").exists())
 
 
 if __name__ == "__main__":
