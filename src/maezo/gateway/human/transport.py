@@ -99,7 +99,14 @@ class PartitionedEd25519Signer(CurrentHumanSigner):
     def envelope(self, command: HumanCommand | HumanDecisionCommand, *, purpose: Purpose) -> bytes:
         try:
             self._current()
-            if command.tenant != self.scope.tenant or command.workload_ref != self.scope.workload_ref:
+            if (
+                command.tenant != self.scope.tenant
+                or command.workload_ref != self.scope.workload_ref
+                or (
+                    isinstance(command, HumanDecisionCommand)
+                    and command.environment != self.scope.environment
+                )
+            ):
                 raise EngineUnavailableError()
             issued = int(datetime.now(UTC).timestamp())
             expires = min(issued + self._seconds, int(self._until.timestamp()))
@@ -222,7 +229,14 @@ class MTLSHumanEngineTransport(HumanEngineTransport):
 
     async def _request(self, command: HumanCommand | HumanDecisionCommand, *, query: bool) -> bytes | None:
         try:
-            if command.tenant != self.scope.tenant or command.workload_ref != self.scope.workload_ref:
+            if (
+                command.tenant != self.scope.tenant
+                or command.workload_ref != self.scope.workload_ref
+                or (
+                    isinstance(command, HumanDecisionCommand)
+                    and command.environment != self.scope.environment
+                )
+            ):
                 raise EngineUnavailableError()
             # Matches the engine servlet's path grammar; never encode a delimiter into a URL.
             if not all(
