@@ -1,0 +1,20 @@
+{
+  "argv": [
+    "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout/.venv/bin/python",
+    "-I",
+    "-c",
+    "\nimport hashlib, importlib.metadata as m, json, pathlib, sys\nitems = []\nfor d in m.distributions():\n    direct = d.read_text(\"direct_url.json\")\n    items.append({\"name\": d.metadata[\"Name\"], \"version\": d.version,\n                  \"location\": str(pathlib.Path(d.locate_file(\"\")).resolve()),\n                  \"direct_url\": json.loads(direct) if direct else None})\nitems.sort(key=lambda x: (x[\"name\"].lower(), x[\"version\"], x[\"location\"]))\np = pathlib.Path(sys.executable).resolve()\nprint(json.dumps({\"distributions\": items, \"interpreter\": {\"path\": str(p),\n \"sha256\": hashlib.sha256(p.read_bytes()).hexdigest(), \"version\": sys.version,\n \"implementation\": sys.implementation.name, \"cache_tag\": sys.implementation.cache_tag,\n \"prefix\": sys.prefix, \"base_prefix\": sys.base_prefix}}, sort_keys=True))\n"
+  ],
+  "combined_sha256": "f2a57cb5a731261de1447471164357617c41c13f84ad2211ccff36baa93e1f5d",
+  "cwd": "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout",
+  "finished_at": "2026-09-09T08:49:43.251239+00:00",
+  "pgid": 4344,
+  "quiescent": true,
+  "rc": 0,
+  "started_at": "2026-09-09T08:49:43.071091+00:00",
+  "status": "completed",
+  "stderr": "inventory-after.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout": "inventory-after.stdout",
+  "stdout_sha256": "f2a57cb5a731261de1447471164357617c41c13f84ad2211ccff36baa93e1f5d"
+}

@@ -317,6 +317,23 @@ class AgentDefinition(BaseModel):
     #   alone. PARSED, not merely accepted: without this field pydantic's default `extra="ignore"`
     #   would DROP the block, and the yaml would look declarative while computing nothing — the
     #   same dead-config-that-looks-live failure the `model:` field's own comment describes.
+    channels: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Per-channel inbound/outbound posture this agent declares (GAP 11.7)",
+    )
+    # ^ GAP 11.7: `HelenaDispatcher` (`platform/webhooks/whatsapp/dispatch.py`) is the ONLY
+    #   WhatsApp-inbound seam this platform has, and it is hardcoded to Helena's graph — there is
+    #   no per-agent routing registry it could bind to (unlike `ingress:`/`INGRESS_BY_AGENT` above,
+    #   which IS such a seam, for a DIFFERENT channel: an agent-scoped HTTP portal route). Building
+    #   one was out of scope for the accepted register-row alternative ("documentar explicitamente
+    #   a limitacao de mao unica"); this field is the STRUCTURAL half of that documentation — the
+    #   prose already lived in `agent.yaml` comments and in `docs/processes/contracts/
+    #   SP-OP-CANCEL-001.md`/`SP-OP-INADIMPLENCIA-001.md` ("Canal de entrada" sections), but
+    #   nothing MACHINE-CHECKED that an agent granting `mcp-whatsapp.send_message` also declared
+    #   whether it can receive a reply. `validation.agent_def.validate_file` is the check;
+    #   `channels: {whatsapp: {outbound: true, inbound: false}}` (or `inbound: true` for the one
+    #   agent that actually has the seam, Helena) is the shape. PARSED, not merely accepted — see
+    #   the `ingress:` comment immediately above for why an unlisted field would be dead config.
 
     def model_tiers(self) -> dict[str, str]:
         """The declared `task_kind -> tier` map from this agent's `model:` block (AF-12, ADR-0009).
@@ -462,6 +479,10 @@ class AgentLoader:
             # EXPLICITLY, so a new model field that is not listed here stays empty no matter
             # what the yaml says — the block would parse and compute nothing.
             ingress=data.get("ingress", {}),
+            # GAP 11.7: the declared per-channel inbound/outbound posture (see the field's own
+            # comment on `AgentDefinition` above). Same enumeration discipline as `ingress` —
+            # omitted here, the yaml's `channels:` block would parse and validate nothing.
+            channels=data.get("channels", {}),
         )
 
         logger.info("agent_loader_parsed", agent_id=definition.id, name=definition.name)

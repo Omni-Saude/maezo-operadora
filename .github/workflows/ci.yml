@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.12"
-  UV_VERSION: "0.11.26"
+  MAEZO_CI_PYTHON_VERSION: "3.12"
+  MAEZO_CI_UV_VERSION: "0.11.26"
 
 jobs:
   quality:
@@ -25,16 +25,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -58,7 +74,17 @@ jobs:
       # --cov-report=html here makes htmlcov/ real.
       - name: Unit tests + coverage gate (>=85%)
         run: |
-          uv run pytest tests/ -q -m "not integration" -ra --junitxml=unit-junit.xml \
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/ -q -m "not integration" -ra --junitxml=unit-junit.xml \
             --cov=src/maezo --cov-report=term --cov-report=html --cov-fail-under=85
 
       - name: Upload unit test results
@@ -84,14 +110,10 @@ jobs:
       # via `git merge-base origin/main HEAD` by default — that needs an `origin/main`
       # remote-tracking ref AND the merge-base commit's history actually present locally, neither
       # of which a shallow (fetch-depth: 1, the actions/checkout default) checkout provides. This
-      # is the ONLY job either gate is wired into; the `quality` job (lint / type / unit, above)
-      # deliberately stays shallow — it runs the FULL unit suite fast on every PR and has no reason
-      # to pay for full history, which is exactly why an earlier revision's unit test that called
-      # the cell-count gate's `main()` with no explicit --base against the real repo (assuming it
-      # would land in a full-history checkout) broke it (F1, VERIFY-TOOLING-FENCES.md) — fixed by
-      # deleting that test, not by deepening `quality`'s checkout. `fetch-depth: 0` fetches full
-      # history for all branches and tags (GitHub's own documented behaviour for that value), which
-      # is what makes `origin/main` resolvable here.
+      # is the only job running these ledger gates. Quality, release-floor and integration
+      # also need full history now because globally collected historical-tool tests validate
+      # immutable tool-source ancestry. Keep that validation rather than weakening its guard.
+      # fetch-depth: 0 makes the complete origin/main ancestry available here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
@@ -106,13 +128,26 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -136,6 +171,16 @@ jobs:
       - name: PLANS.md ADR-count reconciliation gate (AF-06)
         run: make check-plans-counts
 
+      # R-089 (gap ADR-0026-0028-STALE-ANSCRON, OWNER-DECISIONS-REGISTER, 2026-09-06): docs/adr/*.md
+      # `path::symbol`, quoted ImportFrom and `path:line` citations bind to the tracked tree.
+      # Qualified paths/modules keep their namespace; Python bindings respect lexical scope;
+      # BPMN/DMN names are parsed XML IDs; anchors never suppress file existence. Abbreviated
+      # ellipses and intentionally local ignored docs are reported separately, and empty/unchecked
+      # scans fail. The exact 7 self-audited disclosures remain 1 tool-wiring + 4 inbound +
+      # 2 cross-repo. No Git history is required (covered by the shallow-clone focal test).
+      - name: ADR doc-symbol-citation gate (R-089)
+        run: make check-doc-symbol-citations
+
       # F2 (r5/tooling-fences REVISE round): neither ledger range-scoped gate was wired into ANY CI
       # job before this — both existed only as local `make` targets a human or agent had to
       # remember to type. Wired here (not into `evidence-ledger.yml`'s `evidence-ledger-check` job,
@@ -143,7 +188,7 @@ jobs:
       # workflow's own header comment deliberately keeps free of `uv sync`/dependency install so it
       # never conflicts with concurrent CI-surgery PRs touching ci.yml; these two gates shell out to
       # `pytest` per declared row, so they need the SAME `uv sync --extra dev` this job already
-      # pays for) and not into `quality` (shallow checkout by design, see the checkout step above).
+      # pays for). Quality has full history for collected tool tests, but does not run these gates.
       # `check-ledger-hashes` recomputes the Test-hash of every NEW machine-verifiable ledger row;
       # `check-ledger-row-cell-count` (this task's own new gate) catches an unescaped `|` growing a
       # row's cell count past the header's 8. Both are genuinely range-scoped (`<base>..HEAD` only,
@@ -155,7 +200,42 @@ jobs:
       # stack, no mutex) — the escape hatch is to OMIT the parenthesised path on that row, which
       # falls back to LEGACY for this gate (see docs/evidence-ledger.md's convention paragraph).
       - name: Evidence-ledger Test-hash recompute gate (LEDGER-HASH-RECOMPUTE-CHECK)
-        run: make check-ledger-hashes
+        shell: bash
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          set -euo pipefail
+          umask 077
+          proof_output="$RUNNER_TEMP/ledger-operational-proofs"
+          mkdir -m 700 "$proof_output"
+          checker=(env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md --proof-output "$proof_output")
+          printf '%q ' "${checker[@]}" > "$proof_output/invocation.txt"
+          printf '\n' >> "$proof_output/invocation.txt"
+          set +e
+          "${checker[@]}" > "$proof_output/checker.stdout" 2> "$proof_output/checker.stderr"
+          proof_rc=$?
+          set -e
+          printf '%s\n' "$proof_rc" > "$proof_output/checker.rc"
+          cat "$proof_output/checker.stdout"
+          cat "$proof_output/checker.stderr" >&2
+          exit "$proof_rc"
+
+      - name: Retain operational ledger proofs and refusal diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: ledger-operational-proofs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ledger-operational-proofs/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Evidence-ledger row cell-count gate (LEDGER-ROW-CELL-COUNT)
         run: make check-ledger-row-cell-count
@@ -257,13 +337,26 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -290,23 +383,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
       - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
-        run: make release-floor-check
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make release-floor-check
 
   validate-terraform:
     name: terraform validate
@@ -353,6 +473,9 @@ jobs:
             cd "$dir"
             terraform init -backend=false -input=false
             terraform validate
+            if [ "$dir" = "deploy/aws-ecs/envs/dev-sa-east-1/" ]; then
+              terraform test -filter=tests/portal.tftest.hcl
+            fi
             cd - > /dev/null
           done
         working-directory: ${{ github.workspace }}
@@ -376,13 +499,26 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -405,7 +541,7 @@ jobs:
         # as a real import (importlib.util.find_spec against src/) — catches a Deployment whose
         # command targets a module that does not exist (guaranteed CrashLoopBackOff) before merge.
         # See scripts/ci/check_helm_entrypoints.py.
-        run: uv run python scripts/ci/check_helm_entrypoints.py
+        run: .venv/bin/python scripts/ci/check_helm_entrypoints.py
 
       - name: Chart/Terraform env-name reconciliation (DU-02 / R-002)
         # Every MAEZO_/WHATSAPP_/CIBSEVEN_/KAFKA_-prefixed env name declared in deploy/helm/**
@@ -413,7 +549,7 @@ jobs:
         # (no-default) env name a src/ BaseSettings class declares must be declared somewhere in
         # the chart/TF — catches a rename drift like job-migrations.yaml's MAEZO_TENANT vs
         # env.py's MAEZO_TENANT_ID before merge. See scripts/ci/check_chart_env_reconciliation.py.
-        run: uv run python scripts/ci/check_chart_env_reconciliation.py
+        run: .venv/bin/python scripts/ci/check_chart_env_reconciliation.py
 
       # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
       # existe. NetworkPolicy egress tests serão implementados quando o módulo
@@ -431,7 +567,17 @@ jobs:
         #   (7) generalZone.enabled=false leaves per-agent egress list empty
         # helm CLI is on PATH here so @requires_helm marks do NOT skip.
         run: |
-          uv run pytest tests/unit/platform/test_provision_tenant.py -v \
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/unit/platform/test_provision_tenant.py -v \
             --tb=short -q
 
   # ── T2.3 + CI-LIVE-PG-JOB-MISSING: the integration contract is marker-based, globally.
@@ -483,6 +629,9 @@ jobs:
       MAEZO_TEST_DATABASE_URL: "postgresql://maezo:maezo@localhost:5432/maezo"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
 
       # ── Docs-only gate (CI-minutes hygiene). A docs-only PR cannot change this lane's verdict:
       # nothing in today's globally collected integration-marker set reads docs/** or any *.md.
@@ -535,14 +684,28 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         if: steps.gate.outputs.run == 'true'
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         if: steps.gate.outputs.run == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -560,8 +723,18 @@ jobs:
         id: guard
         if: steps.gate.outputs.run == 'true'
         run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
           set +e
-          uv run python scripts/ci/run_live_pytest.py collect \
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py collect \
             --output integration-collection.json -- \
             tests -q -m "integration and not chaos"
           code=$?
@@ -649,7 +822,17 @@ jobs:
       - name: Integration tests
         if: steps.guard.outputs.run == 'true'
         run: |
-          uv run python scripts/ci/run_live_pytest.py run \
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py run \
             --expected integration-collection.json \
             --evidence integration-execution.json \
             --junit integration-junit.xml \
@@ -725,13 +908,26 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -740,8 +936,18 @@ jobs:
       - name: Check for collectable chaos tests
         id: guard
         run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
           set +e
-          uv run python scripts/ci/run_live_pytest.py collect \
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py collect \
             --output chaos-collection.json -- \
             tests/integration/chaos -q -m chaos
           code=$?
@@ -787,7 +993,17 @@ jobs:
       - name: Chaos tests (seam-level fault injection)
         if: steps.guard.outputs.run == 'true'
         run: |
-          uv run python scripts/ci/run_live_pytest.py run \
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py run \
             --expected chaos-collection.json \
             --evidence chaos-execution.json \
             --junit chaos-junit.xml \
@@ -980,14 +1196,28 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         if: steps.agent_changes.outputs.agents == 'true'
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        if: steps.agent_changes.outputs.agents == 'true'
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         if: steps.agent_changes.outputs.agents == 'true'
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -1001,8 +1231,18 @@ jobs:
         id: guard
         if: steps.agent_changes.outputs.agents == 'true'
         run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
           set +e
-          uv run pytest tests/evals --collect-only -q -m eval
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals --collect-only -q -m eval
           code=$?
           set -e
           echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
@@ -1036,7 +1276,18 @@ jobs:
 
       - name: Run eval gate
         if: steps.agent_changes.outputs.agents == 'true' && steps.guard.outputs.run == 'true'
-        run: make evals
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make evals
         env:
           LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
 
@@ -1071,13 +1322,26 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
@@ -1088,8 +1352,18 @@ jobs:
       - name: Check for collectable eval golden datasets
         id: guard
         run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
           set +e
-          uv run pytest tests/evals --collect-only -q -m eval
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/evals --collect-only -q -m eval
           code=$?
           set -e
           echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
@@ -1123,7 +1397,18 @@ jobs:
 
       - name: Full nightly eval run
         if: steps.guard.outputs.run == 'true'
-        run: make evals
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PY
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make evals
         env:
           LLM_GENERAL_API_KEY: ${{ secrets.LLM_GENERAL_API_KEY }}
           NIGHTLY_EVAL: "1"

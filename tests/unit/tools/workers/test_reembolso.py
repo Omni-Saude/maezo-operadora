@@ -768,13 +768,23 @@ def test_disagreeing_channels_fail_closed_on_a_single_differing_field(
         2**63 - 1,  # Long boundary
     ],
 )
-def test_dmn_value_is_relayed_bit_exact_at_any_magnitude(cents: int, teto_zero: CeilingResolver) -> None:
-    """No arithmetic touches the amount, so no magnitude can round, truncate or overflow it.
+def test_dmn_value_is_relayed_bit_exact_only_within_declared_integer(
+    cents: int, teto_zero: CeilingResolver
+) -> None:
+    """Relay real Integer output exactly; refuse magnitudes this DMN cannot emit.
 
-    The deleted path did `int(base * _MULTIPLO_ACESSO)` — a float multiply, i.e. a truncation and
-    a precision cliff above 2**53. There is no multiplication left: the integer the DMN emitted is
-    the integer that reaches the audit chain, exactly.
+    CIB Seven 2.1.0 integer output uses java.lang.Integer (not Long). Retain the
+    former synthetic large cases as refusal controls, not as invented DMN output.
+    The multiplier remains provenance only; no re-derived amount or DMN edit.
     """
+    if cents > 2**31 - 1:
+        with pytest.raises(ReembolsoCalculoIndisponivelError):
+            calculate_value(
+                _request(valor_solicitado_cents=cents),
+                ReembolsoCalculoDmn(cents, 1.5, "TABELA_REFERENCIA_CONSULTA"),
+                resolver=teto_zero,
+            )
+        return
     result = calculate_value(
         _request(categoria_procedimento="consulta", valor_solicitado_cents=cents),
         ReembolsoCalculoDmn(
@@ -2167,3 +2177,191 @@ def test_publish_completed_entry_round_trips_publish_completed() -> None:
     assert publish_completed_entry(variables) == publish_completed(
         event_type="reembolso.completed", payload={}, desfecho="aprovado_automatico"
     )
+
+
+class _FiniteMoneyIntSubclass(int):
+    pass
+
+
+@pytest.mark.parametrize(
+    "value", [True, False, 12.9, 12.0, "12", None, _FiniteMoneyIntSubclass(12), 2**63, -(2**63) - 1]
+)
+def test_finite_money_request_ingress_rejects_before_comparison(value):
+    result = reembolso.check_prazo_entry(
+        {
+            "tenant_id": "synthetic",
+            "protocolo_reembolso": "synthetic",
+            "codigo_procedimento_tuss": "synthetic",
+            "valor_solicitado_cents": value,
+        }
+    )
+    assert result["valid"] is False
+    assert "valor_solicitado_cents invalido" in result["errors"]
+
+
+@pytest.mark.parametrize("value", [True, 12.9, "12", _FiniteMoneyIntSubclass(12), 2**63, -(2**63) - 1])
+def test_finite_money_calculation_rejects_requested_type_range_before_ceiling(value):
+    class NoCeiling:
+        def within_l2_ceiling(self, **kwargs):
+            pytest.fail("invalid input reached ceiling")
+
+    with pytest.raises(ReembolsoCalculoIndisponivelError):
+        calculate_value(_request(valor_solicitado_cents=value), _calculo(_DMN_RULES[0]), resolver=NoCeiling())
+
+
+@pytest.mark.parametrize("channel", ["flat", "nested"])
+@pytest.mark.parametrize("value", [2**31, 2**63, _FiniteMoneyIntSubclass(12)])
+def test_finite_money_dmn_output_respects_actual_integer_representation(channel, value):
+    variables = _entry_vars(_DMN_RULES[0])
+    variables["valor_calculado_tabela_cents"] = value
+    if channel == "nested":
+        variables["calculo"] = {name: variables.pop(name) for name in _DMN_OUTPUT_NAMES}
+    with pytest.raises(ReembolsoCalculoIndisponivelError):
+        calculate_amount_entry(variables)
+
+
+@pytest.mark.parametrize("value", [2**63, _FiniteMoneyIntSubclass(12)])
+def test_finite_money_payment_guard_precedes_receipt_generation(value, monkeypatch):
+    import time
+
+    monkeypatch.setattr(time, "time_ns", lambda: pytest.fail("invalid amount minted payment receipt"))
+    with pytest.raises(ReembolsoValorPagamentoInvalidoError):
+        issue_payment_entry(
+            {
+                "protocolo_reembolso": "synthetic",
+                "decisao_reembolso": "APROVAR",
+                "valor_reembolso_aprovado_cents": value,
+            }
+        )
+
+
+@pytest.mark.parametrize("field", ["valor_solicitado_cents", "valor_reembolso_aprovado_cents"])
+@pytest.mark.parametrize("value", [True, 12.9, "12", _FiniteMoneyIntSubclass(12), 2**63])
+def test_finite_money_partial_human_guard_rejects_types_before_comparing(field, value):
+    variables = {
+        "decisao_reembolso": "APROVAR_PARCIAL",
+        "justificativa": "synthetic",
+        "fundamentacao_contratual": "synthetic",
+        "analista_id": "synthetic",
+        "valor_solicitado_cents": 100,
+        "valor_reembolso_aprovado_cents": 12,
+        field: value,
+    }
+    with pytest.raises(ReembolsoDenialNotHumanError):
+        send_reembolso_denial_entry(variables)
+
+
+@pytest.mark.parametrize("value", [1, 2**31, 2**63 - 1])
+def test_finite_money_positive_requested_and_approved_long_values_survive(value):
+    assert validate_reembolso(_request(valor_solicitado_cents=value)).valid is True
+    result = issue_payment_entry(
+        {
+            "protocolo_reembolso": "synthetic",
+            "decisao_reembolso": "APROVAR",
+            "valor_reembolso_aprovado_cents": value,
+        }
+    )
+    assert result["valor_reembolso_aprovado_cents"] == value
+
+
+@pytest.mark.parametrize("value", [0, 2**31 - 1])
+def test_finite_money_dmn_integer_boundaries_and_sem_tabela_preserved(value):
+    variables = _entry_vars(
+        _DMN_RULES[0],
+        valor_calculado_tabela_cents=value,
+        fonte_tabela="SEM_TABELA" if value == 0 else "synthetic",
+    )
+    result = calculate_amount_entry(variables)
+    assert result["valor_calculado_tabela_cents"] == value
+    assert result["reembolso_auto_liberado"] is False
+    if value == 0:
+        assert result["dentro_tabela"] is False
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("valor_solicitado_cents", True),
+        ("valor_solicitado_cents", 12.9),
+        ("valor_solicitado_cents", 2**63),
+        ("valor_calculado_tabela_cents", 2**31),
+        ("valor_calculado_tabela_cents", 2**63),
+    ],
+)
+async def test_finite_money_public_calculation_producer_refuses_before_completion(field, value):
+    import json
+
+    import httpx
+
+    from maezo.tools.workers.harness import CibSevenWorkerTransport
+
+    posts = []
+
+    def capture(request):
+        posts.append(json.loads(request.content))
+        return httpx.Response(204)
+
+    transport = CibSevenWorkerTransport("https://engine.invalid")
+    await transport._client.aclose()
+    async with httpx.AsyncClient(
+        base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+    ) as client:
+        transport._client = client
+        with pytest.raises(ReembolsoCalculoIndisponivelError):
+            result = calculate_amount_entry(_entry_vars(_DMN_RULES[0], **{field: value}))
+            await transport.complete("synthetic-task", "synthetic-worker", result)
+    assert posts == []
+
+
+def test_finite_money_dmn_declared_integer_output_is_the_narrow_guard_authority():
+    outputs = ET.parse(_DMN_CALCULO_PATH).findall(".//dmn:output", _DMN_NS)
+    amount = next(node for node in outputs if node.attrib["name"] == "valor_calculado_tabela_cents")
+    assert amount.attrib["typeRef"] == "integer"
+
+
+@pytest.mark.parametrize(
+    "kind,value", [("calculation", 0), ("calculation", 2**31 - 1), ("payment", 2**31), ("payment", 2**63 - 1)]
+)
+async def test_finite_money_public_producer_completes_exact_valid_amount(kind, value):
+    import json
+
+    import httpx
+
+    from maezo.tools.workers.harness import CibSevenWorkerTransport
+
+    posts = []
+
+    def capture(request):
+        posts.append(json.loads(request.content))
+        return httpx.Response(204)
+
+    if kind == "calculation":
+        result = calculate_amount_entry(
+            _entry_vars(
+                _DMN_RULES[0],
+                valor_calculado_tabela_cents=value,
+                fonte_tabela="SEM_TABELA" if value == 0 else "synthetic",
+            )
+        )
+        field = "valor_calculado_tabela_cents"
+    else:
+        result = issue_payment_entry(
+            {
+                "protocolo_reembolso": "synthetic",
+                "decisao_reembolso": "APROVAR",
+                "valor_reembolso_aprovado_cents": value,
+            }
+        )
+        field = "valor_reembolso_aprovado_cents"
+    transport = CibSevenWorkerTransport("https://engine.invalid")
+    await transport._client.aclose()
+    async with httpx.AsyncClient(
+        base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+    ) as client:
+        transport._client = client
+        await transport.complete("synthetic-task", "synthetic-worker", result)
+    assert len(posts) == 1
+    assert posts[0]["variables"][field] == {
+        "value": value,
+        "type": "Integer" if value <= 2**31 - 1 else "Long",
+    }

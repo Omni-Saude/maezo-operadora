@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
-from maezo.platform.validation.bpmn import validate_file
+import pytest
+
+from maezo.platform.validation.bpmn import BPMNDI_NS, DC_NS, DI_NS, validate_di, validate_file
 from maezo.platform.validation.result import Report
 
 VALID_BPMN = """<?xml version="1.0" encoding="UTF-8"?>
@@ -119,3 +122,86 @@ class TestDecisionRefCollection:
         assert report.ok, [f.message for f in report.findings]
         assert result is not None
         assert result.decision_refs == {"some_decision", "other_decision"}
+
+
+_ARTIFACTS = Path(__file__).resolve().parents[3] / "spec/processes/bpmn"
+_INAD = _ARTIFACTS / "SP-OP-INADIMPLENCIA-001_Suspensao_Rescisao.bpmn"
+
+
+def test_repository_di_has_a_complete_plane_for_every_process() -> None:
+    """Includes all five timer-started ANS definitions and expanded subprocesses."""
+    paths = sorted(_ARTIFACTS.glob("*.bpmn"))
+    assert paths, "repository BPMN inventory must not be empty"
+    for path in paths:
+        report = Report()
+        validate_di(ET.parse(path).getroot(), path, report)
+        assert report.ok, [(f.path, f.message) for f in report.findings]
+
+
+@pytest.mark.parametrize(
+    "element_id",
+    [
+        "BE_SuspensaoNaoHumano",
+        "End_SuspensaoBloqueadaNaoHumano",
+        "Flow_SuspensaoNaoHumano_End",
+    ],
+)
+def test_missing_guard_representation_is_reported(element_id: str) -> None:
+    """Reproduce each original blind spot independently, without altering execution."""
+    root = ET.parse(_INAD).getroot()
+    plane = root.find(f".//{{{BPMNDI_NS}}}BPMNPlane")
+    assert plane is not None
+    item = next(child for child in plane if child.get("bpmnElement") == element_id)
+    plane.remove(item)
+    report = Report()
+    validate_di(root, _INAD, report)
+    assert not report.ok
+    assert len(report.findings) == 1
+    assert element_id in report.findings[0].message
+
+
+def test_other_process_plane_cannot_satisfy_missing_coverage() -> None:
+    path = _ARTIFACTS / "SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn"
+    root = ET.parse(path).getroot()
+    planes = root.findall(f".//{{{BPMNDI_NS}}}BPMNPlane")
+    shape = planes[0].find(f"{{{BPMNDI_NS}}}BPMNShape")
+    assert shape is not None
+    planes[0].remove(shape)
+    planes[1].append(shape)
+    report = Report()
+    validate_di(root, path, report)
+    assert any("not in process plane" in f.message for f in report.findings)
+    assert any("missing BPMNShape" in f.message for f in report.findings)
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "0", "-1", ""])
+def test_shape_size_must_be_finite_and_positive(value: str) -> None:
+    root = ET.parse(_INAD).getroot()
+    bounds = root.find(f".//{{{DC_NS}}}Bounds")
+    assert bounds is not None
+    bounds.set("width", value)
+    report = Report()
+    validate_di(root, _INAD, report)
+    assert any("invalid geometry" in f.message for f in report.findings)
+
+
+def test_required_di_does_not_accept_no_di() -> None:
+    report = Report()
+    validate_di(ET.fromstring(VALID_BPMN), Path("snippet.bpmn"), report)
+    assert not report.ok
+    assert "no process plane" in report.findings[0].message
+
+
+def test_edge_requires_two_finite_waypoints() -> None:
+    root = ET.parse(_INAD).getroot()
+    edge = root.find(f".//{{{BPMNDI_NS}}}BPMNEdge")
+    assert edge is not None
+    for point in list(edge)[1:]:
+        edge.remove(point)
+    point = edge.find(f"{{{DI_NS}}}waypoint")
+    assert point is not None
+    point.set("x", "NaN")
+    report = Report()
+    validate_di(root, _INAD, report)
+    assert any("missing bounds/waypoints" in f.message for f in report.findings)
+    assert any("invalid geometry" in f.message for f in report.findings)

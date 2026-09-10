@@ -21,6 +21,7 @@ dependencies = [
     "httpx>=0.27,<1.0",
     "tenacity>=8.2,<10.0",
     # --- Dados / validacao ---
+    "jsonschema==4.26.0",          # validador do contrato OpenAPI AMH pinado
     "pyyaml>=6.0,<7.0",            # parsing de artefatos (policies, agent.yaml, topic_registry, PEP)
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.3,<3.0",
@@ -54,6 +55,7 @@ dependencies = [
     "prometheus-client>=0.20,<1.0",
     # --- Seguranca / LGPD ---
     "cryptography>=50.0.0,<51",
+    "pyjwt[crypto]>=2.10.1,<3",  # ADR-0049 D4: human OIDC, fixed RS256 verification
     "greenlet>=3.5.3",
     # --- Inferencia LLM (ADR-0009; single import point: maezo.runtime.inference) ---
     # `[bedrock]` extra (boto3/botocore) powers the SigV4-signed AWS Bedrock provider added in
@@ -74,6 +76,7 @@ dev = [
     "mypy>=1.10,<3.0",
     "types-PyYAML>=6.0,<7.0",     # stubs p/ mypy --strict (pyyaml nao tem tipos inline)
     "testcontainers>=4.0,<5.0",
+    "types-jsonschema>=4.26.0.20260518",
     "lxml-stubs>=0.5,<1.0",
 ]
 

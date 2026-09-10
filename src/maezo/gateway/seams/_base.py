@@ -104,7 +104,7 @@ logger = structlog.get_logger(__name__)
 #: not an effect seam — it is the thing effects are recorded TO) and `agent_version` (a string).
 #: The `effect_seams_gated` readiness check at each composition root iterates exactly this set.
 EFFECT_SEAM_KEYS: Final[frozenset[str]] = frozenset(
-    {"dmn", "cibseven", "fhir", "whatsapp", "inference", "population", "a2a"}
+    {"dmn", "cibseven", "fhir", "clinical_context", "whatsapp", "inference", "population", "a2a"}
 )
 
 #: Operation token used ONLY to validate a `SeamContext`'s closure-bound identity through the real

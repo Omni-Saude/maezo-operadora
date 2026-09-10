@@ -5,6 +5,36 @@
 
 ## Business key (idempotencia)
 
+### Portal e relação com AUTH — interface E01 (2026-09-10)
+
+Complemento de construção do ADR-0049, sem alterar a forma/SLAs deste contrato ou seu
+BPMN executável. O portal é canal já permitido em `canal`; mantém a MESMA instância
+universal e os produtores de agente existentes, sem BPMN novo por público. Login,
+navegação, inbox e leitura são comportamento de aplicação, não novos processos.
+
+`UT_TratarEscalonamento` e `UT_SupervisorAssume` reutilizam catálogo/binding, posse,
+comando atômico e recibo do gateway humano; grupo dinâmico vem de `escalation_routing`
+intersectado com membership atual, nunca do browser. Beneficiário/prestador não podem
+completar essas tarefas internas. Histórico/comunicações externas exigem vínculo atual
+e projeção autorizada; `notas_resolucao` permanece na Zona PHI, fora do evento geral.
+
+`notify_team`/`notify_supervisor` e os eventos de domínio exigem consumidor de inbox e
+evidência de entrega para que o portal afirme notificação. Reusar o fallback modelado de
+`ERR_ESC_NOTIFY_FAILED` (ADR-0030); Kafka aceitou não significa humano recebeu.
+Claim/ACK de interface não cancela timer nem resolve tarefa por inferência. O engine
+continua dono dos timers e o caso exibe o estado real após takeover/timeout.
+
+**AUTH não chama ESCALATION automaticamente.** A coordenação da auditoria e junta já
+existem dentro de AUTH. Iniciar ESCALATION requer gatilho deste contrato, conversa de
+origem, produtor autorizado e correlação de retorno; não inventar `source_agent_id`
+para uma pessoa do portal. Um futuro start exclusivamente humano exige extensão tipada
+e revisão dos campos obrigatórios, não contornar o contrato de proveniência do agente.
+`devolvido_agente` continua o único desfecho de retomada; não converte resolução de
+escalonamento em aprovação de AUTH. Reusar as APIs de caso/comunicações/recibos e os
+critérios de autorização/replay descritos no complemento portal de SP-OP-AUTH-001.
+
+### Chave legada interna
+
 ```
 ESC-{tenant_id}-{conversation_id}
 ```

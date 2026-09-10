@@ -1,0 +1,29 @@
+{
+  "argv": [
+    "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout/.venv/bin/python",
+    "-P",
+    "-m",
+    "pytest",
+    "tests/unit/gateway/test_engine_capability_contracts.py",
+    "-v",
+    "--tb=no",
+    "-p",
+    "no:cacheprovider",
+    "-p",
+    "ledger_source_guard",
+    "-p",
+    "pytest_asyncio.plugin"
+  ],
+  "combined_sha256": "345f0b034723fe1955f089b042d68c80de4ba88ac23f7adf103196447fd46b82",
+  "cwd": "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout",
+  "finished_at": "2026-09-09T08:49:43.065186+00:00",
+  "pgid": 4269,
+  "quiescent": true,
+  "rc": 0,
+  "started_at": "2026-09-09T08:49:32.422809+00:00",
+  "status": "completed",
+  "stderr": "pytest.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout": "pytest.stdout",
+  "stdout_sha256": "345f0b034723fe1955f089b042d68c80de4ba88ac23f7adf103196447fd46b82"
+}

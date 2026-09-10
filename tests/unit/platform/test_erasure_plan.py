@@ -434,7 +434,7 @@ def test_a_pseudonym_reference_can_count_nothing_anywhere() -> None:
         for f in report.findings
         if f.status is ep.LayerFindingStatus.NOT_COUNTED_IDENTITY_BRIDGE_ABSENT
     ]
-    assert bridge == ["agent_memory", "erasure_log"]
+    assert bridge == ["agent_memory", "erasure_log", "portal_memberships", "human_command_outbox"]
     assert report.counted_rows == 0
     assert len(report.uncounted_layers) == len(ep.PERSISTENCE_LAYERS)
 
@@ -571,6 +571,70 @@ def test_only_relations_with_a_subject_column_carry_a_probe() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ADR-0049 D4/D6 adds authentication principals, not a DSR/FHIR identity bridge.
+_PORTAL_TABLES = {
+    "portal_login_transactions": "0012_portal_identity_session.py",
+    "portal_code_claims": "0012_portal_identity_session.py",
+    "portal_sessions": "0012_portal_identity_session.py",
+    "portal_memberships": "0012_portal_identity_session.py",
+    "human_command_outbox": "0013_human_command_outbox.py",
+    "human_command_delivery": "0013_human_command_outbox.py",
+}
+
+
+def test_portal_inventory_cites_migrations_and_keeps_human_dispositions_pending() -> None:
+    code = {layer.tabela: layer for layer in ep.PERSISTENCE_LAYERS}
+    artifact = {entry["tabela"]: entry for entry in _shipped_raw()["camadas"]}
+    assert _PORTAL_TABLES.keys() <= code.keys()
+    assert _PORTAL_TABLES.keys() <= artifact.keys()
+    for table, migration in _PORTAL_TABLES.items():
+        assert migration in code[table].migracao
+        assert migration in artifact[table]["migracao"]
+        assert table in (_MIGRATIONS / migration).read_text(encoding="utf-8")
+        assert artifact[table]["decisao_dpo"] == "PENDENTE"
+        assert artifact[table]["base_legal"].startswith("PENDENTE")
+        assert artifact[table]["retencao"].startswith("PENDENTE")
+        assert code[table].count_statement is None
+
+
+@pytest.mark.parametrize("reference_kind", list(ep.SubjectRefKind))
+def test_portal_identity_never_becomes_a_beneficiary_probe(reference_kind: ep.SubjectRefKind) -> None:
+    seen: list[str] = []
+
+    def counter(statement: str, params: Mapping[str, str]) -> int:
+        seen.append(statement)
+        return 1
+
+    report = ep.dry_run(
+        subject_ref=_SENTINEL_REF, subject_ref_kind=reference_kind, tenant_id="t1", counter=counter
+    )
+    findings = {finding.layer.tabela: finding for finding in report.findings}
+    assert _PORTAL_TABLES.keys() <= findings.keys()
+    for table in _PORTAL_TABLES:
+        finding = findings[table]
+        assert finding.row_count is None
+        assert finding.decisao_dpo == ep.DECISION_PENDING
+        assert finding.status in {
+            ep.LayerFindingStatus.NOT_COUNTED_NO_SUBJECT_COLUMN,
+            ep.LayerFindingStatus.NOT_COUNTED_IDENTITY_BRIDGE_ABSENT,
+        }
+        assert not any(table in statement for statement in seen)
+    for table in ("portal_memberships", "human_command_outbox"):
+        assert findings[table].layer.subject_column == "principal_ref"
+        assert findings[table].status is ep.LayerFindingStatus.NOT_COUNTED_IDENTITY_BRIDGE_ABSENT
+
+
+@pytest.mark.parametrize("table", _PORTAL_TABLES)
+def test_a_ratified_fixture_cannot_omit_any_portal_relation(tmp_path: Path, table: str) -> None:
+    data = _ratified_yaml()
+    assert table in {entry["tabela"] for entry in data["camadas"]}
+    data["camadas"] = [entry for entry in data["camadas"] if entry["tabela"] != table]
+    with pytest.raises(ep.ErasurePlanUnavailableError) as excinfo:
+        ep.load_erasure_plan(_write_plan(tmp_path, data))
+    assert excinfo.value.reason == ep.REASON_LAYER_SET_MISMATCH
+    assert table in str(excinfo.value)
+
+
 def test_artifact_and_code_enumerate_the_same_relations() -> None:
     """The two halves of the design cannot drift: one set, asserted in both directions."""
     from_artifact = {layer["tabela"] for layer in _shipped_raw()["camadas"]}
@@ -630,12 +694,11 @@ def test_a_retired_relation_keeps_the_dpo_decision_pending() -> None:
 
 
 def test_the_dpo_review_scope_did_not_shrink() -> None:
-    """A contagem e' o invariante que distingue "retirar" de "apagar": as 16 relacoes do plano
-    continuam 16, e as 16 decisoes PENDENTE continuam 16."""
+    """Preserve the 16 historical relations and add six ADR-0049 pending dispositions."""
     camadas = _shipped_raw()["camadas"]
-    assert len(camadas) == 16, [entry["tabela"] for entry in camadas]
+    assert len(camadas) == 22, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 16, pendentes
+    assert len(pendentes) == 22, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

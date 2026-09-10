@@ -76,7 +76,11 @@ import httpx
 import structlog
 
 from maezo.tools.workers._audit_ctx import record_dmn_version
-from maezo.tools.workers.engine_var_types import camunda_int_type
+from maezo.tools.workers.engine_var_types import (
+    camunda_int_type,
+    validate_centavos_engine_var,
+    validate_declared_long_var,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -207,21 +211,25 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     `str(v)` (e.g. `"{'a': 1}"`, `repr()`-like and not valid JSON) — the engine would store it as
     an opaque string, not a structured object/array.
 
-    **This mapper types by the Python RUNTIME type of each value ONLY — it does NOT validate against
-    the DMN input's declared `typeRef`.** A wrong-SHAPE source value is silently typed by whatever
-    Python type it happens to be: a `list` bound to a `string`-declared input is encoded as `Json`
+    **Apart from the explicit R-173 Long declaration, this mapper types by Python RUNTIME type
+    and does NOT validate against the DMN input's declared `typeRef`.** A wrong-SHAPE source value
+    is silently typed by whatever Python type it happens to be: a `list` bound to a `string`-declared
+    input is encoded as `Json`
     (not the `String` FEEL expects); an LLM-emitted JSON STRING (`"85"`) bound to an `integer`-
     declared input is typed `String` (not `Integer`); a `float` bound to an `integer` input is
     typed `Double`. None of these raise here — the engine may FEEL-coerce, no-match (fail-closed),
     or, worst case, match a rule on the wrong-typed value. Ensuring each value's Python type matches
     the DMN's declared `typeRef` is the CALLER's responsibility (e.g. `fraude._collect_scoring_inputs`
-    coerces-or-drops its numeric signals before calling in). This function only guarantees each
-    Python type maps to the correct Camunda wire type.
+    coerces-or-drops its numeric signals before calling in). The declared R-173 name additionally
+    rejects any non-exact-int or out-of-int64 value and any pre-shaped non-Long type before
+    passthrough; no wider monetary-name policy is inferred.
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
+        validate_declared_long_var(k, v)
+        validate_centavos_engine_var(k, v)
         if isinstance(v, dict) and "value" in v:
-            camunda_vars[k] = v  # already engine-shaped — pass through unchanged
+            camunda_vars[k] = v  # declared Long validated; other engine-shaped values unchanged
         elif isinstance(v, bool):
             camunda_vars[k] = {"value": v, "type": "Boolean"}
         elif isinstance(v, int):

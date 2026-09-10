@@ -1,0 +1,119 @@
+.portal-session-main {
+  display: grid;
+  gap: 1.25rem;
+  width: min(100% - 2rem, 88rem);
+  margin-inline: auto;
+  padding-block: 2rem 4rem;
+}
+
+.portal-session-main .staff-portal-workspace {
+  width: 100%;
+}
+
+.portal-session-card,
+.portal-guidance,
+.portal-unavailable {
+  border: 1px solid rgba(26, 70, 57, 0.14);
+  border-radius: 1.1rem;
+  padding: clamp(1.25rem, 4vw, 2.25rem);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 18px 50px rgba(30, 62, 52, 0.08);
+}
+
+.portal-guidance,
+.portal-unavailable {
+  margin-top: 1rem;
+}
+
+.portal-security-note {
+  width: min(100%, 38rem);
+  justify-self: end;
+}
+
+.external-session-main {
+  grid-template-columns: minmax(0, 2fr) minmax(15rem, 1fr);
+}
+
+.external-session-main .portal-session-card,
+.external-session-main .external-navigation,
+.external-session-main .portal-area-panel {
+  grid-column: 1;
+}
+
+.external-session-main .portal-security-note {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+.ownership-controls {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #d5e2dc;
+}
+
+.ownership-controls h3,
+.ownership-controls h4 {
+  margin-top: 0;
+  color: #143d31;
+}
+
+.ownership-message,
+.ownership-error {
+  padding: 0.9rem 1rem;
+  border-radius: 0.75rem;
+}
+
+.ownership-warning {
+  border-left: 4px solid #9f650d;
+  background: #fff6e8;
+}
+
+.ownership-error {
+  border-left: 4px solid #a9452d;
+  background: #fff1ee;
+  color: #6f291c;
+}
+
+.ownership-command {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid #b9d0c7;
+  border-radius: 0.85rem;
+  background: #f5faf7;
+}
+
+.ownership-proof {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.75rem;
+}
+
+.ownership-proof div {
+  padding: 0.75rem;
+  border: 1px solid #d5e2dc;
+  border-radius: 0.65rem;
+  background: white;
+}
+
+.ownership-proof dd {
+  margin: 0.3rem 0 0;
+}
+
+@media (max-width: 48rem) {
+  .external-session-main {
+    grid-template-columns: 1fr;
+  }
+
+  .external-session-main .portal-session-card,
+  .external-session-main .external-navigation,
+  .external-session-main .portal-area-panel,
+  .external-session-main .portal-security-note {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .portal-security-note {
+    width: 100%;
+    justify-self: stretch;
+  }
+}
