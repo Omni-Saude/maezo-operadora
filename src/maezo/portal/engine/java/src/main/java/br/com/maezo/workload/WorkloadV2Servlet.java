@@ -9,6 +9,7 @@ public final class WorkloadV2Servlet extends HttpServlet {
   @Override protected void service(HttpServletRequest request,HttpServletResponse response)throws IOException {
     response.setContentType("application/json");response.setCharacterEncoding("UTF-8");response.setHeader("Cache-Control","no-store");response.setHeader("X-Content-Type-Options","nosniff");
     NativeOutcomeV2.Encoded result;
+    NativeAuthDocumentProducerV2.Response contextResponse=null;
     try {
       if(!BoundaryPolicyV2.route(request))throw Refused.denied();
       var plugin=WorkloadPlugin.running();var policy=plugin.v2();var peer=policy.authenticate(request);
@@ -20,6 +21,12 @@ public final class WorkloadV2Servlet extends HttpServlet {
         else {
           byte[] raw=request.getInputStream().readNBytes(Json.LIMIT+1);var body=Json.parse(raw);String digest=NativeOutcomeV2.bodyDigest(raw);
           if(path.equals("/maezo-workload/v2/outcomes"))result=plugin.executeV2(new NativeOperationV2.ReadCommand(plugin,peer,body,digest,null));
+          else if(path.equals("/maezo-workload/v2/auth-document-request-context")) {
+            var selected=br.com.maezo.human.HumanCommandPlugin.documentProducerContext(plugin.engine().getName());
+            var observed=new NativeAuthDocumentProducerV2(plugin,selected).execute(peer,raw);
+            contextResponse=observed;
+            result=new NativeOutcomeV2.Encoded(observed.status(),observed.body());
+          }
           else {
             var cap=policy.capability(peer,NativeOutcomeV2.digest(body,"capability_digest"));cap.validate(body);
             var command=new NativeOperationV2(plugin,peer,cap,body,digest);
@@ -50,6 +57,9 @@ public final class WorkloadV2Servlet extends HttpServlet {
       }
     }catch(Refused e){result=NativeOutcomeV2.refusal(e.status==400?"invalid_request":e.status==403?"denied":"unavailable");}
     catch(RuntimeException e){result=NativeOutcomeV2.refusal("unavailable");}
+    // Context alone retains its original authorization ceiling through policy I/O
+    // and the identity-restoration finally block; old v2 routes remain unchanged.
+    if(contextResponse!=null && result.status()==200) {contextResponse.writeTo(response);return;}
     response.setStatus(result.status());response.getOutputStream().write(result.bytes());
   }
 }

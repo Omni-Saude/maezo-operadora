@@ -391,6 +391,10 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "gateway/native_fetch/transport.py",
         "NativeFetchClient._exchange",
     ): "httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False, timeout=30)",
+    (
+        "gateway/document_requests/transport.py",
+        "NativeChannel.exchange",
+    ): "httpx.AsyncClient(verify=tls, trust_env=False, follow_redirects=False, timeout=30)",
 }
 _SECRET_SCOPED_SEAM: Final[tuple[str, str]] = (
     "gateway/portal_identity.py",

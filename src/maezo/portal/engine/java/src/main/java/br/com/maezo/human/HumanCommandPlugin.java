@@ -88,6 +88,15 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
     return plugin;
   }
 
+  /** Scope-bound bridge construction only; native peer/designation admission remains independent. */
+  public static AuthDocumentProducerContext documentProducerContext(String engineName) {
+    HumanCommandPlugin plugin = running();
+    if (plugin.authRuntime == null || plugin.configuration == null
+        || !plugin.configuration.getProcessEngineName().equals(engineName))
+      throw new Rejected(503, "HUMAN_ENGINE_UNAVAILABLE");
+    return new AuthDocumentProducerContext(plugin.authRuntime);
+  }
+
   byte[] executeAuth(String path, byte[] raw, String peer) {
     if (authRuntime == null) throw new Rejected(503, "HUMAN_ENGINE_UNAVAILABLE");
     return authRuntime.execute(path, raw, peer);
