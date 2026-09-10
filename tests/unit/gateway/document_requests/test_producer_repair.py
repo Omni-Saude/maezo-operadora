@@ -233,7 +233,18 @@ def make_policy(revision=0, source_revision=1, added=False):
 
 
 @pytest.mark.asyncio
-async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_stores(monkeypatch):
+@pytest.mark.parametrize(
+    "history",
+    [
+        "growing",
+        "disjoint",
+        "overlap_conflict",
+        "historical_denied",
+        "historical_expired",
+        "missing_predecessor",
+    ],
+)
+async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_stores(monkeypatch, history):
     monkeypatch.setattr(clock_module, "now", lambda: f.NOW)
     phi_db, body, content = f.phi(monkeypatch)
     metadata = VersionedMetadata(phi_db.contents)
@@ -248,6 +259,11 @@ async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_sto
     monkeypatch.setattr(producer_module, "ProducerAcquisition", lambda value: value)
     acquired = object()  # Synthetic selected acquisition seam; no native authority is qualified here.
     policies = [make_policy(), make_policy(source_revision=2), make_policy(1, 3, True)]
+    if history != "growing":
+        policies[2] = policies[2].model_copy(update={"recipient_principal_refs": (f.OTHER,)})
+    policies.extend((make_policy(2, 4, True), make_policy(2, 5, True)))
+    all_recipients = (f.recipient(), f.recipient("b" * 64).model_copy(update={"principal_ref": f.OTHER}))
+    historical_commands = []
     selected = [0]
     current_policy = [policies[0]]
     publications = {}
@@ -300,20 +316,14 @@ async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_sto
             return SimpleNamespace(publication=publication)
 
         async def notice(self, observed, policy, receipt):
-            recipients = (
-                (f.recipient(),)
-                if len(policy.recipient_principal_refs) == 1
-                else (
-                    f.recipient(),
-                    f.recipient("b" * 64).model_copy(update={"principal_ref": f.OTHER}),
-                )
+            recipients = tuple(
+                r for r in all_recipients if r.principal_ref in policy.recipient_principal_refs
             )
-            predecessor = await journal.read(previous[0], "delivery")
-            return NoticePlan(
-                template=body.template,
-                recipients=recipients,
-                prior_commands=(parse_model(RequestDeliveryCommand, predecessor.payload["command"]),),
-            )
+            commands = []
+            for command_id in historical_commands or [previous[0]]:
+                predecessor = await journal.read(command_id, "delivery")
+                commands.append(parse_model(RequestDeliveryCommand, predecessor.payload["command"]))
+            return NoticePlan(template=body.template, recipients=recipients, prior_commands=tuple(commands))
 
     class Publisher:
         async def publish(self, snapshot):
@@ -373,14 +383,7 @@ async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_sto
     async def admitted(access, *, phi, lifetime):
         grant_calls.append(access.operation)
         policy = current_policy[0]
-        recipients = (
-            (f.recipient(),)
-            if len(policy.recipient_principal_refs) == 1
-            else (
-                f.recipient(),
-                f.recipient("b" * 64).model_copy(update={"principal_ref": f.OTHER}),
-            )
-        )
+        recipients = tuple(r for r in all_recipients if r.principal_ref in policy.recipient_principal_refs)
         if access.operation in {"preserve_request_body", "read_request_body_receipt"}:
             candidates = [
                 journal._decode(row, journal._params(row["command"], row["kind"])).payload
@@ -425,7 +428,7 @@ async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_sto
                 )
                 recipients = tuple(
                     r
-                    for r in recipients
+                    for r in all_recipients
                     if r.identity_digest in {e.recipient_identity_digest for e in bindings}
                 )
         grant = SystemGrant(
@@ -488,9 +491,14 @@ async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_sto
     previous[0] = second.inbox.command_id
     selected[0] = 2
     third = await worker.successor(acquired, previous[0], "recipient_addition_0002")
-    assert third.inbox.request_revision == "1" and third.inbox.deliveries[0] == original_delivery
+    assert third.inbox.request_revision == "1"
+    if history == "growing":
+        assert third.inbox.deliveries[0] == original_delivery
+    else:
+        assert len(third.inbox.deliveries) == 1
+        assert third.inbox.deliveries[0].recipient_identity_digest == "b" * 64
     assert len(phi_db.contents) == len(metadata.tables["message"]) == 2
-    assert third.inbox.deliveries[1].notice_request_revision == "1"
+    assert third.inbox.deliveries[-1].notice_request_revision == "1"
     assert len(metadata.tables["definition"]) == 2 and len(metadata.tables["version"]) == 3
     assert (
         await worker.recover_successor(body.request.request_ref, "recipient_addition_0002")
@@ -499,6 +507,78 @@ async def test_public_successors_w4_w5_and_exact_uncertain_recovery_use_real_sto
     assert (await journal.read(f.REF, "completion")).state == "possibly_sent"
     assert all(x.completion.status == "not_prepared" for x in (first, second, third))
     assert "read_request_receipt" in grant_calls and grant_calls.count("preserve_request_body") == 2
+    if history != "growing":
+        # O1[A], O2[B], then a separately authorized O3[A+B]. No single
+        # predecessor covers both immutable notices; each historical read is current.
+        previous[0] = third.inbox.command_id
+        historical_commands[:] = [first.inbox.command_id, third.inbox.command_id]
+        selected[0] = 3
+        before_union = copy.deepcopy(metadata.tables)
+        before_bodies = copy.deepcopy(phi_db.contents)
+        before_read = worker._read_inbox
+        historical_reads = []
+
+        async def read_history(command, lifetime):
+            historical_reads.append(command.command_id)
+            if command.command_id == first.inbox.command_id:
+                if history == "historical_denied":
+                    raise ExternalCaseError("forbidden")
+                if history == "historical_expired":
+                    lifetime.intersect(f.NOW)
+            return await before_read(command, lifetime)
+
+        worker._read_inbox = read_history
+        if history == "missing_predecessor":
+            historical_commands[:] = [first.inbox.command_id]
+        if history in {"historical_denied", "historical_expired", "missing_predecessor"}:
+            with pytest.raises(ExternalCaseError):
+                await worker.successor(acquired, previous[0], "disjoint_union_denied_06")
+            assert metadata.tables == before_union and phi_db.contents == before_bodies
+            assert (await journal.read(f.REF, "completion")).state == "possibly_sent"
+            return
+        union = await worker.successor(acquired, previous[0], "disjoint_union_0006")
+        assert first.inbox.command_id in historical_reads
+        assert third.inbox.command_id in historical_reads
+        assert union.inbox.deliveries == (original_delivery, third.inbox.deliveries[0])
+        assert all(
+            isinstance(x, ExistingDelivery)
+            for x in parse_model(
+                RequestDeliveryCommand,
+                (await journal.read(union.inbox.command_id, "delivery")).payload["command"],
+            ).deliveries
+        )
+        assert phi_db.contents == before_bodies
+        for table in ("message", "delivery"):
+            assert metadata.tables[table] == before_union[table]
+        # O4 selects overlapping histories A, B and A+B. Exact duplicate records
+        # are one notice each, never an invitation to create replacement messages.
+        previous[0] = union.inbox.command_id
+        historical_commands.append(union.inbox.command_id)
+        selected[0] = 4
+        before_overlap = copy.deepcopy(metadata.tables)
+        if history == "overlap_conflict":
+            original_row = metadata.tables["command"][union.inbox.command_id]
+            tampered = json.loads(original_row["receipt"])
+            tampered["deliveries"][0]["notice_policy_digest"] = "c" * 64
+            original_row["receipt"] = canonicalize(tampered)
+            before_overlap = copy.deepcopy(metadata.tables)
+            with pytest.raises(ExternalCaseError):
+                await worker.successor(acquired, previous[0], "conflicting_history_07")
+            assert metadata.tables == before_overlap and phi_db.contents == before_bodies
+            return
+        overlap = await worker.successor(acquired, previous[0], "overlapping_history_07")
+        assert overlap.inbox.deliveries == union.inbox.deliveries
+        assert phi_db.contents == before_bodies
+        for table in ("message", "delivery"):
+            assert metadata.tables[table] == before_overlap[table]
+        assert (
+            await worker.recover_successor(body.request.request_ref, "overlapping_history_07")
+        ).inbox == overlap.inbox
+        assert all(db.rows[key] == value for key, value in original_rows.items())
+        assert (await journal.read(f.REF, "completion")).state == "possibly_sent"
+        third = overlap
+        historical_commands.append(overlap.inbox.command_id)
+
     # Unknown predecessor or conflicting invocation never yields a replacement publication.
     count = len(publications)
     with pytest.raises(ExternalCaseError):

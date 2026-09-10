@@ -433,9 +433,10 @@ class DocumentRequestProducer:
         if prior is None:
             plan = await self.source.notice(attached, policy, receipt)
             if predecessor is not None:
-                # Its authenticated receipt covers all prior notice associations.
+                # Retain the admitted predecessor while the qualified source selects
+                # any other commands needed for this occurrence's recipient history.
                 # Never replace an uncertain predecessor with a new body command.
-                require(plan.prior_commands == (predecessor,), "conflict")
+                require(predecessor in plan.prior_commands, "conflict")
             ids = [r.identity_digest for r in plan.recipients]
             require(
                 ids == sorted(set(ids))
@@ -553,7 +554,10 @@ class DocumentRequestProducer:
             old_receipt, _ = await self._read_inbox(old_command, lifetime)
             for record in old_receipt.deliveries:
                 if record.recipient_identity_digest in ids:
-                    require(record.recipient_identity_digest not in historical, "conflict")
+                    previous = historical.get(record.recipient_identity_digest)
+                    # Multiple authenticated commands may retain the very same notice.
+                    # Every immutable field, including original authority/version, must agree.
+                    require(previous is None or previous == record, "conflict")
                     historical[record.recipient_identity_digest] = record
         entries: list[DeliveryEntry] = []
         proofs: list[AuthenticatedBodyReceipt] = []
