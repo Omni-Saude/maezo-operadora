@@ -81,3 +81,4 @@ d3c5ac141e0f43587bf6278579e43afe05bb9aa3:.gitleaksignore:generic-api-key:46
 9253328bbae54d0a6b947db7bf792eef006c02c0:src/maezo/gateway/human/auth_transport.py:generic-api-key:64
 262f004d3b976abaa1a2421a2f0e2d44dc35ddcf:src/maezo/gateway/human/read_credentials.py:generic-api-key:72
 a71a14e15fde4515567d65564a019ce9a7c0f021:deploy/cibseven/secured/prepare_fixture.py:generic-api-key:349
+d71dac0025c09df7d09cbbb822cb3ac0be9e0293:src/maezo/gateway/document_requests/composition.py:generic-api-key:260
