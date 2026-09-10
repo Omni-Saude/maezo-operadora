@@ -1,8 +1,11 @@
 """Closed actual-preflight control flow with finite daemon fixtures; no real service."""
 
+import ast
 import contextlib
+import copy
 import hashlib
 import importlib.util
+import inspect
 import json
 import subprocess
 import sys
@@ -13,7 +16,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 PACKET = Path(
-    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-actual-proof-preflight-repair"
+    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-preflight-final-deadline-repair/toolkit"
 )
 spec = importlib.util.spec_from_file_location(
     "d7_preflight_wrapper_controls", PACKET / "run_d7_secured_image_observed.py"
@@ -360,6 +363,21 @@ def test_actual_main_proof_branch_cannot_fall_through_to_startup(tmp_path, fit, 
         "identity_chain_fit": fit,
         "cleanup_status": "RETAINED",
         "status": "COMPLETE_WITHIN_BUDGET" if fit else "DEADLINE_REFUSED",
+        "budget_ns": 15_000_000_000,
+        "measured_started_monotonic_ns": 0,
+        "measured_elapsed_ns": 1_000_000_000,
+        "objects_expected": 2,
+        "objects_verified": 2,
+        "all_objects_stopped": True,
+        "daemon_uncertain": False,
+        "pending_group_count": 0,
+        "custody_proof_count": 10,
+        "command_counts": {"context": 3, "inventory": 1, "inspect": 2},
+        "stages": [
+            {"stage": stage, "started_ns": 0, "elapsed_ns": 0, "outcome": "complete"}
+            for stage, count in (("custody", 10), ("context", 3), ("inventory", 1), ("inspect", 2))
+            for _ in range(count)
+        ],
     }
     fake_executor = Mock(uncertain=False)
     fake_executor.side_effect = AssertionError("startup child or command must never execute")
@@ -480,3 +498,108 @@ def test_cleanup_deadline_prevents_next_disposal_stage(tmp_path, expire):
         removed.assert_not_called()
     if expire == "initial":
         archived.assert_not_called()
+
+
+def _run_actual_main_with_helper_result(root, result, expected_fit):
+    """Reuse only the existing isolated setup; main and the actual helper result stay intact."""
+    node = ast.parse(inspect.getsource(test_actual_main_proof_branch_cannot_fall_through_to_startup)).body[0]
+    node.decorator_list = []
+    for statement in node.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "result" for target in statement.targets
+        ):
+            statement.value = ast.Name(id="actual_helper_result", ctx=ast.Load())
+    namespace = dict(globals(), actual_helper_result=result)
+    exec(
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])), "<main-fixture>", "exec"
+        ),
+        namespace,
+    )
+    root.mkdir()
+    namespace[node.name](root, expected_fit, False)
+    final = json.loads((root / "output/identity-proof.json").read_text())
+    assert final["identity_chain_fit"] is expected_fit
+    assert (final["next_action"] == "ROOT_BOUNDARY_REVIEW_ELIGIBLE") is expected_fit
+    assert final["cleanup_status"] == "VERIFIED_RELEASED"
+    return final
+
+
+@pytest.mark.parametrize("elapsed", [14_999_999_999, 15_000_000_000, 16_000_000_000])
+def test_final_recorded_timestamp_controls_helper_and_actual_main(tmp_path, elapsed):
+    base = w.g.ProofBudget
+
+    class SuspendedAfterFinalCheck(base):
+        def left(self):
+            remaining = super().left()
+            caller = sys._getframe(1)
+            if (
+                caller.f_code.co_name == "_proof_identity_only"
+                and sum(row["stage"] == "custody" for row in self.rows) == 10
+            ):
+                ticks = self.clock.__closure__[0].cell_contents
+                ticks[0] = self.started_ns + elapsed
+            return remaining
+
+    helper_root = tmp_path / "helper"
+    helper_root.mkdir()
+    with patch.object(w.g, "ProofBudget", SuspendedAfterFinalCheck):
+        result, daemon, executor, docker = run_fixture(helper_root)
+    fits = elapsed < 15_000_000_000
+    assert result["measured_elapsed_ns"] == elapsed
+    assert result["budget_ns"] == 15_000_000_000
+    assert result["status"] == ("COMPLETE_WITHIN_BUDGET" if fits else "DEADLINE_REFUSED")
+    assert not result["identity_chain_fit"]
+    assert not daemon.objects and not executor.uncertain and not docker.state()
+    final = _run_actual_main_with_helper_result(tmp_path / "main", result, fits)
+    assert final["measured_elapsed_ns"] == elapsed
+    if not fits:
+        assert final["next_action"] == "REPAIR_PROOF_BUDGET"
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("measured_elapsed_ns", 15_000_000_000),
+        ("measured_elapsed_ns", 16_000_000_000),
+        ("measured_elapsed_ns", -1),
+        ("measured_elapsed_ns", None),
+        ("measured_elapsed_ns", True),
+        ("budget_ns", 16_000_000_000),
+        ("measured_started_monotonic_ns", None),
+        ("measured_started_monotonic_ns", -1),
+        ("objects_expected", 1),
+        ("objects_verified", 1),
+        ("all_objects_stopped", False),
+        ("all_objects_stopped", 1),
+        ("daemon_uncertain", True),
+        ("pending_group_count", 1),
+        ("custody_proof_count", 9),
+        ("command_counts", {"context": 2, "inventory": 1, "inspect": 2}),
+        ("command_counts", {"context": 3, "inventory": True, "inspect": 2}),
+        ("stages", []),
+    ],
+)
+def test_complete_status_alone_cannot_promote_incomplete_or_invalid_chain(tmp_path, field, value):
+    helper_root = tmp_path / "helper"
+    helper_root.mkdir()
+    result, _, _, _ = run_fixture(helper_root)
+    assert result["status"] == "COMPLETE_WITHIN_BUDGET"
+    result[field] = value
+    final = _run_actual_main_with_helper_result(tmp_path / "main", result, False)
+    assert final["status"] == "INPUT_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("change", ["refused", "missing_custody", "future_endpoint"])
+def test_promotion_rechecks_actual_proof_rows(tmp_path, change):
+    helper_root = tmp_path / "helper"
+    helper_root.mkdir()
+    result, _, _, _ = run_fixture(helper_root)
+    result = copy.deepcopy(result)
+    if change == "refused":
+        result["stages"][0]["outcome"] = "refused"
+    elif change == "missing_custody":
+        result["stages"] = result["stages"][1:]
+    else:
+        result["stages"][0]["elapsed_ns"] = result["measured_elapsed_ns"] + 1
+    _run_actual_main_with_helper_result(tmp_path / "main", result, False)
