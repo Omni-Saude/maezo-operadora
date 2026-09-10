@@ -105,6 +105,16 @@ final class EngineStore {
     return ((String) r.get("receipt_")).getBytes(StandardCharsets.UTF_8);
   }
 
+  Map<String, Object> decisionBinding(HumanCommand c, List<?> groups, long now) {
+    var d = c.classified();
+    var rs = rows("SELECT * FROM MZO_HUMAN_DECISION_BINDING WHERE TENANT_=? AND ENVIRONMENT_=? AND PROCESS_=? AND TASK_KEY_=? AND AUTHORITY_REV_=? FOR SHARE",
+        tenant, d.environment(), c.processId(), c.taskKey(), Long.parseLong(c.authorityRevision()));
+    if (rs.size() != 1) throw new Rejected(409, "FORM_NOT_ACTIVATED");
+    var b = rs.get(0);
+    ClassifiedDecision.requireBinding(c, b, groups, now);
+    return b;
+  }
+
   void insertReceipt(HumanCommand c, String digest, byte[] receipt) {
     update(
         "INSERT INTO"

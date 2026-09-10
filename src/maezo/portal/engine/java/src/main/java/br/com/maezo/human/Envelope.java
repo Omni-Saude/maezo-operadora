@@ -57,8 +57,10 @@ final class Envelope {
         || expires > key.notAfter()
         || now >= key.notAfter()) throw Rejected.denied();
     Map<String, Object> command = Jcs.object(e.get("command"));
-    if (!trust.tenant.equals(command.get("tenant"))
-        || !key.workload().equals(command.get("workload_ref"))) throw Rejected.denied();
+    Map<String, Object> commandScope = "human-classified-decision.v1".equals(command.get("schema"))
+        && purpose.equals("human-command") ? Jcs.object(command.get("scope")) : command;
+    if (!trust.tenant.equals(commandScope.get("tenant"))
+        || !key.workload().equals(commandScope.get("workload_ref"))) throw Rejected.denied();
     String digest = Jcs.hash(e, "digest");
     if (!digest.equals(Jcs.digest(Jcs.canonical(command)))) throw Rejected.denied();
     String encoded = Jcs.string(e, "signature");

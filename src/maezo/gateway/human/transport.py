@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 import httpx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from maezo.portal.engine.decision import HumanDecisionCommand
 from maezo.portal.engine.profile import HumanCommand, SigningContext, canonicalize, seal, strict_loads
 
 from .credentials import DedicatedHumanCredential, HumanCommandCredentialPartition
@@ -47,7 +48,7 @@ class CurrentHumanSigner(ABC):
     scope: Scope
 
     @abstractmethod
-    def envelope(self, command: HumanCommand, *, purpose: Purpose) -> bytes:
+    def envelope(self, command: HumanCommand | HumanDecisionCommand, *, purpose: Purpose) -> bytes:
         """Current explicitly configured human partition key, with fresh transport validity.
 
         Does not renew the canonical command's evidence/membership/task revision.
@@ -95,7 +96,7 @@ class PartitionedEd25519Signer(CurrentHumanSigner):
         ):
             raise EngineUnavailableError()
 
-    def envelope(self, command: HumanCommand, *, purpose: Purpose) -> bytes:
+    def envelope(self, command: HumanCommand | HumanDecisionCommand, *, purpose: Purpose) -> bytes:
         try:
             self._current()
             if command.tenant != self.scope.tenant or command.workload_ref != self.scope.workload_ref:
@@ -173,12 +174,12 @@ class HumanEngineTransport(ABC):
     scope: Scope
 
     @abstractmethod
-    async def receipt(self, command: HumanCommand) -> bytes | None:
+    async def receipt(self, command: HumanCommand | HumanDecisionCommand) -> bytes | None:
         """Authenticated exact receipt query; only authenticated RECEIPT_NOT_FOUND is None."""
         raise NotImplementedError
 
     @abstractmethod
-    async def dispatch(self, command: HumanCommand) -> bytes:
+    async def dispatch(self, command: HumanCommand | HumanDecisionCommand) -> bytes:
         """Send the immutable canonical command in a current signed envelope."""
         raise NotImplementedError
 
@@ -219,7 +220,7 @@ class MTLSHumanEngineTransport(HumanEngineTransport):
         except Exception:
             raise EngineUnavailableError() from None
 
-    async def _request(self, command: HumanCommand, *, query: bool) -> bytes | None:
+    async def _request(self, command: HumanCommand | HumanDecisionCommand, *, query: bool) -> bytes | None:
         try:
             if command.tenant != self.scope.tenant or command.workload_ref != self.scope.workload_ref:
                 raise EngineUnavailableError()
@@ -273,10 +274,10 @@ class MTLSHumanEngineTransport(HumanEngineTransport):
         except Exception:
             raise EngineUnavailableError() from None
 
-    async def receipt(self, command: HumanCommand) -> bytes | None:
+    async def receipt(self, command: HumanCommand | HumanDecisionCommand) -> bytes | None:
         return await self._request(command, query=True)
 
-    async def dispatch(self, command: HumanCommand) -> bytes:
+    async def dispatch(self, command: HumanCommand | HumanDecisionCommand) -> bytes:
         receipt = await self._request(command, query=False)
         if receipt is None:
             raise EngineUnavailableError()

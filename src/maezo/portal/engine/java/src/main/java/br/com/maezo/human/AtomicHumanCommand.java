@@ -95,14 +95,23 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
         || task.getCandidates().stream()
             .noneMatch(link -> link.getGroupId() != null && groups.contains(link.getGroupId())))
       throw Rejected.denied();
-    // Real SP-OP bindings remain inactive until PHI projections/source status reconcile.
-    // No generic variable projector, administrator bypass, or invented insurance rule.
-    if (!trust.syntheticEnabled
-        || !c.processKey().equals("MZO-HUMAN-SYNTHETIC")
-        || !c.taskKey().equals("UT_Acknowledge")
-        || !c.formKey().equals(SYNTHETIC_FORM)
-        || !c.formVersion().equals("1")
-        || !c.formDigest().equals(FORM_DIGEST)) throw new Rejected(409, "FORM_NOT_ACTIVATED");
+    Map<String, Object> decisionBinding = null;
+    if (c.classified() == null) {
+      if (!trust.syntheticEnabled
+          || !c.processKey().equals("MZO-HUMAN-SYNTHETIC")
+          || !c.taskKey().equals("UT_Acknowledge")
+          || !c.formKey().equals(SYNTHETIC_FORM)
+          || !c.formVersion().equals("1")
+          || !c.formDigest().equals(FORM_DIGEST)) throw new Rejected(409, "FORM_NOT_ACTIVATED");
+    } else {
+      decisionBinding = db.decisionBinding(c, groups, now);
+      // Qualification group must be both a current principal group and actual candidate.
+      Object required = decisionBinding.get("required_group_");
+      if (task.getCandidates().stream().noneMatch(link -> Objects.equals(required, link.getGroupId())))
+        throw Rejected.denied();
+    }
+    final Map<String, Object> pinnedDecisionBinding = decisionBinding;
+    ClassifiedDecision.requireCurrent(pinnedDecisionBinding, java.time.Instant.now().getEpochSecond());
     requireCurrent(verified, principal, evidence);
     if (c.operation().equals("claim")) {
       if (task.getAssignee() != null) throw Rejected.conflict();
@@ -111,10 +120,14 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
       if (!c.principalRef().equals(task.getAssignee())) throw Rejected.conflict();
       if (c.operation().equals("release")) task.setAssignee(null);
       else {
+        if (c.classified() != null) {
+          c.classified().variables(c).forEach(task::setVariable);
+        } else {
         task.setVariable("synthetic_acknowledged", true);
         task.setVariable("synthetic_human_ref", c.principalRef());
         task.setVariable("synthetic_workload_ref", c.workloadRef());
         task.setVariable("synthetic_command_ref", c.commandId());
+        }
         task.complete();
       }
     }
@@ -131,6 +144,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
               // Last local blocking SQL has returned. The tenant lock still fences
               // state changes, but only a fresh clock can fence elapsed validity.
               requireCurrent(verified, principal, evidence);
+              ClassifiedDecision.requireCurrent(pinnedDecisionBinding, java.time.Instant.now().getEpochSecond());
               committing
                   .getTransactionContext()
                   .addTransactionListener(
@@ -163,7 +177,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
       resulting = rs.get(0).get("rev_").toString();
     }
     Map<String, Object> receipt = new TreeMap<>();
-    receipt.put("schema", "human-engine-receipt.v1");
+    receipt.put("schema", c.classified() == null ? "human-engine-receipt.v1" : "human-engine-receipt.v2");
     receipt.put("status", "committed");
     receipt.put("tenant", trust.tenant);
     receipt.put("task_id", c.taskId());

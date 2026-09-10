@@ -15,7 +15,10 @@ import json
 import re
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from .decision import HumanDecisionCommand
 
 _COMMAND_SCHEMA: Literal["human-command.v1"] = "human-command.v1"
 _ENVELOPE_SCHEMA = "human-envelope.v1"
@@ -195,7 +198,7 @@ class SigningContext:
 
 
 def seal(
-    command: HumanCommand,
+    command: HumanCommand | HumanDecisionCommand,
     *,
     context: SigningContext,
     issued_at: int,
@@ -227,7 +230,7 @@ def seal(
         "issued_at": str(issued_at),
         "expires_at": str(expires_at),
         "digest": command.digest,
-        "command": asdict(command),
+        "command": strict_loads(command.canonical),
     }
     signature = sign(canonicalize(body))
     if type(signature) is not bytes or len(signature) != 64:
