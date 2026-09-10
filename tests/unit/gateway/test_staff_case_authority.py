@@ -541,3 +541,20 @@ async def test_authenticated_native_read_refusal_and_possible_publication_effect
         )
     assert refused.value.code == expected
     assert closed == [True]
+
+
+@pytest.mark.asyncio
+async def test_service_preserves_expired_session_authentication_error():
+    from maezo.gateway.staff_cases.service import StaffCaseService
+    from maezo.portal.api.auth import AuthenticationError
+
+    _, _, identity, _, _, _, _, _ = scenario()
+
+    class Resolver:
+        async def resolve(self, secret):
+            raise AuthenticationError()
+
+    service = object.__new__(StaffCaseService)
+    service.resolver = Resolver()
+    with pytest.raises(AuthenticationError):
+        await service.read("s" * 43, case_ref=identity.case_ref)

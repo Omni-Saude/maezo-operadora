@@ -16,6 +16,7 @@ from pydantic import Field
 
 from maezo.gateway.external_cases.models import CaseRef, Digest, Ref, timestamp
 from maezo.gateway.human.read_profile import parse_model, wire
+from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.session import HumanSessionResolver
 from maezo.portal.contracts.staff_cases import ObservationTimes, StaffDetail, StaffDetailShape
 from maezo.portal.engine.profile import canonicalize
@@ -122,7 +123,7 @@ class StaffCaseService:
     ) -> bytes:
         try:
             return await self._read(secret, case_ref=case_ref, task_limit=task_limit, task_cursor=task_cursor)
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, AuthenticationError):
             raise
         except StaffCaseError:
             raise

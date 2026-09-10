@@ -16,7 +16,7 @@ class ObservationTimes(Closed):
     valid_until: T
 
 
-class Freshness(ObservationTimes):
+class StaffFreshness(ObservationTimes):
     refresh_after_seconds: Literal[10]
 
 
@@ -60,5 +60,5 @@ class StaffDetailShape[FreshnessT: ObservationTimes](Closed):
         return self
 
 
-class StaffDetail(StaffDetailShape[Freshness]):
+class StaffDetail(StaffDetailShape[StaffFreshness]):
     """Public JSON contract; cadence is numeric independently of native signing."""
