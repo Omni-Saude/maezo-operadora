@@ -640,3 +640,29 @@ async def test_wrong_case_body_reference_cannot_be_published(setup):
         )
     assert error.value.code == "denied"
     assert not s.db.messages and not s.db.inbox
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["same", "receipt_ref", "authority_digest"])
+async def test_command_recovery_binds_immutable_publication_authority(setup, monkeypatch, change):
+    first = await send(setup)
+    original = setup.authority.authorize
+
+    async def current(access):
+        grant = await original(access)
+        if access.operation == "publish":
+            if change == "authority_digest":
+                return grant.model_copy(update={"authority_digest": "b" * 64})
+            if change == "receipt_ref":
+                return grant.model_copy(update={"authority_receipt_ref": OTHER})
+        return grant
+
+    monkeypatch.setattr(setup.authority, "authorize", current)
+    before = copy.deepcopy((setup.db.messages, setup.db.recipients, setup.db.inbox, setup.db.history))
+    if change == "authority_digest":
+        with pytest.raises(ExternalCaseError) as failure:
+            await send(setup)
+        assert failure.value.code == "conflict"
+    else:
+        assert await send(setup) == first
+    assert (setup.db.messages, setup.db.recipients, setup.db.inbox, setup.db.history) == before

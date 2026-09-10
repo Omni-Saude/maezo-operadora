@@ -93,7 +93,8 @@ class PostgresCommunicationStore:
                 (
                     await connection.execute(
                         text(
-                            "SELECT communication_ref,case_ref,request_digest,recipients_digest "
+                            "SELECT communication_ref,case_ref,request_digest,recipients_digest,"
+                            "authority_digest "
                             "FROM portal_communication.message WHERE tenant=:tenant AND "
                             "environment=:environment "
                             "AND sender_identity_digest=:identity AND command_id=:command"
@@ -109,6 +110,7 @@ class PostgresCommunicationStore:
                     previous["case_ref"] != params["case"]
                     or previous["request_digest"] != digest
                     or previous["recipients_digest"] != recipients_digest
+                    or previous["authority_digest"] != grant.authority_digest
                 ):
                     raise ExternalCaseError("conflict")
                 result = CommunicationReceipt(
