@@ -164,3 +164,16 @@ it("campos booleanos exigem resposta explícita e preservam falso", async () => 
   await screen.findByText(/Decisão recebida e pendente/);
   expect(JSON.parse(fetcher.mock.calls[1][1].body).decision.inputs).toEqual({ kind: "ans_pendencia", dataset_complete: false, schema_valid: false, lgpd_anonimizado: false });
 });
+
+it("explica que a escolha de prazo extra não renova a espera e mantém o enum humano", async () => {
+  setup("auth_pendencia");
+  const select = await screen.findByRole("combobox");
+  expect(screen.getByText(/não reinicia a espera de documentos/)).toBeVisible();
+  expect(screen.getByText(/contrato em revisão/)).toBeVisible();
+  for (const choice of ["cancelar_guia", "conceder_prazo_extra", "seguir_analise"]) {
+    expect(select.querySelector(`option[value="${choice}"]`)).not.toBeNull();
+  }
+  await userEvent.selectOptions(select, "conceder_prazo_extra");
+  await userEvent.click(screen.getByRole("button", { name: "Revisar decisão" }));
+  expect(screen.getByRole("button", { name: "Enviar decisão" })).toBeDisabled();
+});

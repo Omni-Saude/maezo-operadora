@@ -19,6 +19,7 @@ from pydantic import Field, StringConstraints, model_validator
 from maezo.portal.contracts.models import (
     AuthDecisionInputs,
     AuthJuntaInputs,
+    AuthPendingInputs,
     EscalationDecisionInputs,
     FormKey,
     HumanPrincipal,
@@ -172,6 +173,11 @@ class JuntaOutcome(Closed):
     decisao_auditor: Literal["APROVAR", "NEGAR"]
 
 
+class PendingOutcome(Closed):
+    kind: Literal["auth_pendencia"]
+    decisao_pendencia: Literal["cancelar_guia", "conceder_prazo_extra", "seguir_analise"]
+
+
 class EscalationOutcome(Closed):
     kind: Literal["escalation"]
     resultado: Literal["resolvido_humano", "devolvido_agente", "emergencia_acionada"]
@@ -183,7 +189,8 @@ class PagtoOutcome(Closed):
 
 
 Outcome = Annotated[
-    AuthOutcome | JuntaOutcome | EscalationOutcome | PagtoOutcome, Field(discriminator="kind")
+    AuthOutcome | JuntaOutcome | PendingOutcome | EscalationOutcome | PagtoOutcome,
+    Field(discriminator="kind"),
 ]
 
 
@@ -254,6 +261,8 @@ def project_decision(request: AuthorizedDecision, record: DecisionCustodyRecord)
         outcome = AuthOutcome(kind=inputs.kind, decisao_auditor=inputs.decisao_auditor)
     elif isinstance(inputs, AuthJuntaInputs):
         outcome = JuntaOutcome(kind=inputs.kind, decisao_auditor=inputs.decisao_auditor)
+    elif isinstance(inputs, AuthPendingInputs):
+        outcome = PendingOutcome(kind=inputs.kind, decisao_pendencia=inputs.decisao_pendencia)
     elif isinstance(inputs, EscalationDecisionInputs):
         outcome = EscalationOutcome(kind=inputs.kind, resultado=inputs.resultado)
     elif isinstance(inputs, PagtoAdmissibilityInputs):

@@ -104,4 +104,20 @@ class ClassifiedDecisionTest {
     }
   }
 
+  @Test void expiredPendingHasThreeExactOutcomesAndNoInventedVariables() {
+    for(String choice:List.of("cancelar_guia","conceder_prazo_extra","seguir_analise")){
+      var raw=payload();var target=Jcs.object(raw.get("target"));
+      target.put("task_definition_key","UT_DecidirPendenciaExpirada");target.put("form_key","auth_pendencia");
+      raw.put("outcome",Map.of("kind","auth_pendencia","decisao_pendencia",choice));
+      var command=HumanCommand.parse(raw);var vars=command.classified().variables(command);
+      assertEquals(choice,vars.get("decisao_pendencia"));assertEquals(9,vars.size());
+      assertFalse(vars.containsKey("auditor_id"));assertFalse(vars.containsKey("prazo_extra_dias"));
+      assertEquals("custody-test",vars.get("human_decision_custody_ref"));
+      target.put("process_definition_key","SP-OP-REEMBOLSO-001");
+      assertThrows(Rejected.class,()->HumanCommand.parse(raw));
+      target.put("process_definition_key","SP-OP-AUTH-001");raw.put("outcome",Map.of("kind","auth_pendencia","decisao_pendencia","APROVAR"));
+      assertThrows(Rejected.class,()->HumanCommand.parse(raw));
+    }
+  }
+
 }

@@ -44,8 +44,8 @@ class ConsumerLineageTest {
   }
   static List<Map<String,Object>> targets(){
     List<Map<String,Object>> values=new ArrayList<>();
-    for(String key:ConsumerLineage.SOURCES.keySet().stream().sorted().toList()){
-      String[] parts=key.split("/");String kind=ConsumerLineage.SOURCES.get(key);
+    for(String key:ConsumerLineage.LEGACY_SOURCES.keySet().stream().sorted().toList()){
+      String[] parts=key.split("/");String kind=ConsumerLineage.LEGACY_SOURCES.get(key);
       var row=new TreeMap<String,Object>();row.put("process_definition_id",parts[0]+":1:synthetic");row.put("process_key",parts[0]);row.put("task_key",parts[1]);
       for(String field:List.of("binding_digest","consumer_digest","process_digest"))row.put(field,"a".repeat(64));
       List<Map<String,Object>> edges=new ArrayList<>();
@@ -163,6 +163,40 @@ class ConsumerLineageTest {
       assertArrayEquals(Files.readAllBytes(Path.of(System.getProperty("basedir","."),"src/main/resources/human-consumer-lineage-postgres.sql")),Objects.requireNonNull(in).readAllBytes());
     }
     ConsumerEdgeInstallation.nativeBuild(Map.of("native_build_digest",Jcs.digest(Files.readAllBytes(jar))));
+  }
+
+  static Map<String,Object> cohortV2(){
+    var selected=new ArrayList<>(targets());
+    var pending=new TreeMap<String,Object>();pending.put("process_definition_id","SP-OP-AUTH-001:1:synthetic");
+    pending.put("process_key","SP-OP-AUTH-001");pending.put("task_key","UT_DecidirPendenciaExpirada");
+    for(String key:List.of("binding_digest","consumer_digest","process_digest"))pending.put(key,"a".repeat(64));
+    pending.put("edges",List.of());selected.add(pending);
+    selected.sort(Comparator.comparing(t->t.get("process_key")+"/"+t.get("task_key")));
+    List<Map<String,Object>> members=new ArrayList<>();
+    for(var t:selected){String key=t.get("process_key")+"/"+t.get("task_key");String digest=Jcs.digest(key.getBytes(StandardCharsets.UTF_8));
+      t.put("material_digest",digest);members.add(Map.of("process_definition_id",t.get("process_definition_id"),"process_definition_key",t.get("process_key"),"task_definition_key",t.get("task_key"),"material_digest",digest));}
+    var scope=parse(SCOPE_WIRE);var manifest=Map.of("schema","human-decision-cohort.v2","scope",scope,"members",members);
+    return new TreeMap<>(Map.of("schema","phi-consumer-edge-qualification.v2","scope",scope,"cohort",manifest,
+        "cohort_digest",Jcs.digest(Jcs.canonical(Map.of("schema","human-decision-cohort-hash.v2","value",manifest))),"targets",selected));
+  }
+  @Test void v2CohortMatchesPythonAndDoesNotExpandLegacyQualification(){
+    var body=cohortV2();assertEquals("f433f0a454bb97987823bddf1bb8db4e556d56f6368397997fdf14392109ea26",body.get("cohort_digest"));
+    assertEquals(7,ConsumerEdgeInstallation.targets(body).size());
+    assertEquals(6,ConsumerEdgeInstallation.targets(Map.of("targets",targets())).size());
+    assertThrows(RuntimeException.class,()->ConsumerEdgeInstallation.targets(Map.of("targets",body.get("targets"))));
+    var pending=ConsumerEdgeInstallation.targets(body).stream().filter(t->t.get("task_key").equals("UT_DecidirPendenciaExpirada")).findFirst().orElseThrow();
+    assertEquals(List.of(),pending.get("edges"));
+    var missing=new ArrayList<>((List<?>)body.get("targets"));missing.remove(0);body.put("targets",missing);
+    assertThrows(RuntimeException.class,()->ConsumerEdgeInstallation.targets(body));
+  }
+  @Test void v2SignedOwnerMustBindExactMaterialAndNewContract()throws Exception{
+    var f=signedFixture();f.designation().put("contract_digest",ConsumerEdgeInstallation.CONTRACT_V2);
+    f.envelope().put("contract_digest",ConsumerEdgeInstallation.CONTRACT_V2);f.body().putAll(cohortV2());
+    assertEquals(f.body(),ConsumerEdgeInstallation.signed("synthetic-tenant",f.sign(),f.designation(),3000));
+    var target=Jcs.object(((List<?>)f.body().get("targets")).get(0));target.put("material_digest","0".repeat(64));
+    assertThrows(RuntimeException.class,()->ConsumerEdgeInstallation.signed("synthetic-tenant",f.sign(),f.designation(),3000));
+    var old=signedFixture();old.body().putAll(cohortV2());
+    assertThrows(RuntimeException.class,()->ConsumerEdgeInstallation.signed("synthetic-tenant",old.sign(),old.designation(),3000));
   }
 
 }
