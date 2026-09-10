@@ -1,7 +1,10 @@
 """Recovery routes through the real BFF composition; no database qualification."""
 
 import pytest
+from pydantic import TypeAdapter
 from tests.unit.portal.test_human_session import PREFIX, Harness, h
+
+from maezo.portal.contracts.intake import ResourceRef
 
 __all__ = ["h"]
 
@@ -37,3 +40,14 @@ def test_recovery_openapi_keeps_existing_surfaces_and_closed_pointer_schemas(h: 
     pointer = schema["components"]["schemas"]["IntakeRecoveryItem"]
     assert pointer["additionalProperties"] is False
     assert set(pointer["properties"]) == {"command_id", "intake_ref"}
+    discovery = schema["paths"][PREFIX + "/intake-recovery"]["get"]
+    assert discovery["parameters"] == [
+        {
+            "name": "cursor",
+            "in": "query",
+            "required": False,
+            "schema": TypeAdapter(ResourceRef).json_schema(),
+        }
+    ]
+    observation = schema["paths"][PREFIX + "/intake-recovery/commands/{command_id}"]["get"]
+    assert not any(parameter["in"] == "query" for parameter in observation["parameters"])
