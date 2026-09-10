@@ -18,6 +18,7 @@ from tests.unit.portal.test_human_session import (
     membership,
 )
 
+from maezo.gateway.communications.admission import PostgresCommunicationAdmission
 from maezo.gateway.communications.content import (
     PhiCommunicationService,
     PhiContentKeys,
@@ -27,6 +28,7 @@ from maezo.gateway.communications.models import CommunicationScope
 from maezo.gateway.communications.postgres import PostgresCommunicationStore
 from maezo.gateway.communications.service import CommunicationService
 from maezo.portal.api.communication_phi import create_phi_communication_app
+from maezo.portal.api.postgres import PostgresIdentityStore
 from maezo.portal.contracts.models import SubjectBinding
 
 __all__ = ["h", "setup"]
@@ -40,21 +42,30 @@ async def test_authorized_two_plane_content_to_actual_inbox_visibility(h: Harnes
     await h.login()
     csrf = (await h.client.get(PREFIX + "/session")).json()["csrf_token"]
     resolver = h.app.state.human_session_resolver
-    principal = (await resolver.resolve(h.client.cookies[SESSION_COOKIE])).principal
+    resolved = await resolver.resolve(h.client.cookies[SESSION_COOKIE])
+    principal = resolved.principal
     scope = CommunicationScope(tenant=principal.tenant, environment="synthetic")
     authority = Authority(SimpleNamespace(principal=principal), scope, setup.clock)
-    store = PostgresCommunicationStore(None, scope=scope)
+    authority.db = setup.db
+    setup.db.resolver = SimpleNamespace(records=lambda: resolved)
+    engine = SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+    identity_store = PostgresIdentityStore(scope.tenant, engine)
+    identity_store.get_session = h.store.get_session
+    identity_store.get_membership = h.store.get_membership
+    resolver.store = identity_store
+    admission = PostgresCommunicationAdmission(identity_store, scope=scope, issuer=resolver.settings.issuer)
+    store = PostgresCommunicationStore(engine, scope=scope, admission=admission)
     keys = PhiContentKeys(
         scope=scope,
         active_key_id="synthetic",
         keys={"synthetic": b"a" * 32},
         valid_until=setup.clock[0] + timedelta(minutes=2),
     )
-    content = PostgresPhiCommunicationContent(None, scope=scope, keys=keys)
+    content = PostgresPhiCommunicationContent(engine, scope=scope, keys=keys, admission=admission)
     h.app.state.communication_service_factory = lambda actual: CommunicationService(actual, authority, store)
     phi = create_phi_communication_app(
         config(),
-        identity_store=h.store,
+        identity_store=identity_store,
         content_service_factory=lambda actual: PhiCommunicationService(actual, authority, content),
     )
     headers = {"Origin": ORIGIN, "X-CSRF-Token": csrf}

@@ -275,11 +275,13 @@ async def test_real_admission_commit_lost_ack_is_recoverable_without_payload(set
         guide_identity_ref=OTHER,
         authority_receipt_ref=OTHER,
         authority_digest="a" * 64,
-        valid_until=NOW + timedelta(minutes=1),
+        valid_until=datetime.now(UTC) + timedelta(minutes=1),
     )
     h.db.lose_ack = True
-    with pytest.raises(IntakeError):
+    with pytest.raises(IntakeError, match="dependency_unavailable"):
         await h.intake.admit(grant, request)
+    assert h.db.lose_ack is False
+    assert (PRINCIPAL.tenant, REF) in h.db.intakes
     h.db.queries.clear()
     found = await observe(h, REF)
     assert found.observation == "observed"
