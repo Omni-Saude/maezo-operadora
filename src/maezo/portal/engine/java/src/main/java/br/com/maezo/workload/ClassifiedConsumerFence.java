@@ -3,6 +3,7 @@ package br.com.maezo.workload;
 import br.com.maezo.human.ConsumerLineage;
 import java.lang.reflect.Field;
 import java.util.*;
+import org.cibseven.bpm.engine.impl.cmd.*;
 import org.cibseven.bpm.engine.impl.context.Context;
 import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
 import org.cibseven.bpm.engine.impl.persistence.entity.ExternalTaskEntity;
@@ -11,24 +12,24 @@ import org.cibseven.bpm.engine.impl.persistence.entity.ExternalTaskEntity;
 final class ClassifiedConsumerFence {
   private ClassifiedConsumerFence(){}
   private static final ThreadLocal<Seal> CURRENT=new ThreadLocal<>();
-  private static final Map<String,String> EXTERNAL=Map.of(
-      "CompleteExternalTaskCmd","external_complete","HandleExternalTaskBpmnErrorCmd","external_bpmn_error",
-      "HandleExternalTaskFailureCmd","external_failure","UnlockExternalTaskCmd","external_unlock",
-      "ExtendLockOnExternalTaskCmd","external_extend_lock");
-  private static final Set<String> FORBIDDEN=Set.of(
-      "SetExecutionVariablesCmd","RemoveExecutionVariablesCmd","PatchExecutionVariablesCmd",
-      "SetTaskVariablesCmd","RemoveTaskVariablesCmd","PatchTaskVariablesCmd",
-      "ProcessInstanceModificationCmd","ProcessInstanceModificationBatchCmd","RestartProcessInstancesCmd",
-      "RestartProcessInstancesBatchCmd","DeleteProcessInstanceCmd","DeleteProcessInstancesCmd",
-      "DeleteProcessInstanceBatchCmd","SetVariablesToProcessInstancesBatchCmd","CorrelateAllMessageBatchCmd",
-      "MigrateProcessInstanceCmd","MigrateProcessInstanceBatchCmd","SetExternalTaskRetriesCmd",
-      "SetExternalTasksRetriesCmd","SetExternalTasksRetriesBatchCmd","SetExternalTaskPriorityCmd",
-      "ModifyProcessInstanceCmd","ModifyProcessInstanceAsyncCmd","StartProcessInstanceAtActivitiesCmd",
-      "SignalCmd","SignalEventReceivedCmd","CompleteTaskCmd","SubmitTaskFormCmd","ResolveTaskCmd",
-      "HandleTaskBpmnErrorCmd","HandleTaskEscalationCmd","DeleteTaskCmd","SaveTaskCmd","CreateTaskCmd",
-      "ClaimTaskCmd","AssignTaskCmd","DelegateTaskCmd","SetTaskOwnerCmd","AddIdentityLinkCmd","DeleteIdentityLinkCmd",
-      "ActivateProcessInstanceCmd","SuspendProcessInstanceCmd","UpdateProcessInstancesSuspendStateCmd",
-      "UpdateProcessInstancesSuspendStateBatchCmd");
+  private static final Map<Class<?>,String> EXTERNAL=Map.of(
+      CompleteExternalTaskCmd.class,"external_complete",HandleExternalTaskBpmnErrorCmd.class,"external_bpmn_error",
+      HandleExternalTaskFailureCmd.class,"external_failure",UnlockExternalTaskCmd.class,"external_unlock",
+      ExtendLockOnExternalTaskCmd.class,"external_extend_lock");
+  private static final Set<Class<?>> FORBIDDEN=Set.of(
+      SetExecutionVariablesCmd.class,RemoveExecutionVariablesCmd.class,PatchExecutionVariablesCmd.class,
+      SetTaskVariablesCmd.class,RemoveTaskVariablesCmd.class,PatchTaskVariablesCmd.class,
+      ProcessInstanceModificationCmd.class,ProcessInstanceModificationBatchCmd.class,RestartProcessInstancesCmd.class,
+      org.cibseven.bpm.engine.impl.batch.RestartProcessInstancesBatchCmd.class,DeleteProcessInstanceCmd.class,DeleteProcessInstancesCmd.class,
+      org.cibseven.bpm.engine.impl.cmd.batch.DeleteProcessInstanceBatchCmd.class,org.cibseven.bpm.engine.impl.cmd.batch.variables.SetVariablesToProcessInstancesBatchCmd.class,org.cibseven.bpm.engine.impl.cmd.batch.CorrelateAllMessageBatchCmd.class,
+      org.cibseven.bpm.engine.impl.migration.MigrateProcessInstanceCmd.class,org.cibseven.bpm.engine.impl.migration.batch.MigrateProcessInstanceBatchCmd.class,SetExternalTaskRetriesCmd.class,
+      SetExternalTasksRetriesCmd.class,SetExternalTasksRetriesBatchCmd.class,SetExternalTaskPriorityCmd.class,
+      ModifyProcessInstanceCmd.class,ModifyProcessInstanceAsyncCmd.class,StartProcessInstanceAtActivitiesCmd.class,
+      SignalCmd.class,SignalEventReceivedCmd.class,CompleteTaskCmd.class,SubmitTaskFormCmd.class,ResolveTaskCmd.class,
+      HandleTaskBpmnErrorCmd.class,HandleTaskEscalationCmd.class,DeleteTaskCmd.class,SaveTaskCmd.class,CreateTaskCmd.class,
+      ClaimTaskCmd.class,AssignTaskCmd.class,DelegateTaskCmd.class,SetTaskOwnerCmd.class,AbstractAddIdentityLinkCmd.class,DeleteIdentityLinkCmd.class,
+      ActivateProcessInstanceCmd.class,SuspendProcessInstanceCmd.class,UpdateProcessInstancesSuspendStateCmd.class,
+      UpdateProcessInstancesSuspendStateBatchCmd.class);
 
   interface Permit extends AutoCloseable { @Override void close(); }
   private static final class Seal implements Permit {
@@ -63,9 +64,13 @@ final class ClassifiedConsumerFence {
     return new Seal(outer,context,String.join("\n",roots),"correlate");
   }
   static void nested(Object command){
-    String name=command.getClass().getSimpleName();
-    if(FORBIDDEN.contains(name))throw Refused.denied();
-    String operation=EXTERNAL.get(name);
+    // Class identity and assignability retain native semantics even for anonymous subclasses.
+    // Only exact pinned effect implementations may consume a seal; inherited effects cannot
+    // become unrelated commands merely by changing their Java name.
+    for(Class<?> family:FORBIDDEN)if(family.isInstance(command))throw Refused.denied();
+    for(Class<?> family:EXTERNAL.keySet())
+      if(family.isInstance(command) && command.getClass()!=family)throw Refused.denied();
+    String operation=EXTERNAL.get(command.getClass());
     if(operation!=null){
       Seal seal=CURRENT.get();
       if(seal==null || seal.context!=Context.getCommandContext() || !operation.equals(seal.operation)
@@ -75,14 +80,15 @@ final class ClassifiedConsumerFence {
       if(ConsumerLineage.classified(seal.context,task) && (!Set.of("external_failure","external_unlock","external_extend_lock").contains(operation) || !(seal.outer instanceof NativeOperationV2)))throw Refused.unavailable();
       return;
     }
-    if(name.equals("CorrelateMessageCmd") || name.equals("CorrelateAllMessageCmd")){
+    if(command instanceof AbstractCorrelateMessageCmd){
+      if(command.getClass()!=CorrelateMessageCmd.class && command.getClass()!=CorrelateAllMessageCmd.class)throw Refused.denied();
       Seal seal=CURRENT.get();if(seal==null || seal.context!=Context.getCommandContext() || !seal.operation.equals("correlate") || !seal.target.equals(correlationTarget(command)))throw Refused.denied();
     }
   }
   private static String correlationTarget(Object command){
     try {
-      Class<?> type=Class.forName("org.cibseven.bpm.engine.impl.cmd.AbstractCorrelateMessageCmd");
-      if(!type.isInstance(command) || !command.getClass().getName().equals("org.cibseven.bpm.engine.impl.cmd."+command.getClass().getSimpleName()))throw Refused.denied();
+      Class<?> type=AbstractCorrelateMessageCmd.class;
+      if(command.getClass()!=CorrelateMessageCmd.class && command.getClass()!=CorrelateAllMessageCmd.class)throw Refused.denied();
       Field field=type.getDeclaredField("builder");if(!field.trySetAccessible())throw Refused.unavailable();
       var builder=(org.cibseven.bpm.engine.impl.MessageCorrelationBuilderImpl)field.get(command);
       String id=builder.getProcessInstanceId();if(id==null || id.isEmpty())throw Refused.denied();return id;
@@ -91,8 +97,8 @@ final class ClassifiedConsumerFence {
   private static String externalTaskId(Object command){
     // Pinned CIB2.1 has no public getter. Read only the exact native base class field.
     try {
-      Class<?> type=Class.forName("org.cibseven.bpm.engine.impl.cmd.ExternalTaskCmd");
-      if(!type.isInstance(command) || !command.getClass().getName().equals("org.cibseven.bpm.engine.impl.cmd."+command.getClass().getSimpleName()))throw Refused.denied();
+      Class<?> type=ExternalTaskCmd.class;
+      if(!EXTERNAL.containsKey(command.getClass()))throw Refused.denied();
       Field field=type.getDeclaredField("externalTaskId");if(!field.trySetAccessible())throw Refused.unavailable();
       Object id=field.get(command);if(!(id instanceof String value)||value.isEmpty())throw Refused.resource();return value;
     }catch(ReflectiveOperationException e){throw Refused.unavailable();}
