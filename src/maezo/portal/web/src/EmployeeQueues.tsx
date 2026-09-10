@@ -1,6 +1,8 @@
 import { DecisionWorkspace } from "./DecisionWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { TaskOwnershipControls } from "./TaskOwnershipControls";
+
 import {
   listTaskQueue,
   readTask,
@@ -188,13 +190,19 @@ export function EmployeeQueues({
   sessionBinding,
   csrfToken,
   onSessionUnavailable,
+  initialQueue = "mine",
+  showQueueNavigation = true,
 }: {
   sessionBinding: string;
   csrfToken?: string;
   onSessionUnavailable: () => void;
+  initialQueue?: QueueName;
+  showQueueNavigation?: boolean;
 }) {
   const [decisionTask, setDecisionTask] = useState<string | null>(null);
-  const [queue, setQueue] = useState<QueueName>("mine");
+  // A command belongs to its selected task/session, not to a renewable queue page.
+  const [ownershipTask, setOwnershipTask] = useState<string | null>(null);
+  const [queue, setQueue] = useState<QueueName>(initialQueue);
   const [queueState, setQueueState] = useState<QueueState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
   const queueEpoch = useRef(0);
@@ -214,7 +222,9 @@ export function EmployeeQueues({
     queueEpoch.current += 1;
     queueRequest.current?.abort();
     queueRequest.current = null;
-    suspended.current = error !== undefined;
+    const revoked = error === "session_unavailable" || error === "employee_access_required" || error === "resource_unavailable";
+    suspended.current = revoked;
+    if (error === undefined || revoked) setOwnershipTask(null);
     setDecisionTask(null);
     invalidateDetail();
     setQueueState(error === undefined ? { kind: "loading" } : { kind: "error", error });
@@ -243,8 +253,8 @@ export function EmployeeQueues({
           invalidateWorkspace("refresh_required");
           return;
         }
-        // A complete new page never carries forward an older selected snapshot.
-        invalidateDetail();
+        // Queue and detail grants have separate original freshness ceilings.
+        // A new page neither renews the detail nor retires its command identity.
         setQueueState({ kind: "ready", items: [...result.value.items], page: result.value,
           validUntil: result.value.freshness.valid_until, refreshing: false });
       } else if (result.kind === "session_unavailable") {
@@ -257,7 +267,7 @@ export function EmployeeQueues({
         invalidateWorkspace("read_dependency_unavailable");
       }
     }
-  }, [clearForSessionFailure, invalidateDetail, invalidateWorkspace, queue]);
+  }, [clearForSessionFailure, invalidateWorkspace, queue]);
 
   const loadNextPage = useCallback(async () => {
     if (queueState.kind !== "ready" || queueState.page.next_cursor === null) return;
@@ -314,6 +324,7 @@ export function EmployeeQueues({
         invalidateWorkspace("refresh_required");
         return;
       }
+      setOwnershipTask((current) => current === taskId ? current : null);
       const epoch = ++detailEpoch.current;
       detailRequest.current?.abort();
       const controller = new AbortController();
@@ -334,11 +345,13 @@ export function EmployeeQueues({
             observedAt: result.value.freshness.observed_at,
             validUntil: result.value.freshness.valid_until,
           });
+          setOwnershipTask(taskId);
         } else if (result.kind === "session_unavailable") {
           clearForSessionFailure();
         } else if (result.kind === "employee_access_required") {
           invalidateWorkspace(result.kind);
         } else {
+          if (result.kind === "resource_unavailable") setOwnershipTask(null);
           setDetailState({ kind: "error", error: result.kind });
         }
       } catch (error) {
@@ -401,14 +414,14 @@ export function EmployeeQueues({
         )}
       </div>
 
-      <nav className="queue-nav" aria-label="Filas de trabalho">
+      {showQueueNavigation && <nav className="queue-nav" aria-label="Filas de trabalho">
         <button type="button" aria-current={queue === "mine" ? "page" : undefined} onClick={() => chooseQueue("mine")}>
           Meu trabalho
         </button>
         <button type="button" aria-current={queue === "team" ? "page" : undefined} onClick={() => chooseQueue("team")}>
           Filas da equipe
         </button>
-      </nav>
+      </nav>}
 
       {queueState.kind === "loading" && <p className="queue-message" role="status">Carregando fila autorizada…</p>}
       {queueState.kind === "error" && <QueueError error={queueState.error} retry={() => void loadFirstPage()} />}
@@ -431,7 +444,21 @@ export function EmployeeQueues({
         </>
       )}
 
-      <TaskDetail state={detailState} refreshQueue={() => void loadFirstPage()} prepare={csrfToken ? setDecisionTask : undefined} />
+      <TaskDetail
+        state={detailState}
+        refreshQueue={() => void loadFirstPage()}
+        prepare={csrfToken ? setDecisionTask : undefined}
+      />
+      {ownershipTask && csrfToken && (
+        <TaskOwnershipControls
+          key={`${sessionBinding}\u0000${ownershipTask}`}
+          taskId={ownershipTask}
+          csrfToken={csrfToken}
+          sessionBinding={sessionBinding}
+          onSessionUnavailable={clearForSessionFailure}
+          onCommitted={() => void loadFirstPage()}
+        />
+      )}
       {decisionTask && csrfToken && <DecisionWorkspace key={`${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
     </section>
   );

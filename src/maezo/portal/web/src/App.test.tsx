@@ -3,7 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./EmployeeQueues", () => ({
-  EmployeeQueues: () => <section aria-label="Filas de colaboradores" />,
+  EmployeeQueues: ({ initialQueue }: { initialQueue?: "mine" | "team" }) => (
+    <section aria-label="Filas de colaboradores">{initialQueue}</section>
+  ),
 }));
 
 import { App } from "./App";
@@ -69,16 +71,33 @@ describe.each([
   });
 });
 
-it("monta filas somente para a audiência de colaboradores", async () => {
+it("oferece sete áreas e monta filas somente após a escolha do colaborador", async () => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session("staff")));
   const view = render(<App />);
-  expect(await screen.findByRole("region", { name: "Filas de colaboradores" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
+  expect(screen.getAllByRole("tab")).toHaveLength(7);
+  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: /Meu trabalho/ }));
+  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("mine");
+  await userEvent.click(screen.getByRole("tab", { name: /Filas da equipe/ }));
+  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("team");
   view.unmount();
 
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session("provider")));
   render(<App />);
   expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+});
+
+it("mostra navegação externa sem fabricar dados quando o serviço ainda não está integrado", async () => {
+  vi.mocked(fetch).mockResolvedValue(jsonResponse(session("beneficiary")));
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: "Área do beneficiário" })).toBeInTheDocument();
+  expect(screen.getAllByRole("tab")).toHaveLength(4);
+  expect(screen.getByRole("heading", { name: "Solicitações" })).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("tab", { name: "Documentos" }));
+  expect(screen.getByRole("heading", { name: "Documentos" })).toBeInTheDocument();
+  expect(screen.getByText(/ainda não estão disponíveis/)).toBeInTheDocument();
 });
 
 it("trata 401 como sessão ausente e oferece a entrada canônica", async () => {
@@ -128,7 +147,9 @@ it("remove o workspace antes de aplicar uma mudança de audiência", async () =>
     .mockResolvedValueOnce(jsonResponse(session("staff")))
     .mockReturnValueOnce(changedAudience.promise);
   render(<App />);
-  expect(await screen.findByRole("region", { name: "Filas de colaboradores" })).toBeInTheDocument();
+  await screen.findByRole("heading", { name: "Área de colaboradores" });
+  await userEvent.click(screen.getByRole("tab", { name: /Meu trabalho/ }));
+  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toBeInTheDocument();
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   fireEvent(document, new Event("visibilitychange"));
   expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { EmployeeQueues } from "./EmployeeQueues";
+import { ExternalPortalExperience, StaffPortalExperience } from "./PortalSessionExperience";
 import { getSession, portalPaths, postLogout, type SessionDTO } from "./sessionClient";
+import "./portalExperience.css";
 
 type ViewState =
   | { kind: "loading"; reason: "initial" | "revalidation" | "expiry" }
@@ -13,21 +14,6 @@ type ViewState =
   | { kind: "logging-out" }
   | { kind: "logged-out" }
   | { kind: "logout-unconfirmed"; retryToken: string };
-
-const audienceContent = {
-  staff: {
-    heading: "Área de colaboradores",
-    help: "Sua sessão foi confirmada. Cada recurso operacional exige autorização própria no servidor.",
-  },
-  beneficiary: {
-    heading: "Área do beneficiário",
-    help: "Sua sessão foi confirmada. O acesso a solicitações e documentos depende do vínculo autorizado.",
-  },
-  provider: {
-    heading: "Área do prestador",
-    help: "Sua sessão foi confirmada. O acesso a guias, contas e recursos depende da autorização de cada item.",
-  },
-} as const;
 
 function SignInLink({ label = "Entrar no portal" }: { label?: string }) {
   return (
@@ -174,8 +160,6 @@ export function App() {
   }
 
   if (state.kind === "authenticated") {
-    const content = audienceContent[state.session.audience];
-    const isStaff = state.session.audience === "staff";
     return (
       <div className="app-shell">
         <header className="app-header">
@@ -190,51 +174,25 @@ export function App() {
             Sair com segurança
           </button>
         </header>
-        <main className={isStaff ? "employee-home" : "home"}>
-          <section
-            className={isStaff ? "welcome-card employee-welcome" : "welcome-card"}
-            aria-labelledby="audience-heading"
-            id="overview"
-          >
-            <p className="eyebrow">Sessão ativa</p>
-            <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
-              Sessão confirmada. {content.heading}.
-            </p>
-            <h1 id="audience-heading" ref={transitionHeading} tabIndex={-1}>
-              {content.heading}
-            </h1>
-            <p>{content.help}</p>
-            <dl className="session-detail">
-              <div>
-                <dt>Validade desta sessão</dt>
-                <dd>
-                  {new Intl.DateTimeFormat("pt-BR", {
-                    dateStyle: "long",
-                    timeStyle: "short",
-                  }).format(new Date(state.session.expires_at))}
-                </dd>
-              </div>
-            </dl>
-          </section>
-          {isStaff && (
-            <EmployeeQueues
-              csrfToken={state.session.csrf_token}
-              sessionBinding={[
-                state.session.principal_ref,
-                state.session.expires_at,
-                ...state.session.roles,
-              ].join("\u0000")}
-              onSessionUnavailable={invalidateSession}
-            />
-          )}
-          <aside className="security-note" aria-labelledby="security-heading">
-            <h2 id="security-heading">Acesso protegido</h2>
-            <p>
-              Permissões são verificadas pelo servidor. Encerre a sessão ao usar um dispositivo
-              compartilhado.
-            </p>
-          </aside>
-        </main>
+        {state.session.audience === "staff" ? (
+          <StaffPortalExperience
+            expiresAt={state.session.expires_at}
+            csrfToken={state.session.csrf_token}
+            sessionBinding={[
+              state.session.principal_ref,
+              state.session.expires_at,
+              ...state.session.roles,
+            ].join("\u0000")}
+            headingRef={transitionHeading}
+            onSessionUnavailable={invalidateSession}
+          />
+        ) : (
+          <ExternalPortalExperience
+            audience={state.session.audience}
+            expiresAt={state.session.expires_at}
+            headingRef={transitionHeading}
+          />
+        )}
       </div>
     );
   }

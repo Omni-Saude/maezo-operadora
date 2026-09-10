@@ -202,6 +202,25 @@ it("abre apenas o snapshot público e preserva valores exatos sem ações de mut
   expect(screen.getByText(/Esta consulta é somente leitura/)).toBeInTheDocument();
 });
 
+it("não remove o detalhe aberto durante a atualização periódica da fila", async () => {
+  vi.useFakeTimers();
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(jsonResponse(queuePage()))
+    .mockResolvedValueOnce(jsonResponse(taskResponse()))
+    .mockResolvedValueOnce(jsonResponse(queuePage("mine", "task-2", "UT_Atualizada")));
+  render(<EmployeeQueues sessionBinding="session-a" onSessionUnavailable={vi.fn()} />);
+  await act(async () => Promise.resolve());
+  await act(async () => {
+    screen.getByRole("button", { name: "Abrir detalhes de UT_AnaliseMedicoAuditor" }).click();
+    await Promise.resolve();
+  });
+  expect(screen.getByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
+  await act(async () => vi.advanceTimersByTimeAsync(10_000));
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(screen.getByRole("rowheader", { name: "UT_Atualizada" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).toBeInTheDocument();
+});
+
 it("remove conteúdo da fila quando a sessão expira no endpoint de leitura", async () => {
   const onSessionUnavailable = vi.fn();
   vi.mocked(fetch)
@@ -256,4 +275,102 @@ it("cancela e ignora a resposta ligada à sessão anterior", async () => {
   oldSession.resolve(jsonResponse(queuePage()));
   await act(async () => Promise.resolve());
   expect(screen.queryByRole("rowheader", { name: "UT_AnaliseMedicoAuditor" })).not.toBeInTheDocument();
+});
+
+function queueOwnershipAssignmentcontext() {
+  return {
+    schema_version: "portal-assignment-context.v1",
+    task_id: "task-1",
+    process_definition_key: "SP-OP-AUTH-001",
+    process_definition_version: huge,
+    process_definition_id: "AUTH:opaque",
+    process_definition_digest: digest,
+    task_definition_key: "UT_AnaliseMedicoAuditor",
+    form_key: "auth_decisao",
+    form_version: huge,
+    form_digest: digest,
+    expected_task_revision: huge,
+    expected_evidence_revision: huge,
+    expected_evidence_digest: digest,
+    expected_membership_revision: huge,
+    expected_authority_revision: huge,
+    assignee_ref: null,
+    allowed_operations: ["claim"],
+    valid_until: "2026-09-09T15:05:00Z",
+  };
+}
+
+function queueOwnershipAdmission() {
+  return {
+    schema_version: 1,
+    transaction_ref: "transaction-opaque",
+    command_id: queueCommandId,
+    tenant: "tenant-hidden",
+    principal_ref: "principal-hidden",
+    task_id: "task-1",
+    workload_ref: "workload-opaque",
+    audit_intent_ref: "audit-opaque",
+    outbox_ref: "outbox-opaque",
+    committed_at: "2026-09-09T15:00:01Z",
+    status: "pending",
+  };
+}
+
+function queueOwnershipReceipt(status: "pending" | "committed" = "pending") {
+  const committed = status === "committed";
+  return {
+    schema_version: "human-public-receipt.v1",
+    tenant: "tenant-hidden",
+    task_id: "task-1",
+    command_id: queueCommandId,
+    payload_digest: digest,
+    principal_ref: "principal-hidden",
+    workload_ref: "workload-opaque",
+    status,
+    audit_intent_ref: "audit-opaque",
+    audit_intent_hash: digest,
+    audit_result_ref: committed ? digest : null,
+    engine_receipt_ref: committed ? "engine-opaque" : null,
+    engine_recorded_at: committed ? "2026-09-09T15:00:02Z" : null,
+    consumed_task_revision: committed ? huge : null,
+    resulting_task_revision: committed ? huge : null,
+    technical_code: null,
+  };
+}
+
+const queueCommandId = "00000000-0000-4000-8000-000000000001";
+
+it.each(["pending", "committed"] as const)("atualiza fila a10s e mantém comando %s além da validade do snapshot", async (status) => {
+  vi.useFakeTimers();
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(queueCommandId);
+  const queue = queuePage();
+  queue.freshness.valid_until = "2026-09-09T15:00:08Z";
+  const detail = taskResponse();
+  detail.freshness.valid_until = "2026-09-09T15:00:08Z";
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(queue)).mockResolvedValueOnce(jsonResponse(detail))
+    .mockResolvedValueOnce(jsonResponse(queueOwnershipAssignmentcontext())).mockResolvedValueOnce(jsonResponse(queueOwnershipAdmission(), 202));
+  render(<EmployeeQueues sessionBinding="session-a" csrfToken="csrf-secret" onSessionUnavailable={vi.fn()} />);
+  await act(async () => { await Promise.resolve(); });
+  const click = async (name: string) => { await act(async () => { screen.getByRole("button", { name }).click(); }); };
+  await click("Abrir detalhes de UT_AnaliseMedicoAuditor");
+  await click("Consultar responsabilidade");
+  await click("Assumir responsabilidade");
+  if (status === "committed") {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(queueOwnershipReceipt("committed")));
+    await click("Consultar recibo");
+  }
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(queuePage("mine", "task-2", "UT_Atualizada")));
+  await act(async () => { await vi.advanceTimersByTimeAsync(6001); });
+  expect(screen.queryByRole("heading", { name: "UT_AnaliseAdmissibilidade" })).not.toBeInTheDocument();
+  expect(screen.queryByText("decisor-opaque")).not.toBeInTheDocument();
+  expect(screen.getByText(`Protocolo: ${queueCommandId}`)).toBeInTheDocument();
+  await act(async () => { await vi.advanceTimersByTimeAsync(3999); });
+  expect(screen.getByRole("rowheader", { name: "UT_Atualizada" })).toBeInTheDocument();
+  expect(screen.getByText(`Protocolo: ${queueCommandId}`)).toBeInTheDocument();
+  if (status === "committed") expect(screen.getByText(/Alteração executada e confirmada/)).toBeInTheDocument();
+  expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ schema: "portal-read-error.v1", code: "employee_access_required" }, 403));
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(screen.queryByText(`Protocolo: ${queueCommandId}`)).not.toBeInTheDocument();
+  expect(screen.queryByRole("rowheader")).not.toBeInTheDocument();
 });
