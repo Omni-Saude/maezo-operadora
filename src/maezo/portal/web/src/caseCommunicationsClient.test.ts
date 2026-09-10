@@ -170,3 +170,35 @@ it("propaga aborto sem convertê-lo em indisponibilidade", async () => {
   const api = client(vi.fn().mockRejectedValue(error));
   await expect(api.listCommunications(ref("case"), controller.signal)).rejects.toBe(error);
 });
+
+
+it.each([
+  { kind: "communication_available" as const },
+  { kind: "communication_available" as const, communication_ref: null, command_ref: null, receipt_ref: null },
+  { kind: "command_receipt_indexed" as const },
+  { kind: "command_receipt_indexed" as const, communication_ref: null, command_ref: null, receipt_ref: null },
+  { kind: "command_receipt_indexed" as const, command_ref: ref("command") },
+  { kind: "command_receipt_indexed" as const, receipt_ref: ref("receipt") },
+  { kind: "command_receipt_indexed" as const, command_ref: "short", receipt_ref: "r" },
+])("aceita referências do histórico omitidas pela projeção autorizada: %j", async (projection) => {
+  const page = historyPage({ items: [{
+    event_ref: ref("event"), sequence: "1", occurred_at: observed, ...projection,
+  }] });
+  const result = await client(vi.fn().mockResolvedValue(json(page))).listHistory(ref("case"), signal());
+  expect(result).toEqual({ kind: "success", value: page });
+});
+
+it.each([
+  { kind: "communication_available" as const, command_ref: ref("command") },
+  { kind: "communication_available" as const, receipt_ref: ref("receipt") },
+  { kind: "command_receipt_indexed" as const, communication_ref: ref("communication") },
+  { kind: "communication_available" as const, communication_ref: "short" },
+  { kind: "command_receipt_indexed" as const, command_ref: "" },
+  { kind: "command_receipt_indexed" as const, receipt_ref: "" },
+])("continua recusando referências presentes inválidas ou incompatíveis: %j", async (projection) => {
+  const page = historyPage({ items: [{
+    event_ref: ref("event"), sequence: "1", occurred_at: observed, ...projection,
+  }] });
+  expect(await client(vi.fn().mockResolvedValue(json(page))).listHistory(ref("case"), signal()))
+    .toEqual({ kind: "failure", failure: "invalid-response" });
+});

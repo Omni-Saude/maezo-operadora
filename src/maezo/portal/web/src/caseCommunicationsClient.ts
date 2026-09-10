@@ -100,8 +100,8 @@ function validateHistoryPage(value: unknown, caseRef: string): HistoryPage | nul
     if (sequence <= previous) return null;
     previous = sequence;
     if (item.kind === "communication_available") {
-      if (item.communication_ref == null || item.command_ref != null || item.receipt_ref != null) return null;
-    } else if (item.communication_ref != null || item.command_ref == null || item.receipt_ref == null) {
+      if (item.command_ref != null || item.receipt_ref != null) return null;
+    } else if (item.communication_ref != null) {
       return null;
     }
   }

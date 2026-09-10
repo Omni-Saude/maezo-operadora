@@ -100,7 +100,11 @@ function CommunicationsSection({
       </p>
       <ResourceState state={state} loadingLabel="Consultando comunicações autorizadas…" retry={onRetry} />
       {state.kind === "ready" && state.page.items.length === 0 && (
-        <p className="resource-message">Nenhuma comunicação está disponível nesta caixa.</p>
+        <p className="resource-message">
+          {state.page.next_cursor !== null
+            ? "Nenhuma comunicação está disponível nesta página. Há mais páginas para consultar."
+            : "Nenhuma comunicação está disponível nesta caixa."}
+        </p>
       )}
       {state.kind === "ready" && state.page.items.length > 0 && (
         <>
@@ -134,17 +138,17 @@ function CommunicationsSection({
               </li>
             ))}
           </ol>
-          {state.page.next_cursor !== null && (
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={state.loadingMore}
-              onClick={onLoadMore}
-            >
-              {state.loadingMore ? "Carregando comunicações…" : "Carregar mais comunicações"}
-            </button>
-          )}
         </>
+      )}
+      {state.kind === "ready" && state.page.next_cursor !== null && (
+        <button
+          className="secondary-action"
+          type="button"
+          disabled={state.loadingMore}
+          onClick={onLoadMore}
+        >
+          {state.loadingMore ? "Carregando comunicações…" : "Carregar mais comunicações"}
+        </button>
       )}
     </section>
   );
@@ -170,7 +174,11 @@ function HistorySection({
       </p>
       <ResourceState state={state} loadingLabel="Consultando eventos autorizados…" retry={onRetry} />
       {state.kind === "ready" && state.page.items.length === 0 && (
-        <p className="resource-message">Nenhum evento do portal está disponível para este caso.</p>
+        <p className="resource-message">
+          {state.page.next_cursor !== null
+            ? "Nenhum evento está disponível nesta página. Há mais páginas para consultar."
+            : "Nenhum evento do portal está disponível para este caso."}
+        </p>
       )}
       {state.kind === "ready" && state.page.items.length > 0 && (
         <>
@@ -205,17 +213,17 @@ function HistorySection({
               </li>
             ))}
           </ol>
-          {state.page.next_cursor !== null && (
-            <button
-              className="secondary-action"
-              type="button"
-              disabled={state.loadingMore}
-              onClick={onLoadMore}
-            >
-              {state.loadingMore ? "Carregando eventos…" : "Carregar mais eventos"}
-            </button>
-          )}
         </>
+      )}
+      {state.kind === "ready" && state.page.next_cursor !== null && (
+        <button
+          className="secondary-action"
+          type="button"
+          disabled={state.loadingMore}
+          onClick={onLoadMore}
+        >
+          {state.loadingMore ? "Carregando eventos…" : "Carregar mais eventos"}
+        </button>
       )}
     </section>
   );

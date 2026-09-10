@@ -3,10 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 
 import { CaseCommunicationsPanel } from "./CaseCommunicationsPanel";
-import type {
-  CaseCommunicationsClient,
-  CommunicationPage,
-  HistoryPage,
+import {
+  createCaseCommunicationsClient,
+  type CaseCommunicationsClient,
+  type CommunicationPage,
+  type HistoryPage,
 } from "./caseCommunicationsClient";
 
 const ref = (name: string) => `${name}_abcdefghijklmnop`;
@@ -148,3 +149,47 @@ it("mantém as seções nomeadas e ações acessíveis por teclado", async () =>
   await waitFor(() => expect(api.listHistory).toHaveBeenCalledTimes(2));
   expect(await screen.findByText("Nenhum evento do portal está disponível para este caso.")).toBeInTheDocument();
 });
+
+
+it.each(["communications", "history"] as const)(
+  "continua após páginas vazias de %s até alcançar itens autorizados",
+  async (resource) => {
+    const cursor1 = ref("cursor_1");
+    const cursor2 = ref("cursor_2");
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "https://portal.test");
+      const selected = url.pathname.endsWith(`/${resource}`);
+      const cursor = url.searchParams.get("cursor");
+      const page = url.pathname.endsWith("/communications") ? communicationPage() : historyPage();
+      const value = selected && cursor === cursor2
+        ? page
+        : { ...page, items: [], next_cursor: selected ? (cursor === cursor1 ? cursor2 : cursor1) : null };
+      return new Response(JSON.stringify(value), {
+        status: 200, headers: { "Content-Type": "application/json" },
+      });
+    });
+    const api = createCaseCommunicationsClient({ csrfToken: "synthetic", fetcher });
+    render(<CaseCommunicationsPanel caseRef={ref("case")} client={api} onSessionUnavailable={vi.fn()} />);
+    const title = resource === "communications" ? "Comunicações disponíveis" : "Histórico do portal";
+    const section = within(screen.getByRole("heading", { name: title }).closest("section")!);
+    const loadMore = resource === "communications" ? "Carregar mais comunicações" : "Carregar mais eventos";
+    await section.findByText(/nesta página. Há mais páginas para consultar/);
+    await userEvent.click(section.getByRole("button", { name: loadMore }));
+    await waitFor(() => expect(fetcher.mock.calls.filter(([url]) => String(url).includes(`/${resource}`)))
+      .toHaveLength(2));
+    await section.findByRole("button", { name: loadMore });
+    expect(section.getByText(/nesta página. Há mais páginas para consultar/)).toBeInTheDocument();
+    await userEvent.click(section.getByRole("button", { name: loadMore }));
+    const visible = resource === "communications" ? "Origem registrada: Prestador" : "Recibo de comando indexado";
+    expect(await section.findByText(visible)).toBeInTheDocument();
+    expect(section.queryByRole("button", { name: loadMore })).not.toBeInTheDocument();
+    const urls = fetcher.mock.calls.filter(([url]) => String(url).includes(`/${resource}`))
+      .map(([url]) => String(url));
+    expect(urls).toEqual([
+      `/api/v1/portal/cases/${ref("case")}/${resource}`,
+      `/api/v1/portal/cases/${ref("case")}/${resource}?cursor=${cursor1}`,
+      `/api/v1/portal/cases/${ref("case")}/${resource}?cursor=${cursor2}`,
+    ]);
+    expect(section.queryByText(ref("body"))).not.toBeInTheDocument();
+  },
+);
