@@ -453,13 +453,13 @@ class PostgresAuthEffectAuthorizationSource(AuthEffectAuthorizationSource):
     ) -> Any:
         from .native_dispatch import AuthEffectLease
 
-        original = (
-            None
-            if read and caller is not None
-            else await self.source.protected.original_identity(command.command_id)
-        )
+        if read and caller is None:
+            raise AuthUnavailableError()
+        original = None if read else await self.source.protected.original_identity(command.command_id)
         original_principal = await self.source.protected.original_principal(command.command_id)
-        if read and caller is not None:
+        if read:
+            if caller is None:
+                raise AuthUnavailableError()
             session = await caller.revalidate()
             principal = session.principal
             session_until = caller.valid_until
@@ -497,7 +497,9 @@ class PostgresAuthEffectAuthorizationSource(AuthEffectAuthorizationSource):
         async def revalidate() -> None:
             nonlocal invalid
             try:
-                if read and caller is not None:
+                if read:
+                    if caller is None:
+                        raise AuthUnavailableError()
                     await caller.revalidate()
                 else:
                     if original is None:

@@ -293,6 +293,17 @@ async def test_completed_gateway_replay_requires_current_read_and_no_native_effe
 
 
 @pytest.mark.asyncio
+async def test_authentic_receipt_is_persisted_before_reader_disclosure_is_denied():
+    c, store, client, authority, dispatcher = dispatch_setup(False)
+    authority.deny_read = True
+    with pytest.raises(AuthUnavailableError):
+        await dispatcher._dispatch(c)
+    assert client.sent == [c]
+    assert store.result == receipt(c)
+    assert store.events == ["prove", "claim", "sending", "reconcile"]
+
+
+@pytest.mark.asyncio
 async def test_original_admission_ceiling_cannot_be_renewed_by_dispatch_claim(monkeypatch):
     store, db, now = sql_setup(monkeypatch)
     claim = await store.claim("command")

@@ -1,18 +1,78 @@
 """Focused offline session/cap/uncertainty controls; no SQL/runtime qualification."""
 
-from datetime import timedelta
+import json
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
-from maezo.gateway.human.auth_profile import SessionBinding
+from maezo.gateway.human.auth_profile import Actor, SessionBinding
 from maezo.gateway.human.auth_transport import AuthEffectCeiling, AuthUnavailableError, sign_request
-from maezo.gateway.human.read_profile import digest
+from maezo.gateway.human.read_profile import digest, wire
+from maezo.gateway.intake.native_authority import PostgresAuthEffectAuthorizationSource
 from maezo.gateway.intake.native_source_lifecycle import AuthCallerBinding, PostgresAuthSourceLifecycle
+from maezo.portal.admin.assignments import PostgresStaffAssignmentAdministration
+from maezo.portal.api.auth import digest as session_digest
+from maezo.portal.api.config import PortalSettings
+from maezo.portal.api.records import MembershipRecord, SessionRecord
+from maezo.portal.api.session import HumanSessionResolver
+from maezo.portal.api.store import LocalTestIdentityStore
+from maezo.portal.contracts.models import MembershipBinding, SubjectBinding
 from maezo.portal.engine.profile import strict_loads
 from tests.unit.gateway.intake.native.test_wire_transport import HASH, NOW, command, effect_cap, signing
+
+ISSUER = "https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_TestPool"
+
+
+def identity_records(*, principal_ref: str = "principal") -> tuple[MembershipRecord, SessionRecord]:
+    now = datetime.now(UTC)
+    membership = MembershipRecord(
+        tenant="tenant",
+        issuer=ISSUER,
+        subject="subject",
+        principal_ref=principal_ref,
+        revision=7,
+        audience="provider",
+        memberships=(MembershipBinding(membership_ref="review", roles=("provider",), groups=()),),
+        subject_bindings=(SubjectBinding(kind="provider", resource_ref="provider"),),
+        reviewed_until=now + timedelta(minutes=5),
+    )
+    session = SessionRecord(
+        secret_hash=session_digest("s" * 43),
+        session_ref="session",
+        csrf_token="csrf",
+        issuer=ISSUER,
+        subject="subject",
+        principal_ref=principal_ref,
+        membership_revision=membership.revision,
+        authenticated_at=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    return membership, session
+
+
+async def caller_binding(*, principal_ref: str = "principal"):
+    membership, session = identity_records(principal_ref=principal_ref)
+    store = LocalTestIdentityStore("tenant")
+    store.memberships[(membership.issuer, membership.subject)] = membership
+    await store.put_session(session, None)
+    resolver = HumanSessionResolver(
+        PortalSettings(
+            tenant="tenant",
+            issuer=ISSUER,
+            cognito_origin="https://humans.auth.sa-east-1.amazoncognito.com",
+            client_id="human123",
+            machine_client_id="machine123",
+            client_purpose="dedicated-human-code-pkce",
+            public_origin="https://portal.example.test",
+            mode="local-test",
+        ),
+        store,
+    )
+    return await AuthCallerBinding.resolve(resolver, "s" * 43)
 
 
 def test_mutation_requires_original_session_cap():
@@ -126,3 +186,119 @@ async def test_final_publication_checkpoint_refuses_disclosure_but_retains_commi
         await lifecycle._native_publication_receipt(publication, current)
     assert committed == [(publication, receipt)]
     lifecycle.native.execute.assert_not_awaited()
+
+
+def test_identity_source_json_round_trips_numeric_revisions_separately_from_native_wire():
+    membership, session = identity_records()
+    for record, revision in ((membership, "revision"), (session, "membership_revision")):
+        source = PostgresAuthSourceLifecycle.source_record(record)
+        assert type(source[revision]) is int
+        assert type(wire(record)[revision]) is str
+        assert type(record).model_validate_json(json.dumps(source)) == record
+
+
+@pytest.mark.asyncio
+async def test_guarded_staff_snapshot_uses_only_pinned_owner_lock_function():
+    membership, _ = identity_records()
+
+    class Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return [membership.model_dump_json()]
+
+    db = SimpleNamespace(execute=AsyncMock(return_value=Result()))
+    lifecycle = object.__new__(PostgresAuthSourceLifecycle)
+    lifecycle.binding = SimpleNamespace(writer_role="writer", tenant="tenant")
+    lifecycle.qualified = AsyncMock()
+    records = await lifecycle.locked_staff_memberships(db)
+    assert records == (membership,)
+    lifecycle.qualified.assert_awaited_once_with(db, "writer")
+    assert str(db.execute.await_args.args[0]) == ("SELECT * FROM portal_auth.lock_staff_memberships(:tenant)")
+
+    ddl = (Path(__file__).parents[5] / "src/maezo/gateway/intake/native-authority-postgres.sql").read_text()
+    function = ddl.split("CREATE FUNCTION portal_auth.lock_staff_memberships", 1)[1].split(
+        "CREATE FUNCTION portal_auth.apply_change", 1
+    )[0]
+    assert "SECURITY DEFINER" in function
+    assert "session_user<>installed.writer_role" in function
+    assert "ORDER BY principal_ref FOR SHARE" in function
+
+
+@pytest.mark.asyncio
+async def test_guarded_assignment_path_applies_change_then_uses_function_snapshot():
+    membership, _ = identity_records()
+    source = SimpleNamespace(
+        apply_change=AsyncMock(),
+        locked_staff_memberships=AsyncMock(return_value=(membership,)),
+    )
+    administration = object.__new__(PostgresStaffAssignmentAdministration)
+    administration.auth_source = source
+    db = object()
+    applied: list[str] = []
+    records = await administration._guarded_memberships(
+        db, (membership,), {membership.principal_ref: "change"}, applied
+    )
+    assert records == (membership,)
+    assert applied == ["change"]
+    source.apply_change.assert_awaited_once_with("change", db)
+    source.locked_staff_memberships.assert_awaited_once_with(db)
+
+
+@pytest.mark.asyncio
+async def test_receipt_read_requires_explicit_resolver_binding_and_accepts_same_human():
+    c = command()
+    actor = Actor(
+        principal_ref="principal",
+        issuer=ISSUER,
+        subject="subject",
+        membership_revision=7,
+        audience="provider",
+    )
+    c = c.model_copy(update={"actor": actor})
+    caller = await caller_binding()
+    source = SimpleNamespace(
+        protected=SimpleNamespace(
+            original_identity=AsyncMock(),
+            original_principal=AsyncMock(return_value=caller.principal),
+        )
+    )
+    native = SimpleNamespace(observation=AsyncMock(return_value=("observation", caller.valid_until)))
+    authority = PostgresAuthEffectAuthorizationSource(source=source, native=native)
+
+    with pytest.raises(AuthUnavailableError):
+        await authority.current(c, read=True)
+    source.protected.original_identity.assert_not_awaited()
+    source.protected.original_principal.assert_not_awaited()
+
+    lease = await authority.current(c, read=True, caller=caller)
+    lease.guard(c, datetime.now(UTC), read=True)
+    source.protected.original_identity.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_receipt_read_refuses_explicit_binding_for_another_human():
+    c = command()
+    actor = Actor(
+        principal_ref="principal",
+        issuer=ISSUER,
+        subject="subject",
+        membership_revision=7,
+        audience="provider",
+    )
+    c = c.model_copy(update={"actor": actor})
+    original = await caller_binding()
+    wrong = await caller_binding(principal_ref="other-principal")
+    source = SimpleNamespace(
+        protected=SimpleNamespace(
+            original_identity=AsyncMock(),
+            original_principal=AsyncMock(return_value=original.principal),
+        )
+    )
+    native = SimpleNamespace(observation=AsyncMock())
+    authority = PostgresAuthEffectAuthorizationSource(source=source, native=native)
+
+    with pytest.raises(AuthUnavailableError):
+        await authority.current(c, read=True, caller=wrong)
+    native.observation.assert_not_awaited()

@@ -122,6 +122,27 @@ ALTER TABLE :"source_schema".portal_sessions ENABLE ALWAYS TRIGGER portal_auth_s
 ALTER TABLE :"source_schema".portal_memberships ENABLE ALWAYS TRIGGER portal_auth_membership_write;
 ALTER TABLE :"source_schema".portal_memberships ENABLE ALWAYS TRIGGER portal_auth_membership_truncate;
 
+-- The writer login deliberately has no UPDATE privilege on identity rows. This
+-- owner function acquires the retained membership locks and returns the complete
+-- ordered source snapshot without granting that login direct write authority.
+CREATE FUNCTION portal_auth.lock_staff_memberships(p_tenant text) RETURNS SETOF text
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,portal_auth AS $$
+DECLARE installed portal_auth.installation%ROWTYPE; source_schema text;
+BEGIN
+ SELECT * INTO STRICT installed FROM portal_auth.installation WHERE tenant=p_tenant FOR SHARE;
+ IF session_user<>installed.writer_role OR clock_timestamp()>=installed.valid_until THEN
+   RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE';
+ END IF;
+ source_schema:=installed.binding->>'source_schema_name';
+ IF source_schema IS NULL OR source_schema !~ '^[a-z][a-z0-9_]{0,62}$' THEN
+   RAISE EXCEPTION 'AUTH_SOURCE_UNAVAILABLE';
+ END IF;
+ RETURN QUERY EXECUTE format(
+   'SELECT payload FROM %I.portal_memberships WHERE tenant=$1 ORDER BY principal_ref FOR SHARE',
+   source_schema
+ ) USING p_tenant;
+END $$;
+
 CREATE FUNCTION portal_auth.apply_change(p_tenant text,p_change text) RETURNS void
  LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,portal_auth AS $$
 DECLARE change portal_auth.source_change%ROWTYPE; installed portal_auth.installation%ROWTYPE;

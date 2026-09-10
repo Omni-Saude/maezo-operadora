@@ -7,6 +7,7 @@ installation/credentials are mandatory inputs; this module provisions no grant.
 from __future__ import annotations
 
 import hashlib
+import json
 import secrets
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -50,7 +51,11 @@ class RelationPin(Closed):
 
 
 class SourceFunctionPin(Closed):
-    signature: Literal["portal_auth.source_write_guard()", "portal_auth.apply_change(text,text)"]
+    signature: Literal[
+        "portal_auth.source_write_guard()",
+        "portal_auth.apply_change(text,text)",
+        "portal_auth.lock_staff_memberships(text)",
+    ]
     oid: int = Field(gt=0)
     definition_digest: Sha256Digest
 
@@ -258,7 +263,8 @@ class PostgresAuthSourceLifecycle:
         if {p.signature for p in b.functions} != {
             "portal_auth.source_write_guard()",
             "portal_auth.apply_change(text,text)",
-        } or len(b.functions) != 2:
+            "portal_auth.lock_staff_memberships(text)",
+        } or len(b.functions) != 3:
             raise AuthUnavailableError()
         for pin in b.functions:
             function = (
@@ -289,7 +295,7 @@ class PostgresAuthSourceLifecycle:
                 ["search_path=pg_catalog, portal_auth"],
                 pin.definition_digest,
             ) or (
-                pin.signature.endswith("apply_change(text,text)")
+                pin.signature.endswith(("apply_change(text,text)", "lock_staff_memberships(text)"))
                 and function["executable"] != (role == b.writer_role)
             ):
                 raise AuthUnavailableError()
@@ -571,6 +577,47 @@ class PostgresAuthSourceLifecycle:
                 "record": wire(record),
             }
         )
+
+    @staticmethod
+    def source_record(record: SessionRecord | MembershipRecord) -> dict[str, Any]:
+        """Exact existing identity-table JSON, separate from number-free native wire."""
+        model = (
+            SessionRecord
+            if type(record) is SessionRecord
+            else MembershipRecord
+            if type(record) is MembershipRecord
+            else None
+        )
+        if model is None:
+            raise AuthUnavailableError()
+        raw = record.model_dump_json()
+        value = json.loads(raw)
+        if type(value) is not dict or model.model_validate_json(raw) != record:
+            raise AuthUnavailableError()
+        return value
+
+    async def locked_staff_memberships(self, db: AsyncConnection) -> tuple[MembershipRecord, ...]:
+        """Complete writer snapshot whose owner-side row locks survive this transaction."""
+        await self.qualified(db, self.binding.writer_role)
+        rows = (
+            (
+                await db.execute(
+                    text("SELECT * FROM portal_auth.lock_staff_memberships(:tenant)"),
+                    {"tenant": self.binding.tenant},
+                )
+            )
+            .scalars()
+            .all()
+        )
+        records = tuple(MembershipRecord.model_validate_json(raw) for raw in rows)
+        refs = tuple(record.principal_ref for record in records)
+        if (
+            refs != tuple(sorted(refs))
+            or len(set(refs)) != len(refs)
+            or any(record.tenant != self.binding.tenant for record in records)
+        ):
+            raise AuthUnavailableError()
+        return records
 
     async def _heads(self, db: AsyncConnection, session_ref: str, principal_ref: str) -> tuple[Any, Any]:
         rows = (
@@ -1442,8 +1489,8 @@ class PostgresAuthSourceLifecycle:
         new: SessionRecord | MembershipRecord | None,
         operation: str,
     ) -> str:
-        before = None if old is None else wire(old)
-        after = None if new is None else wire(new)
+        before = None if old is None else self.source_record(old)
+        after = None if new is None else self.source_record(new)
         request_digest = digest(
             {
                 "category": category,
@@ -1619,8 +1666,8 @@ class PostgresAuthSourceLifecycle:
                     "ref": identity_ref,
                     "revision": revision,
                     "operation": operation,
-                    "old": None if before is None else canonicalize(before).decode(),
-                    "new": None if after is None else canonicalize(after).decode(),
+                    "old": None if old is None else old.model_dump_json(),
+                    "new": None if new is None else new.model_dump_json(),
                     "new_digest": None if new is None else self.record_digest(category, new),
                     "digest": request_digest,
                     "dependencies": canonicalize(list(refs)).decode(),
@@ -1923,7 +1970,7 @@ class PostgresAuthSourceLifecycle:
             )
         if not rows:
             return False
-        if len(rows) != 1 or (new is not None and rows[0]["new_record"] != wire(new)):
+        if len(rows) != 1 or (new is not None and rows[0]["new_record"] != self.source_record(new)):
             raise AuthUnavailableError()
         change_id = rows[0]["change_id"]
         await self.prepare_change(change_id)
@@ -2040,7 +2087,7 @@ class PostgresAuthSourceLifecycle:
                         {
                             "tenant": self.binding.tenant,
                             "ref": record.principal_ref,
-                            "record": canonicalize(wire(record)).decode(),
+                            "record": record.model_dump_json(),
                         },
                     )
                 )
