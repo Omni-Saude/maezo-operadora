@@ -42,7 +42,7 @@ export const casePageFixture: CasePageView = {
   items: [
     {
       caseRef: "case_synthetic_auth_1",
-      kind: "beneficiary",
+      kind: "authorization",
       state: "active",
       recordRevision: "90071992547409930001",
       stateObservedAt: "2026-09-10T11:58:00Z",
