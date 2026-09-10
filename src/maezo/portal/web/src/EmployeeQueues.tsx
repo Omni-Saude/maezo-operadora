@@ -1,6 +1,8 @@
 import { DecisionWorkspace } from "./DecisionWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { TaskOwnershipControls } from "./TaskOwnershipControls";
+
 import {
   listTaskQueue,
   readTask,
@@ -117,7 +119,7 @@ function BooleanValue({ value }: { value: boolean }) {
   return <>{value ? "Sim" : "Não"}</>;
 }
 
-function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refreshQueue: () => void; prepare?: (taskId: string) => void }) {
+function TaskDetail({ state, refreshQueue, prepare, ownership }: { state: DetailState; refreshQueue: () => void; prepare?: (taskId: string) => void; ownership?: React.ReactNode }) {
   if (state.kind === "none") return null;
   if (state.kind === "loading") {
     return (
@@ -180,6 +182,7 @@ function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refr
           </dl>
         </section>
       )}
+      {ownership}
     </section>
   );
 }
@@ -188,13 +191,17 @@ export function EmployeeQueues({
   sessionBinding,
   csrfToken,
   onSessionUnavailable,
+  initialQueue = "mine",
+  showQueueNavigation = true,
 }: {
   sessionBinding: string;
   csrfToken?: string;
   onSessionUnavailable: () => void;
+  initialQueue?: QueueName;
+  showQueueNavigation?: boolean;
 }) {
   const [decisionTask, setDecisionTask] = useState<string | null>(null);
-  const [queue, setQueue] = useState<QueueName>("mine");
+  const [queue, setQueue] = useState<QueueName>(initialQueue);
   const [queueState, setQueueState] = useState<QueueState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
   const queueEpoch = useRef(0);
@@ -401,14 +408,14 @@ export function EmployeeQueues({
         )}
       </div>
 
-      <nav className="queue-nav" aria-label="Filas de trabalho">
+      {showQueueNavigation && <nav className="queue-nav" aria-label="Filas de trabalho">
         <button type="button" aria-current={queue === "mine" ? "page" : undefined} onClick={() => chooseQueue("mine")}>
           Meu trabalho
         </button>
         <button type="button" aria-current={queue === "team" ? "page" : undefined} onClick={() => chooseQueue("team")}>
           Filas da equipe
         </button>
-      </nav>
+      </nav>}
 
       {queueState.kind === "loading" && <p className="queue-message" role="status">Carregando fila autorizada…</p>}
       {queueState.kind === "error" && <QueueError error={queueState.error} retry={() => void loadFirstPage()} />}
@@ -431,7 +438,20 @@ export function EmployeeQueues({
         </>
       )}
 
-      <TaskDetail state={detailState} refreshQueue={() => void loadFirstPage()} prepare={csrfToken ? setDecisionTask : undefined} />
+      <TaskDetail
+        state={detailState}
+        refreshQueue={() => void loadFirstPage()}
+        prepare={csrfToken ? setDecisionTask : undefined}
+        ownership={detailState.kind === "ready" && csrfToken ? (
+          <TaskOwnershipControls
+            taskId={detailState.task.task_id}
+            csrfToken={csrfToken}
+            sessionBinding={sessionBinding}
+            onSessionUnavailable={clearForSessionFailure}
+            onCommitted={() => void loadFirstPage()}
+          />
+        ) : undefined}
+      />
       {decisionTask && csrfToken && <DecisionWorkspace key={`${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
     </section>
   );
