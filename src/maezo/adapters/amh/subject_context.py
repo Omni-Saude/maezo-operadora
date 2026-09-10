@@ -32,7 +32,7 @@ from jsonschema import Draft4Validator, FormatChecker
 
 from maezo.adapters.amh.contract import load_contract_pin
 from maezo.ports.clinical_context import CodedSummary, SummaryPage
-from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailureReason, PortResult
+from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS, PortFailure, PortFailureReason, PortResult
 
 ARTIFACT = "schemas/openapi/maezo/v1/subject-context.openapi.yaml"
 READS = MappingProxyType(
@@ -229,8 +229,13 @@ class AmhSubjectContextAdapter:
                 "page_token": page_token,
             }
             query: list[tuple[str, str | int]] = []
+            effective_limit = limit
             for parameter in self._parameters[method]:
                 value = values[parameter["name"]]
+                if parameter["name"] == "limit" and value is None:
+                    # Omitted wire limit still has the pinned contract's maximum
+                    # page size; do not invent a local pagination policy.
+                    effective_limit = parameter["schema"].get("default")
                 if value is None and not parameter.get("required", False):
                     continue
                 validator = Draft4Validator(_json_schema(parameter["schema"]), format_checker=_FORMATS)
@@ -257,11 +262,17 @@ class AmhSubjectContextAdapter:
             )
             async with asyncio.timeout(timeout_seconds):
                 response = await self._executor.execute(request)
+            if not isinstance(response, PortResult) or type(response.succeeded) is not bool:
+                return PortResult.refused(Reason.CONTRACT_VIOLATION)
             if not response.succeeded:
-                if response.failure is None:
-                    return PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)
+                failure = response.failure
+                if not isinstance(failure, PortFailure):
+                    return PortResult.refused(Reason.CONTRACT_VIOLATION)
+                reason = failure.reason
+                if not isinstance(reason, Reason):
+                    return PortResult.refused(Reason.CONTRACT_VIOLATION)
                 # A foreign executor's detail is not trusted as PHI-safe.
-                return PortResult.refused(response.failure.reason)
+                return PortResult.refused(reason)
         except TimeoutError:
             return PortResult.refused(Reason.TIMEOUT)
         except Exception:
@@ -299,8 +310,16 @@ class AmhSubjectContextAdapter:
                     return PortResult.refused(Reason.CONTRACT_VIOLATION)
                 if body["consent_decision_ref"] != consent:
                     return PortResult.refused(Reason.CONSENT_REQUIRED)
+            if (
+                method == "get_subject_coverage"
+                and body.get("beneficiary_ref") is not None
+                and body["source_product"] != "tasy_healthcare_plan"
+            ):
+                # Canonical CoverageSummary prose scopes this optional lineage
+                # to Healthcare Plan; its nullable JSON shape alone cannot.
+                return PortResult.refused(Reason.CONTRACT_VIOLATION)
             if method.startswith("list_"):
-                if limit is not None and len(body["items"]) > limit:
+                if type(effective_limit) is not int or len(body["items"]) > effective_limit:
                     return PortResult.refused(Reason.CONTRACT_VIOLATION)
                 return PortResult.ok(
                     SummaryPage(

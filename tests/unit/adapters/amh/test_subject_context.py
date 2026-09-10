@@ -56,7 +56,14 @@ def consumer(monkeypatch):
             "type": "object",
             "additionalProperties": False,
             "required": ["status"],
-            "properties": {"status": {"type": "string", "enum": ["active", "suspended"]}},
+            "properties": {
+                "status": {"type": "string", "enum": ["active", "suspended"]},
+                "source_product": {
+                    "type": "string",
+                    "enum": ["tasy_hospital", "tasy_healthcare_plan"],
+                },
+                "beneficiary_ref": {"type": "string", "nullable": True},
+            },
         },
         "EncounterPage": {
             "type": "object",
@@ -85,7 +92,7 @@ def consumer(monkeypatch):
         "Limit": {
             "name": "limit",
             "in": "query",
-            "schema": {"type": "integer", "minimum": 1, "maximum": 200},
+            "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
         },
         "PageToken": {"name": "page_token", "in": "query", "schema": {"type": "string"}},
     }
@@ -330,3 +337,84 @@ async def test_oversize_page_and_mutable_registration_refuse(consumer):
     )
     assert result.failure.reason == Reason.SCOPE_NOT_SUPPORTED
     assert not executor.calls
+
+
+@pytest.mark.parametrize("method", ["list_subject_encounters", "list_subject_conditions"])
+@pytest.mark.parametrize(
+    "limit,count,accepted",
+    [(None, 50, True), (None, 51, False), (51, 51, True), (50, 51, False)],
+)
+async def test_effective_page_limit_includes_pinned_default(consumer, method, limit, count, accepted):
+    adapter, executor, _ = consumer
+    executor.body = {"items": [{}] * count, "next_page_token": "opaque_next"}
+    result = await getattr(adapter, method)(
+        "subject1", purpose_of_use="purpose1", consent_decision_ref="consent1", limit=limit
+    )
+    assert result.succeeded is accepted
+    if accepted:
+        assert len(result.value.items) == count
+        assert result.value.next_page_token == "opaque_next"
+    else:
+        assert result.failure.reason is Reason.CONTRACT_VIOLATION
+    assert dict(executor.calls[0].query).get("limit") == limit
+
+
+@pytest.mark.parametrize("source_product", ["tasy_healthcare_plan", "tasy_hospital"])
+@pytest.mark.parametrize("beneficiary", ["absent", None, "synthetic_beneficiary"])
+async def test_coverage_beneficiary_lineage_matches_source_product(consumer, source_product, beneficiary):
+    adapter, executor, _ = consumer
+    executor.body = {"status": "active", "source_product": source_product}
+    if beneficiary != "absent":
+        executor.body["beneficiary_ref"] = beneficiary
+    result = await adapter.get_subject_coverage(
+        "subject1", purpose_of_use="purpose1", consent_decision_ref="consent1"
+    )
+    accepted = source_product == "tasy_healthcare_plan" or beneficiary in ("absent", None)
+    assert result.succeeded is accepted
+    if accepted:
+        assert dict(result.value.attributes) == executor.body
+    else:
+        assert result.failure.reason is Reason.CONTRACT_VIOLATION
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        PortResult.refused("SYNTHETIC_PRIVATE_REASON"),
+        PortResult.refused(Reason.PURPOSE_DENIED.value),
+        PortResult(succeeded=False, failure="SYNTHETIC_PRIVATE_FAILURE"),
+        PortResult(succeeded=0, failure=PortResult.refused(Reason.PURPOSE_DENIED).failure),
+        {"succeeded": False, "failure": "SYNTHETIC_PRIVATE_ENVELOPE"},
+    ],
+)
+async def test_malformed_executor_failure_is_closed_without_echo(consumer, malformed):
+    adapter, executor, _ = consumer
+
+    async def refuse(request):
+        executor.calls.append(request)
+        return malformed
+
+    executor.execute = refuse
+    result = await adapter.get_subject_context(
+        "subject1", purpose_of_use="purpose1", consent_decision_ref="consent1"
+    )
+    assert len(executor.calls) == 1
+    assert result.failure.reason is Reason.CONTRACT_VIOLATION
+    assert result.failure.detail is None
+    assert "SYNTHETIC_PRIVATE" not in repr(result)
+
+
+@pytest.mark.parametrize("reason", list(Reason))
+async def test_each_closed_executor_reason_survives_without_private_detail(consumer, reason):
+    adapter, executor, _ = consumer
+
+    async def refuse(request):
+        return PortResult.refused(reason, detail="SYNTHETIC_PRIVATE_DETAIL")
+
+    executor.execute = refuse
+    result = await adapter.get_subject_context(
+        "subject1", purpose_of_use="purpose1", consent_decision_ref="consent1"
+    )
+    assert result.failure.reason is reason
+    assert result.failure.detail is None
+    assert "SYNTHETIC_PRIVATE" not in repr(result)
