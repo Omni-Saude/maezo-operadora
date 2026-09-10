@@ -539,16 +539,54 @@ class TrustProfile(Record):
     inventory_bounds_sha256: Sha256
 
 
+INVENTORY_FAMILIES = (
+    "control.payload.credential_sessions",
+    "control.payload.journal",
+    "control.payload.journal.provider_outcome.failures",
+    "control.payload.journal.provider_outcome.returned_resource_ids",
+    "control.payload.journal.settlement.resource_proofs",
+    "control.payload.live_dispatchers",
+    "control.payload.managed_resources",
+    "control.payload.managed_resources.task_definition_revision.network_binding.security_group_ids",
+    "control.payload.managed_resources.task_definition_revision.network_binding.subnet_ids",
+    "control.payload.services",
+    "control.payload.services.deployments",
+    "control.payload.services.deployments.task_definition.network_binding.security_group_ids",
+    "control.payload.services.deployments.task_definition.network_binding.subnet_ids",
+    "control.payload.services.task_sets",
+    "control.payload.services.task_sets.task_definition.network_binding.security_group_ids",
+    "control.payload.services.task_sets.task_definition.network_binding.subnet_ids",
+    "control.payload.start_paths",
+    "control.payload.task_definitions",
+    "control.payload.task_definitions.network_binding.security_group_ids",
+    "control.payload.task_definitions.network_binding.subnet_ids",
+    "control.payload.tasks",
+    "control.payload.tasks.credential_session_ids",
+    "control.payload.tasks.task_definition.network_binding.security_group_ids",
+    "control.payload.tasks.task_definition.network_binding.subnet_ids",
+    "database.payload.generations",
+    "database.payload.generations.binding.network_binding.security_group_ids",
+    "database.payload.generations.binding.network_binding.subnet_ids",
+    "database.payload.generations.binding.task_definition_revision.network_binding.security_group_ids",
+    "database.payload.generations.binding.task_definition_revision.network_binding.subnet_ids",
+    "database.payload.memberships",
+    "database.payload.prepared_transactions",
+    "database.payload.roles",
+    "database.payload.routes",
+    "database.payload.routes.backend_login_oids",
+    "database.payload.sessions",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class InventoryBound(Record):
     collection_path: Id
-    expected_inventory_sha256: Sha256
     max_entries: int
 
 
 @dataclass(frozen=True, slots=True)
 class InventoryBounds(Record):
-    protocol: Literal["maezo.provisioning-inventory-bounds.v1"]
+    protocol: Literal["maezo.provisioning-inventory-bounds.v2"]
     scope: Scope
     bounds: tuple[InventoryBound, ...]
 
@@ -2251,10 +2289,9 @@ _DEFINITIONS: dict[str, Any] = {
     "InventoryBound": {
         "type": "object",
         "additionalProperties": False,
-        "required": ["collection_path", "expected_inventory_sha256", "max_entries"],
+        "required": ["collection_path", "max_entries"],
         "properties": {
-            "collection_path": {"$ref": "#/$defs/Id"},
-            "expected_inventory_sha256": {"$ref": "#/$defs/Sha256"},
+            "collection_path": {"enum": list(INVENTORY_FAMILIES)},
             "max_entries": {"type": "integer", "minimum": 0, "maximum": 1024},
         },
     },
@@ -2263,13 +2300,13 @@ _DEFINITIONS: dict[str, Any] = {
         "additionalProperties": False,
         "required": ["protocol", "scope", "bounds"],
         "properties": {
-            "protocol": {"const": "maezo.provisioning-inventory-bounds.v1"},
+            "protocol": {"const": "maezo.provisioning-inventory-bounds.v2"},
             "scope": {"$ref": "#/$defs/Scope"},
             "bounds": {
                 "type": "array",
                 "items": {"$ref": "#/$defs/InventoryBound"},
-                "minItems": 1,
-                "maxItems": 1024,
+                "minItems": 35,
+                "maxItems": 35,
                 "uniqueItems": True,
             },
         },
@@ -4424,6 +4461,7 @@ def _relations(name: str, v: Any) -> None:
         _profile_relations(v)
     if name == "InventoryBounds":
         _unique(v["bounds"], ("collection_path",))
+        _need(tuple(b["collection_path"] for b in v["bounds"]) == INVENTORY_FAMILIES)
     if name in {"ControlObservation", "DatabaseObservation", "CredentialSession"}:
         _need(v["expires_at_ms"] > v["issued_at_ms"])
         if name != "CredentialSession":
@@ -4637,6 +4675,84 @@ def _journal_relations(v: dict[str, Any]) -> None:
                 )
 
 
+def _task_identity(resource: dict[str, Any], task: dict[str, Any]) -> bool:
+    return all(resource[k] == task[k] for k in ("generation_id", "image_sha256", "config_set_sha256")) and (
+        resource["task_definition_revision"] == task["task_definition"]
+    )
+
+
+def _live_ready(payload: dict[str, Any], resource: dict[str, Any]) -> bool:
+    """Structural current readiness; qualified positive readiness is also mandatory."""
+    tasks = [t for t in payload["tasks"] if t["task_arn"] == resource["provider_resource_id"]]
+    return (
+        resource["desired_state"] == resource["current_observed_state"] == "READY"
+        and resource["retired_terminal_proof_sha256"] is None
+        and len(tasks) == 1
+        and tasks[0]["last_status"] == "RUNNING"
+        and _task_identity(resource, tasks[0])
+    )
+
+
+def _terminal_witness(payload: dict[str, Any], resource: dict[str, Any]) -> bool:
+    """Structural retained StopTask witness; matching bytes never confer authority."""
+    if (
+        resource["desired_state"] not in {"STOPPED", "ABSENT"}
+        or resource["current_observed_state"] not in {"STOPPED", "ABSENT"}
+        or resource["retired_terminal_proof_sha256"] is None
+    ):
+        return False
+    creators = [
+        j for j in payload["journal"] if j["external_operation_id"] == resource["external_operation_id"]
+    ]
+    if len(creators) != 1:
+        return False
+    creator = creators[0]
+    if (
+        creator["state"] != "SETTLED"
+        or creator["settlement"] is None
+        or creator["settlement"]["settlement_class"] != "CURRENT_LIVE_TRACKED"
+        or creator["action"] != "RunTask"
+        or creator["generation_id"] != resource["generation_id"]
+    ):
+        return False
+    for task in payload["tasks"]:
+        if task["task_arn"] == resource["provider_resource_id"] and (
+            task["last_status"] != "STOPPED" or not _task_identity(resource, task)
+        ):
+            return False
+    witnesses = []
+    for journal in payload["journal"]:
+        settlement = journal["settlement"]
+        if (
+            journal["external_operation_id"] == creator["external_operation_id"]
+            or journal["action"] != "StopTask"
+            or journal["state"] != "SETTLED"
+            or journal["generation_id"] != resource["generation_id"]
+            or journal["epoch"] < creator["epoch"]
+            or settlement is None
+            or settlement["settlement_class"] != "RETIRED_RESOURCES_TERMINAL"
+        ):
+            continue
+        proofs = settlement["resource_proofs"]
+        if len(proofs) == 1 and proofs[0]["resource_id"] == resource["provider_resource_id"]:
+            witnesses.append(proofs[0])
+    return (
+        len(witnesses) == 1
+        and witnesses[0]["generation_id"] == resource["generation_id"]
+        and witnesses[0]["terminal_kind"] == "TASK_STOPPED"
+        and witnesses[0]["observation_sha256"] == resource["observation_sha256"]
+        and _sha(witnesses[0]) == resource["retired_terminal_proof_sha256"]
+    )
+
+
+def live_ready(payload: ControlPayload, resource: ManagedResource) -> bool:
+    return _live_ready(payload.to_wire(), resource.to_wire())
+
+
+def task_terminal_witness(payload: ControlPayload, resource: ManagedResource) -> bool:
+    return _terminal_witness(payload.to_wire(), resource.to_wire())
+
+
 def _control_relations(v: dict[str, Any]) -> None:
     for field, names in (
         ("services", ("service_arn",)),
@@ -4657,12 +4773,10 @@ def _control_relations(v: dict[str, Any]) -> None:
         _need(set(task["credential_session_ids"]) <= sessions)
     for resource in v["managed_resources"]:
         task = tasks.get(resource["provider_resource_id"])
-        if resource["current_observed_state"] in {"RUNNING", "READY"}:
-            _need(task is not None)
-            assert task is not None
-            _same(resource, task, ("generation_id", "image_sha256", "config_set_sha256"))
-            _need(resource["task_definition_revision"] == task["task_definition"])
-            _need(task["last_status"] == "RUNNING")
+        if task is not None:
+            _need(_task_identity(resource, task))
+        if resource["retired_terminal_proof_sha256"] is not None:
+            _need(_terminal_witness(v, resource), "PENDING_UNKNOWN")
     for journal in v["journal"]:
         settlement = journal["settlement"]
         if settlement and settlement["settlement_class"] == "CURRENT_LIVE_TRACKED":
@@ -4673,11 +4787,7 @@ def _control_relations(v: dict[str, Any]) -> None:
             ]
             _need(bool(resources))
             for r in resources:
-                _need(
-                    r["generation_id"] == journal["generation_id"]
-                    and r["desired_state"] == r["current_observed_state"] == "READY"
-                    and r["retired_terminal_proof_sha256"] is None
-                )
+                _need(r["generation_id"] == journal["generation_id"])
             if journal["provider_outcome"]:
                 _need(
                     set(journal["provider_outcome"]["returned_resource_ids"])
@@ -4755,19 +4865,27 @@ def _active_relations(v: dict[str, Any]) -> None:
     _need(bool(cp["managed_resources"]))
     for resource in cp["managed_resources"]:
         if resource["generation_id"] == b["runtime_admission_generation"]:
-            _need(resource["desired_state"] == resource["current_observed_state"] == "READY")
+            _need(_live_ready(cp, resource), "PENDING_UNKNOWN")
             _need(resource["task_definition_revision"] == g["binding"]["task_definition_revision"])
         else:
             _need(
-                resource["current_observed_state"] in {"STOPPED", "ABSENT"}
-                and resource["retired_terminal_proof_sha256"] is not None,
+                _terminal_witness(cp, resource),
                 "PENDING_UNKNOWN",
             )
     _need(any(r["generation_id"] == b["runtime_admission_generation"] for r in cp["managed_resources"]))
     for journal in cp["journal"]:
         _need(journal["state"] in {"SETTLED", "REJECTED", "CANCELLED_UNSENT"}, "PENDING_UNKNOWN")
-        if journal["state"] == "SETTLED" and journal["generation_id"] != b["runtime_admission_generation"]:
-            _need(journal["settlement"]["settlement_class"] != "CURRENT_LIVE_TRACKED", "PENDING_UNKNOWN")
+        if (
+            journal["state"] == "SETTLED"
+            and journal["generation_id"] != b["runtime_admission_generation"]
+            and journal["settlement"]["settlement_class"] == "CURRENT_LIVE_TRACKED"
+        ):
+            linked = [
+                r
+                for r in cp["managed_resources"]
+                if r["external_operation_id"] == journal["external_operation_id"]
+            ]
+            _need(bool(linked) and all(_terminal_witness(cp, r) for r in linked), "PENDING_UNKNOWN")
 
 
 def signature_input(observation: ControlObservation | DatabaseObservation) -> bytes:
@@ -4948,24 +5066,21 @@ def check_observation_profile(
     _need(key.lifecycle == "ACTIVE", "AUTH_REFUSED")
     _need(key.issuer == observation.issuer and key.audience == observation.audience, "AUTH_REFUSED")
     _need(key.not_before_ms <= observation.issued_at_ms < observation.expires_at_ms <= key.expires_at_ms)
-    collected: dict[str, list[Any]] = {}
+    entries = {b.collection_path: b for b in bounds.bounds}
 
-    def collect(value: Any, path: str) -> None:
+    def collect(value: Any, family: str) -> None:
         if type(value) is dict:
             for field, child in value.items():
-                collect(child, path + "." + field)
+                collect(child, family + "." + field)
         elif type(value) is list:
-            collected[path] = value
-            for index, child in enumerate(value):
-                collect(child, path + "." + str(index))
+            _need(family in entries, "UNAVAILABLE")
+            _need(len(value) <= entries[family].max_entries)
+            # Every concrete occurrence is checked independently. Entering an
+            # array element preserves its schema family, never a numeric alias.
+            for child in value:
+                collect(child, family)
 
     collect(observation.payload.to_wire(), observation.kind + ".payload")
-    entries = {b.collection_path: b for b in bounds.bounds}
-    for path, collection in collected.items():
-        _need(path in entries, "UNAVAILABLE")
-        bound = entries[path]
-        _need(len(collection) <= bound.max_entries)
-        _need(_sha(collection) == bound.expected_inventory_sha256)
 
 
 def check_activation_read(
