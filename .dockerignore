@@ -39,6 +39,8 @@ deploy/
 deploy/*
 !deploy/cibseven/
 deploy/cibseven/*
+# Script de configuracao do motor, com as demais excecoes fechadas abaixo.
+!deploy/cibseven/configure-group-whitelist.sh
 !deploy/cibseven/human-webapp/
 deploy/cibseven/human-webapp/*
 !deploy/cibseven/human-webapp/WEB-INF/

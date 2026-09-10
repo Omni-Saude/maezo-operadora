@@ -161,9 +161,12 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "emissor de metrica de tier: telemetria nunca pode quebrar uma geracao",
     ),
     "src/maezo/runtime/inference/br_regional.py::BedrockBrRegionalTransport::send": (
-        1,
-        "firewall de SDK: converte a excecao do botocore em BrRegionalTransportUnavailableError e "
-        "RE-LEVANTA tipada (nenhum tipo de SDK escapa deste modulo)",
+        2,
+        "firewall de SDK, nas DUAS pernas: (1) a excecao do botocore no envio vira "
+        "BrRegionalTransportUnavailableError tipada (retryable so' para throttling); (2) desde a "
+        "admissao regional (09/09/2026) a leitura da RESPOSTA ja' despachada tambem e' cercada — "
+        "resposta invalida vira o mesmo erro tipado com committed=True, porque o pedido JA' saiu e "
+        "um retry cego duplicaria a chamada PHI. Nenhum tipo de SDK escapa deste modulo",
     ),
     "src/maezo/runtime/inference/br_resident_provider.py::BrResidentInferenceProvider::_send": (
         1,

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -69,21 +70,11 @@ logger = structlog.get_logger(__name__)
 #: network fence cannot drift apart. This leg does not invent that artifact.
 BR_REGIONAL_ENDPOINT_HOST_SUFFIXES: Final[tuple[str, ...]] = (
     ".br-sao-paulo.phi.maezo.internal",
-    # ATO DE DONO, cumprido em 19/08/2026, e o comentário acima previa que seria assim: "widening
-    # it to a real hostname is an OWNER act that travels with the DPA". O fornecedor escolhido é a
-    # AWS, com quem o contrato JÁ EXISTE — não houve contratação nova.
-    #
-    # A REGIÃO ESTÁ NO PRÓPRIO NOME, e é isso que torna este suffix uma verificação e não uma
-    # concessão: `bedrock-runtime.sa-east-1.amazonaws.com` só casa com o endpoint regional de São
-    # Paulo. Qualquer outra região, ou qualquer outro serviço da AWS, falha o allowlist. Um
-    # `.amazonaws.com` genérico teria sido uma porta aberta; este não é.
-    #
-    # O QUE ISTO NÃO PROVA, dito para não ser sobre-lido: o allowlist prova que a URL está na
-    # lista, não que quem responde ali está em São Paulo. Para o Bedrock a diferença é menor que
-    # para um fornecedor qualquer — chamada `ON_DEMAND` no endpoint regional é servida na região,
-    # e o roteamento entre regiões existe apenas nos perfis `global.*`, que este transporte
-    # RECUSA por prefixo. Medido em 19/08/2026 na conta 203312548462: 40 modelos `ON_DEMAND` em
-    # sa-east-1 e 16 apenas via `INFERENCE_PROFILE` (todos `global.*`).
+    # Existing configured AWS regional endpoint. URL admission is not execution-location
+    # evidence or a new owner approval. Bedrock additionally checks the exact resolved
+    # origin/region and binds model selection to a regional foundation-model ARN before
+    # dispatch; cross-region profiles include geographic and application forms, not only
+    # global.*. The contractual basis is reported separately from vendor response evidence.
     "bedrock-runtime.sa-east-1.amazonaws.com",
 )
 
@@ -91,16 +82,17 @@ BR_REGIONAL_ENDPOINT_HOST_SUFFIXES: Final[tuple[str, ...]] = (
 #: structurally rather than left to deployment configuration.
 BR_REGIONAL_ENDPOINT_SCHEME: Final[str] = "https"
 
-#: Request headers carrying the contract the adapter enforces client-side. Sent on EVERY request;
-#: the response must echo the first two (see `BrRegionalResponse`) or the adapter refuses the
-#: completion. Namespaced `X-Maezo-` because they are OUR assertions to a vendor, not a standard.
+#: Flags on the adapter transport-seam request. A generic HTTP transport can require
+#: vendor echoes; Bedrock consumes the operator reference locally because Converse
+#: neither sends these custom headers nor returns those echoes. Response evidence
+#: sources distinguish those contracts. These are Maezo assertions, not AWS standards.
 HEADER_ZERO_RETENTION: Final[str] = "X-Maezo-Zero-Retention"
 HEADER_TRAINING_PROHIBITED: Final[str] = "X-Maezo-Training-Prohibited"
 HEADER_DATA_CLASSIFICATION: Final[str] = "X-Maezo-Data-Classification"
 HEADER_VENDOR_DPA_REF: Final[str] = "X-Maezo-Vendor-Dpa-Ref"
 HEADER_CACHE_PREFIX_CHARS: Final[str] = "X-Maezo-Cache-Prefix-Chars"
 
-#: The `served_region` value a response must attest to be accepted (W8/ADR-0006).
+#: Region eligibility value checked by the provider; evidence source is explicit (W8/ADR-0006).
 BR_REGIONAL_ATTESTED_REGION: Final[str] = DeploymentRegion.BR_SAO_PAULO.value
 
 #: The three OWNER ACTS that gate a BR-resident boot, read STRICTLY from the process environment.
@@ -271,17 +263,15 @@ class BrRegionalRequest:
 class BrRegionalResponse:
     """One response on the BR-regional inference wire contract.
 
-    THE ATTESTATION FIELDS ARE THE POINT. ``served_region``, ``zero_retention_acknowledged`` and
-    ``training_prohibited_acknowledged`` are what turn `BR_RESIDENT_CAPABILITIES`' declaration
-    from a comment into something checkable on every single call: the adapter refuses a
-    completion whose response does not affirm all three. ``endpoint_url`` is the URL that
-    ACTUALLY answered (post-redirect), which is how a vendor redirecting PHI out of the approved
-    endpoint is caught rather than followed.
-
-    A vendor can of course lie in all four. Stated plainly so the check is not over-read: this
-    detects a MISCONFIGURED or MISBEHAVING-BY-DEFAULT endpoint, which is the realistic failure,
-    and it is the strongest claim a client can make unaided. A dishonest counterparty is a DPA
-    and network-proof problem (see `BR_RESIDENT_CAPABILITIES`).
+    The existing eligibility fields remain checked by the provider. Their provenance
+    is explicit: a generic transport can report vendor-response assertions, while
+    Bedrock exposes a resolved SDK endpoint and a direct regional resource contract.
+    Converse does NOT return a per-response execution region or retention/training
+    acknowledgements. Its region eligibility is therefore an inference from the
+    admitted request routing contract, never a vendor-observed execution location;
+    retention/training acknowledgements derive from the operator contract reference.
+    These sources do not establish model availability, vendor/legal approval or
+    network-level execution evidence. Synthetic transports label their evidence.
 
     Repr redacts for the same reason as the request — ``completion`` is model output over PHI —
     and by the same two mechanisms, with the same division of labour (see
@@ -293,10 +283,10 @@ class BrRegionalResponse:
     model: str
     usage: BrRegionalTokenUsage
 
-    #: The URL that actually served this response, after any redirect the transport followed.
+    #: Endpoint checked by the provider; see endpoint_evidence_source for its provenance.
     endpoint_url: str
 
-    #: The vendor's declared execution region for THIS response.
+    #: Region eligibility assertion, whose basis is region_evidence_source.
     served_region: str
 
     zero_retention_acknowledged: bool
@@ -311,6 +301,12 @@ class BrRegionalResponse:
     #: A vendor refusal (safety classifier, policy). Carries a CODE, never the refused content.
     refusal_code: str = ""
 
+    # Defaults preserve the generic vendor-response contract; concrete SDK/fake transports
+    # must identify their weaker/different evidence instead of claiming an observed echo.
+    region_evidence_source: str = "vendor_response"
+    endpoint_evidence_source: str = "vendor_response"
+    retention_evidence_source: str = "vendor_response"
+
     def __repr__(self) -> str:
         """Counts, enums and a fingerprint. No completion bytes."""
         return (
@@ -318,6 +314,9 @@ class BrRegionalResponse:
             f"completion_chars={len(self.completion)}, "
             f"completion_fingerprint={_fingerprint(self.completion)!r}, "
             f"served_region={self.served_region!r}, "
+            f"region_evidence_source={self.region_evidence_source!r}, "
+            f"endpoint_evidence_source={self.endpoint_evidence_source!r}, "
+            f"retention_evidence_source={self.retention_evidence_source!r}, "
             f"zero_retention_acknowledged={self.zero_retention_acknowledged}, "
             f"training_prohibited_acknowledged={self.training_prohibited_acknowledged}, "
             f"synthetic={self.synthetic}, refusal_code={self.refusal_code!r})"
@@ -344,45 +343,56 @@ class BrRegionalTransport(Protocol):
     async def send(self, request: BrRegionalRequest) -> BrRegionalResponse: ...
 
 
+# Closed foundation-model resource grammar from AWS GetFoundationModel. Converse
+# accepts foundation-model ARNs; profiles, routers and other resource kinds remain
+# outside this transport contract. Passing the qualified ARN (even for short IDs)
+# prevents an ambiguous bare selector from being interpreted as an inference profile.
+# https://docs.aws.amazon.com/bedrock/latest/APIReference/API_GetFoundationModel.html
+# https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html
+_BEDROCK_FOUNDATION_ARN_PREFIX: Final[str] = "arn:aws:bedrock:sa-east-1::foundation-model/"
+_BEDROCK_FOUNDATION_MODEL_ID = re.compile(
+    r"[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){1,3}(?::[a-z0-9-]{1,63}){0,2}"
+)
+# Defense in depth for known profile IDs. This is NOT the admission boundary:
+# the closed resource-kind/partition/region and the ARN sent on the wire are.
+_BEDROCK_PROFILE_NAMESPACES: Final[frozenset[str]] = frozenset({"global", "us", "eu", "apac", "us-gov"})
+_BEDROCK_REGIONAL_ENDPOINT: Final[str] = "https://bedrock-runtime.sa-east-1.amazonaws.com"
+
+
+def _bedrock_direct_model_arn(model: str) -> str:
+    """Bind a canonical direct selector to a regional resource; never approve a model.
+
+    Syntax proves the selected resource class, not its existence, availability or
+    suitability for PHI. The existing explicit model and owner gates still apply.
+    No decoding, whitespace normalization, arbitrary prefix removal or fallback is allowed.
+    """
+    identifier = model.removeprefix(_BEDROCK_FOUNDATION_ARN_PREFIX) if isinstance(model, str) else ""
+    if (
+        not _BEDROCK_FOUNDATION_MODEL_ID.fullmatch(identifier)
+        or identifier.split(".", 1)[0] in _BEDROCK_PROFILE_NAMESPACES
+    ):
+        raise BrRegionalTransportUnavailableError(
+            "bedrock_phi_model_not_direct_regional_foundation_model", retryable=False
+        )
+    return _BEDROCK_FOUNDATION_ARN_PREFIX + identifier
+
+
 class BedrockBrRegionalTransport:
-    """Transporte BR-regional REAL: Bedrock em sa-east-1, pelo `converse` do boto3.
+    """Bedrock Converse restricted to direct foundation models in sa-east-1.
 
-    POR QUE UM TRANSPORTE E NÃO UM PROVEDOR NOVO. Um provedor ao lado do `bedrock` não resolveria
-    nada: `BEDROCK_CAPABILITIES` declara `max_data_classification=INTERNAL` e
-    `deployment_region=GLOBAL_MULTI_REGION`, então a narrativa do dossiê seguiria bloqueada
-    exatamente como está — modelo brasileiro e mesmo impedimento. O lugar certo já existia:
-    `BrResidentInferenceProvider` declara PHI + BR_SAO_PAULO e cobra, a cada chamada, o allowlist
-    do endpoint e as três atestações da resposta. Plugando aqui, o Bedrock regional HERDA tudo
-    isso; escrevendo um provedor irmão, herdaria nada.
+    Before the SDK sees the prompt, admit the complete requested AND resolved SDK
+    endpoint, resolved region, operator DPA reference and a closed regional resource
+    selector. Exact endpoint equality includes scheme/host/port/path/userinfo/query;
+    unknown, malformed or normalized aliases refuse rather than being rewritten.
 
-    POR QUE `converse` DO BOTO3 E NÃO O SDK DA ANTHROPIC. `BedrockInferenceProvider` usa
-    `anthropic.AsyncAnthropicBedrock`, que só fala com modelos Anthropic — e TODOS os Anthropic
-    desta conta são perfis `global.*`, que roteiam entre regiões por desenho. `converse` é
-    agnóstico de fornecedor, e é por ele que os modelos `ON_DEMAND` regionais são alcançáveis.
+    The response distinguishes SDK configuration, contractual direct-resource routing
+    and the operator's retention/training instrument. Neither client.meta.region_name
+    nor the DPA reference is vendor-observed execution evidence. Converse does not
+    return that evidence, and X-Maezo headers are NOT sent/echoed by the Converse API.
+    This source policy supplies no approved vendor/model or legal/privacy ratification.
 
-    AS DUAS ATESTAÇÕES SÃO OBSERVADAS, NÃO DECLARADAS, e a distinção é o que dá valor ao
-    `_validate_response` do provedor:
-
-      * `endpoint_url` — o endpoint que o botocore RESOLVEU (`client.meta.endpoint_url`). Se ele
-        divergir do que o provedor discou, devolvemos o resolvido: o provedor então recusa por
-        fuga de residência, que é o comportamento correto.
-      * `served_region` — `br-sao-paulo` SOMENTE se a região do cliente for `sa-east-1` E o
-        modelo não tiver prefixo `global.`. Fora disso devolvemos a região real, e o provedor
-        recusa. Nunca afirmamos a região desejada; relatamos a que existe.
-
-    E A TERCEIRA NÃO É, e isto precisa estar escrito sem eufemismo: o Bedrock não devolve
-    cabeçalho de retenção zero nem de proibição de treino. As duas confirmações que este
-    transporte marca vêm do OPERADOR ter nomeado o instrumento contratual em
-    `MAEZO_PHI_VENDOR_DPA_REF` — para o Bedrock, os Termos de Serviço da AWS. É atestação de
-    quem configurou, NÃO eco do fornecedor. Sem essa variável o provedor recusa construir, então
-    a confirmação nunca é automática; mas ela é mais fraca que um eco, e quem lê o log tem de
-    saber disso. É a razão pela qual o header `X-Maezo-Vendor-Dpa-Ref` continua sendo enviado:
-    ele é o registro de QUAL instrumento foi invocado.
-
-    SEM CREDENCIAL NA URL: o Bedrock autentica por SigV4 pela cadeia de credenciais da AWS,
-    resolvida pelo botocore a cada requisição. Por isso `usa_credencial_propria` — o portão de
-    `MAEZO_PHI_API_KEY` do provedor não se aplica a um transporte que não usa bearer token, e
-    exigir uma chave inventada só para satisfazer o portão seria mentir para o portão.
+    SigV4 uses the AWS credential chain. Existing timeout and retry settings remain
+    unchanged; any failure after dispatch remains committed to prevent PHI replay.
     """
 
     #: O provedor consulta isto para saber se o portão de `MAEZO_PHI_API_KEY` se aplica.
@@ -405,20 +415,35 @@ class BedrockBrRegionalTransport:
                 config=Config(
                     read_timeout=timeout_s,
                     connect_timeout=min(timeout_s, 10.0),
-                    # Uma tentativa: o provedor tem orçamento de retry próprio, ciente de
-                    # idempotência. Duas camadas de retry sobre PHI re-transmitem prompt.
+                    # Configuracao SDK existente, preservada por este reparo de admissao.
+                    # O budget externo recusa reenviar uma chamada marcada committed.
                     retries={"max_attempts": 1, "mode": "standard"},
                 ),
             )
 
-    async def send(self, request: BrRegionalRequest) -> BrRegionalResponse:
-        """Uma chamada ao Bedrock regional, com o que foi OBSERVADO na resposta."""
-        if request.model.startswith("global."):
+    def _admit_endpoint(self, request: BrRegionalRequest, *, committed: bool = False) -> None:
+        meta = getattr(self._client, "meta", None)
+        if (
+            request.endpoint_url != _BEDROCK_REGIONAL_ENDPOINT
+            or getattr(meta, "endpoint_url", None) != _BEDROCK_REGIONAL_ENDPOINT
+            or getattr(meta, "region_name", None) != self.REGIAO
+        ):
             raise BrRegionalTransportUnavailableError(
-                f"modelo {request.model!r} usa perfil `global.*`, que roteia entre regiões por "
-                "desenho — recusando ANTES de transmitir. A zona PHI exige um modelo servido na "
-                "região (inferência `ON_DEMAND` em sa-east-1).",
+                "bedrock_phi_resolved_endpoint_or_region_not_admitted",
                 retryable=False,
+                committed=committed,
+            )
+
+    async def send(self, request: BrRegionalRequest) -> BrRegionalResponse:
+        """Refuse unsafe routing before dispatch; keep evidence provenance explicit."""
+        model_arn = _bedrock_direct_model_arn(request.model)
+        self._admit_endpoint(request)
+        dpa_ref = (
+            request.headers.get(HEADER_VENDOR_DPA_REF, "") if isinstance(request.headers, Mapping) else ""
+        )
+        if not isinstance(dpa_ref, str) or not dpa_ref.strip():
+            raise BrRegionalTransportUnavailableError(
+                "bedrock_phi_operator_contract_reference_missing", retryable=False
             )
 
         # boto3 é síncrono; `to_thread` mantém o loop livre sem introduzir um cliente async
@@ -426,7 +451,7 @@ class BedrockBrRegionalTransport:
         try:
             bruto = await asyncio.to_thread(
                 self._client.converse,
-                modelId=request.model,
+                modelId=model_arn,
                 messages=[{"role": "user", "content": [{"text": request.prompt}]}],
                 inferenceConfig={"maxTokens": request.max_tokens, "temperature": 0.2},
             )
@@ -442,48 +467,49 @@ class BedrockBrRegionalTransport:
                 committed=True,
             ) from exc
 
-        blocos = (bruto.get("output") or {}).get("message", {}).get("content") or []
-        texto = next((b["text"] for b in blocos if isinstance(b, dict) and "text" in b), "")
-        uso = bruto.get("usage") or {}
+        try:
+            # Configuration drift after dispatch is still a committed failure; never
+            # normalize a mismatched endpoint into the requested one or retry elsewhere.
+            self._admit_endpoint(request, committed=True)
+            if 300 <= (bruto.get("ResponseMetadata") or {}).get("HTTPStatusCode", 200) < 400:
+                raise BrRegionalTransportUnavailableError(
+                    "bedrock_phi_redirect_response_refused", retryable=False, committed=True
+                )
+            blocos = (bruto.get("output") or {}).get("message", {}).get("content") or []
+            texto = next((b["text"] for b in blocos if isinstance(b, dict) and "text" in b), "")
+            uso = bruto.get("usage") or {}
+            parada = str(bruto.get("stopReason") or "")
 
-        parada = str(bruto.get("stopReason") or "")
-        regiao_real = getattr(self._client.meta, "region_name", "")
-        endpoint_real = str(getattr(self._client.meta, "endpoint_url", "") or "")
-
-        # O provedor compara `endpoint_url` com o que discou. Devolvemos o que o botocore
-        # RESOLVEU quando os hosts divergem — assim a divergência vira recusa por residência, em
-        # vez de passar como se fosse o mesmo endpoint.
-        mesmo_host = urlsplit(endpoint_real).hostname == urlsplit(request.endpoint_url).hostname
-        endpoint_devolvido = request.endpoint_url if mesmo_host else endpoint_real
-
-        # `served_region` é OBSERVAÇÃO: só afirmamos São Paulo quando o cliente está de fato em
-        # sa-east-1. Caso contrário devolvemos a região real e o provedor recusa.
-        servida = BR_REGIONAL_ATTESTED_REGION if regiao_real == self.REGIAO else regiao_real
-
-        # As duas confirmações vêm do operador ter nomeado o contrato (ver docstring da classe),
-        # e o header é o registro de qual instrumento foi invocado.
-        atestado_pelo_operador = bool(request.headers.get(HEADER_VENDOR_DPA_REF, "").strip())
-
-        return BrRegionalResponse(
-            completion=texto,
-            model=str(bruto.get("modelId") or request.model),
-            usage=BrRegionalTokenUsage(
-                input_tokens=int(uso.get("inputTokens") or 0),
-                output_tokens=int(uso.get("outputTokens") or 0),
-                # O Bedrock reporta cache de prompt em `cacheReadInputTokens` quando há; ausente
-                # significa zero, não desconhecido.
-                cached_prefix_tokens=int(uso.get("cacheReadInputTokens") or 0),
-            ),
-            endpoint_url=endpoint_devolvido,
-            served_region=servida,
-            zero_retention_acknowledged=atestado_pelo_operador,
-            training_prohibited_acknowledged=atestado_pelo_operador,
-            # NUNCA sintético: isto é uma chamada real. `RefusingBrRegionalTransport` é quem
-            # recusa, e `LabeledFakeBrRegionalTransport` é quem fabrica.
-            synthetic=False,
-            # `stopReason` normal (end_turn, max_tokens) NAO e' recusa; guardrail e'.
-            refusal_code=("guardrail_intervened" if parada == "guardrail_intervened" else ""),
-        )
+            return BrRegionalResponse(
+                completion=texto,
+                model=str(bruto.get("modelId") or request.model),
+                usage=BrRegionalTokenUsage(
+                    input_tokens=int(uso.get("inputTokens") or 0),
+                    output_tokens=int(uso.get("outputTokens") or 0),
+                    # O Bedrock reporta cache de prompt em `cacheReadInputTokens` quando há; ausente
+                    # significa zero, não desconhecido.
+                    cached_prefix_tokens=int(uso.get("cacheReadInputTokens") or 0),
+                ),
+                endpoint_url=_BEDROCK_REGIONAL_ENDPOINT,
+                # Eligibility from admitted direct regional routing, NOT a response field.
+                served_region=BR_REGIONAL_ATTESTED_REGION,
+                zero_retention_acknowledged=True,
+                training_prohibited_acknowledged=True,
+                region_evidence_source="regional_direct_model_contract",
+                endpoint_evidence_source="sdk_resolved_endpoint",
+                retention_evidence_source="operator_contract_reference",
+                # NUNCA sintético: isto é uma chamada real. `RefusingBrRegionalTransport` é quem
+                # recusa, e `LabeledFakeBrRegionalTransport` é quem fabrica.
+                synthetic=False,
+                # `stopReason` normal (end_turn, max_tokens) NAO e' recusa; guardrail e'.
+                refusal_code=("guardrail_intervened" if parada == "guardrail_intervened" else ""),
+            )
+        except BrRegionalTransportUnavailableError:
+            raise
+        except Exception as exc:
+            raise BrRegionalTransportUnavailableError(
+                "bedrock_phi_invalid_response_after_dispatch", retryable=False, committed=True
+            ) from exc
 
 
 class RefusingBrRegionalTransport:
@@ -657,6 +683,9 @@ class LabeledFakeBrRegionalTransport:
                 zero_retention_acknowledged=True,
                 training_prohibited_acknowledged=True,
                 synthetic=True,
+                region_evidence_source="synthetic",
+                endpoint_evidence_source="synthetic",
+                retention_evidence_source="synthetic",
                 refusal_code=FAKE_BR_REGIONAL_REFUSAL_CODE,
             )
 
@@ -686,6 +715,9 @@ class LabeledFakeBrRegionalTransport:
                 self._outcome is not FakeBrRegionalOutcome.TRAINING_NOT_ACKNOWLEDGED
             ),
             synthetic=True,
+            region_evidence_source="synthetic",
+            endpoint_evidence_source="synthetic",
+            retention_evidence_source="synthetic",
         )
 
 
