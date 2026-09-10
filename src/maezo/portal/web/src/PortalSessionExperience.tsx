@@ -1,15 +1,17 @@
-import { useId, useState, type Ref } from "react";
+import { useId, useMemo, useState, type Ref } from "react";
 
+import { AudienceAuthorizationExperience } from "./AudienceAuthorizationExperience";
 import { EmployeeQueues } from "./EmployeeQueues";
 import {
-  ExternalAreaPanel,
-  ExternalNavigation,
   StaffAreaPanel,
   StaffNavigation,
-  type ExternalArea,
   type StaffArea,
 } from "./PortalNavigation";
 import type { PortalAudience } from "./caseExperienceModels";
+import {
+  createCaseExperienceService,
+  type AuthorizationIntakeFormProvider,
+} from "./caseExperienceServiceFactory";
 
 function formatExpiry(expiresAt: string) {
   return new Intl.DateTimeFormat("pt-BR", {
@@ -136,40 +138,34 @@ export function StaffPortalExperience({
 export function ExternalPortalExperience({
   audience,
   expiresAt,
+  csrfToken,
+  sessionBinding,
   headingRef,
+  onSessionUnavailable,
+  intakeFormProvider,
 }: {
   audience: Exclude<PortalAudience, "staff">;
   expiresAt: string;
+  csrfToken: string;
+  sessionBinding: string;
   headingRef: Ref<HTMLHeadingElement>;
+  onSessionUnavailable: () => void;
+  intakeFormProvider?: AuthorizationIntakeFormProvider;
 }) {
-  const [activeArea, setActiveArea] = useState<ExternalArea>("requests");
-  const labels: Readonly<Record<ExternalArea, Readonly<{ title: string; description: string }>>> = {
-    requests: {
-      title: "Solicitações",
-      description: "A consulta de solicitações autorizadas ainda não está disponível nesta versão do portal.",
-    },
-    documents: {
-      title: "Documentos",
-      description: "A consulta e o envio de documentos ainda não estão disponíveis nesta versão do portal.",
-    },
-    communications: {
-      title: "Mensagens",
-      description: "As mensagens do caso ainda não estão disponíveis nesta versão do portal.",
-    },
-    receipts: {
-      title: "Recibos",
-      description: "A consulta de recibos ainda não está disponível nesta versão do portal.",
-    },
-  };
-  const selected = labels[activeArea];
+  const service = useMemo(() => createCaseExperienceService({
+    audience,
+    csrfToken,
+    intakeFormProvider,
+  }), [audience, csrfToken, intakeFormProvider, sessionBinding]);
 
   return (
     <main className="portal-session-main external-session-main">
       <SessionHeading audience={audience} expiresAt={expiresAt} headingRef={headingRef} />
-      <ExternalNavigation audience={audience} active={activeArea} onChange={setActiveArea} />
-      <ExternalAreaPanel area={activeArea} active>
-        <UnavailableArea title={selected.title}>{selected.description}</UnavailableArea>
-      </ExternalAreaPanel>
+      <AudienceAuthorizationExperience
+        audience={audience}
+        service={service}
+        onSessionUnavailable={onSessionUnavailable}
+      />
       <SecurityNote />
     </main>
   );

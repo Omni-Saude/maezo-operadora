@@ -592,7 +592,7 @@ function AudienceAuthorizationContext({
       <header className="experience-heading">
         <div>
           <p className="eyebrow">Área do {audienceLabel}</p>
-          <h1 id="authorization-heading">Autorizações</h1>
+          <h2 id="authorization-heading">Autorizações</h2>
           <p>Acompanhe cada solicitação, pendência, mensagem e resultado autorizado.</p>
         </div>
         <div className="trust-note">

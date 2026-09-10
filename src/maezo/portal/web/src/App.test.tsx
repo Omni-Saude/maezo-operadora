@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +28,19 @@ function jsonResponse(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+function emptyCasePage(audience: Exclude<Audience, "staff">) {
+  return {
+    schema: "portal-external-case-page.v1",
+    audience,
+    items: [],
+    next_cursor: null,
+    freshness: {
+      observed_at: "2099-09-10T12:00:00.000000Z",
+      valid_until: "2099-09-10T13:00:00.000000Z",
+    },
+  } as const;
 }
 
 function deferred<T>() {
@@ -89,15 +102,38 @@ it("oferece sete áreas e monta filas somente após a escolha do colaborador", a
   expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
 });
 
-it("mostra navegação externa sem fabricar dados quando o serviço ainda não está integrado", async () => {
-  vi.mocked(fetch).mockResolvedValue(jsonResponse(session("beneficiary")));
+it("compõe a consulta externa real sem enviar público ou CSRF na leitura", async () => {
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(jsonResponse(session("beneficiary")))
+    .mockResolvedValueOnce(jsonResponse(emptyCasePage("beneficiary")));
   render(<App />);
   expect(await screen.findByRole("heading", { name: "Área do beneficiário" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Autorizações", level: 2 })).toBeInTheDocument();
   expect(screen.getAllByRole("tab")).toHaveLength(4);
-  expect(screen.getByRole("heading", { name: "Solicitações" })).toBeInTheDocument();
+  expect(await within(screen.getByRole("tabpanel")).findByText(
+    "Nenhuma solicitação autorizada foi encontrada.",
+  )).toBeInTheDocument();
   await userEvent.click(screen.getByRole("tab", { name: "Documentos" }));
-  expect(screen.getByRole("heading", { name: "Documentos" })).toBeInTheDocument();
-  expect(screen.getByText(/ainda não estão disponíveis/)).toBeInTheDocument();
+  expect(within(screen.getByRole("tabpanel")).getByText(
+    "Abra uma solicitação para consultar esta área.",
+  )).toBeInTheDocument();
+  const [path, options] = vi.mocked(fetch).mock.calls[1];
+  expect(path).toBe("/api/v1/portal/cases");
+  expect(options).toMatchObject({
+    method: "GET", credentials: "same-origin", cache: "no-store", redirect: "error",
+    headers: { Accept: "application/json" },
+  });
+  expect(JSON.stringify([path, options])).not.toMatch(/beneficiary|csrf-secret|opaque-principal/i);
+});
+
+it("mantém o formulário do prestador indisponível sem provedor de opções autorizado", async () => {
+  vi.mocked(fetch)
+    .mockResolvedValueOnce(jsonResponse(session("provider")))
+    .mockResolvedValueOnce(jsonResponse(emptyCasePage("provider")));
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Este recurso não está mais disponível.");
+  expect(fetch).toHaveBeenCalledTimes(2);
 });
 
 it("trata 401 como sessão ausente e oferece a entrada canônica", async () => {
@@ -112,7 +148,8 @@ it("trata 401 como sessão ausente e oferece a entrada canônica", async () => {
 it("distingue 503, nega acesso e permite repetir a validação", async () => {
   vi.mocked(fetch)
     .mockResolvedValueOnce(new Response(null, { status: 503 }))
-    .mockResolvedValueOnce(jsonResponse(session("beneficiary")));
+    .mockResolvedValueOnce(jsonResponse(session("beneficiary")))
+    .mockResolvedValueOnce(jsonResponse(emptyCasePage("beneficiary")));
   render(<App />);
   expect(await screen.findByText("Uma dependência do portal não respondeu. Nenhum acesso foi concedido.")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
@@ -158,11 +195,59 @@ it("remove o workspace antes de aplicar uma mudança de audiência", async () =>
   expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
 });
 
+it("substitui o serviço externo e descarta a consulta antiga após revalidar a sessão", async () => {
+  const oldCases = deferred<Response>();
+  let sessionReads = 0;
+  let caseReads = 0;
+  vi.mocked(fetch).mockImplementation((input) => {
+    const path = String(input);
+    if (path === "/api/v1/portal/session") {
+      sessionReads += 1;
+      return Promise.resolve(jsonResponse(session(sessionReads === 1 ? "beneficiary" : "provider")));
+    }
+    if (path === "/api/v1/portal/cases") {
+      caseReads += 1;
+      return caseReads === 1
+        ? oldCases.promise
+        : Promise.resolve(jsonResponse(emptyCasePage("provider")));
+    }
+    throw new Error(`rota inesperada: ${path}`);
+  });
+  render(<App />);
+  expect(await screen.findByRole("heading", { name: "Área do beneficiário" })).toBeInTheDocument();
+  await waitFor(() => expect(caseReads).toBe(1));
+  const oldCaseCall = vi.mocked(fetch).mock.calls.find(([path]) => path === "/api/v1/portal/cases");
+  const oldSignal = oldCaseCall?.[1]?.signal;
+  expect(oldSignal).toBeInstanceOf(AbortSignal);
+
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  fireEvent(document, new Event("visibilitychange"));
+  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(oldSignal?.aborted).toBe(true);
+
+  oldCases.resolve(jsonResponse({
+    ...emptyCasePage("beneficiary"),
+    items: [{
+      case_ref: "case_old_abcdefghijklmnop",
+      kind: "authorization",
+      state: "active",
+      record_revision: "1",
+      state_observed_at: "2099-09-10T12:00:00.000000Z",
+    }],
+  }));
+  await act(async () => Promise.resolve());
+  expect(screen.queryByText(/case_old_/)).not.toBeInTheDocument();
+  expect(await within(screen.getByRole("tabpanel")).findByText(
+    "Nenhuma solicitação autorizada foi encontrada.",
+  )).toBeInTheDocument();
+});
+
 it("revalida ao expirar e remove a autoridade da tela antes da resposta", async () => {
   vi.useFakeTimers();
   const expiresAt = new Date(Date.now() + 1_000).toISOString();
   vi.mocked(fetch)
     .mockResolvedValueOnce(jsonResponse(session("provider", expiresAt)))
+    .mockResolvedValueOnce(jsonResponse(emptyCasePage("provider")))
     .mockResolvedValueOnce(new Response(null, { status: 401 }));
   render(<App />);
   await act(async () => Promise.resolve());
@@ -197,6 +282,7 @@ it("encerra por POST com credenciais same-origin, no-store e CSRF apenas no head
 it("não anuncia logout no erro, limpa a sessão visível e oferece retry seguro", async () => {
   vi.mocked(fetch)
     .mockResolvedValueOnce(jsonResponse(session("beneficiary")))
+    .mockResolvedValueOnce(jsonResponse(emptyCasePage("beneficiary")))
     .mockResolvedValueOnce(new Response(null, { status: 503 }))
     .mockResolvedValueOnce(new Response(null, { status: 204 }));
   render(<App />);
@@ -206,7 +292,7 @@ it("não anuncia logout no erro, limpa a sessão visível e oferece retry seguro
   expect(screen.queryByText("Sessão encerrada")).not.toBeInTheDocument();
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   fireEvent(document, new Event("visibilitychange"));
-  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch).toHaveBeenCalledTimes(3);
   await userEvent.click(screen.getByRole("button", { name: "Tentar sair novamente" }));
   expect(await screen.findByRole("heading", { name: "Sessão encerrada" })).toBeInTheDocument();
 });
