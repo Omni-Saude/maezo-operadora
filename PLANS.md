@@ -1,5 +1,7 @@
 # PLANS.md — Maezo Operadora (Greenfield v2) — STATUS REAL (GROUND-TRUTH, corrigido 2026-07-19)
 
+> **Express cleanup completed 2026-09-10:** ROOT coordination and nine historical source WIPs published; five worktrees/four local branches/one remote branch removed after independent checks. Read the latest express section of CHECKPOINT.md. Product merge gates remain open.
+
 > **Current execution state — 2026-09-10:** User-requested graceful pause. Read [CHECKPOINT.md](CHECKPOINT.md) first for current GitHub refs, preserved WIP, remaining product work and evidence limits. Historical completion percentages below do not describe this candidate.
 
 > **⚠️ ESTE DOCUMENTO FOI CORRIGIDO EM 2026-07-19 PARA REFLETIR A VERDADE VERIFICADA.**
