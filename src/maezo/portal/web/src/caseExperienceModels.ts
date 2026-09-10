@@ -175,6 +175,22 @@ export type AuthorizationIntakeResult =
   | Readonly<{ kind: "success"; progress: AuthorizationIntakeProgressView }>
   | Readonly<{ kind: "failure"; failure: CaseExperienceFailure }>;
 
+export type AuthorizationRecoveryEntryView = Readonly<{
+  commandId: string;
+  progress: AuthorizationIntakeProgressView;
+}>;
+
+export type AuthorizationRecoveryPageView = Readonly<{
+  items: readonly AuthorizationRecoveryEntryView[];
+  nextCursor: string | null;
+}>;
+
+export type PendingAuthorizationObservationResult =
+  | Readonly<{ kind: "success"; progress: AuthorizationIntakeProgressView }>
+  | Readonly<{ kind: "not-observed"; commandId: string }>
+  | Readonly<{ kind: "none" }>
+  | Readonly<{ kind: "failure"; failure: CaseExperienceFailure }>;
+
 export interface ProviderAuthorizationService extends CaseExperienceService {
   readAuthorizationIntakeForm(signal: AbortSignal): Promise<
     ExperienceResult<AuthorizationIntakeFormView>
@@ -183,4 +199,11 @@ export interface ProviderAuthorizationService extends CaseExperienceService {
     draft: AuthorizationIntakeDraft,
     signal: AbortSignal,
   ): Promise<AuthorizationIntakeResult>;
+  discoverAuthorizationIntakes(
+    signal: AbortSignal,
+    cursor?: string,
+  ): Promise<ExperienceResult<AuthorizationRecoveryPageView>>;
+  observePendingAuthorization(
+    signal: AbortSignal,
+  ): Promise<PendingAuthorizationObservationResult>;
 }

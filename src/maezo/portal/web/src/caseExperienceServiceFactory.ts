@@ -3,6 +3,8 @@ import type {
   AuthorizationIntakeFormView,
   AuthorizationIntakeProgressView,
   AuthorizationIntakeResult,
+  AuthorizationRecoveryEntryView,
+  AuthorizationRecoveryPageView,
   CaseExperienceFailure,
   CasePageView,
   CaseSummaryView,
@@ -10,6 +12,7 @@ import type {
   ExperienceResult,
   ProviderAuthorizationService,
 } from "./caseExperienceModels";
+import { createIntakeRecoveryClient } from "./intakeRecoveryClient";
 import {
   createPortalProductClient,
   type AuthIntakeSubmission,
@@ -213,12 +216,14 @@ export function createCaseExperienceService(
   options: CaseExperienceServiceOptions,
 ): ProductionCaseExperienceService {
   const product = createPortalProductClient(options);
+  const recovery = createIntakeRecoveryClient({ fetcher: options.fetcher });
   // Current authenticated service lifetime only; never persisted across sessions.
   let pending: {
     key: string;
     submission: AuthIntakeSubmission;
     uncertain: boolean;
     inFlight: boolean;
+    recovering: boolean;
   } | undefined;
   const nextCommandId = options.commandId ?? (() => crypto.randomUUID());
 
@@ -300,7 +305,7 @@ export function createCaseExperienceService(
         return { kind: "failure", failure: "access-revoked" };
       }
       const key = draftKey(draft);
-      if (pending !== undefined && (pending.key !== key || pending.inFlight)) {
+      if (pending !== undefined && (pending.key !== key || pending.inFlight || pending.recovering)) {
         return { kind: "failure", failure: "outcome-unknown" };
       }
       const submission: AuthIntakeSubmission = pending?.submission ?? {
@@ -315,7 +320,13 @@ export function createCaseExperienceService(
         valor_estimado_centavos: draft.estimatedValueCents,
         document_refs: [...draft.protectedDocumentRefs],
       };
-      const attempt = pending ?? { key, submission, uncertain: false, inFlight: false };
+      const attempt = pending ?? {
+        key,
+        submission,
+        uncertain: false,
+        inFlight: false,
+        recovering: false,
+      };
       pending = attempt;
       attempt.inFlight = true;
       let result;
@@ -348,6 +359,74 @@ export function createCaseExperienceService(
       return result.kind === "success"
         ? { kind: "success", progress: mapIntake(result.value) }
         : { kind: "failure", failure: mapFailure(result.failure) };
+    },
+    async discoverAuthorizationIntakes(signal, cursor) {
+      if (options.audience !== "provider") {
+        return { kind: "failure", failure: "access-revoked" };
+      }
+      const pointers = await recovery.discover(signal, cursor);
+      if (pointers.kind === "failure") {
+        return { kind: "failure", failure: mapFailure(pointers.failure) };
+      }
+      const receipts = await Promise.all(pointers.value.items.map(async (pointer) => ({
+        pointer,
+        receipt: await product.readAuthorizationIntake(pointer.intake_ref, signal),
+      })));
+      signal.throwIfAborted();
+      const failed = receipts.find((item) => item.receipt.kind === "failure");
+      if (failed !== undefined && failed.receipt.kind === "failure") {
+        return { kind: "failure", failure: mapFailure(failed.receipt.failure) };
+      }
+      const items: AuthorizationRecoveryEntryView[] = [];
+      for (const item of receipts) {
+        if (item.receipt.kind !== "success" ||
+            item.receipt.value.intake_ref !== item.pointer.intake_ref ||
+            item.receipt.value.command_id !== item.pointer.command_id) {
+          return { kind: "failure", failure: "invalid-response" };
+        }
+        items.push({
+          commandId: item.pointer.command_id,
+          progress: mapIntake(item.receipt.value),
+        });
+      }
+      return {
+        kind: "success",
+        value: { items, nextCursor: pointers.value.next_cursor ?? null },
+      };
+    },
+    async observePendingAuthorization(signal) {
+      if (options.audience !== "provider") {
+        return { kind: "failure", failure: "access-revoked" };
+      }
+      if (pending === undefined || !pending.uncertain) return { kind: "none" };
+      if (pending.inFlight || pending.recovering) {
+        return { kind: "failure", failure: "outcome-unknown" };
+      }
+      const attempt = pending;
+      attempt.recovering = true;
+      try {
+        const observation = await recovery.observeCommand(attempt.submission.command_id, signal);
+        signal.throwIfAborted();
+        if (observation.kind === "failure") {
+          return { kind: "failure", failure: mapFailure(observation.failure) };
+        }
+        if (observation.value.observation === "not_observed") {
+          return { kind: "not-observed", commandId: attempt.submission.command_id };
+        }
+        const receipt = await product.readAuthorizationIntake(observation.value.intake_ref!, signal);
+        signal.throwIfAborted();
+        if (receipt.kind === "failure") {
+          return { kind: "failure", failure: mapFailure(receipt.failure) };
+        }
+        if (receipt.value.command_id !== attempt.submission.command_id ||
+            receipt.value.intake_ref !== observation.value.intake_ref) {
+          return { kind: "failure", failure: "invalid-response" };
+        }
+        if (pending === attempt) pending = undefined;
+        return { kind: "success", progress: mapIntake(receipt.value) };
+      } finally {
+        attempt.recovering = false;
+      }
     },
   };
 }

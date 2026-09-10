@@ -8,6 +8,7 @@ import {
   ReceiptsView,
 } from "./CaseWorkspace";
 import { CaseCommunicationsPanel } from "./CaseCommunicationsPanel";
+import { IntakeRecoveryPanel } from "./IntakeRecoveryPanel";
 import { ExternalAreaPanel, ExternalNavigation, type ExternalArea } from "./PortalNavigation";
 import type { CaseCommunicationsClient } from "./caseCommunicationsClient";
 import type {
@@ -216,8 +217,11 @@ function ProviderAuthorizationIntake({
 }) {
   const [form, setForm] = useState<ExperienceResult<AuthorizationIntakeFormView> | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [observing, setObserving] = useState(false);
   const [progress, setProgress] = useState<AuthorizationIntakeProgressView>();
   const [error, setError] = useState<CaseExperienceFailure>();
+  const [observationFailure, setObservationFailure] = useState<CaseExperienceFailure>();
+  const [notObservedCommand, setNotObservedCommand] = useState<string>();
   const controller = useRef<AbortController | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
   const headingId = useId();
@@ -230,8 +234,11 @@ function ProviderAuthorizationIntake({
     controller.current = request;
     setForm(null);
     setSubmitting(false);
+    setObserving(false);
     setProgress(undefined);
     setError(undefined);
+    setObservationFailure(undefined);
+    setNotObservedCommand(undefined);
     void service
       .readAuthorizationIntakeForm(request.signal)
       .then((result) => {
@@ -289,6 +296,8 @@ function ProviderAuthorizationIntake({
     controller.current = request;
     setSubmitting(true);
     setError(undefined);
+    setObservationFailure(undefined);
+    setNotObservedCommand(undefined);
     setProgress(undefined);
     try {
       const result = await service.submitAuthorization(draft, request.signal);
@@ -304,6 +313,44 @@ function ProviderAuthorizationIntake({
       if (!request.signal.aborted && !isAbort(caught)) setError("dependency-unavailable");
     } finally {
       if (!request.signal.aborted) setSubmitting(false);
+    }
+  };
+
+  const observePending = async () => {
+    controller.current?.abort();
+    const request = new AbortController();
+    controller.current = request;
+    setObserving(true);
+    setObservationFailure(undefined);
+    setNotObservedCommand(undefined);
+    try {
+      const result = await service.observePendingAuthorization(request.signal);
+      if (request.signal.aborted) return;
+      if (result.kind === "failure") {
+        setObservationFailure(result.failure);
+        onFailure(result.failure);
+        return;
+      }
+      if (result.kind === "none") {
+        setError("outcome-unknown");
+        return;
+      }
+      if (result.kind === "not-observed") {
+        setNotObservedCommand(result.commandId);
+        setError(undefined);
+        setObservationFailure(undefined);
+        return;
+      }
+      setError(undefined);
+      setObservationFailure(undefined);
+      setProgress(result.progress);
+      formRef.current?.reset();
+    } catch (caught) {
+      if (!request.signal.aborted && !isAbort(caught)) {
+        setObservationFailure("dependency-unavailable");
+      }
+    } finally {
+      if (!request.signal.aborted) setObserving(false);
     }
   };
 
@@ -388,6 +435,43 @@ function ProviderAuthorizationIntake({
         </button>
       </form>
       {error && <p className="resource-message resource-error" role="alert">{failureMessages[error]}</p>}
+      {observationFailure && (
+        <p className="resource-message resource-error" role="alert">
+          {failureMessages[observationFailure]} O resultado do envio continua desconhecido.
+        </p>
+      )}
+      {error === "outcome-unknown" && (
+        <button
+          className="secondary-action"
+          type="button"
+          disabled={observing || submitting}
+          onClick={() => void observePending()}
+        >
+          {observing ? "Consultando comando original…" : "Verificar comando original"}
+        </button>
+      )}
+      {notObservedCommand && (
+        <section className="resource-message" aria-label="Comando ainda não observado">
+          <p role="status">
+            Nenhuma admissão foi observada para este comando nesta consulta. O resultado continua incerto.
+          </p>
+          <dl className="receipt-facts">
+            <div><dt>Comando original</dt><dd className="exact-value">{notObservedCommand}</dd></div>
+          </dl>
+          <p>
+            Consulte novamente. Uma repetição do envio deve manter os mesmos dados para reutilizar
+            este comando; esta observação não autoriza uma nova solicitação.
+          </p>
+          <button
+            className="secondary-action compact-action"
+            type="button"
+            disabled={observing || submitting}
+            onClick={() => void observePending()}
+          >
+            {observing ? "Consultando comando original…" : "Consultar comando novamente"}
+          </button>
+        </section>
+      )}
       {progress && (
         <section className={`intake-progress intake-${progress.state}`} aria-labelledby={progressHeadingId}>
           <div className="command-heading">
@@ -639,7 +723,13 @@ function AudienceAuthorizationContext({
             />
           </section>
           {audience === "provider" && !accessFailure && (
-            <ProviderAuthorizationIntake service={service} onFailure={handleFailure} />
+            <div className="stacked-sections">
+              <ProviderAuthorizationIntake service={service} onFailure={handleFailure} />
+              <IntakeRecoveryPanel
+                service={service}
+                onSessionUnavailable={onSessionUnavailable}
+              />
+            </div>
           )}
         </div>
       </ExternalAreaPanel>

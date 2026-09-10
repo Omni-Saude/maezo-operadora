@@ -23,6 +23,10 @@ function service(overrides: Partial<ProviderAuthorizationService> = {}): Provide
     downloadDocument: vi.fn().mockResolvedValue({ kind: "success", value: new Blob(["synthetic"]) }),
     readAuthorizationIntakeForm: vi.fn().mockResolvedValue({ kind: "success", value: intakeFormFixture }),
     submitAuthorization: vi.fn().mockResolvedValue({ kind: "success", progress: admittedIntake }),
+    discoverAuthorizationIntakes: vi.fn().mockResolvedValue({
+      kind: "success", value: { items: [], nextCursor: null },
+    }),
+    observePendingAuthorization: vi.fn().mockResolvedValue({ kind: "none" }),
     ...overrides,
   };
 }
@@ -159,6 +163,85 @@ it("envia intake AUTH do prestador com referências selecionadas e centavos pres
   expect(JSON.stringify(draft)).not.toMatch(/tenant|actor|principal|approved/i);
   expect(await scoped.findByText(/caso ainda não foi confirmado como iniciado/i)).toBeInTheDocument();
   expect(scoped.queryByText(/autorização concedida/i)).toBeInTheDocument();
+});
+
+it("consulta o comando original após resultado desconhecido sem criar novo envio", async () => {
+  const api = service({
+    submitAuthorization: vi.fn().mockResolvedValue({
+      kind: "failure", failure: "outcome-unknown",
+    }),
+    observePendingAuthorization: vi.fn().mockResolvedValue({
+      kind: "not-observed", commandId: "command_original_abcdefghijklmnop",
+    }),
+  });
+  render(
+    <AudienceAuthorizationExperience
+      audience="provider"
+      service={api}
+      communicationsClient={communications()}
+      onSessionUnavailable={vi.fn()}
+    />,
+  );
+  await submitIntake();
+  await userEvent.click(await screen.findByRole("button", { name: "Verificar comando original" }));
+  expect(await screen.findByText("command_original_abcdefghijklmnop")).toBeInTheDocument();
+  expect(screen.getByText(/resultado continua incerto/i)).toBeInTheDocument();
+  expect(screen.getByText(/não autoriza uma nova solicitação/i)).toBeInTheDocument();
+  expect(api.submitAuthorization).toHaveBeenCalledOnce();
+  expect(api.observePendingAuthorization).toHaveBeenCalledOnce();
+});
+
+it("mantém resultado incerto e o mesmo lookup disponível após falha de recurso", async () => {
+  const api = service({
+    submitAuthorization: vi.fn().mockResolvedValue({
+      kind: "failure", failure: "outcome-unknown",
+    }),
+    observePendingAuthorization: vi.fn().mockResolvedValue({
+      kind: "failure", failure: "resource-unavailable",
+    }),
+  });
+  render(
+    <AudienceAuthorizationExperience
+      audience="provider"
+      service={api}
+      communicationsClient={communications()}
+      onSessionUnavailable={vi.fn()}
+    />,
+  );
+  await submitIntake();
+  await userEvent.click(await screen.findByRole("button", { name: "Verificar comando original" }));
+  expect(await screen.findByText(/resultado do envio continua desconhecido/i)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Verificar comando original" })).toBeEnabled();
+  expect(api.submitAuthorization).toHaveBeenCalledOnce();
+});
+
+it("mantém descoberta renovada disponível quando faltam opções do formulário", async () => {
+  const api = service({
+    readAuthorizationIntakeForm: vi.fn().mockResolvedValue({
+      kind: "failure", failure: "resource-unavailable",
+    }),
+    discoverAuthorizationIntakes: vi.fn().mockResolvedValue({
+      kind: "success",
+      value: {
+        items: [{
+          commandId: "command_recovered_abcdefghijklmnop",
+          progress: admittedIntake,
+        }],
+        nextCursor: null,
+      },
+    }),
+  });
+  render(
+    <AudienceAuthorizationExperience
+      audience="provider"
+      service={api}
+      communicationsClient={communications()}
+      onSessionUnavailable={vi.fn()}
+    />,
+  );
+  expect(await screen.findByText("command_recovered_abcdefghijklmnop")).toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("Este recurso não está mais disponível.");
+  expect(screen.queryByRole("button", { name: "Enviar solicitação" })).not.toBeInTheDocument();
 });
 
 it("remove a experiência quando a sessão deixa de existir", async () => {

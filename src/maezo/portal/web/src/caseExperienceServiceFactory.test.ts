@@ -354,3 +354,145 @@ it("não interpreta 404 inicial como prova de que nenhum intake foi admitido", a
   expect((await api.submitAuthorization(recoveryDraft, signal())).kind).toBe("success");
   expect(bodies).toEqual([bodies[0], bodies[0]]);
 });
+
+it("descobre ponteiros e reautoriza cada recibo antes de apresentar o acompanhamento", async () => {
+  const firstCommand = ref("command_1");
+  const secondCommand = ref("command_2");
+  const firstIntake = ref("intake_1");
+  const secondIntake = ref("intake_2");
+  const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+    const path = String(input);
+    if (path === "/api/v1/portal/intake-recovery") return json({
+      schema_version: 1,
+      scope: "actor_admissions",
+      items: [
+        { command_id: firstCommand, intake_ref: firstIntake },
+        { command_id: secondCommand, intake_ref: secondIntake },
+      ],
+      next_cursor: ref("cursor"),
+    });
+    if (path.endsWith(firstIntake)) return json({
+      schema_version: 1, intake_ref: firstIntake, command_id: firstCommand, revision: "4",
+      disposition: "started", case_ref: ref("case"), start_receipt_ref: ref("receipt"),
+    });
+    if (path.endsWith(secondIntake)) return json({
+      schema_version: 1, intake_ref: secondIntake, command_id: secondCommand, revision: "5",
+      disposition: "rejected", case_ref: null, start_receipt_ref: null,
+    });
+    throw new Error(`unexpected path ${path}`);
+  });
+  const result = await recoveryService(fetcher).discoverAuthorizationIntakes(signal());
+  expect(result).toMatchObject({
+    kind: "success",
+    value: {
+      nextCursor: ref("cursor"),
+      items: [
+        { commandId: firstCommand, progress: { state: "started", intakeRef: firstIntake } },
+        { commandId: secondCommand, progress: { state: "rejected", intakeRef: secondIntake } },
+      ],
+    },
+  });
+  expect(fetcher).toHaveBeenCalledTimes(3);
+});
+
+it("falha fechado quando recibo não corresponde ao comando descoberto", async () => {
+  const commandId = ref("command");
+  const intakeRef = ref("intake");
+  const fetcher = vi.fn()
+    .mockResolvedValueOnce(json({
+      schema_version: 1, scope: "actor_admissions",
+      items: [{ command_id: commandId, intake_ref: intakeRef }], next_cursor: null,
+    }))
+    .mockResolvedValueOnce(json({
+      schema_version: 1, intake_ref: intakeRef, command_id: ref("other_command"), revision: "1",
+      disposition: "admitted", case_ref: null, start_receipt_ref: null,
+    }));
+  expect(await recoveryService(fetcher).discoverAuthorizationIntakes(signal())).toEqual({
+    kind: "failure", failure: "invalid-response",
+  });
+});
+
+it("mantém comando e payload exatos após not_observed e só então permite retry explícito", async () => {
+  const bodies: string[] = [];
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.includes("/intake-recovery/commands/")) {
+      const commandId = path.split("/").at(-1)!;
+      return json({ schema_version: 1, command_id: commandId,
+        observation: "not_observed", intake_ref: null });
+    }
+    bodies.push(String(init?.body));
+    return bodies.length === 1
+      ? json({ code: "dependency_unavailable" }, 503)
+      : admitted(JSON.parse(bodies[0]).command_id);
+  });
+  const api = recoveryService(fetcher);
+  expect(await api.submitAuthorization(recoveryDraft, signal())).toEqual({
+    kind: "failure", failure: "outcome-unknown",
+  });
+  expect(await api.observePendingAuthorization(signal())).toEqual({
+    kind: "not-observed", commandId: JSON.parse(bodies[0]).command_id,
+  });
+  expect((await api.submitAuthorization(recoveryDraft, signal())).kind).toBe("success");
+  expect(bodies).toEqual([bodies[0], bodies[0]]);
+});
+
+it("serializa lookup do comando vivo contra retry concorrente", async () => {
+  const bodies: string[] = [];
+  let release!: (response: Response) => void;
+  const observation = new Promise<Response>((resolve) => { release = resolve; });
+  let commandId = "";
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.includes("/intake-recovery/commands/")) return observation;
+    bodies.push(String(init?.body));
+    commandId = JSON.parse(bodies[0]).command_id;
+    return bodies.length === 1
+      ? json({ code: "dependency_unavailable" }, 503)
+      : admitted(commandId);
+  });
+  const api = recoveryService(fetcher);
+  await api.submitAuthorization(recoveryDraft, signal());
+  const lookup = api.observePendingAuthorization(signal());
+  expect(await api.submitAuthorization(recoveryDraft, signal())).toEqual({
+    kind: "failure", failure: "outcome-unknown",
+  });
+  expect(bodies).toHaveLength(1);
+  release(json({ schema_version: 1, command_id: commandId,
+    observation: "not_observed", intake_ref: null }));
+  expect((await lookup).kind).toBe("not-observed");
+  expect((await api.submitAuthorization(recoveryDraft, signal())).kind).toBe("success");
+  expect(bodies).toEqual([bodies[0], bodies[0]]);
+});
+
+it("usa lookup do comando vivo, correlaciona o recibo e libera novo comando depois da prova", async () => {
+  const bodies: string[] = [];
+  let originalCommand = "";
+  const intakeRef = ref("intake");
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    if (path.includes("/intake-recovery/commands/")) return json({
+      schema_version: 1, command_id: originalCommand,
+      observation: "observed", intake_ref: intakeRef,
+    });
+    if (path === `/api/v1/portal/intakes/${intakeRef}`) return json({
+      schema_version: 1, intake_ref: intakeRef, command_id: originalCommand, revision: "1",
+      disposition: "reconciling", case_ref: null, start_receipt_ref: null,
+    });
+    bodies.push(String(init?.body));
+    const commandId = JSON.parse(bodies.at(-1)!).command_id;
+    if (bodies.length === 1) {
+      originalCommand = commandId;
+      return json({ code: "dependency_unavailable" }, 503);
+    }
+    return admitted(commandId);
+  });
+  const api = recoveryService(fetcher);
+  await api.submitAuthorization(recoveryDraft, signal());
+  expect(await api.observePendingAuthorization(signal())).toMatchObject({
+    kind: "success", progress: { state: "reconciling", intakeRef },
+  });
+  const changed = { ...recoveryDraft, guideRef: ref("new_guide") };
+  expect((await api.submitAuthorization(changed, signal())).kind).toBe("success");
+  expect(JSON.parse(bodies[1]).command_id).not.toBe(originalCommand);
+});
