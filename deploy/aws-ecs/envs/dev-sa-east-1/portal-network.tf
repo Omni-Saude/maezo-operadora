@@ -134,6 +134,8 @@ output "portal_prerequisites" {
 }
 
 # Exact native target metadata only. The external owner retains counterpart ingress.
+# AWS 6.59 exports the SG ARN using EC2 OwnerId; it does not export owner_id.
+# Compare the complete observed ARN and VPC, never the caller account alone.
 data "aws_security_group" "portal_staff_native_https" {
   for_each = local.portal_staff_config
   id       = each.value.native_https_security_group_id
@@ -155,7 +157,7 @@ resource "aws_vpc_security_group_egress_rule" "portal_staff_native_https" {
   description                  = "Qualified staff native mTLS destination; no raw engine authority"
   lifecycle {
     precondition {
-      condition = (data.aws_security_group.portal_staff_native_https[each.key].owner_id == var.aws_account_id &&
+      condition = (data.aws_security_group.portal_staff_native_https[each.key].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${each.value.native_https_security_group_id}" &&
       data.aws_security_group.portal_staff_native_https[each.key].vpc_id == data.aws_vpc.this.id)
       error_message = "Staff native HTTPS SG must be explicitly owner-qualified in this account/VPC."
     }
@@ -176,7 +178,7 @@ resource "aws_vpc_security_group_egress_rule" "portal_staff_native_database" {
   description                  = "Qualified staff native SELECT-only witness DB destination"
   lifecycle {
     precondition {
-      condition = (data.aws_security_group.portal_staff_native_database[each.key].owner_id == var.aws_account_id &&
+      condition = (data.aws_security_group.portal_staff_native_database[each.key].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${each.value.native_database_security_group_id}" &&
       data.aws_security_group.portal_staff_native_database[each.key].vpc_id == data.aws_vpc.this.id)
       error_message = "Staff native witness DB SG must be explicitly owner-qualified in this account/VPC."
     }

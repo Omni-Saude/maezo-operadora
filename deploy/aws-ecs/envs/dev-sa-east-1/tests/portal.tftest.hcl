@@ -12,7 +12,7 @@ mock_provider "aws" {
   mock_resource "aws_cloudwatch_log_group" { defaults = { arn = "arn:aws:logs:sa-east-1:203312548462:log-group:test-portal" } }
 
   mock_data "aws_iam_policy_document" { defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" } }
-  mock_data "aws_security_group" { defaults = { owner_id = "203312548462", vpc_id = "vpc-00000000000000001" } }
+  mock_data "aws_security_group" { defaults = { vpc_id = "vpc-00000000000000001" } }
   mock_data "aws_partition" { defaults = { partition = "aws" } }
   mock_data "aws_vpc" { defaults = { id = "vpc-00000000000000001", cidr_block = "10.40.0.0/16" } }
   mock_data "aws_rds_cluster" {
@@ -352,6 +352,14 @@ override_data {
   target = data.aws_kms_key.portal_staff["this"]
   values = { arn = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111" }
 }
+override_data {
+  target = data.aws_security_group.portal_staff_native_https["this"]
+  values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000004", vpc_id = "vpc-00000000000000001" }
+}
+override_data {
+  target = data.aws_security_group.portal_staff_native_database["this"]
+  values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000005", vpc_id = "vpc-00000000000000001" }
+}
 run "staff_material_delivery" {
   command = apply
   plan_options { target = [aws_ecs_service.portal, aws_iam_role_policy.portal_execution, aws_vpc_security_group_egress_rule.portal_staff_native_https, aws_vpc_security_group_egress_rule.portal_staff_native_database] }
@@ -539,6 +547,10 @@ run "staff_unknown_field_refused" {
 }
 
 run "staff_reuses_exact_existing_database_egress" {
+  override_data {
+    target = data.aws_security_group.portal_staff_native_database["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000003", vpc_id = "vpc-00000000000000001" }
+  }
   command = apply
   plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database] }
   variables {
@@ -567,13 +579,17 @@ run "staff_reuses_exact_existing_database_egress" {
       length(aws_vpc_security_group_egress_rule.portal_staff_native_database) == 0 &&
       aws_vpc_security_group_egress_rule.portal_postgres["this"].referenced_security_group_id == var.portal.staff.native_database_security_group_id &&
       aws_vpc_security_group_egress_rule.portal_postgres["this"].from_port == var.portal.staff.native_database_port &&
-      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+      data.aws_security_group.portal_staff_native_database["this"].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${var.portal.staff.native_database_security_group_id}"
     )
     error_message = "An explicitly identical Aurora SG/port reuses its existing rule while retaining native target qualification."
   }
 }
 
 run "staff_db_reuses_https_egress" {
+  override_data {
+    target = data.aws_security_group.portal_staff_native_database["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000004", vpc_id = "vpc-00000000000000001" }
+  }
   command = apply
   plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database, aws_vpc_security_group_egress_rule.portal_staff_native_https] }
   variables {
@@ -607,8 +623,8 @@ run "staff_db_reuses_https_egress" {
         values(aws_vpc_security_group_egress_rule.portal_staff_native_https),
         values(aws_vpc_security_group_egress_rule.portal_staff_native_database)
       ) : jsonencode([rule.security_group_id, rule.referenced_security_group_id, rule.ip_protocol, rule.from_port, rule.to_port])])) == 2 &&
-      data.aws_security_group.portal_staff_native_https["this"].owner_id == var.aws_account_id &&
-      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+      data.aws_security_group.portal_staff_native_https["this"].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${var.portal.staff.native_https_security_group_id}" &&
+      data.aws_security_group.portal_staff_native_database["this"].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${var.portal.staff.native_database_security_group_id}"
     )
     error_message = "All selected destinations retain qualified metadata and exactly one effective SG/TCP/port tuple."
   }
@@ -616,8 +632,17 @@ run "staff_db_reuses_https_egress" {
 
 run "staff_https_reuses_aurora_egress" {
   override_data {
+    target = data.aws_security_group.portal_staff_native_https["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000003", vpc_id = "vpc-00000000000000001" }
+  }
+  override_data {
     target = data.aws_rds_cluster.shared
-    values = { port = 443 }
+    values = {
+      endpoint               = "db.test"
+      port                   = 443
+      vpc_security_group_ids = ["sg-00000000000000003"]
+      master_user_secret     = [{ secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:test/master-abcdef", secret_status = "active", kms_key_id = "" }]
+    }
   }
   command = apply
   plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database, aws_vpc_security_group_egress_rule.portal_staff_native_https] }
@@ -652,8 +677,8 @@ run "staff_https_reuses_aurora_egress" {
         values(aws_vpc_security_group_egress_rule.portal_staff_native_https),
         values(aws_vpc_security_group_egress_rule.portal_staff_native_database)
       ) : jsonencode([rule.security_group_id, rule.referenced_security_group_id, rule.ip_protocol, rule.from_port, rule.to_port])])) == 2 &&
-      data.aws_security_group.portal_staff_native_https["this"].owner_id == var.aws_account_id &&
-      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+      data.aws_security_group.portal_staff_native_https["this"].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${var.portal.staff.native_https_security_group_id}" &&
+      data.aws_security_group.portal_staff_native_database["this"].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${var.portal.staff.native_database_security_group_id}"
     )
     error_message = "All selected destinations retain qualified metadata and exactly one effective SG/TCP/port tuple."
   }
@@ -661,8 +686,21 @@ run "staff_https_reuses_aurora_egress" {
 
 run "staff_all_destinations_share_one_egress" {
   override_data {
+    target = data.aws_security_group.portal_staff_native_https["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000003", vpc_id = "vpc-00000000000000001" }
+  }
+  override_data {
+    target = data.aws_security_group.portal_staff_native_database["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000003", vpc_id = "vpc-00000000000000001" }
+  }
+  override_data {
     target = data.aws_rds_cluster.shared
-    values = { port = 443 }
+    values = {
+      endpoint               = "db.test"
+      port                   = 443
+      vpc_security_group_ids = ["sg-00000000000000003"]
+      master_user_secret     = [{ secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:test/master-abcdef", secret_status = "active", kms_key_id = "" }]
+    }
   }
   command = apply
   plan_options { target = [aws_ecs_service.portal, aws_vpc_security_group_egress_rule.portal_postgres, aws_vpc_security_group_egress_rule.portal_staff_native_database, aws_vpc_security_group_egress_rule.portal_staff_native_https] }
@@ -697,9 +735,102 @@ run "staff_all_destinations_share_one_egress" {
         values(aws_vpc_security_group_egress_rule.portal_staff_native_https),
         values(aws_vpc_security_group_egress_rule.portal_staff_native_database)
       ) : jsonencode([rule.security_group_id, rule.referenced_security_group_id, rule.ip_protocol, rule.from_port, rule.to_port])])) == 1 &&
-      data.aws_security_group.portal_staff_native_https["this"].owner_id == var.aws_account_id &&
-      data.aws_security_group.portal_staff_native_database["this"].owner_id == var.aws_account_id
+      data.aws_security_group.portal_staff_native_https["this"].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${var.portal.staff.native_https_security_group_id}" &&
+      data.aws_security_group.portal_staff_native_database["this"].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${var.portal.staff.native_database_security_group_id}"
     )
     error_message = "All selected destinations retain qualified metadata and exactly one effective SG/TCP/port tuple."
   }
+}
+
+run "staff_refuses_foreign_security_group_owner" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  override_data {
+    target = data.aws_security_group.portal_staff_native_https["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:999999999999:security-group/sg-00000000000000004", vpc_id = "vpc-00000000000000001" }
+  }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    } })
+  }
+  expect_failures = [aws_ecs_task_definition.portal]
+}
+
+run "staff_refuses_different_security_group_identity" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  override_data {
+    target = data.aws_security_group.portal_staff_native_https["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000006", vpc_id = "vpc-00000000000000001" }
+  }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    } })
+  }
+  expect_failures = [aws_ecs_task_definition.portal]
+}
+
+run "staff_refuses_native_security_group_other_vpc" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  override_data {
+    target = data.aws_security_group.portal_staff_native_https["this"]
+    values = { arn = "arn:aws:ec2:sa-east-1:203312548462:security-group/sg-00000000000000004", vpc_id = "vpc-00000000000000002" }
+  }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    } })
+  }
+  expect_failures = [aws_ecs_task_definition.portal]
 }

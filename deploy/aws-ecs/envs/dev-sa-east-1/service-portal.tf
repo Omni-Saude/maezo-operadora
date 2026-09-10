@@ -169,9 +169,9 @@ resource "aws_ecs_task_definition" "portal" {
     }
     precondition {
       condition = each.value.staff == null ? true : (
-        data.aws_security_group.portal_staff_native_https[each.key].owner_id == var.aws_account_id &&
+        data.aws_security_group.portal_staff_native_https[each.key].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${each.value.staff.native_https_security_group_id}" &&
         data.aws_security_group.portal_staff_native_https[each.key].vpc_id == data.aws_vpc.this.id &&
-        data.aws_security_group.portal_staff_native_database[each.key].owner_id == var.aws_account_id &&
+        data.aws_security_group.portal_staff_native_database[each.key].arn == "arn:${data.aws_partition.current.partition}:ec2:${var.aws_region}:${var.aws_account_id}:security-group/${each.value.staff.native_database_security_group_id}" &&
         data.aws_security_group.portal_staff_native_database[each.key].vpc_id == data.aws_vpc.this.id
       )
       error_message = "Both staff native targets require explicit account/VPC qualification, including reuse of existing exact DB egress."
