@@ -1,4 +1,4 @@
-"""Minimal human BFF bootstrap. No task mutations until the enforcing human gateway exists."""
+"""Human BFF bootstrap with separately composed enforcing read and decision gateways."""
 
 from __future__ import annotations
 
@@ -17,6 +17,12 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.config import PortalSettings
+from maezo.portal.api.decisions import (
+    DecisionServiceFactory,
+    decision_error,
+    decision_router,
+    is_decision_request,
+)
 from maezo.portal.api.records import SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
@@ -120,6 +126,7 @@ def create_app(
     store: IdentityStore | None = None,
     oidc_client: httpx.AsyncClient | None = None,
     task_read_service_factory: ReadServiceFactory | None = None,
+    decision_service_factory: DecisionServiceFactory | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
     try:
@@ -160,6 +167,8 @@ def create_app(
     app.state.human_session_resolver = resolver
     app.state.task_read_service_factory = task_read_service_factory
     app.include_router(task_router)
+    app.state.decision_service_factory = decision_service_factory
+    app.include_router(decision_router)
 
     @app.middleware("http")
     async def deployment_host(
@@ -169,6 +178,8 @@ def create_app(
             len(request.headers.getlist("host")) != 1
             or request.headers["host"] != urlsplit(config.public_origin).netloc
         ):
+            if is_decision_request(request):
+                return decision_error("invalid_request")
             return read_error("invalid_request") if is_task_read(request) else _refused(400)
         return await call_next(request)
 
@@ -178,6 +189,8 @@ def create_app(
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request: Request, exc: RequestValidationError) -> Response:
+        if is_decision_request(request):
+            return decision_error("invalid_decision")
         return read_error("invalid_request") if is_task_read(request) else _refused(400)
 
     @app.get(f"{_PREFIX}/auth/login")
