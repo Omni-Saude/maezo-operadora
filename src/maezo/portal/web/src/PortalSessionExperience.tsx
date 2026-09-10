@@ -3,6 +3,7 @@ import { useId, useMemo, useState, type Ref } from "react";
 import { AudienceAuthorizationExperience } from "./AudienceAuthorizationExperience";
 import { EmployeeQueues } from "./EmployeeQueues";
 import { StaffOverview } from "./StaffOverview";
+import { StaffCaseWorkspace } from "./StaffCaseWorkspace";
 import {
   StaffAreaPanel,
   StaffNavigation,
@@ -14,6 +15,7 @@ import {
   type AuthorizationIntakeFormProvider,
 } from "./caseExperienceServiceFactory";
 import { createCaseCommunicationsClient } from "./caseCommunicationsClient";
+import { createStaffCaseClient } from "./staffCaseClient";
 
 function formatExpiry(expiresAt: string) {
   return new Intl.DateTimeFormat("pt-BR", {
@@ -79,6 +81,7 @@ export function StaffPortalExperience({
   onSessionUnavailable: () => void;
 }) {
   const [activeArea, setActiveArea] = useState<StaffArea>("overview");
+  const staffCaseClient = useMemo(() => createStaffCaseClient(), [sessionBinding]);
 
   let content: React.ReactNode;
   if (activeArea === "overview") {
@@ -101,7 +104,12 @@ export function StaffPortalExperience({
       />
     );
   } else if (activeArea === "cases") {
-    content = <UnavailableArea title="Casos">A consulta de casos ainda não está disponível nesta versão do portal.</UnavailableArea>;
+    content = (
+      <StaffCaseWorkspace
+        service={staffCaseClient}
+        onSessionUnavailable={onSessionUnavailable}
+      />
+    );
   } else if (activeArea === "documents") {
     content = <UnavailableArea title="Documentos">A consulta e o envio de documentos ainda não estão disponíveis nesta versão do portal.</UnavailableArea>;
   } else if (activeArea === "operations") {

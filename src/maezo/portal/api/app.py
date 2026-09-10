@@ -17,8 +17,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
+from maezo.gateway.staff_cases.composition import StaffCaseRuntime
 from maezo.portal.api.auth import AuthenticationError
-from maezo.portal.api.cases import CaseServiceFactory, case_router
+from maezo.portal.api.cases import CaseServiceFactory, StaffCaseServiceFactory, case_router
 from maezo.portal.api.communications import (
     CommunicationServiceFactory,
     communication_router,
@@ -145,6 +146,8 @@ def create_app(
     decision_service_factory: DecisionServiceFactory | None = None,
     assignment_runtime: AssignmentRuntime | None = None,
     case_service_factory: CaseServiceFactory | None = None,
+    staff_case_service_factory: StaffCaseServiceFactory | None = None,
+    staff_case_runtime: StaffCaseRuntime | None = None,
     intake_service_factory: IntakeServiceFactory | None = None,
     intake_recovery_factory: IntakeRecoveryFactory | None = None,
     document_service_factory: DocumentServiceFactory | None = None,
@@ -163,6 +166,14 @@ def create_app(
         if decision_service_factory is not None or assignment_runtime.scope.tenant != config.tenant:
             raise ValueError("Composição de atribuição ambígua.")
         decision_service_factory = assignment_runtime.build
+    if staff_case_runtime is not None:
+        if (
+            staff_case_service_factory is not None
+            or staff_case_runtime.sessions.tenant != config.tenant
+            or staff_case_runtime.sessions.issuer != config.issuer
+        ):
+            raise ValueError("Composição de casos de colaboradores ambígua.")
+        staff_case_service_factory = staff_case_runtime.service
     adapters = build_human_identity_adapters(config, store=store, oidc_client=oidc_client)
     store = adapters.store
     resolver = HumanSessionResolver(config, store)
@@ -188,10 +199,14 @@ def create_app(
                         await engine_read_composition.close()
                 finally:
                     try:
-                        await service.authenticator.close()
-                        await store.close()
-                    except Exception:
-                        raise RuntimeError("Encerramento da identidade indisponível.") from None
+                        if staff_case_runtime is not None:
+                            await staff_case_runtime.close()
+                    finally:
+                        try:
+                            await service.authenticator.close()
+                            await store.close()
+                        except Exception:
+                            raise RuntimeError("Encerramento da identidade indisponível.") from None
 
     app = FastAPI(
         title="Portal Maezo",
@@ -210,6 +225,7 @@ def create_app(
     app.state.decision_service_factory = decision_service_factory
     app.include_router(decision_router)
     app.state.case_service_factory = case_service_factory
+    app.state.staff_case_service_factory = staff_case_service_factory
     app.state.intake_service_factory = intake_service_factory
     app.state.intake_recovery_factory = intake_recovery_factory
     app.state.document_service_factory = document_service_factory

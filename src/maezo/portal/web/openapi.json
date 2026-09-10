@@ -3667,6 +3667,67 @@
         "title": "HistoryPage",
         "type": "object"
       },
+      "Identity": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Case Ref",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "authorization",
+              "reimbursement",
+              "account"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "process_definition_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Process Definition Digest",
+            "type": "string"
+          },
+          "process_definition_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+            "title": "Process Definition Id",
+            "type": "string"
+          },
+          "process_definition_key": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+            "title": "Process Definition Key",
+            "type": "string"
+          },
+          "process_definition_version": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Process Definition Version",
+            "type": "string"
+          },
+          "process_instance_ref": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+            "title": "Process Instance Ref",
+            "type": "string"
+          },
+          "upstream_resource_key": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+            "title": "Upstream Resource Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "upstream_resource_key",
+          "case_ref",
+          "process_instance_ref",
+          "process_definition_id",
+          "process_definition_key",
+          "process_definition_version",
+          "process_definition_digest",
+          "kind"
+        ],
+        "title": "Identity",
+        "type": "object"
+      },
       "InadDecisionInputs": {
         "additionalProperties": false,
         "description": "Human decision fields shared by both INAD tasks (contract outputs, BPMN task docs).\n\nADR-0049 D2/D3 keeps identities and process facts outside browser authority. Conditional\nbasis follows SP-OP-INADIMPLENCIA-001: suspension and neutral rescission handoff require all\nfour basis fields. Evidence strings do not authenticate their contents or establish delivery,\nelapsed periods, current cross-process state or authority to perform an adverse effect.",
@@ -3964,6 +4025,62 @@
           "decisao_dsr"
         ],
         "title": "LgpdDsrDecisionInputs",
+        "type": "object"
+      },
+      "LinkedTask": {
+        "additionalProperties": false,
+        "properties": {
+          "assignee_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Ref"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "task_definition_key": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "task_revision": {
+            "title": "Task Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "task_definition_key",
+          "task_revision",
+          "created_at",
+          "due_at",
+          "assignee_ref"
+        ],
+        "title": "LinkedTask",
         "type": "object"
       },
       "NipDecisionInputs": {
@@ -5865,6 +5982,131 @@
         "title": "SessionDTO",
         "type": "object"
       },
+      "StaffDetail": {
+        "additionalProperties": false,
+        "description": "Public JSON contract; cadence is numeric independently of native signing.",
+        "properties": {
+          "active_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedTask"
+            },
+            "maxItems": 100,
+            "title": "Active Tasks",
+            "type": "array"
+          },
+          "case": {
+            "$ref": "#/components/schemas/StaffSummary"
+          },
+          "freshness": {
+            "$ref": "#/components/schemas/StaffFreshness"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Identity"
+          },
+          "next_task_cursor": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Task Cursor"
+          },
+          "schema": {
+            "const": "portal-staff-case-detail.v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "tasks_complete": {
+            "title": "Tasks Complete",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schema",
+          "case",
+          "identity",
+          "active_tasks",
+          "next_task_cursor",
+          "tasks_complete",
+          "freshness"
+        ],
+        "title": "StaffDetail",
+        "type": "object"
+      },
+      "StaffFreshness": {
+        "additionalProperties": false,
+        "properties": {
+          "observed_at": {
+            "title": "Observed At",
+            "type": "string"
+          },
+          "refresh_after_seconds": {
+            "const": 10,
+            "title": "Refresh After Seconds",
+            "type": "integer"
+          },
+          "source_observed_at": {
+            "title": "Source Observed At",
+            "type": "string"
+          },
+          "valid_until": {
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "observed_at",
+          "source_observed_at",
+          "valid_until",
+          "refresh_after_seconds"
+        ],
+        "title": "StaffFreshness",
+        "type": "object"
+      },
+      "StaffSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "case_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Case Ref",
+            "type": "string"
+          },
+          "kind": {
+            "const": "authorization",
+            "title": "Kind",
+            "type": "string"
+          },
+          "record_revision": {
+            "title": "Record Revision",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "ended"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "state_observed_at": {
+            "title": "State Observed At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "case_ref",
+          "kind",
+          "state",
+          "record_revision",
+          "state_observed_at"
+        ],
+        "title": "StaffSummary",
+        "type": "object"
+      },
       "TaskQueueItem": {
         "additionalProperties": false,
         "properties": {
@@ -6270,6 +6512,27 @@
               "title": "Case Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "Staff only. External case reads reject query parameters.",
+            "in": "query",
+            "name": "task_limit",
+            "required": false,
+            "schema": {
+              "default": "25",
+              "pattern": "^(?:[1-9][0-9]?|100)$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Staff only. Reserved for qualified task pagination; non-null cursors currently return dependency_unavailable (503).",
+            "in": "query",
+            "name": "task_cursor",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6277,7 +6540,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CaseDetail"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CaseDetail"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StaffDetail"
+                    }
+                  ],
+                  "title": "Response Detail Case Api V1 Portal Cases  Case Ref  Get"
                 }
               }
             },

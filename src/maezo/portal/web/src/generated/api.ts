@@ -1676,6 +1676,28 @@ export interface components {
             /** Valid Until */
             valid_until: string;
         };
+        /** Identity */
+        Identity: {
+            /** Case Ref */
+            case_ref: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "authorization" | "reimbursement" | "account";
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /** Process Instance Ref */
+            process_instance_ref: string;
+            /** Upstream Resource Key */
+            upstream_resource_key: string;
+        };
         /**
          * InadDecisionInputs
          * @description Human decision fields shared by both INAD tasks (contract outputs, BPMN task docs).
@@ -1795,6 +1817,21 @@ export interface components {
              * @enum {string}
              */
             kind: "lgpd_decisao";
+        };
+        /** LinkedTask */
+        LinkedTask: {
+            /** Assignee Ref */
+            assignee_ref: string | null;
+            /** Created At */
+            created_at: string;
+            /** Due At */
+            due_at: string | null;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+            /** Task Revision */
+            task_revision: string;
         };
         /**
          * NipDecisionInputs
@@ -2439,6 +2476,59 @@ export interface components {
              */
             schema_version: 1;
         };
+        /**
+         * StaffDetail
+         * @description Public JSON contract; cadence is numeric independently of native signing.
+         */
+        StaffDetail: {
+            /** Active Tasks */
+            active_tasks: components["schemas"]["LinkedTask"][];
+            case: components["schemas"]["StaffSummary"];
+            freshness: components["schemas"]["StaffFreshness"];
+            identity: components["schemas"]["Identity"];
+            /** Next Task Cursor */
+            next_task_cursor: string | null;
+            /**
+             * Schema
+             * @constant
+             */
+            schema: "portal-staff-case-detail.v1";
+            /** Tasks Complete */
+            tasks_complete: boolean;
+        };
+        /** StaffFreshness */
+        StaffFreshness: {
+            /** Observed At */
+            observed_at: string;
+            /**
+             * Refresh After Seconds
+             * @constant
+             */
+            refresh_after_seconds: 10;
+            /** Source Observed At */
+            source_observed_at: string;
+            /** Valid Until */
+            valid_until: string;
+        };
+        /** StaffSummary */
+        StaffSummary: {
+            /** Case Ref */
+            case_ref: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "authorization";
+            /** Record Revision */
+            record_revision: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "ended";
+            /** State Observed At */
+            state_observed_at: string;
+        };
         /** TaskQueueItem */
         TaskQueueItem: {
             /** Engine Due At */
@@ -2674,7 +2764,12 @@ export interface operations {
     };
     detail_case_api_v1_portal_cases__case_ref__get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Staff only. External case reads reject query parameters. */
+                task_limit?: string;
+                /** @description Staff only. Reserved for qualified task pagination; non-null cursors currently return dependency_unavailable (503). */
+                task_cursor?: string;
+            };
             header?: never;
             path: {
                 case_ref: string;
@@ -2689,7 +2784,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CaseDetail"];
+                    "application/json": components["schemas"]["CaseDetail"] | components["schemas"]["StaffDetail"];
                 };
             };
             /** @description Bad Request */

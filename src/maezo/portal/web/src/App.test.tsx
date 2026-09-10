@@ -121,6 +121,10 @@ it("oferece sete áreas e abre a fila autorizada na visão geral e nas áreas de
   expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("mine");
   await userEvent.click(screen.getByRole("tab", { name: /Filas da equipe/ }));
   expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("team");
+  await userEvent.click(screen.getByRole("tab", { name: /^Casos/ }));
+  expect(screen.getByRole("heading", { name: "Consultar um caso pela referência exata" })).toBeInTheDocument();
+  expect(screen.getByLabelText("Referência exata do caso")).toHaveValue("");
+  expect(fetch).toHaveBeenCalledTimes(1);
   view.unmount();
 
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session("provider")));
