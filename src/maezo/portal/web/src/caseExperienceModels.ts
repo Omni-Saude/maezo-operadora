@@ -51,7 +51,7 @@ export type DocumentView = Readonly<{
   name: string;
   kindLabel: string;
   statusLabel: string;
-  recordedAt: string;
+  recordedAt?: string;
   canDownload: boolean;
 }>;
 
@@ -59,7 +59,7 @@ export type DocumentRequestView = Readonly<{
   requestRef: string;
   heading: string;
   instructions: string;
-  status: "open" | "processing" | "answered" | "expired";
+  status: "open" | "processing" | "answered" | "expired" | "replaced";
   statusLabel: string;
   dueAt: string | null;
   expectedRevision: string;
@@ -118,6 +118,7 @@ export type CaseExperienceFailure =
   | "resource-unavailable"
   | "refresh-required"
   | "dependency-unavailable"
+  | "outcome-unknown"
   | "invalid-response";
 
 export type ExperienceResult<T> =
@@ -156,7 +157,8 @@ type AuthorizationIntakeProgressBase = Readonly<{
   intakeRef: string;
   stateLabel: string;
   description: string;
-  updatedAt: string;
+  revision?: string;
+  updatedAt?: string;
 }>;
 
 export type AuthorizationIntakeProgressView =

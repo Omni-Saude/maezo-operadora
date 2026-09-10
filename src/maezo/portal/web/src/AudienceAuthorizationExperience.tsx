@@ -39,6 +39,7 @@ const failureMessages: Record<CaseExperienceFailure, string> = {
   "resource-unavailable": "Este recurso não está mais disponível.",
   "refresh-required": "As informações mudaram. Atualize para continuar.",
   "dependency-unavailable": "Uma dependência não respondeu. Tente novamente.",
+  "outcome-unknown": "O resultado do envio é desconhecido. Tente novamente sem alterar os dados para reutilizar o mesmo comando.",
   "invalid-response": "O portal recusou uma resposta inesperada.",
 };
 
@@ -398,7 +399,12 @@ function ProviderAuthorizationIntake({
             <dl className="receipt-facts">
               <div><dt>Caso iniciado</dt><dd className="exact-value">{progress.caseRef}</dd></div>
               <div><dt>Recibo de início</dt><dd className="exact-value">{progress.startReceiptRef}</dd></div>
-              <div><dt>Confirmado em</dt><dd>{formatTimestamp(progress.updatedAt)}</dd></div>
+              {progress.revision && (
+                <div><dt>Revisão do acompanhamento</dt><dd className="exact-value">{progress.revision}</dd></div>
+              )}
+              {progress.updatedAt && (
+                <div><dt>Confirmado em</dt><dd>{formatTimestamp(progress.updatedAt)}</dd></div>
+              )}
             </dl>
           )}
         </section>
