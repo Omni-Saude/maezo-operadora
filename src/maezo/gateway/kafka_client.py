@@ -29,6 +29,7 @@ from botocore.credentials import (  # type: ignore[import-untyped]
     Credentials,
 )
 from botocore.httpsession import URLLib3Session  # type: ignore[import-untyped]
+from botocore.loaders import Loader  # type: ignore[import-untyped]
 from botocore.session import Session  # type: ignore[import-untyped]
 
 _REGION = "sa-east-1"
@@ -182,6 +183,16 @@ class _MskTokenProvider(AbstractTokenProvider):  # type: ignore[misc]
             frozen = loaded.get_frozen_credentials()
             credentials = Credentials(frozen.access_key, frozen.secret_key, frozen.token)
             session = Session()
+            # Endpoint rules and auth/service models can override endpoint_url.
+            # Use only this installed SDK's data (including its SDK extras), never
+            # AWS_DATA_PATH or the implicit customer ~/.aws/models directory.
+            session.register_component(
+                "data_loader",
+                Loader(
+                    extra_search_paths=[Loader.BUILTIN_DATA_PATH],
+                    include_default_search_paths=False,
+                ),
+            )
             # Explicit credentials alone do not stop botocore from reading shared
             # configuration. Close that separate file/profile discovery path too.
             session.set_config_variable("config_file", os.devnull)
