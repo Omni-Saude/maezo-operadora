@@ -11,7 +11,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal, cast
 
-from pydantic import SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
+from pydantic import (
+    GetJsonSchemaHandler,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 from maezo.portal.contracts.models import HumanPrincipal, OpaqueRef, Revision, Sha256Digest
 
@@ -150,6 +158,25 @@ class PublicAssignmentReceipt(PublicReceipt):
     prior_assignee_ref: OpaqueRef | None
     resulting_assignee_ref: OpaqueRef | None
     assignment_disposition: Literal["changed", "unchanged"] | None
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        # The inherited wrap serializer advertises dict[str, Any], hiding these
+        # closed fields from serialization-mode OpenAPI. Its sole transformation
+        # removes operation for the LEGACY v1 discriminator, which this class
+        # cannot have. Describe our unmodified field serialization instead, while
+        # retaining the actual runtime serializer and all validators unchanged.
+        schema = dict(core_schema)
+        current = schema
+        while current["type"] in {"function-after", "function-before", "function-wrap"}:
+            current["schema"] = dict(current["schema"])
+            current = current["schema"]
+        if current["type"] != "model":
+            raise TypeError("assignment receipt model schema unavailable")
+        current.pop("serialization", None)
+        return handler(cast(CoreSchema, schema))
 
     @model_validator(mode="after")
     def status_shape(self) -> "PublicAssignmentReceipt":
