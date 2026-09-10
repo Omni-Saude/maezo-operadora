@@ -6,6 +6,7 @@ The host owns supplied engines; the returned worker owns its two native lifetime
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -196,8 +197,14 @@ class InstalledProducer:
 
     async def close(self, timeout: float | None = None) -> bool:  # noqa: ASYNC109
         # The host retains engine/credential ownership; close only worker-owned native lifetimes.
-        context = await self.worker.context.channel.close(timeout)
-        completion = await self.worker.completion.channel.close(timeout)
+        loop = asyncio.get_running_loop()
+        end = None if timeout is None else loop.time() + timeout
+        context = await self.worker.context.channel.close(
+            None if end is None else max(0.0, end - loop.time())
+        )
+        completion = await self.worker.completion.channel.close(
+            None if end is None else max(0.0, end - loop.time())
+        )
         return context and completion
 
 

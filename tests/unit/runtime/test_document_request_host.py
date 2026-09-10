@@ -246,3 +246,32 @@ async def test_wrong_profile_batch_and_generic_ownership_refused_before_io(host_
             generic_topics=(),
         )
     assert c.calls == []
+
+
+@pytest.mark.parametrize("budget", [10.0, None])
+async def test_installed_close_shares_budget_and_checks_both_channels(monkeypatch, budget):
+    clock = [100.0]
+    calls = []
+    monkeypatch.setattr(
+        composition,
+        "asyncio",
+        SimpleNamespace(get_running_loop=lambda: SimpleNamespace(time=lambda: clock[0])),
+    )
+
+    async def context_close(remaining):
+        calls.append(("context", remaining))
+        clock[0] += 7.0
+        return False
+
+    async def completion_close(remaining):
+        calls.append(("completion", remaining))
+        clock[0] += 3.0
+        return False
+
+    worker = SimpleNamespace(
+        context=SimpleNamespace(channel=SimpleNamespace(close=context_close)),
+        completion=SimpleNamespace(channel=SimpleNamespace(close=completion_close)),
+    )
+    installed = composition.InstalledProducer(worker, SimpleNamespace(live=lambda: None))
+    assert not await installed.close(budget)
+    assert calls == [("context", budget), ("completion", None if budget is None else 3.0)]
