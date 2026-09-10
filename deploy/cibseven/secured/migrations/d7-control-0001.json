@@ -1,0 +1,1940 @@
+{
+  "protocol": "maezo.d7-control-migration-package.v1",
+  "component": "maezo-d7-control",
+  "version": 1,
+  "migration_id": "maezo-d7-control-0001",
+  "predecessor": null,
+  "sql_path": "src/maezo/portal/engine/java/src/main/resources/provisioning-schema-postgres.sql",
+  "sql_sha256": "8099c6b11fb8b5e726f1529a52678f308790acaf7c05e5305ce2635f5d226140",
+  "contract_sha256": "736d48c7a5f715d54d9f26459b3c688f7e34b68ddfeeea40cbd16f6a8e661363",
+  "review_manifest_sha256": "99fbae5e5726a282284c4f148abe3fbbad820d95bc65c33a7c6b2949c4203ab0",
+  "helper_abi_sha256": "b0c5e39a02becb61903559a58dceecd440d7102efcb6c66ef3878876632dd71d",
+  "max_depth": 32,
+  "tables": {
+    "MZO_PROVISIONING_FENCE": {
+      "columns": {
+        "tenant": {
+          "type": "id",
+          "nullable": false
+        },
+        "environment": {
+          "type": "id",
+          "nullable": false
+        },
+        "engine_name": {
+          "type": "id",
+          "nullable": false
+        },
+        "account": {
+          "type": "account",
+          "nullable": false
+        },
+        "region": {
+          "type": "id",
+          "nullable": false
+        },
+        "database_incarnation": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "database_binding_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "database_binding_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "epoch": {
+          "type": "positive",
+          "nullable": false
+        },
+        "revision": {
+          "type": "positive",
+          "nullable": false
+        },
+        "owner_run_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "owner_subject": {
+          "type": "id",
+          "nullable": false
+        },
+        "mode": {
+          "type": "fence_mode",
+          "nullable": false
+        },
+        "candidate_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "trust_profile_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "current_generation_id": {
+          "type": "positive",
+          "nullable": true
+        },
+        "next_generation_id": {
+          "type": "positive",
+          "nullable": false
+        },
+        "controller_state": {
+          "type": "controller_state",
+          "nullable": false
+        },
+        "controller_revision": {
+          "type": "positive",
+          "nullable": false
+        },
+        "journal_revision": {
+          "type": "uint",
+          "nullable": false
+        },
+        "pending_index_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "settled_journal_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "managed_registry_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "controller_lease_deadline_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "observed_at_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "observation_deadline_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "control_observation_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "database_observation_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "observation_pair_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "restore_reconciliation_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "recovery_reason": {
+          "type": "refusal",
+          "nullable": true
+        },
+        "restore_state": {
+          "type": "restore_state",
+          "nullable": false
+        },
+        "updated_at_ms": {
+          "type": "uint",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "tenant",
+        "environment",
+        "engine_name"
+      ],
+      "mutable_columns": [
+        "database_incarnation",
+        "database_binding_bytes",
+        "database_binding_sha256",
+        "epoch",
+        "revision",
+        "owner_run_id",
+        "owner_subject",
+        "mode",
+        "candidate_sha256",
+        "trust_profile_sha256",
+        "current_generation_id",
+        "next_generation_id",
+        "controller_state",
+        "controller_revision",
+        "journal_revision",
+        "pending_index_sha256",
+        "settled_journal_sha256",
+        "managed_registry_sha256",
+        "controller_lease_deadline_ms",
+        "observed_at_ms",
+        "observation_deadline_ms",
+        "control_observation_sha256",
+        "database_observation_sha256",
+        "observation_pair_sha256",
+        "restore_reconciliation_sha256",
+        "recovery_reason",
+        "restore_state",
+        "updated_at_ms"
+      ],
+      "notes": [
+        "F always exists before effects; absence refuses, never runtime upsert. Account/region/full engine binding checked from owner installation. All updates only closed D issuer/migration functions.",
+        "Epoch and generation highwater strictly increase; revision CAS increases; restore/reset only externally reconciled new incarnation, never automatic opening.",
+        "No authority from controller_state/observation digest alone: protected issuer has independently authenticated actual external/controller and DB state before checkpoint."
+      ]
+    },
+    "MZO_RUNTIME_ADMISSION": {
+      "columns": {
+        "tenant": {
+          "type": "id",
+          "nullable": false
+        },
+        "environment": {
+          "type": "id",
+          "nullable": false
+        },
+        "engine_name": {
+          "type": "id",
+          "nullable": false
+        },
+        "generation_id": {
+          "type": "positive",
+          "nullable": false
+        },
+        "generation_epoch": {
+          "type": "positive",
+          "nullable": false
+        },
+        "run_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "account": {
+          "type": "account",
+          "nullable": false
+        },
+        "region": {
+          "type": "id",
+          "nullable": false
+        },
+        "database_incarnation": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "database_binding_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "purpose": {
+          "type": "purpose",
+          "nullable": false
+        },
+        "generation_core_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "generation_binding_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "activation_decision_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "activation_decision_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "login_name": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "login_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "credential_binding_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "secret_resource": {
+          "type": "id",
+          "nullable": false
+        },
+        "secret_version": {
+          "type": "id",
+          "nullable": false
+        },
+        "task_definition_arn": {
+          "type": "id",
+          "nullable": false
+        },
+        "task_definition_revision": {
+          "type": "positive",
+          "nullable": false
+        },
+        "task_role": {
+          "type": "id",
+          "nullable": false
+        },
+        "execution_role": {
+          "type": "id",
+          "nullable": false
+        },
+        "image_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "config_set_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "status": {
+          "type": "generation_status",
+          "nullable": false
+        },
+        "revision": {
+          "type": "positive",
+          "nullable": false
+        },
+        "phase": {
+          "type": "phase",
+          "nullable": false
+        },
+        "phase_proof_bytes": {
+          "type": "wire",
+          "nullable": true
+        },
+        "phase_proof_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "valid_until_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "observation_pair_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "observation_deadline_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "restore_receipt_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "readiness_result_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "journal_revision": {
+          "type": "uint",
+          "nullable": true
+        },
+        "settled_journal_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "proof_issuer_operation_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "prepared_at_ms": {
+          "type": "uint",
+          "nullable": false
+        },
+        "opened_at_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "retired_at_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "retirement_catalog_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "quiescence_state": {
+          "type": "quiescence_state",
+          "nullable": false
+        },
+        "terminal_proof_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "owner_preparation_id": {
+          "type": "uuid",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "tenant",
+        "environment",
+        "engine_name",
+        "generation_id"
+      ],
+      "mutable_columns": [
+        "status",
+        "revision",
+        "phase",
+        "phase_proof_bytes",
+        "phase_proof_sha256",
+        "valid_until_ms",
+        "observation_pair_sha256",
+        "observation_deadline_ms",
+        "restore_receipt_sha256",
+        "readiness_result_sha256",
+        "journal_revision",
+        "settled_journal_sha256",
+        "proof_issuer_operation_id",
+        "opened_at_ms",
+        "retired_at_ms",
+        "retirement_catalog_sha256",
+        "quiescence_state",
+        "terminal_proof_sha256"
+      ],
+      "notes": [
+        "G immutable core equals approved GenerationCore canonical bytes and column projections; candidate decision uses CandidateDecision, runtime uses ActivationDecision, no digest cycle.",
+        "Unique global login_name and login_oid within D installation; unique secret_resource; resource lifetime nonreuse enforced against external owner tombstones too. No DELETE/TTL; RETIRED is terminal.",
+        "One live current generation per F; PREPARED->OPEN->RETIRED or PREPARED->RETIRED only. Retirement clears cached admission proof/deadlines, never erases immutable provenance.",
+        "F points to G by generation_id; current runtime operations require same incarnation+epoch. Retirement can select older G under current F without changing historical G epoch.",
+        "Quiescence stays UNPROVEN until actual routes/in-flight admissions/sessions/pools/prepared transactions close; RETIRED alone never means quiescent."
+      ]
+    },
+    "MZO_PROVISIONING_PERMIT": {
+      "columns": {
+        "tenant": {
+          "type": "id",
+          "nullable": false
+        },
+        "environment": {
+          "type": "id",
+          "nullable": false
+        },
+        "engine_name": {
+          "type": "id",
+          "nullable": false
+        },
+        "permit_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "database_incarnation": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "epoch": {
+          "type": "positive",
+          "nullable": false
+        },
+        "run_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "request_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "operation": {
+          "type": "permit_operation",
+          "nullable": false
+        },
+        "purpose": {
+          "type": "permit_purpose",
+          "nullable": false
+        },
+        "login_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "login_name": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "controller_task_identity_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "issuer_login_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "issuer_subject": {
+          "type": "id",
+          "nullable": false
+        },
+        "trust_profile_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "control_observation_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "database_observation_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "issued_at_ms": {
+          "type": "uint",
+          "nullable": false
+        },
+        "deadline_ms": {
+          "type": "uint",
+          "nullable": false
+        },
+        "state": {
+          "type": "permit_state",
+          "nullable": false
+        },
+        "revision": {
+          "type": "positive",
+          "nullable": false
+        },
+        "revoked_at_ms": {
+          "type": "uint",
+          "nullable": true
+        },
+        "revocation_reason": {
+          "type": "refusal",
+          "nullable": true
+        },
+        "native_transaction_deadline_ms": {
+          "type": "uint",
+          "nullable": false
+        },
+        "owner_preparation_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "revoked_by_issuer_operation_id": {
+          "type": "uuid",
+          "nullable": true
+        }
+      },
+      "primary_key": [
+        "tenant",
+        "environment",
+        "engine_name",
+        "permit_id"
+      ],
+      "mutable_columns": [
+        "state",
+        "revision",
+        "revoked_at_ms",
+        "revocation_reason",
+        "revoked_by_issuer_operation_id"
+      ],
+      "notes": [
+        "Unique permit_id installation-wide; no reuse. Exact caller login+task+logical request+purpose+epoch binding. Read-purpose permit can read current-authorized receipt while runtime ACTIVE; effect permit only CLOSED quiescent fence.",
+        "Only issuer inserts/revokes. TTL expiry never deletes, grants new permit, proves transaction terminal or unlocks runtime.",
+        "F->permit->provisioning receipt; receipt lookup before absent-only historical before-state."
+      ]
+    },
+    "MZO_PROVISIONING_RECEIPT": {
+      "columns": {
+        "tenant": {
+          "type": "id",
+          "nullable": false
+        },
+        "environment": {
+          "type": "id",
+          "nullable": false
+        },
+        "engine_name": {
+          "type": "id",
+          "nullable": false
+        },
+        "operation": {
+          "type": "native_operation",
+          "nullable": false
+        },
+        "run_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "request_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "result_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "canonical_result_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "source": {
+          "type": "git_oid",
+          "nullable": false
+        },
+        "tree": {
+          "type": "git_oid",
+          "nullable": false
+        },
+        "native_image_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "native_jar_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "trust_profile_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "database_incarnation": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "permit_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "epoch": {
+          "type": "positive",
+          "nullable": false
+        },
+        "native_actor": {
+          "type": "id",
+          "nullable": false
+        },
+        "native_login_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "recorded_before_commit_at_ms": {
+          "type": "uint",
+          "nullable": false
+        },
+        "schema_version": {
+          "type": "positive",
+          "nullable": false
+        },
+        "receipt_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "receipt_sha256": {
+          "type": "sha256",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "tenant",
+        "environment",
+        "engine_name",
+        "operation",
+        "run_id"
+      ],
+      "mutable_columns": [],
+      "notes": [
+        "Primary key deliberately excludes epoch/permit/digest/incarnation: same logical run cannot create a second effect by changing attempts. Original database binding remains receipt provenance; authorized restored-history read checks actual scope lineage.",
+        "Immutable receipt inserted in native effect transaction; no update/delete/TTL/cascade, no true commit timestamp claim.",
+        "canonical_result_bytes is exact approved DeployResultBody/GrantResultBody W1 bytes, never generic JSON; full NativeReceipt bytes validated against projected columns."
+      ]
+    },
+    "MZO_ISSUER_OPERATION_RECEIPT": {
+      "columns": {
+        "tenant": {
+          "type": "id",
+          "nullable": false
+        },
+        "environment": {
+          "type": "id",
+          "nullable": false
+        },
+        "engine_name": {
+          "type": "id",
+          "nullable": false
+        },
+        "issuer_operation_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "operation": {
+          "type": "issuer_operation",
+          "nullable": false
+        },
+        "request_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "request_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "result_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "result_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "epoch": {
+          "type": "positive",
+          "nullable": false
+        },
+        "generation_id": {
+          "type": "positive",
+          "nullable": true
+        },
+        "database_incarnation": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "issuer_session_user": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "issuer_login_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "issuer_current_user": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "issuer_definer_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "recorded_before_commit_at_ms": {
+          "type": "uint",
+          "nullable": false
+        },
+        "schema_version": {
+          "type": "positive",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "tenant",
+        "environment",
+        "engine_name",
+        "issuer_operation_id"
+      ],
+      "mutable_columns": [],
+      "notes": [
+        "Full current authorization/F/G checks precede lookup. Same current operation+digest returns exact receipt; changed request conflicts. A historical open receipt does not bypass RETIRED/current epoch checks.",
+        "Generation operations contain exact approved IssuerReceipt; fence/permit/checkpoint operations have closed storage-specific result described in CONTRACT, never masquerade as IssuerReceipt.",
+        "No after-commit append, deletion, TTL, same-ID second namespace or FK cascade."
+      ]
+    },
+    "MZO_PROVISIONING_SCHEMA_VERSION": {
+      "columns": {
+        "component": {
+          "type": "id",
+          "nullable": false
+        },
+        "version": {
+          "type": "positive",
+          "nullable": false
+        },
+        "installation_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "migration_id": {
+          "type": "id",
+          "nullable": false
+        },
+        "migration_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "predecessor_sha256": {
+          "type": "sha256",
+          "nullable": true
+        },
+        "manifest_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "database_name": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "database_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "act_schema_name": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "act_schema_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "control_schema_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "cib_abi_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "role_acl_manifest_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "role_acl_manifest_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "object_manifest_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "object_manifest_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "installation_binding_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "installation_binding_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "installed_by": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "installed_by_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "recorded_before_commit_at_ms": {
+          "type": "uint",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "component",
+        "version"
+      ],
+      "mutable_columns": [],
+      "notes": [
+        "Component literal maezo-d7-control; initial D component version=1 and migration ID maezo-d7-control-0001. This does not allocate tenant Alembic/global native version numbering.",
+        "Append-only owner migration receipt. Package expects exact head/version/predecessor/digests; no MAX(version) or CREATE IF NOT EXISTS acceptance. Any pre-existing unowned relation/name refuses.",
+        "role/object manifests contain exact known runtime OIDs/function signatures/owners/ACLs and externally supplied identities after owner installation; placeholders cannot be admitted. No secret values.",
+        "Six tables only; full owner configuration is closed bounded records, not ad hoc SQL or text authority."
+      ]
+    },
+    "MZO_OWNER_PREPARATION_RECEIPT": {
+      "columns": {
+        "tenant": {
+          "type": "id",
+          "nullable": false
+        },
+        "environment": {
+          "type": "id",
+          "nullable": false
+        },
+        "engine_name": {
+          "type": "id",
+          "nullable": false
+        },
+        "owner_operation_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "preparation_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "event": {
+          "type": "owner_event",
+          "nullable": false
+        },
+        "request_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "request_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "result_bytes": {
+          "type": "wire",
+          "nullable": false
+        },
+        "result_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "installation_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "database_binding_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "control_scope_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "login_name": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "login_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "resource_identity_sha256": {
+          "type": "sha256",
+          "nullable": false
+        },
+        "owner_session_user": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "owner_login_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "owner_effective_user": {
+          "type": "pg_name",
+          "nullable": false
+        },
+        "owner_effective_oid": {
+          "type": "oid",
+          "nullable": false
+        },
+        "recorded_before_commit_at_ms": {
+          "type": "uint",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "owner_operation_id"
+      ],
+      "mutable_columns": [],
+      "notes": [
+        "D schema owner alone INSERT; guard/issuer-function owners SELECT, no UPDATE/DELETE; all other direct access absent.",
+        "Global lifetime preparation_id selects exactly one PREPARED and optional one NATIVE_QUALIFIED and one REMOVED, in that order (NATIVE_QUALIFIED optional for removed never-opened generation). No replacement birth, no tombstone deletion.",
+        "Partial unique indexes on login_name, login_oid and resource_identity_sha256 WHERE event=PREPARED; full identity bytes also compared against digest collisions. Existing external lifetime resource tombstones also required.",
+        "Owner operations lock scope F, affected G then installation V row for cross-scope name/OID/resource serialization, then owner receipt. Never hold V and acquire F/G. Bounded complete inventory <=1024 lifetime PREPARED events; no truncation.",
+        "Repeated preparation is verification/recording of externally owner-prepared actual resources, never caller-triggered role creation. REMOVED preserves original name/OID, requires proven terminal closure plus actual absence; old identity reappearance refuses."
+      ]
+    }
+  },
+  "functions": {
+    "status": "PROPOSED_THIRD_REPAIR_REQUIRES_ORIGINAL_REVIEWER",
+    "common_function_properties": {
+      "security": "DEFINER",
+      "volatility": "VOLATILE",
+      "parallel": "UNSAFE",
+      "null_input": "CALLED ON NULL INPUT; refuse null",
+      "search_path": [
+        "pg_catalog",
+        "pg_temp"
+      ],
+      "public_execute": false,
+      "error_map": "HELPER-ABI.json errors",
+      "input_utf8_limit": 1048576
+    },
+    "functions": [
+      {
+        "name": "maezo_d7_control.lock_runtime_v2_scope",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D guard-function owner",
+        "execute_caller_classes": [
+          "native function owner"
+        ],
+        "input_type": "HELPER-ABI.json input",
+        "lock_order": [
+          "F",
+          "G"
+        ],
+        "output_type": "HELPER-ABI.json output",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.prepare_generation",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall with PrepareStorageRequest and existing OperationProof; new complete decision bytes only here",
+        "lock_order": [
+          "F",
+          "G (absent protected by F)",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.admit_candidate_login",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed admit_candidate_login request from CONTRACT",
+        "lock_order": [
+          "F",
+          "G (absent protected by F)",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.open_runtime_generation",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed open_runtime_generation request from CONTRACT",
+        "lock_order": [
+          "F",
+          "G (absent protected by F)",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.retire_generation",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed retire_generation request from CONTRACT",
+        "lock_order": [
+          "F",
+          "G (absent protected by F)",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.record_current_proof",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed record_current_proof request from CONTRACT",
+        "lock_order": [
+          "F",
+          "G (absent protected by F)",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.close_runtime_fence",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed close_runtime_fence request from CONTRACT",
+        "lock_order": [
+          "F",
+          "affected G rows sorted by generation_id",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.mark_recovery",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed mark_recovery request from CONTRACT",
+        "lock_order": [
+          "F",
+          "affected G rows sorted by generation_id",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.reconcile_fence",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall with ReconcileFenceRequest and OwnerHandoffProof",
+        "lock_order": [
+          "F",
+          "all affected G sorted generation_id",
+          "permits sorted permit_id",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.issue_permit",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed issue_permit request from CONTRACT",
+        "lock_order": [
+          "F",
+          "permit (absent protected by F)",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.revoke_permit",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "actual issuer login"
+        ],
+        "input_type": "StoreCall: fixed revoke_permit request from CONTRACT",
+        "lock_order": [
+          "F",
+          "permit (absent protected by F)",
+          "issuer receipt"
+        ],
+        "output_type": "ResultEnvelope",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.lock_provisioning_scope",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D guard-function owner",
+        "execute_caller_classes": [
+          "one-shot deploy/grant/read login",
+          "D receipt-function owner"
+        ],
+        "input_type": "ProvisioningGuardCall",
+        "lock_order": [
+          "F",
+          "permit"
+        ],
+        "output_type": "ProvisioningGuardResult",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.read_provisioning_receipt",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D guard-function owner",
+        "execute_caller_classes": [
+          "one-shot deploy/grant/read login",
+          "scoped D observer login"
+        ],
+        "input_type": "ProvisioningReceiptReadCall",
+        "lock_order": [
+          "F",
+          "permit",
+          "provisioning receipt"
+        ],
+        "output_type": "unchanged approved ReceiptRead: ReceiptFound/ReceiptNotFound; fixed SQLSTATE on refusal",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.append_provisioning_receipt",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D receipt-function owner",
+        "execute_caller_classes": [
+          "one-shot deploy/grant login"
+        ],
+        "input_type": "ProvisioningReceiptAppendCall",
+        "lock_order": [
+          "F",
+          "permit",
+          "provisioning receipt"
+        ],
+        "output_type": "unchanged approved NativeReceipt W1 bytes, visible only with outer commit",
+        "dynamic_function_or_sql_selector": false
+      },
+      {
+        "name": "maezo_d7_control.read_issuer_operation",
+        "arguments": [
+          "pg_catalog.jsonb"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D guard-function owner",
+        "execute_caller_classes": [
+          "actual issuer login",
+          "scoped D observer login"
+        ],
+        "input_type": "IssuerReceiptReadCall",
+        "lock_order": [
+          "F",
+          "G when applicable",
+          "issuer receipt"
+        ],
+        "output_type": "IssuerReceiptReadResult",
+        "dynamic_function_or_sql_selector": false
+      }
+    ],
+    "closed_types": {
+      "ProvisioningGuardCall": {
+        "fields": [
+          "protocol",
+          "scope",
+          "run_id",
+          "epoch",
+          "permit_id",
+          "request_sha256",
+          "operation",
+          "purpose"
+        ],
+        "protocol": "maezo.d7-provisioning-guard.v1",
+        "operation": [
+          "deploy",
+          "grant",
+          "receipt"
+        ],
+        "purpose": [
+          "deploy",
+          "grant",
+          "receipt_read"
+        ],
+        "semantics": "Approved D Scope; canonical UUIDs/digest/integers; exact current permit match. Purpose/login from actual permit, not assertion."
+      },
+      "ProvisioningGuardResult": {
+        "fields": [
+          "protocol",
+          "scope",
+          "run_id",
+          "epoch",
+          "permit_id",
+          "permit_revision",
+          "request_sha256",
+          "operation",
+          "purpose",
+          "login_name",
+          "login_oid",
+          "native_actor",
+          "deadline_ms",
+          "native_transaction_deadline_ms",
+          "database_clock_ms"
+        ],
+        "protocol": "maezo.d7-provisioning-guard-result.v1",
+        "semantics": "All non-null, actual protected permit projections. Native actor is exact owner-installed purpose principal from installation manifest; no caller-chosen user."
+      },
+      "ProvisioningReceiptReadCall": {
+        "fields": [
+          "protocol",
+          "guard",
+          "receipt_key",
+          "request_sha256"
+        ],
+        "protocol": "maezo.d7-provisioning-receipt-read.v1",
+        "guard": "ProvisioningGuardCall",
+        "receipt_key": "unchanged stage1 ReceiptKey",
+        "semantics": "Read-purpose or valid current effect replay; auth/fence/permit precede receipt. NOT_FOUND never no-in-flight proof."
+      },
+      "ProvisioningReceiptAppendCall": {
+        "fields": [
+          "protocol",
+          "guard",
+          "native_receipt_bytes",
+          "native_receipt_sha256"
+        ],
+        "protocol": "maezo.d7-provisioning-receipt-append.v1",
+        "guard": "ProvisioningGuardCall with deploy/grant purpose",
+        "semantics": "NativeReceipt bytes are exact W1 canonical base64url. Guard/current native actor verified; native one-shot verifies effect/flush and closed request before call. Same transaction only; immutable duplicate/conflict."
+      },
+      "IssuerReceiptReadCall": {
+        "fields": [
+          "protocol",
+          "scope",
+          "issuer_operation_id",
+          "request_sha256",
+          "read_guard"
+        ],
+        "protocol": "maezo.d7-issuer-receipt-read.v1",
+        "read_guard": "ProvisioningGuardCall with receipt_read purpose and actual issuer/observer login bound by permit",
+        "semantics": "Actual current issuer or scoped observer identity plus current read permit. Guard request hash covers canonical {scope,issuer_operation_id,request_sha256}, not itself. Supplied hash is not authority. No task data; unavailable complete history refuses."
+      },
+      "IssuerReceiptReadResult": {
+        "fields": [
+          "protocol",
+          "kind",
+          "canonical_result_bytes",
+          "result_sha256"
+        ],
+        "protocol": "maezo.d7-issuer-receipt-read-result.v1",
+        "kind": [
+          "FOUND",
+          "NOT_FOUND"
+        ],
+        "semantics": "FOUND exact historical bytes/digest; NOT_FOUND both null, only complete authorized history, no in-flight inference."
+      },
+      "PrepareStorageRequest": {
+        "fields": [
+          "issuer_request_bytes",
+          "request_sha256",
+          "retained_decision"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "issuer_request_bytes": "canonical base64url complete existing IssuerRequest W1, prepare_generation variant only",
+        "request_sha256": "unchanged IssuerRequest digest",
+        "retained_decision": "RetainedDecision"
+      },
+      "RetainedDecision": {
+        "fields": [
+          "purpose",
+          "decision_bytes",
+          "decision_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "purpose": [
+          "candidate",
+          "runtime"
+        ],
+        "decision_bytes": "canonical base64url complete W1 CandidateDecision if candidate, ActivationDecision if runtime; <=1MiB decoded and whole StoreCall<=1MiB encoded",
+        "decision_sha256": "SHA256 exact retained W1 bytes, equals generation.activation_decision_sha256"
+      },
+      "FenceOwnerSnapshot": {
+        "fields": [
+          "owner_subject",
+          "run_id",
+          "epoch",
+          "revision",
+          "controller_revision",
+          "database_binding_sha256",
+          "next_generation_id",
+          "current_generation_id"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "types": "stage1 Id/UUID/positive/SHA256; controller_revision uint; current_generation_id positive or null"
+      },
+      "OwnerClaimReceipt": {
+        "fields": [
+          "protocol",
+          "control_scope_id",
+          "scope",
+          "table_identity_sha256",
+          "claim_id",
+          "previous_claim_sha256",
+          "previous_owner",
+          "successor_owner",
+          "previous_root_revision",
+          "committed_root_revision",
+          "previous_lease_deadline_ms",
+          "claim_observed_at_ms",
+          "next_generation_id",
+          "journal_revision",
+          "pending_index_sha256",
+          "managed_registry_sha256",
+          "retired_index_sha256",
+          "request_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-owner-claim.v1",
+        "previous_owner": "OwnerIdentity",
+        "successor_owner": "OwnerIdentity",
+        "previous_claim_sha256": "SHA256 or null only installation origin",
+        "types": "scope approved Scope; claim_id/control_scope_id UUID; timestamps uint; revisions/next generation positive; digests SHA256"
+      },
+      "OwnerIdentity": {
+        "fields": [
+          "owner_subject",
+          "run_id",
+          "epoch"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "types": "Id, UUID, positive; exact authenticated subject, never derived from run UUID"
+      },
+      "OwnerLineageRead": {
+        "fields": [
+          "protocol",
+          "scope",
+          "control_scope_id",
+          "table_identity_sha256",
+          "challenge_sha256",
+          "authenticated_observer_subject",
+          "root_bytes",
+          "root_sha256",
+          "claim_receipt_bytes",
+          "claim_receipt_sha256",
+          "ancestor_claim_bytes",
+          "ancestor_claim_sha256s",
+          "strong_read_revision",
+          "reread_revision",
+          "observed_at_ms",
+          "deadline_ms"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-owner-lineage-read.v1",
+        "root_bytes": "complete retained closed controller ROOT W1; producer adds exact current_owner_claim_sha256 field to ROOT (null installation only)",
+        "claim_receipt_bytes": "complete OwnerClaimReceipt W1; null only current_owner_reconcile at installation origin with null root claim pointer",
+        "ancestor_claim_bytes": "array<=32 complete W1 receipts from old F owner to latest; empty direct transition",
+        "ancestor_claim_sha256s": "same length/order exact SHA256",
+        "authority": "Only qualified fixed controller observation port supplies this record with independently authenticated transport/challenge. Parsing or caller bytes never instantiate authority; SQL never performs that read."
+      },
+      "OwnerHandoffProof": {
+        "fields": [
+          "protocol",
+          "operation_proof",
+          "owner_subject",
+          "owner_lineage_bytes",
+          "owner_lineage_sha256",
+          "old_fence_owner_sha256",
+          "restore_reconciliation_bytes",
+          "restore_reconciliation_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-owner-handoff-proof.v1",
+        "operation_proof": "existing exact OperationProof; scope/run/epoch=successor",
+        "owner_subject": "successor authenticated Id, exact OwnerLineageRead current ROOT and claim successor",
+        "owner_lineage_bytes": "retained OwnerLineageRead W1, qualified before SQL",
+        "restore_reconciliation_bytes": "null same_incarnation; complete OwnerRestoreReconciliation bytes for restore",
+        "restore_reconciliation_sha256": "null same_incarnation; exact report hash for restore",
+        "old_fence_owner_sha256": "SHA256 complete FenceOwnerSnapshot requested and CAS-compared"
+      },
+      "OwnerRestoreReconciliation": {
+        "fields": [
+          "protocol",
+          "scope",
+          "old_database_binding",
+          "new_database_binding",
+          "control_scope_id",
+          "controller_table_identity_sha256",
+          "owner_subject",
+          "run_id",
+          "epoch",
+          "owner_recovery_id",
+          "control_observation_bytes",
+          "database_observation_bytes",
+          "closure_manifest_bytes",
+          "closure_manifest_sha256",
+          "next_generation_id",
+          "retained_generation_index_sha256",
+          "pending_index_sha256",
+          "journal_revision",
+          "observed_at_ms",
+          "deadline_ms"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-owner-restore-reconciliation.v1",
+        "control_observation_bytes": "complete existing ControlObservation W1 retained and qualified under original profile; restored table owner identity explicitly reconciled outside SQL",
+        "database_observation_bytes": "complete existing DatabaseObservation W1 retained and qualified under original profile",
+        "closure_manifest_bytes": "complete bounded sorted array<=1024 exact {resource_kind,resource_identity,terminal_proof_sha256,observation_sha256}; kind role|secret|task|service|task_set|session|pool|prepared_transaction|dispatch|native_history; resource identity is nonsecret Id; no missing required original owner inventories",
+        "types": "full approved Scope/DatabaseBinding; UUID and SHA256; integers W1; source authentication/actual closure from original external recovery boundary, no parsing authority"
+      },
+      "ReconcileFenceRequest": {
+        "fields": [
+          "operation",
+          "mode",
+          "database_binding",
+          "expected_owner",
+          "successor_owner",
+          "claim_id",
+          "claim_receipt_sha256",
+          "next_generation_id",
+          "retired_generation_index_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "operation": "reconcile_fence",
+        "mode": [
+          "same_incarnation_successor",
+          "database_restore",
+          "current_owner_reconcile"
+        ],
+        "database_binding": "unchanged complete approved DatabaseBinding",
+        "expected_owner": "FenceOwnerSnapshot old protected F",
+        "successor_owner": "OwnerIdentity current qualified controller owner",
+        "claim_id": "UUID or null for current_owner_reconcile",
+        "claim_receipt_sha256": "SHA256 or null for current_owner_reconcile",
+        "types": "next_generation_id positive; retired_generation_index_sha256 SHA256; strict mode semantics in CONTRACT"
+      }
+    },
+    "excluded": [
+      "owner migration seed is migration DDL, not public function",
+      "no general execute_statement or role administration helper",
+      "no direct native table or ACT mutation in D lock_runtime helper"
+    ],
+    "private_wire_validators": [
+      {
+        "name": "maezo_d7_control.decode_issuer_request_wire",
+        "arguments": [
+          "pg_catalog.bytea"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "D issuer-function owner"
+        ],
+        "input_document": "IssuerRequest",
+        "security": "fixed private lexical+closed-schema+W1 exact-byte validator; no authority; existing hardened function properties, bounded 1MiB/depth64; no PUBLIC/native/runtime/issuer-login EXECUTE"
+      },
+      {
+        "name": "maezo_d7_control.decode_candidate_decision_wire",
+        "arguments": [
+          "pg_catalog.bytea"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "D issuer-function owner"
+        ],
+        "input_document": "CandidateDecision",
+        "security": "fixed private lexical+closed-schema+W1 exact-byte validator; no authority; existing hardened function properties, bounded 1MiB/depth64; no PUBLIC/native/runtime/issuer-login EXECUTE"
+      },
+      {
+        "name": "maezo_d7_control.decode_activation_decision_wire",
+        "arguments": [
+          "pg_catalog.bytea"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "D issuer-function owner"
+        ],
+        "input_document": "ActivationDecision",
+        "security": "fixed private lexical+closed-schema+W1 exact-byte validator; no authority; existing hardened function properties, bounded 1MiB/depth64; no PUBLIC/native/runtime/issuer-login EXECUTE"
+      },
+      {
+        "name": "maezo_d7_control.decode_owner_lineage_wire",
+        "arguments": [
+          "pg_catalog.bytea"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "D issuer-function owner"
+        ],
+        "input_document": "OwnerLineageRead",
+        "security": "fixed private lexical+closed-schema+W1 exact-byte validator; no authority; existing hardened function properties, bounded 1MiB/depth64; no PUBLIC/native/runtime/issuer-login EXECUTE"
+      },
+      {
+        "name": "maezo_d7_control.decode_owner_restore_wire",
+        "arguments": [
+          "pg_catalog.bytea"
+        ],
+        "returns": "pg_catalog.jsonb",
+        "owner_class": "D issuer-function owner",
+        "execute_caller_classes": [
+          "D issuer-function owner"
+        ],
+        "input_document": "OwnerRestoreReconciliation",
+        "security": "fixed private lexical+closed-schema+W1 exact-byte validator; no authority; existing hardened function properties, bounded 1MiB/depth64; no PUBLIC/native/runtime/issuer-login EXECUTE"
+      }
+    ],
+    "third_repair_rules": [
+      "StoreCall top-level and ResultEnvelope constants/fields unchanged; this explicitly supersedes unimplemented operation-specific v1 allocation, not a silent stage1 protocol edit. All sibling generation requests remain exact two-field records.",
+      "Retire parsing uses existing IssuerRequest schema, then storage-specific current request/F authority and historical full generation/decision validation separately. Do not call check_issuer_request with mismatching old-generation epoch/run, do not modify that pure predicate.",
+      "revoke_permit sets recorded one-shot NOLOGIN and revokes its exact CONNECT in same transaction with permit REVOKED and issuer receipt; already terminal exact replay performs no mutation.",
+      "No new SQL caller endpoint for owner preparation. Fixed owner installer operation via actual schema-owner migration session owns new receipt INSERT; no runtime or issuer-login EXECUTE privilege added."
+    ]
+  },
+  "installation": {
+    "status": "PROPOSED_THIRD_REPAIR_REQUIRES_ORIGINAL_REVIEWER",
+    "closed_records": {
+      "OwnerInstallationInput": {
+        "fields": [
+          "protocol",
+          "installation_id",
+          "control_scope_id",
+          "component",
+          "version",
+          "database_binding",
+          "act_schema_name",
+          "controller_table_arn",
+          "source_manifest_sha256",
+          "cib_abi_sha256",
+          "roles",
+          "issuer_scopes",
+          "prepared_principals"
+        ],
+        "constants": {
+          "protocol": "maezo.d7-control-installation.v1",
+          "component": "maezo-d7-control",
+          "version": 1
+        },
+        "roles": "array exact {role_class,role_name}; exactly one each singleton: D schema owner, D guard-function owner, D issuer-function owner, D receipt-function owner, actual issuer login, native function owner, scoped D observer login. No generation or one-shot class here.",
+        "issuer_scopes": "array<=1024 full approved Scope; exact DB binding/account/region; no wildcard scopes",
+        "notes": "Owner-authenticated protected input; parsing never confers permission. Existing expected role names must be actual owned prerequisites, unowned collision refuses.",
+        "prepared_principals": "array 0..1024 OwnerPreparationInput; repeatable generation and one-shot classes; role/name/OID/resources globally unique for lifetime; full actual receipt produced per entry"
+      },
+      "RoleAclManifest": {
+        "fields": [
+          "protocol",
+          "installation_id",
+          "roles",
+          "memberships",
+          "object_grants",
+          "operational_principals",
+          "catalog_sha256"
+        ],
+        "protocol": "maezo.d7-role-acl-manifest.v1",
+        "roles": "RoleCatalogEntry array, exact full protected-role inventory",
+        "memberships": "MembershipEntry array, complete relevant recursive closure; no truncation/nulls",
+        "object_grants": "ObjectGrant array, exact role/function/table/column/schema privileges, no implicit PUBLIC path",
+        "operational_principals": "exact array {purpose,native_actor,login_name,login_oid}; purpose deploy|grant|receipt_read, each binds actual seeded non-human native operational principal",
+        "catalog_sha256": "SHA256 of W1 manifest body excluding only catalog_sha256, never self-referential; actual catalog inputs and owner validation still required"
+      },
+      "RoleCatalogEntry": {
+        "fields": [
+          "role_class",
+          "role_name",
+          "role_oid",
+          "rolcanlogin",
+          "rolsuper",
+          "rolcreaterole",
+          "rolcreatedb",
+          "rolreplication",
+          "rolbypassrls",
+          "rolinherit"
+        ],
+        "role_class": [
+          "D schema owner",
+          "D guard-function owner",
+          "D issuer-function owner",
+          "D receipt-function owner",
+          "actual issuer login",
+          "native function owner",
+          "scoped D observer login",
+          "generation login",
+          "one-shot login"
+        ],
+        "types": "name=pg_name; oid=actual Oid; remaining rol* fields strict booleans"
+      },
+      "MembershipEntry": {
+        "fields": [
+          "role_oid",
+          "member_oid",
+          "grantor_oid",
+          "admin_option",
+          "inherit_option",
+          "set_option"
+        ],
+        "types": "actual OIDs and strict booleans; PostgreSQL16 options checked independently"
+      },
+      "ObjectGrant": {
+        "fields": [
+          "object_class",
+          "schema_name",
+          "object_name",
+          "object_oid",
+          "function_argument_types",
+          "column_names",
+          "grantee_oid",
+          "grantor_oid",
+          "privilege",
+          "grantable"
+        ],
+        "object_class": [
+          "schema",
+          "table",
+          "column",
+          "function",
+          "database"
+        ],
+        "privilege": [
+          "USAGE",
+          "CREATE",
+          "SELECT",
+          "INSERT",
+          "UPDATE",
+          "DELETE",
+          "TRUNCATE",
+          "REFERENCES",
+          "TRIGGER",
+          "EXECUTE",
+          "CONNECT",
+          "TEMPORARY"
+        ],
+        "types": "function_argument_types and column_names are exact arrays, empty when irrelevant; all names owner-verified, no caller SQL; grantee_oid>0. Any actual PUBLIC grant to the governed D surface makes admissible manifest validation fail; preserve offending catalog privately."
+      },
+      "ObjectManifest": {
+        "fields": [
+          "protocol",
+          "installation_id",
+          "objects"
+        ],
+        "protocol": "maezo.d7-object-manifest.v1",
+        "objects": "ObjectCatalogEntry array"
+      },
+      "ObjectCatalogEntry": {
+        "fields": [
+          "schema_name",
+          "object_name",
+          "object_class",
+          "object_oid",
+          "owner_name",
+          "owner_oid",
+          "definition_sha256",
+          "function_argument_types",
+          "security_definer",
+          "volatility",
+          "parallel",
+          "search_path"
+        ],
+        "types": "nullable function-only fields only for tables/schema; function exact properties from FUNCTIONS; names/OIDs actual catalog; definition_sha256 hashes qualified normalized catalog declaration under pinned serializer, separate raw SQL source hash retained"
+      },
+      "InstallationBinding": {
+        "fields": [
+          "protocol",
+          "installation_id",
+          "control_scope_id",
+          "component",
+          "version",
+          "database_binding",
+          "act_schema_name",
+          "act_schema_oid",
+          "control_schema_oid",
+          "controller_table_arn",
+          "role_acl_manifest_sha256",
+          "object_manifest_sha256",
+          "migration_sha256",
+          "cib_abi_sha256"
+        ],
+        "protocol": "maezo.d7-installation-binding.v1",
+        "types": "existing D aliases; actual OIDs and externally qualified controller table ARN/region, no placeholders"
+      },
+      "OwnerPreparationInput": {
+        "fields": [
+          "protocol",
+          "installation_id",
+          "control_scope_id",
+          "scope",
+          "database_binding",
+          "owner_operation_id",
+          "preparation_id",
+          "epoch",
+          "run_id",
+          "principal"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-owner-preparation.v1",
+        "principal": "GenerationPreparationTarget or OneShotPreparationTarget; actual OID is catalog output, never input",
+        "types": "UUIDs, approved Scope/DatabaseBinding, positive epoch"
+      },
+      "GenerationPreparationTarget": {
+        "fields": [
+          "kind",
+          "purpose",
+          "generation_id",
+          "login_name",
+          "credential_binding_sha256",
+          "immutable_secret_resource_version",
+          "task_definition_revision",
+          "task_role",
+          "execution_role",
+          "network_binding",
+          "image_sha256",
+          "config_set_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "kind": "generation",
+        "purpose": [
+          "candidate",
+          "runtime"
+        ],
+        "types": "exact approved GenerationCore fields except scope/epoch from envelope and login_oid from actual catalog; task_definition_revision is full approved TaskDefinitionBinding"
+      },
+      "OneShotPreparationTarget": {
+        "fields": [
+          "kind",
+          "purpose",
+          "login_name",
+          "native_actor",
+          "resource_identity",
+          "resource_identity_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "kind": "one_shot",
+        "purpose": [
+          "deploy",
+          "grant",
+          "receipt_read"
+        ],
+        "types": "owner-verified fixed native actor Id and resource_identity is the complete nonsecret immutable Id retained in input/result and external owner custody; SHA256 canonical {scope,kind,purpose,resource_identity}, collision checked by full equality; digest no authority"
+      },
+      "OwnerPreparationResult": {
+        "fields": [
+          "protocol",
+          "installation_id",
+          "owner_operation_id",
+          "preparation_id",
+          "event",
+          "scope",
+          "database_binding_sha256",
+          "principal",
+          "generation_core",
+          "owner_catalog_bytes",
+          "owner_catalog_sha256",
+          "external_resource_readback_sha256",
+          "native_qualification",
+          "request_sha256",
+          "owner_session_user",
+          "owner_login_oid",
+          "owner_effective_user",
+          "owner_effective_oid",
+          "recorded_before_commit_at_ms"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-owner-preparation-result.v1",
+        "event": [
+          "PREPARED",
+          "NATIVE_QUALIFIED",
+          "REMOVED"
+        ],
+        "principal": "input principal plus actual login_oid; historical identity retained for removal",
+        "generation_core": "full actual approved GenerationCore for generation, explicit null for one_shot",
+        "owner_catalog_bytes": "exact full bounded RoleAclManifest current snapshot for PREPARED; verified event readback for other events",
+        "native_qualification": "null PREPARED/REMOVED; NativePrincipalQualificationBinding for NATIVE_QUALIFIED",
+        "authority": "actual separate D owner migration session and qualified external owner resource readback; record or hash alone grants nothing"
+      },
+      "OwnerPreparationEventInput": {
+        "fields": [
+          "protocol",
+          "installation_id",
+          "owner_operation_id",
+          "preparation_id",
+          "event",
+          "expected_previous_event_sha256",
+          "native_qualification",
+          "terminal_proof_bytes",
+          "terminal_proof_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-owner-preparation-event.v1",
+        "event": [
+          "NATIVE_QUALIFIED",
+          "REMOVED"
+        ],
+        "native_qualification": "non-null binding only NATIVE_QUALIFIED",
+        "terminal_proof_bytes": "non-null retained existing external owner full terminal/quiescence proof only REMOVED",
+        "terminal_proof_sha256": "non-null matching hash only REMOVED"
+      },
+      "NativePrincipalQualificationBinding": {
+        "fields": [
+          "protocol",
+          "native_installation_receipt_sha256",
+          "native_owner_operation_id",
+          "d_preparation_id",
+          "scope",
+          "generation_id",
+          "purpose",
+          "generation_core_sha256",
+          "decision_sha256",
+          "login_name",
+          "login_oid",
+          "database_binding_sha256",
+          "helper_abi_sha256",
+          "before_catalog_sha256",
+          "after_catalog_sha256",
+          "native_receipt_bytes",
+          "native_receipt_sha256"
+        ],
+        "unknown_keys": "REFUSE",
+        "missing_keys": "REFUSE",
+        "protocol": "maezo.d7-native-principal-qualification-binding.v1",
+        "authority": "DEPENDENCY: exact byte receipt from separately qualified native-owner preparation operation, not currently implemented or authorized by D packet. D verifies through owner-bound native readback; fields never grant native authority."
+      }
+    },
+    "global_constraints": [
+      "All records reject unknown/missing keys; scalar W1 types and UTF8/size bounds apply. All arrays sorted uniquely by full tuple in declared field order, max1024; exceeded visibility refuses.",
+      "No secret material or password/certificate private key has a field. Signatures/profile validation stay at their exact separate trust boundary.",
+      "role_class does not grant a role: actual owner migration authority+catalog reads produce RoleCatalogEntry and ACL evidence.",
+      "Every runtime/native/worker/issuer-login path to owner SET/INHERIT/ADMIN is absent; issuer-function-owner ADMIN only to its enumerated owner-prepared target roles.",
+      "No PUBLIC grants to D namespace/tables/functions. Required privileges are exact; extras to untrusted roles fail readback.",
+      "Only actual owner migration output can populate MZO_PROVISIONING_SCHEMA_VERSION and its bytea/digest projections. Consumer also compares installed catalogs and pinned expected package; table content alone is insufficient.",
+      "Maximum1024 lifetime prepared principals per installation across initial and later owner events; exceeded bounds refuse. New owner preparation does not consume/rewind generation ID; controller must reserve monotonically before owner preparation and preserve failed reservations.",
+      "Preparation field names and nested typed values are closed; canonical complete bytes <=1MiB, arrays<=1024 and W1 depth<=64. Each event actual catalog compares full prior overlay, then own exact delta. No nullable success on missing external/native qualification."
+    ],
+    "third_repair_catalog_matrix": {
+      "immutable": "all role attributes except rolcanlogin; all recursive ADMIN/INHERIT/SET/grantors, owners, OIDs, definitions/properties, fixed ACLs exact; owner-recorded later prepared targets extend inventory without rewriting earlier snapshot",
+      "PREPARED": "rolcanlogin=false, direct/effective CONNECT absent; all fixed privileges equal owner birth",
+      "OPEN": "rolcanlogin=true, exact direct CONNECT edge granted by pinned issuer-function owner; protected G OPEN + matching committed open/admit issuer receipt + native qualification where native-facing; no other catalog delta",
+      "RETIRED": "rolcanlogin=false, exact CONNECT edge absent; corresponding protected retirement receipt, old open receipt cannot justify reopening",
+      "PERMIT_ISSUED": "rolcanlogin=true, exact CONNECT edge; current protected ISSUED permit with matching issue receipt; expiration stops guard authority without pretending catalog autoupdate",
+      "PERMIT_REVOKED": "rolcanlogin=false, exact CONNECT edge absent; revoked_by_issuer_operation_id references exact current revoke or whole-scope handoff receipt; latter request expected old owner covers revoked permit epoch/run",
+      "REMOVED": "historical complete OID/name/birth snapshot retained; qualified terminal proof plus actual role/resource absence matches REMOVED event; name/OID/resource reincarnation always refuses",
+      "NATIVE_ACL": "only native owner-qualified exact generation-specific ACL delta to fixed existing native objects; native birth receipt immutable. Unqualified extra native grant refuses. No broad allowlist or ignored ACL fields."
+    }
+  },
+  "source_implementation": true,
+  "execution_authorized": false,
+  "native_later_principal_qualification": "UNAVAILABLE_UNTIL_SEPARATE_NATIVE_OWNER_IMPLEMENTATION"
+}
