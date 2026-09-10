@@ -42,7 +42,10 @@ def main(argv: list[str] | None = None) -> int:
             raise VerificationRefusedError("label must use lowercase letters, digits, dash or underscore")
         if not 0 < args.timeout <= 180 or not args.command:
             raise VerificationRefusedError("command and bounded timeout are required")
-        executable = Path(args.command[0]).expanduser().resolve(strict=True)
+        executable = Path(args.command[0]).expanduser()
+        if not executable.is_absolute():
+            raise VerificationRefusedError("command executable must be absolute")
+        resolved_executable = executable.resolve(strict=True)
         if not executable.is_file() or not os.access(executable, os.X_OK):
             raise VerificationRefusedError("command executable is unavailable")
         terraform_config = (inputs.evidence / "terraform-cli.tfrc").resolve(strict=True)
@@ -91,7 +94,11 @@ def main(argv: list[str] | None = None) -> int:
             "source_sha": HEAD,
             "source_tree": inputs.tree,
             "evidence": str(inputs.evidence),
-            "tool": {"path": str(executable), "sha256": hashlib.sha256(executable.read_bytes()).hexdigest()},
+            "tool": {
+                "path": str(executable),
+                "resolved_path": str(resolved_executable),
+                "sha256": hashlib.sha256(resolved_executable.read_bytes()).hexdigest(),
+            },
         }
         write_json_exclusive(output / f"{args.label}.json", receipt)
     except (OSError, ValueError, subprocess.TimeoutExpired, VerificationRefusedError) as exc:
