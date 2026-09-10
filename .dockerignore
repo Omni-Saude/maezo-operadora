@@ -46,6 +46,11 @@ deploy/cibseven/human-webapp/*
 !deploy/cibseven/human-webapp/WEB-INF/
 deploy/cibseven/human-webapp/WEB-INF/*
 !deploy/cibseven/human-webapp/WEB-INF/web.xml
+!deploy/cibseven/read-webapp/
+deploy/cibseven/read-webapp/*
+!deploy/cibseven/read-webapp/WEB-INF/
+deploy/cibseven/read-webapp/WEB-INF/*
+!deploy/cibseven/read-webapp/WEB-INF/web.xml
 !deploy/cibseven/secured/
 deploy/cibseven/secured/*
 !deploy/cibseven/secured/descriptors/
@@ -54,6 +59,11 @@ deploy/cibseven/secured/descriptors/*
 !deploy/cibseven/secured/descriptors/bpm-platform.xml
 !deploy/cibseven/secured/descriptors/engine-rest-web.xml
 !deploy/cibseven/secured/descriptors/camunda-web.xml
+!deploy/cibseven/secured/native-v2/
+deploy/cibseven/secured/native-v2/*
+!deploy/cibseven/secured/native-v2/WEB-INF/
+deploy/cibseven/secured/native-v2/WEB-INF/*
+!deploy/cibseven/secured/native-v2/WEB-INF/web.xml
 
 # Variáveis de ambiente locais (nunca empacotar segredos)
 .env
