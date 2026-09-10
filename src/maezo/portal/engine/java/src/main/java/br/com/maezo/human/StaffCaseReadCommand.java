@@ -41,6 +41,11 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       original=obj(retained,"request");
       if(!"detail".equals(original.get("operation"))||!principal.equals(original.get("principal"))
           ||!request.get("membership_witness").equals(original.get("membership_witness")))throw conflict();
+      // A newly admitted signer cannot replace an original retained source key.
+      for(Object value:list(retained.get("source_pins"))){var pin=StaffCaseModels.shape("readpin",value);
+        if("source_key".equals(pin.get("kind"))){var entry=installed.entries.get(str(pin,"ref"));
+          if(entry==null||!hash(entry).equals(pin.get("digest"))||store.revoked(str(pin,"ref")))throw denied();
+          installed.fresh(entry,"not_before","valid_until");installed.usedKeys.add(str(pin,"ref"));}}
       installed.retain(time(retained.get("valid_until")));
       for(Object ceiling:list(retained.get("q2_ceilings")))installed.retain(time(map(ceiling).get("valid_until")));
     }else continuityRef=UUID.randomUUID().toString();
@@ -142,6 +147,8 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       pins.add(pin("policy_head",str(p,"policy_ref"),p.get("head_revision"),hash(closed),until));}
     for(Object value:list(state.get("created"))){var p=map(value);pins.add(pin("native_task_created_at",str(obj(p,"resource"),"task_id"),p.get("task_revision"),hash(p),until));}
     for(Object value:list(state.get("tasks"))){var p=map(value);pins.add(pin("native_task",str(p,"task_id"),p.get("task_revision"),hash(p),until));}
+    for(String fingerprint:new TreeSet<>(installed.usedKeys))
+      pins.add(pin("source_key",fingerprint,designation.get("designation_revision"),hash(installed.entries.get(fingerprint)),until));
     return pins;
   }
   static Map<String,Object> pin(String kind,String ref,Object revision,String digest,Instant until){

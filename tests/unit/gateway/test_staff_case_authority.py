@@ -460,3 +460,67 @@ async def test_service_freezes_original_and_checks_after_all_awaited_release(mod
             )
         if mode in {"cursor", "beneficiary"}:
             assert not calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,effect,expected", [(404, False, "denied"), (409, False, "conflict"), (404, True, "uncertain")]
+)
+async def test_authenticated_native_read_refusal_and_possible_publication_effect(status, effect, expected):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from cryptography import x509
+    from cryptography.x509.oid import NameOID
+
+    from maezo.gateway.staff_cases.publisher import StaffNativeClient
+
+    _, _, _, _, _, now, key, _ = scenario()
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "synthetic-native")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(1)
+        .not_valid_before(now - timedelta(seconds=1))
+        .not_valid_after(now + timedelta(seconds=30))
+        .sign(key, algorithm=None)
+    )
+    der = cert.public_bytes(serialization.Encoding.DER)
+    closed = []
+    response = SimpleNamespace(
+        status_code=status,
+        headers={},
+        extensions={
+            "network_stream": SimpleNamespace(
+                get_extra_info=lambda name: SimpleNamespace(getpeercert=lambda binary_form: der)
+            )
+        },
+    )
+
+    class Http:
+        @asynccontextmanager
+        async def stream(self, *args, **kwargs):
+            try:
+                yield response
+            finally:
+                closed.append(True)
+
+    client = object.__new__(StaffNativeClient)
+    client.closed = False
+    client.seconds = 1
+    client.origin = "https://native.test"
+    client.server_pin = fingerprint(key.public_key())
+    client.signer = SimpleNamespace(guard=lambda purpose: now, clock=lambda: now)
+    client.http = Http()
+    with pytest.raises(StaffCaseError) as refused:
+        await client._send(
+            "staff-case-detail",
+            {"closed": True},
+            "staff-case-read.v1",
+            now + timedelta(seconds=1),
+            effect=effect,
+        )
+    assert refused.value.code == expected
+    assert closed == [True]

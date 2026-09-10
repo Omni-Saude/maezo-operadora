@@ -32,6 +32,10 @@ final class StaffCaseModels {
     Map.entry("readpin","kind:designation|identity|membership|case_grant|native_case|native_task|task_disclosure|source_key|policy_head|native_task_created_at ref:r revision:n digest:h valid_until:t"),
     Map.entry("receipt","schema:staff-case-publication-receipt.v1 publication_id:r request_digest:h scope:@scope source_ref:r source_revision:n payload_digest:h disposition:committed committed_at:t native_receipt_ref:r valid_until:t proof:@proof")
   );
+  static void requireReadCapabilities(Map<String,Object> entry){
+    if(!"read_requester".equals(entry.get("role"))||!list(entry.get("operations")).equals(List.of("detail"))
+        ||!new HashSet<>(list(entry.get("projections"))).containsAll(FIELDS.keySet()))throw denied();
+  }
   static Map<String,Object> shape(String name,Object value){
     if(name.equals("scope"))return ExternalCaseModels.shape("scope",value);
     if(name.equals("actor"))return AuthModels.validate("actor",value);

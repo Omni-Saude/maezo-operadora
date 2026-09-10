@@ -36,6 +36,12 @@ from .models import MembershipWitness, Proof, StaffCaseError, StaffPublication
 from .postgres import NativeMembershipSource
 
 
+class _ReadRefusalError(Exception):
+    def __init__(self, code: Literal["invalid", "denied", "conflict", "unavailable"]):
+        self.code = code
+        super().__init__("staff_native_read_refused")
+
+
 @dataclass(frozen=True, repr=False)
 class StaffSigner:
     authority: InstalledStaffAuthority
@@ -230,11 +236,20 @@ class StaffNativeClient:
                     peer = hashlib.sha256(
                         cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
                     ).hexdigest()
-                    if (
-                        peer != self.server_pin
-                        or response.status_code != 200
-                        or response.headers.get("content-type", "").split(";")[0] != "application/json"
-                    ):
+                    if peer != self.server_pin:
+                        raise StaffCaseError("unavailable")
+                    if response.status_code != 200:
+                        if not effect:
+                            # Only authenticated read refusals receive product status
+                            # semantics. No 4xx publication implies remote non-effect.
+                            if response.status_code == 404:
+                                raise _ReadRefusalError("denied")
+                            if response.status_code == 409:
+                                raise _ReadRefusalError("conflict")
+                            if response.status_code == 400:
+                                raise _ReadRefusalError("invalid")
+                        raise StaffCaseError("unavailable")
+                    if response.headers.get("content-type", "").split(";")[0] != "application/json":
                         raise StaffCaseError("unavailable")
                     chunks = bytearray()
                     async for chunk in response.aiter_bytes():
@@ -253,6 +268,8 @@ class StaffNativeClient:
             return value
         except asyncio.CancelledError:
             raise
+        except _ReadRefusalError as refusal:
+            raise StaffCaseError(refusal.code) from None
         except Exception:
             raise StaffCaseError("uncertain" if effect and sent else "unavailable") from None
 

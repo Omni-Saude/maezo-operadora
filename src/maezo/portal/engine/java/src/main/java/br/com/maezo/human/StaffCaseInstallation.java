@@ -150,7 +150,9 @@ public final class StaffCaseInstallation {
     String op=str(r,"operation"),purpose=str(r,"purpose");
     if(!Set.of("detail","finalize").contains(op)||!purpose.equals(op.equals("detail")?"staff-case-read.v1":"staff-case-finalize.v1"))throw invalid();
     shape("principal",r.get("principal"));shape("membership",r.get("membership_witness"));shape(op,r.get("query"));check("r",r.get("request_id"));
-    verifyTransport(r,peer,"read_requester",purpose);retain(time(r.get("session_valid_until")));return r;
+    verifyTransport(r,peer,"read_requester",purpose);
+    StaffCaseModels.requireReadCapabilities(entry(str(r,"key_fingerprint"),"read_requester",purpose,null,null));
+    retain(time(r.get("session_valid_until")));return r;
   }
   Map<String,Object> signedPublication(byte[] raw,String peer){
     var e=canonical(raw);Jcs.keys(e,"schema","purpose","scope","key_fingerprint","configuration_digest","issued_at","expires_at","request","signature");

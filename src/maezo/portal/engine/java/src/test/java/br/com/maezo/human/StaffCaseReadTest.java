@@ -8,6 +8,12 @@ import org.junit.jupiter.api.Test;
 
 /** Focal codec/result controls; not a mock engine integration test. */
 class StaffCaseReadTest {
+  @Test void currentReadCredentialMustCoverExactEndpointProjections(){
+    var entry=record("role","read_requester","operations",List.of("detail"),"projections",new ArrayList<>(StaffCaseModels.FIELDS.keySet()));
+    StaffCaseModels.requireReadCapabilities(entry);
+    entry.put("projections",List.of("staff_summary.v1","staff_identity.v1"));
+    assertThrows(Rejected.class,()->StaffCaseModels.requireReadCapabilities(entry));
+  }
   @Test void actualTaskResourceAndRevisionChangeCreationPin(){
     var scope=record("tenant","tenant","environment","test","engine_name","engine","database_incarnation","inc");
     var resource=record("scope",scope,"case_ref","case_00000000001","process_instance_id","instance","task_id","task","task_definition_key","UT_Task");
