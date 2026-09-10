@@ -31,6 +31,7 @@ from maezo.adapters.amh.subject_context import (
     GovernedSubjectContextResponse,
 )
 from maezo.gateway.action_execution import REASON_APPROVED
+from maezo.gateway.amh_consent_revision import PostgresAmhConsentRevisionGuard
 from maezo.gateway.audit import AuditRecord, hash_input
 from maezo.gateway.audit_postgres import PostgresAuditSink
 from maezo.gateway.credential_vault import AgentCredentialView, CredentialVault
@@ -60,6 +61,8 @@ class AmhRuntime:
     runtime composition; the upstream still authenticates that token on each read.
     ConsentSource must be the current publisher for this tenant/legal entity.
     Its existing contract owns revocation/expiry semantics; no local TTL is made up.
+    The mandatory revision store persists observed floors across executor, token
+    and process lifetimes; all deployments in this authority realm share it.
     """
 
     tenant: str
@@ -72,6 +75,7 @@ class AmhRuntime:
     credentials: CredentialVault = field(repr=False)
     consent: ConsentDecisionSource = field(repr=False)
     audit: PostgresAuditSink = field(repr=False)
+    consent_revisions: PostgresAmhConsentRevisionGuard = field(repr=False)
     pin_path: Path | None = None
 
     def __post_init__(self) -> None:
@@ -96,6 +100,10 @@ class AmhRuntime:
             if not isinstance(self.credentials, CredentialVault):
                 raise ValueError
             if not isinstance(self.consent, ConsentDecisionSource):
+                raise ValueError
+            if not isinstance(
+                self.consent_revisions, PostgresAmhConsentRevisionGuard
+            ) or self.consent_revisions.binding != (self.tenant, self.legal_entity_ref, self.origin):
                 raise ValueError
             # Existing durable sink has no public tenant accessor. Verify its actual
             # constructor-bound tenant rather than trusting an arbitrary emit callback.
@@ -144,6 +152,7 @@ class AmhSubjectContextExecutor(GovernedSubjectContextExecutor):
         self._purpose = runtime.purpose_of_use
         self._credential_key = runtime.credential_key
         self._consent = runtime.consent
+        self._consent_revisions = runtime.consent_revisions
         self._audit = runtime.audit
         self._credentials = credentials
         self._closed = False
@@ -263,12 +272,20 @@ class AmhSubjectContextExecutor(GovernedSubjectContextExecutor):
                 granted = consent.value
                 if (
                     not isinstance(granted, ConsentDecision)
-                    or granted.granted is not True
+                    or type(granted.granted) is not bool
                     or granted.portable_subject_ref != subject
                     or granted.purpose_of_use != purpose
-                    or granted.consent_decision_ref != request.consent_decision_ref
                     or type(granted.consent_revision) is not int
                     or granted.consent_revision < 0
+                ):
+                    return PortResult.refused(Reason.CONSENT_REQUIRED)
+                # Record newer denials and nonmatching decision refs too. No caller
+                # can bypass the observed revision floor by presenting an old ref.
+                if not await self._consent_revisions.observe(granted):
+                    return PortResult.refused(Reason.CONSENT_REQUIRED)
+                if (
+                    granted.granted is not True
+                    or granted.consent_decision_ref != request.consent_decision_ref
                 ):
                     return PortResult.refused(Reason.CONSENT_REQUIRED)
                 record = AuditRecord(
@@ -292,6 +309,8 @@ class AmhSubjectContextExecutor(GovernedSubjectContextExecutor):
                     return PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)
                 if self._closed:
                     return PortResult.refused(Reason.UPSTREAM_UNAVAILABLE)
+                if not await self._consent_revisions.is_current(granted):
+                    return PortResult.refused(Reason.CONSENT_REQUIRED)
                 # Direct public transport API avoids AsyncClient's URL-bearing INFO
                 # request log. No cookie jar, environment proxy, redirect or retry layer.
                 if any(
@@ -339,6 +358,8 @@ class AmhSubjectContextExecutor(GovernedSubjectContextExecutor):
                             raw.extend(chunk)
                             if len(raw) > _MAX_RESPONSE_BYTES:
                                 return PortResult.refused(Reason.CONTRACT_VIOLATION)
+                        if not await self._consent_revisions.is_current(granted):
+                            return PortResult.refused(Reason.CONSENT_REQUIRED)
                         return PortResult.ok(GovernedSubjectContextResponse(response.status_code, bytes(raw)))
                     finally:
                         await response.aclose()

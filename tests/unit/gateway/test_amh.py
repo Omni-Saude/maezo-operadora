@@ -24,6 +24,7 @@ from maezo.ports.errors import PortFailureReason as Reason
 from maezo.ports.errors import PortResult
 from tests.unit.adapters.amh.test_subject_context import consumer  # noqa: F401
 from tests.unit.gateway import test_effect_pep as policy
+from tests.unit.gateway.test_amh_consent_revision import RevisionDouble
 
 
 class ConsentSource:
@@ -100,6 +101,7 @@ def harness(consumer, tmp_path, monkeypatch):  # noqa: F811
     h.consent = ConsentSource(events)
     h.audit = DurableSinkDouble(events)
     h.vault = CredentialVault()
+    h.revisions = RevisionDouble()
     h.runtime = amh.AmhRuntime(
         tenant="amh",
         legal_entity_ref="legal-entity1",
@@ -111,6 +113,7 @@ def harness(consumer, tmp_path, monkeypatch):  # noqa: F811
         credentials=h.vault,
         consent=h.consent,
         audit=h.audit,
+        consent_revisions=h.revisions,
     )
     h.vault.store_agent_credential("rafael", "runtime", h.runtime.credential_key, "synthetic-token")
     h.seam = SeamContext(
@@ -390,3 +393,101 @@ def test_invalid_runtime_purpose_and_other_tenant_audit_refuse(harness):
     with pytest.raises(amh.AmhCompositionError):
         replace(harness.runtime)
     assert not any(isinstance(value, CredentialVault) for value in vars(harness.executor).values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("higher_granted", [False, True])
+async def test_observed_higher_revision_fences_lower_even_after_new_executor(harness, higher_granted):
+    h = harness
+    h.consent.result = replace(h.consent.result, consent_revision=9, granted=higher_granted)
+    await h.executor.execute(h.request)
+    count = len(h.requests)
+    h.consent.result = replace(h.consent.result, consent_revision=8, granted=True)
+    fresh = tool_registry.build_amh_context(runtime=replace(h.runtime), seam=h.seam).inner
+    result = await fresh.execute(h.request)
+    assert not result.succeeded and result.failure.reason == Reason.CONSENT_REQUIRED
+    assert len(h.requests) == count
+
+
+@pytest.mark.asyncio
+async def test_same_revision_repeat_and_newer_grant_are_allowed(harness):
+    h = harness
+    assert (await h.executor.execute(h.request)).succeeded
+    assert (await h.executor.execute(h.request)).succeeded
+    h.consent.result = replace(h.consent.result, consent_revision=2)
+    assert (await h.executor.execute(h.request)).succeeded
+
+
+@pytest.mark.asyncio
+async def test_concurrent_newer_denial_during_audit_fences_pending_read(harness, monkeypatch):
+    h = harness
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = h.audit.emit
+
+    async def paused(record):
+        entered.set()
+        await release.wait()
+        return await original(record)
+
+    monkeypatch.setattr(h.audit, "emit", paused)
+    pending = asyncio.create_task(h.executor.execute(h.request))
+    await entered.wait()
+    h.consent.result = replace(h.consent.result, consent_revision=2, granted=False)
+    assert not (await h.executor.execute(h.request)).succeeded
+    release.set()
+    result = await pending
+    assert not result.succeeded and not h.requests
+
+
+@pytest.mark.asyncio
+async def test_newer_denial_during_http_prevents_response_disclosure(harness):
+    h = harness
+    h.delay = 0.05
+    pending = asyncio.create_task(h.executor.execute(h.request))
+    await h.started.wait()
+    h.consent.result = replace(h.consent.result, consent_revision=2, granted=False)
+    assert not (await h.executor.execute(h.request)).succeeded
+    result = await pending
+    assert not result.succeeded and result.failure.reason == Reason.CONSENT_REQUIRED
+    assert ("response_closed",) in h.events
+
+
+@pytest.mark.asyncio
+async def test_revision_store_unknown_commit_refuses_before_audit_or_http(harness):
+    h = harness
+    h.revisions.failure = OSError("synthetic uncertain revision store")
+    result = await h.executor.execute(h.request)
+    assert not result.succeeded and result.failure.reason == Reason.UPSTREAM_UNAVAILABLE
+    assert not h.requests and not h.audit.records
+
+
+def test_missing_or_wrong_domain_revision_store_refuses_composition(harness):
+    for value in (None, RevisionDouble(tenant="other")):
+        with pytest.raises(amh.AmhCompositionError):
+            replace(harness.runtime, consent_revisions=value)
+
+
+@pytest.mark.asyncio
+async def test_late_point_read_completion_cannot_regress_observed_revision(harness, monkeypatch):
+    h = harness
+    first_started, release_first = asyncio.Event(), asyncio.Event()
+    old = h.consent.result
+    calls = 0
+
+    async def reordered(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_started.set()
+            await release_first.wait()
+            return PortResult.ok(old)
+        return PortResult.ok(replace(old, consent_revision=2, granted=False, consent_decision_ref="new-ref"))
+
+    monkeypatch.setattr(h.consent, "latest_decision", reordered)
+    pending = asyncio.create_task(h.executor.execute(h.request))
+    await first_started.wait()
+    assert not (await h.executor.execute(h.request)).succeeded
+    release_first.set()
+    result = await pending
+    assert not result.succeeded and result.failure.reason == Reason.CONSENT_REQUIRED
+    assert not h.requests
