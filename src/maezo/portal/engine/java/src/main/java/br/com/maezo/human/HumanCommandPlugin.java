@@ -203,7 +203,7 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
   StaffResponse executeStaff(String path,byte[] raw,String peer){
     staffConfigured();if(raw==null||raw.length>65536)throw Rejected.invalid();
     byte[] immutable=raw.clone();String operation=switch(path){
-      case "/v1/staff-case-detail"->"detail";case "/v1/staff-case-finalize"->"finalize";
+      case "/v1/staff-case-detail"->"detail";case "/v1/staff-case-list"->"list";case "/v1/staff-case-finalize"->"finalize";
       case "/v1/staff-case-publication"->"publication";default->throw Rejected.invalid();};
     if(!operation.equals("publication")&&!operation.equals(Jcs.object(Jcs.parse(immutable)).get("operation")))throw Rejected.invalid();
     var lease=PortalReadPlugin.staffLease(configuration,staffScope(),staffAnchor);

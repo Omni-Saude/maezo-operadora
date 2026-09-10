@@ -6067,6 +6067,48 @@
         "title": "StaffFreshness",
         "type": "object"
       },
+      "StaffPage": {
+        "additionalProperties": false,
+        "description": "Authorized complete-checkpoint list page.",
+        "properties": {
+          "freshness": {
+            "$ref": "#/components/schemas/StaffFreshness"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StaffSummary"
+            },
+            "maxItems": 100,
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "schema": {
+            "const": "portal-staff-case-page.v1",
+            "title": "Schema",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "items",
+          "next_cursor",
+          "freshness"
+        ],
+        "title": "StaffPage",
+        "type": "object"
+      },
       "StaffSummary": {
         "additionalProperties": false,
         "properties": {
@@ -6425,12 +6467,52 @@
     "/api/v1/portal/cases": {
       "get": {
         "operationId": "list_cases_api_v1_portal_cases_get",
+        "parameters": [
+          {
+            "description": "Staff accepts authorization only; external audiences retain their kinds.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Authorized page size for the current audience.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": "25",
+              "pattern": "^(?:[1-9][0-9]?|100)$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Opaque server cursor bound to the current audience and query.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CasePage"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CasePage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StaffPage"
+                    }
+                  ],
+                  "title": "Response List Cases Api V1 Portal Cases Get"
                 }
               }
             },

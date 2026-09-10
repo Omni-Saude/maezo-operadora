@@ -4,22 +4,27 @@ import type {
   StaffCaseClient,
   StaffCaseFailure,
   StaffDetail,
+  StaffPage,
 } from "./staffCaseClient";
-import { expiryDelay } from "./taskReadTime";
+import { expiryDelay, isCurrent, retainedCeiling } from "./taskReadTime";
 
-type WorkspaceState =
-  | Readonly<{ kind: "idle" }>
+type ListState =
   | Readonly<{ kind: "loading" }>
-  | Readonly<{ kind: "ready"; detail: StaffDetail }>
+  | Readonly<{ kind: "ready"; page: StaffPage; loadingMore: boolean }>
   | Readonly<{ kind: "error"; failure: StaffCaseFailure }>;
 
+type DetailState =
+  | Readonly<{ kind: "loading"; caseRef: string }>
+  | Readonly<{ kind: "ready"; detail: StaffDetail }>
+  | Readonly<{ kind: "error"; caseRef: string; failure: StaffCaseFailure }>;
+
 const errorMessage: Readonly<Record<StaffCaseFailure, string>> = {
-  invalid_request: "Confira a referência exata do caso.",
+  invalid_request: "Confira os dados desta consulta.",
   authentication_unavailable: "Sua sessão não está mais disponível.",
   operation_forbidden: "Sua sessão atual não autoriza esta consulta.",
   resource_unavailable: "O caso não foi encontrado ou não está autorizado para esta sessão.",
-  conflict: "O caso mudou durante a consulta. Consulte novamente.",
-  dependency_unavailable: "A consulta de casos está temporariamente indisponível.",
+  conflict: "Os casos mudaram durante a consulta. Atualize a lista.",
+  dependency_unavailable: "A fonte autorizada de casos está temporariamente indisponível.",
   "invalid-response": "O portal recusou uma resposta inesperada do serviço de casos.",
 };
 
@@ -63,15 +68,7 @@ function StaffCaseDetail({ detail }: { detail: StaffDetail }) {
           <div className="table-scroll" tabIndex={0} aria-label="Tabela de tarefas ativas do caso">
             <table>
               <caption className="visually-hidden">Tarefas ativas autorizadas para este caso</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Tarefa</th>
-                  <th scope="col">Responsável</th>
-                  <th scope="col">Criada em</th>
-                  <th scope="col">Prazo</th>
-                  <th scope="col">Revisão</th>
-                </tr>
-              </thead>
+              <thead><tr><th scope="col">Tarefa</th><th scope="col">Responsável</th><th scope="col">Criada em</th><th scope="col">Prazo</th><th scope="col">Revisão</th></tr></thead>
               <tbody>
                 {detail.active_tasks.map((task) => (
                   <tr key={task.task_id}>
@@ -92,6 +89,23 @@ function StaffCaseDetail({ detail }: { detail: StaffDetail }) {
   );
 }
 
+function joinedPage(previous: StaffPage, next: StaffPage): StaffPage | null {
+  const priorLast = previous.items.at(-1)?.case_ref;
+  const nextFirst = next.items[0]?.case_ref;
+  if (priorLast !== undefined && nextFirst !== undefined && nextFirst <= priorLast) return null;
+  if (!isCurrent(previous.freshness.valid_until) || !isCurrent(next.freshness.valid_until)) return null;
+  return {
+    ...next,
+    items: [...previous.items, ...next.items],
+    freshness: {
+      ...next.freshness,
+      observed_at: retainedCeiling(previous.freshness.observed_at, next.freshness.observed_at),
+      source_observed_at: retainedCeiling(previous.freshness.source_observed_at, next.freshness.source_observed_at),
+      valid_until: retainedCeiling(previous.freshness.valid_until, next.freshness.valid_until),
+    },
+  };
+}
+
 export function StaffCaseWorkspace({
   service,
   onSessionUnavailable,
@@ -101,113 +115,157 @@ export function StaffCaseWorkspace({
 }) {
   const inputId = useId();
   const [caseRef, setCaseRef] = useState("");
-  const [state, setState] = useState<WorkspaceState>({ kind: "idle" });
+  const [listState, setListState] = useState<ListState>({ kind: "loading" });
+  const [detailState, setDetailState] = useState<DetailState | null>(null);
   const request = useRef<AbortController | null>(null);
   const epoch = useRef(0);
   const resultHeading = useRef<HTMLHeadingElement | null>(null);
 
-  useEffect(() => {
-    epoch.current += 1;
+  const loadList = useCallback(async (cursor: string | null, append: boolean) => {
+    const current = ++epoch.current;
     request.current?.abort();
-    request.current = null;
-    setCaseRef("");
-    setState({ kind: "idle" });
-    return () => {
-      epoch.current += 1;
-      request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setDetailState(null);
+    setListState((prior) => append && prior.kind === "ready"
+      ? { ...prior, loadingMore: true }
+      : { kind: "loading" });
+    try {
+      const result = await service.listCases(cursor, controller.signal);
+      if (controller.signal.aborted || current !== epoch.current) return;
       request.current = null;
-    };
-  }, [service]);
-
-  useEffect(() => {
-    if (state.kind === "ready" || state.kind === "error") resultHeading.current?.focus();
-  }, [state]);
+      if (result.kind === "failure") {
+        setListState({ kind: "error", failure: result.failure });
+        if (result.failure === "authentication_unavailable") onSessionUnavailable();
+        return;
+      }
+      setListState((prior) => {
+        if (!append || prior.kind !== "ready") return { kind: "ready", page: result.value, loadingMore: false };
+        const joined = joinedPage(prior.page, result.value);
+        return joined === null
+          ? { kind: "error", failure: "invalid-response" }
+          : { kind: "ready", page: joined, loadingMore: false };
+      });
+    } catch (error) {
+      if (controller.signal.aborted || current !== epoch.current) return;
+      request.current = null;
+      setListState({ kind: "error", failure: "dependency_unavailable" });
+    }
+  }, [onSessionUnavailable, service]);
 
   const readCase = useCallback(async (requestedCaseRef: string) => {
     const current = ++epoch.current;
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
-    setState({ kind: "loading" });
+    setDetailState({ kind: "loading", caseRef: requestedCaseRef });
     try {
       const result = await service.readCase(requestedCaseRef, controller.signal);
       if (controller.signal.aborted || current !== epoch.current) return;
       request.current = null;
-      if (result.kind === "success") {
-        setState({ kind: "ready", detail: result.value });
-      } else {
-        setState({ kind: "error", failure: result.failure });
+      if (result.kind === "success") setDetailState({ kind: "ready", detail: result.value });
+      else {
+        setDetailState({ kind: "error", caseRef: requestedCaseRef, failure: result.failure });
         if (result.failure === "authentication_unavailable") onSessionUnavailable();
       }
     } catch (error) {
       if (controller.signal.aborted || current !== epoch.current) return;
       request.current = null;
-      setState({ kind: "error", failure: "dependency_unavailable" });
+      setDetailState({ kind: "error", caseRef: requestedCaseRef, failure: "dependency_unavailable" });
     }
   }, [onSessionUnavailable, service]);
 
   useEffect(() => {
-    if (state.kind !== "ready") return;
-    const delay = Math.min(
-      state.detail.freshness.refresh_after_seconds * 1000,
-      expiryDelay(state.detail.freshness.valid_until),
-    );
-    const timer = window.setTimeout(() => {
-      void readCase(state.detail.case.case_ref);
-    }, delay);
+    setCaseRef("");
+    void loadList(null, false);
+    return () => {
+      epoch.current += 1;
+      request.current?.abort();
+      request.current = null;
+    };
+  }, [loadList]);
+
+  useEffect(() => {
+    if (detailState?.kind === "ready" || detailState?.kind === "error" || listState.kind === "error") resultHeading.current?.focus();
+  }, [detailState, listState]);
+
+  useEffect(() => {
+    if (detailState?.kind === "ready") {
+      const delay = Math.min(detailState.detail.freshness.refresh_after_seconds * 1000, expiryDelay(detailState.detail.freshness.valid_until));
+      const timer = window.setTimeout(() => void readCase(detailState.detail.case.case_ref), delay);
+      return () => window.clearTimeout(timer);
+    }
+  }, [detailState, readCase]);
+
+  // The displayed page keeps its retirement timer while pagination is pending.
+  // loadingMore changes do not replace the retained page or extend its deadline.
+  const visiblePage = detailState === null && listState.kind === "ready" ? listState.page : null;
+  useEffect(() => {
+    if (visiblePage === null) return;
+    const delay = Math.min(visiblePage.freshness.refresh_after_seconds * 1000, expiryDelay(visiblePage.freshness.valid_until));
+    const timer = window.setTimeout(() => void loadList(null, false), delay);
     return () => window.clearTimeout(timer);
-  }, [readCase, state]);
+  }, [visiblePage, loadList]);
+
+  if (detailState !== null) {
+    return (
+      <section aria-labelledby="staff-case-heading">
+        <button className="secondary-action" type="button" onClick={() => void loadList(null, false)}>Voltar para casos</button>
+        <div aria-live="polite" aria-atomic="false">
+          {detailState.kind === "loading" && <p className="queue-message">Consultando o caso autorizado.</p>}
+          {detailState.kind === "error" && (
+            <section className="queue-message queue-error" aria-labelledby="staff-case-error-heading">
+              <h2 id="staff-case-error-heading" ref={resultHeading} tabIndex={-1}>Não foi possível consultar o caso</h2>
+              <p role="alert">{errorMessage[detailState.failure]}</p>
+              {detailState.failure !== "authentication_unavailable" && <button className="secondary-action" type="button" onClick={() => void readCase(detailState.caseRef)}>Consultar novamente</button>}
+            </section>
+          )}
+          {detailState.kind === "ready" && <div ref={(node) => { resultHeading.current = node?.querySelector("h3") ?? null; }}><StaffCaseDetail detail={detailState.detail} /></div>}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section aria-labelledby="staff-case-heading">
       <div className="portal-guidance">
-        <p className="eyebrow">Consulta autorizada</p>
-        <h2 id="staff-case-heading">Consultar um caso pela referência exata</h2>
-        <p>
-          Informe a referência recebida em um fluxo autorizado. A consulta não pesquisa outros
-          casos e não amplia as permissões desta sessão.
-        </p>
+        <p className="eyebrow">Casos autorizados</p>
+        <h2 id="staff-case-heading">Casos de autorização</h2>
+        <p>A lista mostra somente a página liberada para sua sessão atual, sem totais de casos ocultos.</p>
+        <button className="secondary-action" type="button" onClick={() => void loadList(null, false)} disabled={listState.kind === "loading"}>Atualizar casos</button>
         <form className="intake-form" onSubmit={(event) => { event.preventDefault(); void readCase(caseRef.trim()); }}>
           <div className="form-grid">
-            <label htmlFor={inputId}>
-              Referência exata do caso
-              <input
-                id={inputId}
-                name="case-reference"
-                value={caseRef}
-                onChange={(event) => setCaseRef(event.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                required
-                minLength={16}
-                maxLength={128}
-                aria-describedby={`${inputId}-help`}
-              />
+            <label htmlFor={inputId}>Abrir pela referência exata
+              <input id={inputId} name="case-reference" value={caseRef} onChange={(event) => setCaseRef(event.target.value)} autoComplete="off" spellCheck={false} required minLength={16} maxLength={128} aria-describedby={`${inputId}-help`} />
             </label>
             <small id={`${inputId}-help`}>A referência permanece somente nesta tela e não é incluída na URL.</small>
           </div>
-          <button className="primary-action" type="submit" disabled={state.kind === "loading"}>
-            {state.kind === "loading" ? "Consultando…" : "Consultar caso"}
-          </button>
+          <button className="primary-action" type="submit">Consultar caso</button>
         </form>
       </div>
       <div aria-live="polite" aria-atomic="false">
-        {state.kind === "loading" && <p className="queue-message">Consultando o caso autorizado.</p>}
-        {state.kind === "error" && (
-          <section className="queue-message queue-error" aria-labelledby="staff-case-error-heading">
-            <h3 id="staff-case-error-heading" ref={resultHeading} tabIndex={-1}>Não foi possível consultar o caso</h3>
-            <p role="alert">{errorMessage[state.failure]}</p>
-            {state.failure !== "authentication_unavailable" && (
-              <button className="secondary-action" type="button" onClick={() => void readCase(caseRef.trim())}>
-                Consultar novamente
-              </button>
-            )}
+        {listState.kind === "loading" && <p className="queue-message">Consultando seus casos autorizados.</p>}
+        {listState.kind === "error" && (
+          <section className="queue-message queue-error" aria-labelledby="staff-case-list-error-heading">
+            <h3 id="staff-case-list-error-heading" ref={resultHeading} tabIndex={-1}>Não foi possível carregar os casos</h3>
+            <p role="alert">{errorMessage[listState.failure]}</p>
+            {listState.failure !== "authentication_unavailable" && <button className="secondary-action" type="button" onClick={() => void loadList(null, false)}>Tentar novamente</button>}
           </section>
         )}
-        {state.kind === "ready" && (
-          <div ref={(node) => { resultHeading.current = node?.querySelector("h3") ?? null; }}>
-            <StaffCaseDetail detail={state.detail} />
-          </div>
+        {listState.kind === "ready" && (
+          <section aria-labelledby="staff-case-list-heading">
+            <div className="section-heading"><div><h3 id="staff-case-list-heading">Página atual</h3></div><p className="freshness">Consultada em {formatTimestamp(listState.page.freshness.observed_at)}</p></div>
+            {listState.page.items.length === 0 ? <p>Nenhum caso autorizado nesta página.</p> : (
+              <ul className="case-list">
+                {listState.page.items.map((item) => <li key={item.case_ref}>
+                  <button type="button" className="secondary-action" onClick={() => void readCase(item.case_ref)}>Abrir caso <span className="exact-value">{item.case_ref}</span></button>
+                  <span>{item.state === "active" ? "Ativo" : "Encerrado"} · observado em {formatTimestamp(item.state_observed_at)}</span>
+                </li>)}
+              </ul>
+            )}
+            <p className="freshness-detail">Lista válida até {formatTimestamp(listState.page.freshness.valid_until)}.</p>
+            {listState.page.next_cursor !== null && <button className="secondary-action" type="button" disabled={listState.loadingMore} onClick={() => void loadList(listState.page.next_cursor, true)}>{listState.loadingMore ? "Carregando…" : "Carregar próxima página"}</button>}
+          </section>
         )}
       </div>
     </section>

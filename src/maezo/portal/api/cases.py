@@ -15,7 +15,7 @@ from maezo.gateway.staff_cases.service import StaffCaseService
 from maezo.portal.api.intakes import ERRORS, PREFIX, ProductRoute, intake_error, reference, secret
 from maezo.portal.api.session import HumanSessionResolver
 from maezo.portal.contracts.cases import CaseDetail, CasePage
-from maezo.portal.contracts.staff_cases import StaffDetail
+from maezo.portal.contracts.staff_cases import StaffDetail, StaffPage
 
 CaseServiceFactory = Callable[[HumanSessionResolver], CaseService]
 StaffCaseServiceFactory = Callable[[HumanSessionResolver], StaffCaseService]
@@ -65,11 +65,25 @@ def _external_query(pairs: tuple[tuple[str, str], ...], detail: bool) -> dict[st
         raise IntakeError("invalid_request") from None
 
 
-def _staff_query(pairs: tuple[tuple[str, str], ...]) -> dict[str, str]:
+def _staff_query(pairs: tuple[tuple[str, str], ...], detail: bool) -> dict[str, str]:
     try:
         result = dict(pairs)
-        if any(key not in {"task_limit", "task_cursor"} for key in result):
+        allowed = {"task_limit", "task_cursor"} if detail else {"kind", "limit", "cursor"}
+        if any(key not in allowed for key in result):
             raise ValueError
+        if not detail:
+            if result.get("kind", "authorization") != "authorization":
+                raise ValueError
+            if (
+                not re.fullmatch(r"[1-9][0-9]{0,2}", result.get("limit", "25"))
+                or int(result.get("limit", "25")) > 100
+                or (
+                    "cursor" in result
+                    and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}", result["cursor"])
+                )
+            ):
+                raise ValueError
+            return result
         if (
             not re.fullmatch(r"[1-9][0-9]{0,2}", result.get("task_limit", "25"))
             or int(result.get("task_limit", "25")) > 100
@@ -92,9 +106,7 @@ async def _read(request: Request, case_ref: str | None = None) -> Response:
     session_secret = secret(request)
     resolved = await resolver.resolve(session_secret)
     if resolved.membership.audience == "staff":
-        if case_ref is None:
-            raise IntakeError()
-        query = _staff_query(pairs)
+        query = _staff_query(pairs, case_ref is not None)
         factory: StaffCaseServiceFactory | None = request.app.state.staff_case_service_factory
         if factory is None:
             raise IntakeError()
@@ -102,11 +114,16 @@ async def _read(request: Request, case_ref: str | None = None) -> Response:
         if not isinstance(service, StaffCaseService) or service.resolver is not resolver:
             raise IntakeError()
         try:
-            raw = await service.read(session_secret, case_ref=case_ref, **query)
+            raw = (
+                await service.read(session_secret, case_ref=case_ref, **query)
+                if case_ref is not None
+                else await service.list(session_secret, **query)
+            )
             return Response(content=raw, media_type="application/json")
         except StaffCaseError as exc:
+            denied = "resource_unavailable" if case_ref is not None else "operation_forbidden"
             return intake_error(
-                {"invalid": "invalid_request", "denied": "resource_unavailable", "conflict": "conflict"}.get(
+                {"invalid": "invalid_request", "denied": denied, "conflict": "conflict"}.get(
                     exc.code, "dependency_unavailable"
                 )
             )
@@ -128,7 +145,36 @@ async def _read(request: Request, case_ref: str | None = None) -> Response:
         )
 
 
-@case_router.get(PREFIX + "/cases", response_model=CasePage, responses=ERRORS)
+@case_router.get(
+    PREFIX + "/cases",
+    response_model=CasePage | StaffPage,
+    responses=ERRORS,
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "kind",
+                "in": "query",
+                "required": False,
+                "description": "Staff accepts authorization only; external audiences retain their kinds.",
+                "schema": {"type": "string"},
+            },
+            {
+                "name": "limit",
+                "in": "query",
+                "required": False,
+                "description": "Authorized page size for the current audience.",
+                "schema": {"type": "string", "pattern": "^(?:[1-9][0-9]?|100)$", "default": "25"},
+            },
+            {
+                "name": "cursor",
+                "in": "query",
+                "required": False,
+                "description": "Opaque server cursor bound to the current audience and query.",
+                "schema": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$"},
+            },
+        ]
+    },
+)
 async def list_cases(request: Request) -> Response:
     return await _read(request)
 

@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
-import { createStaffCaseClient, validateStaffDetail } from "./staffCaseClient";
+import {
+  createStaffCaseClient,
+  validateStaffDetail,
+  validateStaffPage,
+} from "./staffCaseClient";
 
 const caseRef = "case_staff_abcdefghijklmnop";
 
@@ -43,6 +47,35 @@ function detail() {
   } as const;
 }
 
+function page() {
+  return {
+    schema: "portal-staff-case-page.v1",
+    items: [
+      {
+        case_ref: "case_staff_abcdefghijklmnop",
+        kind: "authorization",
+        state: "active",
+        record_revision: "7",
+        state_observed_at: "2099-09-10T11:59:58.000000Z",
+      },
+      {
+        case_ref: "case_staff_bcdefghijklmnopq",
+        kind: "authorization",
+        state: "ended",
+        record_revision: "8",
+        state_observed_at: "2099-09-10T11:59:59.000000Z",
+      },
+    ],
+    next_cursor: "cursor.staff-page-2",
+    freshness: {
+      observed_at: "2099-09-10T12:00:00.000000Z",
+      source_observed_at: "2099-09-10T11:59:59.000000Z",
+      valid_until: "2099-09-10T12:00:10.000000Z",
+      refresh_after_seconds: 10,
+    },
+  } as const;
+}
+
 function response(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -70,6 +103,40 @@ it("consulta somente a referência exata com a sessão atual", async () => {
   expect(JSON.stringify(vi.mocked(fetch).mock.calls[0])).not.toMatch(/audience|csrf|principal/i);
 });
 
+it("consulta uma página staff sem enviar autoridade pelo navegador", async () => {
+  vi.mocked(fetch).mockResolvedValue(response(page()));
+  const result = await createStaffCaseClient().listCases(
+    "cursor.staff-page-1",
+    new AbortController().signal,
+  );
+  expect(result).toEqual({ kind: "success", value: page() });
+  expect(fetch).toHaveBeenCalledWith(
+    "/api/v1/portal/cases?kind=authorization&limit=25&cursor=cursor.staff-page-1",
+    expect.objectContaining({
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      redirect: "error",
+      headers: { Accept: "application/json" },
+    }),
+  );
+  expect(JSON.stringify(vi.mocked(fetch).mock.calls[0])).not.toMatch(/audience|csrf|principal/i);
+});
+
+it.each([
+  (value: ReturnType<typeof page>) => ({ ...value, total: 2 }),
+  (value: ReturnType<typeof page>) => ({ ...value, schema: "portal-external-case-page.v1" }),
+  (value: ReturnType<typeof page>) => ({ ...value, next_cursor: "" }),
+  (value: ReturnType<typeof page>) => ({ ...value, items: [...value.items].reverse() }),
+  (value: ReturnType<typeof page>) => ({ ...value, items: [value.items[0], value.items[0]] }),
+  (value: ReturnType<typeof page>) => ({
+    ...value,
+    freshness: { ...value.freshness, refresh_after_seconds: "10" },
+  }),
+])("recusa página que não satisfaz o contrato staff %#", (mutate) => {
+  expect(validateStaffPage(mutate(page()))).toBeNull();
+});
+
 it.each([
   (value: ReturnType<typeof detail>) => ({ ...value, private_note: "PRIVATE_CANARY" }),
   (value: ReturnType<typeof detail>) => ({ ...value, schema: "portal-external-case-detail.v1" }),
@@ -87,6 +154,7 @@ it.each([
 it.each([
   [400, "invalid_request"],
   [401, "authentication_unavailable"],
+  [403, "operation_forbidden"],
   [404, "resource_unavailable"],
   [409, "conflict"],
   [503, "dependency_unavailable"],
@@ -100,6 +168,14 @@ it.each([
 
 it("recusa referência local inválida sem iniciar uma consulta", async () => {
   await expect(createStaffCaseClient().readCase("case", new AbortController().signal)).resolves.toEqual({
+    kind: "failure",
+    failure: "invalid_request",
+  });
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("recusa cursor local inválido sem iniciar uma consulta", async () => {
+  await expect(createStaffCaseClient().listCases(" cursor ", new AbortController().signal)).resolves.toEqual({
     kind: "failure",
     failure: "invalid_request",
   });

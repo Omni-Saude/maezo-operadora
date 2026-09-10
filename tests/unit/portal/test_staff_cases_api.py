@@ -2,7 +2,7 @@
 
 import json
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
 from tests.unit.portal.test_human_session import (
@@ -62,6 +62,32 @@ def projection() -> bytes:
     ).encode("utf-8")
 
 
+def page() -> bytes:
+    return json.dumps(
+        {
+            "schema": "portal-staff-case-page.v1",
+            "items": [
+                {
+                    "case_ref": CASE_REF,
+                    "kind": "authorization",
+                    "state": "active",
+                    "record_revision": "7",
+                    "state_observed_at": "2099-09-10T12:00:00.000000Z",
+                }
+            ],
+            "next_cursor": "cursor-opaque",
+            "freshness": {
+                "observed_at": "2099-09-10T12:00:00.000000Z",
+                "source_observed_at": "2099-09-10T11:59:59.000000Z",
+                "valid_until": "2099-09-10T12:00:10.000000Z",
+                "refresh_after_seconds": 10,
+            },
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
 class StubStaffService(StaffCaseService):
     def __init__(self, resolver, result: bytes | None = None, error: str | None = None):
         self.resolver = resolver
@@ -88,6 +114,19 @@ class StubStaffService(StaffCaseService):
         if self.error is not None:
             raise StaffCaseError(self.error)  # type: ignore[arg-type]
         return self.result
+
+    async def list(
+        self,
+        secret: str,
+        *,
+        kind: str = "authorization",
+        limit: str = "25",
+        cursor: str | None = None,
+    ) -> bytes:
+        self.calls.append({"secret": secret, "kind": kind, "limit": limit, "cursor": cursor})
+        if self.error is not None:
+            raise StaffCaseError(self.error)  # type: ignore[arg-type]
+        return page()
 
 
 def denying_real_service(resolver) -> tuple[StaffCaseService, AsyncMock]:
@@ -133,18 +172,39 @@ async def test_staff_detail_uses_only_staff_service_and_closed_query(h: Harness)
 
 
 @pytest.mark.asyncio
-async def test_staff_list_and_external_query_fields_do_not_fall_into_external_service(h: Harness):
+async def test_staff_list_is_authorized_paginated_and_never_falls_into_external_service(h: Harness):
     await h.login()
-    factory = Mock()
-    h.app.state.staff_case_service_factory = factory
+    service = StubStaffService(h.app.state.human_session_resolver)
+    h.app.state.staff_case_service_factory = lambda resolver: service
     h.app.state.case_service_factory = lambda resolver: pytest.fail("external service selected")
-    unavailable = await h.client.get(PREFIX + "/cases")
+    response = await h.client.get(PREFIX + "/cases?kind=authorization&limit=25&cursor=cursor-opaque")
     invalid = await h.client.get(PREFIX + "/cases/" + CASE_REF + "?kind=authorization")
-    assert unavailable.status_code == 503
-    assert unavailable.json() == {"code": "dependency_unavailable"}
+    assert response.status_code == 200
+    assert response.content == page()
+    assert service.calls == [
+        {
+            "secret": h.client.cookies["__Host-maezo-session"],
+            "kind": "authorization",
+            "limit": "25",
+            "cursor": "cursor-opaque",
+        }
+    ]
     assert invalid.status_code == 400
     assert invalid.json() == {"code": "invalid_request"}
-    factory.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_staff_list_rejects_external_kind_and_maps_scope_denial_without_case_disclosure(h: Harness):
+    await h.login()
+    service = StubStaffService(h.app.state.human_session_resolver, error="denied")
+    h.app.state.staff_case_service_factory = lambda resolver: service
+    h.app.state.case_service_factory = lambda resolver: pytest.fail("external service selected")
+    invalid = await h.client.get(PREFIX + "/cases?kind=reimbursement")
+    denied = await h.client.get(PREFIX + "/cases")
+    assert invalid.status_code == 400
+    assert invalid.json() == {"code": "invalid_request"}
+    assert denied.status_code == 403
+    assert denied.json() == {"code": "operation_forbidden"}
 
 
 @pytest.mark.asyncio

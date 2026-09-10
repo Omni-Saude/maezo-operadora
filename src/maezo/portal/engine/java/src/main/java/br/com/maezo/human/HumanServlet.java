@@ -37,7 +37,7 @@ public final class HumanServlet extends HttpServlet {
         if (raw.length > 65536) throw Rejected.invalid();
         result = plugin.executeAuth(path, raw, peer);
       } else if ("POST".equals(request.getMethod()) && path != null
-          && Set.of("/v1/staff-case-detail","/v1/staff-case-finalize","/v1/staff-case-publication").contains(path)) {
+          && Set.of("/v1/staff-case-detail","/v1/staff-case-list","/v1/staff-case-finalize","/v1/staff-case-publication").contains(path)) {
         if(!"application/json".equals(request.getContentType()))throw Rejected.invalid();
         byte[] raw=request.getInputStream().readNBytes(65537);
         if(raw.length>65536)throw Rejected.invalid();

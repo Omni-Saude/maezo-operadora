@@ -479,6 +479,116 @@ def test_native_cadence_refuses_values_outside_exact_signed_grammar(cadence):
         observation(value, request_digest="a" * 64, case_ref=identity.case_ref, limit=25, now=now)
 
 
+def _page_observation(identity, witness, now):
+    observed, valid = instant(now), instant(now + timedelta(seconds=5))
+
+    def pin(kind, ref, revision):
+        return {
+            "kind": kind,
+            "ref": ref,
+            "revision": revision,
+            "digest": "b" * 64,
+            "valid_until": valid,
+        }
+
+    return {
+        "schema": "staff-case-observation.v1",
+        "request_digest": "a" * 64,
+        "projection": {
+            "schema": "portal-staff-case-page.v1",
+            "items": [
+                {
+                    "case_ref": identity.case_ref,
+                    "kind": "authorization",
+                    "state": "active",
+                    "record_revision": "7",
+                    "state_observed_at": observed,
+                }
+            ],
+            "next_cursor": "cursor-opaque",
+            "freshness": {
+                "observed_at": observed,
+                "source_observed_at": observed,
+                "valid_until": valid,
+                "refresh_after_seconds": "10",
+            },
+        },
+        "continuity_ref": "continuity",
+        "continuity_digest": "c" * 64,
+        "source_pins": [
+            pin("designation", "designation", "1"),
+            pin("membership", "staff", "7"),
+            pin("checkpoint", "checkpoint", "4"),
+            pin("identity", identity.case_ref, "3"),
+            pin("case_grant", identity.case_ref, "1"),
+            pin("native_case", identity.case_ref, "7"),
+            pin("source_key", "d" * 64, "1"),
+        ],
+        "observed_at": observed,
+        "valid_until": valid,
+        "proof": {
+            "schema": "staff-case-proof.v1",
+            "purpose": "native_result",
+            "algorithm": "Ed25519",
+            "key_fingerprint": "d" * 64,
+            "issued_at": observed,
+            "expires_at": valid,
+            "statement_digest": "e" * 64,
+            "signature": "AA==",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_list_service_preserves_native_cursor_and_numeric_public_freshness():
+    from contextlib import asynccontextmanager
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    from maezo.gateway.staff_cases.service import StaffCaseService
+
+    _, principal, identity, witness, _, now, _, _ = scenario()
+    original = _page_observation(identity, witness, now)
+    calls = []
+
+    class Resolver:
+        async def resolve(self, secret):
+            return SimpleNamespace(
+                principal=principal,
+                record=SimpleNamespace(expires_at=now + timedelta(seconds=20)),
+                membership=SimpleNamespace(audience="staff", reviewed_until=now + timedelta(seconds=20)),
+            )
+
+    class Native:
+        async def read(self, **request):
+            calls.append(request)
+            return deepcopy(original), "a" * 64
+
+    class Witnesses:
+        async def observe(self, expected, until):
+            assert expected == principal
+            return parse_model(MembershipWitness, witness)
+
+    class Lease:
+        clock = staticmethod(lambda: now)
+
+        @asynccontextmanager
+        async def acquire(self, secret, expected):
+            yield SimpleNamespace(valid_until=now + timedelta(seconds=20), current=lambda value: None)
+
+    service = object.__new__(StaffCaseService)
+    service.resolver, service.witnesses, service.native, service.lease = (
+        Resolver(),
+        Witnesses(),
+        Native(),
+        Lease(),
+    )
+    raw = await service.list("s" * 43, limit="25")
+    assert __import__("json").loads(raw)["freshness"]["refresh_after_seconds"] == 10
+    assert [call["operation"] for call in calls] == ["list", "finalize"]
+    assert calls[0]["query"] == {"kind": "authorization", "limit": "25", "cursor": None}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "status,effect,expected", [(404, False, "denied"), (409, False, "conflict"), (404, True, "uncertain")]

@@ -2,6 +2,7 @@ package br.com.maezo.human;
 
 import static br.com.maezo.human.PortalReadModels.*;
 import java.sql.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
 
@@ -10,7 +11,8 @@ final class StaffCaseStore {
   static final String S="tenant=? AND environment=? AND engine_name=? AND database_incarnation=?";
   static final Set<String> OWNED=Set.of("mzo_staff_case_designation_event","mzo_staff_case_designation_current",
     "mzo_staff_case_source_event","mzo_staff_case_source_head","mzo_staff_case_publication_receipt",
-    "mzo_staff_case_grant","mzo_staff_case_continuity","mzo_staff_native_event_head",
+    "mzo_staff_case_grant","mzo_staff_case_checkpoint_chunk","mzo_staff_case_checkpoint_accepted",
+    "mzo_staff_case_continuity","mzo_staff_case_cursor","mzo_staff_native_event_head",
     "mzo_staff_case_policy_version","mzo_staff_case_policy_current","mzo_staff_case_policy_dependency");
   record RelationPin(long oid,String owner) {
     RelationPin {if(oid<1||owner==null||!owner.matches("[A-Za-z_][A-Za-z0-9_]{0,62}"))throw unavailable();}
@@ -75,6 +77,47 @@ final class StaffCaseStore {
   Map<String,Object> exactGrant(String caseRef,Map<String,Object> principal){
     return optional("SELECT * FROM mzo_staff_case_grant WHERE "+S+" AND case_ref=? AND issuer=? AND subject=? AND principal_ref=? AND membership_revision=? AND state='active' AND effective ORDER BY grant_ref COLLATE \"C\" FOR UPDATE",args(caseRef,principal.get("issuer"),principal.get("subject"),principal.get("principal_ref"),number(principal.get("membership_revision"))));
   }
+  Map<String,Object> activeCheckpoint(Map<String,Object> principal){
+    return optional("SELECT * FROM mzo_staff_case_checkpoint_accepted WHERE "+S+" AND issuer=? AND subject=? AND principal_ref=? AND membership_revision=? AND kind='authorization' AND active AND valid_until>statement_timestamp() FOR UPDATE",args(principal.get("issuer"),principal.get("subject"),principal.get("principal_ref"),number(principal.get("membership_revision"))));
+  }
+  Map<String,Object> checkpointPredecessor(Map<String,Object> principal){
+    // Expiry denies reads, but does not erase the durable predecessor or release
+    // active-index occupancy. Succession retires this row in the same transaction.
+    return optional("SELECT * FROM mzo_staff_case_checkpoint_accepted WHERE "+S+" AND issuer=? AND subject=? AND principal_ref=? AND membership_revision=? AND kind='authorization' AND active FOR UPDATE",args(principal.get("issuer"),principal.get("subject"),principal.get("principal_ref"),number(principal.get("membership_revision"))));
+  }
+  List<Map<String,Object>> checkpointChunks(String ref,long generation,int expected){
+    return readCheckpointChunks(auth.connection(),"SELECT * FROM mzo_staff_case_checkpoint_chunk WHERE "+S+" AND checkpoint_ref=? AND generation=? ORDER BY chunk_index",args(ref,generation),expected,timeout);
+  }
+  static List<Map<String,Object>> readCheckpointChunks(Connection connection,String sql,Object[] args,int expected,int timeout){
+    // Expected count comes from the bounded, canonical complete checkpoint, not a
+    // caller LIMIT. Read one extra to prove completeness; never return a prefix.
+    if(expected<0||expected>MAX||timeout<1||timeout>10)throw unavailable();
+    try(var statement=connection.prepareStatement(sql)){
+      statement.setQueryTimeout(timeout);statement.setMaxRows(Math.addExact(expected,1));statement.setFetchSize(64);
+      for(int i=0;i<args.length;i++)statement.setObject(i+1,args[i]);
+      try(var values=statement.executeQuery()){
+        var rows=new ArrayList<Map<String,Object>>();var metadata=values.getMetaData();
+        while(values.next()){
+          if(rows.size()==expected)throw unavailable();var row=new HashMap<String,Object>();int bytes=0;
+          for(int i=1;i<=metadata.getColumnCount();i++){Object value=values.getObject(i);
+            if(value instanceof String text)bytes=Math.addExact(bytes,text.getBytes(StandardCharsets.UTF_8).length);
+            if(bytes>262144)throw unavailable();row.put(metadata.getColumnLabel(i).toLowerCase(Locale.ROOT),value);}
+          if(!(row.get("canonical_chunk") instanceof String chunk)||chunk.getBytes(StandardCharsets.UTF_8).length>MAX)throw unavailable();
+          rows.add(row);
+        }
+        if(rows.size()!=expected)throw unavailable();return rows;
+      }
+    }catch(SQLException failure){throw unavailable();}
+  }
+  Map<String,Object> cursor(String ref){var row=optional("SELECT canonical_cursor FROM mzo_staff_case_cursor WHERE "+S+" AND cursor_ref=? AND initial_valid_until>statement_timestamp()",args(ref));
+    if(row==null)throw conflict();var value=StaffCaseModels.shape("cursor",AuthStore.parse(row.get("canonical_cursor")));if(!ref.equals(value.get("cursor_ref")))throw unavailable();return value;}
+  Map<String,Object> pageCursor(Map<String,Object> value){StaffCaseModels.shape("cursor",value);var row=optional("SELECT canonical_cursor FROM mzo_staff_case_cursor WHERE "+S+" AND principal_identity_digest=? AND membership_revision=? AND session_ref=? AND checkpoint_digest=? AND query_digest=? AND after_ref=? AND limit_=? AND initial_valid_until=?",
+      args(value.get("principal_identity_digest"),number(value.get("membership_revision")),value.get("session_ref"),value.get("checkpoint_digest"),value.get("query_digest"),value.get("after_ref"),number(value.get("limit")),Timestamp.from(time(value.get("initial_valid_until")))));
+    if(row!=null){var stored=StaffCaseModels.shape("cursor",AuthStore.parse(row.get("canonical_cursor")));
+      var expected=copy(value);expected.put("cursor_ref",stored.get("cursor_ref"));
+      if(!expected.equals(stored))throw conflict();return stored;}
+    write("INSERT INTO mzo_staff_case_cursor(tenant,environment,engine_name,database_incarnation,cursor_ref,principal_identity_digest,membership_revision,session_ref,checkpoint_digest,query_digest,after_ref,limit_,initial_valid_until,canonical_cursor) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      args(value.get("cursor_ref"),value.get("principal_identity_digest"),number(value.get("membership_revision")),value.get("session_ref"),value.get("checkpoint_digest"),value.get("query_digest"),value.get("after_ref"),number(value.get("limit")),Timestamp.from(time(value.get("initial_valid_until"))),AuthStore.text(value)));return value;}
   Map<String,Object> publication(String id){var row=optional("SELECT canonical_publication FROM mzo_staff_case_source_event WHERE "+S+" AND publication_id=?",args(id));return row==null?null:AuthStore.parse(row.get("canonical_publication"));}
   Map<String,Object> receipt(String id,String digest){var row=optional("SELECT request_digest,canonical_receipt FROM mzo_staff_case_publication_receipt WHERE "+S+" AND publication_id=?",args(id));
     if(row==null)return null;if(!digest.equals(row.get("request_digest")))throw conflict();return AuthStore.parse(row.get("canonical_receipt"));}
@@ -107,14 +150,60 @@ final class StaffCaseStore {
       if(old==null)write("INSERT INTO mzo_staff_case_grant(grant_revision,publication_id,source_ref,case_ref,issuer,subject,principal_ref,membership_revision,state,identity_digest,effective,tenant,environment,engine_name,database_incarnation,grant_ref) VALUES(?,?,?,?,?,?,?,?,?,?,true,?,?,?,?,?)",concat(values,args(payload.get("grant_ref"))));
       else write("UPDATE mzo_staff_case_grant SET grant_revision=?,publication_id=?,source_ref=?,case_ref=?,issuer=?,subject=?,principal_ref=?,membership_revision=?,state=?,identity_digest=?,effective=true WHERE "+S+" AND grant_ref=? AND grant_revision=?",concat(values,args(payload.get("grant_ref"),revision-1)));
       for(var pin:dependencies)write("INSERT INTO mzo_staff_case_policy_dependency(tenant,environment,engine_name,database_incarnation,grant_ref,grant_revision,policy_ref,head_revision,head_digest) VALUES(?,?,?,?,?,?,?,?,?)",args(payload.get("grant_ref"),revision,pin.get("policy_ref"),number(pin.get("head_revision")),pin.get("head_digest")));
+    }else if(kind.equals("scope_chunk")){
+      String checkpoint=str(payload,"checkpoint_ref");long generation=number(payload.get("generation")),index=number(payload.get("chunk_index"));
+      write("INSERT INTO mzo_staff_case_checkpoint_chunk(tenant,environment,engine_name,database_incarnation,checkpoint_ref,generation,chunk_index,chunk_digest,entry_count,publication_id,source_ref,canonical_chunk) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",args(checkpoint,generation,index,hash(payload),list(payload.get("entries")).size(),id,source,AuthStore.text(payload)));
+    }else if(kind.equals("scope_checkpoint")){
+      acceptCheckpoint(payload,id,source);
     }else if(kind.equals("policy_head")){
       publishPolicy(payload,priorPolicy,id);
     }else{
-      var old=grant(str(payload,"target_ref"));long expectedGrant=number(payload.get("expected_revision"));
-      if(old==null||!source.equals(old.get("source_ref"))||((Number)old.get("grant_revision")).longValue()!=expectedGrant)throw conflict();
-      write("UPDATE mzo_staff_case_grant SET state='revoked',effective=false,grant_revision=?,publication_id=? WHERE "+S+" AND grant_ref=? AND grant_revision=?",concat(new Object[]{Math.addExact(expectedGrant,1),id},args(payload.get("target_ref"),expectedGrant)));
+      if("scope_checkpoint".equals(payload.get("target_kind"))){var old=optional("SELECT generation,source_ref FROM mzo_staff_case_checkpoint_accepted WHERE "+S+" AND checkpoint_ref=? AND active FOR UPDATE",args(payload.get("target_ref")));
+        long expectedCheckpoint=number(payload.get("expected_revision"));if(old==null||!source.equals(old.get("source_ref"))||((Number)old.get("generation")).longValue()!=expectedCheckpoint)throw conflict();
+        write("UPDATE mzo_staff_case_checkpoint_accepted SET active=false WHERE "+S+" AND checkpoint_ref=? AND generation=? AND active",args(payload.get("target_ref"),expectedCheckpoint));
+      }else{var old=grant(str(payload,"target_ref"));long expectedGrant=number(payload.get("expected_revision"));
+        if(old==null||!source.equals(old.get("source_ref"))||((Number)old.get("grant_revision")).longValue()!=expectedGrant)throw conflict();
+        write("UPDATE mzo_staff_case_grant SET state='revoked',effective=false,grant_revision=?,publication_id=? WHERE "+S+" AND grant_ref=? AND grant_revision=?",concat(new Object[]{Math.addExact(expectedGrant,1),id},args(payload.get("target_ref"),expectedGrant)));}
     }
     write("INSERT INTO mzo_staff_case_publication_receipt(tenant,environment,engine_name,database_incarnation,publication_id,request_digest,canonical_receipt) VALUES(?,?,?,?,?,?,?)",args(id,requestDigest,AuthStore.text(receipt)));
+  }
+
+  void acceptCheckpoint(Map<String,Object> checkpoint,String publication,String source) {
+    String ref=str(checkpoint,"checkpoint_ref");long generation=number(checkpoint.get("generation"));
+    var pins=list(checkpoint.get("chunks"));var chunks=checkpointChunks(ref,generation,pins.size());
+    if(chunks.size()!=pins.size())throw unavailable();long total=0;
+    for(int i=0;i<pins.size();i++){var pin=map(pins.get(i));var row=chunks.get(i);
+      if(((Number)row.get("chunk_index")).longValue()!=i||!pin.get("chunk_digest").equals(row.get("chunk_digest"))
+          ||number(pin.get("entry_count"))!=((Number)row.get("entry_count")).longValue()||!source.equals(row.get("source_ref")))throw unavailable();
+      total=Math.addExact(total,number(pin.get("entry_count")));
+    }
+    if(total!=number(checkpoint.get("total_entries")))throw unavailable();
+    var policy=policyHead(str(checkpoint,"policy_scope_ref"));if(policy==null)throw unavailable();var head=AuthStore.parse(policy.get("canonical_head"));
+    if(!"active".equals(head.get("state"))||!checkpoint.get("policy_scope_revision").equals(head.get("policy_revision"))
+        ||!checkpoint.get("policy_scope_digest").equals(head.get("policy_digest")))throw denied();
+    var prior=checkpointPredecessor(checkpoint);Object predecessor=checkpoint.get("predecessor_digest");
+    requireCheckpointSuccessor(prior,generation,predecessor);
+    if(prior!=null)write("UPDATE mzo_staff_case_checkpoint_accepted SET active=false WHERE "+S+" AND checkpoint_ref=? AND generation=? AND active",args(prior.get("checkpoint_ref"),prior.get("generation")));
+    write("INSERT INTO mzo_staff_case_checkpoint_accepted(tenant,environment,engine_name,database_incarnation,checkpoint_ref,generation,checkpoint_digest,publication_id,source_ref,principal_identity_digest,issuer,subject,principal_ref,membership_revision,kind,active,valid_until,canonical_checkpoint) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      args(ref,generation,hash(checkpoint),publication,source,checkpoint.get("principal_identity_digest"),checkpoint.get("issuer"),checkpoint.get("subject"),checkpoint.get("principal_ref"),number(checkpoint.get("membership_revision")),checkpoint.get("kind"),true,Timestamp.from(time(checkpoint.get("valid_until"))),AuthStore.text(checkpoint)));
+  }
+
+  static void requireCheckpointSuccessor(Map<String,Object> prior,long generation,Object predecessor){
+    if(prior==null){if(predecessor!=null)throw conflict();return;}
+    if(generation!=Math.addExact(((Number)prior.get("generation")).longValue(),1)
+        ||!Objects.equals(predecessor,prior.get("checkpoint_digest")))throw conflict();
+  }
+  List<Map<String,Object>> checkpointEntries(Map<String,Object> accepted) {
+    String ref=str(accepted,"checkpoint_ref");long generation=((Number)accepted.get("generation")).longValue();var result=new ArrayList<Map<String,Object>>();var cases=new HashSet<String>();String prior=null;
+    int expectedChunks=list(StaffCaseModels.shape("scope_checkpoint",AuthStore.parse(accepted.get("canonical_checkpoint"))).get("chunks")).size();
+    for(var row:checkpointChunks(ref,generation,expectedChunks)){var chunk=StaffCaseModels.shape("scope_chunk",AuthStore.parse(row.get("canonical_chunk")));
+      if(!hash(chunk).equals(row.get("chunk_digest")))throw unavailable();for(Object value:list(chunk.get("entries"))){var entry=StaffCaseModels.shape("grant_entry",value);String key=str(entry,"case_ref")+"\u0000"+str(entry,"grant_ref");
+        if(prior!=null&&prior.compareTo(key)>=0||!cases.add(str(entry,"case_ref")))throw unavailable();prior=key;var grantRow=grant(str(entry,"grant_ref"));
+        if(grantRow==null||!entry.get("case_ref").equals(grantRow.get("case_ref"))||!entry.get("identity_digest").equals(grantRow.get("identity_digest"))
+            ||number(entry.get("grant_revision"))!=((Number)grantRow.get("grant_revision")).longValue()||!"active".equals(grantRow.get("state"))||!Boolean.TRUE.equals(grantRow.get("effective")))throw unavailable();
+        var publication=publication(str(grantRow,"publication_id"));if(publication==null||!entry.get("source_ref").equals(publication.get("source_ref"))
+            ||!entry.get("source_revision").equals(publication.get("source_revision"))||!entry.get("grant_digest").equals(hash(obj(publication,"payload"))))throw unavailable();result.add(entry);}}
+    if(result.size()!=number(StaffCaseModels.shape("scope_checkpoint",AuthStore.parse(accepted.get("canonical_checkpoint"))).get("total_entries")))throw unavailable();return result;
   }
 
   Map<String,Object> policyHead(String ref) {
