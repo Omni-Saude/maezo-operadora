@@ -4,6 +4,7 @@ ROOT composes existing app/routes and native plugin registration separately. Thi
 module constructs the actual service from qualified dependencies, without enabling
 an absent source, inventing a policy grant, or falling back to external audiences.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,8 +24,12 @@ class StaffCaseRuntime:
     native: StaffNativeClient
 
     def __post_init__(self) -> None:
-        if (not isinstance(self.sessions, StaffSessionLease) or not isinstance(self.witnesses, StaffWitnessSource)
-                or not isinstance(self.native, StaffNativeClient) or self.native.signer.role != "read_requester"):
+        if (
+            not isinstance(self.sessions, StaffSessionLease)
+            or not isinstance(self.witnesses, StaffWitnessSource)
+            or not isinstance(self.native, StaffNativeClient)
+            or self.native.signer.role != "read_requester"
+        ):
             raise StaffCaseError("unavailable")
         if self.witnesses.signer.authority.installation_digest != self.native.authority.installation_digest:
             raise StaffCaseError("unavailable")

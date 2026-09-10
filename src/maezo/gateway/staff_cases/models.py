@@ -4,14 +4,24 @@ A parsed grant is not authority. Installation, signature, current source/policy,
 current membership and native identity verification are separate mandatory steps.
 Only the first detail/publication slice is accepted by these entry points.
 """
+
 from __future__ import annotations
 
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import AfterValidator, Field, field_validator, model_validator
 
 from maezo.gateway.external_cases.models import (
-    CaseRef, Closed as ExternalClosed, Digest, Identity, Ref, Scope, revision, timestamp,
+    CaseRef,
+    Digest,
+    Identity,
+    Ref,
+    Scope,
+    revision,
+    timestamp,
+)
+from maezo.gateway.external_cases.models import (
+    Closed as ExternalClosed,
 )
 from maezo.gateway.human.auth_profile import Actor
 from maezo.gateway.human.read_profile import SourceProvenance, wire
@@ -20,7 +30,7 @@ from maezo.portal.contracts.models import HumanPrincipal
 
 class Closed(ExternalClosed):
     def wire(self) -> dict[str, object]:
-        return wire(self)
+        return cast(dict[str, object], wire(self))
 
 
 def _number(value: str) -> str:
@@ -36,7 +46,12 @@ def _time(value: str) -> str:
 N = Annotated[str, AfterValidator(_number)]
 T = Annotated[str, AfterValidator(_time)]
 Purpose = Literal[
-    "installation", "membership_current", "staff_case_grant", "staff_policy_head", "native_case_facts", "native_result",
+    "installation",
+    "membership_current",
+    "staff_case_grant",
+    "staff_policy_head",
+    "native_case_facts",
+    "native_result",
 ]
 EnvelopePurpose = Literal["staff-case-publication.v1", "staff-case-read.v1", "staff-case-finalize.v1"]
 Projection = Literal["staff_summary.v1", "staff_identity.v1", "staff_current_task.v1"]
@@ -52,9 +67,16 @@ ROLE_PURPOSES: dict[str, frozenset[str]] = {
 FIELDS = {
     "staff_summary.v1": frozenset({"case_ref", "kind", "state", "record_revision", "state_observed_at"}),
     "staff_identity.v1": frozenset(Identity.model_fields),
-    "staff_current_task.v1": frozenset({
-        "task_id", "task_definition_key", "task_revision", "created_at", "due_at", "assignee_ref",
-    }),
+    "staff_current_task.v1": frozenset(
+        {
+            "task_id",
+            "task_definition_key",
+            "task_revision",
+            "created_at",
+            "due_at",
+            "assignee_ref",
+        }
+    ),
 }
 
 
@@ -78,8 +100,13 @@ class Proof(Closed):
 class DesignationEntry(Closed):
     entry_ref: Ref
     role: Literal[
-        "installer", "publication_importer", "identity_verifier", "case_issuer", "native_facts",
-        "read_requester", "native_result",
+        "installer",
+        "publication_importer",
+        "identity_verifier",
+        "case_issuer",
+        "native_facts",
+        "read_requester",
+        "native_result",
     ]
     source_namespace: Ref
     source_ref: Ref
@@ -250,9 +277,12 @@ class StaffPolicyHeadPublication(Closed):
 
     @model_validator(mode="after")
     def exact_head(self) -> Self:
-        if (int(self.head_revision) != int(self.expected_head_revision) + 1
-                or int(self.policy_revision) < 1 or self.proof.purpose != "staff_policy_head"
-                or self.decision_purpose != "staff_case_grant"):
+        if (
+            int(self.head_revision) != int(self.expected_head_revision) + 1
+            or int(self.policy_revision) < 1
+            or self.proof.purpose != "staff_policy_head"
+            or self.decision_purpose != "staff_case_grant"
+        ):
             raise ValueError("invalid staff policy head")
         return self
 
@@ -288,7 +318,10 @@ class StaffPublication(Closed):
             if not isinstance(self.payload, StaffCaseGrant) or self.membership_witness is None:
                 raise ValueError("missing staff grant witness")
         elif self.kind == "policy_head":
-            if not isinstance(self.payload, StaffPolicyHeadPublication) or self.membership_witness is not None:
+            if (
+                not isinstance(self.payload, StaffPolicyHeadPublication)
+                or self.membership_witness is not None
+            ):
                 raise ValueError("invalid staff policy publication")
         elif not isinstance(self.payload, Revoke):
             raise ValueError("invalid staff tombstone")

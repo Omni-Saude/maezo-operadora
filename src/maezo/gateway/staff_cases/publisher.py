@@ -4,6 +4,7 @@ The caller supplies independently installed designation/key material. Publicatio
 input is the issuer's immutable request; retries preserve it byte-for-byte and
 native receipt recovery performs no admission replay. No automatic retry occurs.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -45,9 +46,15 @@ class StaffSigner:
     def guard(self, purpose: str) -> datetime:
         now = self.clock()
         entry = self.authority.entries.get(fingerprint(self.key.public_key()))
-        if (entry is None or entry.role != self.role or purpose not in entry.purposes
-                or entry.key_fingerprint in self.authority.revoked_fingerprints
-                or not timestamp(entry.not_before) <= now < min(timestamp(entry.valid_until), self.authority.valid_until)):
+        if (
+            entry is None
+            or entry.role != self.role
+            or purpose not in entry.purposes
+            or entry.key_fingerprint in self.authority.revoked_fingerprints
+            or not timestamp(entry.not_before)
+            <= now
+            < min(timestamp(entry.valid_until), self.authority.valid_until)
+        ):
             raise StaffCaseError("unavailable")
         return now
 
@@ -70,9 +77,15 @@ class StaffSigner:
         end = min(until, self.until(purpose))
         if now >= end:
             raise StaffCaseError("unavailable")
-        unsigned = dict(schema="staff-case-proof.v1", purpose=purpose, algorithm="Ed25519",
-                        key_fingerprint=fingerprint(self.key.public_key()), issued_at=utc(now),
-                        expires_at=utc(end), statement_digest=digest(value))
+        unsigned = dict(
+            schema="staff-case-proof.v1",
+            purpose=purpose,
+            algorithm="Ed25519",
+            key_fingerprint=fingerprint(self.key.public_key()),
+            issued_at=utc(now),
+            expires_at=utc(end),
+            statement_digest=digest(value),
+        )
         return parse_model(Proof, self.sign(unsigned, purpose))
 
 
@@ -89,10 +102,17 @@ class StaffWitnessSource:
         if entry.source_ref != source.source_ref:
             raise StaffCaseError("denied")
         end = min(until, session_until, self.signer.until("membership_current"))
-        value = dict(schema="staff-case-membership-witness.v1", scope=wire(self.source.scope),
-                     actor=wire(Actor.from_principal(principal, "staff")), session_ref=principal.session_ref,
-                     principal_record_revision=native["revision"], principal_record_digest=digest(native),
-                     source=wire(source), observed_at=utc(now), valid_until=utc(end))
+        value = dict(
+            schema="staff-case-membership-witness.v1",
+            scope=wire(self.source.scope),
+            actor=wire(Actor.from_principal(principal, "staff")),
+            session_ref=principal.session_ref,
+            principal_record_revision=native["revision"],
+            principal_record_digest=digest(native),
+            source=wire(source),
+            observed_at=utc(now),
+            valid_until=utc(end),
+        )
         value["proof"] = wire(self.signer.proof(value, "membership_current", end))
         return parse_model(MembershipWitness, value)
 
@@ -103,21 +123,44 @@ class StaffNativeClient:
     Route registration is a separately reviewed ROOT composition hook. No default
     URL, identity, key, authority provider or enabled production configuration exists.
     """
-    def __init__(self, *, origin: str, ca_file: Path, certificate_file: Path, private_key_file: Path,
-                 server_spki_sha256: str, signer: StaffSigner, result_authority: InstalledStaffAuthority,
-                 configuration_digest: str, seconds: float = 5):
+
+    def __init__(
+        self,
+        *,
+        origin: str,
+        ca_file: Path,
+        certificate_file: Path,
+        private_key_file: Path,
+        server_spki_sha256: str,
+        signer: StaffSigner,
+        result_authority: InstalledStaffAuthority,
+        configuration_digest: str,
+        seconds: float = 5,
+    ):
         parsed = urlsplit(origin)
-        if (parsed.scheme != "https" or not parsed.hostname or parsed.path not in ("", "/")
-                or parsed.query or parsed.fragment or parsed.username or parsed.password
-                or not 0 < seconds <= 10 or signer.role not in {"read_requester", "publication_importer"}
-                or signer.authority.installation_digest != result_authority.installation_digest
-                or len(server_spki_sha256) != 64 or any(c not in "0123456789abcdef" for c in server_spki_sha256)
-                or len(configuration_digest) != 64 or any(c not in "0123456789abcdef" for c in configuration_digest)):
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.path not in ("", "/")
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+            or not 0 < seconds <= 10
+            or signer.role not in {"read_requester", "publication_importer"}
+            or signer.authority.installation_digest != result_authority.installation_digest
+            or len(server_spki_sha256) != 64
+            or any(c not in "0123456789abcdef" for c in server_spki_sha256)
+            or len(configuration_digest) != 64
+            or any(c not in "0123456789abcdef" for c in configuration_digest)
+        ):
             raise StaffCaseError("unavailable")
         # Load and pin the SAME certificate passed to SSL, not an unrelated supplied fingerprint.
         pem = certificate_file.read_bytes()
         cert = x509.load_pem_x509_certificate(pem)
-        actual = hashlib.sha256(cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+        actual = hashlib.sha256(
+            cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+        ).hexdigest()
         entry = signer.authority.entries.get(fingerprint(signer.key.public_key()))
         if entry is None or actual != entry.certificate_spki:
             raise StaffCaseError("unavailable")
@@ -129,7 +172,11 @@ class StaffNativeClient:
             retained.flush()
             tls.load_cert_chain(retained.name, str(private_key_file))
         self.signer, self.authority, self.seconds = signer, result_authority, seconds
-        self.origin, self.server_pin, self.configuration_digest = origin.rstrip("/"), server_spki_sha256, configuration_digest
+        self.origin, self.server_pin, self.configuration_digest = (
+            origin.rstrip("/"),
+            server_spki_sha256,
+            configuration_digest,
+        )
         self.http = httpx.AsyncClient(verify=tls, timeout=seconds, trust_env=False, follow_redirects=False)
         self.closed = False
 
@@ -148,12 +195,17 @@ class StaffNativeClient:
         # native installed authorization. Never use this time to admit product data.
         if now >= self.authority.valid_until or verification_time > now:
             raise StaffCaseError("unavailable")
-        self.authority.proof(proof, unsigned, role="native_result", purpose="native_result", now=verification_time)
-        if now >= until or (not historical and now >= min(timestamp(value["valid_until"]), timestamp(proof.expires_at))):
+        self.authority.proof(
+            proof, unsigned, role="native_result", purpose="native_result", now=verification_time
+        )
+        if now >= until or (
+            not historical and now >= min(timestamp(value["valid_until"]), timestamp(proof.expires_at))
+        ):
             raise StaffCaseError("unavailable")
 
-    async def _send(self, route: str, request: dict[str, Any], purpose: str,
-                    until: datetime, *, effect: bool) -> dict[str, Any]:
+    async def _send(
+        self, route: str, request: dict[str, Any], purpose: str, until: datetime, *, effect: bool
+    ) -> dict[str, Any]:
         sent = False
         try:
             if self.closed:
@@ -164,15 +216,25 @@ class StaffNativeClient:
                 raise StaffCaseError("invalid")
             async with asyncio.timeout(self.seconds):
                 sent = True
-                async with self.http.stream("POST", self.origin + "/maezo-human/v1/" + route,
-                        content=body, headers={"Content-Type": "application/json", "Accept": "application/json"}) as response:
+                async with self.http.stream(
+                    "POST",
+                    self.origin + "/maezo-human/v1/" + route,
+                    content=body,
+                    headers={"Content-Type": "application/json", "Accept": "application/json"},
+                ) as response:
                     stream = response.extensions.get("network_stream")
                     tls = stream.get_extra_info("ssl_object") if stream is not None else None
                     if tls is None:
                         raise StaffCaseError("unavailable")
                     cert = x509.load_der_x509_certificate(tls.getpeercert(binary_form=True))
-                    peer = hashlib.sha256(cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)).hexdigest()
-                    if peer != self.server_pin or response.status_code != 200 or response.headers.get("content-type", "").split(";")[0] != "application/json":
+                    peer = hashlib.sha256(
+                        cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+                    ).hexdigest()
+                    if (
+                        peer != self.server_pin
+                        or response.status_code != 200
+                        or response.headers.get("content-type", "").split(";")[0] != "application/json"
+                    ):
                         raise StaffCaseError("unavailable")
                     chunks = bytearray()
                     async for chunk in response.aiter_bytes():
@@ -194,16 +256,38 @@ class StaffNativeClient:
         except Exception:
             raise StaffCaseError("uncertain" if effect and sent else "unavailable") from None
 
-    async def read(self, *, principal: HumanPrincipal, witness: MembershipWitness,
-                   session_until: datetime, operation: Literal["detail", "finalize"],
-                   query: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    async def read(
+        self,
+        *,
+        principal: HumanPrincipal,
+        witness: MembershipWitness,
+        session_until: datetime,
+        operation: Literal["detail", "finalize"],
+        query: dict[str, Any],
+    ) -> tuple[dict[str, Any], str]:
         purpose = "staff-case-read.v1" if operation == "detail" else "staff-case-finalize.v1"
         now = self.signer.guard(purpose)
-        until = min(session_until, timestamp(witness.valid_until), self.signer.until(purpose), now + timedelta(seconds=self.seconds))
-        value = dict(schema="staff-case-native-read.v1", purpose=purpose, scope=wire(witness.scope),
-                     installation_digest=self.authority.installation_digest, request_id=str(uuid4()), principal=wire(principal),
-                     membership_witness=wire(witness), session_valid_until=utc(session_until), operation=operation,
-                     query=query, issued_at=utc(now), expires_at=utc(until), key_fingerprint=fingerprint(self.signer.key.public_key()))
+        until = min(
+            session_until,
+            timestamp(witness.valid_until),
+            self.signer.until(purpose),
+            now + timedelta(seconds=self.seconds),
+        )
+        value = dict(
+            schema="staff-case-native-read.v1",
+            purpose=purpose,
+            scope=wire(witness.scope),
+            installation_digest=self.authority.installation_digest,
+            request_id=str(uuid4()),
+            principal=wire(principal),
+            membership_witness=wire(witness),
+            session_valid_until=utc(session_until),
+            operation=operation,
+            query=query,
+            issued_at=utc(now),
+            expires_at=utc(until),
+            key_fingerprint=fingerprint(self.signer.key.public_key()),
+        )
         signed = self.signer.sign(value, purpose)
         result = await self._send("staff-case-" + operation, signed, purpose, until, effect=False)
         if result.get("request_digest") != digest(signed):
@@ -218,15 +302,43 @@ class StaffNativeClient:
         purpose = "staff-case-publication.v1"
         now = self.signer.guard(purpose)
         until = min(self.signer.until(purpose), now + timedelta(seconds=self.seconds))
-        envelope = dict(schema="staff-case-envelope.v1", purpose=purpose, scope=wire(parsed.scope),
-                        key_fingerprint=fingerprint(self.signer.key.public_key()), configuration_digest=self.configuration_digest,
-                        issued_at=utc(now), expires_at=utc(until), request=request)
-        result = await self._send("staff-case-publication", self.signer.sign(envelope, purpose), purpose, until, effect=True)
-        if (set(result) != {"schema", "publication_id", "request_digest", "scope", "source_ref", "source_revision",
-                           "payload_digest", "disposition", "committed_at", "native_receipt_ref", "valid_until", "proof"}
-                or result["schema"] != "staff-case-publication-receipt.v1" or result["disposition"] != "committed"
-                or result["publication_id"] != parsed.publication_id or result["request_digest"] != digest(request)
-                or result["scope"] != wire(parsed.scope) or result["source_ref"] != parsed.source_ref
-                or result["source_revision"] != parsed.source_revision or result["payload_digest"] != parsed.payload_digest):
+        envelope = dict(
+            schema="staff-case-envelope.v1",
+            purpose=purpose,
+            scope=wire(parsed.scope),
+            key_fingerprint=fingerprint(self.signer.key.public_key()),
+            configuration_digest=self.configuration_digest,
+            issued_at=utc(now),
+            expires_at=utc(until),
+            request=request,
+        )
+        result = await self._send(
+            "staff-case-publication", self.signer.sign(envelope, purpose), purpose, until, effect=True
+        )
+        if (
+            set(result)
+            != {
+                "schema",
+                "publication_id",
+                "request_digest",
+                "scope",
+                "source_ref",
+                "source_revision",
+                "payload_digest",
+                "disposition",
+                "committed_at",
+                "native_receipt_ref",
+                "valid_until",
+                "proof",
+            }
+            or result["schema"] != "staff-case-publication-receipt.v1"
+            or result["disposition"] != "committed"
+            or result["publication_id"] != parsed.publication_id
+            or result["request_digest"] != digest(request)
+            or result["scope"] != wire(parsed.scope)
+            or result["source_ref"] != parsed.source_ref
+            or result["source_revision"] != parsed.source_revision
+            or result["payload_digest"] != parsed.payload_digest
+        ):
             raise StaffCaseError("uncertain")
         return result

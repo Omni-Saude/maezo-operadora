@@ -1,4 +1,5 @@
 """Closed first staff Cases projection. SC1: no content or mutation capability."""
+
 from __future__ import annotations
 
 from typing import Literal, Self
