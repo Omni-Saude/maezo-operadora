@@ -362,6 +362,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/assignment-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Assignment Candidates */
+        get: operations["assignment_candidates_api_v1_portal_tasks__task_id__assignment_candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/tasks/{task_id}/assignment-context": {
         parameters: {
             query?: never;
@@ -575,6 +592,33 @@ export interface components {
              * @enum {string}
              */
             kind: "ans_revisao";
+        };
+        /** AssignmentCandidate */
+        AssignmentCandidate: {
+            /** Target Membership Revision */
+            target_membership_revision: string;
+            /** Target Ref */
+            target_ref: string;
+        };
+        /** AssignmentCandidatesResponse */
+        AssignmentCandidatesResponse: {
+            /** Candidate Count */
+            candidate_count: string;
+            /** Candidate Digest */
+            candidate_digest: string;
+            /** Candidates */
+            candidates: components["schemas"]["AssignmentCandidate"][];
+            context: components["schemas"]["GovernedAssignmentContextResponse"];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "portal-assignment-candidates.v1";
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
         };
         /**
          * AssignmentContextResponse
@@ -1413,6 +1457,144 @@ export interface components {
             /** Valid Until */
             valid_until: string;
         };
+        /** GovernedAssignmentContextResponse */
+        GovernedAssignmentContextResponse: {
+            /** Allowed Operations */
+            allowed_operations: ("claim" | "release" | "reassign")[];
+            /** Assignee Ref */
+            assignee_ref: string | null;
+            /** Binding Digest */
+            binding_digest: string;
+            /** Binding Ref */
+            binding_ref: string;
+            /** Binding Version */
+            binding_version: string;
+            /** Expected Authority Revision */
+            expected_authority_revision: string;
+            /** Expected Evidence Digest */
+            expected_evidence_digest: string;
+            /** Expected Evidence Revision */
+            expected_evidence_revision: string;
+            /** Expected Membership Revision */
+            expected_membership_revision: string;
+            /** Expected Task Revision */
+            expected_task_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            /** Form Version */
+            form_version: string;
+            /** Generation Digest */
+            generation_digest: string;
+            /** Policy Digest */
+            policy_digest: string;
+            /** Policy Ref */
+            policy_ref: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "portal-assignment-context.v2";
+            /** Source Revision */
+            source_revision: string;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
+        };
+        /** GovernedAssignmentSubmission */
+        GovernedAssignmentSubmission: {
+            command: components["schemas"]["GovernedBrowserAssignment"];
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "portal-assignment-submission.v2";
+        };
+        /** GovernedBrowserAssignment */
+        GovernedBrowserAssignment: {
+            /** Command Id */
+            command_id: string;
+            /** Expected Assignee Ref */
+            expected_assignee_ref: string | null;
+            /** Expected Authority Revision */
+            expected_authority_revision: string;
+            /** Expected Binding Digest */
+            expected_binding_digest: string;
+            /** Expected Binding Ref */
+            expected_binding_ref: string;
+            /** Expected Binding Version */
+            expected_binding_version: string;
+            /** Expected Evidence Digest */
+            expected_evidence_digest: string;
+            /** Expected Evidence Revision */
+            expected_evidence_revision: string;
+            /** Expected Generation Digest */
+            expected_generation_digest: string;
+            /** Expected Membership Revision */
+            expected_membership_revision: string;
+            /** Expected Policy Digest */
+            expected_policy_digest: string;
+            /** Expected Policy Ref */
+            expected_policy_ref: string;
+            /** Expected Policy Version */
+            expected_policy_version: string;
+            /** Expected Source Revision */
+            expected_source_revision: string;
+            /** Expected Target Membership Revision */
+            expected_target_membership_revision: string | null;
+            /** Expected Task Revision */
+            expected_task_revision: string;
+            /** Form Digest */
+            form_digest: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            /** Form Version */
+            form_version: string;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "claim" | "release" | "reassign";
+            /** Process Definition Digest */
+            process_definition_digest: string;
+            /** Process Definition Id */
+            process_definition_id: string;
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Target Ref */
+            target_ref: string | null;
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1809,6 +1991,9 @@ export interface components {
             motivo_desligamento_clinico?: string | null;
             /** Referencia Clinica */
             referencia_clinica?: string | null;
+        };
+        PublicAssignmentReceipt: {
+            [key: string]: unknown;
         };
         /** PublicTaskSnapshot */
         PublicTaskSnapshot: {
@@ -3044,7 +3229,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DecisionReceiptResponse"] | components["schemas"]["AssignmentReceiptResponse"];
+                    "application/json": components["schemas"]["DecisionReceiptResponse"] | components["schemas"]["AssignmentReceiptResponse"] | components["schemas"]["PublicAssignmentReceipt"];
                 };
             };
             /** @description Bad Request */
@@ -3122,7 +3307,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DecisionReceiptResponse"] | components["schemas"]["AssignmentReceiptResponse"];
+                    "application/json": components["schemas"]["DecisionReceiptResponse"] | components["schemas"]["AssignmentReceiptResponse"] | components["schemas"]["PublicAssignmentReceipt"];
                 };
             };
             /** @description Bad Request */
@@ -3795,6 +3980,82 @@ export interface operations {
             };
         };
     };
+    assignment_candidates_api_v1_portal_tasks__task_id__assignment_candidates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssignmentCandidatesResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
     assignment_context_api_v1_portal_tasks__task_id__assignment_context_get: {
         parameters: {
             query?: never;
@@ -3812,7 +4073,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AssignmentContextResponse"];
+                    "application/json": components["schemas"]["AssignmentContextResponse"] | components["schemas"]["GovernedAssignmentContextResponse"];
                 };
             };
             /** @description Bad Request */
@@ -3882,7 +4143,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AssignmentSubmission"];
+                "application/json": components["schemas"]["AssignmentSubmission"] | components["schemas"]["GovernedAssignmentSubmission"];
             };
         };
         responses: {

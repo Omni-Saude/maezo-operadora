@@ -306,6 +306,72 @@
         "title": "AnsSubmissionReviewInputs",
         "type": "object"
       },
+      "AssignmentCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "target_membership_revision": {
+            "title": "Target Membership Revision",
+            "type": "string"
+          },
+          "target_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Target Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_ref",
+          "target_membership_revision"
+        ],
+        "title": "AssignmentCandidate",
+        "type": "object"
+      },
+      "AssignmentCandidatesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "candidate_count": {
+            "title": "Candidate Count",
+            "type": "string"
+          },
+          "candidate_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Candidate Digest",
+            "type": "string"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AssignmentCandidate"
+            },
+            "title": "Candidates",
+            "type": "array"
+          },
+          "context": {
+            "$ref": "#/components/schemas/GovernedAssignmentContextResponse"
+          },
+          "schema_version": {
+            "const": "portal-assignment-candidates.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "valid_until": {
+            "format": "date-time",
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "context",
+          "candidates",
+          "candidate_count",
+          "candidate_digest",
+          "valid_until"
+        ],
+        "title": "AssignmentCandidatesResponse",
+        "type": "object"
+      },
       "AssignmentContextResponse": {
         "additionalProperties": false,
         "description": "Minimal reviewed mutation basis, without decision inputs or read-only evidence.",
@@ -2949,6 +3015,494 @@
         "title": "Freshness",
         "type": "object"
       },
+      "GovernedAssignmentContextResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_operations": {
+            "items": {
+              "enum": [
+                "claim",
+                "release",
+                "reassign"
+              ],
+              "type": "string"
+            },
+            "title": "Allowed Operations",
+            "type": "array"
+          },
+          "assignee_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignee Ref"
+          },
+          "binding_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Binding Digest",
+            "type": "string"
+          },
+          "binding_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Binding Ref",
+            "type": "string"
+          },
+          "binding_version": {
+            "title": "Binding Version",
+            "type": "string"
+          },
+          "expected_authority_revision": {
+            "title": "Expected Authority Revision",
+            "type": "string"
+          },
+          "expected_evidence_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Evidence Digest",
+            "type": "string"
+          },
+          "expected_evidence_revision": {
+            "title": "Expected Evidence Revision",
+            "type": "string"
+          },
+          "expected_membership_revision": {
+            "title": "Expected Membership Revision",
+            "type": "string"
+          },
+          "expected_task_revision": {
+            "title": "Expected Task Revision",
+            "type": "string"
+          },
+          "form_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Form Digest",
+            "type": "string"
+          },
+          "form_key": {
+            "enum": [
+              "auth_decisao",
+              "auth_junta",
+              "escalation",
+              "pagto_admissibilidade",
+              "contas_decisao",
+              "contas_coordenacao",
+              "recurso_decisao",
+              "recurso_coordenacao",
+              "recurso_auditor",
+              "reembolso_pendencia",
+              "reembolso_decisao",
+              "reembolso_auditor",
+              "cancel_decisao",
+              "inad_decisao",
+              "programa_decisao",
+              "cred_descred",
+              "cred_cred",
+              "adequacao_decisao",
+              "adequacao_coordenacao",
+              "nip_minuta",
+              "nip_decisao",
+              "lgpd_decisao",
+              "auth_pendencia",
+              "pagto_aprovacao",
+              "pagto_coordenacao",
+              "fraude_decisao",
+              "fraude_referral",
+              "ans_revisao",
+              "ans_coordenacao",
+              "ans_pendencia",
+              "ans_nack"
+            ],
+            "title": "Form Key",
+            "type": "string"
+          },
+          "form_version": {
+            "title": "Form Version",
+            "type": "string"
+          },
+          "generation_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Generation Digest",
+            "type": "string"
+          },
+          "policy_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Policy Digest",
+            "type": "string"
+          },
+          "policy_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Policy Ref",
+            "type": "string"
+          },
+          "policy_version": {
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "process_definition_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Process Definition Digest",
+            "type": "string"
+          },
+          "process_definition_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Id",
+            "type": "string"
+          },
+          "process_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Key",
+            "type": "string"
+          },
+          "process_definition_version": {
+            "title": "Process Definition Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "portal-assignment-context.v2",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_revision": {
+            "title": "Source Revision",
+            "type": "string"
+          },
+          "task_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "valid_until": {
+            "format": "date-time",
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "task_id",
+          "process_definition_key",
+          "process_definition_version",
+          "process_definition_id",
+          "process_definition_digest",
+          "task_definition_key",
+          "form_key",
+          "form_version",
+          "form_digest",
+          "expected_task_revision",
+          "expected_evidence_revision",
+          "expected_evidence_digest",
+          "expected_membership_revision",
+          "expected_authority_revision",
+          "assignee_ref",
+          "allowed_operations",
+          "valid_until",
+          "binding_ref",
+          "binding_version",
+          "binding_digest",
+          "policy_ref",
+          "policy_version",
+          "policy_digest",
+          "source_revision",
+          "generation_digest"
+        ],
+        "title": "GovernedAssignmentContextResponse",
+        "type": "object"
+      },
+      "GovernedAssignmentSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "$ref": "#/components/schemas/GovernedBrowserAssignment"
+          },
+          "schema_version": {
+            "const": "portal-assignment-submission.v2",
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command"
+        ],
+        "title": "GovernedAssignmentSubmission",
+        "type": "object"
+      },
+      "GovernedBrowserAssignment": {
+        "additionalProperties": false,
+        "properties": {
+          "command_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "expected_assignee_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Assignee Ref"
+          },
+          "expected_authority_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Authority Revision",
+            "type": "string"
+          },
+          "expected_binding_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Binding Digest",
+            "type": "string"
+          },
+          "expected_binding_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Expected Binding Ref",
+            "type": "string"
+          },
+          "expected_binding_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Expected Binding Version",
+            "type": "string"
+          },
+          "expected_evidence_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Evidence Digest",
+            "type": "string"
+          },
+          "expected_evidence_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Evidence Revision",
+            "type": "string"
+          },
+          "expected_generation_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Generation Digest",
+            "type": "string"
+          },
+          "expected_membership_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Membership Revision",
+            "type": "string"
+          },
+          "expected_policy_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Expected Policy Digest",
+            "type": "string"
+          },
+          "expected_policy_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Expected Policy Ref",
+            "type": "string"
+          },
+          "expected_policy_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Expected Policy Version",
+            "type": "string"
+          },
+          "expected_source_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Source Revision",
+            "type": "string"
+          },
+          "expected_target_membership_revision": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Target Membership Revision"
+          },
+          "expected_task_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Expected Task Revision",
+            "type": "string"
+          },
+          "form_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Form Digest",
+            "type": "string"
+          },
+          "form_key": {
+            "enum": [
+              "auth_decisao",
+              "auth_junta",
+              "escalation",
+              "pagto_admissibilidade",
+              "contas_decisao",
+              "contas_coordenacao",
+              "recurso_decisao",
+              "recurso_coordenacao",
+              "recurso_auditor",
+              "reembolso_pendencia",
+              "reembolso_decisao",
+              "reembolso_auditor",
+              "cancel_decisao",
+              "inad_decisao",
+              "programa_decisao",
+              "cred_descred",
+              "cred_cred",
+              "adequacao_decisao",
+              "adequacao_coordenacao",
+              "nip_minuta",
+              "nip_decisao",
+              "lgpd_decisao",
+              "auth_pendencia",
+              "pagto_aprovacao",
+              "pagto_coordenacao",
+              "fraude_decisao",
+              "fraude_referral",
+              "ans_revisao",
+              "ans_coordenacao",
+              "ans_pendencia",
+              "ans_nack"
+            ],
+            "title": "Form Key",
+            "type": "string"
+          },
+          "form_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Form Version",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "claim",
+              "release",
+              "reassign"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "process_definition_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Process Definition Digest",
+            "type": "string"
+          },
+          "process_definition_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Id",
+            "type": "string"
+          },
+          "process_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Key",
+            "type": "string"
+          },
+          "process_definition_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Process Definition Version",
+            "type": "string"
+          },
+          "schema_version": {
+            "maximum": 2.0,
+            "minimum": 2.0,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "target_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Ref"
+          },
+          "task_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "command_id",
+          "operation",
+          "task_id",
+          "process_definition_key",
+          "process_definition_version",
+          "process_definition_id",
+          "process_definition_digest",
+          "task_definition_key",
+          "form_key",
+          "form_version",
+          "form_digest",
+          "expected_task_revision",
+          "expected_evidence_revision",
+          "expected_evidence_digest",
+          "expected_membership_revision",
+          "expected_authority_revision",
+          "expected_assignee_ref",
+          "expected_binding_ref",
+          "expected_binding_version",
+          "expected_binding_digest",
+          "expected_policy_ref",
+          "expected_policy_version",
+          "expected_policy_digest",
+          "expected_source_revision",
+          "expected_generation_digest",
+          "target_ref",
+          "expected_target_membership_revision"
+        ],
+        "title": "GovernedBrowserAssignment",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3971,6 +4525,10 @@
           "decisao_programa"
         ],
         "title": "ProgramaDecisionInputs",
+        "type": "object"
+      },
+      "PublicAssignmentReceipt": {
+        "additionalProperties": true,
         "type": "object"
       },
       "PublicTaskSnapshot": {
@@ -6150,6 +6708,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/AssignmentReceiptResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PublicAssignmentReceipt"
                     }
                   ],
                   "title": "Response Command Status Api V1 Portal Commands  Command Id  Get"
@@ -6256,6 +6817,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/AssignmentReceiptResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PublicAssignmentReceipt"
                     }
                   ],
                   "title": "Response Command Receipt Api V1 Portal Commands  Command Id  Receipt Get"
@@ -7035,6 +7599,95 @@
         "summary": "Read Task"
       }
     },
+    "/api/v1/portal/tasks/{task_id}/assignment-candidates": {
+      "get": {
+        "operationId": "assignment_candidates_api_v1_portal_tasks__task_id__assignment_candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssignmentCandidatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalDecisionError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Assignment Candidates"
+      }
+    },
     "/api/v1/portal/tasks/{task_id}/assignment-context": {
       "get": {
         "operationId": "assignment_context_api_v1_portal_tasks__task_id__assignment_context_get",
@@ -7054,7 +7707,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AssignmentContextResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AssignmentContextResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GovernedAssignmentContextResponse"
+                    }
+                  ],
+                  "title": "Response Assignment Context Api V1 Portal Tasks  Task Id  Assignment Context Get"
                 }
               }
             },
@@ -7143,7 +7804,15 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AssignmentSubmission"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AssignmentSubmission"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GovernedAssignmentSubmission"
+                  }
+                ],
+                "title": "Body"
               }
             }
           },

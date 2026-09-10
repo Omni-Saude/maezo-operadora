@@ -7,6 +7,8 @@ import org.cibseven.bpm.engine.impl.cfg.*;
 /** Registered explicitly in Tomcat /camunda/conf/bpm-platform.xml, ADR0049 D5. */
 public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
   private Trust trust;
+  private HumanAuthConfiguration authConfiguration;
+  private AuthRuntime authRuntime;
   private AssignmentTrust assignmentTrust;
   private ExternalCaseModels.Configuration receiptCaseConfiguration;
   private String receiptCaseConfigurationDigest;
@@ -17,6 +19,12 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
 
   HumanCommandPlugin(Trust trust) {
     this.trust = trust;
+  }
+
+  /** Protected composition supplies AUTH independently of assignment and workload authority. */
+  public synchronized void setHumanAuthConfiguration(HumanAuthConfiguration installed) {
+    if (configuration != null || authConfiguration != null || installed == null) throw Rejected.denied();
+    authConfiguration = installed;
   }
 
   /** Deployment-owner injection of the SAME independently installed W6 configuration.
@@ -51,6 +59,10 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
     var listeners = new java.util.ArrayList<org.cibseven.bpm.engine.impl.bpmn.parser.BpmnParseListener>();
     if (configuration.getCustomPostBPMNParseListeners() != null) listeners.addAll(configuration.getCustomPostBPMNParseListeners());
     listeners.add(new ConsumerTaskListener());
+    if (authConfiguration != null) {
+      HumanAuthConfiguration.registerSerializer(configuration);
+      listeners.add(new AuthDocumentLifecycleListener(() -> authRuntime));
+    }
     configuration.setCustomPostBPMNParseListeners(listeners);
     this.configuration = configuration;
   }
@@ -58,6 +70,7 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
   @Override
   public void postInit(ProcessEngineConfigurationImpl configuration) {
     EnlistedWrites.install(configuration.getSqlSessionFactory().getConfiguration());
+    if (authConfiguration != null) authRuntime = authConfiguration.bind(configuration);
   }
 
   @Override
@@ -73,6 +86,11 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
     HumanCommandPlugin plugin = running;
     if (plugin == null) throw new Rejected(503, "HUMAN_ENGINE_UNAVAILABLE");
     return plugin;
+  }
+
+  byte[] executeAuth(String path, byte[] raw, String peer) {
+    if (authRuntime == null) throw new Rejected(503, "HUMAN_ENGINE_UNAVAILABLE");
+    return authRuntime.execute(path, raw, peer);
   }
 
   byte[] execute(byte[] raw, String peer, String purpose) {
