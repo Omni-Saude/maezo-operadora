@@ -109,14 +109,14 @@ async def _qualify_login(engine: AsyncEngine, expected: Connection, seconds: int
                       AND c.relkind IN ('r','p','v','m','f','S')
                       AND (candidate.rolname=session_user
                            OR pg_has_role(session_user,candidate.oid,'MEMBER'))
-                      AND CASE WHEN c.relkind='S' THEN
+                      AND (c.relowner=candidate.oid OR CASE WHEN c.relkind='S' THEN
                         has_sequence_privilege(candidate.oid,c.oid,'USAGE,SELECT,UPDATE')
                       ELSE
                         has_table_privilege(candidate.oid,c.oid,
                           'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
                         OR has_any_column_privilege(candidate.oid,c.oid,
                           'SELECT,INSERT,UPDATE,REFERENCES')
-                      END
+                      END)
                   ) AS data_authority
                 FROM pg_proc p
                 WHERE p.oid=to_regprocedure('portal_identity.lock_external_session(text)')
