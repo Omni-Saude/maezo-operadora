@@ -233,7 +233,11 @@ async function requestJson<T>(options: RequestOptions<T>): Promise<ProductApiRes
   }
   if (response.status !== options.successStatus) {
     const error = await parseError(response, options.signal);
-    return failure(error ?? (mutating ? "outcome-unknown" : "invalid-response"));
+    // The server also uses structured 503 for an unknown database commit.
+    // A dependency error is therefore not evidence that a POST had no effect.
+    return failure(mutating && error === "dependency_unavailable"
+      ? "outcome-unknown"
+      : error ?? (mutating ? "outcome-unknown" : "invalid-response"));
   }
   let value: unknown;
   try {

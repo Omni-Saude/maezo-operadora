@@ -204,3 +204,10 @@ it("propaga aborto sem convertê-lo em indisponibilidade", async () => {
   const api = client(vi.fn().mockRejectedValue(error));
   await expect(api.listCases(controller.signal)).rejects.toBe(error);
 });
+
+it("503 estruturado em POST permanece desconhecido e GET mantém dependência indisponível", async () => {
+  const fetcher = vi.fn(async () => json({ code: "dependency_unavailable" }, 503));
+  const api = client(fetcher);
+  expect(await api.submitAuthorization(intake, signal())).toEqual({ kind: "failure", failure: "outcome-unknown" });
+  expect(await api.readAuthorizationIntake(ref("intake"), signal())).toEqual({ kind: "failure", failure: "dependency_unavailable" });
+});

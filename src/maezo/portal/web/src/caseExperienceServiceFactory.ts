@@ -21,6 +21,8 @@ import {
   type ProductApiFetch,
 } from "./productCaseClient";
 
+import { isCurrent } from "./taskReadTime";
+
 type ExternalAudience = "beneficiary" | "provider";
 
 export interface AuthorizationIntakeFormProvider {
@@ -211,7 +213,13 @@ export function createCaseExperienceService(
   options: CaseExperienceServiceOptions,
 ): ProductionCaseExperienceService {
   const product = createPortalProductClient(options);
-  const commandIds = new Map<string, string>();
+  // Current authenticated service lifetime only; never persisted across sessions.
+  let pending: {
+    key: string;
+    submission: AuthIntakeSubmission;
+    uncertain: boolean;
+    inFlight: boolean;
+  } | undefined;
   const nextCommandId = options.commandId ?? (() => crypto.randomUUID());
 
   return {
@@ -223,15 +231,15 @@ export function createCaseExperienceService(
     async listCases(signal, cursor) {
       const result = await product.listCases(signal, cursor);
       if (result.kind === "failure") return { kind: "failure", failure: mapFailure(result.failure) };
-      return {
-        kind: "success",
-        value: {
-          items: result.value.items.map(mapSummary),
-          nextCursor: result.value.next_cursor,
-          observedAt: result.value.freshness.observed_at,
-          validUntil: result.value.freshness.valid_until,
-        } satisfies CasePageView,
+      const value: CasePageView = {
+        items: result.value.items.map(mapSummary),
+        nextCursor: result.value.next_cursor,
+        observedAt: result.value.freshness.observed_at,
+        validUntil: result.value.freshness.valid_until,
       };
+      signal.throwIfAborted();
+      if (!isCurrent(value.validUntil)) return { kind: "failure", failure: "refresh-required" };
+      return { kind: "success", value };
     },
     async readCase(caseRef, signal) {
       const [detail, documents, requests] = await Promise.all([
@@ -264,6 +272,12 @@ export function createCaseExperienceService(
         communications: unavailable("As mensagens não estão disponíveis neste serviço."),
         commands: unavailable("O índice de recibos não está disponível neste serviço."),
       };
+      // Subordinate reads may outlive the original detail grant. No await or
+      // cleanup may follow this final retained-deadline check before disclosure.
+      signal.throwIfAborted();
+      if (!isCurrent(detail.value.freshness.valid_until)) {
+        return { kind: "failure", failure: "refresh-required" };
+      }
       return { kind: "success", value: view };
     },
     async downloadDocument(documentRef, signal) {
@@ -286,11 +300,12 @@ export function createCaseExperienceService(
         return { kind: "failure", failure: "access-revoked" };
       }
       const key = draftKey(draft);
-      const commandId = commandIds.get(key) ?? nextCommandId();
-      commandIds.set(key, commandId);
-      const submission: AuthIntakeSubmission = {
+      if (pending !== undefined && (pending.key !== key || pending.inFlight)) {
+        return { kind: "failure", failure: "outcome-unknown" };
+      }
+      const submission: AuthIntakeSubmission = pending?.submission ?? {
         schema_version: 1,
-        command_id: commandId,
+        command_id: nextCommandId(),
         beneficiary_ref: draft.beneficiaryRef,
         provider_ref: draft.providerRef,
         guide_ref: draft.guideRef,
@@ -300,18 +315,26 @@ export function createCaseExperienceService(
         valor_estimado_centavos: draft.estimatedValueCents,
         document_refs: [...draft.protectedDocumentRefs],
       };
+      const attempt = pending ?? { key, submission, uncertain: false, inFlight: false };
+      pending = attempt;
+      attempt.inFlight = true;
       let result;
       try {
-        result = await product.submitAuthorization(submission, signal);
+        result = await product.submitAuthorization(attempt.submission, signal);
+        signal.throwIfAborted();
       } catch (error) {
-        // An abort can race an admitted command. Keep the id for an identical retry.
+        // Abort may race admission; later refusals cannot resolve that old outcome.
+        attempt.uncertain = true;
         throw error;
+      } finally {
+        attempt.inFlight = false;
       }
       if (result.kind === "success") {
-        commandIds.delete(key);
+        pending = undefined;
         return { kind: "success", progress: mapIntake(result.value) };
       }
-      if (result.failure !== "outcome-unknown") commandIds.delete(key);
+      if (result.failure === "outcome-unknown") attempt.uncertain = true;
+      if (!attempt.uncertain) pending = undefined;
       return { kind: "failure", failure: mapFailure(result.failure) };
     },
     async readAuthorizationProgress(intakeRef, signal) {
