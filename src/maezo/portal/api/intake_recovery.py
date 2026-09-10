@@ -5,12 +5,14 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
+from pydantic import TypeAdapter
 from starlette.routing import Match
 
 from maezo.gateway.intake.models import IntakeError
 from maezo.gateway.intake.recovery import IntakeRecoveryService
 from maezo.portal.api.intakes import ERRORS, PREFIX, ProductRoute, reference, secret
 from maezo.portal.api.session import HumanSessionResolver
+from maezo.portal.contracts.intake import ResourceRef
 from maezo.portal.contracts.intake_recovery import IntakeCommandObservation, IntakeRecoveryPage
 
 IntakeRecoveryFactory = Callable[[HumanSessionResolver], IntakeRecoveryService]
@@ -63,7 +65,22 @@ async def observe_command(request: Request, command_id: str) -> Response:
     return await service(request).observe_frozen(secret(request), reference(command_id), freeze=response)
 
 
-@intake_recovery_router.get(PREFIX + "/intake-recovery", response_model=IntakeRecoveryPage, responses=ERRORS)
+@intake_recovery_router.get(
+    PREFIX + "/intake-recovery",
+    response_model=IntakeRecoveryPage,
+    responses=ERRORS,
+    # Describe the manual parser without adding FastAPI parameter coercion/validation.
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "cursor",
+                "in": "query",
+                "required": False,
+                "schema": TypeAdapter(ResourceRef).json_schema(),
+            }
+        ]
+    },
+)
 async def discover_admissions(request: Request) -> Response:
     query = request.query_params.multi_items()
     if (

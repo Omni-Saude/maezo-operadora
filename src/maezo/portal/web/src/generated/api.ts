@@ -2070,8 +2070,85 @@ export interface components {
             /** Referencia Clinica */
             referencia_clinica?: string | null;
         };
+        /**
+         * PublicAssignmentReceipt
+         * @description C9 closed governed status: command pins always present, effect proof only on commit.
+         */
         PublicAssignmentReceipt: {
-            [key: string]: unknown;
+            /** Assignment Disposition */
+            assignment_disposition: ("changed" | "unchanged") | null;
+            /** Audit Intent Hash */
+            audit_intent_hash: string;
+            /** Audit Intent Ref */
+            audit_intent_ref: string;
+            /** Audit Result Ref */
+            audit_result_ref: string | null;
+            /** Binding Digest */
+            binding_digest: string;
+            /** Binding Ref */
+            binding_ref: string;
+            /** Binding Version */
+            binding_version: string;
+            /** Command Id */
+            command_id: string;
+            /**
+             * Command Schema
+             * @constant
+             */
+            command_schema: "human-assignment.v2";
+            /** Consumed Task Revision */
+            consumed_task_revision: string | null;
+            /** Engine Receipt Ref */
+            engine_receipt_ref: string | null;
+            /** Engine Recorded At */
+            engine_recorded_at: string | null;
+            /** Generation Digest */
+            generation_digest: string;
+            /**
+             * Operation
+             * @enum {string}
+             */
+            operation: "claim" | "release" | "reassign";
+            /** Payload Digest */
+            payload_digest: string;
+            /** Policy Digest */
+            policy_digest: string;
+            /** Policy Ref */
+            policy_ref: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Principal Ref */
+            principal_ref: string;
+            /** Prior Assignee Ref */
+            prior_assignee_ref: string | null;
+            /** Resulting Assignee Ref */
+            resulting_assignee_ref: string | null;
+            /** Resulting Task Revision */
+            resulting_task_revision: string | null;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "human-public-assignment-receipt.v1";
+            /** Source Revision */
+            source_revision: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "committed" | "conflict";
+            /** Target Membership Revision */
+            target_membership_revision: string | null;
+            /** Target Ref */
+            target_ref: string | null;
+            /** Task Id */
+            task_id: string;
+            /** Technical Code */
+            technical_code: ("REVISION_CONFLICT" | "COMMAND_CONFLICT" | "FORM_NOT_ACTIVATED") | null;
+            /** Tenant */
+            tenant: string;
+            /** Workload Ref */
+            workload_ref: string;
         };
         /** PublicTaskSnapshot */
         PublicTaskSnapshot: {
@@ -3620,7 +3697,9 @@ export interface operations {
     };
     discover_admissions_api_v1_portal_intake_recovery_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

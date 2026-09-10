@@ -4633,7 +4633,315 @@
         "type": "object"
       },
       "PublicAssignmentReceipt": {
-        "additionalProperties": true,
+        "additionalProperties": false,
+        "description": "C9 closed governed status: command pins always present, effect proof only on commit.",
+        "properties": {
+          "assignment_disposition": {
+            "anyOf": [
+              {
+                "enum": [
+                  "changed",
+                  "unchanged"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assignment Disposition"
+          },
+          "audit_intent_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Audit Intent Hash",
+            "type": "string"
+          },
+          "audit_intent_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Audit Intent Ref",
+            "type": "string"
+          },
+          "audit_result_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Result Ref"
+          },
+          "binding_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Binding Digest",
+            "type": "string"
+          },
+          "binding_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Binding Ref",
+            "type": "string"
+          },
+          "binding_version": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Binding Version",
+            "type": "string"
+          },
+          "command_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "command_schema": {
+            "const": "human-assignment.v2",
+            "title": "Command Schema",
+            "type": "string"
+          },
+          "consumed_task_revision": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed Task Revision"
+          },
+          "engine_receipt_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Receipt Ref"
+          },
+          "engine_recorded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Engine Recorded At"
+          },
+          "generation_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Generation Digest",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "claim",
+              "release",
+              "reassign"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "payload_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Payload Digest",
+            "type": "string"
+          },
+          "policy_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Policy Digest",
+            "type": "string"
+          },
+          "policy_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Policy Ref",
+            "type": "string"
+          },
+          "policy_version": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Policy Version",
+            "type": "string"
+          },
+          "principal_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Principal Ref",
+            "type": "string"
+          },
+          "prior_assignee_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Assignee Ref"
+          },
+          "resulting_assignee_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resulting Assignee Ref"
+          },
+          "resulting_task_revision": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resulting Task Revision"
+          },
+          "schema_version": {
+            "const": "human-public-assignment-receipt.v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Source Revision",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "committed",
+              "conflict"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_membership_revision": {
+            "anyOf": [
+              {
+                "pattern": "^(0|[1-9][0-9]*)$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Membership Revision"
+          },
+          "target_ref": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 1,
+                "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Ref"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "technical_code": {
+            "anyOf": [
+              {
+                "enum": [
+                  "REVISION_CONFLICT",
+                  "COMMAND_CONFLICT",
+                  "FORM_NOT_ACTIVATED"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technical Code"
+          },
+          "tenant": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "workload_ref": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Workload Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant",
+          "task_id",
+          "command_id",
+          "payload_digest",
+          "principal_ref",
+          "workload_ref",
+          "schema_version",
+          "operation",
+          "status",
+          "audit_intent_ref",
+          "audit_intent_hash",
+          "audit_result_ref",
+          "engine_receipt_ref",
+          "engine_recorded_at",
+          "consumed_task_revision",
+          "resulting_task_revision",
+          "technical_code",
+          "command_schema",
+          "binding_ref",
+          "binding_version",
+          "binding_digest",
+          "policy_ref",
+          "policy_version",
+          "policy_digest",
+          "source_revision",
+          "generation_digest",
+          "target_ref",
+          "target_membership_revision",
+          "prior_assignee_ref",
+          "resulting_assignee_ref",
+          "assignment_disposition"
+        ],
+        "title": "PublicAssignmentReceipt",
         "type": "object"
       },
       "PublicTaskSnapshot": {
@@ -7206,6 +7514,17 @@
     "/api/v1/portal/intake-recovery": {
       "get": {
         "operationId": "discover_admissions_api_v1_portal_intake_recovery_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "pattern": "^[A-Za-z0-9_-]{16,128}$",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
