@@ -13,7 +13,11 @@ from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import digest
 from maezo.gateway.intake.native_dispatch import AuthDispatcher, AuthEffectLease
 from maezo.gateway.intake.native_store import DispatchClaim, PostgresAuthDispatchStore
-from tests.unit.gateway.intake.native.test_wire_transport import NOW, command, receipt
+from tests.unit.gateway.intake.native.test_wire_transport import NOW, command, effect_cap, receipt
+
+
+async def checkpoint():
+    return None
 
 
 class SQLSeam:
@@ -93,10 +97,10 @@ async def test_claim_live_owner_blocks_competing_sender(monkeypatch):
     assert claim.generation == 1 and not claim.reconcile_first
     with pytest.raises(AuthUnavailableError):
         await store.claim("command")
-    sending = await store.mark_sending(claim, lambda: None)
+    sending = await store.mark_sending(claim, lambda: None, checkpoint=checkpoint)
     assert sending.revision == 2 and db.row["state"] == "sending"
     with pytest.raises(AuthUnavailableError):
-        await store.mark_sending(claim, lambda: None)
+        await store.mark_sending(claim, lambda: None, checkpoint=checkpoint)
 
 
 @pytest.mark.asyncio
@@ -114,7 +118,7 @@ async def test_lost_marker_ack_preserves_possible_send_and_same_command(monkeypa
     claim = await store.claim("command")
     db.fail_ack = True
     with pytest.raises(AuthUnavailableError) as error:
-        await store.mark_sending(claim, lambda: None)
+        await store.mark_sending(claim, lambda: None, checkpoint=checkpoint)
     assert "PRIVATE" not in str(error.value) and db.row["state"] == "sending"
     db.fail_ack = False
     now[0] += timedelta(seconds=16)
@@ -128,7 +132,7 @@ async def test_expiry_after_last_marker_sql_rolls_back(monkeypatch):
     claim = await store.claim("command")
     db.expire_after_update = True
     with pytest.raises(AuthUnavailableError):
-        await store.mark_sending(claim, lambda: None)
+        await store.mark_sending(claim, lambda: None, checkpoint=checkpoint)
     assert db.row["state"] == "claimed"
 
 
@@ -138,7 +142,7 @@ async def test_expiry_during_marker_commit_never_emits(monkeypatch):
     claim = await store.claim("command")
     db.expire_at_release = True
     with pytest.raises(AuthUnavailableError):
-        await store.mark_sending(claim, lambda: None)
+        await store.mark_sending(claim, lambda: None, checkpoint=checkpoint)
     assert db.row["state"] == "sending"  # committed uncertainty, not permission to send
 
 
@@ -149,7 +153,7 @@ async def test_stale_generation_cannot_begin_send(monkeypatch):
     now[0] += timedelta(seconds=16)
     new = await store.claim("command")
     with pytest.raises(AuthUnavailableError):
-        await store.mark_sending(old, lambda: None)
+        await store.mark_sending(old, lambda: None, checkpoint=checkpoint)
     assert db.row["generation"] == new.generation and db.row["state"] == "claimed"
 
 
@@ -171,7 +175,8 @@ class DispatchStore:
         self.events.append("claim")
         return DispatchClaim(self.c, 1, 1, "owner", NOW + timedelta(seconds=15), self.reconcile_first)
 
-    async def mark_sending(self, claim, current):
+    async def mark_sending(self, claim, current, *, checkpoint):
+        await checkpoint()
         current()
         self.events.append("sending")
         return replace(claim, revision=2)
@@ -186,7 +191,7 @@ class Authority:
         self.deny_effect = False
         self.deny_read = False
 
-    async def current(self, c, *, read):
+    async def current(self, c, *, read, caller=None):
         if (read and self.deny_read) or (not read and self.deny_effect):
             raise AuthUnavailableError()
         return AuthEffectLease(
@@ -197,6 +202,8 @@ class Authority:
             c.intake_ref,
             NOW + timedelta(seconds=60),
             lambda: None,
+            checkpoint,
+            None if read else effect_cap(c),
         )
 
 
@@ -286,13 +293,24 @@ async def test_completed_gateway_replay_requires_current_read_and_no_native_effe
 
 
 @pytest.mark.asyncio
+async def test_authentic_receipt_is_persisted_before_reader_disclosure_is_denied():
+    c, store, client, authority, dispatcher = dispatch_setup(False)
+    authority.deny_read = True
+    with pytest.raises(AuthUnavailableError):
+        await dispatcher._dispatch(c)
+    assert client.sent == [c]
+    assert store.result == receipt(c)
+    assert store.events == ["prove", "claim", "sending", "reconcile"]
+
+
+@pytest.mark.asyncio
 async def test_original_admission_ceiling_cannot_be_renewed_by_dispatch_claim(monkeypatch):
     store, db, now = sql_setup(monkeypatch)
     claim = await store.claim("command")
     db.row["authorization_until"] = NOW + timedelta(seconds=1)
     now[0] += timedelta(seconds=2)
     with pytest.raises(AuthUnavailableError):
-        await store.mark_sending(claim, lambda: None)
+        await store.mark_sending(claim, lambda: None, checkpoint=checkpoint)
     assert db.row["state"] == "claimed"
 
 

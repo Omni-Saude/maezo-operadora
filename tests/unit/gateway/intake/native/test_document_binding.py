@@ -13,7 +13,7 @@ from maezo.gateway.human.auth_profile import (
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import ArtifactPin, digest
 from maezo.gateway.intake.native_binding import bind_document_response
-from tests.unit.gateway.intake.native.test_wire_transport import HASH, NOW, command, source
+from tests.unit.gateway.intake.native.test_wire_transport import HASH, NOW, command, effect_cap, source
 
 
 def inputs():
@@ -72,6 +72,7 @@ def inputs():
         operation="auth.documents.respond",
         state="committed",
         admitted_at=NOW,
+        session_binding=effect_cap().session,
     )
     policy = DocumentPolicy(
         assessment_ref="assessment",

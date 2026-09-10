@@ -27,7 +27,7 @@ final class HumanAuthDocumentCommand implements Command<AuthRuntime.Result> {
     if(!caseRef.equals(occurrence.get("case_ref"))||!"bound".equals(occurrence.get("state"))||!binding.equals(occurrence.get("binding")))throw Rejected.conflict();
     inputs.pins(c.get("input_pins"),Instant.now());inputs.actor(actor,inputs.value("actor",Jcs.ref(actor,"principal_ref")),Instant.now());
     var authority=inputs.only("resource_authority");if(!"case".equals(authority.get("resource_kind")))throw Rejected.denied();
-    inputs.authority(actor,authority,"auth.documents.respond",caseRef,request,Instant.now());inputs.admission(c,"auth.documents.respond");
+    inputs.authority(actor,authority,"auth.documents.respond",caseRef,request,Instant.now());inputs.admission(c,"auth.documents.respond",invocation.envelope.expiresAt());
     Object refs=c.get("document_refs");String setDigest=PortalReadModels.hash(refs);
     if(!setDigest.equals(c.get("document_set_digest")))throw Rejected.denied();
     inputs.documents(refs,"case",caseRef,Instant.now());

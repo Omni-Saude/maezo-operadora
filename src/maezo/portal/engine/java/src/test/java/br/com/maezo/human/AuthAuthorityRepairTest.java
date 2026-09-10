@@ -105,4 +105,24 @@ class AuthAuthorityRepairTest {
       }
     }
   }
+  @Test void originalSessionCeilingConstrainsNativeEnvelopeAndFinalAdmission() throws Exception {
+    try(var stream=getClass().getResourceAsStream("/auth-admission-commands.json")) {
+      assertNotNull(stream);
+      for(Object item:PortalReadModels.list(Jcs.parse(stream.readAllBytes()))) {
+        var intent=Jcs.object(Jcs.object(item).get("audit_intent"));
+        var binding=Jcs.object(intent.get("session_binding"));
+        Instant until=PortalReadModels.time(binding.get("authorization_until"));
+        assertEquals(until,AuthInputs.admissionCeiling(intent,until,T.plusSeconds(1)));
+        assertThrows(Rejected.class,()->AuthInputs.admissionCeiling(intent,until.plusSeconds(1),T.plusSeconds(1)));
+        assertThrows(Rejected.class,()->AuthInputs.admissionCeiling(intent,until,until));
+        var missing=PortalReadModels.copy(intent);missing.remove("session_binding");
+        assertThrows(Rejected.class,()->AuthInputs.admissionCeiling(missing,until,T.plusSeconds(1)));
+        var widened=PortalReadModels.copy(intent);var changed=PortalReadModels.copy(binding);
+        changed.put("session_expires_at",PortalReadModels.time(until.minusSeconds(1)));
+        widened.put("session_binding",changed);
+        assertThrows(Rejected.class,()->AuthInputs.admissionCeiling(widened,until,T.plusSeconds(1)));
+      }
+    }
+  }
+
 }

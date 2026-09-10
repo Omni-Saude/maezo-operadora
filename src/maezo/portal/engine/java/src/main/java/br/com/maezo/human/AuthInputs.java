@@ -71,13 +71,28 @@ final class AuthInputs {
     if(now.isBefore(PortalReadModels.time(authority.get("valid_from"))))throw Rejected.denied();
     ceilings.add(PortalReadModels.time(authority.get("valid_until")));source(authority.get("source"),now);current(now);
   }
-  void admission(Map<String,Object> command,String operation) {
+  void admission(Map<String,Object> command,String operation,Instant envelopeUntil) {
     var admitted=Jcs.object(command.get("admission"));
     var row=store.inputHead("audit_intent",Jcs.ref(admitted,"intent_ref"));
     // Separate approved admission lookup: never insert this source into mutation input_pins.
     var intent=active(row,Instant.now());
     admissionIdentity(command,operation,intent,AuthStore.parse(row.get("source_")),Instant.now());
+    var binding=Jcs.object(intent.get("session_binding"));
+    Instant originalUntil=admissionCeiling(intent,envelopeUntil,Instant.now());
+    ceilings.add(PortalReadModels.time(binding.get("session_expires_at")));
+    ceilings.add(originalUntil);
     current(Instant.now());
+  }
+  static Instant admissionCeiling(Map<String,Object> intent,Instant envelopeUntil,Instant now) {
+    AuthModels.validate("intent",intent);
+    var binding=Jcs.object(intent.get("session_binding"));
+    Instant authenticated=PortalReadModels.time(binding.get("authenticated_at"));
+    Instant admitted=PortalReadModels.time(intent.get("admitted_at"));
+    Instant sessionUntil=PortalReadModels.time(binding.get("session_expires_at"));
+    Instant until=PortalReadModels.time(binding.get("authorization_until"));
+    if(authenticated.isAfter(admitted)||!admitted.isBefore(until)||until.isAfter(sessionUntil)
+        ||envelopeUntil.isAfter(until)||!now.isBefore(until))throw Rejected.denied();
+    return until;
   }
   static void admissionIdentity(Map<String,Object> command,String operation,Map<String,Object> intent,
       Map<String,Object> publishedSource,Instant now) {

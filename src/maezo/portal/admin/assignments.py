@@ -91,6 +91,7 @@ class PostgresStaffAssignmentAdministration:
         valid_until: datetime,
         initial_native_revision: int,
         approved_receipt_policy_pins: tuple[ArtifactPin, ...] = (),
+        auth_source: Any = None,
     ) -> None:
         if engine.dialect.name != "postgresql" or not database_role or valid_until.tzinfo is None:
             raise unavailable()
@@ -103,6 +104,64 @@ class PostgresStaffAssignmentAdministration:
         self.owner_receipts = tuple(ArtifactPin.model_validate(p) for p in approved_owner_receipts)
         self.valid_until, self.initial_native_revision = valid_until, initial_native_revision
         self.receipt_policy_pins = tuple(ArtifactPin.model_validate(p) for p in approved_receipt_policy_pins)
+        if auth_source is not None:
+            from maezo.gateway.intake.native_source_lifecycle import PostgresAuthSourceLifecycle
+
+            if (
+                type(auth_source) is not PostgresAuthSourceLifecycle
+                or auth_source.binding.tenant != self.scope.tenant
+            ):
+                raise unavailable()
+        self.auth_source = auth_source
+
+    async def _auth_source_required(self, db: AsyncConnection) -> bool:
+        actual = (await db.execute(text("SELECT to_regclass('portal_memberships')::oid"))).scalar_one()
+        guarded = (
+            await db.execute(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid=:oid AND "
+                    "tgname='portal_auth_membership_write' AND tgenabled='A')"
+                ),
+                {"oid": actual},
+            )
+        ).scalar_one()
+        if guarded and self.auth_source is None:
+            raise unavailable()
+        if self.auth_source is not None:
+            pin = next(p for p in self.auth_source.binding.relations if p.name == "portal_memberships")
+            if actual != pin.oid:
+                raise unavailable()
+            await self.auth_source.qualified(db, self.auth_source.binding.writer_role)
+        return bool(guarded)
+
+    async def _guarded_memberships(
+        self,
+        db: AsyncConnection,
+        changes: tuple[MembershipRecord, ...],
+        auth_changes: dict[str, str],
+        applied_auth: list[str],
+    ) -> tuple[MembershipRecord, ...]:
+        if self.auth_source is None:
+            raise unavailable()
+        for record in changes:
+            change_id = auth_changes.get(record.principal_ref)
+            if change_id is None:
+                continue
+            # The existing disabled assignment-source row is locked; only the
+            # already-ACKed AUTH change is applied, with no HTTP.
+            await self.auth_source.apply_change(change_id, db)
+            applied_auth.append(change_id)
+        records = await self.auth_source.locked_staff_memberships(db)
+        for record in changes:
+            prior = tuple(
+                candidate
+                for candidate in records
+                if candidate.principal_ref == record.principal_ref
+                or (candidate.issuer, candidate.subject) == (record.issuer, record.subject)
+            )
+            if len(prior) != 1 or prior[0] != record:
+                raise conflict()
+        return records
 
     async def _qualified(self, db: AsyncConnection) -> None:
         from maezo.gateway.audit_postgres import schema_for_tenant
@@ -163,6 +222,48 @@ class PostgresStaffAssignmentAdministration:
                 )
             )
         )
+        if self.auth_source is not None:
+            for record in changes:
+                await self.auth_source.recover_membership(record)
+        auth_changes: dict[str, str] = {}
+        applied_auth: list[str] = []
+        # Native assignment disable/ACK must have completed before AUTH source
+        # preparation. No assignment/source SQL lock is held during native HTTP.
+        if changes:
+            async with self.engine.begin() as preparation:
+                await self._qualified(preparation)
+                guarded = await self._auth_source_required(preparation)
+                state = (
+                    await preparation.execute(
+                        text(
+                            "SELECT state FROM portal_assignment_source WHERE tenant=:tenan"
+                            "t AND source_revision=:revision"
+                        ),
+                        {"tenant": self.scope.tenant, "revision": expected_source_revision},
+                    )
+                ).scalar_one_or_none()
+                prepare_auth = guarded and (
+                    state == "disabled" or (state is None and expected_source_revision == 0)
+                )
+                unchanged = set()
+                if prepare_auth:
+                    for record in changes:
+                        prior = (
+                            await preparation.execute(
+                                text(
+                                    "SELECT payload FROM portal_memberships WHERE tenant=:tenant AN"
+                                    "D issuer=:issuer AND "
+                                    "subject=:subject"
+                                ),
+                                {"tenant": record.tenant, "issuer": record.issuer, "subject": record.subject},
+                            )
+                        ).scalar_one_or_none()
+                        if prior is not None and MembershipRecord.model_validate_json(prior) == record:
+                            unchanged.add(record.principal_ref)
+            if prepare_auth:
+                for record in changes:
+                    if record.principal_ref not in unchanged:
+                        auth_changes[record.principal_ref] = await self.auth_source.prepare_membership(record)
         async with self.engine.begin() as db:
             await self._qualified(db)
             # Initial provisioning is an explicit reviewed administration action; no seed/grant.
@@ -202,67 +303,75 @@ class PostgresStaffAssignmentAdministration:
                     )
                 )
             else:
-                for record in changes:
-                    prior = (
+                guarded = await self._auth_source_required(db)
+                if guarded:
+                    records = await self._guarded_memberships(db, changes, auth_changes, applied_auth)
+                else:
+                    for record in changes:
+                        prior = (
+                            (
+                                await db.execute(
+                                    text(
+                                        "SELECT payload FROM portal_memberships WHERE tenant=:tenant AND "
+                                        "(principal_ref=:principal OR (issuer=:issuer AND subject=:subject)) "
+                                        "FOR UPDATE"
+                                    ),
+                                    dict(
+                                        tenant=record.tenant,
+                                        principal=record.principal_ref,
+                                        issuer=record.issuer,
+                                        subject=record.subject,
+                                    ),
+                                )
+                            )
+                            .scalars()
+                            .all()
+                        )
+                        if len(prior) > 1:
+                            raise conflict()
+                        if prior:
+                            old = MembershipRecord.model_validate_json(prior[0])
+                            if (old.principal_ref, old.issuer, old.subject, old.audience) != (
+                                record.principal_ref,
+                                record.issuer,
+                                record.subject,
+                                record.audience,
+                            ):
+                                raise conflict()
+                            if old != record and record.revision <= old.revision:
+                                raise conflict()
+                            if old == record:
+                                continue
+                        await db.execute(
+                            text(
+                                """INSERT INTO portal_memberships
+                                (tenant,issuer,subject,principal_ref,payload)
+                                VALUES(:tenant,:issuer,:subject,:principal,:payload)
+                                ON CONFLICT(tenant,issuer,subject)
+                                DO UPDATE SET payload=EXCLUDED.payload"""
+                            ),
+                            dict(
+                                tenant=record.tenant,
+                                issuer=record.issuer,
+                                subject=record.subject,
+                                principal=record.principal_ref,
+                                payload=record.model_dump_json(),
+                            ),
+                        )
+                    rows = (
                         (
                             await db.execute(
                                 text(
-                                    "SELECT payload FROM portal_memberships WHERE tenant=:tenant AND "
-                                    "(principal_ref=:principal OR (issuer=:issuer AND "
-                                    "subject=:subject)) FOR UPDATE"
+                                    "SELECT payload FROM portal_memberships WHERE tenant=:tenant ORDER "
+                                    "BY principal_ref FOR SHARE"
                                 ),
-                                dict(
-                                    tenant=record.tenant,
-                                    principal=record.principal_ref,
-                                    issuer=record.issuer,
-                                    subject=record.subject,
-                                ),
+                                {"tenant": self.scope.tenant},
                             )
                         )
                         .scalars()
                         .all()
                     )
-                    if len(prior) > 1:
-                        raise conflict()
-                    if prior:
-                        old = MembershipRecord.model_validate_json(prior[0])
-                        if (old.principal_ref, old.issuer, old.subject, old.audience) != (
-                            record.principal_ref,
-                            record.issuer,
-                            record.subject,
-                            record.audience,
-                        ):
-                            raise conflict()
-                        if old != record and record.revision <= old.revision:
-                            raise conflict()
-                        if old == record:
-                            continue
-                    await db.execute(
-                        text("""INSERT INTO portal_memberships(tenant,issuer,subject,principal_ref,payload)
-                        VALUES(:tenant,:issuer,:subject,:principal,:payload)
-                        ON CONFLICT(tenant,issuer,subject) DO UPDATE SET payload=EXCLUDED.payload"""),
-                        dict(
-                            tenant=record.tenant,
-                            issuer=record.issuer,
-                            subject=record.subject,
-                            principal=record.principal_ref,
-                            payload=record.model_dump_json(),
-                        ),
-                    )
-                rows = (
-                    (
-                        await db.execute(
-                            text(
-                                "SELECT payload FROM portal_memberships WHERE tenant=:tenant ORDER "
-                                "BY principal_ref FOR SHARE"
-                            ),
-                            {"tenant": self.scope.tenant},
-                        )
-                    )
-                    .scalars()
-                    .all()
-                )
-                records = tuple(MembershipRecord.model_validate_json(raw) for raw in rows)
+                    records = tuple(MembershipRecord.model_validate_json(raw) for raw in rows)
                 members = tuple(
                     StaffMembership(
                         principal_ref=m.principal_ref,
@@ -310,6 +419,8 @@ class PostgresStaffAssignmentAdministration:
                 ),
             )
         # Signing may only consume this fresh, committed row.
+        for change_id in applied_auth:
+            await self.auth_source.finish_change(change_id)
         return await self.read_frozen(next_revision)
 
     def _frozen(self, row: dict[str, Any]) -> FrozenAssignmentSource:

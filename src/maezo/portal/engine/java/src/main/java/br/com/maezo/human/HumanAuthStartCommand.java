@@ -22,7 +22,7 @@ final class HumanAuthStartCommand implements Command<AuthRuntime.Result> {
     inputs.pins(c.get("input_pins"),Instant.now());inputs.actor(actor,inputs.value("actor",Jcs.ref(actor,"principal_ref")),Instant.now());
     String guideRef=Jcs.ref(c,"guide_identity_ref");var authority=inputs.only("resource_authority");
     if(!"guide".equals(authority.get("resource_kind")))throw Rejected.denied();
-    inputs.authority(actor,authority,"auth.start",guideRef,null,Instant.now());inputs.admission(c,"auth.start");
+    inputs.authority(actor,authority,"auth.start",guideRef,null,Instant.now());inputs.admission(c,"auth.start",invocation.envelope.expiresAt());
     var guide=AuthModels.validate("guide",inputs.value("guide",guideRef));
     if(!"absent_at_cutover".equals(guide.get("legacy_state"))||!invocation.qualification.get("cutover_ref").equals(guide.get("cutover_ref")))throw Rejected.denied();
     if(db.guide(guideRef)!=null)throw Rejected.conflict();

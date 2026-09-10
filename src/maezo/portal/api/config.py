@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Literal, Self
 from urllib.parse import urlsplit
 
@@ -22,6 +23,8 @@ class PortalSettings(BaseSettings):
     machine_client_id: str = Field(min_length=1)
     public_origin: str
     database_url: SecretStr | None = Field(default=None, repr=False)
+    # Protected owner-bound AUTH participant, never a store/provider supplied by BFF.
+    auth_lifecycle_binding_path: Path | None = Field(default=None, repr=False)
     mode: Literal["production", "local-test"] = "production"
     session_seconds: int = Field(default=1800, ge=60, le=3600)
     transaction_seconds: int = Field(default=300, ge=30, le=300)
@@ -57,6 +60,11 @@ class PortalSettings(BaseSettings):
             raise ValueError("human client must be separate")
         if self.mode == "production" and self.database_url is None:
             raise ValueError("persistent session database required")
+        if (
+            self.auth_lifecycle_binding_path is not None
+            and not self.auth_lifecycle_binding_path.is_absolute()
+        ):
+            raise ValueError("absolute protected AUTH binding path required")
         return self
 
     @property

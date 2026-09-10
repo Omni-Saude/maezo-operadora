@@ -319,6 +319,23 @@ class DocumentOccurrence(Closed):
         return self
 
 
+class SessionBinding(Closed):
+    """Original committed admission observation; shape alone is never authority."""
+
+    session_ref: OpaqueRef
+    authenticated_at: datetime
+    session_expires_at: datetime
+    authorization_until: datetime
+    session_source_revision: Annotated[int, Field(ge=1, le=2**63 - 1)]
+    session_record_digest: Sha256Digest
+
+    @model_validator(mode="after")
+    def original_ceiling(self) -> SessionBinding:
+        if not self.authenticated_at < self.authorization_until <= self.session_expires_at:
+            raise ValueError("invalid original session interval")
+        return self
+
+
 class AuditIntentPayload(Closed):
     intent_ref: OpaqueRef
     intake_or_response_ref: OpaqueRef
@@ -328,6 +345,17 @@ class AuditIntentPayload(Closed):
     operation: Operation
     state: Literal["committed"]
     admitted_at: datetime
+    session_binding: SessionBinding
+
+    @model_validator(mode="after")
+    def admitted_session(self) -> AuditIntentPayload:
+        if (
+            not self.session_binding.authenticated_at
+            <= self.admitted_at
+            < self.session_binding.authorization_until
+        ):
+            raise ValueError("invalid admission session interval")
+        return self
 
 
 class ResourceAuthority(Closed):
