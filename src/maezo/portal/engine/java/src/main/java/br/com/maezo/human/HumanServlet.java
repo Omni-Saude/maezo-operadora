@@ -36,6 +36,14 @@ public final class HumanServlet extends HttpServlet {
         byte[] raw = request.getInputStream().readNBytes(65537);
         if (raw.length > 65536) throw Rejected.invalid();
         result = plugin.executeAuth(path, raw, peer);
+      } else if ("POST".equals(request.getMethod()) && path != null
+          && Set.of("/v1/staff-case-detail","/v1/staff-case-finalize","/v1/staff-case-publication").contains(path)) {
+        if(!"application/json".equals(request.getContentType()))throw Rejected.invalid();
+        byte[] raw=request.getInputStream().readNBytes(65537);
+        if(raw.length>65536)throw Rejected.invalid();
+        var committed=plugin.executeStaff(path,raw,peer);
+        writeStaff(response,committed);
+        return;
       } else if("POST".equals(request.getMethod()) && Set.of("/v1/assignment-context","/v1/assignment-candidates","/v1/assignment-authority","/v1/assignment-receipt-authority").contains(path)) {
         if(!"application/json".equals(request.getContentType()))throw Rejected.invalid();
         byte[] raw=request.getInputStream().readNBytes(65537);if(raw.length>65536)throw Rejected.invalid();
@@ -68,6 +76,17 @@ public final class HumanServlet extends HttpServlet {
     } catch (RuntimeException unavailable) {
       error(response, 503, "HUMAN_ENGINE_UNAVAILABLE");
     }
+  }
+
+  /** Actual staff output handoff; caller retains the existing closed error handler. */
+  static void writeStaff(HttpServletResponse response,HumanCommandPlugin.StaffResponse committed)
+      throws IOException {
+    response.setStatus(200);
+    var output=response.getOutputStream();
+    byte[] body=committed.bytes();
+    // Stream setup may block. Check the same original guard immediately before write.
+    committed.requireCurrent();
+    output.write(body);
   }
 
   static String peer(HttpServletRequest request) {

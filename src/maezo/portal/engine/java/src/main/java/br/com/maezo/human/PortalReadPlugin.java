@@ -71,6 +71,21 @@ public final class PortalReadPlugin extends AbstractProcessEnginePlugin {
     if(!p.trust.scope.get("tenant").equals(tenant)||!p.trust.scope.get("environment").equals(environment))throw denied();
     return new AssignmentConstraintLease(p.trust,p.trust.acquire("portal-task-read"));
   }
+  /** Same installed engine/read plugin only. Provider admission is acquired before
+   * entering any engine command or native tenant lock; there is no synthesized SPI. */
+  static StaffCaseReadCommand.Q2Lease staffLease(ProcessEngineConfigurationImpl expected,
+      java.util.Map<String,Object> scope,java.util.Map<String,Object> anchor) {
+    if(expected==null||org.cibseven.bpm.engine.impl.context.Context.getCommandContext()!=null)
+      throw unavailable();
+    var plugins=expected.getProcessEnginePlugins();
+    if(plugins==null)throw unavailable();
+    var matches=plugins.stream().filter(p->p instanceof PortalReadPlugin).toList();
+    if(matches.size()!=1)throw unavailable();
+    var installed=(PortalReadPlugin)matches.get(0);
+    if(installed.configuration!=expected||installed.trust==null)throw unavailable();
+    var admission=installed.trust.acquire("portal-task-read",installed.trust.scope);
+    return new StaffCaseReadCommand.Q2Lease(installed.trust,admission,scope,anchor);
+  }
   byte[] execute(byte[] raw, String peer, String route) {
     String purpose = route.equals("publications") ? "portal-read-publication" : "portal-task-read";
     var verified = PortalReadEnvelope.verify(raw, trust, purpose, peer, Instant.now());

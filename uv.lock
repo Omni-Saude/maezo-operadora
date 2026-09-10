@@ -209,6 +209,20 @@ wheels = [
 ]
 
 [[package]]
+name = "aws-msk-iam-sasl-signer-python"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boto3" },
+    { name = "botocore" },
+    { name = "click" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/38/8b/9af0a7def4ba357afadc89c06019d3735944cb3d6065a455f41580ba7fd6/aws_msk_iam_sasl_signer_python-1.0.2.tar.gz", hash = "sha256:3432d88a7c6db4887ceb1130ebaed0113bfda48b79ea811537add5f1d25fa13f", size = 24034, upload-time = "2025-03-05T20:49:48.582Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/06/43/f3ffd79fc4941b8d610530d81e1f600cfa1b8651affc25cb929fd0f2f2c9/aws_msk_iam_sasl_signer_python-1.0.2-py2.py3-none-any.whl", hash = "sha256:310eb2db9ca0ff55ed06a24212739b87533e7f1cf6f34e43aabbd97a3b21290e", size = 13279, upload-time = "2025-03-05T20:49:46.611Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.43.64"
 source = { registry = "https://pypi.org/simple" }
@@ -1251,6 +1265,8 @@ dependencies = [
     { name = "alembic" },
     { name = "anthropic", extra = ["bedrock"] },
     { name = "asyncpg" },
+    { name = "aws-msk-iam-sasl-signer-python" },
+    { name = "botocore" },
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "greenlet" },
@@ -1296,6 +1312,8 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.13,<2.0" },
     { name = "anthropic", extras = ["bedrock"], specifier = ">=0.40,<2.0" },
     { name = "asyncpg", specifier = ">=0.29,<1.0" },
+    { name = "aws-msk-iam-sasl-signer-python", specifier = "==1.0.2" },
+    { name = "botocore", specifier = ">=1.43.64,<2.0" },
     { name = "cryptography", specifier = ">=50.0.0,<51" },
     { name = "fastapi", specifier = ">=0.111,<1.0" },
     { name = "greenlet", specifier = ">=3.5.3" },

@@ -15,9 +15,16 @@ final class AuthRuntime {
   final long maxLifetime;
   final int timeout;
   final AuthResultSigner signer;
+  final StaffCaseInstallation.Configuration staffConfiguration;
   private final Path loadedJar;
   AuthRuntime(ProcessEngineConfigurationImpl configuration,Map<String,Object> scope,String audience,
       long maxLifetime,int timeout,AuthResultSigner signer) {
+    this(configuration,scope,audience,maxLifetime,timeout,signer,null);
+  }
+  AuthRuntime(ProcessEngineConfigurationImpl configuration,Map<String,Object> scope,String audience,
+      long maxLifetime,int timeout,AuthResultSigner signer,StaffCaseInstallation.Configuration staff) {
+    if(staff!=null&&!scope.equals(staff.authScope()))throw Rejected.denied();
+    this.staffConfiguration=staff;
     AuthModels.validate("scope",scope);this.scope=PortalReadModels.copy(scope);
     this.configuration=configuration;this.audience=audience;this.maxLifetime=maxLifetime;this.timeout=timeout;this.signer=signer;
     if(signer==null||!scope.get("engine_name").equals(configuration.getProcessEngineName())
@@ -30,7 +37,7 @@ final class AuthRuntime {
   AuthStore lifecycle(org.cibseven.bpm.engine.impl.persistence.entity.ExecutionEntity execution) {
     if(!scope.get("tenant").equals(execution.getTenantId()))return null;
     var context=org.cibseven.bpm.engine.impl.context.Context.getCommandContext();
-    var store=new AuthStore(context,scope,timeout);store.lock();
+    var store=new AuthStore(context,scope,timeout,staffConfiguration);store.lock();
     var qualification=AuthInstallation.runtime(store);
     if(!Jcs.object(qualification.get("definition")).get("definition_id").equals(execution.getProcessDefinitionId()))return null;
     requireQualifiedCode(qualification);return store;
@@ -51,7 +58,7 @@ final class AuthRuntime {
     final Map<String,Object> qualification;
     final Instant qualificationUntil;
     Invocation(CommandContext context,byte[] raw,String peer,String purpose) {
-      this.context=context;store=new AuthStore(context,scope,timeout);store.lock();
+      this.context=context;store=new AuthStore(context,scope,timeout,staffConfiguration);store.lock();
       qualification=AuthInstallation.runtime(store);qualificationUntil=PortalReadModels.time(qualification.get("valid_until"));
       br.com.maezo.workload.WorkloadPlugin.running().requireHumanAuthPeerSeparated(peer);
       trust=new AuthTrust(store,audience,maxLifetime);envelope=AuthEnvelope.verify(raw,trust,purpose,peer,Instant.now());

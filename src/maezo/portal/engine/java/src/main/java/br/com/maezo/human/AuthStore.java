@@ -13,8 +13,14 @@ final class AuthStore {
   private final int timeout;
   final String tenant;
   final Map<String,Object> scope;
+  private final StaffCaseInstallation.Configuration staffConfiguration;
 
   AuthStore(CommandContext context,Map<String,Object> scope,int timeout) {
+    this(context,scope,timeout,null);
+  }
+  AuthStore(CommandContext context,Map<String,Object> scope,int timeout,StaffCaseInstallation.Configuration staff) {
+    if(staff!=null&&!scope.equals(staff.authScope()))throw Rejected.denied();
+    this.staffConfiguration=staff;
     this.scope=PortalReadModels.copy(scope);
     Jcs.keys(scope,"tenant","environment","engine_name","database_incarnation","installation_ref","installation_revision");
     for(String key:List.of("tenant","environment","engine_name","database_incarnation","installation_ref"))Jcs.ref(scope,key);
@@ -116,6 +122,9 @@ final class AuthStore {
   void claimGuide(String guide,String intake,String command,String digest,String principal,String instance,String caseRef,Map<String,Object> definition) {
     write("INSERT INTO MZO_AUTH_GUIDE_CLAIM(TENANT_,GUIDE_,INTAKE_,COMMAND_,DIGEST_,PRINCIPAL_,INSTANCE_,CASE_,DEFINITION_) VALUES(?,?,?,?,?,?,?,?,?)",tenant,guide,intake,command,digest,principal,instance,caseRef,text(definition));
     write("INSERT INTO MZO_AUTH_INSTANCE_HEAD(TENANT_,INSTANCE_,REV_,GENERATION_,CURRENT_REQUEST_) VALUES(?,?,0,0,NULL)",tenant,instance);
+    // The actual guide and instance claims have succeeded in this enlisted TX.
+    // No historical receipt replay, guessed case ID or reader initializes this head.
+    if(staffConfiguration!=null)new StaffCaseEventStore(this).initializeClaim(caseRef);
   }
   Map<String,Object> instanceHead(String instance) {
     return one("SELECT * FROM MZO_AUTH_INSTANCE_HEAD WHERE TENANT_=? AND INSTANCE_=? FOR UPDATE",tenant,instance);
@@ -134,10 +143,12 @@ final class AuthStore {
     long generation=PortalReadModels.number(record.get("generation"));
     write("INSERT INTO MZO_AUTH_DOC_OCCURRENCE(TENANT_,REQUEST_,INSTANCE_,GENERATION_,REV_,PRODUCER_TASK_,STATE_,RECORD_) VALUES(?,?,?,?,0,?,'created',?)",tenant,request,instance,generation,Jcs.ref(record,"producer_external_task_id"),text(record));
     write("UPDATE MZO_AUTH_INSTANCE_HEAD SET REV_=?,GENERATION_=?,CURRENT_REQUEST_=? WHERE TENANT_=? AND INSTANCE_=? AND REV_=?",next(expectedHeadRevision),generation,request,tenant,instance,expectedHeadRevision);
+    if(staffConfiguration!=null)new StaffCaseEventStore(this).advance(instance);
   }
   void updateOccurrence(Map<String,Object> record,long expectedRevision) {
     var binding=record.get("binding");String subscription=binding==null?null:Jcs.ref(Jcs.object(binding),"subscription_id");
     write("UPDATE MZO_AUTH_DOC_OCCURRENCE SET REV_=?,PUBLICATION_TASK_=?,SUBSCRIPTION_=?,STATE_=?,RECORD_=? WHERE TENANT_=? AND REQUEST_=? AND REV_=?",next(expectedRevision),record.get("publication_external_task_id"),subscription,Jcs.string(record,"state"),text(record),tenant,Jcs.ref(record,"request_ref"),expectedRevision);
+    if(staffConfiguration!=null)new StaffCaseEventStore(this).advance(Jcs.ref(record,"process_instance_id"));
   }
   Map<String,Object> effectReceipt(String command,String digest) {
     var row=optional("SELECT DIGEST_,RECEIPT_ FROM MZO_AUTH_EFFECT_RECEIPT WHERE TENANT_=? AND COMMAND_=?",tenant,command);
