@@ -749,9 +749,15 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
             for node in ast.walk(ast.parse(p.read_text()))
         )
     }
-    assert http_owners == {"transport.py", "read_transport.py", "engine_reads.py"}
+    assert http_owners == {
+        "assignment_transport.py",
+        "auth_transport.py",
+        "engine_reads.py",
+        "read_transport.py",
+        "transport.py",
+    }
     # Q2 composition only annotates its borrowed application-owned pool here.
-    # It gets no constructor/request exemption from the two transport owners.
+    # It gets no constructor/request exemption from the transport owners.
     _assert_engine_read_pool_type_only((Path(module.__file__).parent / "engine_reads.py").read_text())
     for forbidden in (
         "import requests",

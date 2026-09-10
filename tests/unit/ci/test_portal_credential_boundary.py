@@ -10,6 +10,9 @@ MTLS = "gateway/human/transport.py"
 OIDC = "gateway/portal_identity.py"
 ENGINE = "gateway/engine_transport.py"
 READ = "gateway/human/read_transport.py"
+ASSIGNMENT = "gateway/human/assignment_transport.py"
+AUTH = "gateway/human/auth_transport.py"
+NATIVE_FETCH = "gateway/native_fetch/transport.py"
 CALL = "httpx.AsyncClient(verify=True, trust_env=False, follow_redirects=False, timeout=10.0)"
 
 
@@ -23,7 +26,7 @@ def scan(tmp_path, path, source):
 def test_exact_production_seams_and_credential_read_are_nonvacuous():
     result = scan_tree(ROOT / "src/maezo")
     assert result.ok, result.render()
-    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 4
+    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 7
     assert result.counters["8.3_secret_scoped_seam_sanctioned"] == 1
 
 
@@ -125,6 +128,26 @@ NEW_SEAMS = [
         "__init__",
         "httpx.AsyncClient(verify=tls_context, transport=_BorrowedTransport(self._transport), "
         "follow_redirects=False, trust_env=False, timeout=timeout_seconds)",
+    ),
+    (
+        ASSIGNMENT,
+        "AssignmentPrivateTransport",
+        "__init__",
+        "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=timeout_seconds, "
+        "trust_env=False, follow_redirects=False)",
+    ),
+    (
+        AUTH,
+        "AuthNativeClient",
+        "__init__",
+        "httpx.AsyncClient(verify=tls_context, transport=transport, follow_redirects=False, "
+        "trust_env=False, timeout=timeout_seconds)",
+    ),
+    (
+        NATIVE_FETCH,
+        "NativeFetchClient",
+        "_exchange",
+        "httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False, timeout=30)",
     ),
 ]
 

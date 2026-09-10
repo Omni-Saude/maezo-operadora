@@ -111,7 +111,7 @@ def test_the_docstring_header_agrees_with_down_revision() -> None:
 
 
 def test_0010_has_exactly_one_child() -> None:
-    """0011 follows 0010; the 0013 head suite owns the preserved global chain fence."""
+    """0011 follows 0010; the 0014 head suite owns the preserved global chain fence."""
     children = []
     for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):
         source = path.read_text(encoding="utf-8")
@@ -130,7 +130,8 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     config = Config()
     config.set_main_option("script_location", str(_VERSIONS_DIR.parent))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["0013"]
+    assert script.get_heads() == ["0014"]
+    assert script.get_revision("0014").down_revision == "0013"
     assert script.get_revision("0013").down_revision == "0012"
     assert script.get_revision("0012").down_revision == "0011"
     assert script.get_revision("0011").down_revision == "0010"
