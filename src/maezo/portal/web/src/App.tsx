@@ -218,6 +218,7 @@ export function App() {
           </section>
           {isStaff && (
             <EmployeeQueues
+              csrfToken={state.session.csrf_token}
               sessionBinding={[
                 state.session.principal_ref,
                 state.session.expires_at,

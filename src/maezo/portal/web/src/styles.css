@@ -174,3 +174,19 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
   .queue-nav button[aria-current="page"] { border: 2px solid #1b604c; }
   .secondary-action { width: 100%; }
 }
+
+.decision-workspace { scroll-margin-top: 1rem; }
+.decision-field { display: grid; gap: .5rem; margin-block: 1rem; }
+.decision-field label, .decision-workspace legend { font-weight: 650; }
+.decision-field textarea, .decision-field select {
+  width: 100%; max-width: 48rem; min-height: 2.75rem; padding: .75rem;
+  border: 1px solid #667085; border-radius: .35rem; font: inherit; color: #152238; background: white;
+}
+.decision-field textarea { resize: vertical; }
+.decision-workspace fieldset { min-width: 0; margin-block: 1rem; border: 1px solid #667085; }
+.decision-workspace dd { margin-inline-start: 0; margin-block-end: 1rem; overflow-wrap: anywhere; }
+.decision-workspace dt { font-weight: 650; }
+.decision-text { white-space: pre-wrap; }
+.decision-confirm { display: flex; gap: .75rem; align-items: flex-start; margin-block: 1.5rem; }
+.decision-confirm input { width: 1.4rem; height: 1.4rem; flex: 0 0 auto; }
+.decision-workspace :focus-visible { outline: 3px solid #075db3; outline-offset: 3px; }

@@ -10,7 +10,13 @@ const taskReadSources = ["src/EmployeeQueues.tsx", "src/taskReadClient.ts"]
   .map((path) => readFileSync(path, "utf8"))
   .join("\n");
 
+const decisionSources = ["src/DecisionWorkspace.tsx", "src/decisionClient.ts", "src/decisionSchema.ts"]
+  .map((path) => readFileSync(path, "utf8")).join("\n");
+
 describe("fronteira do navegador", () => {
+  it.each(["localStorage", "sessionStorage", "indexedDB", "serviceWorker", "sendBeacon", "analytics", "Authorization", "Bearer ", "console.", "actor_id", "tenant_id", "human_approved"])("não inclui %s na decisão humana", (forbidden) => {
+    expect(decisionSources).not.toContain(forbidden);
+  });
   it.each([
     "localStorage",
     "sessionStorage",

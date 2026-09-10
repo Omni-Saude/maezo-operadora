@@ -197,7 +197,7 @@ function isPagtoEvidence(value: unknown): value is Schemas["PagtoAdmissibilityEv
   );
 }
 
-function isPublicTaskSnapshot(value: unknown): value is PublicTaskSnapshot {
+export function isPublicTaskSnapshot(value: unknown): value is PublicTaskSnapshot {
   if (
     !hasExactKeys(value, [
       "schema_version",
