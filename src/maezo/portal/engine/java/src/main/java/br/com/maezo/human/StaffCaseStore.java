@@ -162,10 +162,10 @@ final class StaffCaseStore {
   }
 
   List<Map<String,Object>> checkpointEntries(Map<String,Object> accepted) {
-    String ref=str(accepted,"checkpoint_ref");long generation=((Number)accepted.get("generation")).longValue();var result=new ArrayList<Map<String,Object>>();String prior=null;
+    String ref=str(accepted,"checkpoint_ref");long generation=((Number)accepted.get("generation")).longValue();var result=new ArrayList<Map<String,Object>>();var cases=new HashSet<String>();String prior=null;
     for(var row:checkpointChunks(ref,generation)){var chunk=StaffCaseModels.shape("scope_chunk",AuthStore.parse(row.get("canonical_chunk")));
       if(!hash(chunk).equals(row.get("chunk_digest")))throw unavailable();for(Object value:list(chunk.get("entries"))){var entry=StaffCaseModels.shape("grant_entry",value);String key=str(entry,"case_ref")+"\u0000"+str(entry,"grant_ref");
-        if(prior!=null&&prior.compareTo(key)>=0)throw unavailable();prior=key;var grantRow=grant(str(entry,"grant_ref"));
+        if(prior!=null&&prior.compareTo(key)>=0||!cases.add(str(entry,"case_ref")))throw unavailable();prior=key;var grantRow=grant(str(entry,"grant_ref"));
         if(grantRow==null||!entry.get("case_ref").equals(grantRow.get("case_ref"))||!entry.get("identity_digest").equals(grantRow.get("identity_digest"))
             ||number(entry.get("grant_revision"))!=((Number)grantRow.get("grant_revision")).longValue()||!"active".equals(grantRow.get("state"))||!Boolean.TRUE.equals(grantRow.get("effective")))throw unavailable();
         var publication=publication(str(grantRow,"publication_id"));if(publication==null||!entry.get("source_ref").equals(publication.get("source_ref"))

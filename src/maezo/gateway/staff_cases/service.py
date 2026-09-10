@@ -1,8 +1,4 @@
-"""SC1 exact AUTH staff detail: observe, freeze, lock identity, finalize, release.
-
-List/search/checkpoint pagination are required later construction. This first
-entry point refuses non-null cursors or an over-limit native result explicitly.
-"""
+"""AUTH staff exact detail and complete-checkpoint list read/finalization."""
 
 from __future__ import annotations
 
@@ -12,7 +8,7 @@ import json
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, TypeAdapter
 
 from maezo.gateway.external_cases.models import CaseRef, Digest, Ref, timestamp
 from maezo.gateway.human.read_profile import parse_model, wire
@@ -116,7 +112,9 @@ def observation(
                 raise StaffCaseError("unavailable")
     else:
         refs = {item.case_ref for item in public.items}
-        for kind in ("case_grant", "native_case"):
+        if len([pin for pin in result.source_pins if pin.kind == "case_grant"]) != len(refs):
+            raise StaffCaseError("unavailable")
+        for kind in ("identity", "native_case"):
             if {pin.ref for pin in result.source_pins if pin.kind == kind} != refs:
                 raise StaffCaseError("unavailable")
     return result
@@ -181,9 +179,13 @@ class StaffCaseService:
             or not limit.isdecimal()
             or str(int(limit)) != limit
             or not 1 <= int(limit) <= 100
-            or (cursor is not None and not 1 <= len(cursor) <= 255)
         ):
             raise StaffCaseError("invalid")
+        try:
+            if cursor is not None:
+                TypeAdapter(Ref).validate_python(cursor, strict=True)
+        except (ValueError, TypeError):
+            raise StaffCaseError("invalid") from None
         resolved = await self.resolver.resolve(secret)
         if resolved.membership.audience != "staff":
             raise StaffCaseError("denied")

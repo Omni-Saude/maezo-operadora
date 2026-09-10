@@ -519,6 +519,7 @@ def _page_observation(identity, witness, now):
             pin("designation", "designation", "1"),
             pin("membership", "staff", "7"),
             pin("checkpoint", "checkpoint", "4"),
+            pin("identity", identity.case_ref, "3"),
             pin("case_grant", identity.case_ref, "1"),
             pin("native_case", identity.case_ref, "7"),
             pin("source_key", "d" * 64, "1"),

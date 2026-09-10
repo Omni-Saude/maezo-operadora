@@ -151,7 +151,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
           ||!queryDigest.equals(cursor.get("query_digest"))||!accepted.get("checkpoint_digest").equals(cursor.get("checkpoint_digest"))
           ||!accepted.get("checkpoint_ref").equals(cursor.get("checkpoint_ref"))||!query.get("limit").equals(cursor.get("limit")))throw conflict();
       installed.retain(time(cursor.get("initial_valid_until")));after=str(cursor,"after_ref");}
-    var items=new ArrayList<Object>();var pins=new ArrayList<Object>();String last=null;int limit=(int)number(query.get("limit"));
+    var items=new ArrayList<Object>();var pins=new ArrayList<Object>();var policyPins=new TreeMap<String,Object>();String last=null;int limit=(int)number(query.get("limit"));
     for(var entry:store.checkpointEntries(accepted)){String caseRef=str(entry,"case_ref");if(after!=null&&caseRef.compareTo(after)<=0)continue;
       var row=store.exactGrant(caseRef,principal);if(row==null||!entry.get("grant_ref").equals(row.get("grant_ref")))throw unavailable();
       var publication=store.publication(str(row,"publication_id"));if(publication==null)throw unavailable();var grant=obj(publication,"payload");var policies=store.policyPins(grant);
@@ -160,13 +160,17 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       if(!identity.get("process_instance_ref").equals(event.get("process_instance_id")))throw unavailable();
       if(items.size()<limit){items.add(record("case_ref",caseRef,"kind","authorization","state",obj(identityState,"native").get("state"),
           "record_revision",event.get("revision"),"state_observed_at",event.get("observed_at")));last=caseRef;
-        pins.add(pin("case_grant",caseRef,grant.get("grant_revision"),hash(grant),installed.until()));
+        pins.add(pin("identity",caseRef,identity.get("process_definition_version"),hash(identity),installed.until()));
+        pins.add(pin("case_grant",str(grant,"grant_ref"),grant.get("grant_revision"),hash(grant),installed.until()));
         pins.add(pin("native_case",caseRef,event.get("revision"),hash(event),installed.until()));
+        for(var value:policies){var current=copy(value);current.remove("head");String policyRef=str(current,"policy_ref");
+          var old=policyPins.putIfAbsent(policyRef,current);if(old!=null&&!old.equals(current))throw unavailable();}
       }else{last=last==null?caseRef:last;break;}}
     boolean more=false;if(last!=null){for(var entry:store.checkpointEntries(accepted))if(str(entry,"case_ref").compareTo(last)>0){more=true;break;}}
     pins.add(0,pin("checkpoint",str(checkpoint,"checkpoint_ref"),checkpoint.get("generation"),hash(checkpoint),installed.until()));
     pins.add(0,pin("membership",str(obj(witness,"actor"),"principal_ref"),obj(witness,"actor").get("membership_revision"),hash(witness),installed.until()));
     pins.add(0,pin("designation",str(installed.designation,"designation_ref"),installed.designation.get("designation_revision"),hash(installed.designation),installed.until()));
+    for(var current:policyPins.values())pins.add(pin("policy_head",str(current,"policy_ref"),current.get("head_revision"),hash(current),installed.until()));
     for(String fingerprint:new TreeSet<>(installed.usedKeys))pins.add(pin("source_key",fingerprint,installed.designation.get("designation_revision"),hash(installed.entries.get(fingerprint)),installed.until()));
     String next=null;if(more&&last!=null){var value=record("cursor_ref",UUID.randomUUID().toString(),"scope",store.scope,
         "principal_identity_digest",hash(StaffCaseModels.actor(principal)),"membership_revision",principal.get("membership_revision"),"session_ref",principal.get("session_ref"),
