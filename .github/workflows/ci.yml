@@ -56,6 +56,22 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --extra dev
 
+      - name: Prepare default offline fixture cache
+        run: |
+          set -e
+          python -I - <<'PYGUARD'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PYGUARD
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
+            scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
       - name: Lint
         run: make lint
 
@@ -96,6 +112,10 @@ jobs:
             .pytest_cache/
             htmlcov/
             unit-junit.xml
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.json
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stdout
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stderr
+            ${{ runner.temp }}/offline-fixture-cache-proof/tiny-*/uv.lock
           retention-days: 7
 
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
