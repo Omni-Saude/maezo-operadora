@@ -56,3 +56,21 @@ def camunda_int_type(nome: str | None, valor: int) -> str:
     if nome is not None and nome in LONG_TYPED_ENGINE_VARS:
         return "Long"
     return "Integer" if _JAVA_INT32_MIN <= valor <= _JAVA_INT32_MAX else "Long"
+
+
+def validate_declared_long_var(name: str | None, value: object) -> None:
+    """Enforce R-173 before raw typing OR caller-shaped variable passthrough.
+
+    Only explicitly declared names are governed here. Signed int64 bounds are wire
+    representability, not a financial amount/sign policy. Never coerce a bool,
+    float, numeric string or integer subclass. Existing metadata on a valid shaped
+    Long remains untouched; other names keep their caller's transport contract.
+    """
+    if name not in LONG_TYPED_ENGINE_VARS:
+        return
+    if isinstance(value, dict):
+        if value.get("type") != "Long":
+            raise ValueError("invalid declared Long engine variable")
+        value = value.get("value")
+    if type(value) is not int or not -(2**63) <= value <= 2**63 - 1:
+        raise ValueError("invalid declared Long engine variable")
