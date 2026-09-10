@@ -67,7 +67,7 @@ import structlog
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode, parse_json
-from maezo.tools.workers.engine_var_types import camunda_int_type
+from maezo.tools.workers.engine_var_types import camunda_int_type, validate_declared_long_var
 from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
 
 logger = structlog.get_logger(__name__)
@@ -279,8 +279,9 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
+        validate_declared_long_var(k, v)
         if isinstance(v, dict) and "value" in v:
-            camunda_vars[k] = v  # already engine-shaped — pass through unchanged
+            camunda_vars[k] = v  # declared Long validated; other engine-shaped values unchanged
         elif isinstance(v, bool):
             camunda_vars[k] = {"value": v, "type": "Boolean"}
         elif isinstance(v, int):

@@ -294,3 +294,230 @@ def test_a_declaracao_nao_importa_nada_do_projeto() -> None:
         for alias in node.names
     }
     assert importados <= {"__future__"}, importados
+
+
+# R173 applies before pre-shaped passthrough too. These are representation checks,
+# not financial limits: signed zero/negative Long values are valid on this wire.
+_BAD_DECLARED_LONG = [
+    True,
+    False,
+    1.0,
+    "1",
+    None,
+    2**63,
+    -(2**63) - 1,
+    {"value": True, "type": "Long"},
+    {"value": 1.5, "type": "Long"},
+    {"value": "1000", "type": "Long"},
+    {"value": 100, "type": "Integer"},
+    {"value": 100, "type": "Double"},
+    {"value": 100, "type": "String"},
+    {"value": 100},
+    {"value": 2**63, "type": "Long"},
+    {"value": -(2**63) - 1, "type": "Long"},
+]
+
+
+def _production_maps(value):
+    return (
+        lambda: _to_camunda_var(value, name=_VARIAVEL),
+        lambda: _dmn_vars({_VARIAVEL: value})[_VARIAVEL],
+        lambda: _process_vars({_VARIAVEL: value})[_VARIAVEL],
+    )
+
+
+@pytest.mark.parametrize("value", _BAD_DECLARED_LONG)
+@pytest.mark.parametrize("mapper", range(3))
+def test_declared_long_cannot_bypass_representation_policy(value, mapper):
+    with pytest.raises(ValueError, match="invalid declared Long engine variable"):
+        _production_maps(value)[mapper]()
+
+
+@pytest.mark.parametrize("value", [-(2**63), -1, 0, 100, 2**31, 2**63 - 1])
+@pytest.mark.parametrize("mapper", range(3))
+def test_declared_long_preserves_exact_signed_values_and_valid_shape(value, mapper):
+    assert _production_maps(value)[mapper]() == {"value": value, "type": "Long"}
+    shaped = {"value": value, "type": "Long", "valueInfo": {}}
+    assert _production_maps(shaped)[mapper]() is shaped
+
+
+@pytest.mark.parametrize(
+    "shaped",
+    [
+        {"value": True, "type": "Boolean"},
+        {"value": 1.25, "type": "Double"},
+        {"value": "100", "type": "String", "valueInfo": {}},
+        {"value": '[{"ref":"synthetic"}]', "type": "Json"},
+    ],
+)
+def test_non_declared_variables_keep_shaped_passthrough(shaped):
+    assert _to_camunda_var(shaped, name="unrelated_variable") is shaped
+    assert _dmn_vars({"unrelated_variable": shaped})["unrelated_variable"] is shaped
+    assert _process_vars({"unrelated_variable": shaped})["unrelated_variable"] is shaped
+
+
+async def _exercise_declared_long_transport(path, value, posts):
+    """Only HTTP is replaced. Invoke real public APIs and sanctioned process-start producer."""
+    import json
+
+    from maezo.tools.mcp_cibseven.transport import (
+        AgentDecisionProvenance,
+        CibSevenHttpTransport,
+        start_process_idempotent,
+    )
+    from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+    from tests.support.audit_fakes import FakeStartAuditSink
+
+    def capture(request):
+        if request.method == "POST":
+            posts.append(json.loads(request.content))
+            return httpx.Response(200, json=[] if path == "dmn" else {"id": "synthetic-instance"})
+        if path == "dmn":
+            return httpx.Response(
+                200, json={"id": "synthetic-dmn", "version": 1, "deploymentId": "synthetic"}
+            )
+        return httpx.Response(200, json=[])
+
+    async with httpx.AsyncClient(
+        base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+    ) as client:
+        variables = {_VARIAVEL: value}
+        if path == "dmn":
+            transport = CibSevenDmnTransport("https://engine.invalid")
+            transport._new_client = lambda: httpx.AsyncClient(
+                base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+            )
+            await transport.evaluate("synthetic-definition", variables)
+        elif path in ("complete", "bpmn_error"):
+            transport = CibSevenWorkerTransport("https://engine.invalid")
+            await transport._client.aclose()
+            transport._client = client
+            if path == "complete":
+                await transport.complete("synthetic-task", "synthetic-worker", variables)
+            else:
+                await transport.handle_bpmn_error(
+                    "synthetic-task", "synthetic-worker", error_code="ERR_SYNTHETIC", variables=variables
+                )
+        else:
+            transport = CibSevenHttpTransport("https://engine.invalid")
+            await transport._client.aclose()
+            transport._client = client
+            if path == "start":
+                # R173 fact is computed, not a legitimate start input for CONTAS.
+                # This tests a generic serializer boundary, never domain authorization.
+                await start_process_idempotent(
+                    transport,
+                    process_key="SP-OP-ESCALATION-001",
+                    business_key="synthetic-business",
+                    variables=variables,
+                    audit_sink=FakeStartAuditSink(),
+                    provenance=AgentDecisionProvenance(
+                        agent_id="synthetic", agent_version="v1", tenant_id="amh", decision_basis={}
+                    ),
+                )
+            elif path == "correlation_keys":
+                await transport.correlate_message("synthetic", "", {}, correlation_keys=variables)
+            else:
+                await transport.correlate_message("synthetic", "synthetic-business", variables)
+
+
+@pytest.mark.parametrize(
+    "path", ["complete", "bpmn_error", "dmn", "start", "correlation", "correlation_keys"]
+)
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"value": True, "type": "Long"},
+        {"value": 100, "type": "Integer"},
+        {"value": 2**63, "type": "Long"},
+    ],
+)
+async def test_public_transports_refuse_declared_long_before_effect_post(path, value):
+    posts = []
+    with pytest.raises(ValueError, match="invalid declared Long engine variable"):
+        await _exercise_declared_long_transport(path, value, posts)
+    assert posts == []
+
+
+@pytest.mark.parametrize(
+    "path", ["complete", "bpmn_error", "dmn", "start", "correlation", "correlation_keys"]
+)
+async def test_public_transports_keep_exact_valid_shaped_long(path):
+    posts = []
+    value = {"value": 2**63 - 1, "type": "Long", "valueInfo": {}}
+    await _exercise_declared_long_transport(path, value, posts)
+    assert len(posts) == 1
+    field = (
+        "correlationKeys"
+        if path == "correlation_keys"
+        else "processVariables"
+        if path == "correlation"
+        else "variables"
+    )
+    assert posts[0][field][_VARIAVEL] == value
+
+
+def test_engine_rest_keeps_explicit_name_blind_exemption():
+    from tests.integration.processes.engine_rest import EngineRest
+
+    # Test-only start helper is not a producer of CONTAS's computed R173 fact.
+    # Its independent name-blind behavior remains explicit; production fencing is above.
+    assert EngineRest._to_camunda_vars({_VARIAVEL: 100})[_VARIAVEL]["type"] == "Integer"
+
+
+@pytest.mark.parametrize("valid", [False, True])
+async def test_computed_worker_output_cannot_be_retyped_before_harness_effect(valid):
+    import json
+
+    from maezo.tools.workers.harness import ExternalTask, FakeAuditSink, WorkerHarness
+
+    posts = []
+
+    def capture(request):
+        posts.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(204)
+
+    transport = CibSevenWorkerTransport("https://engine.invalid")
+    await transport._client.aclose()
+    transport._client = httpx.AsyncClient(
+        base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+    )
+    harness = WorkerHarness(transport, worker_id="synthetic-worker", audit_sink=FakeAuditSink())
+
+    async def producer(task):
+        result = identify_glosa_entry(_lote_com_uma_glosa())
+        result[_VARIAVEL] = {"value": result[_VARIAVEL], "type": "Long" if valid else "Integer"}
+        return result
+
+    harness.register("operadora.synthetic.topic", producer)
+    task = ExternalTask(
+        task_id="synthetic-task",
+        topic="operadora.synthetic.topic",
+        process_instance_id="synthetic-process",
+        business_key="synthetic-business",
+        worker_id="synthetic-worker",
+        variables={},
+    )
+    try:
+        await harness._handle(task)
+    finally:
+        await transport.close()
+    assert len(posts) == 1
+    path, payload = posts[0]
+    if valid:
+        assert path.endswith("/complete")
+        assert payload["variables"][_VARIAVEL] == {"value": _LOTE_PEQUENO_CENTAVOS, "type": "Long"}
+    else:
+        assert path.endswith("/failure") and payload["retries"] == 0
+        assert "variables" not in payload
+
+
+@pytest.mark.parametrize("mapper", range(3))
+def test_declared_long_rejects_integer_subclass_without_coercion(mapper):
+    class DerivedInt(int):
+        def __int__(self):
+            pytest.fail("transport must not coerce")
+
+    for value in (DerivedInt(100), {"value": DerivedInt(100), "type": "Long"}):
+        with pytest.raises(ValueError, match="invalid declared Long engine variable"):
+            _production_maps(value)[mapper]()

@@ -81,7 +81,7 @@ from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
-from maezo.tools.workers.engine_var_types import camunda_int_type
+from maezo.tools.workers.engine_var_types import camunda_int_type, validate_declared_long_var
 from maezo.tools.workers.phi_vars import redact_error_message
 
 logger = structlog.get_logger(__name__)
@@ -611,7 +611,7 @@ def _to_camunda_var(value: Any, *, name: str | None = None) -> dict[str, Any]:
     the extension the workers need: objects/lists (e.g. a dossier) serialize as a `Json`
     variable (JSON string + implied structure), never as Python `repr()` — only then does the
     engine store/deserialize them as a structured process variable. A value already in variable
-    format (`{"value": ...}`) passes through unchanged (idempotent).
+    format (`{"value": ...}`) passes through unchanged after declared-Long validation.
 
     **Load-bearing**: money (BRL cents) and dossier round-trips depend on the `Long`/`Json`
     typing below — v1 fixtures assert it; preserved verbatim (design §5/§16.1).
@@ -621,6 +621,7 @@ def _to_camunda_var(value: Any, *, name: str | None = None) -> dict[str, Any]:
     decision R-173) instead of typing them by magnitude; callers that hold no name (a bare value
     conversion) pass none and get the magnitude rule.
     """
+    validate_declared_long_var(name, value)
     if isinstance(value, dict) and "value" in value:
         return value
     if isinstance(value, bool):
