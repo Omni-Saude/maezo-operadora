@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 PACKET = Path(
-    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-proof-budget-repair"
+    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-actual-proof-preflight-repair"
 )
 sys.path.insert(0, str(PACKET))
 import d7_startup_observation as m  # noqa: E402
@@ -351,6 +351,30 @@ class Controls(unittest.TestCase):
         ]:
             a = next(x for x in before.body if isinstance(x, ast.FunctionDef) and x.name == name)
             b = next(x for x in after.body if isinstance(x, ast.FunctionDef) and x.name == name)
+            if name == "finish":
+                # Only an optional cleanup deadline and three added calls to the
+                # unchanged safety predicate are allowed in this successor.
+                b.args.kwonlyargs.pop()
+                b.args.kw_defaults.pop()
+                guard = next(n for n in b.body if isinstance(n, ast.FunctionDef))
+                self.assertIsInstance(guard.body[0], ast.If)
+                self.assertEqual(ast.unparse(guard.body[0].test), "deadline is not None")
+                guard.body.pop(0)
+                # Remove precisely the added calls before inventory, source disposal,
+                # and lease release, retaining every pre-existing safety call.
+                for index in reversed(range(len(b.body) - 1)):
+                    current, following = b.body[index:index + 2]
+                    if (
+                        isinstance(current, ast.If)
+                        and ast.unparse(current.test) == "deadline is not None"
+                        and ast.unparse(current.body[0]) == "require_cleanup_safe()"
+                        and (
+                        ast.unparse(following).startswith("current = docker.inventory()")
+                        or ast.unparse(following).startswith("runner._source_cleanup_ready.add(")
+                        or ast.unparse(following).startswith("g.require(lock.release(),")
+                        )
+                    ):
+                        b.body.pop(index)
             self.assertEqual(ast.dump(a), ast.dump(b))
 
     def test33_byte_pinned_unmodified_dependencies_and_child_behavior(self):

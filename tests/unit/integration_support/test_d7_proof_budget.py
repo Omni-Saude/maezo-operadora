@@ -10,7 +10,9 @@ import pytest
 
 from tests.unit.integration_support.test_d7_startup_observation import m
 
-PACKET = Path("/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-proof-budget-repair")
+PACKET = Path(
+    "/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-actual-proof-preflight-repair"
+)
 spec = importlib.util.spec_from_file_location("d7_calibration_controls", PACKET / "calibrate_proof_budget.py")
 calibration = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(calibration)
