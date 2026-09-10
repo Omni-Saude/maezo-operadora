@@ -1,5 +1,10 @@
 # PROJECT.md — Arquitetura e Operação
 
+> **Session paused at user request — 2026-09-10T01:19:37.373948+00:00.** Current resume state: [HANDOFF.md](/Users/familia/code/maezo-completion-evidence/successor-graceful-handoff-20260910/HANDOFF.md). All specialists returned; full completion remains unproved. Resume only on a new user instruction. Read the new `final-ready.json` receipt before using this snapshot. Historical states below are preserved for provenance and do not supersede this handoff.
+
+> Current completion/deployment target is defined in `docs/plan.md` (ECS/Fargate, sa-east-1). Older architecture and deployment statements below are historical, not current deployment evidence.
+
+
 > Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.3 · HAPI FHIR R4 · Kafka · PostgreSQL · Kubernetes**
 
 ## Arquitetura em 30 segundos
