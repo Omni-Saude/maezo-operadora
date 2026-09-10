@@ -43,6 +43,32 @@ function emptyCasePage(audience: Exclude<Audience, "staff">) {
   } as const;
 }
 
+const selectedCaseRef = "case_selected_abcdefghijklmnop";
+const observed = "2099-09-10T12:00:00.000000Z";
+const future = "2099-09-10T13:00:00.000000Z";
+
+function selectedCasePage() {
+  return {
+    ...emptyCasePage("beneficiary"),
+    items: [{
+      case_ref: selectedCaseRef,
+      kind: "authorization",
+      state: "active",
+      record_revision: "1",
+      state_observed_at: observed,
+    }],
+  } as const;
+}
+
+function caseDetail() {
+  return {
+    schema: "portal-external-case-detail.v1",
+    case: selectedCasePage().items[0],
+    allowed_actions: [],
+    freshness: { observed_at: observed, valid_until: future },
+  } as const;
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -240,6 +266,92 @@ it("substitui o serviço externo e descarta a consulta antiga após revalidar a 
   expect(await within(screen.getByRole("tabpanel")).findByText(
     "Nenhuma solicitação autorizada foi encontrada.",
   )).toBeInTheDocument();
+});
+
+it("alcança caixa e histórico do caso e aborta ambas as leituras na revalidação", async () => {
+  const pendingCommunications = deferred<Response>();
+  const pendingHistory = deferred<Response>();
+  let sessionReads = 0;
+  let casePageReads = 0;
+  vi.mocked(fetch).mockImplementation((input) => {
+    const path = String(input);
+    if (path === "/api/v1/portal/session") {
+      sessionReads += 1;
+      return Promise.resolve(jsonResponse(session(sessionReads === 1 ? "beneficiary" : "provider")));
+    }
+    if (path === "/api/v1/portal/cases") {
+      casePageReads += 1;
+      return Promise.resolve(jsonResponse(casePageReads === 1
+        ? selectedCasePage()
+        : emptyCasePage("provider")));
+    }
+    if (path === `/api/v1/portal/cases/${selectedCaseRef}`) {
+      return Promise.resolve(jsonResponse(caseDetail()));
+    }
+    if (path === `/api/v1/portal/cases/${selectedCaseRef}/documents`) {
+      return Promise.resolve(jsonResponse({ case_ref: selectedCaseRef, documents: [] }));
+    }
+    if (path === `/api/v1/portal/cases/${selectedCaseRef}/document-requests`) {
+      return Promise.resolve(jsonResponse({ case_ref: selectedCaseRef, requests: [] }));
+    }
+    if (path === `/api/v1/portal/cases/${selectedCaseRef}/communications`) {
+      return pendingCommunications.promise;
+    }
+    if (path === `/api/v1/portal/cases/${selectedCaseRef}/history`) {
+      return pendingHistory.promise;
+    }
+    throw new Error(`rota inesperada: ${path}`);
+  });
+
+  render(<App />);
+  await userEvent.click(await screen.findByRole("tab", { name: "Mensagens" }));
+  await userEvent.click(screen.getByRole("button", { name: "Abrir solicitação" }));
+  await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([path]) =>
+    path === `/api/v1/portal/cases/${selectedCaseRef}/history`)).toBe(true));
+  const communicationsCall = vi.mocked(fetch).mock.calls.find(([path]) =>
+    path === `/api/v1/portal/cases/${selectedCaseRef}/communications`);
+  const historyCall = vi.mocked(fetch).mock.calls.find(([path]) =>
+    path === `/api/v1/portal/cases/${selectedCaseRef}/history`);
+  expect(communicationsCall?.[1]).toMatchObject({
+    method: "GET", credentials: "same-origin", cache: "no-store", redirect: "error",
+    headers: { Accept: "application/json" },
+  });
+  expect(JSON.stringify([communicationsCall, historyCall])).not.toMatch(
+    /csrf-secret|opaque-principal|beneficiary/,
+  );
+
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  fireEvent(document, new Event("visibilitychange"));
+  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(communicationsCall?.[1]?.signal?.aborted).toBe(true);
+  expect(historyCall?.[1]?.signal?.aborted).toBe(true);
+
+  pendingCommunications.resolve(jsonResponse({
+    schema_version: "portal-communications.v1",
+    case_ref: selectedCaseRef,
+    items: [{
+      communication_ref: "late_communication_abcdefghijklmnop",
+      sender_kind: "system",
+      authored_at: observed,
+      inbox_available_at: observed,
+      delivery_state: "inbox_available",
+      body_ref: null,
+    }],
+    next_cursor: null,
+    observed_at: observed,
+    valid_until: future,
+  }));
+  pendingHistory.resolve(jsonResponse({
+    schema_version: "portal-history.v1",
+    history_scope: "portal_events",
+    case_ref: selectedCaseRef,
+    items: [],
+    next_cursor: null,
+    observed_at: observed,
+    valid_until: future,
+  }));
+  await act(async () => Promise.all([pendingCommunications.promise, pendingHistory.promise]));
+  expect(screen.queryByText(/late_communication/)).not.toBeInTheDocument();
 });
 
 it("revalida ao expirar e remove a autoridade da tela antes da resposta", async () => {

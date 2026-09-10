@@ -2,13 +2,14 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import {
   ChronologyView,
-  CommunicationsView,
   DossierView,
   DocumentListView,
   DocumentRequestsView,
   ReceiptsView,
 } from "./CaseWorkspace";
+import { CaseCommunicationsPanel } from "./CaseCommunicationsPanel";
 import { ExternalAreaPanel, ExternalNavigation, type ExternalArea } from "./PortalNavigation";
+import type { CaseCommunicationsClient } from "./caseCommunicationsClient";
 import type {
   AuthorizationIntakeDraft,
   AuthorizationIntakeFormView,
@@ -142,11 +143,15 @@ function SelectedCasePanel({
   area,
   onRetry,
   onDownload,
+  communicationsClient,
+  onSessionUnavailable,
 }: {
   state: DetailState;
   area: ExternalArea;
   onRetry: () => void;
   onDownload: (documentRef: string) => Promise<void>;
+  communicationsClient: CaseCommunicationsClient;
+  onSessionUnavailable: () => void;
 }) {
   if (state.kind === "none") {
     return <p className="resource-message">Abra uma solicitação para consultar esta área.</p>;
@@ -192,9 +197,10 @@ function SelectedCasePanel({
   }
   if (area === "communications") {
     return (
-      <CommunicationsView
-        state={workspace.communications.state}
-        communications={workspace.communications.items}
+      <CaseCommunicationsPanel
+        caseRef={workspace.summary.caseRef}
+        client={communicationsClient}
+        onSessionUnavailable={onSessionUnavailable}
       />
     );
   }
@@ -416,6 +422,7 @@ function ProviderAuthorizationIntake({
 type AudienceExperienceProps = {
   audience: ExternalAudience;
   service: ProviderAuthorizationService;
+  communicationsClient: CaseCommunicationsClient;
   onSessionUnavailable: () => void;
 };
 
@@ -433,7 +440,7 @@ export function AudienceAuthorizationExperience(props: AudienceExperienceProps) 
 }
 
 function AudienceAuthorizationContext({
-  audience, service, onSessionUnavailable,
+  audience, service, communicationsClient, onSessionUnavailable,
 }: AudienceExperienceProps) {
   const [activeArea, setActiveArea] = useState<ExternalArea>("requests");
   const [pageState, setPageState] = useState<PageState>({ kind: "loading" });
@@ -627,6 +634,8 @@ function AudienceAuthorizationContext({
               area="requests"
               onRetry={() => selectedSummary && void selectCase(selectedSummary)}
               onDownload={download}
+              communicationsClient={communicationsClient}
+              onSessionUnavailable={onSessionUnavailable}
             />
           </section>
           {audience === "provider" && !accessFailure && (
@@ -651,6 +660,8 @@ function AudienceAuthorizationContext({
             area={area}
             onRetry={() => selectedSummary && void selectCase(selectedSummary)}
             onDownload={download}
+            communicationsClient={communicationsClient}
+            onSessionUnavailable={onSessionUnavailable}
           />
         </ExternalAreaPanel>
       ))}

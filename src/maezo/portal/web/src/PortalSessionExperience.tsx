@@ -12,6 +12,7 @@ import {
   createCaseExperienceService,
   type AuthorizationIntakeFormProvider,
 } from "./caseExperienceServiceFactory";
+import { createCaseCommunicationsClient } from "./caseCommunicationsClient";
 
 function formatExpiry(expiresAt: string) {
   return new Intl.DateTimeFormat("pt-BR", {
@@ -157,6 +158,10 @@ export function ExternalPortalExperience({
     csrfToken,
     intakeFormProvider,
   }), [audience, csrfToken, intakeFormProvider, sessionBinding]);
+  const communicationsClient = useMemo(
+    () => createCaseCommunicationsClient({ csrfToken }),
+    [csrfToken, sessionBinding],
+  );
 
   return (
     <main className="portal-session-main external-session-main">
@@ -164,6 +169,7 @@ export function ExternalPortalExperience({
       <AudienceAuthorizationExperience
         audience={audience}
         service={service}
+        communicationsClient={communicationsClient}
         onSessionUnavailable={onSessionUnavailable}
       />
       <SecurityNote />

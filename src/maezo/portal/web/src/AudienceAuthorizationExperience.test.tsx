@@ -3,6 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { expect, expectTypeOf, it, vi } from "vitest";
 
 import { AudienceAuthorizationExperience } from "./AudienceAuthorizationExperience";
+import type {
+  CaseCommunicationsClient,
+  CommunicationPage,
+  HistoryPage,
+} from "./caseCommunicationsClient";
 import type { CaseSummaryView, ProviderAuthorizationService } from "./caseExperienceModels";
 import {
   admittedIntake,
@@ -22,12 +27,68 @@ function service(overrides: Partial<ProviderAuthorizationService> = {}): Provide
   };
 }
 
+const observed = "2099-09-10T12:00:00.000000Z";
+const future = "2099-09-10T13:00:00.000000Z";
+
+function communicationPage(overrides: Partial<CommunicationPage> = {}): CommunicationPage {
+  return {
+    schema_version: "portal-communications.v1",
+    case_ref: "case_synthetic_auth_1",
+    items: [{
+      communication_ref: "communication_synthetic_1",
+      sender_kind: "system",
+      authored_at: observed,
+      inbox_available_at: observed,
+      delivery_state: "inbox_available",
+      body_ref: null,
+    }],
+    next_cursor: null,
+    observed_at: observed,
+    valid_until: future,
+    ...overrides,
+  };
+}
+
+function historyPage(overrides: Partial<HistoryPage> = {}): HistoryPage {
+  return {
+    schema_version: "portal-history.v1",
+    history_scope: "portal_events",
+    case_ref: "case_synthetic_auth_1",
+    items: [{
+      event_ref: "event_synthetic_1",
+      sequence: "1",
+      occurred_at: observed,
+      kind: "communication_available",
+      communication_ref: "communication_synthetic_1",
+      command_ref: null,
+      receipt_ref: null,
+    }],
+    next_cursor: null,
+    observed_at: observed,
+    valid_until: future,
+    ...overrides,
+  };
+}
+
+function communications(
+  overrides: Partial<CaseCommunicationsClient> = {},
+): CaseCommunicationsClient {
+  return {
+    listCommunications: vi.fn().mockResolvedValue({ kind: "success", value: communicationPage() }),
+    listHistory: vi.fn().mockResolvedValue({ kind: "success", value: historyPage() }),
+    publishCommunication: vi.fn(),
+    ...overrides,
+  };
+}
+
 it("leva beneficiário de solicitações a documentos, mensagens e recibos do caso autorizado", async () => {
   const api = service();
+  const inbox = communications();
   render(
     <AudienceAuthorizationExperience
       audience="beneficiary"
       service={api}
+      communicationsClient={inbox}
       onSessionUnavailable={vi.fn()}
     />,
   );
@@ -40,7 +101,15 @@ it("leva beneficiário de solicitações a documentos, mensagens e recibos do ca
   expect(screen.getByText("Envie o laudo solicitado")).toBeInTheDocument();
 
   await userEvent.click(screen.getByRole("tab", { name: "Mensagens" }));
-  expect(screen.getByText("Documentos adicionais")).toBeInTheDocument();
+  expect(await screen.findByText("Origem registrada: Sistema")).toBeInTheDocument();
+  expect(inbox.listCommunications).toHaveBeenCalledWith(
+    "case_synthetic_auth_1",
+    expect.any(AbortSignal),
+  );
+  expect(inbox.listHistory).toHaveBeenCalledWith(
+    "case_synthetic_auth_1",
+    expect.any(AbortSignal),
+  );
 
   await userEvent.click(screen.getByRole("tab", { name: "Recibos" }));
   const accepted = screen.getByText("Envio da solicitação").closest("li");
@@ -55,6 +124,7 @@ it("envia intake AUTH do prestador com referências selecionadas e centavos pres
     <AudienceAuthorizationExperience
       audience="provider"
       service={api}
+      communicationsClient={communications()}
       onSessionUnavailable={vi.fn()}
     />,
   );
@@ -100,6 +170,7 @@ it("remove a experiência quando a sessão deixa de existir", async () => {
     <AudienceAuthorizationExperience
       audience="beneficiary"
       service={api}
+      communicationsClient={communications()}
       onSessionUnavailable={onSessionUnavailable}
     />,
   );
@@ -114,6 +185,7 @@ it("não grava referências ou conteúdo da jornada em storage persistente", asy
     <AudienceAuthorizationExperience
       audience="beneficiary"
       service={service()}
+      communicationsClient={communications()}
       onSessionUnavailable={vi.fn()}
     />,
   );
@@ -128,6 +200,7 @@ it("transforma falha inesperada da dependência em erro recuperável sem expor d
     <AudienceAuthorizationExperience
       audience="beneficiary"
       service={api}
+      communicationsClient={communications()}
       onSessionUnavailable={vi.fn()}
     />,
   );
@@ -170,7 +243,7 @@ it("apresenta o Blob autorizado como download e libera a URL ao trocar caso e de
   vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = revoke; });
   try {
     const api = service();
-    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} onSessionUnavailable={vi.fn()} />);
+    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
     await openDocuments();
     await userEvent.click(screen.getByRole("button", { name: "Abrir documento" }));
     const link = await screen.findByRole("link", { name: "Baixar documento preparado" });
@@ -191,7 +264,7 @@ it.each(["access-revoked", "session-unavailable"] as const)("remove todo detalhe
   const api = service({ listCases: vi.fn()
     .mockResolvedValueOnce({ kind: "success", value: { ...casePageFixture, nextCursor: "next" } })
     .mockResolvedValueOnce({ kind: "failure", failure }) });
-  render(<AudienceAuthorizationExperience audience="beneficiary" service={api} onSessionUnavailable={vi.fn()} />);
+  render(<AudienceAuthorizationExperience audience="beneficiary" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
   await openDocuments();
   expect(screen.getByText("Envie o laudo solicitado")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
@@ -207,12 +280,12 @@ it("descarta detalhe e download pendente quando muda o serviço", async () => {
   const create = vi.fn();
   vi.stubGlobal("URL", class extends URL { static createObjectURL = create; static revokeObjectURL = vi.fn(); });
   try {
-    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} onSessionUnavailable={vi.fn()} />);
+    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
     await openDocuments();
     await userEvent.click(screen.getByRole("button", { name: "Abrir documento" }));
     const signal = vi.mocked(api.downloadDocument).mock.calls[0][1];
     const next = service({ listCases: vi.fn().mockResolvedValue({ kind: "success", value: { ...casePageFixture, items: [] } }) });
-    view.rerender(<AudienceAuthorizationExperience audience="beneficiary" service={next} onSessionUnavailable={vi.fn()} />);
+    view.rerender(<AudienceAuthorizationExperience audience="beneficiary" service={next} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
     expect(signal.aborted).toBe(true);
     expect(screen.queryByText("Envie o laudo solicitado")).not.toBeInTheDocument();
     await act(async () => pending.resolve({ kind: "success", value: new Blob(["old protected bytes"]) }));
@@ -225,10 +298,10 @@ it.each(["admitted", "started"] as const)("remove progresso %s e referências ao
   const progress = state === "started" ? { ...admittedIntake, state: "started" as const, caseRef: "old-case", startReceiptRef: "old-receipt" } : admittedIntake;
   const api = service({ submitAuthorization: vi.fn().mockResolvedValue({ kind: "success", progress }) });
   const callback = vi.fn();
-  const view = render(<AudienceAuthorizationExperience audience="provider" service={api} onSessionUnavailable={callback} />);
+  const view = render(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={callback} />);
   await submitIntake();
   await screen.findByText("Acompanhamento do envio");
-  view.rerender(<AudienceAuthorizationExperience audience="provider" service={service()} onSessionUnavailable={callback} />);
+  view.rerender(<AudienceAuthorizationExperience audience="provider" service={service()} communicationsClient={communications()} onSessionUnavailable={callback} />);
   await screen.findByRole("heading", { name: "Enviar nova solicitação" });
   expect(screen.queryByText("Acompanhamento do envio")).not.toBeInTheDocument();
   expect(screen.queryByText("old-case")).not.toBeInTheDocument();
@@ -240,11 +313,11 @@ it("aborta envio antigo e mantém novo formulário utilizável", async () => {
   const pending = deferred<Awaited<ReturnType<ProviderAuthorizationService["submitAuthorization"]>>>();
   const api = service({ submitAuthorization: vi.fn().mockReturnValue(pending.promise) });
   const callback = vi.fn();
-  const view = render(<AudienceAuthorizationExperience audience="provider" service={api} onSessionUnavailable={callback} />);
+  const view = render(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={callback} />);
   await submitIntake();
   const signal = vi.mocked(api.submitAuthorization).mock.calls[0][1];
   expect(screen.getByRole("button", { name: "Enviando com segurança…" })).toBeDisabled();
-  view.rerender(<AudienceAuthorizationExperience audience="provider" service={service()} onSessionUnavailable={callback} />);
+  view.rerender(<AudienceAuthorizationExperience audience="provider" service={service()} communicationsClient={communications()} onSessionUnavailable={callback} />);
   await screen.findByRole("heading", { name: "Enviar nova solicitação" });
   expect(signal.aborted).toBe(true);
   expect(screen.getByRole("button", { name: "Enviar solicitação" })).toBeEnabled();
@@ -255,7 +328,7 @@ it("aborta envio antigo e mantém novo formulário utilizável", async () => {
 it("desmontar aborta a submissão corrente, não apenas a consulta inicial", async () => {
   const pending = deferred<Awaited<ReturnType<ProviderAuthorizationService["submitAuthorization"]>>>();
   const api = service({ submitAuthorization: vi.fn().mockReturnValue(pending.promise) });
-  const view = render(<AudienceAuthorizationExperience audience="provider" service={api} onSessionUnavailable={vi.fn()} />);
+  const view = render(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
   await submitIntake();
   const signal = vi.mocked(api.submitAuthorization).mock.calls[0][1];
   view.unmount();
@@ -265,7 +338,7 @@ it("desmontar aborta a submissão corrente, não apenas a consulta inicial", asy
 
 it.each([["authorization", "Autorização"], ["reimbursement", "Reembolso"], ["account", "Conta"]] as const)("preserva kind W6 %s separado da audiência", async (kind, label) => {
   const api = service({ listCases: vi.fn().mockResolvedValue({ kind: "success", value: { ...casePageFixture, items: [{ ...casePageFixture.items[0], kind }] } }) });
-  render(<AudienceAuthorizationExperience audience="provider" service={api} onSessionUnavailable={vi.fn()} />);
+  render(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
   await screen.findByRole("heading", { name: "Referência case_synthetic_auth_1" });
   expect(screen.getAllByText(label)).not.toHaveLength(0);
   expect(screen.getByText("Área do prestador")).toBeInTheDocument();
@@ -290,7 +363,7 @@ it("substituição libera URL preparada e revogação impede download pendente d
       .mockResolvedValueOnce({ kind: "success", value: { ...casePageFixture, nextCursor: "next" } })
       .mockResolvedValueOnce({ kind: "failure", failure: "access-revoked" }),
       downloadDocument: vi.fn().mockResolvedValueOnce({ kind: "success", value: new Blob(["protected"]) }).mockReturnValueOnce(pending.promise) });
-    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} onSessionUnavailable={vi.fn()} />);
+    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
     await openDocuments();
     await userEvent.click(screen.getByRole("button", { name: "Abrir documento" }));
     await screen.findByRole("link", { name: "Baixar documento preparado" });
@@ -313,7 +386,7 @@ it("revogação da lista remove progresso do prestador e exige formulário novo 
     .mockResolvedValueOnce({ kind: "failure", failure: "access-revoked" })
     .mockResolvedValueOnce({ kind: "success", value: casePageFixture }),
     submitAuthorization: vi.fn().mockResolvedValue({ kind: "success", progress: { ...admittedIntake, state: "started", caseRef: "old-case", startReceiptRef: "old-receipt" } }) });
-  render(<AudienceAuthorizationExperience audience="provider" service={api} onSessionUnavailable={vi.fn()} />);
+  render(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
   await submitIntake();
   expect(await screen.findByText("old-receipt")).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Carregar mais" }));
@@ -328,7 +401,7 @@ it("revogação da lista remove progresso do prestador e exige formulário novo 
 
 it("falha de vínculo no envio remove formulário e detalhe protegido", async () => {
   const api = service({ submitAuthorization: vi.fn().mockResolvedValue({ kind: "failure", failure: "access-revoked" }) });
-  render(<AudienceAuthorizationExperience audience="provider" service={api} onSessionUnavailable={vi.fn()} />);
+  render(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
   await screen.findByRole("button", { name: "Abrir solicitação" });
   await userEvent.click(screen.getByRole("button", { name: "Abrir solicitação" }));
   await screen.findByText("Procedimento sintético");
@@ -341,9 +414,9 @@ it("falha de vínculo no envio remove formulário e detalhe protegido", async ()
 it("troca de audiência encerra o contexto mesmo com o mesmo serviço", async () => {
   const api = service();
   const callback = vi.fn();
-  const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} onSessionUnavailable={callback} />);
+  const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} communicationsClient={communications()} onSessionUnavailable={callback} />);
   await openDocuments();
-  view.rerender(<AudienceAuthorizationExperience audience="provider" service={api} onSessionUnavailable={callback} />);
+  view.rerender(<AudienceAuthorizationExperience audience="provider" service={api} communicationsClient={communications()} onSessionUnavailable={callback} />);
   expect(screen.queryByText("Envie o laudo solicitado")).not.toBeInTheDocument();
   expect(await screen.findByRole("button", { name: "Enviar solicitação" })).toBeEnabled();
   expect(api.listCases).toHaveBeenCalledTimes(2);
@@ -358,7 +431,7 @@ it("revogação remove e libera diretamente o link de download já preparado", a
     const api = service({ listCases: vi.fn()
       .mockResolvedValueOnce({ kind: "success", value: { ...casePageFixture, nextCursor: "next" } })
       .mockResolvedValueOnce({ kind: "failure", failure: "access-revoked" }) });
-    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} onSessionUnavailable={vi.fn()} />);
+    const view = render(<AudienceAuthorizationExperience audience="beneficiary" service={api} communicationsClient={communications()} onSessionUnavailable={vi.fn()} />);
     await openDocuments();
     await userEvent.click(screen.getByRole("button", { name: "Abrir documento" }));
     await screen.findByRole("link", { name: "Baixar documento preparado" });
