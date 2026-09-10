@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from maezo.gateway.external_cases.models import ExternalCaseError
+from maezo.gateway.external_cases.models import ExternalCaseError, instant
 from maezo.gateway.external_cases.postgres import transaction
 from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
 from maezo.portal.contracts.communication_content import (
@@ -33,6 +33,7 @@ from .models import (
     alive,
     fingerprint,
     identity,
+    now,
 )
 from .service import CommunicationSessionBoundary
 
@@ -247,7 +248,12 @@ class PostgresPhiCommunicationContent:
                 body = raw.decode("utf-8")
             except Exception:
                 raise ExternalCaseError("unavailable") from None
-            result = CommunicationContent(communication_ref=communication_ref, body=body)
+            result = CommunicationContent(
+                communication_ref=communication_ref,
+                body=body,
+                observed_at=instant(now()),
+                valid_until=instant(ceiling),
+            )
             alive(ceiling)
         alive(ceiling)
         return result

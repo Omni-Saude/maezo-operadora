@@ -21,3 +21,5 @@ class CommunicationContentReceipt(Closed):
 class CommunicationContent(Closed):
     communication_ref: ResourceRef
     body: str = Field(repr=False)
+    observed_at: str
+    valid_until: str

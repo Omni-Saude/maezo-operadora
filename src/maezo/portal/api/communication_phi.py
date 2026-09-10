@@ -23,6 +23,7 @@ from maezo.portal.contracts.communication_content import (
 
 PhiCommunicationServiceFactory = Callable[[HumanSessionResolver], PhiCommunicationService]
 phi_communication_router = APIRouter(route_class=ProductRoute)
+phi_communication_read_router = APIRouter(route_class=ProductRoute)
 
 
 def _service(request: Request) -> PhiCommunicationService:
@@ -53,7 +54,7 @@ async def preserve_content(request: Request, case_ref: str, body: CommunicationC
         return communication_error(error)
 
 
-@phi_communication_router.get(
+@phi_communication_read_router.get(
     "/api/v1/phi/cases/{case_ref}/communications/{communication_ref}/content",
     response_model=CommunicationContent,
     responses=ERRORS,
@@ -77,6 +78,7 @@ def create_phi_communication_app(
     *,
     identity_store: IdentityStore,
     content_service_factory: PhiCommunicationServiceFactory,
+    read_only: bool = False,
 ) -> FastAPI:
     """Explicit PHI composition; no key, authority, store or General-zone default.
 
@@ -95,7 +97,9 @@ def create_phi_communication_app(
     )
     app.state.human_session_resolver = resolver
     app.state.phi_communication_service_factory = content_service_factory
-    app.include_router(phi_communication_router)
+    app.include_router(phi_communication_read_router)
+    if not read_only:
+        app.include_router(phi_communication_router)
 
     @app.middleware("http")
     async def deployment_host(

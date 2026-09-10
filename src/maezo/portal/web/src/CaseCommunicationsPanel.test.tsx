@@ -60,7 +60,7 @@ it("apresenta metadados neutros da caixa e o histórico limitado", async () => {
   expect(screen.getByText("Comunicação disponibilizada")).toBeInTheDocument();
   expect(screen.getByText("Recibo de comando indexado")).toBeInTheDocument();
   expect(screen.getByText(/não representa o histórico completo/i)).toBeInTheDocument();
-  expect(screen.getAllByText(/serviço PHI separado/i)).toHaveLength(2);
+  expect(screen.getByRole("button", { name: "Abrir conteúdo" })).toBeInTheDocument();
   expect(screen.queryByText(/^(enviada por você|recebida de|conteúdo da mensagem)/i)).not.toBeInTheDocument();
   expect(screen.queryByText(ref("body"))).not.toBeInTheDocument();
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();

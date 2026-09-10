@@ -9,6 +9,7 @@ from maezo.gateway.external_cases.models import ExternalCaseError, instant
 from maezo.gateway.human.gateway import HumanGateway
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
+from maezo.portal.contracts.communication_content import CommunicationContent
 from maezo.portal.contracts.communications import (
     CommunicationPage,
     CommunicationSubmission,
@@ -126,7 +127,7 @@ class CommunicationSessionBoundary:
         if final.principal != initial.principal or final.membership.audience != initial.membership.audience:
             raise ExternalCaseError("conflict")
         ceilings.extend((final.record.expires_at, final.membership.reviewed_until))
-        if isinstance(value, (CommunicationPage, HistoryPage)):
+        if isinstance(value, (CommunicationPage, HistoryPage, CommunicationContent)):
             # A renewed source response may shorten validity without changing its
             # policy revision. The browser must see that smaller original/current ceiling.
             value = value.model_copy(update={"valid_until": instant(alive(*ceilings))})
