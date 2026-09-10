@@ -42,6 +42,16 @@ const failureMessages: Record<CaseExperienceFailure, string> = {
   "invalid-response": "O portal recusou uma resposta inesperada.",
 };
 
+const caseKindLabels: Record<CaseSummaryView["kind"], string> = {
+  authorization: "Autorização",
+  reimbursement: "Reembolso",
+  account: "Conta",
+};
+
+function isAccessFailure(failure: CaseExperienceFailure) {
+  return failure === "session-unavailable" || failure === "access-revoked";
+}
+
 function isAbort(error: unknown) {
   return error instanceof DOMException && error.name === "AbortError";
 }
@@ -94,7 +104,7 @@ function CasePicker({
           <li key={item.caseRef} className={selectedRef === item.caseRef ? "selected-case" : ""}>
             <div>
               <p className="eyebrow">
-                {item.kind === "beneficiary" ? "Solicitação do beneficiário" : "Solicitação do prestador"}
+                {caseKindLabels[item.kind]}
               </p>
               <h3>Referência {item.caseRef}</h3>
               <p className="event-meta">
@@ -192,10 +202,10 @@ function SelectedCasePanel({
 
 function ProviderAuthorizationIntake({
   service,
-  onSessionUnavailable,
+  onFailure,
 }: {
   service: ProviderAuthorizationService;
-  onSessionUnavailable: () => void;
+  onFailure: (failure: CaseExperienceFailure) => void;
 }) {
   const [form, setForm] = useState<ExperienceResult<AuthorizationIntakeFormView> | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -212,14 +222,15 @@ function ProviderAuthorizationIntake({
     const request = new AbortController();
     controller.current = request;
     setForm(null);
+    setSubmitting(false);
+    setProgress(undefined);
+    setError(undefined);
     void service
       .readAuthorizationIntakeForm(request.signal)
       .then((result) => {
         if (!request.signal.aborted) {
           setForm(result);
-          if (result.kind === "failure" && result.failure === "session-unavailable") {
-            onSessionUnavailable();
-          }
+          if (result.kind === "failure") onFailure(result.failure);
         }
       })
       .catch((error: unknown) => {
@@ -227,8 +238,12 @@ function ProviderAuthorizationIntake({
           setForm({ kind: "failure", failure: "dependency-unavailable" });
         }
       });
-    return () => request.abort();
-  }, [onSessionUnavailable, service]);
+    return () => {
+      request.abort();
+      // The current owner may be a later submission, not this initial form read.
+      controller.current?.abort();
+    };
+  }, [onFailure, service]);
 
   if (form === null) {
     return <p className="resource-message" role="status">Preparando a solicitação autorizada…</p>;
@@ -273,7 +288,7 @@ function ProviderAuthorizationIntake({
       if (request.signal.aborted) return;
       if (result.kind === "failure") {
         setError(result.failure);
-        if (result.failure === "session-unavailable") onSessionUnavailable();
+        onFailure(result.failure);
         return;
       }
       setProgress(result.progress);
@@ -392,20 +407,44 @@ function ProviderAuthorizationIntake({
   );
 }
 
-export function AudienceAuthorizationExperience({
-  audience,
-  service,
-  onSessionUnavailable,
-}: {
+type AudienceExperienceProps = {
   audience: ExternalAudience;
   service: ProviderAuthorizationService;
   onSessionUnavailable: () => void;
-}) {
+};
+
+export function AudienceAuthorizationExperience(props: AudienceExperienceProps) {
+  const [context, setContext] = useState({
+    service: props.service, audience: props.audience, generation: 0,
+  });
+  if (context.service !== props.service || context.audience !== props.audience) {
+    // Reset before rendering children: no old protected tree is committed under
+    // a new service/audience. Unmount cleanup aborts all work in the old scope.
+    setContext({ service: props.service, audience: props.audience, generation: context.generation + 1 });
+    return null;
+  }
+  return <AudienceAuthorizationContext key={context.generation} {...props} />;
+}
+
+function AudienceAuthorizationContext({
+  audience, service, onSessionUnavailable,
+}: AudienceExperienceProps) {
   const [activeArea, setActiveArea] = useState<ExternalArea>("requests");
   const [pageState, setPageState] = useState<PageState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
   const pageController = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
+  const downloadController = useRef<AbortController | null>(null);
+  const downloadUrl = useRef<string | null>(null);
+  const [preparedDownload, setPreparedDownload] = useState<string>();
+  const [accessFailure, setAccessFailure] = useState<CaseExperienceFailure>();
+
+  const releaseDownload = useCallback(() => {
+    downloadController.current?.abort();
+    if (downloadUrl.current !== null) URL.revokeObjectURL(downloadUrl.current);
+    downloadUrl.current = null;
+    setPreparedDownload(undefined);
+  }, []);
   const selectedSummary =
     detailState.kind === "none"
       ? undefined
@@ -414,10 +453,21 @@ export function AudienceAuthorizationExperience({
         : detailState.summary;
 
   const handleFailure = useCallback((failure: CaseExperienceFailure) => {
+    if (isAccessFailure(failure)) {
+      pageController.current?.abort();
+      detailController.current?.abort();
+      releaseDownload();
+      setDetailState({ kind: "none" });
+      setPageState({ kind: "failure", failure });
+      setAccessFailure(failure);
+    }
     if (failure === "session-unavailable") onSessionUnavailable();
-  }, [onSessionUnavailable]);
+  }, [onSessionUnavailable, releaseDownload]);
 
   const loadFirstPage = useCallback(async () => {
+    detailController.current?.abort();
+    releaseDownload();
+    setDetailState({ kind: "none" });
     pageController.current?.abort();
     const request = new AbortController();
     pageController.current = request;
@@ -430,23 +480,26 @@ export function AudienceAuthorizationExperience({
         handleFailure(result.failure);
         return;
       }
+      setAccessFailure(undefined);
       setPageState({ kind: "ready", page: result.value, loadingMore: false });
     } catch (caught) {
       if (!request.signal.aborted && !isAbort(caught)) {
         setPageState({ kind: "failure", failure: "dependency-unavailable" });
       }
     }
-  }, [handleFailure, service]);
+  }, [handleFailure, releaseDownload, service]);
 
   useEffect(() => {
     void loadFirstPage();
     return () => {
       pageController.current?.abort();
       detailController.current?.abort();
+      releaseDownload();
     };
-  }, [loadFirstPage]);
+  }, [loadFirstPage, releaseDownload]);
 
   const selectCase = useCallback(async (summary: CaseSummaryView) => {
+    releaseDownload();
     detailController.current?.abort();
     const request = new AbortController();
     detailController.current = request;
@@ -465,7 +518,7 @@ export function AudienceAuthorizationExperience({
         setDetailState({ kind: "failure", summary, failure: "dependency-unavailable" });
       }
     }
-  }, [handleFailure, service]);
+  }, [handleFailure, releaseDownload, service]);
 
   const loadMore = useCallback(async () => {
     if (pageState.kind !== "ready" || pageState.page.nextCursor === null) return;
@@ -499,21 +552,33 @@ export function AudienceAuthorizationExperience({
   }, [handleFailure, pageState, service]);
 
   const download = useCallback(async (documentRef: string) => {
+    if (detailState.kind !== "ready" || accessFailure) return;
+    releaseDownload();
     const request = new AbortController();
+    downloadController.current = request;
     try {
       const result = await service.downloadDocument(documentRef, request.signal);
+      if (request.signal.aborted) return;
       if (result.kind === "failure") {
-        handleFailure(result.failure);
-        if (selectedSummary) {
+        releaseDownload();
+        if (!isAccessFailure(result.failure) && selectedSummary) {
           setDetailState({ kind: "failure", summary: selectedSummary, failure: result.failure });
         }
+        handleFailure(result.failure);
+        return;
       }
+      // Render a download-only link, never interpret a protected Blob as HTML
+      // or a remote destination. This component owns its temporary URL.
+      const url = URL.createObjectURL(result.value);
+      downloadUrl.current = url;
+      setPreparedDownload(url);
     } catch (caught) {
-      if (!isAbort(caught) && selectedSummary) {
+      if (!request.signal.aborted && !isAbort(caught) && selectedSummary) {
+        releaseDownload();
         setDetailState({ kind: "failure", summary: selectedSummary, failure: "dependency-unavailable" });
       }
     }
-  }, [handleFailure, selectedSummary, service]);
+  }, [accessFailure, detailState.kind, handleFailure, releaseDownload, selectedSummary, service]);
 
   const audienceLabel = audience === "beneficiary" ? "beneficiário" : "prestador";
   return (
@@ -531,6 +596,13 @@ export function AudienceAuthorizationExperience({
       </header>
 
       <ExternalNavigation audience={audience} active={activeArea} onChange={setActiveArea} />
+      {preparedDownload && (
+        <section className="resource-message" aria-label="Documento preparado">
+          <p role="status">O documento autorizado está pronto para baixar.</p>
+          <a href={preparedDownload} download="documento">Baixar documento preparado</a>
+          <button type="button" onClick={releaseDownload}>Fechar acesso ao documento</button>
+        </section>
+      )}
 
       <ExternalAreaPanel area="requests" active={activeArea === "requests"}>
         <div className="two-column-experience">
@@ -551,8 +623,8 @@ export function AudienceAuthorizationExperience({
               onDownload={download}
             />
           </section>
-          {audience === "provider" && (
-            <ProviderAuthorizationIntake service={service} onSessionUnavailable={onSessionUnavailable} />
+          {audience === "provider" && !accessFailure && (
+            <ProviderAuthorizationIntake service={service} onFailure={handleFailure} />
           )}
         </div>
       </ExternalAreaPanel>

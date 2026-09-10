@@ -10,7 +10,7 @@ export type ResourceState =
 
 export type CaseSummaryView = Readonly<{
   caseRef: string;
-  kind: "beneficiary" | "provider";
+  kind: "authorization" | "reimbursement" | "account";
   state: "active" | "ended";
   recordRevision: string;
   stateObservedAt: string;
@@ -124,6 +124,8 @@ export type ExperienceResult<T> =
   | Readonly<{ kind: "success"; value: T }>
   | Readonly<{ kind: "failure"; failure: CaseExperienceFailure }>;
 
+// One service object belongs to one authenticated context. Replace its identity when the
+// session, tenant or represented relationship changes; never retarget an existing object.
 export interface CaseExperienceService {
   listCases(signal: AbortSignal, cursor?: string): Promise<ExperienceResult<CasePageView>>;
   readCase(caseRef: string, signal: AbortSignal): Promise<ExperienceResult<CaseWorkspaceView>>;
