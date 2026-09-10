@@ -159,6 +159,7 @@ export function DecisionWorkspace({ taskId, csrfToken, onSessionUnavailable }: {
       <p>Revise a tarefa, as evidências disponíveis e os campos abaixo. A escolha é de responsabilidade humana.</p>
       <p className="freshness-detail">Tarefa {context.snapshot.task_definition_key}. Revisão {context.snapshot.task_revision}. Evidência {context.snapshot.evidence_revision}.</p>
       {context.snapshot.form_source_status === "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY" && <p>Este formulário tem contrato em revisão. A disponibilidade desta tela não certifica aprovação de produção.</p>}
+      {context.snapshot.form_key === "auth_pendencia" && <p>As opções conceder_prazo_extra e seguir_analise seguem para a análise de SLA. O fluxo atual não reinicia a espera de documentos nem concede um novo prazo.</p>}
       <p>O dossiê e o histórico detalhado não foram disponibilizados nesta consulta.</p>
       <p>O serviço confere a fundamentação exigida para cada escolha antes de aceitar o envio.</p>
       {["auth_decisao", "auth_junta"].includes(context.snapshot.form_key) && <p>Para negar, informe justificativa clínica, referência CID-10 e fundamentação DUT. A autoria vem da sua sessão autenticada.</p>}

@@ -43,7 +43,10 @@ _BINDINGS = {
     ("SP-OP-ESCALATION-001", "UT_SupervisorAssume"): "escalation",
     ("SP-OP-PAGTO-001", "UT_AnaliseAdmissibilidade"): "pagto_admissibilidade",
 }
+_LEGACY_BINDINGS = dict(_BINDINGS)
+_BINDINGS[("SP-OP-AUTH-001", "UT_DecidirPendenciaExpirada")] = "auth_pendencia"
 _OUTCOMES = {
+    "auth_pendencia": ("decisao_pendencia", {"cancelar_guia", "conceder_prazo_extra", "seguir_analise"}),
     "auth_decisao": ("decisao_auditor", {"APROVAR", "NEGAR", "SOLICITAR_INFO", "JUNTA_MEDICA"}),
     "auth_junta": ("decisao_auditor", {"APROVAR", "NEGAR"}),
     "escalation": ("resultado", {"resolvido_humano", "devolvido_agente", "emergencia_acionada"}),

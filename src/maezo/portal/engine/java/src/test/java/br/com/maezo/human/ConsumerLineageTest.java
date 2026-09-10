@@ -44,8 +44,8 @@ class ConsumerLineageTest {
   }
   static List<Map<String,Object>> targets(){
     List<Map<String,Object>> values=new ArrayList<>();
-    for(String key:ConsumerLineage.SOURCES.keySet().stream().sorted().toList()){
-      String[] parts=key.split("/");String kind=ConsumerLineage.SOURCES.get(key);
+    for(String key:ConsumerLineage.LEGACY_SOURCES.keySet().stream().sorted().toList()){
+      String[] parts=key.split("/");String kind=ConsumerLineage.LEGACY_SOURCES.get(key);
       var row=new TreeMap<String,Object>();row.put("process_definition_id",parts[0]+":1:synthetic");row.put("process_key",parts[0]);row.put("task_key",parts[1]);
       for(String field:List.of("binding_digest","consumer_digest","process_digest"))row.put(field,"a".repeat(64));
       List<Map<String,Object>> edges=new ArrayList<>();
