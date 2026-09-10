@@ -595,7 +595,9 @@ async def test_receipt_schema_is_narrowed_from_actual_d5_source_and_old_assignme
     assert "operation" not in store.result.model_dump()
     async with c:
         response = await c.get(PREFIX + "/commands/cmd-1?task_id=task-1")
-    assert_error(response, 403, "operation_forbidden")
+    assert response.status_code == 200
+    assert response.json() == assignment
+    assert "operation" not in response.json()
 
 
 async def test_valid_but_oversized_chunked_form_is_rejected_before_gateway():

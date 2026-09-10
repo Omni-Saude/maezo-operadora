@@ -37,6 +37,7 @@ from .decision import (
 from .errors import GatewayRefusalError
 from .models import (
     AssignmentCommand,
+    AssignmentContext,
     AuthoritativeTask,
     AuthorizedAssignment,
     CurrentTaskAuthority,
@@ -262,6 +263,42 @@ class HumanGateway:
         except Exception:
             raise GatewayRefusalError("authority_unavailable") from None
         return task, authority
+
+    async def read_assignment_context(self, *, session_secret: str, task_id: str) -> AssignmentContext:
+        first = await self._session(session_secret)
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise GatewayRefusalError("operation_forbidden") from None
+        task, authority = await self._authorized(first, task_id)
+        actions = []
+        for operation in ("claim", "release"):
+            try:
+                self._operation(operation, task, authority, first)
+            except GatewayRefusalError:
+                continue
+            actions.append(operation)
+        final = await self._session(session_secret)
+        if final.principal != first.principal:
+            raise GatewayRefusalError("revision_conflict")
+        deadline = min(
+            task.valid_until,
+            authority.valid_until,
+            first.record.expires_at,
+            first.membership.reviewed_until,
+            final.record.expires_at,
+            final.membership.reviewed_until,
+        )
+        if deadline <= datetime.now(UTC):
+            raise GatewayRefusalError("authority_unavailable")
+        return AssignmentContext(
+            snapshot=TaskSnapshot.model_validate(
+                task.snapshot.model_copy(update={"allowed_actions": tuple(actions)})
+            ),
+            expected_membership_revision=first.principal.membership_revision,
+            expected_authority_revision=task.authority_revision,
+            valid_until=deadline,
+        )
 
     async def read_task(self, *, session_secret: str, task_id: str) -> TaskSnapshot:
         resolved = await self._session(session_secret)
