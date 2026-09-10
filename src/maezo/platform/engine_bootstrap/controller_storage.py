@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from functools import partial
 from typing import Any, cast
 
 from maezo.platform.engine_bootstrap import controller_contracts as c
@@ -507,6 +508,8 @@ class Document:
         value = parse_wire(self.wire)
         try:
             VALIDATORS[self.kind](value)
+            if self.kind in STAGING_FIELDS:
+                require(self.wire == canonical(value))
         except Refusal:
             raise
         except (KeyError, TypeError, AttributeError, ValueError):
@@ -827,3 +830,267 @@ def parse_intent(wire: bytes) -> c.RunTaskIntent | c.StopTaskIntent | RecoverySt
     if value.get("protocol") == "maezo.provisioning-recovery-stop.v1":
         return RecoveryStopTaskIntent(wire)
     return cast(c.RunTaskIntent | c.StopTaskIntent, c.parse("AdmittedExternalIntent", wire))
+
+
+# Stage2 storage-only grammar 1ed9ad1a / ROOT acceptance controller-stage2-root-acceptance.
+# No stage, digest or receipt supplies an authority producer.
+STAGING_FIELDS = {
+    "PublicationManifest": (
+        "protocol scope control_scope_id table_identity_sha256 owner_subject run_id epoch "
+        "anchor_root_revision semantic_root_sha256 captured_lease_deadline_ms "
+        "journal_operation_id journal_before_sha256 journal_after_sha256 "
+        "root_journal_revision_before root_journal_revision_after intent_record_revision_before "
+        "intent_record_revision_after outcome_key outcome_sha256 pending_before_sha256 "
+        "pending_after_sha256 registry_before_sha256 registry_after_sha256 resources"
+    ),
+    "ResourceDelta": ("logical_key expected_sha256 replacement_sha256 body_bytes chunk_sha256s"),
+    "StageFragment": (
+        "protocol scope publication_sha256 resource_identity_sha256 ordinal bytes chunk_sha256"
+    ),
+    "StageStepReceipt": (
+        "protocol scope publication_sha256 ordinal previous_step_sha256 expected_root_sha256 "
+        "replacement_root_sha256 expected_root_revision replacement_root_revision fragment_keys "
+        "fragment_sha256s request_sha256"
+    ),
+    "StepRequestIdentity": (
+        "protocol scope publication_sha256 ordinal previous_step_sha256 expected_root_sha256 "
+        "replacement_root_sha256 creates_manifest fragment_keys fragment_sha256s"
+    ),
+    "PublicationReceipt": (
+        "protocol scope publication_sha256 last_step_sha256 step_count expected_root_sha256 "
+        "replacement_root_sha256 expected_root_revision committed_root_revision "
+        "journal_after_sha256 outcome_sha256 registry_after_sha256"
+    ),
+    "StageFenceReceipt": (
+        "protocol scope publication_sha256 fencing_owner_subject fencing_run_id fencing_epoch "
+        "expected_root_sha256 replacement_root_sha256 expected_root_revision "
+        "committed_root_revision reason"
+    ),
+    "FenceQualificationEvidence": ("protocol publication_sha256 root_sha256 observation_pair_sha256 reason"),
+    "StageWriteResult": (
+        "kind publication_sha256 step_ordinal step_sha256 expected_root_sha256 replacement_root_sha256"
+    ),
+    "PublicationWriteResult": ("kind publication_sha256 expected_root_sha256 replacement_root_sha256"),
+    "FenceWriteResult": ("kind publication_sha256 expected_root_sha256 replacement_root_sha256"),
+    "PublicationReadResult": (
+        "kind publication_sha256 current_root_sha256 verified_steps expected_fragments observed_fragments"
+    ),
+}
+
+STAGING_PROTOCOLS = {
+    "PublicationManifest": "maezo.d7-resource-publication.v1",
+    "StageFragment": "maezo.d7-resource-fragment.v1",
+    "StageStepReceipt": "maezo.d7-resource-stage-step.v1",
+    "StepRequestIdentity": "maezo.d7-resource-stage-request.v1",
+    "PublicationReceipt": "maezo.d7-resource-published.v1",
+    "StageFenceReceipt": "maezo.d7-resource-stage-fenced.v1",
+    "FenceQualificationEvidence": "maezo.d7-resource-stage-fence-evidence.v1",
+}
+
+
+def staging_key(
+    control_scope_id: str,
+    publication: str,
+    kind: str,
+    *,
+    resource: str | None = None,
+    ordinal: int | None = None,
+) -> dict[str, str]:
+    scalar("Sha256", publication)
+    require(kind in {"MANIFEST", "RESOURCE", "STEP", "PUBLICATION", "FENCED"})
+    prefix = "STAGE#" + publication
+    if kind == "PUBLICATION":
+        sk = "PUBLICATION#" + publication
+    elif kind == "RESOURCE":
+        scalar("Sha256", resource)
+        require(type(ordinal) is int and 0 <= ordinal < MAX_CHUNKS)
+        sk = prefix + "#RESOURCE#task#" + str(resource) + "#BODY#" + f"{ordinal:08d}"
+    elif kind == "STEP":
+        require(type(ordinal) is int and 0 <= ordinal < 80)
+        sk = prefix + "#STEP#" + f"{ordinal:08d}"
+    else:
+        sk = prefix + "#" + kind
+    require((kind == "RESOURCE") == (resource is not None))
+    require((kind in {"RESOURCE", "STEP"}) == (ordinal is not None))
+    return {"PK": partition(control_scope_id), "SK": sk}
+
+
+def semantic_root_digest(root: Document) -> str:
+    require(root.kind == "Root")
+    value = root.value()
+    del value["revision"], value["lease_deadline_ms"]
+    return digest(canonical({"protocol": "maezo.d7-staging-root.v1", "root": value}))
+
+
+def validate_staging(kind: str, value: Any) -> None:
+    v = exact(value, STAGING_FIELDS[kind])
+    if kind in STAGING_PROTOCOLS:
+        require(v["protocol"] == STAGING_PROTOCOLS[kind])
+    for name, field in v.items():
+        if name == "scope":
+            scalar("Scope", field)
+        elif name.endswith("sha256"):
+            if field is None:
+                require(name in {"expected_sha256", "previous_step_sha256"})
+            else:
+                scalar("Sha256", field)
+        elif name in {"control_scope_id", "run_id", "journal_operation_id", "fencing_run_id"}:
+            scalar("Uuid", field)
+        elif name in {"owner_subject", "fencing_owner_subject"}:
+            scalar("Id", field)
+        elif name in {
+            "epoch",
+            "fencing_epoch",
+            "anchor_root_revision",
+            "expected_root_revision",
+            "replacement_root_revision",
+            "committed_root_revision",
+            "intent_record_revision_before",
+            "intent_record_revision_after",
+            "step_count",
+            "body_bytes",
+        }:
+            scalar("Positive", field)
+        elif name in {
+            "root_journal_revision_before",
+            "root_journal_revision_after",
+            "captured_lease_deadline_ms",
+            "ordinal",
+            "step_ordinal",
+            "verified_steps",
+            "expected_fragments",
+            "observed_fragments",
+        }:
+            scalar("UInt", field)
+    if "reason" in v:
+        require(v["reason"] == "ABANDON_UNPUBLISHED_STORAGE_STAGE")
+    if kind == "ResourceDelta":
+        pieces = v["logical_key"].split("#")
+        require(len(pieces) == 3 and pieces[:2] == ["RESOURCE", "task"])
+        scalar("Sha256", pieces[2])
+        require(
+            v["body_bytes"] <= MAX_BYTES
+            and type(v["chunk_sha256s"]) is list
+            and 1 <= len(v["chunk_sha256s"]) <= MAX_CHUNKS
+        )
+        for h in v["chunk_sha256s"]:
+            scalar("Sha256", h)
+        require(len(v["chunk_sha256s"]) == (v["body_bytes"] + CHUNK_BYTES - 1) // CHUNK_BYTES)
+    elif kind == "PublicationManifest":
+        require(type(v["resources"]) is list and 1 <= len(v["resources"]) <= 10)
+        for resource in v["resources"]:
+            validate_staging("ResourceDelta", resource)
+        keys = [r["logical_key"] for r in v["resources"]]
+        require(keys == sorted(set(keys)))
+        require(
+            v["root_journal_revision_after"] == v["root_journal_revision_before"] + 1
+            and v["intent_record_revision_after"] == v["intent_record_revision_before"] + 1
+            and v["intent_record_revision_before"] <= v["root_journal_revision_before"]
+        )
+        require(
+            v["outcome_key"]
+            == key(
+                v["control_scope_id"],
+                "OUTCOME",
+                v["journal_operation_id"],
+                revision=v["root_journal_revision_after"],
+            )["SK"]
+        )
+        require(v["outcome_sha256"] == v["journal_after_sha256"])
+    elif kind == "StageFragment":
+        raw = decode64(v["bytes"])
+        require(
+            0 < len(raw) <= CHUNK_BYTES and v["ordinal"] < MAX_CHUNKS and digest(raw) == v["chunk_sha256"]
+        )
+    elif kind in {"StageStepReceipt", "StepRequestIdentity"}:
+        require(v["ordinal"] < 80 and (v["previous_step_sha256"] is None) == (v["ordinal"] == 0))
+        keys, hashes = v["fragment_keys"], v["fragment_sha256s"]
+        require(
+            type(keys) is list
+            and type(hashes) is list
+            and 1 <= len(keys) == len(hashes) <= (8 if v["ordinal"] == 0 else 9)
+            and keys == sorted(set(keys))
+        )
+        for fragment_key, h in zip(keys, hashes, strict=True):
+            pieces = fragment_key.split("#")
+            require(
+                len(pieces) == 7
+                and pieces[:4] == ["STAGE", v["publication_sha256"], "RESOURCE", "task"]
+                and pieces[5] == "BODY"
+                and len(pieces[6]) == 8
+                and pieces[6].isdigit()
+            )
+            scalar("Sha256", pieces[4])
+            require(0 <= int(pieces[6]) < MAX_CHUNKS)
+            scalar("Sha256", h)
+        if kind == "StepRequestIdentity":
+            require(type(v["creates_manifest"]) is bool and v["creates_manifest"] == (v["ordinal"] == 0))
+        else:
+            require(v["replacement_root_revision"] == v["expected_root_revision"] + 1)
+    elif kind in {"PublicationReceipt", "StageFenceReceipt"}:
+        require(v["committed_root_revision"] == v["expected_root_revision"] + 1)
+        if kind == "PublicationReceipt":
+            require(v["step_count"] <= 80)
+    elif kind == "StageWriteResult":
+        require(v["kind"] in {"PROGRESS", "STAGED", "CONFLICT", "UNKNOWN"} and v["step_ordinal"] < 80)
+    elif kind in {"PublicationWriteResult", "FenceWriteResult"}:
+        require(v["kind"] in {"COMMITTED", "CONFLICT", "UNKNOWN"})
+    elif kind == "PublicationReadResult":
+        require(
+            v["kind"] in {"PUBLISHED", "FENCED", "STAGED", "UNRESOLVED"}
+            and v["verified_steps"] <= 80
+            and v["observed_fragments"] <= v["expected_fragments"] <= 80
+        )
+    require(len(canonical(v)) <= (MAX_BYTES if kind == "StageFragment" else MAX_ROOT_BYTES))
+
+
+for _staging_kind in STAGING_FIELDS:
+    VALIDATORS[_staging_kind] = partial(validate_staging, _staging_kind)
+
+
+@dataclass(frozen=True, slots=True)
+class StageWriteResult:
+    kind: str
+    publication_sha256: str
+    step_ordinal: int
+    step_sha256: str
+    expected_root_sha256: str
+    replacement_root_sha256: str
+
+    def __post_init__(self) -> None:
+        validate_staging("StageWriteResult", asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationWriteResult:
+    kind: str
+    publication_sha256: str
+    expected_root_sha256: str
+    replacement_root_sha256: str
+
+    def __post_init__(self) -> None:
+        validate_staging("PublicationWriteResult", asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class FenceWriteResult:
+    kind: str
+    publication_sha256: str
+    expected_root_sha256: str
+    replacement_root_sha256: str
+
+    def __post_init__(self) -> None:
+        validate_staging("FenceWriteResult", asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class PublicationReadResult:
+    kind: str
+    publication_sha256: str
+    current_root_sha256: str
+    verified_steps: int
+    expected_fragments: int
+    observed_fragments: int
+
+    def __post_init__(self) -> None:
+        validate_staging("PublicationReadResult", asdict(self))

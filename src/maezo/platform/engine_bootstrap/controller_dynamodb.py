@@ -7,10 +7,12 @@ requires the separately qualified owner installation and live lane.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol, cast
 
+from maezo.platform.engine_bootstrap import controller as control
 from maezo.platform.engine_bootstrap import controller_contracts as c
+from maezo.platform.engine_bootstrap import controller_storage as storage
 from maezo.platform.engine_bootstrap.controller import Transition
 from maezo.platform.engine_bootstrap.controller_storage import (
     CHUNK_BYTES,
@@ -407,6 +409,93 @@ class WriteResult:
         scalar("Sha256", self.replacement_root_sha256)
 
 
+@dataclass(frozen=True, slots=True)
+class _StageView:
+    manifest: Document
+    steps: tuple[Document, ...]
+    fragments: dict[str, Document]
+    resources: dict[str, bytes]
+    published: Document | None
+    fenced: Document | None
+
+
+def _package(actions: list[dict[str, Any]]) -> dict[str, Any]:
+    require(0 < len(actions) <= MAX_ITEMS and _transport_size(actions) <= MAX_TRANSACTION_BYTES)
+    require(all(_transport_size(action) <= 300_000 for action in actions))
+    return {"TransactItems": actions}
+
+
+def _absent_put(binding: ControlBinding, row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "Put": {
+            "TableName": binding.table_arn,
+            "Item": item(row),
+            "ConditionExpression": "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+        }
+    }
+
+
+def _exact_put(binding: ControlBinding, before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    require(set(before) == set(after) and before["PK"] == after["PK"] and before["SK"] == after["SK"])
+    fields = sorted(before)
+    return {
+        "Put": {
+            "TableName": binding.table_arn,
+            "Item": item(after),
+            "ConditionExpression": " AND ".join(f"#f{i} = :v{i}" for i in range(len(fields))),
+            "ExpressionAttributeNames": {f"#f{i}": field for i, field in enumerate(fields)},
+            "ExpressionAttributeValues": {
+                f":v{i}": attribute(before[field]) for i, field in enumerate(fields)
+            },
+        }
+    }
+
+
+def _root_cas(binding: ControlBinding, before: Document, after: Document) -> dict[str, Any]:
+    physical = key(binding.control_scope_id, "ROOT")
+    require(
+        before.value()["scope"] == parse_wire(binding.scope_wire)
+        and before.value()["control_scope_id"] == binding.control_scope_id,
+        "SCOPE_REFUSED",
+    )
+    return _exact_put(binding, {**physical, **before.value()}, {**physical, **after.value()})
+
+
+def _record_row(physical: dict[str, str], record: Document) -> dict[str, Any]:
+    require(len(record.wire) <= MAX_ROOT_BYTES)
+    return {**physical, "document_bytes": record.wire, "document_sha256": record.digest()}
+
+
+def _record(row: dict[str, Any], kind: str) -> Document:
+    exact(row, "PK SK document_bytes document_sha256")
+    result = Document(kind, row["document_bytes"])
+    require(result.digest() == row["document_sha256"])
+    return result
+
+
+def _step_request(step: dict[str, Any]) -> Document:
+    return Document.create(
+        "StepRequestIdentity",
+        {
+            "protocol": storage.STAGING_PROTOCOLS["StepRequestIdentity"],
+            **{
+                k: step[k]
+                for k in (
+                    "scope",
+                    "publication_sha256",
+                    "ordinal",
+                    "previous_step_sha256",
+                    "expected_root_sha256",
+                    "replacement_root_sha256",
+                    "fragment_keys",
+                    "fragment_sha256s",
+                )
+            },
+            "creates_manifest": step["ordinal"] == 0,
+        },
+    )
+
+
 class DynamoDBStore:
     def __init__(
         self, client: DynamoClient, binding: ControlBinding, authority: ControlAuthority | None = None
@@ -532,6 +621,26 @@ class DynamoDBStore:
 
     def apply(self, change: Transition) -> WriteResult:
         self._identity()
+        targets = {delta.key for delta in change.documents if delta.key.startswith("RESOURCE#")}
+        targets.update(sk for sk, _ in change.append if sk.startswith("RESOURCE#"))
+        if targets:
+            actual, _, _, _, views = self._inventory()
+            require(actual.wire == change.expected.wire, "PRECONDITION_MISMATCH")
+            owner = actual.value()
+            for view in views.values():
+                m = view.manifest.value()
+                require(
+                    not (view.published and targets & {r["logical_key"] for r in m["resources"]}),
+                    "PRECONDITION_MISMATCH",
+                )
+                require(
+                    not (
+                        view.published is None
+                        and view.fenced is None
+                        and all(m[k] == owner[k] for k in ("owner_subject", "run_id", "epoch"))
+                    ),
+                    "PENDING_UNKNOWN",
+                )
         request = transaction(self.binding, change)
         try:
             response = self._client.transact_write_items(**request)
@@ -557,7 +666,7 @@ class DynamoDBStore:
             )
         return WriteResult("COMMITTED", change.expected.digest(), change.replacement.digest())
 
-    def read_document(self, sk: str) -> bytes | None:
+    def _read_base_document(self, sk: str) -> bytes | None:
         self._identity()
         k = _append_key(self.binding, sk)
         try:
@@ -628,6 +737,25 @@ class DynamoDBStore:
             raise
         except Exception:
             raise Refusal("UNAVAILABLE") from None
+
+    def read_document(self, sk: str) -> bytes | None:
+        if sk.startswith("RESOURCE#"):
+            _append_key(self.binding, sk)
+            _, _, resources = self.read_inventory()
+            for resource in resources:
+                identity = digest(
+                    canonical(
+                        {
+                            "scope": resource.scope.to_wire(),
+                            "resource_kind": "task",
+                            "provider_resource_id": resource.provider_resource_id,
+                        }
+                    )
+                )
+                if sk == "RESOURCE#task#" + identity:
+                    return resource.canonical_bytes()
+            return None
+        return self._read_base_document(sk)
 
     @staticmethod
     def _journal(row: dict[str, Any], wire: bytes) -> c.JournalObservation:
@@ -733,47 +861,241 @@ class DynamoDBStore:
         except Exception:
             raise Refusal("UNAVAILABLE") from None
 
-    def read_inventory(
-        self,
-    ) -> tuple[Document, tuple[c.JournalObservation, ...], tuple[c.ManagedResource, ...]]:
-        """Strong complete manifested journal/resource inventory under stable ROOT.
+    def _stage_views(
+        self, root: Document, rows: tuple[dict[str, Any], ...], journals: tuple[c.JournalObservation, ...]
+    ) -> dict[str, _StageView]:
+        """Verify every physical staging row; partial prefixes never enter the resource projection."""
+        grouped: dict[str, dict[str, dict[str, Any]]] = {}
+        physical = {row["SK"]: row for row in rows}
+        journal_map = {j.external_operation_id: j for j in journals}
+        revisions: set[int] = set()
+        for row in rows:
+            sk = row["SK"]
+            if sk.startswith(("STAGE#", "PUBLICATION#")):
+                parts = sk.split("#")
+                scalar("Sha256", parts[1])
+                grouped.setdefault(parts[1], {})[sk] = row
+        result = {}
+        for publication, members in grouped.items():
 
-        Raw physical pagination is not sufficient to sign a control observation.
-        Every journal body/chunk is reassembled, pending and revision sums are
-        matched, all managed bytes are checked, and ROOT is reread after all reads.
-        The independent observer still authenticates provider and causal evidence.
-        """
+            def sk(kind: str, publication_id: str = publication, **kwargs: Any) -> str:
+                return storage.staging_key(self.binding.control_scope_id, publication_id, kind, **kwargs)[
+                    "SK"
+                ]
+
+            manifest = _record(present(members.get(sk("MANIFEST")), "UNAVAILABLE"), "PublicationManifest")
+            m = manifest.value()
+            require(
+                manifest.digest() == publication
+                and m["scope"] == parse_wire(self.binding.scope_wire)
+                and m["control_scope_id"] == self.binding.control_scope_id
+                and m["table_identity_sha256"] == self.binding.identity_digest(),
+                "SCOPE_REFUSED",
+            )
+            expected = []
+            resource_by_key = {}
+            for resource in m["resources"]:
+                resource_by_key[resource["logical_key"]] = resource
+                for ordinal, h in enumerate(resource["chunk_sha256s"]):
+                    expected.append(
+                        (
+                            sk("RESOURCE", resource=resource["logical_key"].split("#")[2], ordinal=ordinal),
+                            resource,
+                            ordinal,
+                            h,
+                        )
+                    )
+            require(len(expected) <= 80)
+            steps: list[Document] = []
+            fragments: dict[str, Document] = {}
+            seen = {sk("MANIFEST")}
+            cursor = 0
+            previous = None
+            prior_revision = m["anchor_root_revision"]
+            for ordinal in range(80):
+                step_row = members.get(sk("STEP", ordinal=ordinal))
+                if step_row is None:
+                    break
+                step = _record(step_row, "StageStepReceipt")
+                v = step.value()
+                require(
+                    v["scope"] == m["scope"]
+                    and v["publication_sha256"] == publication
+                    and v["ordinal"] == ordinal
+                    and v["previous_step_sha256"] == previous
+                )
+                require(
+                    v["expected_root_revision"] >= prior_revision
+                    and v["replacement_root_revision"] <= root.value()["revision"]
+                )
+                if ordinal == 0:
+                    require(v["expected_root_revision"] == m["anchor_root_revision"])
+                elif v["expected_root_revision"] == prior_revision:
+                    require(v["expected_root_sha256"] == steps[-1].value()["replacement_root_sha256"])
+                require(v["replacement_root_revision"] not in revisions)
+                revisions.add(v["replacement_root_revision"])
+                selected = expected[cursor : cursor + len(v["fragment_keys"])]
+                require([x[0] for x in selected] == v["fragment_keys"])
+                for (fragment_key, resource, index, h), fragment_hash in zip(
+                    selected, v["fragment_sha256s"], strict=True
+                ):
+                    row = present(members.get(fragment_key), "UNAVAILABLE")
+                    exact(row, "PK SK " + storage.STAGING_FIELDS["StageFragment"])
+                    raw = row["bytes"]
+                    fragment = Document.create(
+                        "StageFragment",
+                        {
+                            **{k: value for k, value in row.items() if k not in {"PK", "SK", "bytes"}},
+                            "bytes": encode64(raw),
+                        },
+                    )
+                    f = fragment.value()
+                    require(
+                        f["scope"] == m["scope"]
+                        and f["publication_sha256"] == publication
+                        and f["resource_identity_sha256"] == resource["logical_key"].split("#")[2]
+                        and f["ordinal"] == index
+                        and f["chunk_sha256"] == h
+                        and fragment.digest() == fragment_hash
+                    )
+                    expected_size = min(CHUNK_BYTES, resource["body_bytes"] - index * CHUNK_BYTES)
+                    require(len(raw) == expected_size)
+                    fragments[fragment_key] = fragment
+                    seen.add(fragment_key)
+                require(_step_request(v).digest() == v["request_sha256"])
+                seen.add(sk("STEP", ordinal=ordinal))
+                cursor += len(selected)
+                steps.append(step)
+                previous, prior_revision = step.digest(), v["replacement_root_revision"]
+            require(bool(steps), "UNAVAILABLE")
+            resources = {}
+            if cursor == len(expected):
+                for logical_key, resource in resource_by_key.items():
+                    chunks = tuple(
+                        storage.decode64(
+                            fragments[sk("RESOURCE", resource=logical_key.split("#")[2], ordinal=i)].value()[
+                                "bytes"
+                            ]
+                        )
+                        for i in range(len(resource["chunk_sha256s"]))
+                    )
+                    wire = b"".join(chunks)
+                    require(
+                        len(wire) == resource["body_bytes"] and digest(wire) == resource["replacement_sha256"]
+                    )
+                    control.DocumentUpdate(logical_key, None, wire)
+                    require(c.parse("ManagedResource", wire).scope.to_wire() == m["scope"], "SCOPE_REFUSED")
+                    resources[logical_key] = wire
+            published = (
+                _record(members[sk("PUBLICATION")], "PublicationReceipt")
+                if sk("PUBLICATION") in members
+                else None
+            )
+            fenced = _record(members[sk("FENCED")], "StageFenceReceipt") if sk("FENCED") in members else None
+            require(not (published and fenced), "REQUEST_CONFLICT")
+            for marker, kind in ((published, "PUBLICATION"), (fenced, "FENCED")):
+                if marker is None:
+                    continue
+                v = marker.value()
+                require(
+                    v["scope"] == m["scope"]
+                    and v["publication_sha256"] == publication
+                    and prior_revision <= v["expected_root_revision"]
+                    and v["committed_root_revision"] <= root.value()["revision"]
+                    and v["committed_root_revision"] not in revisions
+                )
+                if v["expected_root_revision"] == prior_revision:
+                    require(v["expected_root_sha256"] == steps[-1].value()["replacement_root_sha256"])
+                revisions.add(v["committed_root_revision"])
+                seen.add(sk(kind))
+            journal = present(journal_map.get(m["journal_operation_id"]), "UNAVAILABLE")
+            intent_row = physical["INTENT#" + m["journal_operation_id"]]
+            require(intent_row["revision"] >= m["intent_record_revision_before"])
+            if intent_row["revision"] == m["intent_record_revision_before"]:
+                require(journal.digest() == m["journal_before_sha256"])
+            if published is not None:
+                v = published.value()
+                require(
+                    cursor == len(expected)
+                    and v["step_count"] == len(steps)
+                    and v["last_step_sha256"] == steps[-1].digest()
+                )
+                storage.same(v, m, "journal_after_sha256 outcome_sha256 registry_after_sha256")
+                require(
+                    journal.state == "SETTLED"
+                    and journal.digest() == m["journal_after_sha256"]
+                    and intent_row["revision"] == m["intent_record_revision_after"]
+                )
+                outcome = present(physical.get(m["outcome_key"]), "UNAVAILABLE")
+                exact(outcome, "PK SK document_bytes document_sha256")
+                require(
+                    outcome["document_bytes"] == journal.canonical_bytes()
+                    and outcome["document_sha256"] == m["outcome_sha256"]
+                )
+            require(seen == set(members), "UNAVAILABLE")
+            result[publication] = _StageView(manifest, tuple(steps), fragments, resources, published, fenced)
+        return result
+
+    def _inventory(
+        self,
+    ) -> tuple[
+        Document,
+        tuple[dict[str, Any], ...],
+        tuple[c.JournalObservation, ...],
+        tuple[c.ManagedResource, ...],
+        dict[str, _StageView],
+    ]:
         before, rows = self.read_complete()
         journals = []
-        resources = []
+        resources: dict[str, bytes] = {}
         revision_sum = 0
+        legacy = [row for row in rows if not row["SK"].startswith(("STAGE#", "PUBLICATION#"))]
         expected_chunks = {
             key(self.binding.control_scope_id, row["SK"].split("#")[0], row["SK"].split("#")[1], ordinal=i)[
                 "SK"
             ]
-            for row in rows
+            for row in legacy
             if "body_chunk_count" in row
             for i in range(row["body_chunk_count"])
         }
-        require(expected_chunks == {row["SK"] for row in rows if "#BODY#" in row["SK"]}, "UNAVAILABLE")
-        for row in rows:
+        require(expected_chunks == {row["SK"] for row in legacy if "#BODY#" in row["SK"]}, "UNAVAILABLE")
+        for row in legacy:
             sk = row["SK"]
-            if sk.startswith("INTENT#") and "#BODY#" not in sk:
-                wire = present(self.read_document(sk), "UNAVAILABLE")
+            if sk == "ROOT" or "#BODY#" in sk:
+                continue
+            require(_append_key(self.binding, sk) == {"PK": row["PK"], "SK": sk})
+            wire = present(self._read_base_document(sk), "UNAVAILABLE")
+            if sk.startswith("INTENT#"):
                 journals.append(self._journal(row, wire))
                 revision_sum += row["revision"]
-            elif sk.startswith("RESOURCE#task#"):
-                resource = c.parse("ManagedResource", present(self.read_document(sk), "UNAVAILABLE"))
-                identity = {
-                    "scope": resource.scope.to_wire(),
-                    "resource_kind": "task",
-                    "provider_resource_id": resource.provider_resource_id,
-                }
-                require(sk == "RESOURCE#task#" + digest(canonical(identity)), "PRECONDITION_MISMATCH")
+            elif sk.startswith("RESOURCE#"):
+                require(sk.startswith("RESOURCE#task#"))
+                control.DocumentUpdate(sk, None, wire)
+                resource = c.parse("ManagedResource", wire)
                 require(resource.scope.canonical_bytes() == self.binding.scope_wire, "SCOPE_REFUSED")
-                resources.append(resource)
+                resources[sk] = wire
         journals.sort(key=lambda j: j.external_operation_id)
-        resources.sort(key=lambda r: r.provider_resource_id)
+        views = self._stage_views(before, rows, tuple(journals))
+        published = sorted(
+            (v for v in views.values() if v.published is not None),
+            key=lambda v: present(v.published).value()["committed_root_revision"],
+        )
+        for view in published:
+            for delta in view.manifest.value()["resources"]:
+                old = resources.get(delta["logical_key"])
+                require(
+                    (digest(old) if old is not None else None) == delta["expected_sha256"],
+                    "PRECONDITION_MISMATCH",
+                )
+                wire = view.resources[delta["logical_key"]]
+                control.DocumentUpdate(delta["logical_key"], old, wire)
+                resources[delta["logical_key"]] = wire
+        managed = tuple(
+            sorted(
+                (c.parse("ManagedResource", wire) for wire in resources.values()),
+                key=lambda r: r.provider_resource_id,
+            )
+        )
         value = before.value()
         pending = [
             j.external_operation_id
@@ -785,11 +1107,474 @@ class DynamoDBStore:
             "PENDING_UNKNOWN",
         )
         require(
-            digest(canonical([r.to_wire() for r in resources])) == value["managed_registry_sha256"],
+            digest(canonical([r.to_wire() for r in managed])) == value["managed_registry_sha256"],
             "PENDING_UNKNOWN",
         )
         require(self.read_root().wire == before.wire, "PRECONDITION_MISMATCH")
-        return before, tuple(journals), tuple(resources)
+        return before, rows, tuple(journals), managed, views
+
+    def read_inventory(
+        self,
+    ) -> tuple[Document, tuple[c.JournalObservation, ...], tuple[c.ManagedResource, ...]]:
+        root, _, journals, resources, _ = self._inventory()
+        return root, journals, resources
+
+    def read_publication(self, publication_sha256: str) -> storage.PublicationReadResult:
+        scalar("Sha256", publication_sha256)
+        root, _, _, _, views = self._inventory()
+        view = views.get(publication_sha256)
+        if view is None:
+            return storage.PublicationReadResult("UNRESOLVED", publication_sha256, root.digest(), 0, 0, 0)
+        expected = sum(len(r["chunk_sha256s"]) for r in view.manifest.value()["resources"])
+        kind = (
+            "PUBLISHED"
+            if view.published
+            else "FENCED"
+            if view.fenced
+            else "STAGED"
+            if len(view.fragments) == expected
+            else "UNRESOLVED"
+        )
+        return storage.PublicationReadResult(
+            kind, publication_sha256, root.digest(), len(view.steps), expected, len(view.fragments)
+        )
+
+    def _submit(self, request: dict[str, Any]) -> str:
+        """One submission, no token/retry; only a complete cancellation proves conflict."""
+        self._identity()
+        try:
+            response = self._client.transact_write_items(**request)
+            require(
+                type(response) is dict and response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 200,
+                "UNAVAILABLE",
+            )
+        except Exception as exc:
+            error_response = getattr(exc, "response", None)
+            reasons = error_response.get("CancellationReasons") if isinstance(error_response, dict) else None
+            conflict = (
+                isinstance(error_response, dict)
+                and error_response.get("Error", {}).get("Code") == "TransactionCanceledException"
+                and isinstance(reasons, list)
+                and len(reasons) == len(request["TransactItems"])
+                and all(
+                    isinstance(r, dict) and r.get("Code") in {"None", "ConditionalCheckFailed"}
+                    for r in reasons
+                )
+                and any(r.get("Code") == "ConditionalCheckFailed" for r in reasons)
+            )
+            return "CONFLICT" if conflict else "UNKNOWN"
+        return "COMMITTED"
+
+    def _absent_marker(self, publication: str, kind: str) -> dict[str, Any]:
+        return {
+            "ConditionCheck": {
+                "TableName": self.binding.table_arn,
+                "Key": item(storage.staging_key(self.binding.control_scope_id, publication, kind)),
+                "ConditionExpression": "attribute_not_exists(PK) AND attribute_not_exists(SK)",
+            }
+        }
+
+    @staticmethod
+    def _same_snapshot(
+        pair: control.ObservationPair,
+        journals: tuple[c.JournalObservation, ...],
+        resources: tuple[c.ManagedResource, ...],
+    ) -> None:
+        require(
+            tuple(pair.control.payload.journal) == journals
+            and tuple(pair.control.payload.managed_resources) == resources,
+            "PRECONDITION_MISMATCH",
+        )
+
+    def _prepare_settlement(
+        self,
+        root: Document,
+        journal: c.JournalObservation,
+        settlement: c.Settlement,
+        pair: control.ObservationPair,
+        now_ms: int,
+        managed: tuple[c.ManagedResource, ...],
+        qualification: control.JournalQualification | None,
+        recovery_intent: storage.RecoveryStopTaskIntent | None,
+        publication: str | None,
+    ) -> tuple[Transition, Document, tuple[dict[str, Any], ...], dict[str, _StageView]]:
+        actual, rows, journals, resources, views = self._inventory()
+        require(actual.wire == root.wire, "PRECONDITION_MISMATCH")
+        self._same_snapshot(pair, journals, resources)
+        r = root.value()
+        view = views.get(publication) if publication is not None else None
+        if publication is not None:
+            scalar("Sha256", publication)
+            view = present(view, "UNAVAILABLE")
+            require(view.published is None and view.fenced is None, "PRECONDITION_MISMATCH")
+            prior = view.manifest.value()
+            require(
+                prior["semantic_root_sha256"] == storage.semantic_root_digest(root)
+                and prior["anchor_root_revision"] < r["revision"],
+                "PRECONDITION_MISMATCH",
+            )
+            require(now_ms < prior["captured_lease_deadline_ms"], "STALE_EPOCH")
+            pair = replace(
+                pair,
+                deadline_ms=min(
+                    pair.deadline_ms, prior["captured_lease_deadline_ms"], r["lease_deadline_ms"]
+                ),
+            )
+        for other_id, other in views.items():
+            other_owner = other.manifest.value()
+            if (
+                other_id != publication
+                and other.published is None
+                and other.fenced is None
+                and all(other_owner[k] == r[k] for k in ("owner_subject", "run_id", "epoch"))
+            ):
+                raise Refusal("PENDING_UNKNOWN")
+        _, change = control.settle(
+            root,
+            journal,
+            settlement,
+            pair,
+            now_ms,
+            managed,
+            qualification=qualification,
+            recovery_intent=recovery_intent,
+        )
+        require(1 <= len(change.documents) <= 10 and len(change.journals) == len(change.append) == 1)
+        intent_row = next(
+            (row for row in rows if row["SK"] == "INTENT#" + journal.external_operation_id), None
+        )
+        intent_row = present(intent_row, "UNAVAILABLE")
+        require(
+            self._journal(intent_row, present(self._read_base_document(intent_row["SK"]))).canonical_bytes()
+            == journal.canonical_bytes(),
+            "PRECONDITION_MISMATCH",
+        )
+        deltas = []
+        for delta in sorted(change.documents, key=lambda d: d.key):
+            require(delta.key.startswith("RESOURCE#task#"))
+            chunks = ChunkSet.split(delta.replacement_wire)
+            deltas.append(
+                {
+                    "logical_key": delta.key,
+                    "expected_sha256": digest(delta.expected_wire)
+                    if delta.expected_wire is not None
+                    else None,
+                    "replacement_sha256": digest(delta.replacement_wire),
+                    "body_bytes": len(delta.replacement_wire),
+                    "chunk_sha256s": list(chunks.hashes),
+                }
+            )
+        new = change.replacement.value()
+        manifest = Document.create(
+            "PublicationManifest",
+            {
+                "protocol": storage.STAGING_PROTOCOLS["PublicationManifest"],
+                **{k: r[k] for k in ("scope", "control_scope_id", "owner_subject", "run_id", "epoch")},
+                "table_identity_sha256": self.binding.identity_digest(),
+                "anchor_root_revision": view.manifest.value()["anchor_root_revision"]
+                if view
+                else r["revision"],
+                "semantic_root_sha256": storage.semantic_root_digest(root),
+                "captured_lease_deadline_ms": view.manifest.value()["captured_lease_deadline_ms"]
+                if view
+                else r["lease_deadline_ms"],
+                "journal_operation_id": journal.external_operation_id,
+                "journal_before_sha256": journal.digest(),
+                "journal_after_sha256": change.journals[0].replacement.digest(),
+                "root_journal_revision_before": r["journal_revision"],
+                "root_journal_revision_after": new["journal_revision"],
+                "intent_record_revision_before": intent_row["revision"],
+                "intent_record_revision_after": intent_row["revision"] + 1,
+                "outcome_key": change.append[0][0],
+                "outcome_sha256": digest(change.append[0][1]),
+                "pending_before_sha256": r["pending_index_sha256"],
+                "pending_after_sha256": new["pending_index_sha256"],
+                "registry_before_sha256": r["managed_registry_sha256"],
+                "registry_after_sha256": new["managed_registry_sha256"],
+                "resources": deltas,
+            },
+        )
+        if view is not None:
+            require(manifest.wire == view.manifest.wire, "REQUEST_CONFLICT")
+        require(self.read_root().wire == root.wire, "PRECONDITION_MISMATCH")
+        return change, manifest, rows, views
+
+    def stage_settlement(
+        self,
+        root: Document,
+        journal: c.JournalObservation,
+        settlement: c.Settlement,
+        pair: control.ObservationPair,
+        now_ms: int,
+        managed: tuple[c.ManagedResource, ...],
+        *,
+        qualification: control.JournalQualification | None = None,
+        recovery_intent: storage.RecoveryStopTaskIntent | None = None,
+        publication_sha256: str | None = None,
+    ) -> storage.StageWriteResult:
+        change, manifest, rows, views = self._prepare_settlement(
+            root,
+            journal,
+            settlement,
+            pair,
+            now_ms,
+            managed,
+            qualification,
+            recovery_intent,
+            publication_sha256,
+        )
+        publication = manifest.digest()
+        view = views.get(publication)
+        fragments: list[tuple[dict[str, Any], Document]] = []
+        for delta in sorted(change.documents, key=lambda d: d.key):
+            chunks = ChunkSet.split(delta.replacement_wire)
+            for ordinal, raw in enumerate(chunks.chunks):
+                fields = {
+                    "protocol": storage.STAGING_PROTOCOLS["StageFragment"],
+                    "scope": root.value()["scope"],
+                    "publication_sha256": publication,
+                    "resource_identity_sha256": delta.key.split("#")[2],
+                    "ordinal": ordinal,
+                    "bytes": encode64(raw),
+                    "chunk_sha256": chunks.hashes[ordinal],
+                }
+                fragment = Document.create("StageFragment", fields)
+                row = {
+                    **storage.staging_key(
+                        self.binding.control_scope_id,
+                        publication,
+                        "RESOURCE",
+                        resource=fields["resource_identity_sha256"],
+                        ordinal=ordinal,
+                    ),
+                    **fields,
+                    "bytes": raw,
+                }
+                fragments.append((row, fragment))
+        count_before = len(view.fragments) if view else 0
+        ordinal = len(view.steps) if view else 0
+        require(count_before < len(fragments) and ordinal < 80, "PRECONDITION_MISMATCH")
+        replacement = control._replacement(root)
+        best: tuple[dict[str, Any], Document, int] | None = None
+        for count in range(1, min(8 if view is None else 9, len(fragments) - count_before) + 1):
+            selected = fragments[count_before : count_before + count]
+            step_value = {
+                "protocol": storage.STAGING_PROTOCOLS["StageStepReceipt"],
+                "scope": root.value()["scope"],
+                "publication_sha256": publication,
+                "ordinal": ordinal,
+                "previous_step_sha256": view.steps[-1].digest() if view else None,
+                "expected_root_sha256": root.digest(),
+                "replacement_root_sha256": replacement.digest(),
+                "expected_root_revision": root.value()["revision"],
+                "replacement_root_revision": replacement.value()["revision"],
+                "fragment_keys": [row["SK"] for row, _ in selected],
+                "fragment_sha256s": [doc.digest() for _, doc in selected],
+            }
+            step_value["request_sha256"] = _step_request(step_value).digest()
+            step = Document.create("StageStepReceipt", step_value)
+            actions = [_root_cas(self.binding, root, replacement)]
+            if view is None:
+                actions.append(
+                    _absent_put(
+                        self.binding,
+                        _record_row(
+                            storage.staging_key(self.binding.control_scope_id, publication, "MANIFEST"),
+                            manifest,
+                        ),
+                    )
+                )
+            actions += [
+                _absent_put(
+                    self.binding,
+                    _record_row(
+                        storage.staging_key(
+                            self.binding.control_scope_id, publication, "STEP", ordinal=ordinal
+                        ),
+                        step,
+                    ),
+                ),
+                self._absent_marker(publication, "FENCED"),
+            ]
+            actions.extend(_absent_put(self.binding, row) for row, _ in selected)
+            if len(rows) + count + (2 if view is None else 1) > MAX_INVENTORY:
+                break
+            try:
+                request = _package(actions)
+            except Refusal:
+                break
+            best = request, step, count
+        request, step, count = present(best, "UNAVAILABLE")
+        status = self._submit(request)
+        kind = (
+            ("STAGED" if count_before + count == len(fragments) else "PROGRESS")
+            if status == "COMMITTED"
+            else status
+        )
+        return storage.StageWriteResult(
+            kind, publication, ordinal, step.digest(), root.digest(), replacement.digest()
+        )
+
+    def publish_settlement(
+        self,
+        root: Document,
+        journal: c.JournalObservation,
+        settlement: c.Settlement,
+        pair: control.ObservationPair,
+        now_ms: int,
+        managed: tuple[c.ManagedResource, ...],
+        *,
+        publication_sha256: str,
+        qualification: control.JournalQualification | None = None,
+        recovery_intent: storage.RecoveryStopTaskIntent | None = None,
+    ) -> storage.PublicationWriteResult:
+        change, manifest, rows, views = self._prepare_settlement(
+            root,
+            journal,
+            settlement,
+            pair,
+            now_ms,
+            managed,
+            qualification,
+            recovery_intent,
+            publication_sha256,
+        )
+        view = views[publication_sha256]
+        require(len(view.resources) == len(manifest.value()["resources"]), "UNAVAILABLE")
+        for delta in change.documents:
+            require(view.resources.get(delta.key) == delta.replacement_wire, "REQUEST_CONFLICT")
+        before = next(row for row in rows if row["SK"] == "INTENT#" + journal.external_operation_id)
+        after = dict(before)
+        after["revision"] = manifest.value()["intent_record_revision_after"]
+        after.update(
+            {
+                k: change.journals[0].replacement.to_wire()[k]
+                for k in (
+                    "state",
+                    "reservation",
+                    "provider_outcome",
+                    "settlement",
+                    "cancellation_unsent_proof",
+                )
+            }
+        )
+        receipt = Document.create(
+            "PublicationReceipt",
+            {
+                "protocol": storage.STAGING_PROTOCOLS["PublicationReceipt"],
+                "scope": root.value()["scope"],
+                "publication_sha256": publication_sha256,
+                "last_step_sha256": view.steps[-1].digest(),
+                "step_count": len(view.steps),
+                "expected_root_sha256": root.digest(),
+                "replacement_root_sha256": change.replacement.digest(),
+                "expected_root_revision": root.value()["revision"],
+                "committed_root_revision": change.replacement.value()["revision"],
+                **{
+                    k: manifest.value()[k]
+                    for k in ("journal_after_sha256", "outcome_sha256", "registry_after_sha256")
+                },
+            },
+        )
+        outcome_key, outcome = change.append[0]
+        require(len(outcome) <= MAX_ROOT_BYTES and len(rows) + 2 <= MAX_INVENTORY)
+        request = _package(
+            [
+                _root_cas(self.binding, root, change.replacement),
+                _exact_put(self.binding, before, after),
+                _absent_put(
+                    self.binding,
+                    {
+                        **_append_key(self.binding, outcome_key),
+                        "document_bytes": outcome,
+                        "document_sha256": digest(outcome),
+                    },
+                ),
+                _absent_put(
+                    self.binding,
+                    _record_row(
+                        storage.staging_key(self.binding.control_scope_id, publication_sha256, "PUBLICATION"),
+                        receipt,
+                    ),
+                ),
+                self._absent_marker(publication_sha256, "FENCED"),
+            ]
+        )
+        return storage.PublicationWriteResult(
+            self._submit(request), publication_sha256, root.digest(), change.replacement.digest()
+        )
+
+    def fence_staging(
+        self,
+        publication_sha256: str,
+        root: Document,
+        pair: control.ObservationPair,
+        now_ms: int,
+        *,
+        qualification: control.JournalQualification | None = None,
+    ) -> storage.FenceWriteResult:
+        scalar("Sha256", publication_sha256)
+        actual, rows, journals, resources, views = self._inventory()
+        require(actual.wire == root.wire, "PRECONDITION_MISMATCH")
+        pair.current(root, now_ms)
+        self._same_snapshot(pair, journals, resources)
+        view = present(views.get(publication_sha256), "UNAVAILABLE")
+        require(view.published is None and view.fenced is None, "PRECONDITION_MISMATCH")
+        journal = next(
+            j for j in journals if j.external_operation_id == view.manifest.value()["journal_operation_id"]
+        )
+        evidence = Document.create(
+            "FenceQualificationEvidence",
+            {
+                "protocol": storage.STAGING_PROTOCOLS["FenceQualificationEvidence"],
+                "publication_sha256": publication_sha256,
+                "root_sha256": root.digest(),
+                "observation_pair_sha256": pair.digest(),
+                "reason": "ABANDON_UNPUBLISHED_STORAGE_STAGE",
+            },
+        )
+        present(qualification, "UNAVAILABLE").check(
+            operation="fence_staging",
+            root_wire=root.wire,
+            journal_wire=journal.canonical_bytes(),
+            evidence_wire=evidence.wire,
+            deadline_ms=min(pair.deadline_ms, root.value()["lease_deadline_ms"]),
+        )
+        replacement = control._replacement(root)
+        r = root.value()
+        receipt = Document.create(
+            "StageFenceReceipt",
+            {
+                "protocol": storage.STAGING_PROTOCOLS["StageFenceReceipt"],
+                "scope": r["scope"],
+                "publication_sha256": publication_sha256,
+                "fencing_owner_subject": r["owner_subject"],
+                "fencing_run_id": r["run_id"],
+                "fencing_epoch": r["epoch"],
+                "expected_root_sha256": root.digest(),
+                "replacement_root_sha256": replacement.digest(),
+                "expected_root_revision": r["revision"],
+                "committed_root_revision": replacement.value()["revision"],
+                "reason": "ABANDON_UNPUBLISHED_STORAGE_STAGE",
+            },
+        )
+        require(len(rows) + 1 <= MAX_INVENTORY)
+        request = _package(
+            [
+                _root_cas(self.binding, root, replacement),
+                _absent_put(
+                    self.binding,
+                    _record_row(
+                        storage.staging_key(self.binding.control_scope_id, publication_sha256, "FENCED"),
+                        receipt,
+                    ),
+                ),
+                self._absent_marker(publication_sha256, "PUBLICATION"),
+            ]
+        )
+        return storage.FenceWriteResult(
+            self._submit(request), publication_sha256, root.digest(), replacement.digest()
+        )
 
     def read_owner_lineage(
         self,
