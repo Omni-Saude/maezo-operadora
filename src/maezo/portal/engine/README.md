@@ -212,3 +212,81 @@ SP-OP-AUTH-001, SP-OP-ESCALATION-001, SP-OP-PAGTO-001. Audit findings
 and `lgpd-negar-fundamentado-classified-neutral` remain no-repeat references; this
 package does not alter the audit chain, introduce a denial route or classify a
 clinical decision as technical success.
+
+### Q2 private employee reads (source construction; operational qualification pending)
+
+The additive `PortalReadPlugin` and `PortalReadServlet` implement the reviewed Q2
+snapshot continuity contract. The exact private routes are POST
+`/maezo-human-read/v1/{catalog,discover,task,authority,disclosure,publications}`.
+They require direct Tomcat mutual TLS, a separately pinned Ed25519 purpose and a
+current installed admission provider. They accept no generic REST filters, browser
+credentials, forwarded certificate, command-purpose alias or caller mint request.
+The read routes perform no task, audit, receipt or projection mutation.
+
+Build this image with `--build-arg INSTALL_PORTAL_READ=true` to include the read
+webapp/plugin. The default preserves the existing human deployment. This build
+selection is **not** admission. The new plugin fails startup unless
+`MAEZO_PORTAL_READ_TRUST_FILE` points to the closed public `portal-read-trust.v1`
+configuration and exactly one deployment-owned `PortalReadTrust.Providers` SPI is
+installed. Its `META-INF/services/br.com.maezo.human.PortalReadTrust$Providers`
+registration belongs to that separately qualified provider package. No implementation
+of D admission, live source revocation, native key provisioning or organizational
+policy is fabricated here. The SPI receives the digest of the actual parsed public
+trust configuration and must compare it to the currently installed D admission; a
+caller-declared release digest alone is insufficient. No production key is included.
+
+Apply `portal-read-schema-postgres.sql` once using the deployment's dedicated
+migration identity, in the same PostgreSQL schema as CIB 2.1 and the existing human
+schema. It creates exactly six additive projection/receipt relations, revokes PUBLIC
+access, and performs no ACT schema change or role provisioning. Runtime DDL is absent.
+The engine runtime and purpose-specific admission must be qualified separately;
+sharing the engine's enlisted connection does not grant a reader publication rights.
+Database restoration requires a newly admitted incarnation before service activation.
+No retention or deletion interval is introduced.
+
+Lock order is qualified admission/native-key/source acquisition, then the existing
+human tenant row. The native command derives task rows, candidate identity-link
+IDs/revisions, membership/resource observations, evidence and catalog designation
+from prepared SQL on the actual CIB connection. Initial and final mutable task state
+uses a single statement snapshot. Immutable deployed process/DMN bytes are checked
+against the catalog. Query preflight refuses missing, stale or unsupported sources;
+keyset SQL applies the complete positive ACL and same-membership role/group test
+before its `limit + 1`. Team includes assigned tasks. No OFFSET, count, fallback
+empty page or scan-and-filter continuation exists.
+
+`task` returns full original wire bytes plus native-only HMAC-SHA256 CT. `authority`
+verifies CT and current state, retains original snapshot time, and returns CA bound
+to full principal/authority/CT. `disclosure` verifies both chains and returns the
+original snapshot. All contributing deadlines survive in the commitment. The
+native key provider must be independently provisioned and locally live-checked.
+COMMITTING re-reads state and checks retained leases after bounded response bytes
+are constructed; no success leaves the servlet before successful transaction
+completion and the final local lifetime guard. This is a bounded observation, not
+a globally serializable queue or a claim that timers cannot change afterward.
+
+The publisher authenticates a distinct purpose and kind/namespace-scoped key,
+compares a qualified committed source observation, CASes the tenant revision and
+stores an exact publication receipt in the same transaction. Resource publication
+uses an actual task force-update fence and reads the accepted revision after normal
+engine flush at COMMITTING. No predicted `n + 1` task revision is stored. Exact replay
+under current authentication returns the original committed receipt; a conflicting
+body refuses. Revocation tombstones cannot be cleared by old publication or restore.
+
+Focused reproduction (no services):
+
+```sh
+mvn -o -f src/maezo/portal/engine/java/pom.xml -Dtest=PortalReadProfileTest test
+mvn -o -f src/maezo/portal/engine/java/pom.xml -DskipTests test-compile
+```
+
+ROOT's exclusive real-engine lane runs `PortalReadEngineIT` and
+`PortalReadPublisherEngineIT` with `MAEZO_HUMAN_IT_JDBC_URL`, dedicated test DB user
+and secret, and `MAEZO_PORTAL_READ_IT_REPO` pointing at this exact checkout. The
+fixtures create/drop only their random test schema, deploy unchanged AUTH and
+ESCALATION BPMN plus actual DMN, and start before the selected user task after real
+DMN evaluation. Their policy receipts, role, identity data and keys are explicitly
+PUBLIC_SYNTHETIC technical fixtures, not source designation or clinical approval.
+Absent configuration fails these tests; compilation is not engine evidence.
+`tests/integration/test_portal_engine_reads.py` separately requires an actual
+packaged Tomcat mTLS deployment and Q1 BFF session. Neither live lane was run by the
+source author. Source/provider/admission qualification remains a deployment gate.

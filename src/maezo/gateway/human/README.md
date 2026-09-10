@@ -151,3 +151,56 @@ de banco de testes (`MAEZO_TEST_DATABASE_URL` ou compose/`MAEZO_PG_HOST_PORT`).
 O ROOT executa essa lane serialmente; ela não prova uma jornada HTTP/CIB real.
 O plugin Java ainda recusa todos os bindings reais, inclusive claim/release;
 o fixture sintético D5 não foi ativado na produção por este pacote.
+
+### Q2 concrete read adapters
+
+`engine_reads.py` composes the exact Q1 catalog/query/task/authority/disclosure ports
+with `PortalReadClient` and `AeadQueueCursorCustody`. `EngineReadComposition.build`
+allocates a fresh private bundle per BFF request; `create_app` accepts this explicit
+composition and rejects an ambiguous simultaneous service factory. Existing Q1
+routes, public records, final response guard, command credentials and admission
+ports are unchanged. Read and publication signing capabilities are separate from
+those existing command ports and never borrow their signers.
+
+Supply qualified `ReadCredentialProvider`, `ReadDeploymentAdmission` and
+`QueueCursorKeyProvider` implementations through gateway composition. Each private
+bundle owns a random context, its immutable task/authority bytes and CT/CA chain,
+and no more than 101 row slots. Reserve occurs before await. Equal Q1 revalidated
+copies match canonical bytes; duplicate, foreign, changed, incomplete or failed
+chains poison the bundle. No receipt/context/key material enters the public DTO or
+cursor. Supply one reusable HTTP transport pool to the explicit composition and
+borrow it in every request client. The application lifespan closes that pool through
+the composition; closing a request client cannot close another request's pool.
+Clients have separate cookie-free contexts and every stream is bounded/closed before
+a port returns. Do not reuse a bundle between requests.
+
+`queue_cursor.py` uses the pinned cryptography AESGCMSIV implementation with a
+provisioned 256-bit key capability, random 12-byte nonce, scoped 16-byte tag, strict
+encoding and complete binding/context AAD. A provisional token retains input and
+key/admission limits. `finalize` performs no I/O; it authenticates and re-encrypts
+with the exact shorter final deadline. A later resolve enforces the sealed deadline.
+There is no local key generator, TTL default, stored permission boolean or no-op
+metadata finalizer in production code.
+
+`read_publisher.py` consumes source-owned snapshots. Membership reads the actual
+uncached `PostgresIdentityStore` port under a separately qualified freeze/commit
+handshake and preserves tuple identity, revision and review expiry. The publisher
+keeps one exact uncertain publication for reconciliation; it neither refreshes
+facts nor advances CAS after a lost acknowledgement. Only a matching native commit
+receipt releases upstream acknowledgement. Dedicated read-only DB identity and
+invalidation handshake qualification are required; the existing independent
+identity put/delete methods do not supply them.
+
+Concrete resource policy/consent/full-projection classification, committed deployment
+catalog authority and PAGTO evidence-content providers are external gaps. Their
+closed interfaces, native receiver, transport, CAS and rejection paths are built;
+no canned positive provider is installed. Native read capability and native-only
+HMAC key provisioning also remain unbound until separately qualified. Missing
+providers refuse activation and do not constitute a delivered live queue.
+
+Run the five new `tests/unit/portal/test_{read_engine_profile,read_engine_transport,
+engine_queue_adapters,queue_cursor_custody,read_authority_publisher}.py` files with
+the existing qualified Python environment, `PYTHONDONTWRITEBYTECODE=1`, `PYTHONPATH=src`
+and pytest cache disabled. These synthetic controls prove local protocol/custody
+behavior only. Actual engine, PostgreSQL, packaged mTLS and browser evidence are
+separate ROOT gates; no skipped or merely compiled integration test counts as PASS.

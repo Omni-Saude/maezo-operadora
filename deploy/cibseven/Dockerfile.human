@@ -12,9 +12,19 @@ RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war
     && test ! -e /camunda/webapps/camunda-invoice.war
 COPY --from=human-build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar
 COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
+# Explicit image composition only; this flag installs no read authority.
+ARG INSTALL_PORTAL_READ=false
+COPY deploy/cibseven/read-webapp /tmp/maezo-human-read
 # Modify the existing Tomcat descriptor; do not substitute CIB Run config.
 RUN test -f /camunda/conf/bpm-platform.xml \
     && sed -i 's|<plugins>|<plugins><plugin><class>br.com.maezo.human.HumanCommandPlugin</class></plugin>|' /camunda/conf/bpm-platform.xml \
     && grep -q 'br.com.maezo.human.HumanCommandPlugin' /camunda/conf/bpm-platform.xml
+RUN case "$INSTALL_PORTAL_READ" in \
+      true) mv /tmp/maezo-human-read /camunda/webapps/maezo-human-read \
+        && sed -i 's|<plugins>|<plugins><plugin><class>br.com.maezo.human.PortalReadPlugin</class></plugin>|' /camunda/conf/bpm-platform.xml \
+        && grep -q 'br.com.maezo.human.PortalReadPlugin' /camunda/conf/bpm-platform.xml ;; \
+      false) rm -r /tmp/maezo-human-read ;; \
+      *) exit 1 ;; \
+    esac
 # TLS listener/clientAuth=required and SG restriction belong to the actual deployment.
 # No HTTP, forwarded-cert, shared bearer secret, synthetic flag, or validity default.

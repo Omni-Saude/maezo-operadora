@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.config import PortalSettings
@@ -120,12 +121,17 @@ def create_app(
     store: IdentityStore | None = None,
     oidc_client: httpx.AsyncClient | None = None,
     task_read_service_factory: ReadServiceFactory | None = None,
+    engine_read_composition: EngineReadComposition | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
     try:
         config = settings or PortalSettings()  # type: ignore[call-arg]
     except ValueError:
         raise ValueError("Configuração do portal indisponível.") from None
+    if engine_read_composition is not None:
+        if task_read_service_factory is not None:
+            raise ValueError("Composição de leitura ambígua.")
+        task_read_service_factory = engine_read_composition.build
     adapters = build_human_identity_adapters(config, store=store, oidc_client=oidc_client)
     store = adapters.store
     resolver = HumanSessionResolver(config, store)
@@ -141,10 +147,14 @@ def create_app(
             yield
         finally:
             try:
-                await service.authenticator.close()
-                await store.close()
-            except Exception:
-                raise RuntimeError("Encerramento da identidade indisponível.") from None
+                if engine_read_composition is not None:
+                    await engine_read_composition.close()
+            finally:
+                try:
+                    await service.authenticator.close()
+                    await store.close()
+                except Exception:
+                    raise RuntimeError("Encerramento da identidade indisponível.") from None
 
     app = FastAPI(
         title="Portal Maezo",
