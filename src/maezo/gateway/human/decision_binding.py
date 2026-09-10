@@ -368,7 +368,8 @@ class BindingConnection:
                   has_table_privilege($1,$2::oid,'SELECT') AS native_engine_select,
                   has_any_column_privilege($1,$2::oid,'SELECT') AS native_engine_column_select,
                   (has_table_privilege($1,$2::oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-                   OR has_any_column_privilege($1,$2::oid,'INSERT,UPDATE,REFERENCES')) AS native_engine_writes""",
+                   OR has_any_column_privilege($1,$2::oid,'INSERT,UPDATE,REFERENCES')) AS """
+                    "native_engine_writes",
                     d.engine_role,
                     pin.oid,
                 )
