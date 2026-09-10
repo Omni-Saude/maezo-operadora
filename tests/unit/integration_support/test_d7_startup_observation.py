@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-PACKET = Path("/Users/familia/code/maezo-completion-evidence/successor-d7-startup-stage-observation")
+PACKET = Path("/Users/familia/code/maezo-completion-evidence/strategy-cycle1-20260910/d7-repair")
 sys.path.insert(0, str(PACKET))
 import d7_startup_observation as m  # noqa: E402
 import prepare_observation as prep  # noqa: E402
@@ -365,7 +365,7 @@ class Controls(unittest.TestCase):
             result = prep.instrument(self.compose, self.root, self.project)
         self.assertNotIn("AMBIENT_CANARY", json.dumps(result))
 
-    def run_collect(self, stop_rc=0, partial=False, uncertain=False):
+    def run_collect(self, stop_rc=0, partial=False, uncertain=False, stop_error=None):
         parent = self.root / "retained"
         parent.mkdir(mode=0o700)
         c = {
@@ -401,6 +401,8 @@ class Controls(unittest.TestCase):
             if "inspect" in argv:
                 return json.dumps({m.AREA: "rw,nosuid,nodev,noexec,size=33554432,mode=0700"}).encode(), 0
             if "JFR.stop" in argv:
+                if stop_error is not None:
+                    raise stop_error
                 if uncertain:
                     e.uncertain = True
                     raise TimeoutError("PRIVATE_CANARY")
@@ -446,8 +448,16 @@ class Controls(unittest.TestCase):
     def test36_partial_retained_unavailable(self):
         state, directory, e, calls = self.run_collect(stop_rc=1, partial=True)
         self.assertEqual(state["startup_observation"]["status"], "UNAVAILABLE")
-        self.assertTrue((directory / "recording.tar").is_file())
+        # Nonzero stop completion is unknown, so no subsequent copy is admitted.
+        self.assertFalse((directory / "recording.tar").exists())
+        self.assertTrue((directory / "status").is_file())
         self.assertEqual(state["returncode"], 1)
+        self.assertTrue(e.uncertain)
+        receipt = json.loads((directory / "receipt.json").read_text())
+        self.assertTrue(receipt["daemon_uncertain"])
+        self.assertEqual(receipt["stop_returncode"], 1)
+        self.assertEqual(len(calls), 3)
+        self.assert_original_finish_refuses(e)
 
     def test37_attach_uncertainty(self):
         state, directory, e, calls = self.run_collect(uncertain=True)
@@ -508,6 +518,284 @@ class Controls(unittest.TestCase):
         with self.assertRaises(OSError):
             m.save_private(alias / "data", b"private")
         self.assertFalse((actual / "data").exists())
+
+    def assert_original_finish_refuses(self, executor):
+        """Execute the unchanged finish function, with every effect denied by mocks."""
+        import ast
+        from unittest.mock import Mock
+
+        tree = ast.parse((PACKET / "run_d7_secured_image_observed.py").read_text())
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "finish")
+        namespace = {"g": m.g, "Path": Path}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), "original-finish", "exec"), namespace)
+        runner = executor.r
+        runner._assert_execution_source = Mock()
+        docker, context, lock = Mock(), Mock(), Mock()
+        lock.owns.return_value = True
+        lock.owner = {"subprocess_quiescent": True}
+        with patch.object(m.g, "prove"), self.assertRaises(m.g.Refused):
+            namespace["finish"](
+                runner, {"private": str(self.root)}, docker, context,
+                self.root / "checkout", lock, executor=executor,
+            )
+        runner._assert_execution_source.assert_not_called()
+        self.assertEqual(docker.mock_calls, [])
+        self.assertEqual(context.mock_calls, [])
+        lock.release.assert_not_called()
+
+    def command_executor(self):
+        return Executor({"checkout": str(self.root), "parent_env": {"PATH": "/usr/bin:/bin"}})
+
+    def test41_mutating_exit_codes_gate_original_finish(self):
+        for rc in (0, 1, 2, 255):
+            with self.subTest(rc=rc):
+                e = self.command_executor()
+                with patch.object(m.g, "prove"):
+                    raw, actual = m.capture_command(
+                        e, [sys.executable, "-I", "-B", "-c", f"raise SystemExit({rc})"],
+                        2, 32, mutating=True, require_success=False,
+                    )
+                self.assertEqual((raw, actual), (b"", rc))
+                self.assertEqual(e.uncertain, rc != 0)
+                self.assertFalse(e.r._pending_groups)
+                if rc:
+                    self.assert_original_finish_refuses(e)
+
+    def test42_success_does_not_clear_prior_uncertainty(self):
+        e = self.command_executor()
+        e.uncertain = True
+        with patch.object(m.g, "prove"):
+            self.assertEqual(m.capture_command(
+                e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+            ), (b"", 0))
+        self.assertTrue(e.uncertain)
+        self.assert_original_finish_refuses(e)
+
+    def test43_postspawn_response_failure_and_cancellation(self):
+        import asyncio
+
+        for error in (OSError("PRIVATE_CANARY"), KeyboardInterrupt(), asyncio.CancelledError()):
+            with self.subTest(error=type(error).__name__):
+                e = self.command_executor()
+                with patch.object(m.g, "prove"), patch.object(
+                    m.selectors, "DefaultSelector", side_effect=error,
+                ), self.assertRaises(type(error)):
+                    m.capture_command(
+                        e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+                    )
+                self.assertTrue(e.uncertain)
+                self.assertFalse(e.r._pending_groups)
+                self.assert_original_finish_refuses(e)
+
+    def test44_mutating_timeout_refuses_finish(self):
+        e = self.command_executor()
+        with patch.object(m.g, "prove"), self.assertRaises(m.g.Refused):
+            m.capture_command(
+                e, [sys.executable, "-I", "-B", "-c", "import time; time.sleep(1)"],
+                0.03, 32, mutating=True,
+            )
+        self.assertTrue(e.uncertain)
+        self.assertFalse(e.r._pending_groups)
+        self.assert_original_finish_refuses(e)
+
+    def test45_mutating_group_uncertainty_even_after_rc0(self):
+        for result in (True, OSError("PRIVATE_CANARY")):
+            with self.subTest(group_result=type(result).__name__):
+                e = self.command_executor()
+                pids = []
+                original_record = e.r._record_pending
+
+                def record(pid, pids=pids, original_record=original_record):
+                    pids.append(pid)
+                    original_record(pid)
+
+                e.r._record_pending = record
+                try:
+                    with patch.object(m.g, "prove"), patch.object(
+                        e.r, "_group_exists", **({"side_effect": result} if isinstance(result, OSError)
+                                                else {"return_value": result}),
+                    ):
+                        if isinstance(result, OSError):
+                            with self.assertRaises(OSError):
+                                m.capture_command(e, [sys.executable, "-I", "-B", "-c", "pass"],
+                                                  2, 32, mutating=True)
+                        else:
+                            self.assertEqual(m.capture_command(
+                                e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+                            ), (b"", 0))
+                    self.assertTrue(e.uncertain)
+                    self.assert_original_finish_refuses(e)
+                finally:
+                    # Completed synthetic child; failed proof preserves pending bookkeeping.
+                    for pid in pids:
+                        self.assertFalse(e.r._group_exists(pid))
+
+    def test46_unconfirmed_spawn_failure_is_conservative(self):
+        e = self.command_executor()
+        with (
+            patch.object(m.g, "prove"), patch.object(m.subprocess, "Popen", side_effect=OSError()),
+            self.assertRaises(OSError),
+        ):
+            m.capture_command(e, ["synthetic"], 2, 32, mutating=True)
+        self.assertTrue(e.uncertain)
+        self.assert_original_finish_refuses(e)
+
+    def test47_proved_authority_rejection_never_submits(self):
+        e = self.command_executor()
+        with patch.object(m.g, "prove", side_effect=m.g.Refused("refused")), patch.object(
+            m.subprocess, "Popen",
+        ) as spawn, self.assertRaises(m.g.Refused):
+            m.capture_command(e, ["synthetic"], 2, 32, mutating=True)
+        self.assertFalse(e.uncertain)
+        spawn.assert_not_called()
+
+    def test48_collector_rc2_sticky_receipt(self):
+        state, directory, e, calls = self.run_collect(stop_rc=2, partial=True)
+        self.assertTrue(e.uncertain)
+        self.assertTrue(state["startup_observation"]["daemon_uncertain"])
+        self.assertEqual(state["returncode"], 1)
+        self.assertEqual(json.loads((directory / "receipt.json").read_text())["stop_returncode"], 2)
+        self.assertEqual(len(calls), 3)
+        self.assertFalse((directory / "recording.tar").exists())
+        self.assert_original_finish_refuses(e)
+
+    def test49_collector_missing_response_is_sticky(self):
+        state, directory, e, calls = self.run_collect(stop_rc=None)
+        self.assertTrue(e.uncertain)
+        self.assertEqual(state["returncode"], 1)
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(json.loads((directory / "receipt.json").read_text())["daemon_uncertain"])
+        self.assert_original_finish_refuses(e)
+
+    def test50_collector_exception_propagates_uncertainty(self):
+        state, directory, e, calls = self.run_collect(stop_error=OSError("PRIVATE_CANARY"))
+        self.assertTrue(e.uncertain)
+        self.assertTrue(state["startup_observation"]["daemon_uncertain"])
+        self.assertEqual(state["returncode"], 1)
+        self.assertNotIn("PRIVATE_CANARY", json.dumps(state))
+        self.assertEqual(len(calls), 3)
+        self.assert_original_finish_refuses(e)
+
+    def test51_receipt_failure_cannot_clear_uncertainty(self):
+        save = m.save_private
+
+        def fail_receipt(path, raw):
+            if path.name == "receipt.json":
+                raise OSError("PRIVATE_CANARY")
+            return save(path, raw)
+
+        with patch.object(m, "save_private", side_effect=fail_receipt):
+            state, directory, e, calls = self.run_collect(stop_rc=1)
+        self.assertTrue(e.uncertain)
+        self.assertTrue(state["startup_observation"]["daemon_uncertain"])
+        self.assertEqual(state["returncode"], 1)
+        self.assertFalse((directory / "receipt.json").exists())
+        self.assertNotIn("PRIVATE_CANARY", json.dumps(state))
+        self.assert_original_finish_refuses(e)
+
+    def test52_confirmed_stop_can_retain_partial_without_promotion(self):
+        state, directory, e, calls = self.run_collect(stop_rc=0, partial=True)
+        self.assertFalse(e.uncertain)
+        self.assertEqual(state["startup_observation"]["status"], "UNAVAILABLE")
+        self.assertEqual(state["returncode"], 1)
+        self.assertTrue((directory / "recording.tar").is_file())
+        self.assertEqual(sum("JFR.stop" in argv for argv in calls), 1)
+
+    def test53_mutating_signal_returncode_is_sticky(self):
+        e = self.command_executor()
+        with patch.object(m.g, "prove"):
+            _, rc = m.capture_command(
+                e, [sys.executable, "-I", "-B", "-c",
+                    "import os,signal; os.kill(os.getpid(),signal.SIGTERM)"],
+                2, 32, mutating=True, require_success=False,
+            )
+        self.assertEqual(rc, -signal.SIGTERM)
+        self.assertTrue(e.uncertain)
+        self.assert_original_finish_refuses(e)
+
+    def test54_drain_failure_after_response_is_sticky(self):
+        selector_type = m.selectors.DefaultSelector
+
+        class DrainFailure(selector_type):
+            def select(self, timeout=None):
+                super().select(timeout)
+                raise OSError("PRIVATE_CANARY")
+
+        e = self.command_executor()
+        with (
+            patch.object(m.g, "prove"), patch.object(m.selectors, "DefaultSelector", DrainFailure),
+            self.assertRaises(OSError),
+        ):
+            m.capture_command(
+                e, [sys.executable, "-I", "-B", "-c", "print('synthetic')"],
+                2, 32, mutating=True,
+            )
+        self.assertTrue(e.uncertain)
+        self.assertFalse(e.r._pending_groups)
+        self.assert_original_finish_refuses(e)
+
+    def test55_terminal_selector_exception_is_sticky(self):
+        selector_type = m.selectors.DefaultSelector
+
+        class CloseFailure(selector_type):
+            def __exit__(self, *args):
+                super().__exit__(*args)
+                raise OSError("PRIVATE_CANARY")
+
+        e = self.command_executor()
+        with (
+            patch.object(m.g, "prove"), patch.object(m.selectors, "DefaultSelector", CloseFailure),
+            self.assertRaises(OSError),
+        ):
+            m.capture_command(
+                e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+            )
+        self.assertTrue(e.uncertain)
+        self.assertFalse(e.r._pending_groups)
+        self.assert_original_finish_refuses(e)
+
+    def test56_successful_capture_private_modes_and_no_promotion(self):
+        import stat
+
+        state, directory, e, calls = self.run_collect()
+        self.assertFalse(e.uncertain)
+        self.assertEqual(state["returncode"], 1)
+        self.assertFalse(state["startup_observation"]["readiness"])
+        self.assertEqual(state["startup_observation"]["cause"], "UNDETERMINED")
+        receipt = json.loads((directory / "receipt.json").read_text())
+        self.assertEqual(receipt["stop_returncode"], 0)
+        self.assertFalse(receipt["daemon_uncertain"])
+        self.assertEqual(receipt["pending_pgids"], [])
+        self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+        for name in ("status", "recording.tar", "receipt.json"):
+            self.assertEqual(stat.S_IMODE((directory / name).stat().st_mode), 0o600)
+        self.assertEqual(len(calls), 4)
+
+    def test57_local_quiesce_exception_is_sticky(self):
+        e = self.command_executor()
+        original = e.r._quiesce_group
+        processes = []
+
+        def quiesce(process, pid):
+            processes.append(process)
+            original(process, pid)
+            raise OSError("PRIVATE_CANARY")
+
+        try:
+            with (
+                patch.object(m.g, "prove"), patch.object(e.r, "_quiesce_group", side_effect=quiesce),
+                self.assertRaises(OSError),
+            ):
+                m.capture_command(
+                    e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+                )
+            self.assertTrue(e.uncertain)
+            self.assertFalse(e.r._pending_groups)
+            self.assert_original_finish_refuses(e)
+        finally:
+            for process in processes:
+                process.stdout.close()
+                process.stderr.close()
 
 
 if __name__ == "__main__":
