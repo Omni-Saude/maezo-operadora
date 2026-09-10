@@ -395,11 +395,24 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "gateway/document_requests/transport.py",
         "NativeChannel.exchange",
     ): "httpx.AsyncClient(verify=tls, trust_env=False, follow_redirects=False, timeout=30)",
+    # SC1: fixed-origin, certificate-pinned staff native read/publication client.
+    (
+        "gateway/staff_cases/publisher.py",
+        "StaffNativeClient.__init__",
+    ): "httpx.AsyncClient(verify=tls, timeout=seconds, trust_env=False, follow_redirects=False)",
 }
-_SECRET_SCOPED_SEAM: Final[tuple[str, str]] = (
-    "gateway/portal_identity.py",
-    "build_human_identity_adapters",
-)
+_SECRET_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
+    (
+        "gateway/portal_identity.py",
+        "build_human_identity_adapters",
+    ): "database_url = make_url(config.database_url.get_secret_value())",
+    # Concrete staff bootstrap compares the existing identity DB with its distinct
+    # session-lock/witness logins; the original DSN stays inside the gateway.
+    (
+        "gateway/staff_cases/production.py",
+        "staff_runtime",
+    ): "identity_url = make_url(identity.database_url.get_secret_value())",
+}
 
 
 #: The effect REST-path fragments from design §8.2. `process-definition/key` stays in the
@@ -995,15 +1008,13 @@ def scan_tree(src_dir: Path) -> GateResult:
                     )
                 )
 
-        # SecretStr extraction is owned by one credential composition function only.
+        # Each registered gateway file permits one exact credential assignment only.
         for lineno, scope, shape in result.secret_reads:
+            expected_secret = _SECRET_SCOPED_SEAMS.get((rel, scope))
             if (
-                (rel, scope) == _SECRET_SCOPED_SEAM
+                expected_secret is not None
                 and len(result.secret_reads) == 1
-                and shape
-                == ast.dump(
-                    ast.parse("database_url = make_url(config.database_url.get_secret_value())").body[0]
-                )
+                and shape == ast.dump(ast.parse(expected_secret).body[0])
             ):
                 counters["8.3_secret_scoped_seam_sanctioned"] += 1
             else:

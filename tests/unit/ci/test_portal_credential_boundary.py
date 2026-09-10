@@ -10,6 +10,12 @@ MTLS = "gateway/human/transport.py"
 OIDC = "gateway/portal_identity.py"
 ENGINE = "gateway/engine_transport.py"
 READ = "gateway/human/read_transport.py"
+ASSIGNMENT = "gateway/human/assignment_transport.py"
+AUTH = "gateway/human/auth_transport.py"
+NATIVE_FETCH = "gateway/native_fetch/transport.py"
+DOCUMENT_REQUESTS = "gateway/document_requests/transport.py"
+STAFF = "gateway/staff_cases/publisher.py"
+STAFF_BOOTSTRAP = "gateway/staff_cases/production.py"
 CALL = "httpx.AsyncClient(verify=True, trust_env=False, follow_redirects=False, timeout=10.0)"
 
 
@@ -23,11 +29,26 @@ def scan(tmp_path, path, source):
 def test_exact_production_seams_and_credential_read_are_nonvacuous():
     result = scan_tree(ROOT / "src/maezo")
     assert result.ok, result.render()
-    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 4
-    assert result.counters["8.3_secret_scoped_seam_sanctioned"] == 1
+    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 9
+    assert result.counters["8.3_secret_scoped_seam_sanctioned"] == 2
 
 
-@pytest.mark.parametrize("path", [MTLS, OIDC, ENGINE, READ, "portal/api/app.py", "gateway/human/nearby.py"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        MTLS,
+        OIDC,
+        ENGINE,
+        READ,
+        ASSIGNMENT,
+        AUTH,
+        NATIVE_FETCH,
+        DOCUMENT_REQUESTS,
+        STAFF,
+        "portal/api/app.py",
+        "gateway/human/nearby.py",
+    ],
+)
 @pytest.mark.parametrize(
     "source",
     [
@@ -71,7 +92,9 @@ def test_duplicate_or_nested_constructor_does_not_inherit_seam(tmp_path, body):
     assert not result.ok
 
 
-@pytest.mark.parametrize("path", [MTLS, OIDC, ENGINE, READ, "portal/api/app.py", "agents/helena/escape.py"])
+@pytest.mark.parametrize(
+    "path", [MTLS, OIDC, ENGINE, READ, STAFF_BOOTSTRAP, "portal/api/app.py", "agents/helena/escape.py"]
+)
 @pytest.mark.parametrize(
     "body",
     [
@@ -86,7 +109,10 @@ def test_escaped_or_adjacent_credential_extraction_refuses(tmp_path, path, body)
     assert any("[8.3-secret]" in v for v in result.violations)
 
 
-@pytest.mark.parametrize("path", [MTLS, OIDC, ENGINE, READ, "portal/api/app.py"])
+@pytest.mark.parametrize(
+    "path",
+    [MTLS, OIDC, ENGINE, READ, ASSIGNMENT, AUTH, NATIVE_FETCH, DOCUMENT_REQUESTS, STAFF, "portal/api/app.py"],
+)
 def test_raw_engine_operation_has_no_new_rest_exemption(tmp_path, path):
     result = scan(tmp_path, path, "def raw(client): return client.post('/message', json={})")
     assert not result.ok
@@ -125,6 +151,38 @@ NEW_SEAMS = [
         "__init__",
         "httpx.AsyncClient(verify=tls_context, transport=_BorrowedTransport(self._transport), "
         "follow_redirects=False, trust_env=False, timeout=timeout_seconds)",
+    ),
+    (
+        ASSIGNMENT,
+        "AssignmentPrivateTransport",
+        "__init__",
+        "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=timeout_seconds, "
+        "trust_env=False, follow_redirects=False)",
+    ),
+    (
+        AUTH,
+        "AuthNativeClient",
+        "__init__",
+        "httpx.AsyncClient(verify=tls_context, transport=transport, follow_redirects=False, "
+        "trust_env=False, timeout=timeout_seconds)",
+    ),
+    (
+        NATIVE_FETCH,
+        "NativeFetchClient",
+        "_exchange",
+        "httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False, timeout=30)",
+    ),
+    (
+        DOCUMENT_REQUESTS,
+        "NativeChannel",
+        "exchange",
+        "httpx.AsyncClient(verify=tls, trust_env=False, follow_redirects=False, timeout=30)",
+    ),
+    (
+        STAFF,
+        "StaffNativeClient",
+        "__init__",
+        "httpx.AsyncClient(verify=tls, timeout=seconds, trust_env=False, follow_redirects=False)",
     ),
 ]
 
@@ -216,3 +274,71 @@ def test_new_exact_scope_does_not_authorize_constructor_aliases(
     result = scan(tmp_path, path, source)
     assert not result.ok
     assert any("[8.2]" in v for v in result.violations)
+
+
+# Independent closed assignments: a registry edit cannot redefine the permitted
+# identity source, target variable or extraction wrapper. No real secret is read.
+SECRET_ASSIGNMENTS = [
+    (
+        OIDC,
+        "build_human_identity_adapters",
+        "database_url = make_url(config.database_url.get_secret_value())",
+    ),
+    (STAFF_BOOTSTRAP, "staff_runtime", "identity_url = make_url(identity.database_url.get_secret_value())"),
+]
+
+
+@pytest.mark.parametrize("path,function,assignment", SECRET_ASSIGNMENTS)
+def test_exact_identity_credential_assignments_are_allowed(tmp_path, path, function, assignment):
+    result = scan(tmp_path, path, f"async def {function}():\n    {assignment}\n")
+    assert result.ok, result.render()
+    assert result.counters["8.3_secret_scoped_seam_sanctioned"] == 1
+
+
+@pytest.mark.parametrize("path,function,assignment", SECRET_ASSIGNMENTS)
+@pytest.mark.parametrize(
+    "change",
+    [
+        "target",
+        "receiver",
+        "wrapper",
+        "alias",
+        "duplicate",
+        "file",
+        "function",
+        "nested",
+        "lambda",
+        "definition_time",
+    ],
+)
+def test_exact_identity_credential_assignment_mutations_refuse(tmp_path, path, function, assignment, change):
+    source = f"async def {function}():\n    {assignment}\n"
+    if change == "target":
+        source = source.replace(assignment.split(" = ")[0], "copied_url", 1)
+    elif change == "receiver":
+        source = source.replace(".database_url", ".other_url")
+    elif change == "wrapper":
+        source = source.replace("make_url(", "str(")
+    elif change == "alias":
+        receiver = "config" if path == OIDC else "identity"
+        source = (
+            f"async def {function}():\n    getter = {receiver}.database_url.get_secret_value\n"
+            "    identity_url = make_url(getter())\n"
+        )
+    elif change == "duplicate":
+        source += f"    {assignment}\n"
+    elif change == "file":
+        path = "gateway/staff_cases/copied_production.py"
+    elif change == "function":
+        source = source.replace(function, function + "_copy", 1)
+    elif change == "nested":
+        source = f"async def {function}():\n    def nested():\n        {assignment}\n"
+    elif change == "lambda":
+        rhs = assignment.split(" = ")[1]
+        source = f"async def {function}():\n    return lambda: {rhs}\n"
+    else:
+        rhs = assignment.split(" = ")[1]
+        source = f"async def {function}(default={rhs}):\n    pass\n"
+    result = scan(tmp_path, path, source)
+    assert not result.ok
+    assert any("[8.3-secret]" in v for v in result.violations)
