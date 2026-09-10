@@ -158,13 +158,21 @@ it("compõe a consulta externa real sem enviar público ou CSRF na leitura", asy
 });
 
 it("mantém o formulário do prestador indisponível sem provedor de opções autorizado", async () => {
-  vi.mocked(fetch)
-    .mockResolvedValueOnce(jsonResponse(session("provider")))
-    .mockResolvedValueOnce(jsonResponse(emptyCasePage("provider")));
+  vi.mocked(fetch).mockImplementation(async (path) => {
+    if (path === "/api/v1/portal/session") return jsonResponse(session("provider"));
+    if (path === "/api/v1/portal/cases") return jsonResponse(emptyCasePage("provider"));
+    if (path === "/api/v1/portal/intake-recovery") {
+      return jsonResponse({ schema_version: 1, scope: "actor_admissions", items: [], next_cursor: null });
+    }
+    throw new Error("Unexpected request in provider form fixture");
+  });
   render(<App />);
   expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
-  expect(await screen.findByRole("alert")).toHaveTextContent("Este recurso não está mais disponível.");
-  expect(fetch).toHaveBeenCalledTimes(2);
+  const unavailable = await screen.findByText("Este recurso não está mais disponível.");
+  expect(unavailable.closest('[role="alert"]')).toBeInTheDocument();
+  expect(vi.mocked(fetch).mock.calls.map(([path]) => path).sort()).toEqual([
+    "/api/v1/portal/cases", "/api/v1/portal/intake-recovery", "/api/v1/portal/session",
+  ]);
 });
 
 it("trata 401 como sessão ausente e oferece a entrada canônica", async () => {
@@ -362,14 +370,33 @@ it("alcança caixa e histórico do caso e aborta ambas as leituras na revalidaç
 it("revalida ao expirar e remove a autoridade da tela antes da resposta", async () => {
   vi.useFakeTimers();
   const expiresAt = new Date(Date.now() + 1_000).toISOString();
-  vi.mocked(fetch)
-    .mockResolvedValueOnce(jsonResponse(session("provider", expiresAt)))
-    .mockResolvedValueOnce(jsonResponse(emptyCasePage("provider")))
-    .mockResolvedValueOnce(new Response(null, { status: 401 }));
+  const pendingSession = deferred<Response>();
+  let sessionReads = 0;
+  vi.mocked(fetch).mockImplementation(async (path) => {
+    if (path === "/api/v1/portal/session") {
+      sessionReads += 1;
+      return sessionReads === 1
+        ? jsonResponse(session("provider", expiresAt))
+        : pendingSession.promise;
+    }
+    if (path === "/api/v1/portal/cases") return jsonResponse(emptyCasePage("provider"));
+    if (path === "/api/v1/portal/intake-recovery") {
+      return jsonResponse({ schema_version: 1, scope: "actor_admissions", items: [], next_cursor: null });
+    }
+    throw new Error("Unexpected request in session expiry fixture");
+  });
   render(<App />);
   await act(async () => Promise.resolve());
   expect(screen.getByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(1_001));
+  expect(sessionReads).toBe(2);
+  expect(screen.getByRole("heading", { name: "Revalidando sua sessão" })).toBeInTheDocument();
+  expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Área do prestador" })).not.toBeInTheDocument();
+  await act(async () => {
+    pendingSession.resolve(new Response(null, { status: 401 }));
+    await pendingSession.promise;
+  });
   expect(screen.getByRole("heading", { name: "Sua sessão não está ativa" })).toBeInTheDocument();
   expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
 });
