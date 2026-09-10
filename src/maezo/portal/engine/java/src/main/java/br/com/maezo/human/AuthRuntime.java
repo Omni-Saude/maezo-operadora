@@ -90,9 +90,12 @@ final class AuthRuntime {
         @Override public void onCommandContextClose(CommandContext closing) {
           context.getTransactionContext().addTransactionListener(TransactionState.COMMITTING,ignored->{
             Map<String,Object> record=committedRecord.get();
-            byte[] bytes=signer.sign(trust,record,Instant.now(),deadline.isBefore(qualificationUntil)?deadline:qualificationUntil);
-            check.run();current();if(!Instant.now().isBefore(deadline))throw Rejected.denied();
-            context.getTransactionContext().addTransactionListener(TransactionState.COMMITTED,done->result.committed=bytes);
+            var signed=signer.sign(trust,record,deadline.isBefore(qualificationUntil)?deadline:qualificationUntil);
+            check.run();current();
+            // Final clock follows all source/signing/qualification JAR work. No SQL after this guard.
+            Instant finalNow=Instant.now();envelope.current(finalNow);signed.current(finalNow);
+            if(!finalNow.isBefore(deadline))throw Rejected.denied();
+            context.getTransactionContext().addTransactionListener(TransactionState.COMMITTED,done->result.committed=signed.bytes());
           });
         }
         @Override public void onCommandFailed(CommandContext closing,Throwable failure){}

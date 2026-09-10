@@ -15,7 +15,7 @@ final class AuthInputPublication implements Command<AuthRuntime.Result> {
     invocation.envelope.key().requireSource(kind,source,resource);
     var inputs=new AuthInputs(db);inputs.source(source,Instant.now());
     Instant until=PortalReadModels.time(c.get("valid_until"));
-    if(until.isAfter(inputs.ceiling())||!Instant.now().isBefore(until))throw Rejected.denied();
+    requireAcceptance(until,inputs.ceiling(),invocation.envelope.key(),invocation.qualificationUntil,Instant.now());
     var previous=db.publication(Jcs.ref(c,"publication_id"),invocation.envelope.digest());
     if(previous!=null)return invocation.finish(()->previous,()->inputs.current(Instant.now()),until);
     // Payload projection was schema/hash checked by the signed envelope codec. Source grants and
@@ -28,9 +28,14 @@ final class AuthInputPublication implements Command<AuthRuntime.Result> {
     AuthModels.validate("publication-receipt",receipt);
     var priorHead=db.inputHead(kind,resource);
     Map<String,Object> priorPolicy=priorHead==null||priorHead.get("payload_")==null?null:AuthStore.parse(priorHead.get("payload_"));
-    db.publish(c,invocation.envelope.digest(),receipt);
+    db.publish(c,invocation.envelope.digest(),receipt,invocation.envelope.key());
     if(kind.equals("document_policy")&&c.get("state").equals("active"))attachPolicy(db,Jcs.object(c.get("payload")),priorPolicy);
     return invocation.finish(()->receipt,()->inputs.current(Instant.now()),until);
+  }
+  static void requireAcceptance(Instant until,Instant sourceUntil,AuthTrust.Key publisher,Instant installationUntil,Instant now) {
+    publisher.current(now);
+    if(!now.isBefore(until)||until.isAfter(sourceUntil)||until.isAfter(publisher.notAfter())
+        ||until.isAfter(installationUntil))throw Rejected.denied();
   }
   private static void attachPolicy(AuthStore db,Map<String,Object> policy,Map<String,Object> priorPolicy) {
     if(!policy.get("resource_kind").equals("case"))return;

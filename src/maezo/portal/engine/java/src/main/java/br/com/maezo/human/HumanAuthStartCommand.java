@@ -38,7 +38,7 @@ final class HumanAuthStartCommand implements Command<AuthRuntime.Result> {
       facts.get("document_refs"),facts.get("documentacao_completa"),null,Instant.now());
     if(!policy.get("missing_codes").equals(facts.get("missing_requirement_codes")))throw Rejected.denied();
     var documents=new HashSet<String>();for(Object item:AuthModels.documents(facts.get("document_refs")))documents.add(Jcs.ref(Jcs.object(item),"document_ref"));
-    inputs.exactKinds(Set.of("actor","resource_authority","guide","start_facts","document_policy","audit_intent"),documents);
+    inputs.exactKinds(Set.of("actor","resource_authority","guide","start_facts","document_policy"),documents);
     var definition=Jcs.object(c.get("definition"));invocation.definition(definition);
     Map<String,Object> projected=AuthValues.project(invocation.store.tenant,guideRef,facts);
     // Hash the explicit number-free projection profile, not Java Object.toString or a float cast.

@@ -19,9 +19,12 @@ final class AuthInputs {
   private Map<String,Object> active(Map<String,Object> row,Instant now) {
     if(row==null||!"active".equals(row.get("state_")))throw Rejected.denied();
     ceilings.add(((java.sql.Timestamp)row.get("valid_until_")).toInstant());
-    source(AuthStore.parse(row.get("source_")),now);
+    var source=AuthStore.parse(row.get("source_"));source(source,now);
+    var publisher=AuthTrust.publisher(store,row,Instant.now());
+    publisher.requireSource(Jcs.string(row,"kind_"),source,Jcs.ref(row,"resource_"));
+    ceilings.add(publisher.notAfter());
     var payload=AuthStore.parse(row.get("payload_"));
-    if(!PortalReadModels.hash(payload).equals(row.get("payload_digest_")))throw Rejected.denied();current(now);return payload;
+    if(!PortalReadModels.hash(payload).equals(row.get("payload_digest_")))throw Rejected.denied();current(Instant.now());return payload;
   }
   void pins(Object pins,Instant now) {
     AuthModels.pins(pins);
@@ -42,10 +45,16 @@ final class AuthInputs {
     if(matching.size()!=1)throw Rejected.denied();return matching.get(0).getValue();
   }
   void exactKinds(Set<String> singletons,Set<String> documents) {
+    exactKinds(values.keySet(),singletons,documents);
+  }
+  static void exactKinds(Set<String> actual,Set<String> singletons,Set<String> documents) {
     var expected=new HashSet<String>();
-    for(String kind:singletons){only(kind);for(String key:values.keySet())if(key.startsWith(kind+"\n"))expected.add(key);}
+    for(String kind:singletons){
+      var matching=actual.stream().filter(key->key.startsWith(kind+"\n")).toList();
+      if(matching.size()!=1)throw Rejected.denied();expected.add(matching.get(0));
+    }
     for(String document:documents)expected.add("document_custody\n"+document);
-    if(!values.keySet().equals(expected))throw Rejected.denied();
+    if(!actual.equals(expected))throw Rejected.denied();
   }
   void actor(Map<String,Object> actor,Map<String,Object> membership,Instant now) {
     AuthModels.validate("actor",actor);AuthModels.validate("membership",membership);
@@ -63,15 +72,24 @@ final class AuthInputs {
     ceilings.add(PortalReadModels.time(authority.get("valid_until")));source(authority.get("source"),now);current(now);
   }
   void admission(Map<String,Object> command,String operation) {
-    var admitted=Jcs.object(command.get("admission"));var intent=value("audit_intent",Jcs.ref(admitted,"intent_ref"));
-    AuthModels.validate("intent",intent);
-    if(!"committed".equals(intent.get("state"))||!command.get("actor").equals(intent.get("actor"))
-        ||!operation.equals(intent.get("operation"))||!admitted.get("admitted_command_id").equals(intent.get("command_id"))
-        ||!admitted.get("admitted_digest").equals(intent.get("admitted_digest")))throw Rejected.denied();
-    if(PortalReadModels.time(intent.get("admitted_at")).isAfter(Instant.now()))throw Rejected.denied();
-    if(operation.equals("auth.start")&&!command.get("intake_ref").equals(intent.get("intake_or_response_ref")))throw Rejected.denied();
+    var admitted=Jcs.object(command.get("admission"));
     var row=store.inputHead("audit_intent",Jcs.ref(admitted,"intent_ref"));
-    if(!AuthStore.parse(row.get("source_")).equals(admitted.get("source")))throw Rejected.denied();
+    // Separate approved admission lookup: never insert this source into mutation input_pins.
+    var intent=active(row,Instant.now());
+    admissionIdentity(command,operation,intent,AuthStore.parse(row.get("source_")),Instant.now());
+    current(Instant.now());
+  }
+  static void admissionIdentity(Map<String,Object> command,String operation,Map<String,Object> intent,
+      Map<String,Object> publishedSource,Instant now) {
+    var admitted=Jcs.object(command.get("admission"));AuthModels.validate("intent",intent);
+    if(!admitted.get("intent_ref").equals(intent.get("intent_ref"))
+        ||!"committed".equals(intent.get("state"))||!command.get("actor").equals(intent.get("actor"))
+        ||!operation.equals(intent.get("operation"))||!command.get("command_id").equals(admitted.get("admitted_command_id"))
+        ||!admitted.get("admitted_command_id").equals(intent.get("command_id"))
+        ||!admitted.get("admitted_digest").equals(intent.get("admitted_digest"))
+        ||!publishedSource.equals(admitted.get("source")))throw Rejected.denied();
+    if(PortalReadModels.time(intent.get("admitted_at")).isAfter(now))throw Rejected.denied();
+    if(operation.equals("auth.start")&&!command.get("intake_ref").equals(intent.get("intake_or_response_ref")))throw Rejected.denied();
   }
   void documents(Object refs,String resourceKind,String resource,Instant now) {
     for(Object item:AuthModels.documents(refs)) {

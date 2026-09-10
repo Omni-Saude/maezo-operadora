@@ -37,7 +37,7 @@ final class HumanAuthDocumentCommand implements Command<AuthRuntime.Result> {
     if(policy.get("submitted_response_digest")==null||!PortalReadModels.hash(policy).equals(c.get("assessment_digest"))
         ||!c.get("assessment_ref").equals(occurrence.get("policy_ref"))||!c.get("assessment_digest").equals(occurrence.get("policy_digest")))throw Rejected.denied();
     var docs=new HashSet<String>();for(Object item:AuthModels.documents(refs))docs.add(Jcs.ref(Jcs.object(item),"document_ref"));
-    inputs.exactKinds(Set.of("actor","resource_authority","document_policy","audit_intent"),docs);
+    inputs.exactKinds(Set.of("actor","resource_authority","document_policy"),docs);
     invocation.definition(Jcs.object(binding.get("definition")));AuthNativeWait.require(db,binding,Instant.now());
     var subscription=context.getEventSubscriptionManager().findEventSubscriptionById(Jcs.ref(binding,"subscription_id"));
     if(subscription==null||!binding.get("subscription_execution_id").equals(subscription.getExecutionId())

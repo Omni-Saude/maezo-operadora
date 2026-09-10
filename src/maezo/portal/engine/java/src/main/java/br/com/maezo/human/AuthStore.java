@@ -87,21 +87,21 @@ final class AuthStore {
     return optional("SELECT * FROM MZO_AUTH_INPUT_HEAD WHERE TENANT_=? AND KIND_=? AND RESOURCE_=? FOR UPDATE",tenant,kind,resource);
   }
   /** Caller authenticates the exact producer/payload and source barrier before advancing this head. */
-  void publish(Map<String,Object> publication,String digest,Map<String,Object> receipt) {
+  void publish(Map<String,Object> publication,String digest,Map<String,Object> receipt,AuthTrust.Key publisher) {
     String kind=Jcs.string(publication,"kind"),resource=Jcs.ref(publication,"resource_ref"),id=Jcs.ref(publication,"publication_id");
     long previous=PortalReadModels.number(publication.get("expected_generation")),generation=next(previous);
     String state=Jcs.string(publication,"state");Object payload=publication.get("payload"),hash=publication.get("payload_digest");
     var existing=inputHead(kind,resource);
     if(existing==null && previous!=0 || existing!=null && ((Number)existing.get("generation_")).longValue()!=previous)throw Rejected.conflict();
     Object[] values={generation,state,id,digest,text(publication.get("source")),payload==null?null:text(payload),hash,
-      Timestamp.from(PortalReadModels.time(publication.get("valid_until"))),tenant,kind,resource};
+      Timestamp.from(PortalReadModels.time(publication.get("valid_until"))),publisher.id(),publisher.designationDigest(),tenant,kind,resource};
     if(existing==null) {
-      write("INSERT INTO MZO_AUTH_INPUT_HEAD(GENERATION_,STATE_,PUBLICATION_,PUBLICATION_DIGEST_,SOURCE_,PAYLOAD_,PAYLOAD_DIGEST_,VALID_UNTIL_,TENANT_,KIND_,RESOURCE_) VALUES(?,?,?,?,?,?,?,?,?,?,?)",values);
+      write("INSERT INTO MZO_AUTH_INPUT_HEAD(GENERATION_,STATE_,PUBLICATION_,PUBLICATION_DIGEST_,SOURCE_,PAYLOAD_,PAYLOAD_DIGEST_,VALID_UNTIL_,PUBLISHER_KEY_,PUBLISHER_DIGEST_,TENANT_,KIND_,RESOURCE_) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",values);
     } else {
       var update=Arrays.copyOf(values,values.length+1);update[values.length]=previous;
-      write("UPDATE MZO_AUTH_INPUT_HEAD SET GENERATION_=?,STATE_=?,PUBLICATION_=?,PUBLICATION_DIGEST_=?,SOURCE_=?,PAYLOAD_=?,PAYLOAD_DIGEST_=?,VALID_UNTIL_=? WHERE TENANT_=? AND KIND_=? AND RESOURCE_=? AND GENERATION_=?",update);
+      write("UPDATE MZO_AUTH_INPUT_HEAD SET GENERATION_=?,STATE_=?,PUBLICATION_=?,PUBLICATION_DIGEST_=?,SOURCE_=?,PAYLOAD_=?,PAYLOAD_DIGEST_=?,VALID_UNTIL_=?,PUBLISHER_KEY_=?,PUBLISHER_DIGEST_=? WHERE TENANT_=? AND KIND_=? AND RESOURCE_=? AND GENERATION_=?",update);
     }
-    write("INSERT INTO MZO_AUTH_INPUT_VERSION(TENANT_,KIND_,RESOURCE_,GENERATION_,PUBLICATION_,DIGEST_,REQUEST_,RECEIPT_) VALUES(?,?,?,?,?,?,?,?)",tenant,kind,resource,generation,id,digest,text(publication),text(receipt));
+    write("INSERT INTO MZO_AUTH_INPUT_VERSION(TENANT_,KIND_,RESOURCE_,GENERATION_,PUBLICATION_,DIGEST_,REQUEST_,RECEIPT_,PUBLISHER_KEY_,PUBLISHER_DIGEST_) VALUES(?,?,?,?,?,?,?,?,?,?)",tenant,kind,resource,generation,id,digest,text(publication),text(receipt),publisher.id(),publisher.designationDigest());
   }
 
   Map<String,Object> guide(String guide) {

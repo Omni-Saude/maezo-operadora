@@ -17,7 +17,7 @@ final class AuthTrust {
     this.store=store;this.audience=audience;this.maxLifetime=maxLifetime;
   }
   record Key(String id,String issuer,String purpose,String peerSpki,PublicKey publicKey,
-      Instant notBefore,Instant notAfter,List<Object> sources) {
+      Instant notBefore,Instant notAfter,List<Object> sources,String designationDigest) {
     void current(Instant now) {
       if(now.isBefore(notBefore)||!now.isBefore(notAfter))throw Rejected.denied();
     }
@@ -59,7 +59,23 @@ final class AuthTrust {
         ||!peer.equals(d.get("peer_spki_sha256")))throw Rejected.denied();
     var key=new Key(id,issuer,purpose,peer,decode(Jcs.string(d,"public_key_base64")),
       PortalReadModels.time(d.get("not_before")),PortalReadModels.time(d.get("not_after")),
-      List.copyOf(PortalReadModels.list(d.get("source_grants"))));key.current(now);return key;
+      List.copyOf(PortalReadModels.list(d.get("source_grants"))),PortalReadModels.hash(d));key.current(now);return key;
+  }
+  /** Current source designation is resolved under the caller's existing shared tenant lock. */
+  static Key publisher(AuthStore store,Map<String,Object> head,Instant now) {
+    String id=Jcs.ref(head,"publisher_key_");
+    var row=store.one("SELECT DESIGNATION_ FROM MZO_AUTH_TRUST WHERE TENANT_=? AND KEY_ID_=?",store.tenant,id);
+    return publisher(designation(AuthStore.parse(row.get("designation_"))),id,
+      Jcs.hash(head,"publisher_digest_"),store.revoked(id),now);
+  }
+  static Key publisher(Map<String,Object> d,String id,String expectedDigest,boolean revoked,Instant now) {
+    designation(d);
+    if(revoked||!id.equals(d.get("key_id"))||!"human-auth-input-publication".equals(d.get("purpose"))
+        ||!PortalReadModels.hash(d).equals(expectedDigest))throw Rejected.denied();
+    var key=new Key(id,Jcs.ref(d,"issuer"),"human-auth-input-publication",Jcs.hash(d,"peer_spki_sha256"),
+      decode(Jcs.string(d,"public_key_base64")),PortalReadModels.time(d.get("not_before")),
+      PortalReadModels.time(d.get("not_after")),List.copyOf(PortalReadModels.list(d.get("source_grants"))),expectedDigest);
+    key.current(now);return key;
   }
   private static PublicKey decode(String encoded) {
     try {
