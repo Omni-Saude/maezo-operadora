@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./EmployeeQueues", () => ({
-  EmployeeQueues: ({ initialQueue }: { initialQueue?: "mine" | "team" }) => (
+  EmployeeQueues: ({ initialQueue = "mine" }: { initialQueue?: "mine" | "team" }) => (
     <section aria-label="Filas de colaboradores">{initialQueue}</section>
   ),
 }));
@@ -110,12 +110,13 @@ describe.each([
   });
 });
 
-it("oferece sete áreas e monta filas somente após a escolha do colaborador", async () => {
+it("oferece sete áreas e abre a fila autorizada na visão geral e nas áreas de trabalho", async () => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session("staff")));
   const view = render(<App />);
   expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
   expect(screen.getAllByRole("tab")).toHaveLength(7);
-  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Visão geral do trabalho" })).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("mine");
   await userEvent.click(screen.getByRole("tab", { name: /Meu trabalho/ }));
   expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("mine");
   await userEvent.click(screen.getByRole("tab", { name: /Filas da equipe/ }));

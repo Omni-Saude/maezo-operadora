@@ -2,6 +2,7 @@ import { useId, useMemo, useState, type Ref } from "react";
 
 import { AudienceAuthorizationExperience } from "./AudienceAuthorizationExperience";
 import { EmployeeQueues } from "./EmployeeQueues";
+import { StaffOverview } from "./StaffOverview";
 import {
   StaffAreaPanel,
   StaffNavigation,
@@ -82,13 +83,11 @@ export function StaffPortalExperience({
   let content: React.ReactNode;
   if (activeArea === "overview") {
     content = (
-      <section className="portal-guidance" aria-labelledby="staff-guidance-heading">
-        <h2 id="staff-guidance-heading">Trabalho autorizado</h2>
-        <p>
-          Consulte tarefas individuais em Meu trabalho ou Filas da equipe. A responsabilidade e
-          cada decisão são confirmadas separadamente pelo servidor.
-        </p>
-      </section>
+      <StaffOverview
+        csrfToken={csrfToken}
+        sessionBinding={sessionBinding}
+        onSessionUnavailable={onSessionUnavailable}
+      />
     );
   } else if (activeArea === "my-work" || activeArea === "team-queues") {
     content = (
