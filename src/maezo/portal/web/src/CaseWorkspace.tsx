@@ -138,7 +138,10 @@ export function DocumentListView({
                 <h3>{document.name}</h3>
                 <p>{document.kindLabel}</p>
                 <p className="event-meta">
-                  {document.statusLabel} · registrado em {formatTimestamp(document.recordedAt)}
+                  {document.statusLabel}
+                  {document.recordedAt
+                    ? ` · registrado em ${formatTimestamp(document.recordedAt)}`
+                    : ""}
                 </p>
               </div>
               {document.canDownload && onDownload && (
