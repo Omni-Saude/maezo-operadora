@@ -25,6 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -107,14 +110,10 @@ jobs:
       # via `git merge-base origin/main HEAD` by default — that needs an `origin/main`
       # remote-tracking ref AND the merge-base commit's history actually present locally, neither
       # of which a shallow (fetch-depth: 1, the actions/checkout default) checkout provides. This
-      # is the ONLY job either gate is wired into; the `quality` job (lint / type / unit, above)
-      # deliberately stays shallow — it runs the FULL unit suite fast on every PR and has no reason
-      # to pay for full history, which is exactly why an earlier revision's unit test that called
-      # the cell-count gate's `main()` with no explicit --base against the real repo (assuming it
-      # would land in a full-history checkout) broke it (F1, VERIFY-TOOLING-FENCES.md) — fixed by
-      # deleting that test, not by deepening `quality`'s checkout. `fetch-depth: 0` fetches full
-      # history for all branches and tags (GitHub's own documented behaviour for that value), which
-      # is what makes `origin/main` resolvable here.
+      # is the only job running these ledger gates. Quality, release-floor and integration
+      # also need full history now because globally collected historical-tool tests validate
+      # immutable tool-source ancestry. Keep that validation rather than weakening its guard.
+      # fetch-depth: 0 makes the complete origin/main ancestry available here.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
@@ -189,7 +188,7 @@ jobs:
       # workflow's own header comment deliberately keeps free of `uv sync`/dependency install so it
       # never conflicts with concurrent CI-surgery PRs touching ci.yml; these two gates shell out to
       # `pytest` per declared row, so they need the SAME `uv sync --extra dev` this job already
-      # pays for) and not into `quality` (shallow checkout by design, see the checkout step above).
+      # pays for). Quality has full history for collected tool tests, but does not run these gates.
       # `check-ledger-hashes` recomputes the Test-hash of every NEW machine-verifiable ledger row;
       # `check-ledger-row-cell-count` (this task's own new gate) catches an unescaped `|` growing a
       # row's cell count past the header's 8. Both are genuinely range-scoped (`<base>..HEAD` only,
@@ -384,6 +383,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
@@ -627,6 +629,9 @@ jobs:
       MAEZO_TEST_DATABASE_URL: "postgresql://maezo:maezo@localhost:5432/maezo"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Collected historical-tool tests verify immutable Git ancestry.
+          fetch-depth: 0
 
       # ── Docs-only gate (CI-minutes hygiene). A docs-only PR cannot change this lane's verdict:
       # nothing in today's globally collected integration-marker set reads docs/** or any *.md.

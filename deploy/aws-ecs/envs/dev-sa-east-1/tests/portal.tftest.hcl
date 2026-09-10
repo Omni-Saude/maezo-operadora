@@ -55,8 +55,10 @@ override_resource {
 }
 variables {
   # Synthetic fixtures only. These are not deployed origins, credentials or image IDs.
-  tenant_id              = "portaltest"
-  fhir_cognito_client_id = "machine123"
+  # Mock-provider fixture only; never a deployable image qualification.
+  diagnostics_image_digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  tenant_id                = "portaltest"
+  fhir_cognito_client_id   = "machine123"
   portal = {
     tenant                  = "portaltest"
     issuer                  = "https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_TestPool"
