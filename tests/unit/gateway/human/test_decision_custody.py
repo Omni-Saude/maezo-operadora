@@ -321,14 +321,14 @@ async def test_real_connection_constructor_no_files_no_network(tmp_path, monkeyp
     assert calls == []
 
 
-def tls_files(tmp_path):
+def tls_files(tmp_path, common_name="unit-phi-writer"):
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import ec
     from cryptography.x509.oid import NameOID
 
     key = ec.generate_private_key(ec.SECP256R1())
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "unit-phi-writer")])
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     now = datetime.now(UTC)
     cert = (
         x509.CertificateBuilder()
@@ -525,3 +525,243 @@ async def test_key_id_is_authenticated_even_when_rotation_keys_share_test_materi
     next(iter(db.rows.values()))["key_id"] = "key2"
     with pytest.raises(DecisionCustodyError):
         await second.resolve(record, principal=req.principal)
+
+
+def memory_tls_peer(client_context, server_context):
+    """Real offline OpenSSL handshake; return the client leaf observed by the server."""
+    import ssl
+
+    ci, co, si, so = (ssl.MemoryBIO() for _ in range(4))
+    client = client_context.wrap_bio(ci, co, server_hostname="unit-phi-writer")
+    server = server_context.wrap_bio(si, so, server_side=True)
+    done = set()
+    for _ in range(30):
+        for name, peer in (("client", client), ("server", server)):
+            if name not in done:
+                try:
+                    peer.do_handshake()
+                    done.add(name)
+                except ssl.SSLWantReadError:
+                    pass
+        if co.pending:
+            si.write(co.read())
+        if so.pending:
+            ci.write(so.read())
+        if len(done) == 2:
+            return server.getpeercert(binary_form=True)
+    pytest.fail("offline TLS handshake did not complete")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("moment", ["before_load", "after_load"])
+@pytest.mark.parametrize("replacement", ["overwrite", "symlink"])
+async def test_tls_snapshot_binds_presented_leaf_through_rotation(tmp_path, monkeypatch, moment, replacement):
+    import hashlib
+    import ssl
+    import stat
+    from pathlib import Path
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    first, descriptor = tls_files(a)
+    second, rotated = tls_files(b, common_name="rotated-unit-phi-writer")
+    ca = tmp_path / "ca.pem"
+    ca.write_bytes(first.certificate_file.read_bytes())
+    identity = replace(first, ca_file=ca)
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(str(first.certificate_file), str(first.private_key_file))
+    server.load_verify_locations(
+        cadata=first.certificate_file.read_text() + second.certificate_file.read_text()
+    )
+    server.verify_mode = ssl.CERT_REQUIRED
+    real_load = ssl.SSLContext.load_cert_chain
+    captured = []
+    did_rotate = False
+
+    def rotate():
+        nonlocal did_rotate
+        for old, new in (
+            (first.certificate_file, second.certificate_file),
+            (first.private_key_file, second.private_key_file),
+        ):
+            if replacement == "overwrite":
+                old.write_bytes(new.read_bytes())
+            else:
+                link = old.with_suffix(".next")
+                link.symlink_to(new)
+                link.replace(old)
+        did_rotate = True
+
+    def load(context, certfile, keyfile=None, password=None):
+        paths = (Path(certfile), Path(keyfile))
+        captured.extend(paths)
+        for path in paths:
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
+            assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+            assert path not in (identity.certificate_file, identity.private_key_file)
+        if not did_rotate and moment == "before_load":
+            rotate()
+        result = real_load(context, certfile, keyfile, password)
+        if not did_rotate and moment == "after_load":
+            rotate()
+        return result
+
+    monkeypatch.setattr(ssl.SSLContext, "load_cert_chain", load)
+    presented = []
+
+    async def connect(**kwargs):
+        assert all(not p.exists() and not p.parent.exists() for p in captured)
+        context = kwargs["ssl"]
+        assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
+        presented.append(hashlib.sha256(memory_tls_peer(context, server)).hexdigest())
+        return QualifiedConnectionUnitFixture()
+
+    monkeypatch.setattr("maezo.gateway.human.decision_custody_connection.asyncpg.connect", connect)
+    connector = PhiPostgresConnection(deployment=descriptor, identity=identity, timeout_seconds=1)
+    async with connector.transaction():
+        pass
+    assert did_rotate and presented == [descriptor.client_certificate_sha256]
+    # An already rotated file must refuse the old pin, before opening a connection.
+    with pytest.raises(DecisionCustodyError):
+        async with connector.transaction():
+            pytest.fail("stale deployment pin admitted")
+    assert presented == [descriptor.client_certificate_sha256]
+    connector = PhiPostgresConnection(deployment=rotated, identity=identity, timeout_seconds=1)
+    async with connector.transaction():
+        pass
+    assert presented == [descriptor.client_certificate_sha256, rotated.client_certificate_sha256]
+    assert all(not p.exists() and not p.parent.exists() for p in captured)
+
+
+@pytest.mark.asyncio
+async def test_tls_snapshot_removed_when_openssl_refuses(tmp_path, monkeypatch):
+    import ssl
+    from pathlib import Path
+
+    connector, _, calls = connection_fixture(tmp_path, monkeypatch)
+    captured = []
+
+    def refuse(context, certfile, keyfile=None, password=None):
+        captured.extend((Path(certfile), Path(keyfile)))
+        raise RuntimeError(PRIVATE)
+
+    monkeypatch.setattr(ssl.SSLContext, "load_cert_chain", refuse)
+    with pytest.raises(DecisionCustodyError) as caught:
+        async with connector.transaction():
+            pytest.fail("TLS failure admitted")
+    assert not calls and captured
+    assert all(not p.exists() and not p.parent.exists() for p in captured)
+    assert_safe_custody_error(caught.value, DecisionCustodyError)
+
+
+def assert_safe_custody_error(error, expected, *, body_error=False):
+    import traceback
+
+    assert type(error) is expected
+    assert str(error) == "decision custody unavailable"
+    assert error.__cause__ is None and error.__suppress_context__
+    if not body_error:
+        assert error.__context__ is None
+    assert not getattr(error, "__notes__", None)
+    assert PRIVATE not in "".join(traceback.format_exception(error))
+
+
+def raise_provider_failure(error_type):
+    error = error_type()
+    error.args = (PRIVATE,)
+    error.add_note(PRIVATE)
+    try:
+        raise RuntimeError(PRIVATE)
+    except RuntimeError as cause:
+        raise error from cause
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["preserve", "resolve"])
+@pytest.mark.parametrize("error_type", [DecisionCustodyError, DecisionCustodyConflictError, RuntimeError])
+@pytest.mark.parametrize("phase", [1, 2, 3])
+async def test_provider_errors_normalized_at_each_authorization_boundary(operation, error_type, phase):
+    store, db, auth = fixture()
+    req = request()
+    record = await store.preserve(req)
+    prior = copy.deepcopy(db.rows)
+    original = auth.authorize
+    calls = 0
+
+    async def fail(access):
+        nonlocal calls
+        calls += 1
+        if calls == phase:
+            raise_provider_failure(error_type)
+        return await original(access)
+
+    auth.authorize = fail
+    with pytest.raises(DecisionCustodyError) as caught:
+        if operation == "preserve":
+            await store.preserve(req)
+        else:
+            await store.resolve(record, principal=req.principal)
+    expected = (
+        DecisionCustodyConflictError if error_type is DecisionCustodyConflictError else DecisionCustodyError
+    )
+    assert_safe_custody_error(caught.value, expected)
+    assert db.rows == prior
+    auth.authorize = original
+    assert (await store.preserve(req)).custody_ref == record.custody_ref
+    assert (await store.resolve(record, principal=req.principal)).canonical == req.canonical
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["connect", "body", "close"])
+@pytest.mark.parametrize("error_type", [DecisionCustodyError, DecisionCustodyConflictError])
+async def test_connection_does_not_export_provider_owned_errors(tmp_path, monkeypatch, phase, error_type):
+    connector, db, _ = connection_fixture(tmp_path, monkeypatch)
+
+    async def fail(**kwargs):
+        raise_provider_failure(error_type)
+
+    if phase == "connect":
+        monkeypatch.setattr("maezo.gateway.human.decision_custody_connection.asyncpg.connect", fail)
+    elif phase == "close":
+        db.close = fail
+    with pytest.raises(DecisionCustodyError) as caught:
+        async with connector.transaction():
+            if phase == "body":
+                raise_provider_failure(error_type)
+    expected = error_type if phase != "close" else DecisionCustodyError
+    assert_safe_custody_error(caught.value, expected, body_error=phase == "body")
+
+
+@pytest.mark.asyncio
+async def test_rotation_mixing_captured_certificate_and_new_key_refuses(tmp_path, monkeypatch):
+    import ssl
+    from pathlib import Path
+
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    connector, _, calls = connection_fixture(a, monkeypatch)
+    other, _ = tls_files(b)
+    key_path = connector._identity.private_key_file
+    original_read = Path.read_bytes
+    original_load = ssl.SSLContext.load_cert_chain
+    captured = []
+
+    def rotate_key(path):
+        if path == key_path:
+            return original_read(other.private_key_file)
+        return original_read(path)
+
+    def load(context, certfile, keyfile=None, password=None):
+        captured.extend((Path(certfile), Path(keyfile)))
+        return original_load(context, certfile, keyfile, password)
+
+    monkeypatch.setattr(Path, "read_bytes", rotate_key)
+    monkeypatch.setattr(ssl.SSLContext, "load_cert_chain", load)
+    with pytest.raises(DecisionCustodyError) as caught:
+        async with connector.transaction():
+            pytest.fail("mixed capture admitted")
+    assert not calls and captured
+    assert all(not path.exists() and not path.parent.exists() for path in captured)
+    assert_safe_custody_error(caught.value, DecisionCustodyError)

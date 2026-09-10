@@ -196,10 +196,13 @@ class PostgresHumanDecisionCustody(HumanDecisionCustody):
             # Never acknowledge before COMMIT, and never describe a lost ACK as rollback.
             deadline = await self._current(access, deadline)
             return DecisionCustodyRecord.model_validate(record.model_copy(update={"valid_until": deadline}))
-        except DecisionCustodyError:
-            raise
+        except DecisionCustodyConflictError:
+            failure: DecisionCustodyError = DecisionCustodyConflictError()
         except Exception:
-            raise DecisionCustodyError() from None
+            failure = DecisionCustodyError()
+        # Normalize provider-owned expected errors too, without retaining their
+        # traceback chain or notes; only the safe conflict classification survives.
+        raise failure from None
 
     async def resolve(self, record: DecisionCustodyRecord, *, principal: HumanPrincipal) -> PhiDecisionBytes:
         """PHI-side exact resolution; a known ID or previous valid_until grants nothing.
@@ -222,7 +225,10 @@ class PostgresHumanDecisionCustody(HumanDecisionCustody):
             deadline = await self._current(access, deadline)
             fresh = DecisionCustodyRecord.model_validate(record.model_copy(update={"valid_until": deadline}))
             return PhiDecisionBytes(fresh, raw)
-        except DecisionCustodyError:
-            raise
+        except DecisionCustodyConflictError:
+            failure: DecisionCustodyError = DecisionCustodyConflictError()
         except Exception:
-            raise DecisionCustodyError() from None
+            failure = DecisionCustodyError()
+        # Normalize provider-owned expected errors too, without retaining their
+        # traceback chain or notes; only the safe conflict classification survives.
+        raise failure from None

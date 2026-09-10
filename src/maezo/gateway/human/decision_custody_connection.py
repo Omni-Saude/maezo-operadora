@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import math
 import re
+import ssl
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.resources import files
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 
 import asyncpg  # type: ignore[import-untyped]
 from cryptography import x509
@@ -72,6 +74,38 @@ class PhiDatabaseDeployment:
             or self.valid_until.tzinfo is None
         ):
             raise DecisionCustodyError()
+
+
+def _pinned_tls_context(identity: HumanTLSIdentity, fingerprint: str) -> ssl.SSLContext:
+    """Pin and load the same captured bytes, even while deployment symlinks rotate.
+
+    SSLContext requires filenames for the client chain/key. Use owner-only temporary
+    files in an owner-only directory, remove them before connecting (also on failure),
+    and never reopen the deployment paths after capture. A mixed key/leaf capture
+    fails OpenSSL's key match check; a different leaf fails the deployment pin.
+    """
+    paths = (identity.ca_file, identity.certificate_file, identity.private_key_file)
+    if any(not path.is_absolute() or not path.is_file() for path in paths):
+        raise DecisionCustodyError()
+    ca, certificate, key = (path.read_bytes() for path in paths)
+    leaf = x509.load_pem_x509_certificate(certificate)
+    if leaf.fingerprint(hashes.SHA256()).hex() != fingerprint:
+        raise DecisionCustodyError()
+    result = ssl.create_default_context(cadata=ca.decode("ascii"))
+    result.minimum_version = ssl.TLSVersion.TLSv1_2
+    with (
+        TemporaryDirectory(prefix="maezo-phi-tls-") as directory,
+        NamedTemporaryFile(dir=directory) as certificate_snapshot,
+        NamedTemporaryFile(dir=directory) as key_snapshot,
+    ):
+        certificate_snapshot.write(certificate)
+        certificate_snapshot.flush()
+        key_snapshot.write(key)
+        key_snapshot.flush()
+        # Encrypted/unavailable private material refuses without an interactive
+        # password prompt or ambient credential lookup.
+        result.load_cert_chain(certificate_snapshot.name, key_snapshot.name, password=lambda: "")
+    return result
 
 
 _IDENTITY = """
@@ -138,12 +172,10 @@ class PhiPostgresConnection:
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[asyncpg.Connection]:
         connection = None
+        failure: DecisionCustodyError | None = None
         try:
             self.current()
-            tls = self._identity.context()
-            certificate = x509.load_pem_x509_certificate(self._identity.certificate_file.read_bytes())
-            if certificate.fingerprint(hashes.SHA256()).hex() != self.deployment.client_certificate_sha256:
-                raise DecisionCustodyError()
+            tls = _pinned_tls_context(self._identity, self.deployment.client_certificate_sha256)
             connection = await asyncpg.connect(
                 host=self.deployment.host,
                 port=self.deployment.port,
@@ -191,17 +223,22 @@ class PhiPostgresConnection:
                 yield connection
                 self.current()
             self.current()
-        except DecisionCustodyError:
-            raise
+        except DecisionCustodyConflictError:
+            failure = DecisionCustodyConflictError()
         except Exception:
-            raise DecisionCustodyError() from None
+            failure = DecisionCustodyError()
         finally:
             if connection is not None:
                 # A close failure after COMMIT is unknown to the caller, never rollback.
                 try:
                     await connection.close(timeout=self._timeout)
                 except Exception:
-                    raise DecisionCustodyError() from None
+                    failure = DecisionCustodyError()
+        if failure is not None:
+            # Fresh classification only; never reuse provider messages/notes/causes.
+            # Python may attach an active caller-block exception as context during
+            # async-with exit, so explicitly suppress context display as well.
+            raise failure from None
 
 
 async def install_phi_decision_schema(connection: asyncpg.Connection, *, writer_role: str) -> None:
