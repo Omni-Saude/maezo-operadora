@@ -81,7 +81,11 @@ from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
-from maezo.tools.workers.engine_var_types import camunda_int_type, validate_declared_long_var
+from maezo.tools.workers.engine_var_types import (
+    camunda_int_type,
+    validate_centavos_engine_var,
+    validate_declared_long_var,
+)
 from maezo.tools.workers.phi_vars import redact_error_message
 
 logger = structlog.get_logger(__name__)
@@ -622,6 +626,7 @@ def _to_camunda_var(value: Any, *, name: str | None = None) -> dict[str, Any]:
     conversion) pass none and get the magnitude rule.
     """
     validate_declared_long_var(name, value)
+    validate_centavos_engine_var(name, value)
     if isinstance(value, dict) and "value" in value:
         return value
     if isinstance(value, bool):
