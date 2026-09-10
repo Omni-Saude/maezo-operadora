@@ -92,3 +92,15 @@ Census and CONTENT1 production WIPs retain the unresolved construction and sourc
 | `remediation-docs` | `preservation/express-20260910-remediation-docs` | `a3c320e62e601c0b30e59afebe06a6ca0f04c904` |
 
 Private receipts: `/Users/familia/code/maezo-completion-evidence/product-first-20260910/express-cleanup-20260910/`. The synthetic reviewer `form_key` scanner finding was independently classified as a business identifier; no global suppression or source change was added. Dependency directories and ignored private evidence remain local. The earlier paused product plan and acceptance limits otherwise remain in force.
+
+## Current continuity update — all-worktree WIP preservation, 2026-09-10
+
+Fresh bounded read-only Git status inspection completed for all 488 registered worktrees and the four standalone repositories (492 locations), in 13.85 seconds, without missing paths, errors or timeouts. This successful source-status inventory supersedes the earlier timed-out full metadata attempt for WIP discovery only; it does not claim a new exhaustive ignored-evidence audit.
+
+All 22 discovered uncommitted source files match the nine published preservation snapshots byte-for-byte, with exact GitHub ref checks. Two untracked node_modules dependency links remain excluded; private ignored evidence/caches remain local. All four standalone repositories are clean. Historical WIP worktrees intentionally remain unchanged and can still show edits: the commits live on recovery branches with their original HEAD as parent. No distinct staged source version was present in the fresh status results.
+
+The current mutable PLANS, PROJECT, CHECKPOINT, RUNBOOK, SESSION, docs/plan and both current orchestration prompts now point here. The immutable graceful handoff packets, package manifests, CONTINUE-2026-09-09, NEXT-ORCHESTRATOR-HANDOFF and PENDING-TASKS historical snapshots remain unchanged. New current-file hashes and prior bytes are preserved in the separate continuity-update receipt.
+
+WIP-only execution prompt: [maezo-wip-preservation-only.md](docs/prompts/maezo-wip-preservation-only.md). It authorizes source snapshots and remote verification without lint/build/test/runtime/product-release gates. Secret handling, non-destructive preservation and exact remote verification remain required. This permission does not approve incomplete code for main or waive product acceptance gates.
+
+Evidence: `express-cleanup-20260910/ALL-WIP-FRESH.json`, `CURRENT-WIP-BYTE-VERIFICATION.json`, `HISTORICAL-WIP-PRESERVATION.json`, and `continuity-update/`. Product build/merge blockers and recovery branch table remain in the preceding express section. No feature, engine, database, cloud deployment or new broad CI execution was started by this preservation pass.
