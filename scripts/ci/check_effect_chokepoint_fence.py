@@ -371,6 +371,26 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "httpx.AsyncClient(verify=tls_context, transport=_BorrowedTransport(self._transport), "
         "follow_redirects=False, trust_env=False, timeout=timeout_seconds)"
     ),
+    # Portal AUTH human transports retain their exact TLS, proxy and redirect controls.
+    (
+        "gateway/human/assignment_transport.py",
+        "AssignmentPrivateTransport.__init__",
+    ): (
+        "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=timeout_seconds, "
+        "trust_env=False, follow_redirects=False)"
+    ),
+    (
+        "gateway/human/auth_transport.py",
+        "AuthNativeClient.__init__",
+    ): (
+        "httpx.AsyncClient(verify=tls_context, transport=transport, follow_redirects=False, "
+        "trust_env=False, timeout=timeout_seconds)"
+    ),
+    # Native workload reads are admitted only in the guarded exchange scope.
+    (
+        "gateway/native_fetch/transport.py",
+        "NativeFetchClient._exchange",
+    ): "httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False, timeout=30)",
 }
 _SECRET_SCOPED_SEAM: Final[tuple[str, str]] = (
     "gateway/portal_identity.py",
