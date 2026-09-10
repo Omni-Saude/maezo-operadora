@@ -1,19 +1,25 @@
+import { createHash, webcrypto } from "node:crypto";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import {
   makeAssignmentSubmission,
   readAssignmentContext,
+  readAssignmentCandidates,
   submitAssignment,
   validateAssignmentReceipt,
   type AssignmentContext,
 } from "./assignmentClient";
 
 const digest = "a".repeat(64);
-const huge = "900719925474099312345678901234567890";
+const huge = "9007199254740993";
 
 function context(overrides: Partial<AssignmentContext> = {}): AssignmentContext {
   return {
-    schema_version: "portal-assignment-context.v1",
+    schema_version: "portal-assignment-context.v2",
+    binding_ref: "binding-opaque", binding_version: "1", binding_digest: digest,
+    policy_ref: "policy-opaque", policy_version: "1", policy_digest: digest,
+    source_revision: "1", generation_digest: digest,
+
     task_id: "task-opaque",
     process_definition_key: "SP-OP-AUTH-001",
     process_definition_version: huge,
@@ -56,9 +62,9 @@ it("preserva todos os pins e revisões do contexto aprovado sem autoridade do na
   const value = context();
   const submission = makeAssignmentSubmission(value, "claim", "command-opaque");
   expect(submission).toEqual({
-    schema_version: "portal-assignment-submission.v1",
+    schema_version: "portal-assignment-submission.v2",
     command: {
-      schema_version: 1,
+      schema_version: 2,
       command_id: "command-opaque",
       operation: "claim",
       task_id: value.task_id,
@@ -75,9 +81,14 @@ it("preserva todos os pins e revisões do contexto aprovado sem autoridade do na
       expected_evidence_digest: digest,
       expected_membership_revision: huge,
       expected_authority_revision: huge,
+      expected_assignee_ref: null,
+      expected_binding_ref: "binding-opaque", expected_binding_version: "1", expected_binding_digest: digest,
+      expected_policy_ref: "policy-opaque", expected_policy_version: "1", expected_policy_digest: digest,
+      expected_source_revision: "1", expected_generation_digest: digest,
+      target_ref: null, expected_target_membership_revision: null,
     },
   });
-  expect(JSON.stringify(submission)).not.toMatch(/tenant|principal|actor|roles|assignee_ref/);
+  expect(JSON.stringify(submission)).not.toMatch(/tenant|principal|actor|roles/);
   expect(makeAssignmentSubmission(value, "release", "command-opaque")).toBeNull();
 });
 
@@ -133,7 +144,15 @@ it("envia somente o wrapper gerado por POST same-origin e aceita apenas admissã
 
 it("não converte 202 nem recibo pendente em execução e exige prova completa no committed", () => {
   const base = {
-    schema_version: "human-public-receipt.v1" as const,
+    schema_version: "human-public-assignment-receipt.v1" as const,
+    command_schema: "human-assignment.v2", operation: "claim",
+    binding_ref: "binding-opaque", binding_version: "1", binding_digest: digest,
+    policy_ref: "policy-opaque", policy_version: "1", policy_digest: digest,
+    source_revision: "1", generation_digest: digest,
+    target_ref: null, target_membership_revision: null,
+    prior_assignee_ref: null, resulting_assignee_ref: null,
+    assignment_disposition: null,
+
     tenant: "tenant-hidden",
     task_id: "task-opaque",
     command_id: "command-opaque",
@@ -154,6 +173,7 @@ it("não converte 202 nem recibo pendente em execução e exige prova completa n
   expect(validateAssignmentReceipt({
     ...base,
     status: "committed",
+    resulting_assignee_ref: "principal-hidden", assignment_disposition: "changed",
     audit_result_ref: digest,
     engine_receipt_ref: "engine-opaque",
     engine_recorded_at: "2026-09-10T15:00:02Z",
@@ -162,6 +182,7 @@ it("não converte 202 nem recibo pendente em execução e exige prova completa n
   expect(validateAssignmentReceipt({
     ...base,
     status: "committed",
+    resulting_assignee_ref: "principal-hidden", assignment_disposition: "changed",
     audit_result_ref: digest,
     engine_receipt_ref: "engine-opaque",
     engine_recorded_at: "2026-09-10T15:00:02Z",
@@ -174,4 +195,52 @@ it.each(["admission_unavailable", "dependency_unavailable"] as const)("preserva 
   vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ schema_version: "portal-decision-error.v1", code }, 503));
   const submission = makeAssignmentSubmission(context(), "claim", "command-opaque")!;
   await expect(submitAssignment(submission, "csrf", new AbortController().signal)).resolves.toEqual({ kind: "outcome-unknown" });
+});
+
+it("negocia v2 e recusa revisões não canônicas ou acima do limite nativo", async () => {
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(context()));
+  expect((await readAssignmentContext("task-opaque", new AbortController().signal)).kind).toBe("success");
+  expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toMatchObject({ Accept: "application/vnd.maezo.assignment-context.v2+json" });
+  for (const version of ["01", "-1", "9223372036854775808", "0"]) {
+    expect(makeAssignmentSubmission(context({ binding_version: version }), "claim", "command")).toBeNull();
+  }
+  expect(makeAssignmentSubmission(context({ allowed_operations: ["release"], assignee_ref: "previous" }), "release", "command")?.command)
+    .toMatchObject({ operation: "release", expected_assignee_ref: "previous", target_ref: null });
+});
+
+function candidatePage(basis = context({ allowed_operations: ["reassign"], assignee_ref: "previous" })) {
+  const candidates = [{ target_membership_revision: huge, target_ref: "target-opaque" }];
+  return { schema_version: "portal-assignment-candidates.v1", context: basis, candidates,
+    candidate_count: "1", candidate_digest: createHash("sha256").update(JSON.stringify(candidates)).digest("hex"),
+    valid_until: "2026-09-10T15:04:00Z" };
+}
+it("vincula destinatário à lista completa verificada e aos mesmos pins", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const basis = context({ allowed_operations: ["reassign"], assignee_ref: "previous" });
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(candidatePage(basis)));
+  const result = await readAssignmentCandidates(basis, new AbortController().signal);
+  expect(result.kind).toBe("success");
+  if (result.kind !== "success") throw new Error("candidate failure");
+  const command = makeAssignmentSubmission(basis, "reassign", "command", result.value, "target-opaque")?.command;
+  expect(command).toMatchObject({ operation: "reassign", expected_assignee_ref: "previous",
+    target_ref: "target-opaque", expected_target_membership_revision: huge,
+    expected_generation_digest: digest, expected_binding_digest: digest, expected_policy_digest: digest });
+  expect(makeAssignmentSubmission(basis, "reassign", "command", result.value, "invented-target")).toBeNull();
+  expect(makeAssignmentSubmission(basis, "reassign", "command", candidatePage(basis) as never, "target-opaque")).toBeNull();
+  expect(makeAssignmentSubmission({ ...basis, generation_digest: "b".repeat(64) }, "reassign", "command", result.value, "target-opaque")).toBeNull();
+  vi.setSystemTime(new Date("2026-09-10T15:04:01Z"));
+  expect(makeAssignmentSubmission(basis, "reassign", "command", result.value, "target-opaque")).toBeNull();
+});
+it("recusa candidatos incompletos, alterados ou de outra geração", async () => {
+  vi.stubGlobal("crypto", webcrypto);
+  const basis = context({ allowed_operations: ["reassign"] });
+  for (const page of [
+    { ...candidatePage(basis), candidate_count: "2" },
+    { ...candidatePage(basis), candidate_digest: "b".repeat(64) },
+    candidatePage({ ...basis, generation_digest: "b".repeat(64) }),
+    { ...candidatePage(basis), valid_until: "2026-09-10T15:06:00Z" },
+  ]) {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(page));
+    expect((await readAssignmentCandidates(basis, new AbortController().signal)).kind).toBe("invalid-response");
+  }
 });

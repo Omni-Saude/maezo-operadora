@@ -3,9 +3,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   makeAssignmentSubmission,
   readAssignmentContext,
+  readAssignmentCandidates,
   readAssignmentReceipt,
   submitAssignment,
   type AssignmentContext,
+  type AssignmentCandidates,
   type AssignmentFailure,
   type AssignmentOperation,
   type AssignmentReceipt,
@@ -48,6 +50,7 @@ const failureMessages: Readonly<Record<AssignmentFailure, string>> = {
 const operationLabels: Readonly<Record<AssignmentOperation, string>> = {
   claim: "Assumir responsabilidade",
   release: "Liberar responsabilidade",
+  reassign: "Reatribuir responsabilidade",
 };
 
 function formatTimestamp(value: string) {
@@ -71,6 +74,9 @@ export function TaskOwnershipControls({
   onCommitted: () => void;
 }) {
   const [context, setContext] = useState<ContextState>({ kind: "idle" });
+  const [candidates, setCandidates] = useState<AssignmentCandidates | null>(null);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [targetRef, setTargetRef] = useState("");
   const [command, setCommand] = useState<CommandState>({ kind: "none" });
   const [actionFailure, setActionFailure] = useState<AssignmentFailure | null>(null);
   const requestEpoch = useRef(0);
@@ -101,7 +107,9 @@ export function TaskOwnershipControls({
     contextEpoch.current += 1;
     contextRequest.current?.abort();
     contextRequest.current = null;
-    submissionIdentity.current = null;
+    // Hide unauthorized state immediately, but do not reinterpret a lost session as
+    // no effect. Keep the exact private command until this context is replaced.
+    setCandidates(null); setTargetRef(""); setLoadingCandidates(false);
     setContext({ kind: "idle" });
     setCommand({ kind: "none" });
     setActionFailure(null);
@@ -115,6 +123,7 @@ export function TaskOwnershipControls({
     const controller = new AbortController();
     contextRequest.current = controller;
     const current = () => !controller.signal.aborted && epoch === contextEpoch.current;
+    setCandidates(null); setTargetRef(""); setLoadingCandidates(false);
     setContext({ kind: "loading" });
     if (command.kind === "receipt" && command.receipt.status === "conflict") {
       // Only an authenticated terminal receipt can retire a tracked command here.
@@ -129,6 +138,9 @@ export function TaskOwnershipControls({
       contextRequest.current = null;
       if (result.kind === "success") {
         setContext({ kind: "ready", value: result.value });
+        if (submissionIdentity.current !== null && command.kind === "none") {
+          setCommand({ kind: "unknown", submission: submissionIdentity.current });
+        }
       } else if (result.kind === "authentication_unavailable") {
         invalidateSession();
       } else {
@@ -142,8 +154,31 @@ export function TaskOwnershipControls({
     }
   }, [command, invalidateSession, taskId]);
 
+  const loadCandidates = useCallback(async () => {
+    if (context.kind !== "ready" || !isCurrent(context.value.valid_until) ||
+        !context.value.allowed_operations.includes("reassign") || submissionIdentity.current !== null) return;
+    const basis = context.value;
+    const epoch = ++contextEpoch.current;
+    contextRequest.current?.abort();
+    const controller = new AbortController(); contextRequest.current = controller;
+    const current = () => !controller.signal.aborted && epoch === contextEpoch.current;
+    setCandidates(null); setTargetRef(""); setLoadingCandidates(true); setActionFailure(null);
+    try {
+      const result = await readAssignmentCandidates(basis, controller.signal);
+      if (!current()) return;
+      if (!isCurrent(basis.valid_until)) { setContext({ kind: "expired" }); return; }
+      if (result.kind === "success") setCandidates(result.value);
+      else if (result.kind === "authentication_unavailable") invalidateSession();
+      else setActionFailure(result.kind);
+    } catch (error) {
+      if (current() && !(error instanceof DOMException && error.name === "AbortError")) setActionFailure("dependency_unavailable");
+    } finally {
+      if (current()) { contextRequest.current = null; setLoadingCandidates(false); }
+    }
+  }, [context, invalidateSession]);
+
   const send = useCallback(
-    async (submission: AssignmentSubmission, recovering = false) => {
+    async (submission: AssignmentSubmission) => {
       const { controller, epoch } = replaceRequest();
       submissionIdentity.current = submission;
       setCommand({ kind: "sending", submission });
@@ -159,12 +194,9 @@ export function TaskOwnershipControls({
         } else if (result.kind === "outcome-unknown") {
           setCommand({ kind: "unknown", submission });
         } else {
-          // A refusal of a retry cannot establish what happened to its earlier admission.
-          if (recovering) setCommand({ kind: "unknown", submission });
-          else {
-            setCommand({ kind: "none" });
-            submissionIdentity.current = null;
-          }
+          // The response carries no pre-admission stage proof. Keep the first command
+          // on every possible-effect refusal, as well as every refused retry.
+          setCommand({ kind: "unknown", submission });
           setActionFailure(result.kind);
           if (["revision_conflict", "authority_unavailable", "operation_forbidden"].includes(result.kind)) {
             setContext({ kind: "expired" });
@@ -195,6 +227,8 @@ export function TaskOwnershipControls({
         context.value,
         operation,
         crypto.randomUUID(),
+        operation === "reassign" ? candidates ?? undefined : undefined,
+        operation === "reassign" ? targetRef : undefined,
       );
       if (submission === null) {
         setContext({ kind: "expired" });
@@ -203,7 +237,7 @@ export function TaskOwnershipControls({
       }
       void send(submission);
     },
-    [context, send],
+    [context, candidates, targetRef, send],
   );
 
   const consult = useCallback(
@@ -219,6 +253,7 @@ export function TaskOwnershipControls({
           commandId,
           controller.signal,
           receiptEndpoint,
+          submission,
         );
         if (!currentRequest(epoch, controller.signal)) return;
         activeRequest.current = null;
@@ -250,6 +285,7 @@ export function TaskOwnershipControls({
     contextRequest.current?.abort();
     contextRequest.current = null;
     submissionIdentity.current = null;
+    setCandidates(null); setTargetRef(""); setLoadingCandidates(false);
     setContext({ kind: "idle" });
     setCommand({ kind: "none" });
     setActionFailure(null);
@@ -273,7 +309,13 @@ export function TaskOwnershipControls({
     return () => window.clearTimeout(timer);
   }, [context]);
 
-  const busy = context.kind === "loading" || command.kind === "sending";
+  useEffect(() => {
+    if (candidates === null) return;
+    const timer = window.setTimeout(() => { setCandidates(null); setTargetRef(""); }, expiryDelay(candidates.valid_until));
+    return () => window.clearTimeout(timer);
+  }, [candidates]);
+
+  const busy = context.kind === "loading" || command.kind === "sending" || loadingCandidates;
   const receipt = command.kind === "receipt" ? command.receipt : null;
 
   return (
@@ -281,7 +323,7 @@ export function TaskOwnershipControls({
       <h3 id="ownership-heading">Responsabilidade pela tarefa</h3>
       {context.kind === "idle" && (
         <>
-          <p>Consulte a autorização atual antes de assumir ou liberar esta tarefa.</p>
+          <p>Consulte a autorização atual antes de alterar a responsabilidade desta tarefa.</p>
           <button className="secondary-action" type="button" onClick={() => void loadContext()}>
             Consultar responsabilidade
           </button>
@@ -312,6 +354,22 @@ export function TaskOwnershipControls({
             Autorização válida até {formatTimestamp(context.value.valid_until)}. As operações abaixo
             foram determinadas pelo servidor para esta tarefa.
           </p>
+          {context.value.allowed_operations.includes("reassign") && (
+            <div>
+              <button className="secondary-action" type="button" disabled={busy || command.kind !== "none"}
+                onClick={() => void loadCandidates()}>Consultar destinatários autorizados</button>
+              {loadingCandidates && <p role="status">Consultando destinatários autorizados…</p>}
+              {candidates !== null && (candidates.candidates.length === 0
+                ? <p role="status">Nenhum destinatário está autorizado nesta consulta.</p>
+                : <label>Destinatário autorizado
+                    <select value={targetRef} disabled={busy || command.kind !== "none"}
+                      onChange={(event) => setTargetRef(event.target.value)}>
+                      <option value="">Selecione um destinatário</option>
+                      {candidates.candidates.map((item) => <option key={item.target_ref} value={item.target_ref}>{item.target_ref}</option>)}
+                    </select>
+                  </label>)}
+            </div>
+          )}
           {context.value.allowed_operations.length === 0 ? (
             <p role="status">Nenhuma mudança de responsabilidade está autorizada agora.</p>
           ) : (
@@ -319,7 +377,7 @@ export function TaskOwnershipControls({
               {context.value.allowed_operations.map((operation) => (
                 <button
                   className={operation === "claim" ? "primary-action" : "secondary-action"}
-                  disabled={busy || command.kind !== "none"}
+                  disabled={busy || command.kind !== "none" || (operation === "reassign" && (candidates === null || !targetRef))}
                   key={operation}
                   type="button"
                   onClick={() => startOperation(operation)}
@@ -342,7 +400,9 @@ export function TaskOwnershipControls({
             {command.kind === "sending"
               ? "Enviando solicitação. O recebimento ainda não foi confirmado."
               : receipt?.status === "committed"
-                ? "Alteração executada e confirmada pelo recibo do engine e pela auditoria."
+                ? receipt.assignment_disposition === "unchanged"
+                  ? "Responsabilidade confirmada sem alteração pelo recibo do engine e pela auditoria."
+                  : "Alteração executada e confirmada pelo recibo do engine e pela auditoria."
                 : receipt?.status === "conflict"
                   ? "Comando encerrado em conflito. Nenhuma alteração foi confirmada por este recibo."
                   : command.kind === "unknown"
@@ -369,7 +429,7 @@ export function TaskOwnershipControls({
               Consultar recibo
             </button>
             {command.kind === "unknown" && (
-              <button className="secondary-action" disabled={busy} type="button" onClick={() => void send(command.submission, true)}>
+              <button className="secondary-action" disabled={busy} type="button" onClick={() => void send(command.submission)}>
                 Reenviar o mesmo comando
               </button>
             )}
