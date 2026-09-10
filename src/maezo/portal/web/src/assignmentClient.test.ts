@@ -169,3 +169,9 @@ it("não converte 202 nem recibo pendente em execução e exige prova completa n
     resulting_task_revision: huge,
   }, "task-opaque", "command-opaque")?.status).toBe("committed");
 });
+
+it.each(["admission_unavailable", "dependency_unavailable"] as const)("preserva incerteza de POST503 %s sem inferir rollback", async (code) => {
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ schema_version: "portal-decision-error.v1", code }, 503));
+  const submission = makeAssignmentSubmission(context(), "claim", "command-opaque")!;
+  await expect(submitAssignment(submission, "csrf", new AbortController().signal)).resolves.toEqual({ kind: "outcome-unknown" });
+});

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -248,4 +248,43 @@ it("propaga a perda de sessão e remove controles autorizados", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Consultar responsabilidade" }));
   await waitFor(() => expect(onSessionUnavailable).toHaveBeenCalledOnce());
   expect(screen.queryByRole("button", { name: "Assumir responsabilidade" })).not.toBeInTheDocument();
+});
+
+async function ownershipClick(name: string) {
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name })); });
+}
+
+it.each(["pending", "unknown", "sending"] as const)("mantém identidade %s durante expiry e renovação independente da autorização", async (kind) => {
+  vi.useFakeTimers();
+  const late = deferred<Response>();
+  const first = { ...assignmentContext(), valid_until: "2026-09-10T15:00:01Z" };
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(first));
+  if (kind === "sending") vi.mocked(fetch).mockReturnValueOnce(late.promise);
+  else vi.mocked(fetch).mockResolvedValueOnce(kind === "pending" ? jsonResponse(admission(), 202) : jsonResponse({ schema_version: "portal-decision-error.v1", code: "admission_unavailable" }, 503));
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(assignmentContext()));
+  render(<TaskOwnershipControls taskId="task-opaque" csrfToken="csrf-secret" sessionBinding="session-a" onSessionUnavailable={vi.fn()} onCommitted={vi.fn()} />);
+  await ownershipClick("Consultar responsabilidade");
+  await ownershipClick("Assumir responsabilidade");
+  const post = vi.mocked(fetch).mock.calls[1][1]!;
+  await act(async () => { await vi.advanceTimersByTimeAsync(1001); });
+  await ownershipClick("Atualizar autorização");
+  expect(post.signal?.aborted).toBe(false);
+  expect(screen.getByText(`Protocolo: ${commandId}`)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Assumir responsabilidade" })).toBeDisabled();
+  expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
+  if (kind === "sending") {
+    await act(async () => { late.resolve(jsonResponse(admission(), 202)); });
+    expect(screen.getByText(/Solicitação recebida e pendente/)).toBeInTheDocument();
+  }
+  if (kind === "unknown") {
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ schema_version: "portal-decision-error.v1", code: "revision_conflict" }, 409));
+    await ownershipClick("Reenviar o mesmo comando");
+    expect(vi.mocked(fetch).mock.calls[3][1]?.body).toBe(post.body);
+    expect(screen.getByText(`Protocolo: ${commandId}`)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reenviar o mesmo comando" })).toBeInTheDocument();
+  }
+  vi.mocked(fetch).mockResolvedValueOnce(jsonResponse(receipt("committed")));
+  await ownershipClick("Consultar recibo");
+  expect(screen.getByText(/Alteração executada e confirmada/)).toBeInTheDocument();
+  expect(crypto.randomUUID).toHaveBeenCalledTimes(1);
 });

@@ -119,7 +119,7 @@ function BooleanValue({ value }: { value: boolean }) {
   return <>{value ? "Sim" : "Não"}</>;
 }
 
-function TaskDetail({ state, refreshQueue, prepare, ownership }: { state: DetailState; refreshQueue: () => void; prepare?: (taskId: string) => void; ownership?: React.ReactNode }) {
+function TaskDetail({ state, refreshQueue, prepare }: { state: DetailState; refreshQueue: () => void; prepare?: (taskId: string) => void }) {
   if (state.kind === "none") return null;
   if (state.kind === "loading") {
     return (
@@ -182,7 +182,6 @@ function TaskDetail({ state, refreshQueue, prepare, ownership }: { state: Detail
           </dl>
         </section>
       )}
-      {ownership}
     </section>
   );
 }
@@ -201,6 +200,8 @@ export function EmployeeQueues({
   showQueueNavigation?: boolean;
 }) {
   const [decisionTask, setDecisionTask] = useState<string | null>(null);
+  // A command belongs to its selected task/session, not to a renewable queue page.
+  const [ownershipTask, setOwnershipTask] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueName>(initialQueue);
   const [queueState, setQueueState] = useState<QueueState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
@@ -221,7 +222,9 @@ export function EmployeeQueues({
     queueEpoch.current += 1;
     queueRequest.current?.abort();
     queueRequest.current = null;
-    suspended.current = error !== undefined;
+    const revoked = error === "session_unavailable" || error === "employee_access_required" || error === "resource_unavailable";
+    suspended.current = revoked;
+    if (error === undefined || revoked) setOwnershipTask(null);
     setDecisionTask(null);
     invalidateDetail();
     setQueueState(error === undefined ? { kind: "loading" } : { kind: "error", error });
@@ -250,8 +253,8 @@ export function EmployeeQueues({
           invalidateWorkspace("refresh_required");
           return;
         }
-        // A complete new page never carries forward an older selected snapshot.
-        invalidateDetail();
+        // Queue and detail grants have separate original freshness ceilings.
+        // A new page neither renews the detail nor retires its command identity.
         setQueueState({ kind: "ready", items: [...result.value.items], page: result.value,
           validUntil: result.value.freshness.valid_until, refreshing: false });
       } else if (result.kind === "session_unavailable") {
@@ -264,7 +267,7 @@ export function EmployeeQueues({
         invalidateWorkspace("read_dependency_unavailable");
       }
     }
-  }, [clearForSessionFailure, invalidateDetail, invalidateWorkspace, queue]);
+  }, [clearForSessionFailure, invalidateWorkspace, queue]);
 
   const loadNextPage = useCallback(async () => {
     if (queueState.kind !== "ready" || queueState.page.next_cursor === null) return;
@@ -321,6 +324,7 @@ export function EmployeeQueues({
         invalidateWorkspace("refresh_required");
         return;
       }
+      setOwnershipTask((current) => current === taskId ? current : null);
       const epoch = ++detailEpoch.current;
       detailRequest.current?.abort();
       const controller = new AbortController();
@@ -341,14 +345,13 @@ export function EmployeeQueues({
             observedAt: result.value.freshness.observed_at,
             validUntil: result.value.freshness.valid_until,
           });
-          // Keep the authorized snapshot stable while its per-task command is being
-          // prepared or reconciled. An explicit queue refresh still clears it.
-          suspended.current = true;
+          setOwnershipTask(taskId);
         } else if (result.kind === "session_unavailable") {
           clearForSessionFailure();
         } else if (result.kind === "employee_access_required") {
           invalidateWorkspace(result.kind);
         } else {
+          if (result.kind === "resource_unavailable") setOwnershipTask(null);
           setDetailState({ kind: "error", error: result.kind });
         }
       } catch (error) {
@@ -445,16 +448,17 @@ export function EmployeeQueues({
         state={detailState}
         refreshQueue={() => void loadFirstPage()}
         prepare={csrfToken ? setDecisionTask : undefined}
-        ownership={detailState.kind === "ready" && csrfToken ? (
-          <TaskOwnershipControls
-            taskId={detailState.task.task_id}
-            csrfToken={csrfToken}
-            sessionBinding={sessionBinding}
-            onSessionUnavailable={clearForSessionFailure}
-            onCommitted={() => void loadFirstPage()}
-          />
-        ) : undefined}
       />
+      {ownershipTask && csrfToken && (
+        <TaskOwnershipControls
+          key={`${sessionBinding}\u0000${ownershipTask}`}
+          taskId={ownershipTask}
+          csrfToken={csrfToken}
+          sessionBinding={sessionBinding}
+          onSessionUnavailable={clearForSessionFailure}
+          onCommitted={() => void loadFirstPage()}
+        />
+      )}
       {decisionTask && csrfToken && <DecisionWorkspace key={`${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
     </section>
   );

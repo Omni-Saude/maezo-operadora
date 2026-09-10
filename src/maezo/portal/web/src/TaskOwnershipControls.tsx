@@ -37,7 +37,7 @@ const failureMessages: Readonly<Record<AssignmentFailure, string>> = {
   task_unavailable: "A tarefa não está mais disponível.",
   form_projection_unavailable: "A projeção atual da tarefa não está disponível.",
   form_contract_unavailable: "O contrato atual da tarefa não está disponível.",
-  admission_unavailable: "O serviço não pôde admitir o comando agora.",
+  admission_unavailable: "A admissão não pôde ser confirmada. Consulte o mesmo protocolo.",
   credential_scope_mismatch: "A credencial atual não autoriza esta operação.",
   production_capabilities_unavailable: "A operação está indisponível neste ambiente.",
   dependency_unavailable: "Uma dependência não respondeu. Nenhuma alteração foi confirmada.",
@@ -76,6 +76,9 @@ export function TaskOwnershipControls({
   const requestEpoch = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
   const reportedCommit = useRef<string | null>(null);
+  const submissionIdentity = useRef<AssignmentSubmission | null>(null);
+  const contextEpoch = useRef(0);
+  const contextRequest = useRef<AbortController | null>(null);
 
   const replaceRequest = useCallback(() => {
     const epoch = ++requestEpoch.current;
@@ -95,6 +98,10 @@ export function TaskOwnershipControls({
     requestEpoch.current += 1;
     activeRequest.current?.abort();
     activeRequest.current = null;
+    contextEpoch.current += 1;
+    contextRequest.current?.abort();
+    contextRequest.current = null;
+    submissionIdentity.current = null;
     setContext({ kind: "idle" });
     setCommand({ kind: "none" });
     setActionFailure(null);
@@ -102,15 +109,24 @@ export function TaskOwnershipControls({
   }, [onSessionUnavailable]);
 
   const loadContext = useCallback(async () => {
-    const { controller, epoch } = replaceRequest();
+    // Renew authority independently: this must not abort or replace a submitted command.
+    const epoch = ++contextEpoch.current;
+    contextRequest.current?.abort();
+    const controller = new AbortController();
+    contextRequest.current = controller;
+    const current = () => !controller.signal.aborted && epoch === contextEpoch.current;
     setContext({ kind: "loading" });
-    setCommand({ kind: "none" });
+    if (command.kind === "receipt" && command.receipt.status === "conflict") {
+      // Only an authenticated terminal receipt can retire a tracked command here.
+      setCommand({ kind: "none" });
+      submissionIdentity.current = null;
+      reportedCommit.current = null;
+    }
     setActionFailure(null);
-    reportedCommit.current = null;
     try {
       const result = await readAssignmentContext(taskId, controller.signal);
-      if (!currentRequest(epoch, controller.signal)) return;
-      activeRequest.current = null;
+      if (!current()) return;
+      contextRequest.current = null;
       if (result.kind === "success") {
         setContext({ kind: "ready", value: result.value });
       } else if (result.kind === "authentication_unavailable") {
@@ -119,19 +135,17 @@ export function TaskOwnershipControls({
         setContext({ kind: "error", failure: result.kind });
       }
     } catch (error) {
-      if (
-        !(error instanceof DOMException && error.name === "AbortError") &&
-        currentRequest(epoch, controller.signal)
-      ) {
-        activeRequest.current = null;
+      if (!(error instanceof DOMException && error.name === "AbortError") && current()) {
+        contextRequest.current = null;
         setContext({ kind: "error", failure: "dependency_unavailable" });
       }
     }
-  }, [currentRequest, invalidateSession, replaceRequest, taskId]);
+  }, [command, invalidateSession, taskId]);
 
   const send = useCallback(
-    async (submission: AssignmentSubmission) => {
+    async (submission: AssignmentSubmission, recovering = false) => {
       const { controller, epoch } = replaceRequest();
+      submissionIdentity.current = submission;
       setCommand({ kind: "sending", submission });
       setActionFailure(null);
       try {
@@ -145,7 +159,12 @@ export function TaskOwnershipControls({
         } else if (result.kind === "outcome-unknown") {
           setCommand({ kind: "unknown", submission });
         } else {
-          setCommand({ kind: "none" });
+          // A refusal of a retry cannot establish what happened to its earlier admission.
+          if (recovering) setCommand({ kind: "unknown", submission });
+          else {
+            setCommand({ kind: "none" });
+            submissionIdentity.current = null;
+          }
           setActionFailure(result.kind);
           if (["revision_conflict", "authority_unavailable", "operation_forbidden"].includes(result.kind)) {
             setContext({ kind: "expired" });
@@ -166,6 +185,7 @@ export function TaskOwnershipControls({
 
   const startOperation = useCallback(
     (operation: AssignmentOperation) => {
+      if (submissionIdentity.current !== null) return;
       if (context.kind !== "ready" || !isCurrent(context.value.valid_until)) {
         setContext({ kind: "expired" });
         setActionFailure("revision_conflict");
@@ -226,6 +246,10 @@ export function TaskOwnershipControls({
     requestEpoch.current += 1;
     activeRequest.current?.abort();
     activeRequest.current = null;
+    contextEpoch.current += 1;
+    contextRequest.current?.abort();
+    contextRequest.current = null;
+    submissionIdentity.current = null;
     setContext({ kind: "idle" });
     setCommand({ kind: "none" });
     setActionFailure(null);
@@ -234,6 +258,9 @@ export function TaskOwnershipControls({
       requestEpoch.current += 1;
       activeRequest.current?.abort();
       activeRequest.current = null;
+      contextEpoch.current += 1;
+      contextRequest.current?.abort();
+      contextRequest.current = null;
     };
   }, [sessionBinding, taskId]);
 
@@ -342,7 +369,7 @@ export function TaskOwnershipControls({
               Consultar recibo
             </button>
             {command.kind === "unknown" && (
-              <button className="secondary-action" disabled={busy} type="button" onClick={() => void send(command.submission)}>
+              <button className="secondary-action" disabled={busy} type="button" onClick={() => void send(command.submission, true)}>
                 Reenviar o mesmo comando
               </button>
             )}

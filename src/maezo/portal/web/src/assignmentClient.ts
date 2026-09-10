@@ -190,7 +190,14 @@ async function request<T>(
   }
   if (validWire(value, wireSchema("PortalDecisionError"))) {
     const code = (value as Schemas["PortalDecisionError"]).code;
-    if (errorStatus[response.status]?.includes(code)) return { kind: code };
+    if (errorStatus[response.status]?.includes(code)) {
+      // Admission can be durable before its acknowledgement/response fails. A closed
+      // 503 is not proof of rollback; retain the original submission for reconciliation.
+      if (submission !== undefined && (code === "admission_unavailable" || code === "dependency_unavailable")) {
+        return { kind: "outcome-unknown" };
+      }
+      return { kind: code };
+    }
   }
   return { kind: submission === undefined ? "invalid-response" : "outcome-unknown" };
 }
