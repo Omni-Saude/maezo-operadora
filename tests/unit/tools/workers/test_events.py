@@ -50,6 +50,9 @@ def _task(
         business_key=business_key,
         worker_id="w-1",
         variables=variables or {},
+        # Generic fixtures model top-level fetchAndLock provenance (R228-D01).
+        process_definition_key="SP-OP-ESCALATION-001",
+        activity_id="ST_PublishRequested",
     )
 
 

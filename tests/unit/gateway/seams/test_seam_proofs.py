@@ -63,6 +63,8 @@ from maezo.gateway.seams.fhir import gate_fhir
 from maezo.gateway.seams.inference import gate_inference
 from maezo.gateway.seams.population import gate_population
 from maezo.gateway.seams.whatsapp import gate_whatsapp
+from tests.unit.gateway.test_amh import consumer  # noqa: F401
+from tests.unit.gateway.test_amh import harness as amh_harness  # noqa: F401
 
 pytestmark = pytest.mark.anyio
 
@@ -438,6 +440,13 @@ async def test_parity_gated_vs_neutralized_under_the_shipped_manifest(seam_name:
     gated_inner = fake_cls()
     live = await _exercise(gate(gated_inner, _shipped_seam()))
 
+    if seam_name == "population":
+        # R117 privacy enforcement is independent of autonomy shadow mode. No ratified
+        # canonical policy/authenticated human act exists: even a shadow-allowed read refuses.
+        assert live == [("raised", "PopulationPolicyUnavailableError")] * 2
+        assert gated_inner.calls == []
+        assert all(outcome[0] == "ok" for outcome in neutralized)
+        return
     assert live == neutralized, f"{seam_name}: gated and neutralized outcomes differ"
     assert gated_inner.calls == neutralized_inner.calls, (
         f"{seam_name}: the gate changed WHICH inner calls happened, or with what arguments"
@@ -537,7 +546,7 @@ async def test_no_payload_prompt_recipient_or_patient_id_ever_reaches_a_telemetr
         assert secret not in rendered, f"{secret!r} leaked into a telemetry line"
 
 
-async def test_every_catalogued_agent_operation_is_reachable_from_some_seam() -> None:
+async def test_every_catalogued_agent_operation_is_reachable_from_some_seam(amh_harness) -> None:  # noqa: F811
     """Non-vacuity for (B): the catalogue must not contain an operation no wrapper can emit.
 
     An operation with no seam produces no shadow evidence, so a class resting on it could never be
@@ -550,6 +559,17 @@ async def test_every_catalogued_agent_operation_is_reachable_from_some_seam() ->
         wrapper = gate(fake_cls(), seam)
         with structlog.testing.capture_logs() as logs:
             await _exercise(wrapper)
+        emitted |= {entry["operation"] for entry in logs if entry["event"] == EVENT_SHADOW}
+
+    # Canonical AMH has its own concrete executor and stricter protected-read
+    # preconditions; exercise the actual seam rather than exempt its four tools.
+    for operation in _operations():
+        if not operation.startswith("amh."):
+            continue
+        with structlog.testing.capture_logs() as logs:
+            await getattr(amh_harness.context, operation.split(".")[1])(
+                "subject1", purpose_of_use="purpose1", consent_decision_ref="consent1"
+            )
         emitted |= {entry["operation"] for entry in logs if entry["event"] == EVENT_SHADOW}
 
     catalogued = set(_operations())

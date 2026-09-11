@@ -311,6 +311,31 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         autonomy_action="read_phi_data",
         tool_id="mcp-fhir.search_coverage",
     ),
+    # -- Canonical AMH subject-context reads (ADR-0037), distinct from FHIR tools.
+    OperationSpec(
+        operation="amh.get_subject_context",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_phi_data",
+        tool_id="mcp-amh.get_subject_context",
+    ),
+    OperationSpec(
+        operation="amh.list_subject_encounters",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_phi_data",
+        tool_id="mcp-amh.list_subject_encounters",
+    ),
+    OperationSpec(
+        operation="amh.list_subject_conditions",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_phi_data",
+        tool_id="mcp-amh.list_subject_conditions",
+    ),
+    OperationSpec(
+        operation="amh.get_subject_coverage",
+        action_class="leitura_phi_clinica",
+        autonomy_action="read_phi_data",
+        tool_id="mcp-amh.get_subject_coverage",
+    ),
     # -- WhatsApp send (C1). Leaf `tools/mcp_whatsapp/server.py:111`.
     OperationSpec(
         operation="whatsapp.send_message",
