@@ -7,15 +7,15 @@ standing in for a real one). Routing/scrub/failure-isolation logic itself is uni
 `tests/unit/platform/integrations/test_events_kafka_producer.py` against a fake raw producer — no
 network needed there.
 
-SCOPE (per this task's own boundary — no CIB Seven engine; another agent owns that slot):
+SCOPE (real Kafka, Postgres and CIB Seven for bridge starts; synthetic event inputs):
   (a) producer publishes a real event -> message lands on the topic (consumed back, shape
       asserted) — BOTH the untouched primary leg and the scrubbed `NOTIFICATIONS_TOPIC` mirror.
   (b) the REAL `AioKafkaBridgeConsumer` (EB-3) consumes the mirrored message -> `NotificationBridge`
       receives it -> for a rule-matching payload (the REAL `ST_PublishEncaminhadaFraude` shape —
-      see "WHICH BRIDGE RULE" below), the bridge invokes a RECORDING starter seam
-      (`FakeCibSevenTransport` — the fenced START itself, `start_process_idempotent`, is
-      engine-proven elsewhere, e.g. `test_notifications_bridge_live_engine.py`) + writes a REAL
-      audit row on live Postgres.
+      see "WHICH BRIDGE RULE" below), the bridge invokes the real `CibSevenHttpTransport` through
+      `start_process_idempotent` and writes a durable Postgres audit row. Independent native
+      active/history/definition/variable reads bind the returned ID to one FRAUDE instance
+      waiting at intake, before any human investigation decision.
   (c) a NON-matching payload — the equally real `ST_PublishGlosaAplicada` shape, MORE anchored than
       the armed one but carrying a `desfecho` no surviving rule selects -> no starter call, no
       audit row.
@@ -82,14 +82,18 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import os
 import time
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import asyncpg  # type: ignore[import-untyped]
+import httpx
 import pytest
 
 from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, schema_for_tenant
@@ -114,14 +118,90 @@ from maezo.platform.notification_bridge import (
     build_cibseven_process_starter,
 )
 from maezo.platform.topic_registry import TopicRegistry, dlq_topic_for
-from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
-from maezo.tools.workers.events import make_publish_event_handler
-from maezo.tools.workers.harness import ExternalTask
+from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
+from maezo.tools.workers.ans_cron import parse_competencia_referencia_iso, register_ans_cron_workers
+from maezo.tools.workers.events import make_publish_event_handler, register_events_workers
+from maezo.tools.workers.harness import (
+    CibSevenWorkerTransport,
+    ExternalTask,
+    TopicSubscription,
+    WorkerHarness,
+)
 from tests.integration.conftest import _apply_migrations, _pg_reachable
 
 pytestmark = pytest.mark.integration
 
 _CONNECT_TIMEOUT_S = 5.0
+_CRON_BPMN = (
+    Path(__file__).resolve().parents[3] / "spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn"
+)
+
+
+async def _assert_native_fraude_effect(
+    client: httpx.AsyncClient,
+    tenant_id: str,
+    prestador: str,
+    lote: str,
+    *,
+    expected_id: str | None = None,
+    absent: bool = False,
+) -> str | None:
+    """Read the native engine independently of the bridge's returned start result."""
+    business_key = f"FRAUDE-{tenant_id}-{prestador}"
+    live = await client.get("/process-instance", params={"businessKey": business_key})
+    live.raise_for_status()
+    history = await client.get(
+        "/history/process-instance", params={"processInstanceBusinessKey": business_key}
+    )
+    history.raise_for_status()
+    active, recorded = live.json(), history.json()
+    if absent:
+        assert active == [] and recorded == [], "dormant event created an engine instance"
+        return None
+    assert len(active) == len(recorded) == 1, "one native FRAUDE instance must exist"
+    instance_id = active[0]["id"]
+    assert recorded[0]["id"] == instance_id
+    assert active[0]["businessKey"] == recorded[0]["businessKey"] == business_key
+    assert recorded[0]["processDefinitionKey"] == "SP-OP-FRAUDE-001"
+    assert recorded[0]["endTime"] is None
+    if expected_id is not None:
+        assert instance_id == expected_id, "bridge ID differs from native engine ID"
+    definition = await client.get(f"/process-definition/{active[0]['definitionId']}")
+    definition.raise_for_status()
+    assert definition.json()["key"] == "SP-OP-FRAUDE-001"
+    variables_response = await client.get(f"/process-instance/{instance_id}/variables")
+    variables_response.raise_for_status()
+    variables = variables_response.json()
+    for name, expected in {
+        "tenant_id": tenant_id,
+        "prestador_id": prestador,
+        "numero_lote_tiss": lote,
+        "origem_encaminhamento": "contas",
+    }.items():
+        assert variables[name]["value"] == expected
+    # Starting this downstream investigation must not perform a human decision.
+    tasks = await client.get("/external-task", params={"processInstanceId": instance_id})
+    tasks.raise_for_status()
+    assert [task["topicName"] for task in tasks.json()] == ["operadora.fraude.intake"]
+    return str(instance_id)
+
+
+async def _delete_owned_fraude_instance(client: httpx.AsyncClient, tenant_id: str, prestador: str) -> None:
+    """Delete only this test's random business key after confirming tenant ownership."""
+    business_key = f"FRAUDE-{tenant_id}-{prestador}"
+    response = await client.get("/process-instance", params={"businessKey": business_key})
+    response.raise_for_status()
+    for instance in response.json():
+        assert instance["businessKey"] == business_key
+        variables = await client.get(f"/process-instance/{instance['id']}/variables")
+        variables.raise_for_status()
+        assert variables.json()["tenant_id"]["value"] == tenant_id
+        definition = await client.get(f"/process-definition/{instance['definitionId']}")
+        definition.raise_for_status()
+        assert definition.json()["key"] == "SP-OP-FRAUDE-001"
+        removed = await client.delete(f"/process-instance/{instance['id']}")
+        assert removed.status_code == 204
+
 
 #: Total bound for `_await_topic_ready`'s pre-flight poll — mirrors
 #: `test_notifications_bridge_live_kafka.py::_READINESS_TIMEOUT_S`, kept entirely SEPARATE from
@@ -504,7 +584,7 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
 
         primary_record = await asyncio.wait_for(primary_consumer.__anext__(), timeout=15.0)
         primary_received = json.loads(primary_record.value.decode("utf-8"))
-        assert primary_received == payload  # primary leg is byte-for-byte untouched
+        assert primary_received == payload  # decoded primary payload is unchanged
 
         mirror_received = await _consume_one(bridge_consumer)
         await bridge_consumer.commit()
@@ -528,11 +608,12 @@ async def test_producer_publish_mirrors_contas_completed_onto_notifications_topi
 async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_does_not(
     kafka_bootstrap_servers: str,
     pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
 ) -> None:
     """Publish TWO REAL `agents.events.contas.completed` events through the producer — both in
     shapes `SP-OP-CONTAS-001` itself publishes — consume both via the REAL
     `AioKafkaBridgeConsumer`, dispatch both through `handle_bridge_message` against a bridge wired
-    to the FENCED starter (`FakeCibSevenTransport` recording + REAL `PostgresAuditSink`), and prove
+    to the FENCED starter (REAL CIB HTTP transport + REAL `PostgresAuditSink`), and prove
     the bridge discriminates between them:
 
       - ARMED: the `ST_PublishEncaminhadaFraude` shape — `event_payload_vars=tenant_id,
@@ -564,7 +645,7 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = FakeCibSevenTransport()
+    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
 
     await consumer.start()
@@ -599,6 +680,9 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
             "the CONTAS→FRAUDE predicate keys off the routing fact, never off anchor presence"
         )
 
+        assert await _fetch_start_process_rows(dsn, tenant_id) == []
+        await _assert_native_fraude_effect(engine_client, tenant_id, prestador, lote, absent=True)
+
         # Armed: the REAL `ST_PublishEncaminhadaFraude` payload — its three `event_payload_vars`
         # verbatim, nothing synthetic added (the `prestador_id` anchor the predicate needs IS what
         # that task publishes; see `notification_bridge.py`'s own "ARMED (commit 9cc8aaa)" note).
@@ -624,6 +708,9 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
         # what makes the two paths converge instead of double-starting.
         expected_bk = f"FRAUDE-{tenant_id}-{prestador}"
         assert triggered[0].variables["business_key"] == expected_bk
+        await _assert_native_fraude_effect(
+            engine_client, tenant_id, prestador, lote, expected_id=triggered[0].process_instance_id
+        )
 
         rows = await _fetch_start_process_rows(dsn, tenant_id)
         assert len(rows) == 1, "only the ARMED handoff may durably audit a start"
@@ -634,6 +721,7 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
         await consumer.stop()
         await audit_sink.aclose()
         await transport.close()
+        await _delete_owned_fraude_instance(engine_client, tenant_id, prestador)
 
 
 # ---------------------------------------------------------------------------
@@ -655,6 +743,8 @@ async def test_producer_failure_kafka_down_does_not_block_source_process() -> No
     handler = make_publish_event_handler(unreachable_producer)
     task = ExternalTask(
         task_id="t4-kafka-down-probe",
+        process_definition_key="SP-OP-CONTAS-001",
+        activity_id="ST_PublishGlosaAplicada",
         topic="operadora.events.publish",
         process_instance_id="proc-kafka-down-probe",
         business_key="bk-kafka-down-probe",
@@ -688,6 +778,7 @@ async def test_producer_failure_kafka_down_does_not_block_source_process() -> No
 async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
     kafka_bootstrap_servers: str,
     pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
 ) -> None:
     """Publish the SAME armed event ONCE, but consume+dispatch it TWICE (simulating a redelivery
     — e.g. a consumer crash before offset-commit) through the SAME bridge/fenced-starter/audit
@@ -714,7 +805,7 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = FakeCibSevenTransport()
+    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
 
     await consumer.start()
@@ -746,6 +837,9 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
         assert first_triggered[0].process_instance_id == second_triggered[0].process_instance_id
         assert first_triggered[0].target_process == "SP-OP-FRAUDE-001"
         assert first_triggered[0].variables["business_key"] == f"FRAUDE-{tenant_id}-{prestador}"
+        await _assert_native_fraude_effect(
+            engine_client, tenant_id, prestador, lote, expected_id=first_triggered[0].process_instance_id
+        )
 
         rows = await _fetch_start_process_rows(dsn, tenant_id)
         assert len(rows) == 1, "a redelivered handoff must not write a second audit-chain row"
@@ -755,6 +849,7 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
         await consumer.stop()
         await audit_sink.aclose()
         await transport.close()
+        await _delete_owned_fraude_instance(engine_client, tenant_id, prestador)
 
 
 # ---------------------------------------------------------------------------
@@ -958,6 +1053,7 @@ async def test_same_entity_events_land_on_the_same_partition(
 async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_continues(
     kafka_bootstrap_servers: str,
     pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
 ) -> None:
     """THE DLQ, END TO END, ON REAL INFRASTRUCTURE. Publish a MALFORMED record (no `type`) and a
     well-formed armed one onto `NOTIFICATIONS_TOPIC`; drive the REAL `AioKafkaBridgeConsumer`
@@ -969,7 +1065,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
       - a durable `bridge_dlq:` audit row exists in the real `audit_chain`;
       - the loop CONTINUED — the well-formed message behind the poison one still started its
         handoff (this is the head-of-line blocking that used to kill the daemon);
-      - the consumer offsets advanced (no re-delivery storm on restart).
+      - the live consumer commit path completes; restart behavior is not exercised here.
     """
     from aiokafka import AIOKafkaConsumer, AIOKafkaProducer  # type: ignore[import-untyped]
 
@@ -994,7 +1090,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
         auto_offset_reset="latest",
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = FakeCibSevenTransport()
+    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
     dlq = BridgeDlqShunt(
         publisher=AioKafkaDlqPublisher(bootstrap_servers=kafka_bootstrap_servers),
@@ -1065,6 +1161,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
             "a poison message must no longer block every message behind it (head-of-line blocking)"
         )
         assert start_rows[0]["action"] == "start_process:SP-OP-FRAUDE-001"
+        await _assert_native_fraude_effect(engine_client, tenant_id, prestador, lote)
     finally:
         await seed.stop()
         await dlq.publisher.stop()
@@ -1072,6 +1169,7 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
         await consumer.stop()
         await audit_sink.aclose()
         await transport.close()
+        await _delete_owned_fraude_instance(engine_client, tenant_id, prestador)
 
 
 class _SingleMessageConsumer:
@@ -1117,3 +1215,186 @@ async def _fetch_audit_rows(dsn: str, tenant_id: str, action: str) -> list[Any]:
         )
     finally:
         await conn.close()
+
+
+@pytest.mark.parametrize(
+    ("suffix", "activity_suffix", "report_type", "periodicidade"),
+    [
+        ("RN124SIP", "Rn124Sip", "RN_124_SIP", "mensal"),
+        ("RN209", "Rn209", "RN_209_UTILIZACAO", "mensal"),
+        ("RN388", "Rn388", "RN_388_QUALIDADE", "anual"),
+        ("RN424TISS", "Rn424Tiss", "RN_424_TISS_MONITORAMENTO", "mensal"),
+        ("DIOPS", "Diops", "DIOPS_TRIMESTRAL", "trimestral"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
+    kafka_bootstrap_servers: str,
+    pg_tenant_schema: tuple[str, str],
+    engine_client: httpx.AsyncClient,
+    suffix: str,
+    activity_suffix: str,
+    report_type: str,
+    periodicidade: str,
+) -> None:
+    """Execute a genuine deployed timer job; prove its publication path, not punctuality.
+
+    SP-OP-ANS-CRON-001 permits timer dispatch only. No agent/manual process start,
+    rewritten timer or synthetic RN_TEST publication supplies this proof. Period
+    conventions remain the existing DRAFT contract, not regulatory ratification.
+    """
+    from aiokafka import AIOKafkaConsumer  # type: ignore[import-untyped]
+
+    dsn, tenant_id = pg_tenant_schema
+    process_key = f"SP-OP-ANS-CRON-001-{suffix}"
+    definition_response = await engine_client.get(f"/process-definition/key/{process_key}")
+    definition_response.raise_for_status()
+    definition = definition_response.json()
+    assert definition["key"] == process_key
+    definition_id = definition["id"]
+    xml_response = await engine_client.get(f"/process-definition/{definition_id}/xml")
+    xml_response.raise_for_status()
+    source_xml = await asyncio.to_thread(_CRON_BPMN.read_bytes)
+    assert (
+        hashlib.sha256(xml_response.json()["bpmn20Xml"].encode()).digest()
+        == hashlib.sha256(source_xml).digest()
+    )
+    start_activity = f"Start_Cron{activity_suffix}"
+    jobs_response = await engine_client.get("/job", params={"activityId": start_activity})
+    jobs_response.raise_for_status()
+    jobs = jobs_response.json()
+    assert len(jobs) == 1, "exactly one canonical pending timer-start job is required"
+    job = jobs[0]
+    assert job["processDefinitionId"] == definition_id
+    assert job["processInstanceId"] is None
+    before_response = await engine_client.get(
+        "/process-instance", params={"processDefinitionId": definition_id}
+    )
+    before_response.raise_for_status()
+    before = {row["id"] for row in before_response.json()}
+
+    await _await_topic_ready(kafka_bootstrap_servers, NOTIFICATIONS_TOPIC)
+    consumer = AIOKafkaConsumer(
+        NOTIFICATIONS_TOPIC,
+        bootstrap_servers=kafka_bootstrap_servers,
+        group_id=f"native-cron-{uuid.uuid4().hex}",
+        auto_offset_reset="latest",
+    )
+    producer = AioKafkaEventsProducer(bootstrap_servers=kafka_bootstrap_servers)
+    transport = CibSevenWorkerTransport(str(engine_client.base_url))
+    audit_sink = PostgresAuditSink(dsn, tenant_id)
+    worker_id = f"native-cron-worker-{uuid.uuid4().hex}"
+    harness = WorkerHarness(
+        transport, worker_id=worker_id, tenant=tenant_id, lock_duration_ms=10_000, audit_sink=audit_sink
+    )
+    register_ans_cron_workers(harness, producer, tenant_id=tenant_id)
+    register_events_workers(harness, producer, tenant_id=tenant_id)
+    instance_id: str | None = None
+    await consumer.start()
+    try:
+        await _await_assigned(consumer)
+        await consumer.seek_to_end()
+        earliest_publication_date = datetime.now(UTC).date()
+        tick = await engine_client.post(f"/job/{job['id']}/execute")
+        assert tick.status_code in (200, 204)
+        after_response = await engine_client.get(
+            "/process-instance", params={"processDefinitionId": definition_id}
+        )
+        after_response.raise_for_status()
+        created = {row["id"] for row in after_response.json()} - before
+        assert len(created) == 1
+        instance_id = created.pop()
+        handled_activities = []
+        for topic, activity in (
+            ("operadora.ans_cron.trigger_submissions", f"ST_ResolverCompetencia{activity_suffix}"),
+            ("operadora.events.publish", f"ST_PublishCronDue{activity_suffix}"),
+        ):
+            tasks = await transport.fetch_and_lock(
+                worker_id,
+                [TopicSubscription(topic, 10_000)],
+                max_tasks=1,
+                async_response_timeout_ms=5_000,
+            )
+            assert len(tasks) == 1
+            task = tasks[0]
+            assert task.process_instance_id == instance_id
+            assert task.process_definition_key == process_key
+            assert task.activity_id == activity
+            handled_activities.append(activity)
+            await harness._handle(task)
+            assert len(await _fetch_audit_rows(dsn, tenant_id, topic)) == 1
+
+        record = await asyncio.wait_for(consumer.__anext__(), timeout=15.0)
+        fact = json.loads(record.value.decode())
+        assert set(fact) == {
+            "type",
+            "tenant_id",
+            "report_type",
+            "periodicidade",
+            "origem_envio",
+            "competencia",
+            "competencia_referencia_iso",
+            "ans_cron_reference_date_iso",
+            "_business_key",
+            "_process_instance_id",
+            "_worker_topic",
+        }
+        # Native timer starts have no caller-assigned business key; the worker
+        # transport normalizes native null to an empty string (harness.py).
+        assert fact["_business_key"] == ""
+        assert fact["_process_instance_id"] == instance_id
+        assert fact["_worker_topic"] == "operadora.events.publish"
+        assert fact["type"] == "ans.cron_due"
+        assert fact["tenant_id"] == tenant_id
+        assert fact["report_type"] == report_type
+        assert fact["periodicidade"] == periodicidade
+        assert fact["origem_envio"] == "calendario"
+        anchor = parse_competencia_referencia_iso(fact["competencia_referencia_iso"])
+        assert anchor.utcoffset() is not None
+        if periodicidade == "anual":
+            closed_period = date(anchor.year - 1, 1, 1)
+        elif periodicidade == "trimestral":
+            current_quarter = date(anchor.year, 1 + 3 * ((anchor.month - 1) // 3), 1)
+            closed_quarter_end = current_quarter - timedelta(days=1)
+            closed_period = closed_quarter_end.replace(month=closed_quarter_end.month - 2, day=1)
+        else:
+            closed_period = date(anchor.year, anchor.month, 1) - timedelta(days=1)
+        assert fact["competencia"] == closed_period.strftime("%Y-%m")
+        assert (
+            earliest_publication_date
+            <= date.fromisoformat(fact["ans_cron_reference_date_iso"])
+            <= datetime.now(UTC).date()
+        )
+        # Exactly one record within the observed publication window, not an unbounded claim.
+        extra = await consumer.getmany(timeout_ms=1_000, max_records=10)
+        assert sum(len(records) for records in extra.values()) == 0
+        history = await engine_client.get(f"/history/process-instance/{instance_id}")
+        history.raise_for_status()
+        assert history.json()["processDefinitionId"] == definition_id
+        assert history.json()["businessKey"] is None
+        assert history.json()["state"] == "COMPLETED"
+        activities = await engine_client.get(
+            "/history/activity-instance", params={"processInstanceId": instance_id, "finished": "true"}
+        )
+        activities.raise_for_status()
+        ended = {row["activityId"] for row in activities.json()}
+        assert {start_activity, *handled_activities, f"End_Cron{activity_suffix}"} <= ended
+        native_variables = await engine_client.get(
+            "/history/variable-instance", params={"processInstanceId": instance_id}
+        )
+        native_variables.raise_for_status()
+        values = {row["name"]: row["value"] for row in native_variables.json()}
+        for name in ("report_type", "periodicidade", "competencia", "competencia_referencia_iso"):
+            assert values[name] == fact[name]
+    finally:
+        await producer.close()
+        await consumer.stop()
+        await transport.close()
+        await audit_sink.aclose()
+        if instance_id is not None:
+            remaining = await engine_client.get(f"/process-instance/{instance_id}")
+            if remaining.status_code != 404:
+                remaining.raise_for_status()
+                assert remaining.json()["definitionId"] == definition_id
+                removed = await engine_client.delete(f"/process-instance/{instance_id}")
+                assert removed.status_code == 204

@@ -624,3 +624,44 @@ def test_resolve_partition_key_prefers_the_explicit_caller_key() -> None:
         unordered=False,
     )
     assert resolved == "explicit-bk"
+
+
+@pytest.mark.asyncio
+async def test_configured_factory_is_used_once_and_failed_start_closes_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from maezo.gateway.kafka_client import KafkaConnectionSettings
+    from maezo.platform.integrations import events_kafka_producer as module
+
+    config = KafkaConnectionSettings("localhost:9092")
+    calls: list[object] = []
+
+    class Raw:
+        async def start(self) -> None:
+            calls.append("start")
+            raise RuntimeError("synthetic connect refusal")
+
+        async def stop(self) -> None:
+            calls.append("stop")
+
+    async def factory(settings: KafkaConnectionSettings, *, request_timeout_ms: int) -> Raw:
+        assert settings is config and request_timeout_ms == 10000
+        calls.append("factory")
+        return Raw()
+
+    monkeypatch.setattr(module, "create_kafka_producer", factory)
+    producer = AioKafkaEventsProducer(connection_settings=config)
+    with pytest.raises(RuntimeError, match="synthetic connect refusal"):
+        await producer._ensure_started()
+    assert calls == ["factory", "start", "stop"]
+    assert producer._raw is None and not producer._started
+
+
+def test_configuration_cannot_be_bypassed_by_raw_override_or_other_brokers() -> None:
+    from maezo.gateway.kafka_client import KafkaConnectionSettings
+
+    config = KafkaConnectionSettings("localhost:9092")
+    with pytest.raises(ValueError, match="configuration_conflict"):
+        AioKafkaEventsProducer(connection_settings=config, raw_producer=FakeRawKafkaProducer())
+    with pytest.raises(ValueError, match="configuration_conflict"):
+        AioKafkaEventsProducer(connection_settings=config, bootstrap_servers="other:9092")

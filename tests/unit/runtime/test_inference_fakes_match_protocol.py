@@ -144,6 +144,7 @@ corrigido, no relatorio desta reparo.
 from __future__ import annotations
 
 import ast
+import importlib
 import inspect
 from dataclasses import dataclass
 from pathlib import Path
@@ -950,6 +951,517 @@ def _checa_metodo_ambiguo(
     return achados, ancoradas
 
 
+# Colaboradores externos reais cuja SUBSTITUIÇÃO por monkeypatch prova o papel da classe: a
+# identidade é do objeto substituído (módulo de origem + qualname), nunca do nome da classe do
+# teste. `http.client.HTTPConnection` expõe só `close` nesta família; `botocore.httpsession.
+# URLLib3Session` expõe `send(request)` síncrono e `close()` — o par exato que colide com os
+# Protocols do projeto (`BrRegionalTransport.send`, `DmnTransport.close`).
+_COLABORADORES_EXTERNOS_SUBSTITUIVEIS: dict[tuple[str, str], frozenset[str]] = {
+    ("http.client", "HTTPConnection"): frozenset({"close"}),
+    ("botocore.httpsession", "URLLib3Session"): frozenset({"send", "close"}),
+}
+
+
+def _metodos_do_colaborador_substituido(alvo: str, atributo: str) -> frozenset[str]:
+    """Métodos externos provados por `monkeypatch.setattr(<alvo>, "<atributo>", Classe)`.
+
+    O alvo lexical pode ser o módulo de origem (`http.client`) ou um módulo do projeto que
+    RE-EXPORTA o colaborador (`maezo.gateway.kafka_client.URLLib3Session`): neste caso a
+    identidade é resolvida importando SÓ módulos `maezo.*` e comparando `__module__`/`__qualname__`
+    do objeto substituído com a tabela acima. Falha de import, atributo ausente ou objeto fora da
+    tabela ⇒ nada é provado e a classe mantém o fallback F1/F7 (fail-closed).
+    """
+    direto = _COLABORADORES_EXTERNOS_SUBSTITUIVEIS.get((alvo, atributo))
+    if direto is not None:
+        return direto
+    if not alvo.startswith("maezo."):
+        return frozenset()
+    try:
+        objeto = getattr(importlib.import_module(alvo), atributo)
+    except Exception:  # noqa: BLE001 — qualquer falha de resolução prova nada (fail-closed)
+        return frozenset()
+    identidade = (getattr(objeto, "__module__", None), getattr(objeto, "__qualname__", None))
+    return _COLABORADORES_EXTERNOS_SUBSTITUIVEIS.get(identidade, frozenset())
+
+
+def _metodos_de_colaborador_externo(arvore: ast.Module | None) -> dict[ast.ClassDef, set[str]]:
+    """Resolve colisões de `close`/`send` por USO da classe, não pelo seu nome ou caminho.
+
+    HTTPConnection substituído por monkeypatch e socket passado diretamente a SyncStream
+    (também via subclasse) são colaboradores externos reais. Imports sozinhos, classes irmãs
+    e coincidência de assinatura não provam essa relação. Resolução estática e lexical de
+    imports/aliases; não importa nem executa o módulo de teste. Outros usos não reconhecidos
+    mantêm o fallback F1/F7. A prova externa só afeta métodos compartilhados, nunca a classe
+    inteira; outra âncora da família ou herança explícita conserva a checagem de drift.
+    """
+    if arvore is None:
+        return {}
+    bindings: dict[str, str | ast.ClassDef] = {}
+    bases: dict[ast.ClassDef, set[str]] = {}
+    externos: dict[ast.ClassDef, set[str]] = {}
+    marcador_monkeypatch = "pytest.MonkeyPatch.fixture"
+    atributos_sombreados: set[str] = set()
+    prefixos_sombreados: set[str] = set()
+
+    def nomes_vinculados(no: ast.expr) -> set[str]:
+        if isinstance(no, ast.Name):
+            return {no.id}
+        if isinstance(no, ast.Starred):
+            return nomes_vinculados(no.value)
+        if isinstance(no, (ast.Tuple, ast.List)):
+            return set().union(*(nomes_vinculados(item) for item in no.elts))
+        return set()
+
+    def resolve(no: ast.expr, scope: dict[str, str | ast.ClassDef]) -> str | ast.ClassDef | None:
+        if isinstance(no, ast.Name):
+            return scope.get(no.id)
+        if isinstance(no, ast.Attribute):
+            parent = resolve(no.value, scope)
+            if isinstance(parent, str):
+                member = parent + "." + no.attr
+                return (
+                    None
+                    if member in atributos_sombreados
+                    or any(
+                        member == prefixo or member.startswith(prefixo + ".")
+                        for prefixo in prefixos_sombreados
+                    )
+                    else member
+                )
+        if isinstance(no, ast.Call) and resolve(no.func, scope) == "pytest.MonkeyPatch":
+            return marcador_monkeypatch
+        return None
+
+    def instrucoes_do_modulo(bloco: list[ast.stmt]) -> list[ast.stmt]:
+        instrucoes: list[ast.stmt] = []
+        for no in bloco:
+            instrucoes.append(no)
+            filhos: list[ast.stmt] = []
+            if isinstance(no, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+                filhos.extend([*no.body, *no.orelse])
+            elif isinstance(no, (ast.With, ast.AsyncWith)):
+                filhos.extend(no.body)
+            elif isinstance(no, (ast.Try, ast.TryStar)):
+                filhos.extend([*no.body, *no.orelse, *no.finalbody])
+                for handler in no.handlers:
+                    filhos.extend(handler.body)
+            elif isinstance(no, ast.Match):
+                for caso in no.cases:
+                    filhos.extend(caso.body)
+            if filhos:
+                instrucoes.extend(instrucoes_do_modulo(filhos))
+        return instrucoes
+
+    funcoes = {no.name: no for no in arvore.body if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    instrucoes_modulo = instrucoes_do_modulo(arvore.body)
+    importacoes_pytest = [
+        alias
+        for no in arvore.body
+        if isinstance(no, ast.Import)
+        for alias in no.names
+        if alias.name == "pytest" and (alias.asname is None or alias.asname == "pytest")
+    ]
+
+    def vincula_nome_no_modulo(no: ast.stmt, nome: str) -> bool:
+        if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return no.name == nome
+        if isinstance(no, (ast.Import, ast.ImportFrom)):
+            return any((alias.asname or alias.name.split(".")[0]) == nome for alias in no.names)
+        if isinstance(no, ast.Assign):
+            return any(nome in nomes_vinculados(target) for target in no.targets)
+        if isinstance(no, ast.AnnAssign):
+            return no.value is not None and nome in nomes_vinculados(no.target)
+        if isinstance(no, (ast.AugAssign, ast.For, ast.AsyncFor)):
+            return nome in nomes_vinculados(no.target)
+        if isinstance(no, (ast.With, ast.AsyncWith)):
+            return any(
+                item.optional_vars is not None and nome in nomes_vinculados(item.optional_vars)
+                for item in no.items
+            )
+        if isinstance(no, ast.Delete):
+            return any(nome in nomes_vinculados(target) for target in no.targets)
+        return False
+
+    pytest_sombreado_no_modulo = len(importacoes_pytest) != 1 or any(
+        vincula_nome_no_modulo(no, "pytest")
+        and not (
+            isinstance(no, ast.Import)
+            and any(alias is importacoes_pytest[0] for alias in no.names)
+            and all(
+                (alias.asname or alias.name.split(".")[0]) != "pytest" or alias is importacoes_pytest[0]
+                for alias in no.names
+            )
+        )
+        for no in instrucoes_modulo
+    )
+
+    def fixture_nomeada_monkeypatch(no: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        for decorador in no.decorator_list:
+            if not (
+                isinstance(decorador, ast.Call)
+                and isinstance(decorador.func, ast.Attribute)
+                and isinstance(decorador.func.value, ast.Name)
+                and decorador.func.value.id == "pytest"
+                and decorador.func.attr == "fixture"
+            ):
+                continue
+            nome = next((keyword.value for keyword in decorador.keywords if keyword.arg == "name"), None)
+            if isinstance(nome, ast.Constant) and nome.value == "monkeypatch":
+                return True
+        return False
+
+    monkeypatch_sombreado_no_modulo = any(
+        vincula_nome_no_modulo(no, "monkeypatch")
+        or (isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef)) and fixture_nomeada_monkeypatch(no))
+        for no in instrucoes_modulo
+    )
+
+    def chamada_parametriza_monkeypatch(decorador: ast.expr) -> bool:
+        if not (
+            isinstance(decorador, ast.Call)
+            and isinstance(decorador.func, ast.Attribute)
+            and decorador.func.attr == "parametrize"
+            and isinstance(decorador.func.value, ast.Attribute)
+            and isinstance(decorador.func.value.value, ast.Name)
+            and decorador.func.value.value.id == "pytest"
+            and decorador.func.value.attr == "mark"
+        ):
+            return False
+        nomes = (
+            decorador.args[0]
+            if decorador.args
+            else next((keyword.value for keyword in decorador.keywords if keyword.arg == "argnames"), None)
+        )
+        if isinstance(nomes, ast.Constant) and isinstance(nomes.value, str):
+            return "monkeypatch" in {parte.strip() for parte in nomes.value.split(",")}
+        if isinstance(nomes, (ast.List, ast.Tuple)) and all(
+            isinstance(item, ast.Constant) and isinstance(item.value, str) for item in nomes.elts
+        ):
+            return any(item.value == "monkeypatch" for item in nomes.elts)
+        return True
+
+    def marca_pytest_preserva_monkeypatch(expressao: ast.expr, *, permite_container: bool) -> bool:
+        if isinstance(expressao, (ast.List, ast.Tuple)):
+            return permite_container and all(
+                marca_pytest_preserva_monkeypatch(item, permite_container=False) for item in expressao.elts
+            )
+        if isinstance(expressao, ast.Attribute):
+            return (
+                isinstance(expressao.value, ast.Attribute)
+                and isinstance(expressao.value.value, ast.Name)
+                and expressao.value.value.id == "pytest"
+                and expressao.value.attr == "mark"
+                and expressao.attr != "parametrize"
+            )
+        if isinstance(expressao, ast.Call):
+            if chamada_parametriza_monkeypatch(expressao):
+                return False
+            if isinstance(expressao.func, ast.Attribute) and expressao.func.attr == "parametrize":
+                return (
+                    isinstance(expressao.func.value, ast.Attribute)
+                    and isinstance(expressao.func.value.value, ast.Name)
+                    and expressao.func.value.value.id == "pytest"
+                    and expressao.func.value.attr == "mark"
+                )
+            return marca_pytest_preserva_monkeypatch(expressao.func, permite_container=False)
+        return False
+
+    vinculos_pytestmark = [no for no in instrucoes_modulo if vincula_nome_no_modulo(no, "pytestmark")]
+    marcas_modulo_preservam_monkeypatch = all(
+        isinstance(no, ast.Assign)
+        and len(no.targets) == 1
+        and isinstance(no.targets[0], ast.Name)
+        and no.targets[0].id == "pytestmark"
+        and marca_pytest_preserva_monkeypatch(no.value, permite_container=True)
+        for no in vinculos_pytestmark
+    )
+
+    def decorador_fixture_pytest(decorador: ast.expr) -> bool:
+        """`@pytest.fixture` / `@pytest.fixture(...)` sem `name=`: pytest injeta `monkeypatch` numa
+        fixture exatamente como numa função `test_*`. Uma fixture NOMEADA `monkeypatch` é sombra
+        (`fixture_nomeada_monkeypatch` acima) e nunca chega aqui como injeção."""
+        if isinstance(decorador, ast.Call) and any(k.arg == "name" for k in decorador.keywords):
+            return False
+        alvo = decorador.func if isinstance(decorador, ast.Call) else decorador
+        return (
+            isinstance(alvo, ast.Attribute)
+            and isinstance(alvo.value, ast.Name)
+            and alvo.value.id == "pytest"
+            and alvo.attr == "fixture"
+        )
+
+    def pytest_injeta_monkeypatch(no: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        if no.name.startswith("test_"):
+            return all(
+                marca_pytest_preserva_monkeypatch(decorador, permite_container=False)
+                for decorador in no.decorator_list
+            )
+        fixtures = [decorador for decorador in no.decorator_list if decorador_fixture_pytest(decorador)]
+        return len(fixtures) == 1 and all(
+            decorador_fixture_pytest(decorador)
+            or marca_pytest_preserva_monkeypatch(decorador, permite_container=False)
+            for decorador in no.decorator_list
+        )
+
+    parametros_monkeypatch: dict[ast.FunctionDef | ast.AsyncFunctionDef, set[str]] = {
+        no: (
+            {"monkeypatch"}
+            if not pytest_sombreado_no_modulo
+            and not monkeypatch_sombreado_no_modulo
+            and marcas_modulo_preservam_monkeypatch
+            and pytest_injeta_monkeypatch(no)
+            else set()
+        )
+        for no in funcoes.values()
+        if any(argument.arg == "monkeypatch" for argument in [*no.args.posonlyargs, *no.args.args])
+    }
+
+    def chamadas_lexicais(no: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Call]:
+        chamadas: list[ast.Call] = []
+
+        def visita_filho(item: ast.AST) -> None:
+            if item is not no and isinstance(
+                item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+            ):
+                return
+            if isinstance(item, ast.Call):
+                chamadas.append(item)
+            for filho in ast.iter_child_nodes(item):
+                visita_filho(filho)
+
+        for item in no.body:
+            visita_filho(item)
+        return chamadas
+
+    def parametro_estavel(no: ast.FunctionDef | ast.AsyncFunctionDef, nome: str) -> bool:
+        """A forwarded fixture parameter stops being proof if its function ever rebinds it."""
+        estavel = True
+
+        def visita_filho(item: ast.AST) -> None:
+            nonlocal estavel
+            if not estavel:
+                return
+            if item is not no and isinstance(
+                item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
+            ):
+                return
+            alvos: list[ast.expr] = []
+            if isinstance(item, ast.Assign):
+                alvos.extend(item.targets)
+            elif (
+                isinstance(item, ast.AnnAssign)
+                and item.value is not None
+                or isinstance(item, (ast.AugAssign, ast.NamedExpr, ast.For, ast.AsyncFor, ast.comprehension))
+            ):
+                alvos.append(item.target)
+            elif isinstance(item, ast.With | ast.AsyncWith):
+                alvos.extend(value.optional_vars for value in item.items if value.optional_vars is not None)
+            elif isinstance(item, ast.Delete):
+                alvos.extend(item.targets)
+            if any(nome in nomes_vinculados(alvo) for alvo in alvos):
+                estavel = False
+                return
+            if isinstance(item, ast.ExceptHandler) and item.name == nome:
+                estavel = False
+                return
+            if isinstance(item, (ast.Import, ast.ImportFrom)) and any(
+                (alias.asname or alias.name.split(".")[0]) == nome for alias in item.names
+            ):
+                estavel = False
+                return
+            for filho in ast.iter_child_nodes(item):
+                visita_filho(filho)
+
+        for item in no.body:
+            visita_filho(item)
+        return estavel
+
+    mudou = True
+    while mudou:
+        mudou = False
+        for chamadora in funcoes.values():
+            confiaveis = parametros_monkeypatch.get(chamadora, set())
+            if not confiaveis:
+                continue
+            for chamada in chamadas_lexicais(chamadora):
+                if not isinstance(chamada.func, ast.Name) or chamada.func.id not in funcoes:
+                    continue
+                chamada_alvo = funcoes[chamada.func.id]
+                parametros = [*chamada_alvo.args.posonlyargs, *chamada_alvo.args.args]
+                argumentos = {
+                    parametros[indice].arg: argumento
+                    for indice, argumento in enumerate(chamada.args)
+                    if indice < len(parametros)
+                }
+                argumentos.update(
+                    {palavra.arg: palavra.value for palavra in chamada.keywords if palavra.arg is not None}
+                )
+                destino = parametros_monkeypatch.setdefault(chamada_alvo, set())
+                for parametro, argumento in argumentos.items():
+                    if (
+                        isinstance(argumento, ast.Name)
+                        and argumento.id in confiaveis
+                        and parametro_estavel(chamadora, argumento.id)
+                        and parametro not in destino
+                    ):
+                        destino.add(parametro)
+                        mudou = True
+
+    def marca(classe: ast.ClassDef, metodos: set[str]) -> None:
+        externos.setdefault(classe, set()).update(metodos)
+
+    def invalida_atributo(no: ast.expr, scope: dict[str, str | ast.ClassDef]) -> None:
+        if isinstance(no, ast.Starred):
+            invalida_atributo(no.value, scope)
+            return
+        if isinstance(no, (ast.Tuple, ast.List)):
+            for item in no.elts:
+                invalida_atributo(item, scope)
+            return
+        if isinstance(no, ast.Subscript):
+            container = resolve(no.value, scope)
+            if isinstance(container, str):
+                prefixos_sombreados.add(container.partition(".")[0])
+            return
+        if not isinstance(no, ast.Attribute):
+            return
+        parent = resolve(no.value, scope)
+        if isinstance(parent, str):
+            atributos_sombreados.add(parent + "." + no.attr)
+
+    def visita(no: ast.AST, scope: dict[str, str | ast.ClassDef]) -> None:
+        if isinstance(no, ast.Import):
+            for alias in no.names:
+                scope[alias.asname or alias.name.split(".")[0]] = (
+                    alias.name if alias.asname else alias.name.split(".")[0]
+                )
+            return
+        if isinstance(no, ast.ImportFrom):
+            if no.module and not no.level:
+                for alias in no.names:
+                    scope[alias.asname or alias.name] = no.module + "." + alias.name
+            return
+        if isinstance(no, ast.ClassDef):
+            ancestors: set[str] = set()
+            for base in no.bases:
+                resolved = resolve(base, scope)
+                if isinstance(resolved, str):
+                    ancestors.add(resolved)
+                elif isinstance(resolved, ast.ClassDef):
+                    ancestors.update(bases.get(resolved, set()))
+            bases[no] = ancestors
+            scope[no.name] = no
+            local = dict(scope)
+            for item in no.body:
+                visita(item, local)
+            return
+        if isinstance(no, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            if not isinstance(no, ast.Lambda):
+                scope.pop(no.name, None)
+            local = dict(scope)
+            for arg in [*no.args.posonlyargs, *no.args.args, *no.args.kwonlyargs]:
+                local.pop(arg.arg, None)
+            for arg in (no.args.vararg, no.args.kwarg):
+                if arg is not None:
+                    local.pop(arg.arg, None)
+            if not isinstance(no, ast.Lambda):
+                for nome in parametros_monkeypatch.get(no, set()):
+                    local[nome] = marcador_monkeypatch
+            body = [no.body] if isinstance(no, ast.Lambda) else no.body
+            for item in body:
+                visita(item, local)
+            return
+        if isinstance(no, ast.Assign):
+            value = resolve(no.value, scope)
+            for target in no.targets:
+                invalida_atributo(target, scope)
+                for nome in nomes_vinculados(target):
+                    scope.pop(nome, None)
+                if isinstance(target, ast.Name) and value is not None:
+                    scope[target.id] = value
+        if isinstance(no, ast.AnnAssign) and no.value is not None:
+            value = resolve(no.value, scope)
+            invalida_atributo(no.target, scope)
+            for nome in nomes_vinculados(no.target):
+                scope.pop(nome, None)
+            if isinstance(no.target, ast.Name) and value is not None:
+                scope[no.target.id] = value
+        if isinstance(no, (ast.AugAssign, ast.NamedExpr)):
+            invalida_atributo(no.target, scope)
+            for nome in nomes_vinculados(no.target):
+                scope.pop(nome, None)
+        if isinstance(no, (ast.For, ast.AsyncFor, ast.comprehension)):
+            invalida_atributo(no.target, scope)
+            for nome in nomes_vinculados(no.target):
+                scope.pop(nome, None)
+        if isinstance(no, ast.With | ast.AsyncWith):
+            for item in no.items:
+                if item.optional_vars is not None:
+                    invalida_atributo(item.optional_vars, scope)
+                    for nome in nomes_vinculados(item.optional_vars):
+                        scope.pop(nome, None)
+        if isinstance(no, ast.ExceptHandler) and no.name:
+            scope.pop(no.name, None)
+        if isinstance(no, ast.Delete):
+            for target in no.targets:
+                invalida_atributo(target, scope)
+                for nome in nomes_vinculados(target):
+                    scope.pop(nome, None)
+        if isinstance(no, ast.Call):
+            if (
+                isinstance(no.func, ast.Name)
+                and no.func.id == "setattr"
+                and len(no.args) >= 2
+                and isinstance(no.args[1], ast.Constant)
+                and isinstance(no.args[1].value, str)
+            ):
+                parent = resolve(no.args[0], scope)
+                if isinstance(parent, str):
+                    atributos_sombreados.add(parent + "." + no.args[1].value)
+            # API monkeypatch.setattr(module, "HTTPConnection", replacement_class).
+            if isinstance(no.func, ast.Attribute) and no.func.attr == "setattr" and len(no.args) >= 3:
+                target, attribute, replacement = no.args[:3]
+                classe = resolve(replacement, scope)
+                receiver = resolve(no.func.value, scope)
+                target_identity = resolve(target, scope)
+                if (
+                    isinstance(target_identity, str)
+                    and isinstance(attribute, ast.Constant)
+                    and isinstance(attribute.value, str)
+                ):
+                    atributos_sombreados.add(target_identity + "." + attribute.value)
+                if (
+                    receiver == marcador_monkeypatch
+                    and isinstance(target_identity, str)
+                    and isinstance(attribute, ast.Constant)
+                    and isinstance(attribute.value, str)
+                    and isinstance(classe, ast.ClassDef)
+                ):
+                    metodos = _metodos_do_colaborador_substituido(target_identity, attribute.value)
+                    if metodos:
+                        marca(classe, set(metodos))
+            stream = resolve(no.func, scope)
+            stream_bases = bases.get(stream, set()) if isinstance(stream, ast.ClassDef) else {stream}
+            if "httpcore._backends.sync.SyncStream" in stream_bases and no.args:
+                socket = no.args[0]
+                classe = resolve(socket.func, scope) if isinstance(socket, ast.Call) else None
+                if isinstance(classe, ast.ClassDef):
+                    marca(classe, {"send", "close"})
+        for child in ast.iter_child_nodes(no):
+            visita(child, scope)
+
+    visita(arvore, bindings)
+    for classe, metodos in externos.items():
+        proprios = _metodos_proprios_ast(classe)
+        for familia in _FAMILIAS:
+            metodos_familia = familia.metodos()
+            identidade = familia.membro.__module__ + "." + familia.membro.__name__
+            outras_ancoras = set(proprios) & (set(metodos_familia) - {"close", "send"})
+            if identidade in bases.get(classe, set()) or outras_ancoras:
+                metodos.difference_update(metodos_familia)
+    return externos
+
+
 def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
     achados: list[str] = []
     unicos = _nomes_unicos()
@@ -958,6 +1470,7 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
     arvore = _arvore_de_fonte(fonte)
     modulos_arquivo = _modulos_importados_ast(arvore)
     agentes_arquivo = _agentes_mencionados_ast(arvore, modulos_arquivo)
+    metodos_externos = _metodos_de_colaborador_externo(arvore)
 
     for classe in _classes_da_arvore(arvore):
         metodos_classe = _metodos_proprios_ast(classe)
@@ -965,6 +1478,8 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
         achados_da_classe: list[str] = []
 
         for nome_metodo, no in metodos_classe.items():
+            if nome_metodo in metodos_externos.get(classe, set()):
+                continue  # uso concreto identifica outro colaborador, não esta família
             if nome_metodo == _NOME_COM_DISCRIMINADOR_PROPRIO:
                 continue  # coberto pelas secoes (A)/(B) acima (marcador `phi`)
             if nome_metodo in _NOMES_SOMENTE_SECUNDARIOS:
