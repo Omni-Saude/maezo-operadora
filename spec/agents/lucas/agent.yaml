@@ -105,3 +105,10 @@ a2a:
   accepted_task_types: []
   queue_ref: agents.tasks.lucas
   handler_status: ausente   # nenhum agents/lucas/delegation.py existe (gap 11.7, prosa acima)
+# GAP 11.7 (estrutural — validado por validation.agent_def): `inbound: false` porque nenhum
+# webhook receptivo aponta para Lucas — ver o comentario GAP 11.7 acima (canal de entrada) e
+# `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" para o quadro completo.
+channels:
+  whatsapp:
+    outbound: true
+    inbound: false
