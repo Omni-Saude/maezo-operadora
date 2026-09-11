@@ -342,6 +342,79 @@ _HTTPX_CLIENT_ADDITIONAL_MODULES: Final[frozenset[str]] = frozenset(
 
 HTTPX_SANCTIONED_MODULES: Final[frozenset[str]] = _HTTPX_DESIGN_MODULES | _HTTPX_CLIENT_ADDITIONAL_MODULES
 
+# PFSU-01 / ADR-0049 D4-D6: exact construction expressions in exact lexical scopes.
+# None of these files joins HTTPX_SANCTIONED_MODULES or REST_PATH_SANCTIONED_MODULES.
+# AST shape pins TLS/proxy/redirect controls; runtime endpoint/identity guards have
+# separate adversarial tests. Duplicate, nested and adjacent constructions refuse.
+_HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
+    (
+        "gateway/human/transport.py",
+        "MTLSHumanEngineTransport._request",
+    ): "httpx.AsyncClient(verify=self._tls, timeout=self._timeout, trust_env=False, follow_redirects=False)",
+    (
+        "gateway/portal_identity.py",
+        "build_human_identity_adapters",
+    ): "httpx.AsyncClient(verify=True, trust_env=False, follow_redirects=False, timeout=10.0)",
+    # D7-C: deployment-pinned workload operations, with native capability enforcement.
+    (
+        "gateway/engine_transport.py",
+        "EngineOperationsClient._exchange",
+    ): (
+        "httpx.AsyncClient(verify=context, trust_env=False, "
+        "follow_redirects=False, timeout=self._config.timeout)"
+    ),
+    # Q2: fixed-route signed reads/publications, current credential partition and peer SPKI.
+    (
+        "gateway/human/read_transport.py",
+        "PortalReadClient.__init__",
+    ): (
+        "httpx.AsyncClient(verify=tls_context, transport=_BorrowedTransport(self._transport), "
+        "follow_redirects=False, trust_env=False, timeout=timeout_seconds)"
+    ),
+    # Portal AUTH human transports retain their exact TLS, proxy and redirect controls.
+    (
+        "gateway/human/assignment_transport.py",
+        "AssignmentPrivateTransport.__init__",
+    ): (
+        "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=timeout_seconds, "
+        "trust_env=False, follow_redirects=False)"
+    ),
+    (
+        "gateway/human/auth_transport.py",
+        "AuthNativeClient.__init__",
+    ): (
+        "httpx.AsyncClient(verify=tls_context, transport=transport, follow_redirects=False, "
+        "trust_env=False, timeout=timeout_seconds)"
+    ),
+    # Native workload reads are admitted only in the guarded exchange scope.
+    (
+        "gateway/native_fetch/transport.py",
+        "NativeFetchClient._exchange",
+    ): "httpx.AsyncClient(verify=context, trust_env=False, follow_redirects=False, timeout=30)",
+    (
+        "gateway/document_requests/transport.py",
+        "NativeChannel.exchange",
+    ): "httpx.AsyncClient(verify=tls, trust_env=False, follow_redirects=False, timeout=30)",
+    # SC1: fixed-origin, certificate-pinned staff native read/publication client.
+    (
+        "gateway/staff_cases/publisher.py",
+        "StaffNativeClient.__init__",
+    ): "httpx.AsyncClient(verify=tls, timeout=seconds, trust_env=False, follow_redirects=False)",
+}
+_SECRET_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
+    (
+        "gateway/portal_identity.py",
+        "build_human_identity_adapters",
+    ): "database_url = make_url(config.database_url.get_secret_value())",
+    # Concrete staff bootstrap compares the existing identity DB with its distinct
+    # session-lock/witness logins; the original DSN stays inside the gateway.
+    (
+        "gateway/staff_cases/production.py",
+        "staff_runtime",
+    ): "identity_url = make_url(identity.database_url.get_secret_value())",
+}
+
+
 #: The effect REST-path fragments from design §8.2. `process-definition/key` stays in the
 #: OLD (`check_start_process_fence.py`) gate only, per the brief — deliberately absent here.
 #:
@@ -519,6 +592,8 @@ class _ModuleScan:
     # §8.2
     httpx_clients: list[tuple[str, int]] = field(default_factory=list)
     rest_path_literals: list[tuple[str, int]] = field(default_factory=list)
+    scoped_httpx: dict[int, tuple[str, str]] = field(default_factory=dict)
+    secret_reads: list[tuple[int, str, str]] = field(default_factory=list)
     # §8.3
     whole_module_imports: list[tuple[str, str, int]] = field(default_factory=list)  # (module, name, lineno)
     concrete_provider_imports: list[tuple[str, int]] = field(default_factory=list)
@@ -599,7 +674,68 @@ def scan_module(path: Path) -> _ModuleScan:
     scan = _ModuleScan()
     aliases = _string_alias_bindings(tree)
     docstring_ids = _docstring_constant_ids(tree)
-    imported_from_httpx: set[str] = set()
+    # Resolve import aliases before scanning calls (ast.walk ordering is not source ordering).
+    imported_from_httpx: dict[str, str] = {}
+    httpx_modules = {"httpx"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "httpx":
+            imported_from_httpx.update(
+                (a.asname or a.name, a.name) for a in node.names if a.name in _HTTPX_CLIENT_ATTRS
+            )
+        elif isinstance(node, ast.Import):
+            httpx_modules.update(a.asname or a.name for a in node.names if a.name == "httpx")
+    # Conservative same-file alias propagation. Dynamic runtime imports remain outside
+    # this static fence's claim; simple assignments must not defeat a new scoped seam.
+    changed = True
+    while changed:
+        changed = False
+        value: ast.expr | None
+        for binding in ast.walk(tree):
+            if isinstance(binding, ast.Assign):
+                targets, value = binding.targets, binding.value
+            elif isinstance(binding, ast.AnnAssign):
+                targets, value = [binding.target], binding.value
+            else:
+                continue
+            name = None
+            if isinstance(value, ast.Name):
+                name = imported_from_httpx.get(value.id)
+            elif (
+                isinstance(value, ast.Attribute)
+                and value.attr in _HTTPX_CLIENT_ATTRS
+                and isinstance(value.value, ast.Name)
+                and value.value.id in httpx_modules
+            ):
+                name = value.attr
+            for target in targets:
+                # Bindings are monotonic: rebinding or ambiguous lexical ownership must
+                # never erase a known HTTP module. Iterate to resolve finite alias chains,
+                # including constructor aliases derived from those module aliases.
+                if (
+                    isinstance(target, ast.Name)
+                    and isinstance(value, ast.Name)
+                    and value.id in httpx_modules
+                    and target.id not in httpx_modules
+                ):
+                    httpx_modules.add(target.id)
+                    changed = True
+                if isinstance(target, ast.Name) and name and target.id not in imported_from_httpx:
+                    imported_from_httpx[target.id] = name
+                    changed = True
+
+    parents = {id(child): node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+    def scope_of(node: ast.AST) -> str:
+        parts = []
+        while id(node) in parents:
+            child, node = node, parents[id(node)]
+            if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+                if child not in node.body:
+                    parts.append("<definition>")
+                parts.append(node.name)
+            elif isinstance(node, ast.Lambda | ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp):
+                parts.append("<nested>")
+        return ".".join(reversed(parts))
 
     for node in ast.walk(tree):
         # -- §8.1: construction calls -----------------------------------------------------------
@@ -610,19 +746,29 @@ def scan_module(path: Path) -> _ModuleScan:
 
             # -- §8.2a: httpx client construction --------------------------------------------
             func = node.func
+            httpx_constructor = None
             if (
                 isinstance(func, ast.Attribute)
                 and func.attr in _HTTPX_CLIENT_ATTRS
                 and isinstance(func.value, ast.Name)
-                and func.value.id == "httpx"
+                and func.value.id in httpx_modules
             ):
-                scan.httpx_clients.append((func.attr, node.lineno))
-            elif (
+                httpx_constructor = func.attr
+            elif isinstance(func, ast.Name) and func.id in imported_from_httpx:
+                httpx_constructor = imported_from_httpx[func.id]
+
+            if httpx_constructor is not None:
+                scan.httpx_clients.append((httpx_constructor, node.lineno))
+                # A nested non-HTTP call on this line must not replace this AST.
+                scan.scoped_httpx[node.lineno] = (scope_of(node), ast.dump(node))
+            if (
                 isinstance(func, ast.Name)
-                and func.id in _HTTPX_CLIENT_ATTRS
-                and func.id in imported_from_httpx
+                and func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[1], ast.Constant)
+                and node.args[1].value == "get_secret_value"
             ):
-                scan.httpx_clients.append((func.id, node.lineno))
+                scan.secret_reads.append((node.lineno, scope_of(node), "dynamic"))
 
             # -- §8.3: os.environ / os.getenv reads -------------------------------------------
             is_environ_read = (
@@ -642,6 +788,25 @@ def scan_module(path: Path) -> _ModuleScan:
                 for read_name in _env_arg_names(node, aliases):
                     if read_name in FORBIDDEN_ENV_VAR_NAMES:
                         scan.env_reads.append((read_name, node.lineno))
+
+        elif isinstance(node, ast.Attribute) and node.attr == "get_secret_value":
+            # PFSU-01-D2: a bound getter is itself a credential capability. Only the
+            # immediate extraction feeding the reviewed make_url assignment may pass;
+            # capturing, returning or forwarding the accessor cannot borrow that seam.
+            call = parents.get(id(node))
+            consumer = parents.get(id(call))
+            statement = parents.get(id(consumer))
+            shape = "unapproved accessor context"
+            if (
+                isinstance(call, ast.Call)
+                and call.func is node
+                and isinstance(consumer, ast.Call)
+                and consumer.args == [call]
+                and isinstance(statement, ast.Assign)
+                and statement.value is consumer
+            ):
+                shape = ast.dump(statement)
+            scan.secret_reads.append((node.lineno, scope_of(node), shape))
 
         elif isinstance(node, ast.Subscript):
             # os.environ["NAME"] / os.environ[ALIAS]
@@ -678,8 +843,6 @@ def scan_module(path: Path) -> _ModuleScan:
         # -- §8.3 imports + §8.4 test-double imports -------------------------------------------
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            if module == "httpx":
-                imported_from_httpx.update(alias.asname or alias.name for alias in node.names)
             if module in _WHOLE_MODULE_FENCED:
                 for alias in node.names:
                     scan.whole_module_imports.append((module, alias.name, node.lineno))
@@ -807,8 +970,18 @@ def scan_tree(src_dir: Path) -> GateResult:
             )
 
         # §8.2 — hand-rolled transport -----------------------------------------------------------
+        scope_counts = Counter(result.scoped_httpx[line][0] for _, line in result.httpx_clients)
         for attr, lineno in result.httpx_clients:
-            if _is_httpx_client_sanctioned(rel):
+            scope, shape = result.scoped_httpx[lineno]
+            expected = _HTTPX_SCOPED_SEAMS.get((rel, scope))
+            scoped = (
+                expected is not None
+                and scope_counts[scope] == 1
+                and shape == ast.dump(ast.parse(expected, mode="eval").body)
+            )
+            if scoped:
+                counters["8.2_httpx_scoped_seam_sanctioned"] += 1
+            if _is_httpx_client_sanctioned(rel) or scoped:
                 counters["8.2_httpx_client_sanctioned"] += 1
             else:
                 violations.append(
@@ -832,6 +1005,25 @@ def scan_tree(src_dir: Path) -> GateResult:
                         "8.2",
                         f"raw effect REST-path literal {substring!r} duplicated outside the "
                         "sanctioned transport module — bypasses the gated seam's own client",
+                    )
+                )
+
+        # Each registered gateway file permits one exact credential assignment only.
+        for lineno, scope, shape in result.secret_reads:
+            expected_secret = _SECRET_SCOPED_SEAMS.get((rel, scope))
+            if (
+                expected_secret is not None
+                and len(result.secret_reads) == 1
+                and shape == ast.dump(ast.parse(expected_secret).body[0])
+            ):
+                counters["8.3_secret_scoped_seam_sanctioned"] += 1
+            else:
+                violations.append(
+                    Violation(
+                        path,
+                        lineno,
+                        "8.3-secret",
+                        "credential extraction outside exact gateway identity composition seam",
                     )
                 )
 
