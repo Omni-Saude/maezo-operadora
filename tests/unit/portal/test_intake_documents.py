@@ -73,6 +73,10 @@ def test_receipts_distinguish_admission_custody_and_effect() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_composition_is_safe_and_no_cache(h: Harness) -> None:
+    # PR-A landing repair: the S5 routers authenticate BEFORE revealing composition state (an
+    # anonymous caller gets 401, never a 503 that discloses what is wired). The safety claim
+    # is about an authenticated session meeting a missing composition.
+    await h.login()
     for path in (
         "/cases",
         "/cases/" + REF,
@@ -117,6 +121,8 @@ async def test_duplicate_origin_and_bad_query_are_rejected(h: Harness) -> None:
         headers=[("origin", ORIGIN), ("origin", ORIGIN), ("x-csrf-token", "TEST")],
     )
     assert response.status_code == 401
+    # Query validation is only reachable by an authenticated session (401 precedes 400).
+    await h.login()
     for query in ("?limit=01", "?limit=101", "?cursor=a&cursor=b", "?tenant=PRIVATE_CANARY", "?kind=unknown"):
         response = await h.client.get(PREFIX + "/cases" + query)
         assert response.status_code == 400

@@ -684,7 +684,10 @@ async def test_entrypoint_disables_access_and_proxy_header_trust(monkeypatch) ->
     monkeypatch.setattr("maezo.portal.api.__main__.uvicorn.run", lambda *a, **kw: calls.append((a, kw)))
     main()
     assert len(calls) == 1
-    assert calls[0][0] == ("maezo.portal.api.app:create_app",)
+    # `python -m maezo.portal.api` serves the PRODUCTION composition (production.py refuses to
+    # boot without explicit, validated settings) — pinned the same way by
+    # tests/unit/portal/test_production_entrypoint.py.
+    assert calls[0][0] == ("maezo.portal.api.production:create_production_app",)
     assert calls[0][1]["access_log"] is False
     assert calls[0][1]["proxy_headers"] is False
     assert calls[0][1]["factory"] is True
