@@ -113,9 +113,9 @@ A jornada AUTH e sua matriz requisito → BPMN/DMN → fato/worker/gateway → e
 
 | Família | Responsabilidade e gatilho / públicos | Classificação product-first e handoffs |
 |---|---|---|
-| AUTH | Guia de autorização do prestador; beneficiário acompanha/responde; auditor/coordenação/junta decidem | Reuso da instância e quatro tarefas; wiring novo de intake/documentos/inbox e autoridade. Sem AUTH→PAGTO ou start ESC automático. Desistência livre não contratada; prazo extra é lacuna comportamental explícita no contrato |
+| AUTH | Guia de autorização do prestador; beneficiário acompanha/responde; auditor/coordenação/junta decidem | Reuso da instância e quatro tarefas; wiring novo de intake/documentos/inbox e autoridade. Sem AUTH→PAGTO ou start ESC automático. Retirada livre do pedido não contratada; prazo extra é lacuna comportamental explícita no contrato |
 | ESCALATION | Handoff de conversa por agente; atendimento/supervisão; beneficiário acompanha | Reuso universal. Inbox e autoridade corrente são wiring; humano-only start requer extensão de proveniência. Retorno `devolvido_agente` não decide outro processo |
-| CONTAS | Conta recebida do prestador; operadora adjudica/glosa | Reuso. Expor intake/resultado; glosa é decisão da operadora. Não abrir RECURSO automaticamente |
+| CONTAS | Conta recebida do prestador; operadora adjudica/glosa | Reuso. Expor intake/resultado; glosa é decisão interna da adjudicação. Não abrir RECURSO automaticamente |
 | RECURSO | Recurso iniciado pelo prestador contra glosa; operadora revisa | Reuso de lifecycle distinto de CONTAS; exige glosa/caso de origem e manifestação do prestador, não duplica adjudicação inicial |
 | PAGTO | Ordem de pagamento com lastro; finanças e alçada | Reuso após obrigação e controles próprios. Não anexar a AUTH por conveniência nem duplicar pagamento; preservar dedup permanente e I-PAGTO-1 |
 | REEMBOLSO | Pedido do beneficiário; análise e coordenação de reembolso | Reuso distinto de guia de prestador. Evidência/valor aprovados precedem handoff PAGTO; Marina prepara dossiê sem segundo start |

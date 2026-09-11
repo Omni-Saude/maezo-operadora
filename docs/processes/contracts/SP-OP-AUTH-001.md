@@ -122,8 +122,8 @@ qualificar a fonte antes de habilitar o consumidor. Ausência não vira booleano
 `conceder_prazo_extra` sai de `GW_PendenciaExpirada` para `BRT_SlaAnalise`, assim como
 `seguir_analise`: não rearma a espera documental. O portal não deve prometer novo prazo
 por esse literal; corrigir a semântica exige decisão do dono do contrato/SME e pacote
-BPMN/DMN/form/worker compatível. Também não existe caminho contratado de desistência livre
-do prestador/beneficiário em AUTH: não expor botão que force `cancelada_pendencia` nem
+BPMN/DMN/form/worker compatível. Também não existe caminho contratado para o prestador/
+beneficiário retirar livremente o pedido em AUTH: não expor botão que force `cancelada_pendencia` nem
 reutilizar SP-OP-CANCEL (cancelamento de contrato). O cancelamento existente é decisão
 humana da pendência expirada. Nenhum prazo regulatório foi criado ou ratificado aqui.
 
