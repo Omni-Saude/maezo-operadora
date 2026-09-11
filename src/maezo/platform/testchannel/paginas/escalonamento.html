@@ -104,7 +104,18 @@
       <div>
         <label>Telefone fictício</label>
         <input id="fone" value="5511900000001">
-        <p class="nota" style="margin:6px 0 0 0">Muda o número para começar uma conversa nova. O mesmo número continua a mesma conversa.</p>
+        <p class="nota" style="margin:6px 0 0 0">
+          Cada número é uma conversa. O número avança sozinho a cada envio, para que
+          todo teste comece limpo.
+        </p>
+        <label style="font-weight:500;margin-top:9px;display:flex;gap:7px;align-items:flex-start">
+          <input type="checkbox" id="mesmaConversa" style="width:auto;margin-top:3px">
+          <span>Manter o número — continuar a mesma conversa</span>
+        </label>
+        <p class="nota" style="margin:5px 0 0 0">
+          Marque para testar a segunda mensagem de um beneficiário que já tem caso aberto.
+          O certo é <b>não</b> abrir um escalonamento novo.
+        </p>
       </div>
     </div>
     <div class="botoes">
@@ -215,6 +226,17 @@ var DESFECHOS = {
 
 function exemplo(t){ $("texto").value = t; }
 
+/* Avanca os dois ultimos digitos dentro da faixa que o Canal aceita (55119000000xx), para
+   que cada envio seja uma conversa nova. Ao chegar em 99, volta para 01 — a faixa tem 99
+   numeros e o motor nao guarda estado entre baterias. */
+function proximoNumero(){
+  var campo = $("fone"), v = campo.value.trim();
+  var m = /^(55119000000)(\d{2})$/.exec(v);
+  if (!m) return;                                  // numero fora do molde: nao mexe
+  var n = (parseInt(m[2], 10) % 99) + 1;
+  campo.value = m[1] + (n < 10 ? "0" + n : String(n));
+}
+
 function limpar(){
   estado = {pid:null, bk:null, t0:null, evid:{}};
   [2,3,4,5,6,7].forEach(function(n){
@@ -230,16 +252,28 @@ function enviar(){
   var texto = $("texto").value.trim();
   if (!texto){ $("e1").innerHTML = '<div class="erro">Escreva uma mensagem primeiro.</div>'; return; }
 
+  var fone = $("fone").value.trim();
+  var manter = $("mesmaConversa").checked;
+
   limpar();
   $("btEnviar").disabled = true;
   estado.t0 = new Date(Date.now() - 5000).toISOString().replace("Z","");
   estado.evid.mensagem = texto;
+  estado.evid.telefone = fone;
+  estado.reusou = manter;
 
   acende(2);
   $("v2").innerHTML = '<p class="vazio">A Helena está lendo a mensagem e consultando as tabelas…</p>';
 
-  api("/receptor/simular", {texto: texto, telefone: $("fone").value.trim()})
-    .then(function(){ return espera(2500); })
+  // FOTOGRAFIA ANTES DO ENVIO. A chave de negocio do escalonamento vem da conversa, que
+  // vem do telefone: um numero que ja tem caso aberto NAO abre outro — o turno novo se
+  // prende ao que existe. Sem esta foto, a tela diria "nao escalou" quando na verdade o
+  // caso foi para um processo que ja estava de pe.
+  api("/engine/process-instance?processDefinitionKey=SP-OP-ESCALATION-001&maxResults=50")
+    .then(function(abertos){ estado.abertosAntes = (abertos||[]).length; })
+    .catch(function(){ estado.abertosAntes = null; })
+    .then(function(){ return api("/receptor/simular", {texto: texto, telefone: fone}); })
+    .then(function(){ if (!manter) proximoNumero(); return espera(2500); })
     .then(mostrarTriagem)
     .catch(function(e){
       falha("v2", e);
@@ -320,6 +354,23 @@ function procurarProcesso(tentativa){
         return roteamento();
       }
       if (tentativa < 12) return espera(2000).then(function(){ return procurarProcesso(tentativa+1); });
+
+      // NENHUM ESCALONAMENTO NOVO tem duas leituras, e a tela precisa dizer as duas em vez
+      // de escolher a otimista. Se o numero foi reaproveitado e ja havia caso aberto, o mais
+      // provavel e' que o turno se prendeu a ele — nao que a Helena resolveu sozinha.
+      if (estado.reusou && estado.abertosAntes){
+        $("v3").innerHTML =
+          '<p><span class="selo esp">NENHUM ESCALONAMENTO NOVO</span></p>' +
+          '<p>Você manteve o mesmo número, e já havia <b>' + estado.abertosAntes +
+          '</b> caso(s) aberto(s). Duas leituras possíveis:</p>' +
+          '<table>' +
+          linha("O esperado", "O turno se juntou ao caso que já existia. Um beneficiário não gera duas filas — este é o comportamento correto.") +
+          linha("A outra", "A Helena resolveu sozinha e nada foi aberto.") +
+          '</table>' +
+          '<p class="nota" style="margin-left:0">Esta tela não distingue as duas. Para ver o ' +
+          'escalonamento de um caso limpo, desmarque “manter o número” e envie de novo.</p>';
+        return null;
+      }
 
       $("v3").innerHTML =
         '<p><span class="selo ok">NÃO ESCALOU</span> — a Helena respondeu sozinha e ninguém foi incomodado.</p>' +
