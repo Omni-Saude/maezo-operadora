@@ -1,0 +1,25 @@
+{
+  "argv": [
+    "git",
+    "--no-replace-objects",
+    "clone",
+    "--shared",
+    "--no-checkout",
+    "--quiet",
+    "--",
+    "/Users/familia/code/maezo-completion-wt/ledger-d7-async-successor-repair",
+    "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout"
+  ],
+  "combined_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "cwd": "/private/tmp/maezo-historical-proof-0h9ec_2k",
+  "finished_at": "2026-09-09T08:49:30.237522+00:00",
+  "pgid": 4241,
+  "quiescent": true,
+  "rc": 0,
+  "started_at": "2026-09-09T08:49:30.154745+00:00",
+  "status": "completed",
+  "stderr": "clone.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout": "clone.stdout",
+  "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

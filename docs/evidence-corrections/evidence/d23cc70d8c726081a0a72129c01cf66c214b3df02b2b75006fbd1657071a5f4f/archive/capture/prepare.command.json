@@ -1,0 +1,32 @@
+{
+  "argv": [
+    "/Users/familia/.hermes/profiles/heitor/bin/uv",
+    "run",
+    "--offline",
+    "--locked",
+    "--no-config",
+    "--no-env-file",
+    "--extra",
+    "dev",
+    "--exclude-newer",
+    "2026-08-05T00:00:00Z",
+    "--project",
+    "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout",
+    "python",
+    "-I",
+    "-c",
+    "import sys; print(sys.prefix)"
+  ],
+  "combined_sha256": "1da4d44fc558d8092ae8a40e75a7bd63aa207af3446feddbb62930e441236b67",
+  "cwd": "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout",
+  "finished_at": "2026-09-09T08:49:32.040632+00:00",
+  "pgid": 4250,
+  "quiescent": true,
+  "rc": 0,
+  "started_at": "2026-09-09T08:49:30.888840+00:00",
+  "status": "completed",
+  "stderr": "prepare.stderr",
+  "stderr_sha256": "e4c124759a5790afb51f399d017689f155904495a8f63d2c079f324cb0db7a06",
+  "stdout": "prepare.stdout",
+  "stdout_sha256": "a5f21aea242f5f0d5e87984d69111af39eef9d13742c1649e4a2f756e39ebba3"
+}

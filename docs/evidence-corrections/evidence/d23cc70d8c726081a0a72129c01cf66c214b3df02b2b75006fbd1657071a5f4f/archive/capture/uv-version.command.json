@@ -1,0 +1,18 @@
+{
+  "argv": [
+    "/Users/familia/.hermes/profiles/heitor/bin/uv",
+    "--version"
+  ],
+  "combined_sha256": "ba4cf530cfe404173fb85a8d32f83fb691f71789afec12dbf05e625f643ca7a4",
+  "cwd": "/private/tmp/maezo-historical-proof-0h9ec_2k/checkout",
+  "finished_at": "2026-09-09T08:49:30.828195+00:00",
+  "pgid": 4249,
+  "quiescent": true,
+  "rc": 0,
+  "started_at": "2026-09-09T08:49:30.808968+00:00",
+  "status": "completed",
+  "stderr": "uv-version.stderr",
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout": "uv-version.stdout",
+  "stdout_sha256": "ba4cf530cfe404173fb85a8d32f83fb691f71789afec12dbf05e625f643ca7a4"
+}
