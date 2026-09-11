@@ -115,6 +115,8 @@ from maezo.gateway.effect_pep import (
     AgentCapabilities,
     DecisionContext,
 )
+from maezo.gateway.engine_start import EngineStartAuthorizer
+from maezo.gateway.engine_transport import EngineTLSConfig
 from maezo.gateway.seams import (
     EFFECT_SEAM_KEYS,
     GatedCibSevenTransport,
@@ -468,6 +470,9 @@ def build_cibseven_seam(
     auth_token: str | None = None,
     timeout: float | None = None,
     fresh_client: bool = False,
+    engine_tls: EngineTLSConfig | None = None,
+    engine_process_key: str = "",
+    engine_source_ref: str = "",
 ) -> GatedCibSevenTransport:
     """A gated engine transport.
 
@@ -477,6 +482,28 @@ def build_cibseven_seam(
     §2's defeat clause specifies; its own allowlist entry in the start-process fence
     (`scripts/ci/check_start_process_fence.py:81`) is untouched.
     """
+    if engine_tls is not None:
+        from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode
+        from maezo.gateway.engine_transport import EngineOperationsClient
+        from maezo.tools.mcp_cibseven.secured_transport import SecuredCibSevenTransport
+
+        if (
+            auth_token is not None
+            or fresh_client
+            or timeout is not None
+            or base_url != engine_tls.endpoint
+            or seam.tenant != engine_tls.identity.tenant
+            or seam.principal != engine_tls.identity.workload
+        ):
+            raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
+        inner = SecuredCibSevenTransport(
+            EngineOperationsClient(engine_tls), process_key=engine_process_key, source_ref=engine_source_ref
+        )
+        return bind_cibseven_start_preflight(inner=inner, seam=seam, authorizer=inner)
+    if engine_process_key or engine_source_ref:
+        from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode
+
+        raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
     kwargs: dict[str, Any] = {}
     if auth_token is not None:
         kwargs["auth_token"] = auth_token
@@ -489,6 +516,31 @@ def build_cibseven_seam(
     from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 
     return gate_cibseven(CibSevenHttpTransport(base_url, **kwargs), seam)
+
+
+def bind_cibseven_start_preflight(
+    *,
+    inner: Any,
+    seam: SeamContext,
+    authorizer: EngineStartAuthorizer | None,
+) -> GatedCibSevenTransport:
+    """D7-A mandatory preflight composition, independent of B/C credential rollout.
+
+    Unlike the explicit legacy factory above, this always exposes the pre-claim port;
+    unavailable authority refuses before audit/claim. It does NOT secure the inner HTTP
+    transport, pin its definition route, or authorize direct reads. B/C must bind those ports
+    before production use. No runtime root opts in during A; focused tests exercise this exact
+    factory in the existing typed start boundary, including denied/recovered dedup.
+    """
+    from maezo.gateway.engine_start import PreflightCibSevenTransport, PreflightHistoryCibSevenTransport
+    from maezo.tools.mcp_cibseven.transport import HistoryQueryingTransport
+
+    cls = (
+        PreflightHistoryCibSevenTransport
+        if isinstance(inner, HistoryQueryingTransport)
+        else PreflightCibSevenTransport
+    )
+    return cls(inner, seam=seam, authorizer=authorizer)
 
 
 def build_inference_seam(*, seam: SeamContext, inner: Any = None) -> GatedInferenceProvider:
