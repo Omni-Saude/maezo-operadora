@@ -199,9 +199,7 @@ async def test_ambient_models_cannot_change_signed_request(
     extra, customer = tmp_path / "extra", tmp_path / "customer"
     monkeypatch.setenv("AWS_DATA_PATH", str(extra))
     monkeypatch.setattr(Loader, "CUSTOMER_DATA_PATH", str(customer))
-    installed = Loader(
-        extra_search_paths=[Loader.BUILTIN_DATA_PATH], include_default_search_paths=False
-    )
+    installed = Loader(extra_search_paths=[Loader.BUILTIN_DATA_PATH], include_default_search_paths=False)
     service = installed.load_service_model("kafka", "service-2")
     version = service["metadata"]["apiVersion"]
     hostile = (extra if location == "extra" else customer) / "kafka" / version

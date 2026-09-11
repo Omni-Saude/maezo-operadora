@@ -439,7 +439,7 @@ InputPayload = (
     | DocumentCustody
     | DocumentPolicy
 )
-PAYLOAD_TYPES = {
+PAYLOAD_TYPES: dict[InputKind, type[Closed]] = {
     "actor": MembershipProjection,
     "guide": GuideIdentity,
     "start_facts": StartFacts,

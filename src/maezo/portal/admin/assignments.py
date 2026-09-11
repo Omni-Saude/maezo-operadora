@@ -151,7 +151,7 @@ class PostgresStaffAssignmentAdministration:
             # already-ACKed AUTH change is applied, with no HTTP.
             await self.auth_source.apply_change(change_id, db)
             applied_auth.append(change_id)
-        records = await self.auth_source.locked_staff_memberships(db)
+        records: tuple[MembershipRecord, ...] = await self.auth_source.locked_staff_memberships(db)
         for record in changes:
             prior = tuple(
                 candidate

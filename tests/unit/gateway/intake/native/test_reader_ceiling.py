@@ -6,13 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from tests.unit.gateway.intake.native.test_session_authority import caller_binding
-from tests.unit.gateway.intake.native.test_wire_transport import command
 
 from maezo.gateway.human.auth_profile import Actor
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.intake import native_authority, native_source_lifecycle
 from maezo.portal.api import session as session_module
+from tests.unit.gateway.intake.native.test_session_authority import caller_binding
+from tests.unit.gateway.intake.native.test_wire_transport import command
 
 
 async def setup_reader(monkeypatch):

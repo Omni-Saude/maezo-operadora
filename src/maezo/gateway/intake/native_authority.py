@@ -127,7 +127,7 @@ class NativeAuthReader:
             .mappings()
             .one()
         )
-        if tuple(row.values()) != (
+        if (row["role"], row["session_role"], row["name"], row["oid"], row["schema_oid"], row["tls"]) != (
             b.reader_role,
             b.reader_role,
             b.database_name,
@@ -166,7 +166,16 @@ class NativeAuthReader:
                 .mappings()
                 .one()
             )
-            if tuple(row.values()) != (pin.oid, pin.owner, "r", False, False, True, False):
+            observed = (
+                row["oid"],
+                row["owner"],
+                row["relkind"],
+                row["relrowsecurity"],
+                row["relforcerowsecurity"],
+                row["readable"],
+                row["writable"],
+            )
+            if observed != (pin.oid, pin.owner, "r", False, False, True, False):
                 raise AuthUnavailableError()
         installed = (
             (
@@ -244,7 +253,7 @@ class NativeAuthReader:
             raise AuthUnavailableError()
         return value
 
-    async def head(self, db: AsyncConnection, kind: str, resource: str) -> tuple[Any, Any, datetime]:
+    async def head(self, db: AsyncConnection, kind: InputKind, resource: str) -> tuple[Any, Any, datetime]:
         row = (
             (
                 await db.execute(
@@ -777,7 +786,15 @@ class AuthProductionComposition:
             .mappings()
             .one()
         )
-        if tuple(row.values()) != (b.role, b.role, b.database_name, b.database_oid, b.schema_oid, True):
+        session_observed = (
+            row["role"],
+            row["session_role"],
+            row["name"],
+            row["oid"],
+            row["schema_oid"],
+            row["tls"],
+        )
+        if session_observed != (b.role, b.role, b.database_name, b.database_oid, b.schema_oid, True):
             raise AuthUnavailableError()
         required = {
             "intake",
@@ -808,13 +825,15 @@ class AuthProductionComposition:
                 .mappings()
                 .one()
             )
-            if pin.schema_name != "portal_intake" or tuple(row.values()) != (
-                pin.oid,
-                "r",
-                False,
-                False,
-                pin.owner,
-            ):
+            relation_observed = (
+                row["oid"],
+                row["relkind"],
+                row["relrowsecurity"],
+                row["relforcerowsecurity"],
+                row["owner"],
+            )
+            expected_relation = (pin.oid, "r", False, False, pin.owner)
+            if pin.schema_name != "portal_intake" or relation_observed != expected_relation:
                 raise AuthUnavailableError()
         if datetime.now(UTC) >= b.valid_until:
             raise AuthUnavailableError()

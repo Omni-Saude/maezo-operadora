@@ -125,7 +125,7 @@ class AuthCallerBinding:
     principal: HumanPrincipal
     original: ResolvedHumanSession = field(repr=False)
     valid_until: datetime
-    _resolve: Callable[..., Any] = field(repr=False)
+    _resolve: Callable[[str], Awaitable[ResolvedHumanSession]] = field(repr=False)
     _secret: str = field(repr=False)
     _issuer: HumanSessionResolver = field(repr=False)
 
@@ -329,7 +329,7 @@ class PostgresAuthSourceLifecycle:
             b.valid_until, installed["valid_until"]
         ):
             raise AuthUnavailableError()
-        for pin in b.relations:
+        for relation in b.relations:
             row = (
                 (
                     await db.execute(
@@ -343,7 +343,7 @@ class PostgresAuthSourceLifecycle:
                             ".nspname=:schema AND "
                             "c.relname=:name"
                         ),
-                        {"schema": pin.schema_name, "name": pin.name},
+                        {"schema": relation.schema_name, "name": relation.name},
                     )
                 )
                 .mappings()
@@ -357,7 +357,7 @@ class PostgresAuthSourceLifecycle:
                 row["relforcerowsecurity"],
                 row["readable"],
                 row["truncate"],
-            ) != (pin.oid, pin.owner, "r", False, False, True, False):
+            ) != (relation.oid, relation.owner, "r", False, False, True, False):
                 raise AuthUnavailableError()
             if role in (b.reader_role, b.writer_role):
                 writable = (
@@ -368,7 +368,7 @@ class PostgresAuthSourceLifecycle:
                             "FERENCES,TRIGGER') OR "
                             "has_any_column_privilege(current_user,:oid,'INSERT,UPDATE,REFERENCES')"
                         ),
-                        {"oid": pin.oid},
+                        {"oid": relation.oid},
                     )
                 ).scalar_one()
                 if writable:
@@ -1503,6 +1503,12 @@ class PostgresAuthSourceLifecycle:
         async with self.control.begin() as db:
             await self.qualified(db, self.binding.control_role)
             if category == "session":
+                # A session change carries session records only; anything else is refused, not
+                # attribute-guessed (this also narrows `new`/`old` for the reads below).
+                if new is not None and not isinstance(new, SessionRecord):
+                    raise AuthUnavailableError()
+                if old is not None and not isinstance(old, SessionRecord):
+                    raise AuthUnavailableError()
                 session_record = new if new is not None else old
                 if session_record is None:
                     raise AuthUnavailableError()
@@ -1589,7 +1595,7 @@ class PostgresAuthSourceLifecycle:
                     )
                     if pending["request_digest"] != request_digest:
                         raise AuthUnavailableError()
-                    return pending["change_id"]
+                    return str(pending["change_id"])
                 if (
                     head["state"] != "active"
                     or (digest(None) if old is None else self.record_digest(category, old))
@@ -1634,7 +1640,7 @@ class PostgresAuthSourceLifecycle:
                         raise AuthUnavailableError()
                     member_refs.append(binding.dependency_ref)
             change = secrets.token_urlsafe(24)
-            if category == "session" and new is not None and new.session_ref != identity_ref:
+            if category == "session" and isinstance(new, SessionRecord) and new.session_ref != identity_ref:
                 await db.execute(
                     text(
                         "INSERT INTO "
@@ -1840,12 +1846,12 @@ class PostgresAuthSourceLifecycle:
             member = (
                 None if change["new_record"] is None else parse_model(MembershipRecord, change["new_record"])
             )
-            state = (
+            dependency_state: Literal["active", "revoked"] = (
                 "active"
                 if mapping["kind"] == "actor" and member is not None and not member.revoked
                 else "revoked"
             )
-            await self._transition_membership_dependency(ref, change_id, state)
+            await self._transition_membership_dependency(ref, change_id, dependency_state)
         async with self.control.begin() as db:
             await self.qualified(db, self.binding.control_role)
             await db.execute(
@@ -1935,7 +1941,11 @@ class PostgresAuthSourceLifecycle:
                 .mappings()
                 .one()
             )
-            if tuple(head.values()) != ("active", None, self.record_digest("membership", record)):
+            if (head["state"], head["pending_change"], head["record_digest"]) != (
+                "active",
+                None,
+                self.record_digest("membership", record),
+            ):
                 raise AuthUnavailableError()
         if self.clock() >= record.reviewed_until:
             raise AuthUnavailableError()

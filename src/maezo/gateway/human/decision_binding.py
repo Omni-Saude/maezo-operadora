@@ -933,6 +933,7 @@ class DecisionBindingInstaller(_BindingRecords):
             revision = await db.revision(c, lock=True)
             doc = db.verifier.authorities(authorities, db.clock())
             prior = await self._receipt(c, doc.operation_id)
+            result: InstallationReceipt | InstallationReceiptV2
             if prior is not None:
                 if prior.kind != "designate" or prior.request_digest != sha(raw):
                     raise BindingUnavailableError()
@@ -1078,6 +1079,7 @@ class DecisionBindingInstaller(_BindingRecords):
             r = db.verifier.revocation(value, await db.authorities(c), db.clock())
             digest = sha(canonical(value))
             prior = await self._receipt(c, r.operation_id)
+            result: InstallationReceipt | InstallationReceiptV2
             if prior is not None:
                 if prior.kind != "revoke" or prior.request_digest != digest:
                     raise BindingUnavailableError()
