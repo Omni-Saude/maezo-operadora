@@ -149,6 +149,17 @@ class Connection:
     async def invalidate(self):
         await self.release()
 
+    async def scalar(self, sql, params=None):
+        # PR-A landing repair: `PostgresIdentityStore.revoke_session` first proves that no AUTH
+        # identity participant is installed (`_without_auth`) before deleting the session; this
+        # synthetic database installs none. Any other scalar query is a fixture gap, never a
+        # silent None.
+        q = " ".join(str(sql).split())
+        self.db.trace.append((id(self), q))
+        if q == "SELECT to_regclass('portal_auth.installation')":
+            return None
+        raise AssertionError(q)
+
     async def execute(self, sql, params):
         q = " ".join(str(sql).split())
         self.db.trace.append((id(self), q))

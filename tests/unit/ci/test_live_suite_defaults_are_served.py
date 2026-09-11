@@ -37,10 +37,14 @@ fence closes the half that lives in `tests/`.
 
 from __future__ import annotations
 
+import ast
 import importlib
+import json
 import os
 import re
+import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Final
@@ -60,6 +64,32 @@ _COMPOSE: Final[Path] = _REPO_ROOT / "docker-compose.yml"
 _PG_RESOLVER_NAMES: Final[tuple[str, ...]] = ("_default_test_dsn", "_pg_dsn", "_audit_dsn", "_dsn")
 _KAFKA_RESOLVER_NAME: Final[str] = "_kafka_bootstrap_servers"
 
+
+@dataclass(frozen=True)
+class ExplicitFixtureContract:
+    """A live suite whose coordinates come only from a private, ROOT-provided fixture."""
+
+    loader_module: str
+    loader_name: str
+    environment_variable: str
+    manifest_name: str
+    schema: str
+    database_host: str
+    database_port: int
+
+
+_EXPLICIT_FIXTURES: Final[dict[str, ExplicitFixtureContract]] = {
+    "tests/integration/gateway/test_human_relay_live_cib.py": ExplicitFixtureContract(
+        loader_module="tests.support.human_relay_live",
+        loader_name="RelayConfig",
+        environment_variable="MAEZO_HUMAN_RELAY_PRIVATE_DIR",
+        manifest_name="relay-fixture.json",
+        schema="human-relay-fixture.v1",
+        database_host="127.0.0.1",
+        database_port=15433,
+    )
+}
+
 #: Modules whose filename matches the live-suite glob but which need no infrastructure at all.
 #: Each entry is a claim this file's own tests re-check (they must define NO resolver) AND a claim
 #: `test_name_only_entries_are_actually_discovered` re-checks: the module must actually be produced
@@ -68,6 +98,14 @@ _KAFKA_RESOLVER_NAME: Final[str] = "_kafka_bootstrap_servers"
 #: exactly the bug `test_live_dispatch_wiring.py` was listed here as until this fix (see
 #: `_iter_live_suites`'s docstring for why that module was never in scope to begin with).
 _NAME_ONLY: Final[dict[str, str]] = {
+    "tests/integration/gateway/test_decision_binding_live_pg.py": (
+        "ADR-0049 D5 decision-binding suite against a ROOT-supplied DISPOSABLE CIB PostgreSQL with "
+        "mTLS identities: its only coordinate is the JSON manifest at "
+        "MAEZO_DECISION_BINDING_TEST_CONFIG (host/port/database/roles/certificate files inside the "
+        "manifest; no caller DSN, no repo-served default), and it skips loudly when unset — the "
+        "same class as test_inference_live.py below. The relay grammar of _EXPLICIT_FIXTURES "
+        "(loader class + pinned compose host/port) does not describe it. PR-A landing record."
+    ),
     "tests/unit/a2a/test_a2a_edge_live_pg_fixture.py": (
         "four pure unit fences for the companion A2A live-engine fixture: they inspect composition "
         "and replace the engine resolver/client in-process, with no Postgres, broker, engine, "
@@ -126,6 +164,351 @@ def _resolver(module: ModuleType, names: tuple[str, ...]) -> tuple[str, Callable
         return None
     fn: Callable[[], str] = getattr(module, found[0])
     return found[0], fn
+
+
+def _explicit_fixture_loader(contract: ExplicitFixtureContract) -> type:
+    module = importlib.import_module(contract.loader_module)
+    loader = getattr(module, contract.loader_name)
+    assert isinstance(loader, type), f"{contract.loader_module}.{contract.loader_name} is not a class"
+    return loader
+
+
+def _is_pytest_mark(node: ast.expr, name: str) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Attribute)
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+        and node.value.attr == "mark"
+        and node.attr == name
+    )
+
+
+def _pytest_parametrize_names(node: ast.expr) -> set[str] | None:
+    """Return finite literal argnames; None means this is not a supported parametrization."""
+    if not (isinstance(node, ast.Call) and _is_pytest_mark(node.func, "parametrize")):
+        return set()
+    argnames = (
+        node.args[0]
+        if node.args
+        else next((keyword.value for keyword in node.keywords if keyword.arg == "argnames"), None)
+    )
+    if isinstance(argnames, ast.Constant) and isinstance(argnames.value, str):
+        return {name.strip() for name in argnames.value.split(",") if name.strip()}
+    if isinstance(argnames, (ast.List, ast.Tuple)) and all(
+        isinstance(item, ast.Constant) and isinstance(item.value, str) for item in argnames.elts
+    ):
+        return {item.value for item in argnames.elts}
+    return None
+
+
+def _parametrization_may_override(node: ast.expr, fixture_name: str) -> bool:
+    names = _pytest_parametrize_names(node)
+    return names is None or fixture_name in names
+
+
+def _is_qualified_pytest_mark(node: ast.expr) -> bool:
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Attribute)
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+        and node.value.attr == "mark"
+    )
+
+
+def _supported_test_decorator(node: ast.expr, fixture_name: str) -> bool:
+    target = node.func if isinstance(node, ast.Call) else node
+    if not _is_qualified_pytest_mark(target):
+        return False
+    if target.attr != "parametrize":
+        return True
+    return isinstance(node, ast.Call) and not _parametrization_may_override(node, fixture_name)
+
+
+def _supported_module_mark(node: ast.expr, fixture_name: str) -> bool:
+    if _is_pytest_mark(node, "integration") or _is_pytest_mark(node, "asyncio"):
+        return True
+    return (
+        isinstance(node, ast.Call)
+        and _is_pytest_mark(node.func, "parametrize")
+        and not _parametrization_may_override(node, fixture_name)
+    )
+
+
+def _is_call(node: ast.expr, owner: str, method: str) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id == owner
+        and node.func.attr == method
+        and not node.args
+        and not node.keywords
+    )
+
+
+def _assigns_call(statement: ast.stmt, target: str, owner: str, method: str) -> bool:
+    return (
+        isinstance(statement, ast.Assign)
+        and len(statement.targets) == 1
+        and isinstance(statement.targets[0], ast.Name)
+        and statement.targets[0].id == target
+        and _is_call(statement.value, owner, method)
+    )
+
+
+def _awaits_call(statement: ast.stmt, owner: str, method: str) -> bool:
+    return (
+        isinstance(statement, ast.Expr)
+        and isinstance(statement.value, ast.Await)
+        and _is_call(statement.value.value, owner, method)
+    )
+
+
+def _canonical_live_fixture(node: ast.AsyncFunctionDef) -> bool:
+    """Match the one supported relay fixture lifecycle, without inferring Python data flow."""
+    if len(node.body) != 4:
+        return False
+    load, artifacts, construct, lifecycle = node.body
+    if not _assigns_call(load, "config", "RelayConfig", "load"):
+        return False
+    if not (
+        isinstance(artifacts, ast.Assign)
+        and len(artifacts.targets) == 1
+        and isinstance(artifacts.targets[0], ast.Name)
+        and artifacts.targets[0].id == "artifacts"
+        and isinstance(artifacts.value, ast.Call)
+        and isinstance(artifacts.value.func, ast.Name)
+        and artifacts.value.func.id == "artifact_directory"
+        and len(artifacts.value.args) == 2
+        and isinstance(artifacts.value.args[0], ast.Name)
+        and artifacts.value.args[0].id == "config"
+        and isinstance(artifacts.value.args[1], ast.Attribute)
+        and artifacts.value.args[1].attr == "name"
+        and isinstance(artifacts.value.args[1].value, ast.Attribute)
+        and artifacts.value.args[1].value.attr == "node"
+        and isinstance(artifacts.value.args[1].value.value, ast.Name)
+        and artifacts.value.args[1].value.value.id == "request"
+        and not artifacts.value.keywords
+    ):
+        return False
+    if not (
+        isinstance(construct, ast.Assign)
+        and len(construct.targets) == 1
+        and isinstance(construct.targets[0], ast.Name)
+        and construct.targets[0].id == "fixture"
+        and isinstance(construct.value, ast.Call)
+        and isinstance(construct.value.func, ast.Name)
+        and construct.value.func.id == "LiveRelayFixture"
+        and [argument.id for argument in construct.value.args if isinstance(argument, ast.Name)]
+        == ["config", "artifacts"]
+        and len(construct.value.args) == 2
+        and not construct.value.keywords
+    ):
+        return False
+    return (
+        isinstance(lifecycle, ast.Try)
+        and len(lifecycle.body) == 2
+        and _awaits_call(lifecycle.body[0], "fixture", "open")
+        and isinstance(lifecycle.body[1], ast.Expr)
+        and isinstance(lifecycle.body[1].value, ast.Yield)
+        and isinstance(lifecycle.body[1].value.value, ast.Name)
+        and lifecycle.body[1].value.value.id == "fixture"
+        and not lifecycle.handlers
+        and not lifecycle.orelse
+        and len(lifecycle.finalbody) == 1
+        and _awaits_call(lifecycle.finalbody[0], "fixture", "close")
+    )
+
+
+def _bound_target_names(node: ast.expr) -> set[str]:
+    if isinstance(node, ast.Name):
+        return {node.id}
+    if isinstance(node, ast.Starred):
+        return _bound_target_names(node.value)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return set().union(*(_bound_target_names(item) for item in node.elts))
+    return set()
+
+
+def _module_scope_bindings(tree: ast.Module) -> dict[str, list[ast.stmt]]:
+    """Inventory lexical module bindings without evaluating branches or function bodies."""
+    result: dict[str, list[ast.stmt]] = {}
+
+    def record(name: str, statement: ast.stmt) -> None:
+        result.setdefault(name, []).append(statement)
+
+    def visit(statement: ast.stmt) -> None:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            record(statement.name, statement)
+            return
+        if isinstance(statement, (ast.Import, ast.ImportFrom)):
+            for alias in statement.names:
+                record(alias.asname or alias.name.split(".")[0], statement)
+            return
+        targets: list[ast.expr] = []
+        if isinstance(statement, ast.Assign):
+            targets.extend(statement.targets)
+        elif (
+            isinstance(statement, ast.AnnAssign)
+            and statement.value is not None
+            or isinstance(statement, (ast.AugAssign, ast.For, ast.AsyncFor))
+        ):
+            targets.append(statement.target)
+        elif isinstance(statement, (ast.With, ast.AsyncWith)):
+            targets.extend(item.optional_vars for item in statement.items if item.optional_vars is not None)
+        elif isinstance(statement, ast.Delete):
+            targets.extend(statement.targets)
+        for target in targets:
+            for name in _bound_target_names(target):
+                record(name, statement)
+        if isinstance(statement, (ast.If, ast.For, ast.AsyncFor, ast.While)):
+            for child in [*statement.body, *statement.orelse]:
+                visit(child)
+        elif isinstance(statement, (ast.With, ast.AsyncWith)):
+            for child in statement.body:
+                visit(child)
+        elif isinstance(statement, (ast.Try, ast.TryStar)):
+            for child in [*statement.body, *statement.orelse, *statement.finalbody]:
+                visit(child)
+            for handler in statement.handlers:
+                if handler.name:
+                    record(handler.name, statement)
+                for child in handler.body:
+                    visit(child)
+
+    for statement in tree.body:
+        visit(statement)
+    return result
+
+
+def _fixture_registration_name(node: ast.AsyncFunctionDef) -> str | None:
+    if len(node.decorator_list) != 1:
+        return None
+    decorator = node.decorator_list[0]
+    return (
+        node.name
+        if isinstance(decorator, ast.Attribute)
+        and isinstance(decorator.value, ast.Name)
+        and decorator.value.id == "pytest"
+        and decorator.attr == "fixture"
+        else None
+    )
+
+
+def _suite_loads_explicit_fixture(path: Path, contract: ExplicitFixtureContract) -> bool:
+    """Recognize the finite, fail-closed grammar of the actual relay fixture lifecycle."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    supported_top_level = all(
+        isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef))
+        or (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        )
+        or (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "pytestmark"
+        )
+        for node in tree.body
+    )
+    supported_imports = not any(
+        isinstance(node, ast.ImportFrom) and node.module == "pytest" for node in tree.body
+    )
+    protected_names_are_not_assigned = not any(
+        isinstance(node, ast.Name)
+        and isinstance(node.ctx, (ast.Store, ast.Del))
+        and node.id in {contract.loader_name, "LiveRelayFixture", "pytest"}
+        for node in ast.walk(tree)
+    )
+    loader_imports = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom)
+        and node.module == contract.loader_module
+        and {alias.name for alias in node.names if alias.asname is None}
+        >= {contract.loader_name, "LiveRelayFixture"}
+    ]
+    pytest_imports = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Import)
+        and any(alias.name == "pytest" and alias.asname is None for alias in node.names)
+    ]
+    bindings = _module_scope_bindings(tree)
+    imports_fixture = len(loader_imports) == 1 and all(
+        bindings.get(name) == loader_imports for name in (contract.loader_name, "LiveRelayFixture")
+    )
+    imports_pytest = len(pytest_imports) == 1 and bindings.get("pytest") == pytest_imports
+    pytestmark_values = [
+        node.value
+        for node in tree.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and (
+            any(isinstance(target, ast.Name) and target.id == "pytestmark" for target in node.targets)
+            if isinstance(node, ast.Assign)
+            else isinstance(node.target, ast.Name) and node.target.id == "pytestmark"
+        )
+    ]
+    module_marks = [
+        candidate
+        for value in pytestmark_values
+        for candidate in (value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value])
+    ]
+    supported_module_marks = bool(module_marks) and all(
+        _supported_module_mark(candidate, "live") for candidate in module_marks
+    )
+    required_module_marks = all(
+        any(_is_pytest_mark(candidate, name) for candidate in module_marks)
+        for name in ("integration", "asyncio")
+    )
+    integration_marked = len(pytestmark_values) == 1 and (
+        _is_pytest_mark(pytestmark_values[0], "integration")
+        or (
+            isinstance(pytestmark_values[0], (ast.List, ast.Tuple))
+            and any(_is_pytest_mark(value, "integration") for value in pytestmark_values[0].elts)
+        )
+    )
+    fixture_definitions = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and _fixture_registration_name(node) == "live"
+    ]
+    test_functions = [
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+    ]
+    tests_request_live = bool(test_functions) and all(
+        any(argument.arg == "live" for argument in [*node.args.posonlyargs, *node.args.args])
+        and all(_supported_test_decorator(decorator, "live") for decorator in node.decorator_list)
+        and not any(
+            isinstance(candidate, ast.Name)
+            and isinstance(candidate.ctx, ast.Store)
+            and candidate.id == "live"
+            for statement in node.body
+            for candidate in ast.walk(statement)
+        )
+        for node in test_functions
+    )
+    if (
+        not imports_fixture
+        or not imports_pytest
+        or not supported_top_level
+        or not supported_imports
+        or not protected_names_are_not_assigned
+        or not integration_marked
+        or not supported_module_marks
+        or not required_module_marks
+        or len(fixture_definitions) != 1
+        or bindings.get("live") != fixture_definitions
+        or not tests_request_live
+    ):
+        return False
+    return _canonical_live_fixture(fixture_definitions[0])
 
 
 # ---------------------------------------------------------------------------
@@ -192,14 +575,27 @@ def _expected_default_dsn() -> str:
 
 def test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded() -> None:
     """No live suite may be outside this fence by accident. A module either resolves a Postgres
-    DSN, or a Kafka bootstrap, or appears in `_NAME_ONLY` with a written reason — and a module in
-    `_NAME_ONLY` must genuinely define no resolver, so the exclusion cannot rot into a loophole."""
+    DSN, resolves a Kafka bootstrap, loads a verified explicit fixture, or appears in `_NAME_ONLY`
+    with a written reason. Explicit fixtures are infrastructure-bearing, not exclusions."""
     unclassified: list[str] = []
     for path in _iter_live_suites():
         rel = str(path.relative_to(_REPO_ROOT))
         module = _import(path)
         has_pg = _resolver(module, _PG_RESOLVER_NAMES) is not None
         has_kafka = _resolver(module, (_KAFKA_RESOLVER_NAME,)) is not None
+        explicit = _EXPLICIT_FIXTURES.get(rel)
+        assert not (explicit and rel in _NAME_ONLY), (
+            f"{rel} cannot be both an infrastructure-bearing explicit fixture and NAME_ONLY"
+        )
+        if explicit:
+            assert not has_pg and not has_kafka, (
+                f"{rel} has an explicit private fixture and a shared resolver; keep one real path"
+            )
+            assert getattr(module, explicit.loader_name, None) is _explicit_fixture_loader(explicit)
+            assert _suite_loads_explicit_fixture(path, explicit), (
+                f"{rel} no longer calls {explicit.loader_name}.load() from a pytest fixture"
+            )
+            continue
         if rel in _NAME_ONLY:
             assert not has_pg and not has_kafka, (
                 f"{rel} is listed in _NAME_ONLY as needing no infrastructure, but it defines an "
@@ -210,8 +606,9 @@ def test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded() -> None
             unclassified.append(rel)
     assert not unclassified, (
         "these live suites expose no resolver this fence recognises, so their default coordinate "
-        f"is unchecked — name it one of {_PG_RESOLVER_NAMES} / {_KAFKA_RESOLVER_NAME}, or add it "
-        "to _NAME_ONLY with a reason:\n  " + "\n  ".join(unclassified)
+        f"is unchecked — name it one of {_PG_RESOLVER_NAMES} / {_KAFKA_RESOLVER_NAME}, register a "
+        "verified explicit fixture, or add a genuinely infrastructure-free suite to _NAME_ONLY "
+        "with a reason:\n  " + "\n  ".join(unclassified)
     )
 
 
@@ -363,6 +760,322 @@ def test_name_only_entries_are_actually_discovered() -> None:
     )
 
 
+def test_explicit_fixture_entries_are_discovered_and_actually_loaded() -> None:
+    """An explicit-fixture category is executable classification, never a name-only pardon."""
+    discovered = {str(path.relative_to(_REPO_ROOT)): path for path in _iter_live_suites()}
+    dead = sorted(set(_EXPLICIT_FIXTURES) - set(discovered))
+    assert not dead, "explicit fixture entries outside live-suite discovery:\n  " + "\n  ".join(dead)
+    assert not set(_EXPLICIT_FIXTURES).intersection(_NAME_ONLY)
+    for rel, contract in _EXPLICIT_FIXTURES.items():
+        path = discovered[rel]
+        module = _import(path)
+        assert getattr(module, contract.loader_name, None) is _explicit_fixture_loader(contract)
+        assert _suite_loads_explicit_fixture(path, contract)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "",
+        "def helper():\n    return RelayConfig.load()\n",
+        "@pytest.fixture\ndef live():\n    return object()\n",
+    ],
+)
+def test_explicit_fixture_category_rejects_an_unused_loader(tmp_path: Path, body: str) -> None:
+    candidate = tmp_path / "test_unused_live_fixture.py"
+    candidate.write_text(
+        "import pytest\n"
+        "from tests.support.human_relay_live import RelayConfig\n"
+        "pytestmark = pytest.mark.integration\n" + body,
+        encoding="utf-8",
+    )
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+def _relay_suite_source(fixture_body: str, *, marker: str = "pytestmark") -> str:
+    return (
+        "import pytest\n"
+        "from tests.support.human_relay_live import LiveRelayFixture, RelayConfig\n"
+        f"{marker} = [pytest.mark.integration, pytest.mark.asyncio]\n"
+        "def artifact_directory(config, node_name):\n"
+        "    return object()\n"
+        "@pytest.fixture\n"
+        "async def live(request):\n" + fixture_body + "async def test_uses_live(live):\n"
+        "    pass\n"
+    )
+
+
+_CANONICAL_RELAY_FIXTURE_BODY = (
+    "    config = RelayConfig.load()\n"
+    "    artifacts = artifact_directory(config, request.node.name)\n"
+    "    fixture = LiveRelayFixture(config, artifacts)\n"
+    "    try:\n"
+    "        await fixture.open()\n"
+    "        yield fixture\n"
+    "    finally:\n"
+    "        await fixture.close()\n"
+)
+
+
+def test_explicit_fixture_category_accepts_canonical_relay_lifecycle(tmp_path: Path) -> None:
+    candidate = tmp_path / "test_canonical_relay_fixture.py"
+    candidate.write_text(_relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY), encoding="utf-8")
+    assert _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        (
+            "unreachable_load_unused_result",
+            _relay_suite_source("    if False:\n        RelayConfig.load()\n    return object()\n"),
+        ),
+        (
+            "nested_unused_helper",
+            _relay_suite_source(
+                "    def unused():\n        return RelayConfig.load()\n    return object()\n"
+            ),
+        ),
+        (
+            "unused_loader_result",
+            _relay_suite_source("    RelayConfig.load()\n    return object()\n"),
+        ),
+        (
+            "unused_integration_marker",
+            _relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY, marker="unused"),
+        ),
+        (
+            "fixture_local_fallback",
+            _relay_suite_source(
+                _CANONICAL_RELAY_FIXTURE_BODY.replace(
+                    "RelayConfig.load()", "RelayConfig.load() if request else object()", 1
+                )
+            ),
+        ),
+        (
+            "fixture_local_reassignment",
+            _relay_suite_source(
+                _CANONICAL_RELAY_FIXTURE_BODY.replace(
+                    "    artifacts =", "    config = object()\n    artifacts =", 1
+                )
+            ),
+        ),
+    ],
+)
+def test_explicit_fixture_category_rejects_noncanonical_lifecycle(
+    tmp_path: Path, name: str, source: str
+) -> None:
+    candidate = tmp_path / f"test_{name}.py"
+    candidate.write_text(source, encoding="utf-8")
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize(
+    ("name", "mutate"),
+    [
+        (
+            "unused_canonical_fixture",
+            lambda source: (
+                source.replace("async def live(request):", "async def unused_live(request):", 1)
+                + "\n@pytest.fixture\nasync def live():\n    yield object()\n"
+            ),
+        ),
+        (
+            "overridden_canonical_fixture",
+            lambda source: source + "\n@pytest.fixture\nasync def live():\n    yield object()\n",
+        ),
+        (
+            "rebound_loader",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "class RelayConfig:\n"
+                "    @classmethod\n"
+                "    def load(cls):\n"
+                "        return object()\n\n"
+                "@pytest.fixture\n"
+                "async def live(request):",
+                1,
+            ),
+        ),
+        (
+            "rebound_constructor",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "class LiveRelayFixture:\n"
+                "    def __init__(self, config, artifacts):\n"
+                "        pass\n\n"
+                "@pytest.fixture\n"
+                "async def live(request):",
+                1,
+            ),
+        ),
+        (
+            "rebound_pytest",
+            lambda source: source.replace("pytestmark =", "pytest = object()\npytestmark =", 1),
+        ),
+        (
+            "reassigned_requested_fixture",
+            lambda source: source.replace(
+                "    command = await live.command()",
+                "    live = object()\n    command = await live.command()",
+                1,
+            ),
+        ),
+        (
+            "tuple_rebound_loader",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "RelayConfig, unused = (object, None)\n\n@pytest.fixture\nasync def live(request):",
+                1,
+            ),
+        ),
+        (
+            "globals_subscript_rebound_loader",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                'globals()["RelayConfig"] = object\n\n@pytest.fixture\nasync def live(request):',
+                1,
+            ),
+        ),
+        (
+            "aliased_constructor_import",
+            lambda source: source.replace(
+                "@pytest.fixture\nasync def live(request):",
+                "from builtins import object as LiveRelayFixture\n\n"
+                "@pytest.fixture\n"
+                "async def live(request):",
+                1,
+            ),
+        ),
+    ],
+)
+def test_actual_relay_suite_rejects_fixture_resolution_bypasses(
+    tmp_path: Path, name: str, mutate: Callable[[str], str]
+) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    candidate = tmp_path / f"test_{name}.py"
+    candidate.write_text(mutate(source), encoding="utf-8")
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize(
+    "decorator",
+    [
+        '@pytest.mark.parametrize("live", [object()])',
+        '@pytest.mark.parametrize("live", [object()], indirect=True)',
+        '@pytest.mark.parametrize(("live", "fault"), [(object(), "x")])',
+        '@pytest.mark.parametrize(["live", "fault"], [(object(), "x")])',
+    ],
+)
+def test_actual_relay_suite_rejects_direct_live_parametrization(tmp_path: Path, decorator: str) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    first_test = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name.startswith("test_")
+    )
+    needle = f"async def {first_test.name}("
+    candidate = tmp_path / "test_direct_live_parameter.py"
+    candidate.write_text(source.replace(needle, decorator + "\n" + needle, 1), encoding="utf-8")
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize("container", ["list", "tuple"])
+def test_actual_relay_suite_rejects_module_live_parametrization(tmp_path: Path, container: str) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    opening, closing = ("[", "]") if container == "list" else ("(", ")")
+    replacement = (
+        f"pytestmark = {opening}pytest.mark.integration, pytest.mark.asyncio, "
+        f'pytest.mark.parametrize("live", [object()]){closing}'
+    )
+    candidate = tmp_path / "test_module_live_parameter.py"
+    candidate.write_text(
+        source.replace("pytestmark = [pytest.mark.integration, pytest.mark.asyncio]", replacement, 1),
+        encoding="utf-8",
+    )
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+def test_actual_relay_suite_keeps_other_name_parametrization(tmp_path: Path) -> None:
+    source = _relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY).replace(
+        "async def test_uses_live(live):\n    pass",
+        '@pytest.mark.parametrize("fault", ["x"])\nasync def test_uses_live(live, fault):\n    assert fault',
+        1,
+    )
+    candidate = tmp_path / "test_other_parameter.py"
+    candidate.write_text(source, encoding="utf-8")
+    assert _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+@pytest.mark.parametrize("boundary", ["imported_mark", "fixture_wrapper", "test_wrapper", "module_wrapper"])
+def test_actual_relay_suite_rejects_unknown_fixture_selection_decorators(
+    tmp_path: Path, boundary: str
+) -> None:
+    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
+        encoding="utf-8"
+    )
+    first_test = next(
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name.startswith("test_")
+    )
+    mutations = {
+        "imported_mark": lambda value: value.replace(
+            "import pytest", "import pytest\nfrom pytest import mark", 1
+        ).replace(
+            f"async def {first_test.name}(",
+            f'@mark.parametrize("live", [object()])\nasync def {first_test.name}(',
+            1,
+        ),
+        "fixture_wrapper": lambda value: value.replace(
+            "@pytest.fixture\nasync def live(request):",
+            "def wrapper(function):\n    return function\n\n"
+            "@wrapper\n@pytest.fixture\nasync def live(request):",
+            1,
+        ),
+        "test_wrapper": lambda value: value.replace(
+            f"async def {first_test.name}(",
+            f"def wrapper(function):\n    return function\n\n@wrapper\nasync def {first_test.name}(",
+            1,
+        ),
+        "module_wrapper": lambda value: value.replace(
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio]",
+            "def wrapper(function):\n    return function\n\n"
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio, wrapper]",
+            1,
+        ),
+    }
+    candidate = tmp_path / f"test_{boundary}.py"
+    candidate.write_text(mutations[boundary](source), encoding="utf-8")
+    assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
+def test_canonical_module_parametrization_of_other_name_is_supported(tmp_path: Path) -> None:
+    source = (
+        _relay_suite_source(_CANONICAL_RELAY_FIXTURE_BODY)
+        .replace(
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio]",
+            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio, "
+            'pytest.mark.parametrize("fault", ["x"])]',
+            1,
+        )
+        .replace(
+            "async def test_uses_live(live):\n    pass",
+            "async def test_uses_live(live, fault):\n    assert fault",
+            1,
+        )
+    )
+    candidate = tmp_path / "test_module_other_parameter.py"
+    candidate.write_text(source, encoding="utf-8")
+    assert _suite_loads_explicit_fixture(candidate, _relay_contract())
+
+
 def test_the_expected_coordinates_come_from_compose_not_from_this_file() -> None:
     """Non-vacuity for the comparison itself: the expected DSN/bootstrap this fence checks against
     must be READ from `docker-compose.yml`, so changing the compose port changes what is enforced.
@@ -398,6 +1111,135 @@ def test_module_import_does_not_open_a_connection() -> None:
     with mock.patch.dict(os.environ, env, clear=True):
         for path in _iter_live_suites():
             _import(path)
+
+
+def _relay_contract() -> ExplicitFixtureContract:
+    return _EXPLICIT_FIXTURES["tests/integration/gateway/test_human_relay_live_cib.py"]
+
+
+def _write_private(path: Path, value: object) -> None:
+    text = value if isinstance(value, str) else json.dumps(value)
+    path.write_text(text, encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _write_valid_relay_fixture(directory: Path) -> dict[str, dict[str, Any]]:
+    directory.mkdir()
+    directory.chmod(0o700)
+    source_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=_REPO_ROOT, text=True).strip()
+    tenant = "relay_" + "a" * 24
+    password_file = directory / "postgres-password"
+    data: dict[str, Any] = {
+        "schema": "human-relay-fixture.v1",
+        "synthetic_opt_in": True,
+        "tenant": tenant,
+        "source_sha": source_sha,
+        "rest_url": "http://127.0.0.1:18080/engine-rest",
+        "human_url": "https://127.0.0.1:18443",
+        "database": {
+            "host": "127.0.0.1",
+            "port": 15433,
+            "user": "maezo",
+            "database": "maezo",
+            "password_file": str(password_file),
+        },
+    }
+    trust: dict[str, Any] = {"enable_synthetic_fixture": True, "tenant": tenant}
+    public: dict[str, Any] = {"relay_synthetic": True, "source_sha": source_sha}
+    _write_private(directory / "relay-fixture.json", data)
+    _write_private(directory / "trust.json", trust)
+    _write_private(directory / "public-receipt.json", public)
+    _write_private(password_file, "test-password")
+    return {"data": data, "trust": trust, "public": public}
+
+
+def test_explicit_relay_fixture_has_no_missing_configuration_fallback() -> None:
+    contract = _relay_contract()
+    loader = _explicit_fixture_loader(contract)
+    with (
+        mock.patch.dict(os.environ, {}, clear=True),
+        pytest.raises(AssertionError, match="no skip/default"),
+    ):
+        loader.load()
+
+
+def test_explicit_relay_fixture_binds_private_manifest_source_and_coordinates(tmp_path: Path) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    values = _write_valid_relay_fixture(directory)
+    with mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True):
+        config = _explicit_fixture_loader(contract).load()
+    assert config.directory == directory
+    assert config.data["schema"] == contract.schema
+    assert config.data["source_sha"] == values["public"]["source_sha"]
+    assert config.data["database"]["host"] == contract.database_host
+    assert config.data["database"]["port"] == contract.database_port
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["directory", "relay-fixture.json", "trust.json", "public-receipt.json", "postgres-password"],
+)
+def test_explicit_relay_fixture_refuses_nonprivate_inputs(tmp_path: Path, filename: str) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    _write_valid_relay_fixture(directory)
+    (directory if filename == "directory" else directory / filename).chmod(
+        0o755 if filename == "directory" else 0o644
+    )
+    with (
+        mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True),
+        pytest.raises(AssertionError),
+    ):
+        _explicit_fixture_loader(contract).load()
+
+
+@pytest.mark.parametrize("malformation", ["missing_manifest", "invalid_json"])
+def test_explicit_relay_fixture_refuses_malformed_configuration(tmp_path: Path, malformation: str) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    _write_valid_relay_fixture(directory)
+    manifest = directory / contract.manifest_name
+    if malformation == "missing_manifest":
+        manifest.unlink()
+    else:
+        _write_private(manifest, "{")
+    expected = FileNotFoundError if malformation == "missing_manifest" else json.JSONDecodeError
+    with (
+        mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True),
+        pytest.raises(expected),
+    ):
+        _explicit_fixture_loader(contract).load()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["source", "public_source", "database_host", "database_port", "rest_url", "human_url"],
+)
+def test_explicit_relay_fixture_refuses_source_or_coordinate_mismatch(tmp_path: Path, mutation: str) -> None:
+    contract = _relay_contract()
+    directory = tmp_path / "relay-private"
+    values = _write_valid_relay_fixture(directory)
+    data, public = values["data"], values["public"]
+    if mutation == "source":
+        data["source_sha"] = "0" * 40
+    elif mutation == "public_source":
+        public["source_sha"] = "0" * 40
+    elif mutation == "database_host":
+        data["database"]["host"] = "database.example.invalid"
+    elif mutation == "database_port":
+        data["database"]["port"] = 5433
+    elif mutation == "rest_url":
+        data["rest_url"] = "http://cib.example.invalid:18080/engine-rest"
+    else:
+        data["human_url"] = "http://127.0.0.1:18443"
+    _write_private(directory / "relay-fixture.json", data)
+    _write_private(directory / "public-receipt.json", public)
+    with (
+        mock.patch.dict(os.environ, {contract.environment_variable: str(directory)}, clear=True),
+        pytest.raises(AssertionError),
+    ):
+        _explicit_fixture_loader(contract).load()
 
 
 @pytest.mark.parametrize("relative_path", sorted(_NAME_ONLY))

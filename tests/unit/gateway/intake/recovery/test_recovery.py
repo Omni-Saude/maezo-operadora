@@ -288,8 +288,8 @@ def _bind_native_reservation_source(h, *, lose_admission_ack=False):
                 session_binding=SessionBinding(
                     session_ref=PRINCIPAL.session_ref,
                     authenticated_at=PRINCIPAL.authenticated_at,
-                    session_expires_at=NOW + timedelta(minutes=2),
-                    authorization_until=NOW + timedelta(minutes=1),
+                    session_expires_at=NOW + timedelta(hours=2),
+                    authorization_until=NOW + timedelta(hours=1),
                     session_source_revision=1,
                     session_record_digest="c" * 64,
                 ),
@@ -343,7 +343,10 @@ async def test_real_admission_commit_lost_ack_is_recoverable_without_payload(set
         guide_identity_ref=OTHER,
         authority_receipt_ref=OTHER,
         authority_digest="a" * 64,
-        valid_until=NOW + timedelta(minutes=1),
+        # `PostgresIntakeStore.admit` checks the REAL clock against this deadline (not the fixture
+        # clock); `NOW` is taken at import, so a one-minute window expires inside a long run.
+        # The window is synthetic; one hour keeps the proof deterministic.
+        valid_until=NOW + timedelta(hours=1),
     )
     # PR-A landing repair. On the train this admission was refused BEFORE any write
     # (`PostgresIntakeStore.admit` requires a caller binding and a reservation source/scope once a
@@ -359,7 +362,7 @@ async def test_real_admission_commit_lost_ack_is_recoverable_without_payload(set
     caller = AuthCallerBinding(
         PRINCIPAL,
         SimpleNamespace(),
-        NOW + timedelta(minutes=1),
+        NOW + timedelta(hours=1),
         lambda *a, **k: None,
         "s" * 43,
         SimpleNamespace(),
