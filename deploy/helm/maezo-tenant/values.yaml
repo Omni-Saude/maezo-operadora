@@ -921,6 +921,8 @@ lifecycle:
 #     arquivo importador frente ao main 921ce45; os 32 importadores anteriores permanecem.
 #     Recontado por AST em 34 no candidato e035edfa: `tools/mcp_cibseven/secured_transport.py`
 #     tambem importa o transporte; os outros 33 importadores permanecem.
+#     Recontado por AST em 36 no PR-A (transplante do tip e8bbccfb): `gateway/intake/native_composition.py`
+#     e `gateway/intake/native_dispatch.py` tambem importam o transporte; os outros 34 permanecem.
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
@@ -935,5 +937,5 @@ lifecycle:
 # runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
 # ---------------------------------------------------------------------------
 throughputCeilings:
-  transportFanIn: 34
-  harnessFanIn: 19
+  transportFanIn: 36
+  harnessFanIn: 20

@@ -412,6 +412,15 @@ _SECRET_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "gateway/staff_cases/production.py",
         "staff_runtime",
     ): "identity_url = make_url(identity.database_url.get_secret_value())",
+    # E04 native intake authority (PR-A landing repair): the reviewed installation DSNs
+    # (`AuthLifecycleConfiguration.*_url`, SecretStr) become AsyncEngines in this one helper and
+    # nowhere else; the secret never leaves `_engine`. The train shipped this extraction without
+    # pinning it, so the fence was red on the tip (test_portal_credential_boundary::
+    # test_exact_production_seams_and_credential_read_are_nonvacuous).
+    (
+        "gateway/intake/native_authority.py",
+        "_engine",
+    ): "parsed = make_url(url.get_secret_value())",
 }
 
 

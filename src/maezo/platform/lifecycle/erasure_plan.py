@@ -6,8 +6,8 @@ destructive statement, and it never invents a human decision. Two things live he
 1. **The structural enumeration** (`PERSISTENCE_LAYERS`): every persistence relation the
    custody/erasure design names, each carrying its migration citation, how a titular's rows
    are identified, and — where an honest one exists — a `SELECT count(*)` probe. The
-   enumeration is a FACT about the schema, derived from migrations 0001-0013 (22 layers;
-   the original 16 plus six ADR-0049 relations —
+   enumeration is a FACT about the schema, derived from migrations 0001-0014 (25 layers;
+   the original 16 plus nine ADR-0049 relations —
    one of them, `agent_memory.embedding`, is RETIRADA since `0009_drop_pgvector`, DU-01-b: the
    relation stays enumerated, its probe does not), and it is authored here rather than read from
    YAML so that a human editing the (CODEOWNERS-gated) plan artifact cannot introduce a statement
@@ -43,7 +43,7 @@ MISSING IDENTITY BRIDGES (why subject references do not imply a countable relati
   patient (`src/maezo/platform/erasure.py:196-206`).
 - DSR/FHIR reference -> portal principal. ADR-0049 D4/D6 authenticates human actors;
   issuer/subject/principal_ref and reviewed subject_bindings are not a contracted
-  per-titular erasure bridge. None of the six portal relations carries a count probe.
+  per-titular erasure bridge. None of the nine portal relations carries a count probe.
 
 A dry-run given a `titular_pseudo_id` therefore counts no layer: it reports the absent
 bridge or the applicable structural blocker (no column, retired, etc.). This is the true state, and
@@ -246,7 +246,8 @@ class PersistenceLayer:
 
     Attributes:
         camada: Layer family (trabalho / episodica / semantica / auditoria / custodia /
-            registro_de_eliminacao / idempotencia / inbox_amh / identidade_portal / comando_humano).
+            registro_de_eliminacao / idempotencia / inbox_amh / identidade_portal / comando_humano /
+            autoridade_atribuicao).
         tabela: Relation name, as the migration writes it.
         migracao: Citation for where the relation is created (or that nothing creates it).
         identificacao: How a titular's rows would be identified, in prose.
@@ -270,13 +271,14 @@ class PersistenceLayer:
 
 
 # ---------------------------------------------------------------------------------------
-# The enumeration. Derived from migrations 0001-0013; every entry cites its source. Held in
+# The enumeration. Derived from migrations 0001-0014; every entry cites its source. Held in
 # CODE, not read from the artifact, so that editing the (human-owned) plan can never change
 # which statement a probe would issue.
 #
 # Only two relations carry a FHIR patient column (`agent_memory` 0001:69,
-# `erasure_log` 0004:67). Portal principals (0012/0013, ADR-0049 D4/D6) are a
-# different identity namespace: no DSR/FHIR-to-principal bridge is contracted here.
+# `erasure_log` 0004:67). Portal principals (0012/0013, ADR-0049 D4/D6) and the staff
+# assignment authority source (0014, E03) are a different identity namespace: no
+# DSR/FHIR-to-principal bridge is contracted here.
 # ---------------------------------------------------------------------------------------
 PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
     PersistenceLayer(
@@ -554,6 +556,51 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         resolucao=IdentityResolution.PONTE_AUSENTE,
         ordem=22,
         subject_column="principal_ref",
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="autoridade_atribuicao",
+        tabela="portal_assignment_source",
+        migracao="0014_staff_assignment_authority.py::upgrade (portal_assignment_source)",
+        identificacao=(
+            "tenant PRIMARY KEY; source_revision/state/active_generation_digest and the "
+            "designation_bytes/source_bytes/owner_receipt of the staff assignment authority "
+            "source (E03); no DSR/FHIR subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=23,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="autoridade_atribuicao",
+        tabela="portal_assignment_publications",
+        migracao=(
+            "0014_staff_assignment_authority.py::upgrade "
+            "(portal_assignment_publications; FK; immutable trigger)"
+        ),
+        identificacao=(
+            "tenant + publication_id (FK tenant -> portal_assignment_source); immutable publication "
+            "of one source_revision to the native engine (trigger refuses UPDATE/DELETE); "
+            "no subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=24,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="autoridade_atribuicao",
+        tabela="portal_assignment_receipt_source",
+        migracao="0014_staff_assignment_authority.py::upgrade (portal_assignment_receipt_source; FK)",
+        identificacao=(
+            "tenant + task_id + command_id (FK tenant -> portal_assignment_source); identity_digest is "
+            "the digest of the ASSIGNMENT identity (task/command receipt), not a DSR/FHIR or "
+            "principal reference; no subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=25,
+        subject_column=None,
         count_statement=None,
     ),
 )

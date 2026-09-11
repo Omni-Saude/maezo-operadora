@@ -45,7 +45,7 @@ um agente supra assinatura humana.
 ## 2. Escopo — opção **B** (decisão aprovada do dono, R-022)
 
 Cobertura: **apenas as camadas que os 3 CronJobs de lifecycle tocam**. Todas as demais relações
-enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (22 relações)
+enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (25 relações)
 ficam **declaradas como NÃO COBERTAS** por esta matriz — não são omissão, são exclusão explícita.
 
 | CronJob (`values.yaml::lifecycle.jobs`) | Comando | Camadas / relações que ele tocaria |
@@ -66,17 +66,22 @@ marcadas `retirada: true` (§8.3). Ver §8.2.
 `idempotencia`/`a2a_idempotency`, `idempotencia`/`driver_idempotency`, `inbox_amh`/`amh_inbox`,
 `outbox_a2a`/`a2a_fact_outbox`; `identidade_portal`/`portal_login_transactions`,
 `portal_code_claims`, `portal_sessions`, `portal_memberships`; e `comando_humano`/
-`human_command_delivery`, `human_command_outbox`. Essas onze relações continuam sem decisão de
+`human_command_delivery`, `human_command_outbox`; e `autoridade_atribuicao`/`portal_assignment_source`,
+`portal_assignment_publications`, `portal_assignment_receipt_source`. Essas catorze relações continuam sem decisão de
 retenção — e sem qualquer mecanismo que as toque. As seis últimas foram introduzidas pelas
 migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
 `src/maezo/platform/migrations/versions/0013_human_command_outbox.py`: as três primeiras relações
 de portal e `human_command_delivery` estão como `SEM_COLUNA_DE_TITULAR`; `portal_memberships` e
 `human_command_outbox` estão como `PONTE_AUSENTE` e têm `principal_ref`, mas ele identifica o ator
-humano autenticado, não o beneficiário. As seis têm `count_statement: None`. Não existe ponte
+humano autenticado, não o beneficiário. As três de 0014
+(`src/maezo/platform/migrations/versions/0014_staff_assignment_authority.py`, autoridade de
+atribuição de pessoal — E03) estão como `SEM_COLUNA_DE_TITULAR`: `identity_digest` é o digest da
+identidade da atribuição (task/command), não de um titular nem de um principal. As nove têm
+`count_statement: None`. Não existe ponte
 contratada entre sujeito DSR/FHIR e principal do portal. A ordem
-17–22 em `PERSISTENCE_LAYERS` é ordem de relatório/revisão, não autorização nem sequência para
+17–25 em `PERSISTENCE_LAYERS` é ordem de relatório/revisão, não autorização nem sequência para
 eliminar dados; a migração 0013 ainda impõe vínculo por chave estrangeira e imutabilidade do
-comando humano.
+comando humano, e a 0014 impõe FK para `portal_assignment_source` e imutabilidade das publicações.
 
 ---
 
@@ -160,7 +165,7 @@ escopo_b:
         RETIRADAS pela migracao `0006_retire_dead_checkpoint_tables` (criadas por 0001, removidas
         por 0006). Em `erasure_plan.py::PERSISTENCE_LAYERS` sao as entradas de ordem 5 e 6, ambas
         `resolucao: RETIRADA` e sem probe. Estavam so na prosa da §2 ate 2026-09-05 (§Delta-4);
-        agora estao no bloco assinavel, para que ele enumere as VINTE E DUAS relacoes da plataforma e
+        agora estao no bloco assinavel, para que ele enumere as VINTE E CINCO relacoes da plataforma e
         nao um subconjunto -- ver §8.3.
     - camada: episodica           # CronJob lifecycle-verify-erasure
       tabelas: [agent_memory]
@@ -200,6 +205,12 @@ escopo_b:
       motivo: >-
         fora do escopo B; 0013 preserva custodia, FK e imutabilidade do comando, mas principal_ref
         identifica o ator humano e nao o beneficiario; sem decisao de retencao ratificada
+    - camada: autoridade_atribuicao
+      tabelas: [portal_assignment_source, portal_assignment_publications, portal_assignment_receipt_source]
+      motivo: >-
+        fora do escopo B; 0014 guarda a fonte de autoridade de atribuicao de pessoal (E03), as
+        publicacoes imutaveis e os recibos; identity_digest e digest da identidade da atribuicao,
+        nao coluna de titular nem de principal; sem decisao de retencao ratificada
   categorias_nao_cobertas:
     - financeiros_faturamento
     - regulatorios_ans

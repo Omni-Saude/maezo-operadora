@@ -6,11 +6,11 @@ from pathlib import Path
 _VERSIONS_DIR = Path(__file__).resolve().parents[3] / "src/maezo/platform/migrations/versions"
 
 
-def test_0013_is_the_unique_head_of_a_linear_chain() -> None:
+def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
 
     A forked chain is the failure mode where `alembic upgrade head` applies one branch while an
-    operator believes it applied the other. Propagated from 0010 to the real 0013 head;
+    operator believes it applied the other. Propagated from 0010 to the real 0014 head;
     integration with the concurrent 0011 must retain one connected linear chain.
     """
     revisions: dict[str, str | None] = {}
@@ -25,12 +25,12 @@ def test_0013_is_the_unique_head_of_a_linear_chain() -> None:
 
     parents = {down for down in revisions.values() if down is not None}
     heads = set(revisions) - parents
-    assert heads == {"0013"}, f"expected 0013 to be the sole head, got {heads}"
+    assert heads == {"0014"}, f"expected 0014 to be the sole head, got {heads}"
     assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0013"
+    current = "0014"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

@@ -110,7 +110,7 @@ review_packet: docs/reviews/adr-0029-erasure-packet.md
 # `ordem` organiza a revisao/relatorio; nao e uma sequencia executavel de eliminacao.
 # A migracao 0013 acrescenta FK de human_command_delivery para human_command_outbox
 # e triggers de imutabilidade. Uma ordem ou decisao DPO nao remove essas restricoes.
-# O pacote historico descreve a cadeia anterior; as entradas 0012/0013 abaixo a ampliam.
+# O pacote historico descreve a cadeia anterior; as entradas 0012/0013/0014 abaixo a ampliam.
 # =============================================================================
 
 camadas:
@@ -526,6 +526,57 @@ camadas:
       identifica quem comandou, nao o titular dos dados afetados. Retencao/expurgo de
       intent, payload, receipt e chaves pertence a matriz DPO/seguranca separada (ADR-0049
       D6); nenhuma excecao de runtime e criada.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # AUTORIDADE DE ATRIBUICAO DE PESSOAL — E03 (migracao 0014), inventario DRAFT
+  # Fonte de autoridade, publicacoes imutaveis e recibos de atribuicao. identity_digest e o
+  # digest da identidade da ATRIBUICAO (task/command), nao de um titular. Nenhum vinculo
+  # principal->beneficiario para eliminacao e criado por estas linhas.
+  # ---------------------------------------------------------------------------
+  - camada: autoridade_atribuicao
+    tabela: portal_assignment_source
+    migracao: "0014_staff_assignment_authority.py::upgrade (portal_assignment_source)"
+    identificacao: "tenant PRIMARY KEY; source_revision/state/active_generation_digest and the designation_bytes/source_bytes/owner_receipt of the staff assignment authority source (E03); no DSR/FHIR subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 23
+    tensao: null
+    notas: >-
+      Uma linha por tenant com a fonte de autoridade de atribuicao (bytes assinados e recibo do
+      dono). Nao identifica beneficiario; REVOKE ALL FROM PUBLIC na migracao. Retencao e
+      expurgo pertencem a matriz DPO/seguranca separada.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: autoridade_atribuicao
+    tabela: portal_assignment_publications
+    migracao: "0014_staff_assignment_authority.py::upgrade (portal_assignment_publications; FK; immutable trigger)"
+    identificacao: "tenant + publication_id (FK tenant -> portal_assignment_source); immutable publication of one source_revision to the native engine (trigger refuses UPDATE/DELETE); no subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 24
+    tensao: null
+    notas: >-
+      Trigger portal_assignment_publication_immutable recusa DELETE e alteracao dos campos
+      publicados. FK para portal_assignment_source. Ordenada depois da fonte apenas para
+      revisao da dependencia; nao autoriza expurgo nem remove o trigger.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: autoridade_atribuicao
+    tabela: portal_assignment_receipt_source
+    migracao: "0014_staff_assignment_authority.py::upgrade (portal_assignment_receipt_source; FK)"
+    identificacao: "tenant + task_id + command_id (FK tenant -> portal_assignment_source); identity_digest is the digest of the ASSIGNMENT identity (task/command receipt), not a DSR/FHIR or principal reference; no subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 25
+    tensao: null
+    notas: >-
+      Recibos de atribuicao por task/command com FK para a fonte. identity_digest e digest da
+      identidade da atribuicao, nao coluna de titular nem de principal. Retencao pertence a
+      matriz DPO/seguranca separada.
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO

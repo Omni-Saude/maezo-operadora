@@ -49,7 +49,11 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+
+if TYPE_CHECKING:
+    from maezo.gateway.intake.native_dispatch import HumanIntakeProvenance, HumanIntakeStartTransport
+    from maezo.gateway.intake.native_store import PostgresAuthDispatchStore
 
 import httpx
 import structlog
@@ -1476,13 +1480,13 @@ async def _resolve_strict_dedup_hit(
 
 
 async def start_process_idempotent(
-    transport: CibSevenTransport,
+    transport: CibSevenTransport | HumanIntakeStartTransport,
     *,
     process_key: str,
     business_key: str,
     variables: dict[str, Any],
-    audit_sink: AuditStartSink,
-    provenance: AgentDecisionProvenance,
+    audit_sink: AuditStartSink | PostgresAuthDispatchStore,
+    provenance: AgentDecisionProvenance | HumanIntakeProvenance,
 ) -> ProcessInstance:
     """Idempotent, ADR-0007-audited process start — the SINGLE agent-side effect chokepoint (T-C2).
 
@@ -1576,6 +1580,28 @@ async def start_process_idempotent(
     exclusive right to perform it — permanently under `PERMANENT`, for the duration of the claimed
     generation under `EXCLUSIVE`.
     """
+    from maezo.gateway.human.auth_transport import AuthUnavailableError
+    from maezo.gateway.intake.native_dispatch import (
+        HumanIntakeProvenance,
+        HumanIntakeStartTransport,
+        start_human,
+    )
+
+    if type(provenance) is HumanIntakeProvenance:
+        if type(transport) is not HumanIntakeStartTransport or audit_sink is not transport.dispatcher.store:
+            raise AuthUnavailableError()
+        return await start_human(
+            transport,
+            process_key=process_key,
+            business_key=business_key,
+            variables=variables,
+            provenance=provenance,
+        )
+    if isinstance(transport, HumanIntakeStartTransport):
+        raise AuthUnavailableError()
+    audit_sink = cast(AuditStartSink, audit_sink)
+    provenance = cast(AgentDecisionProvenance, provenance)
+
     # -1. CC-06 PHI SCRUB, BEFORE ANYTHING ELSE. `variables` is rebound here and the raw mapping
     #     is never read again in this function, so there is structurally no path on which raw
     #     free text reaches either the durable claim or the engine.

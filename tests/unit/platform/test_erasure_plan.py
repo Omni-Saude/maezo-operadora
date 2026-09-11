@@ -571,7 +571,8 @@ def test_only_relations_with_a_subject_column_carry_a_probe() -> None:
 # ---------------------------------------------------------------------------
 
 
-# ADR-0049 D4/D6 adds authentication principals, not a DSR/FHIR identity bridge.
+# ADR-0049 D4/D6 adds authentication principals, and E03 (0014) the staff assignment authority
+# source — neither is a DSR/FHIR identity bridge.
 _PORTAL_TABLES = {
     "portal_login_transactions": "0012_portal_identity_session.py",
     "portal_code_claims": "0012_portal_identity_session.py",
@@ -579,6 +580,9 @@ _PORTAL_TABLES = {
     "portal_memberships": "0012_portal_identity_session.py",
     "human_command_outbox": "0013_human_command_outbox.py",
     "human_command_delivery": "0013_human_command_outbox.py",
+    "portal_assignment_source": "0014_staff_assignment_authority.py",
+    "portal_assignment_publications": "0014_staff_assignment_authority.py",
+    "portal_assignment_receipt_source": "0014_staff_assignment_authority.py",
 }
 
 
@@ -694,11 +698,12 @@ def test_a_retired_relation_keeps_the_dpo_decision_pending() -> None:
 
 
 def test_the_dpo_review_scope_did_not_shrink() -> None:
-    """Preserve the 16 historical relations and add six ADR-0049 pending dispositions."""
+    """Preserve the 16 historical relations and add nine ADR-0049/E03 pending dispositions
+    (0012: 4, 0013: 2, 0014: 3)."""
     camadas = _shipped_raw()["camadas"]
-    assert len(camadas) == 22, [entry["tabela"] for entry in camadas]
+    assert len(camadas) == 25, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 22, pendentes
+    assert len(pendentes) == 25, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:

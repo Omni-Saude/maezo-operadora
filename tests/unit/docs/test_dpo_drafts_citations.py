@@ -544,7 +544,7 @@ def _assert_candidate_scope_complete(escopo: object) -> None:
     assert named == real, f"escopo_b names relations the enumeration does not: {sorted(named - real)}"
 
 
-def test_the_six_portal_and_human_command_relations_are_explicitly_uncovered() -> None:
+def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_uncovered() -> None:
     escopo = _candidate_matrix_block()["escopo_b"]
     assert isinstance(escopo, dict)
 
@@ -558,6 +558,9 @@ def test_the_six_portal_and_human_command_relations_are_explicitly_uncovered() -
         ("identidade_portal", "portal_memberships"),
         ("comando_humano", "human_command_delivery"),
         ("comando_humano", "human_command_outbox"),
+        ("autoridade_atribuicao", "portal_assignment_source"),
+        ("autoridade_atribuicao", "portal_assignment_publications"),
+        ("autoridade_atribuicao", "portal_assignment_receipt_source"),
     }
     uncovered = keys("nao_cobertas")
     covered = keys("camadas_cobertas")
@@ -571,8 +574,8 @@ def test_the_six_portal_and_human_command_relations_are_explicitly_uncovered() -
     assert expected <= uncovered
     assert expected.isdisjoint(covered)
     assert expected.isdisjoint(retired)
-    assert len(covered | uncovered) == 22
-    assert len(uncovered) == 11
+    assert len(covered | uncovered) == 25
+    assert len(uncovered) == 14
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in expected)
     assert {key: by_key[key].resolucao for key in expected} == {
@@ -582,6 +585,13 @@ def test_the_six_portal_and_human_command_relations_are_explicitly_uncovered() -
         ("identidade_portal", "portal_memberships"): IdentityResolution.PONTE_AUSENTE,
         ("comando_humano", "human_command_delivery"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ("comando_humano", "human_command_outbox"): IdentityResolution.PONTE_AUSENTE,
+        ("autoridade_atribuicao", "portal_assignment_source"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("autoridade_atribuicao", "portal_assignment_publications"): (
+            IdentityResolution.SEM_COLUNA_DE_TITULAR
+        ),
+        ("autoridade_atribuicao", "portal_assignment_receipt_source"): (
+            IdentityResolution.SEM_COLUNA_DE_TITULAR
+        ),
     }
 
 
