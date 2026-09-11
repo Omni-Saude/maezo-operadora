@@ -147,6 +147,13 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         "isolamento de bring-up (design 10/Q-6): cada dependencia que falha deixa o SEU health-check "
         "vermelho sem derrubar as outras; nenhum turno de negocio roda aqui",
     ),
+    "src/maezo/runtime/worker_runtime/document_requests.py::DocumentRequestHost::_operation": (
+        1,
+        "fronteira do host de pedidos de documento (E04/PR-A): a PRIMEIRA clausula re-levanta "
+        "PROGRAMMING_ERRORS sem converter; a clausula BaseException que sobra latcha o estado de "
+        "mutacao (fail-closed), converte QUALQUER outra falha do produtor em FetchUnavailableError "
+        "e repassa CancelledError intacto — nenhum bug vira resultado de negocio",
+    ),
     "src/maezo/runtime/checkpoint.py::Checkpointer::connect_and_setup": (
         1,
         "BaseException de proposito: fecha o pool no caminho de erro (inclui CancelledError) e "
