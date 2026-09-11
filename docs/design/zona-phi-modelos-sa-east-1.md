@@ -87,6 +87,35 @@ terceiro agente; não é uma aceitação nova de fornecedor.
 - O flip é `-var`, não default. `helena_zona_phi` continua `false` no repo de propósito: a
   atestação e a autorização são atos de dono, não linhas de código.
 
+## Resultado do apply de 11/09/2026
+
+A decisão foi tomada (opção "ligar agora") e aplicada no mesmo dia, por apply **direcionado**:
+mudaram só `agent-helena` (rev 27) e `webhook-receiver` (rev 5); `rafael` e `marina` seguem
+intocados na rev 26; imagem inalterada em `c745fd94`. Os dois containers subiram com
+`phi_capable=True`, `deployment_region=br-sao-paulo`, `retention_policy=zero-retention`,
+`is_mock=False`.
+
+Três mensagens **sintéticas** assinadas (HMAC-SHA256 válido) foram postadas no receptor vivo de
+dentro da VPC, todas HTTP 200 com `dispatched:1, failed:0`. Os desfechos gravados:
+
+| Caso sintético | `desfecho` | `motivo_categoria` | rota |
+|---|---|---|---|
+| dor torácica + falta de ar | `escalado_humano` | `red_flag_clinico` | escalate |
+| dúvida de cobertura | `resolvido_automatico` | — | inform |
+| febre pediátrica 39 + vômito | `escalado_humano` | `red_flag_clinico` | escalate |
+
+**O que isso muda:** antes do flip, todo turno terminava em `falha_tecnica` e ia para humano por
+defeito técnico. Agora a escalada acontece pelo motivo CLÍNICO correto, a pergunta administrativa
+se resolve sozinha sem incomodar ninguém, e `escalation_started=True` com business key mostra que
+o processo BPMN abre de verdade.
+
+**O que ainda falha, e não é este flip:** o envio da resposta dá `401 Unauthorized` na Graph API
+da Meta, porque as credenciais WhatsApp em dev são placeholder — `enviada=False`. A decisão e a
+abertura do processo são reais; só a resposta não chega ao beneficiário. Credencial Meta segue
+pendente.
+
+Reverter é o mesmo apply sem `-var helena_zona_phi=true`.
+
 ## Como executar
 
 ```
