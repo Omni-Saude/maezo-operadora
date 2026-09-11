@@ -422,7 +422,7 @@ variable "canal_teste_image_tag" {
     de funcionar.
   EOT
   type        = string
-  default     = "a0fbb729" # rota /receptor/simular + escalonamento.html (11/09/2026)
+  default     = "048e234e" # pagina corrigida: nao anuncia mais "nao escalou" em numero reaproveitado (11/09/2026)
 }
 
 variable "canal_teste_desired_count" {
