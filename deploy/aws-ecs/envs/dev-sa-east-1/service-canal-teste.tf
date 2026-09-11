@@ -70,7 +70,7 @@ resource "aws_ecs_task_definition" "canal_teste" {
 
   container_definitions = jsonencode([{
     name      = "canal-teste"
-    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.canal_teste_image_tag}"
     essential = true
 
     # `python -c <programa>` como UM argumento de argv: sem shell no meio, portanto sem

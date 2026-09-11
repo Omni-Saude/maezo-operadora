@@ -408,6 +408,23 @@ variable "prefixo_fonte_build" {
   default     = "maezo-operadora"
 }
 
+variable "canal_teste_image_tag" {
+  description = <<-EOT
+    Tag da imagem do CANAL DE TESTE — separada de `image_tag` pelo mesmo motivo que
+    `webhook_receiver_image_tag` foi: o canal ganhou a rota `/receptor/simular` e a pagina
+    `escalonamento.html`, e essas duas coisas vivem NA IMAGEM (o canal roda como modulo desde
+    19/08). Subir todos os servicos na tag nova seria um deploy de carona numa entrega que
+    pede um servico.
+
+    O default DESCREVE O QUE RODA. Se ele voltar a apontar para `image_tag`, um apply sem
+    variavel devolveria o canal a uma imagem SEM a rota, e a pagina do escalonamento passaria
+    a responder 404 no meio do teste de alguem — sem erro de Terraform, so' um botao que para
+    de funcionar.
+  EOT
+  type        = string
+  default     = "a0fbb729" # rota /receptor/simular + escalonamento.html (11/09/2026)
+}
+
 variable "canal_teste_desired_count" {
   description = <<-EOT
     Replicas do Canal de Teste. 1 para o time usar; 0 para tirar do ar.
