@@ -103,7 +103,7 @@
       </div>
       <div>
         <label>Telefone fictício</label>
-        <input id="fone" value="5511900000001">
+        <input id="fone" value="5511900000042">
         <p class="nota" style="margin:6px 0 0 0">
           Cada número é uma conversa. O número avança sozinho a cada envio, para que
           todo teste comece limpo.
@@ -224,6 +224,26 @@ var DESFECHOS = {
   End_SupervisorAlertado:  ["Supervisão alertada, caso segue aberto", "esc"]
 };
 
+/* O motor le data em `yyyy-MM-dd'T'HH:mm:ss.SSSZ`, com o fuso no formato RFC 822 (`+0000`)
+   — NAO o `+00:00` do ISO, e NAO sem fuso nenhum.
+
+   Este era o defeito de 11/09: `toISOString().replace("Z","")` produzia
+   `2026-09-11T14:05:25.857`, e o motor recusava com HTTP 400 dizendo que nao conseguia
+   converter para `java.util.Date`. A mensagem chegava a ser enviada; o que quebrava era a
+   PRIMEIRA consulta depois dela, entao a tela morria no passo 2 e parecia que nada tinha
+   acontecido. Como o Z do ISO ja significa UTC, o sufixo correto e' `+0000` fixo. */
+function dataParaMotor(d){
+  return d.toISOString().replace("Z", "+0000");
+}
+
+/* Sorteia o sufixo ao abrir a pagina. O `...001` fixo era um numero SUJO: tinha caso aberto
+   desde 09/09, entao o primeiro teste de qualquer pessoa caia direto na armadilha de "numero
+   com escalonamento ja aberto nao abre outro". */
+function sortearNumero(){
+  var n = 1 + Math.floor(Math.random() * 99);
+  $("fone").value = "55119000000" + (n < 10 ? "0" + n : String(n));
+}
+
 function exemplo(t){ $("texto").value = t; }
 
 /* Avanca os dois ultimos digitos dentro da faixa que o Canal aceita (55119000000xx), para
@@ -257,7 +277,7 @@ function enviar(){
 
   limpar();
   $("btEnviar").disabled = true;
-  estado.t0 = new Date(Date.now() - 5000).toISOString().replace("Z","");
+  estado.t0 = dataParaMotor(new Date(Date.now() - 5000));
   estado.evid.mensagem = texto;
   estado.evid.telefone = fone;
   estado.reusou = manter;
@@ -355,28 +375,7 @@ function procurarProcesso(tentativa){
       }
       if (tentativa < 12) return espera(2000).then(function(){ return procurarProcesso(tentativa+1); });
 
-      // NENHUM ESCALONAMENTO NOVO tem duas leituras, e a tela precisa dizer as duas em vez
-      // de escolher a otimista. Se o numero foi reaproveitado e ja havia caso aberto, o mais
-      // provavel e' que o turno se prendeu a ele — nao que a Helena resolveu sozinha.
-      if (estado.reusou && estado.abertosAntes){
-        $("v3").innerHTML =
-          '<p><span class="selo esp">NENHUM ESCALONAMENTO NOVO</span></p>' +
-          '<p>Você manteve o mesmo número, e já havia <b>' + estado.abertosAntes +
-          '</b> caso(s) aberto(s). Duas leituras possíveis:</p>' +
-          '<table>' +
-          linha("O esperado", "O turno se juntou ao caso que já existia. Um beneficiário não gera duas filas — este é o comportamento correto.") +
-          linha("A outra", "A Helena resolveu sozinha e nada foi aberto.") +
-          '</table>' +
-          '<p class="nota" style="margin-left:0">Esta tela não distingue as duas. Para ver o ' +
-          'escalonamento de um caso limpo, desmarque “manter o número” e envie de novo.</p>';
-        return null;
-      }
-
-      $("v3").innerHTML =
-        '<p><span class="selo ok">NÃO ESCALOU</span> — a Helena respondeu sozinha e ninguém foi incomodado.</p>' +
-        '<p class="nota" style="margin-left:0">Para uma dúvida administrativa, esse é o resultado certo. ' +
-        'Se você esperava escalonamento, é aqui que a regra precisa ser revista.</p>';
-      return null;
+      return semProcessoNovo();
     })
     .catch(function(e){ falha("v3", e); });
 }
@@ -462,6 +461,53 @@ function tarefa(){
     .catch(function(e){ falha("v6", e); });
 }
 
+/* NENHUM PROCESSO NOVO APARECEU — e isso tem tres leituras, nao uma.
+   A tela conta os escalonamentos abertos ANTES e DEPOIS do envio, porque a chave de negocio
+   vem da conversa, que vem do telefone: um numero que ja tem caso aberto NAO abre outro.
+   Sem a comparacao, "nao achei processo novo" virava "a Helena resolveu sozinha" — que e'
+   falso quando o turno se prendeu a um caso que ja existia. Nao depende da caixinha: o
+   numero pode estar sujo de uma bateria anterior sem ninguem ter pedido para reusa-lo. */
+function semProcessoNovo(){
+  return api("/engine/process-instance?processDefinitionKey=SP-OP-ESCALATION-001&maxResults=50")
+    .then(function(a){ return (a||[]).length; })
+    .catch(function(){ return null; })
+    .then(function(depois){
+      var antes = estado.abertosAntes;
+      estado.evid.abertos = {antes: antes, depois: depois};
+
+      if (antes === null || depois === null){
+        $("v3").innerHTML =
+          '<p><span class="selo esp">NÃO DÁ PARA DIZER</span></p>' +
+          '<p>Nenhum escalonamento novo apareceu, mas a consulta que conta os casos abertos ' +
+          '<b>falhou</b> — então esta tela não sabe se o turno se juntou a um caso existente ' +
+          'ou se a Helena resolveu sozinha.</p>' +
+          '<p class="nota" style="margin-left:0">Se o motor estiver instável, o resto da página ' +
+          'também não é confiável.</p>';
+        return null;
+      }
+
+      if (antes > 0){
+        $("v3").innerHTML =
+          '<p><span class="selo esp">NENHUM ESCALONAMENTO NOVO</span></p>' +
+          '<p>Este número já tinha <b>' + antes + '</b> caso(s) aberto(s)' +
+          (estado.reusou ? ' e você manteve o número' : '') + '. Duas leituras:</p>' +
+          '<table>' +
+          linha("O esperado", "O turno se juntou ao caso que já existia. Um beneficiário não gera duas filas — este é o comportamento correto.") +
+          linha("A outra", "A Helena resolveu sozinha e nada precisou ser aberto.") +
+          '</table>' +
+          '<p class="nota" style="margin-left:0">Esta tela não distingue as duas. Para ver um ' +
+          'escalonamento limpo, envie de novo — o número avança sozinho.</p>';
+        return null;
+      }
+
+      $("v3").innerHTML =
+        '<p><span class="selo ok">NÃO ESCALOU</span> — a Helena respondeu sozinha e ninguém foi incomodado.</p>' +
+        '<p class="nota" style="margin-left:0">Não havia nenhum caso aberto antes, então esta ' +
+        'leitura é firme. Para uma saudação ou dúvida administrativa, é o resultado certo.</p>';
+      return null;
+    });
+}
+
 function grupoDe(){
   var r = estado.evid.roteamento; if (!r) return "—";
   var s = {}; (r.outputs||[]).forEach(function(o){ s[o.variableName] = o.value; });
@@ -530,4 +576,5 @@ function verBruto(){
   d.style.display = d.style.display === "none" ? "block" : "none";
   $("brutoTxt").textContent = JSON.stringify(estado.evid, null, 2);
 }
+sortearNumero();   // numero limpo a cada abertura da pagina
 </script>
