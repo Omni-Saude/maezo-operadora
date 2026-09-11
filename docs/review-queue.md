@@ -2370,3 +2370,69 @@ executa; candidatos a linhas novas):
    de degradacao. Nao corrigido porque a linha aprovada do registro nomeia apenas
    `_rotulo_opcional_tolerante`, e alterar a mensagem de uma excecao modelada
    (`ERR_ESC_NOTIFY_FAILED`) e escopo proprio.
+
+## R-228 — WP3.5 de SP-OP-PROGRAMA-001 fechada 'sem sujeito hoje'; a cerca e a condicao de retorno ao DPO (2026-09-06)
+
+Decisao aprovada do dono (`OWNER-DECISIONS-REGISTER` **R-228**, status
+`APROVADO-APOS-REVISÃO-HUMANA`): a pergunta de k-anonimato / small-cell-suppression foi RETIRADA do
+pacote do DPO (`docs/sme-dispatch/dpo/PACKAGE.md`, redline com o texto original preservado) e a
+pendencia **WP3.5** do contrato `docs/processes/contracts/SP-OP-PROGRAMA-001.md` foi fechada como
+**'sem sujeito hoje'**, entre as ancoras `R-228-WP3.5-FECHAMENTO-INICIO/FIM`. Fato de arvore que a
+sustenta: `spec/processes/dmn/programa_routing.dmn` so declara as saidas `elegivel_programa` e
+`motivo` (banda/roteamento POR INSTANCIA) e as service tasks `operadora.events.publish` do BPMN do
+PROGRAMA publicam so identificadores por instancia — nao ha agregado populacional para o qual
+fixar um parametro.
+
+**ESTE FECHAMENTO NAO RATIFICA PISO DE K ALGUM.** Nenhum valor de k foi escolhido, lido como
+default ou sugerido; a classe de efeito `leitura_populacional` segue `enforcement: shadow` com
+`aprovado: false` nos tres dominios; o arquivo de signoff do contrato NAO foi tocado (continua
+sendo ato do revisor humano, `docs/sme-dispatch/README.md`).
+
+**A cerca `tests/unit/spec/test_programa_population_aggregate_fence.py` E A CONDICAO DE RETORNO A
+ESTA FILA.** Ela reprova se qualquer publicacao de agregado populacional aparecer no PROGRAMA
+enquanto nao existir piso k declarado; e quando o piso existir (**R-117** landa o manifesto sob
+`spec/policies/privacy/` com `k` VAZIO; ADR-0019 clausula 4 e ADR-0042, ambos DRAFT/verify), ela
+VIRA DE SENTIDO e passa a exigir que todo consumidor de agregado o referencie — nunca desliga.
+**Status: ABERTO (acionavel pelo evento)** — no primeiro consumidor de agregado populacional
+proposto para o PROGRAMA, a pergunta 4 volta ao pacote do DPO, desta vez com sujeito, e o piso k
+ratificado volta a ser pre-condicao. Nada a fazer enquanto o evento nao ocorrer; a cerca e quem
+detecta o evento.
+
+
+## R117/R228 — correção de enforcement (2026-09-09; ratificação continua pendente)
+
+A descrição histórica da cerca acima é preservada, mas a autorização por substring foi
+supersedida. `tests/unit/spec/test_programa_population_aggregate_fence.py` é apenas inventário
+lexical finito de propostas; documentação e comentários nunca autorizam publicação.
+
+O manifesto canônico `spec/policies/privacy/population-egress-v1.yaml` tem identidade
+`maezo.population-egress.v1`, versão 1, **k, allowlist e campos humanos vazios**. O carregador
+`platform/privacy/population_policy.py` recusa YAML ausente/inválido/duplicado, identidade
+errada, ratificação incompleta e ausência de verificação independente do ato humano.
+Não lê arquivos arbitrários, variáveis de ambiente nem piso escolhido pelo chamador.
+
+**Fronteira de confiança explicitamente não provisionada:** campos `revisor`, data e referência
+não autenticam ninguém. `RatificationVerifier` deve verificar um ato real de DPO/jurídico
+com vínculo à identidade e SHA-256 dos bytes completos do manifesto. Não existe adapter
+implementado/provisionado neste pacote; `load_population_policy()` recusa por padrão mesmo
+se alguém apenas preencher os campos. Fixtures sintéticas provam o consumidor, não a
+identidade de um humano. A integração desse verificador exige contrato e revisão própria;
+CODEOWNERS e dispensa de revisão humana de PR não substituem ratificação de privacidade.
+
+O wrapper `GatedPopulationFeatureClient` permanece não ligado e exige a política antes de
+chamar o provider; só serve retorno que satisfaça piso, contagem e métricas permitidas.
+O port ADR-0037, grants LF-Tag, consentimento upstream, erasure e composição de André
+continuam nas respectivas dependências, sem adapter novo nem ativação de infraestrutura.
+
+No PROGRAMA não há contrato de agregado a publicar, mesmo quando existir política.
+`program_publication.validate_program_publication` guarda o sink real das cinco tasks
+BPMN de evento e dos quatro builders de notificação de `programa.py`. A allowlist corresponde
+às variáveis estruturais atuais do BPMN/contrato: identificadores e tokens por instância.
+Extensão por campo novo (inclusive `resultados`), tópico novo ou objeto aninhado recusa antes
+da chamada Kafka. Uma política assinada não autoriza automaticamente um novo payload de
+programa: primeiro consumidor exige contrato de saída e chamada de validação efetiva.
+Strings por instância conservam o comportamento atual; isto não é detector universal do
+conteúdo semântico de qualquer string. Consentimento, revogação e decisão clínica humana
+permanecem inalterados. Evidência offline não substitui CI/engine do head integrado.
+| `docs/adr/0022-mcp-in-process-boot.md:28` (`src/maezo/runtime/tool_wiring.py::build_tool_invoker`, citado como "fato verificado") | **Achado ADJACENTE, fora do escopo de R-089 — pre-existente, encontrado 2026-09-06 pela construcao do gate `scripts/ci/check_doc_symbol_citations.py`.** `src/maezo/runtime/tool_wiring.py` NAO EXISTE (`ls src/maezo/runtime/tool_wiring.py` -> ausente); `grep -rn build_tool_invoker src/` retorna 0 hits em codigo. O proprio `src/maezo/tools/mcp_cibseven/__init__.py` ja disclosure isso independentemente ("no `ToolRegistry`/`tool_wiring.py`/`build_tool_invoker` exists anywhere in this v2 tree; ADR-0022's claim that `register_tools` is load-bearing describes that unbuilt mechanism, not v2's actual `src/`"), mas ADR-0022 (`Status: Accepted`) nunca recebeu o marcador correspondente. Mesma familia de defeito que os oito gaps de ADR-0041 (afirmacao de ADR Accepted que a arvore ja refuta) — nao corrigido aqui por fronteira de work-package (R-089 e escopado a ADR-0026/0028); allowlisted (disclosed, nao silencioso) em `scripts/ci/check_doc_symbol_citations.py::_DISCLOSED_ROT` para que o novo gate nao quebre `validate-artifacts` por um defeito alheio a esta tarefa. | docs-reconciler + owner (`docs/adr/` CODEOWNED) | `ABERTO — candidato a uma futura linha de GAP-REGISTER (ex.: ADR-0022-TOOL-WIRING-PHANTOM) e a um adendo datado analogo aos de R-089/R-085/R-088, mesmo padrao (docs/adr/README.md:8 proibe reescrita in-loco)` |
+| `ADR-PHANTOM-PATH` (familia, 6 ocorrencias / 5 paths distintos): `docs/adr/0024-durable-idempotency-resume-inbound-drivers.md:12` (`runtime/inbound_driver.py`), `:20` (`a2a_assembly.py`), `:27` (`inbound_driver.py`); `docs/adr/0041-reconciliacao-adrs-0005-0006-0008-0012-0015-0024-0032.md:68` (`runtime/inbound_driver.py`, re-citando 0024); `docs/adr/0037-amh-compatibility-boundary-canonical-contracts.md:73` (`schemas-validate.yml`); `docs/adr/0025-pep-policy-unification.md:245` (`test_autonomy.py`) | **Achado do reparo F4/VER-ADR-BATCH (2026-09-06, terceiro agente) — construcao do file-existence check para citacoes `path:line` nuas em `scripts/ci/check_doc_symbol_citations.py`.** Duas causas distintas, ambas confirmadas contra o `src/` real, nao meramente supostas: (1) **modulo nunca construido** — as tres citacoes de ADR-0024 (mais a re-citacao em ADR-0041) descrevem `InboundDriver`/`ResumeDriver`/`IdempotencyGuard`, que `src/maezo/platform/driver_idempotency.py` (docstring do proprio modulo, criado para os gaps `WEBHOOK-WAMID-DEDUP`/`DRIVER-IDEMPOTENCY-ORPHAN-TABLE`, decisoes do dono R-071/R-072/R-073) confirma explicitamente NUNCA terem sido construidos ("`driver_idempotency` was created by `migrations/versions/0003_a2a_idempotency.py:61-72` for ADR-0024's `InboundDriver`/`ResumeDriver`, which were never built — it had zero readers and zero writers"); nao e' rename nem move, o modulo simplesmente nao existe; (2) **citacao cross-repo** — `schemas-validate.yml` (ADR-0037:73) e `test_autonomy.py` (ADR-0025:245) NUNCA se referiram a esta arvore: a propria prosa ao redor de cada uma nomeia explicitamente um repositorio DIFERENTE (respectivamente "Drift AMH-side ... commit AMH `8a3a061`" e o "v1 donor" em `/Users/familia/code/Maezo-Healthcare-Plan/...`, citado no `## 1.4` da mesma ADR-0025) — um file-existence check contra `git ls-files` DESTE repo e' estruturalmente incapaz de resolver essas duas, por desenho, nao por rot. Nao corrigido aqui (F4 e' explicito: "do NOT edit those ADRs"); allowlisted (disclosed, nao silencioso, cada entrada com sua propria justificativa) em `scripts/ci/check_doc_symbol_citations.py::_DISCLOSED_ROT` para que o file-existence check nao quebre `validate-artifacts` por defeitos pre-existentes, alheios ao escopo do reparo F4. | docs-reconciler + owner (`docs/adr/` CODEOWNED para as 3 ADRs) | `ABERTO — candidato a ate duas futuras linhas de GAP-REGISTER: (a) ADR-0024/0041, "InboundDriver/ResumeDriver nunca construidos" — mesma familia dos oito gaps de ADR-0041 e do achado ADR-0022 acima (ADR Accepted afirmando mecanismo que a arvore refuta), reparavel por adendo datado analogo a R-085/R-088/R-089, mesmo padrao (docs/adr/README.md:8 proibe reescrita in-loco); (b) ADR-0037/0025, citacao cross-repo — decisao separada do dono sobre se o gate deveria (i) ganhar uma terceira regra estrutural para paths que a propria prosa da ADR marca como de outro repositorio, ou (ii) permanecer via _DISCLOSED_ROT indefinidamente, ja que a citacao nunca podera' resolver localmente por desenho` |

@@ -1,5 +1,7 @@
 # PROJECT.md — Arquitetura e Operação
 
+> **Current continuity — 2026-09-10, WIP preservation complete:** [Current checkpoint](https://github.com/Omni-Saude/maezo-operadora/blob/completion/product-c27-auth-lifecycle/CHECKPOINT.md) supersedes historical scheduling/status below. Fresh status inspection covered 488 registered worktrees plus four standalone repositories; all 22 discovered uncommitted source files exactly match nine remotely verified recovery commits. Use `docs/prompts/maezo-wip-preservation-only.md` for a lower-cost WIP-only pass. Product implementation and release gates remain paused/pending. Frozen historical handoffs retain their original bytes; they are evidence, not current dispatch instructions.
+
 > Stack: **Python 3.12 · LangGraph · A2A v1.0 · MCP · CIB Seven 2.1.3 · HAPI FHIR R4 · Kafka · PostgreSQL · Kubernetes**
 
 ## Arquitetura em 30 segundos
