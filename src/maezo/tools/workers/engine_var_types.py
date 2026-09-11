@@ -46,6 +46,28 @@ _JAVA_INT32_MAX = 2**31 - 1
 LONG_TYPED_ENGINE_VARS: frozenset[str] = frozenset({"total_glosado_candidato_centavos"})
 
 
+def declared_long_variable(nome: str | None, value: object) -> dict[str, object] | None:
+    """Validate R-173 centavos before any generic or pre-shaped passthrough.
+
+    ``None`` means the name has no declared Long contract. Declared values must be exact
+    integers representable by Java Long (SP-OP-CONTAS-001: int64), never parsed or rounded.
+    An Integer/untyped envelope is upgraded to Long without changing its value or metadata;
+    a conflicting wire type is rejected. The caller's envelope is never mutated.
+    """
+    if nome not in LONG_TYPED_ENGINE_VARS:
+        return None
+    entry = value if isinstance(value, dict) else {"value": value}
+    centavos = entry.get("value")
+    if (
+        type(centavos) is not int
+        or not -(2**63) <= centavos <= 2**63 - 1
+        or ("type" in entry and entry["type"] not in ("Integer", "Long"))
+    ):
+        # Fixed message: rejected financial input must not leak into logs/incident text.
+        raise ValueError("Declared Long variable requires integer centavos within int64")
+    return {**entry, "type": "Long"}
+
+
 def camunda_int_type(nome: str | None, valor: int) -> str:
     """Camunda wire type for an integer process/DMN variable — `"Integer"` or `"Long"`.
 
