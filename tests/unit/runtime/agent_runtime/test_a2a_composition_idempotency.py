@@ -364,12 +364,15 @@ def test_dossier_root_with_a_dsn_wires_the_store_without_connecting(
     asyncpg pool is LAZY, so wiring the store must not require a reachable server (this suite has
     none)."""
     monkeypatch.setenv(_SIGNING_KEY_ENV, _VALID_KEY)
+    from maezo.gateway.audit_postgres import PostgresAuditSink
+
+    deps = _dossier_deps()
+    deps["audit_sink"] = PostgresAuditSink(_DSN, "amh")
     dispatcher = build_dossier_delegation_dispatcher(
         tenant="amh",
         runtime_mode="production",
         database_url=_DSN,
-        kafka_producer=RecordingProducer(),
-        **_dossier_deps(),
+        **deps,
     )
     assert dispatcher is not None
 

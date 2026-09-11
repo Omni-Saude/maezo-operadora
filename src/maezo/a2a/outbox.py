@@ -19,37 +19,18 @@ than `init=` so `search_path` survives asyncpg's connection RESET on release, `n
 without a database" split, same module-level SQL constants.
 
 =================================================================================================
-Transaction boundary — stated precisely, including where it does NOT exist
+Transaction boundary (PLAN-W3-A2A)
 =================================================================================================
-An outbox is only worth the name if the fact row and the effect it describes commit together.
-There are exactly two shapes here, and only one of them exists in production TODAY.
+Production composition now uses PostgresDelegationTransactions: one short
+transaction for claim + ALLOW + requested + enqueue marker, and a second for
+terminal audit + terminal fact + done. Handler/engine/LLM run outside both.
+The existing relay provides at-least-once transport after commit. A commit is
+not a Kafka acknowledgement and cannot atomically include engine effects.
 
-**(1) ENLISTED (`outbox_transaction`) — genuinely same-transaction.** A caller that already owns an
-asyncpg connection inside a transaction binds it with `async with outbox_transaction(conn):`. Every
-`send()` on that async task then INSERTs on THAT connection, inside THAT transaction: the caller's
-rollback discards the fact row, the caller's commit publishes exactly one. This is real atomicity,
-and `tests/unit/a2a/test_outbox_live_pg.py` proves both directions against a real server.
-
-**(2) AMBIENT-LESS (no enlistment) — its own single-statement transaction.** With nothing bound,
-`send()` acquires from the outbox's own pool and INSERTs in its own transaction. The row is atomic
-in itself; it is NOT atomic with anything else.
-
-**Which one the live A2A edges use today: (2). No production call site enlists.** That is a
-statement of fact, not a design aspiration, and it is worth being blunt about because the phrase
-"transactional outbox" invites the opposite assumption. `DelegationDispatcher._execute` performs
-three durable writes through three INDEPENDENT asyncpg pools —
-`PostgresAuditSink.emit_once` (audit_chain), this outbox (a2a_fact_outbox), and
-`PostgresIdempotencyStore.claim_or_get`/`complete` (a2a_idempotency) — and there is no ambient
-transaction spanning them. Joining them would mean threading one connection through the audit
-sink, the dispatcher and the store: a change to `AuditEmitter`'s seam contract and to the
-dispatcher's constructor, i.e. exactly the seam surface this leg is forbidden to widen. So the
-enlistment mechanism ships, is tested, and is documented as UNUSED by the current roots — see the
-report's open questions rather than a claim of atomicity that does not hold.
-
-What (2) DOES buy over the noop, precisely: the fact is durable and redeliverable instead of gone.
-What it does NOT buy: if the process dies between the audit row committing and the outbox INSERT
-committing, that fact is lost — the same window `_audit_delegation_outcome` -> `_emit(COMPLETED)`
-already has for the audit row itself.
+The explicit coordinator does not use ContextVar. The compatibility
+outbox_transaction API only enlists enqueue and rejects inherited/expired
+leases, nontransactional connections and wrong tenant schemas. Standalone
+enqueue still commits its own row and makes no combined atomicity promise.
 
 =================================================================================================
 Failure posture: an outbox write PROPAGATES. Chosen, not inherited.
@@ -68,14 +49,11 @@ rather than a shrug:
     publish to a broker that may be down. This is a local write to a database the caller already
     requires.
 
-The residual, stated rather than hidden: `_emit(COMPLETED)` runs AFTER the handler has already had
-its effect and BEFORE `store.complete()` seals idempotency, so a raise there means a retry may
-re-execute the handler. That window is not new — `_audit_delegation_outcome` (also a Postgres
-write) sits immediately before it and has exactly the same property. This widens an existing
-window by one statement; it does not open a new class of hazard. The operational consequence is
-ordinary and must be stated anyway: migration 0008 must be applied BEFORE this code is deployed,
-or every delegation fails loudly on a missing relation. Loudly is the point — the prior behavior
-was to fail silently, forever.
+A terminal commit failure never reports success. The admission remains durable,
+so a replay may run the handler again. Remote effect reconciliation is still
+required at the engine/effect seam; the PostgreSQL transaction cannot establish
+exactly-once behavior across systems. Apply migration 0011 before enabling the
+production coordinator; existing outbox rows and retention remain unchanged.
 
 =================================================================================================
 PHI
@@ -89,6 +67,7 @@ nothing in this module ever logs a payload — only topic, dedup_key, row id and
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
@@ -276,6 +255,7 @@ def outbox_row_params(topic: str, value: bytes, key: bytes | None) -> tuple[str,
 # Enlistment — the ambient transaction seam
 # ---------------------------------------------------------------------------
 
+
 #: The connection `send()` writes on when a caller has enlisted one. A `ContextVar` (not an
 #: attribute) because the enlisting caller and the producer are separated by
 #: `FactProducer.emit` -> `DelegationDispatcher._emit` -> `_execute` -> `delegate`, none of which
@@ -283,7 +263,21 @@ def outbox_row_params(topic: str, value: bytes, key: bytes | None) -> tuple[str,
 #: ContextVar is inherited by awaited coroutines within the same task, which is exactly the scope
 #: "this delegation" occupies, and is NOT shared with concurrent tasks — two delegations running
 #: concurrently on the same loop cannot see each other's transaction.
-_ENLISTED_CONNECTION: ContextVar[Any | None] = ContextVar("maezo_a2a_outbox_connection", default=None)
+@dataclass
+class _OutboxLease:
+    conn: Any
+    task: Any
+    active: bool = True
+
+    def connection(self) -> Any:
+        if not self.active or self.task is not asyncio.current_task():
+            raise RuntimeError("outbox lease is inactive or belongs to another task")
+        return self.conn
+
+
+_ENLISTED_CONNECTION: ContextVar[_OutboxLease | None] = ContextVar(
+    "maezo_a2a_outbox_connection", default=None
+)
 
 
 @asynccontextmanager
@@ -303,16 +297,19 @@ async def outbox_transaction(conn: Any) -> AsyncIterator[Any]:
     Reset is `finally`-guarded with the `Token` (never `set(None)`), so nesting restores the OUTER
     binding rather than clearing it.
     """
-    token = _ENLISTED_CONNECTION.set(conn)
+    lease = _OutboxLease(conn, asyncio.current_task())
+    token = _ENLISTED_CONNECTION.set(lease)
     try:
         yield conn
     finally:
+        lease.active = False
         _ENLISTED_CONNECTION.reset(token)
 
 
 def current_outbox_connection() -> Any | None:
     """The enlisted connection for this async context, or `None`. Read-only accessor for tests."""
-    return _ENLISTED_CONNECTION.get()
+    lease = _ENLISTED_CONNECTION.get()
+    return None if lease is None else lease.connection()
 
 
 # ---------------------------------------------------------------------------
@@ -427,8 +424,12 @@ class PostgresFactOutbox:
         docstring for which of the two the live A2A roots use today (the second).
         """
         tenant, dedup_key, topic_value, partition_key, payload = outbox_row_params(topic, value, key)
-        enlisted = _ENLISTED_CONNECTION.get()
+        enlisted = current_outbox_connection()
         if enlisted is not None:
+            if tenant != self._tenant or not enlisted.is_in_transaction():
+                raise ValueError("invalid enlisted outbox transaction")
+            if await enlisted.fetchval("SELECT current_schema()") != self._schema:
+                raise ValueError("enlisted outbox schema mismatch")
             row_id = await enlisted.fetchval(
                 ENQUEUE_SQL, tenant, dedup_key, topic_value, partition_key, payload
             )

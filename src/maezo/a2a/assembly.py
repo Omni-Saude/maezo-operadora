@@ -40,6 +40,7 @@ from maezo.a2a.dispatcher import AgentHandler, AuditEmitter, DelegationDispatche
 from maezo.a2a.idempotency import IdempotencyStore
 from maezo.a2a.registry import A2ARegistry, RegistryError
 from maezo.a2a.signing import CardSigner
+from maezo.a2a.transaction import PostgresDelegationTransactions
 from maezo.agents import AgentLoader
 
 if TYPE_CHECKING:
@@ -134,6 +135,7 @@ def build_dispatcher(
     audit: AuditEmitter,
     facts: FactProducer,
     idempotency: IdempotencyStore | None = None,
+    transactions: PostgresDelegationTransactions | None = None,
     verifier: CardSigner | None = None,
     envelope_verifier: EnvelopeVerifier | None = None,
     origin_envelope_signer: EnvelopeSigner | None = None,
@@ -173,6 +175,7 @@ def build_dispatcher(
         audit=audit,
         facts=facts,
         idempotency=idempotency,
+        transactions=transactions,
         envelope_verifier=envelope_verifier,
         origin_envelope_signer=origin_envelope_signer,
     )
