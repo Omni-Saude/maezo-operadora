@@ -78,3 +78,44 @@ def camunda_int_type(nome: str | None, valor: int) -> str:
     if nome is not None and nome in LONG_TYPED_ENGINE_VARS:
         return "Long"
     return "Integer" if _JAVA_INT32_MIN <= valor <= _JAVA_INT32_MAX else "Long"
+
+
+# Finite contract coordinates: SP-OP-PAGTO-001 inputs/outputs and
+# SP-OP-REEMBOLSO-001 inputs/outputs. Unlike R-173 these retain magnitude typing.
+# Zero/sign policy belongs to the producer (PAGTO and SEM_TABELA use zero sentinels).
+EXACT_CENTAVOS_ENGINE_VARS: frozenset[str] = frozenset(
+    {
+        "valor_pagamento_cents",
+        "valor_aprovado_cents",
+        "valor_solicitado_cents",
+        "valor_calculado_tabela_cents",
+        "valor_reembolso_aprovado_cents",
+    }
+)
+
+
+def is_exact_engine_integer(value: object, *, wire_type: object = "Long") -> bool:
+    """Exact Python integer representable by the specified Java wire type; no coercion."""
+    if type(value) is not int:
+        return False
+    if wire_type == "Integer":
+        return _JAVA_INT32_MIN <= value <= _JAVA_INT32_MAX
+    return wire_type == "Long" and -(2**63) <= value <= 2**63 - 1
+
+
+def validate_centavos_engine_var(name: str | None, value: object) -> None:
+    """Validate only the five declared cent fields before shaped passthrough/raw typing.
+
+    Compatible shaped Integer/Long metadata is preserved. This is technical wire
+    representability, not a financial threshold, positivity rule or suffix policy.
+    The R-173 name (`LONG_TYPED_ENGINE_VARS`) is governed separately by
+    `declared_long_variable`, which upgrades an Integer/untyped envelope to Long.
+    """
+    if name not in EXACT_CENTAVOS_ENGINE_VARS:
+        return
+    wire_type: object = "Long"
+    if isinstance(value, dict):
+        wire_type = value.get("type")
+        value = value.get("value")
+    if not is_exact_engine_integer(value, wire_type=wire_type):
+        raise ValueError("invalid integer-centavos engine variable")

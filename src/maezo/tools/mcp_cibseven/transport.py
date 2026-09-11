@@ -66,7 +66,11 @@ import structlog
 # concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
-from maezo.tools.workers.engine_var_types import camunda_int_type, declared_long_variable
+from maezo.tools.workers.engine_var_types import (
+    camunda_int_type,
+    declared_long_variable,
+    validate_centavos_engine_var,
+)
 from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
 
 logger = structlog.get_logger(__name__)
@@ -251,6 +255,7 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
+        validate_centavos_engine_var(k, v)
         if (declared := declared_long_variable(k, v)) is not None:
             camunda_vars[k] = declared
         elif isinstance(v, dict) and "value" in v:

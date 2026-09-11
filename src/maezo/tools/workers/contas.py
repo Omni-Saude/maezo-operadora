@@ -273,7 +273,7 @@ def identify_glosa(input_data: GlosaInput) -> GlosaIdentified:
     reason_codes_tiss. This is pure arithmetic — no decision: it flags a CANDIDATE, and the
     decision to glosar is human (`UT_AnalistaContas`, guarded by `registrar_glosa`).
 
-    FAIL-CLOSED: missing line detail => has_glosas=true,
+    FAIL-CLOSED: missing or malformed line detail => has_glosas=true,
     divergencia_valor=true, denial_ratio=1.0.
     """
     logger.info(
@@ -285,10 +285,11 @@ def identify_glosa(input_data: GlosaInput) -> GlosaIdentified:
     linhas = input_data.linhas_conta_refs
     reason_codes = input_data.reason_codes_tiss
 
-    # Fail-closed: no lines => conservative
-    if not linhas:
+    # CONTAS input contract: validate every line before any arithmetic can erase
+    # an invalid cent type or retain partial facts from an otherwise malformed lote.
+    if not isinstance(linhas, list) or not linhas or not all(_valid_line_cents(line) for line in linhas):
         logger.warning(
-            "contas.identify_glosa.no_lines",
+            "contas.identify_glosa.no_lines" if not linhas else "contas.identify_glosa.malformed_lines",
             tenant_id=input_data.tenant_id,
             numero_lote_tiss=input_data.numero_lote_tiss,
         )
@@ -1352,6 +1353,23 @@ def _to_cents(brl: float) -> int:
     compares, only converts.
     """
     return int(round(brl * 100))
+
+
+def _valid_line_cents(linha: object) -> bool:
+    """Validate the finite CONTAS cent fields, preserving existing BRL alternatives.
+
+    Null cents retain their existing absent-value meaning. A supplied non-null value
+    must already be an exact integer; a competing BRL value cannot salvage it.
+    This adds no per-line sign/range policy and does not change BRL conversion.
+    """
+    if not isinstance(linha, dict):
+        return False
+    if linha.get("valor_apresentado_centavos") is None and linha.get("valor_apresentado_brl") is None:
+        return False
+    return all(
+        linha.get(name) is None or type(linha[name]) is int
+        for name in ("valor_apresentado_centavos", "valor_glosado_centavos", "valor_pago_centavos")
+    )
 
 
 def _extract_cents(linha: dict[str, Any], prefix: str) -> int:
