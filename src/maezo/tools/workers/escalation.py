@@ -353,7 +353,7 @@ def _exigir_severidade(task: ExternalTask, v: Mapping[str, Any]) -> str | None:
         _recusar(
             task,
             "severidade_tipo_invalido",
-            f"`severidade` chegou como {type(bruta).__name__} ({bruta!r}), nao texto — o contrato "
+            f"`severidade` chegou como {type(bruta).__name__}, nao texto — o contrato "
             "a declara `string` (SP-OP-ESCALATION-001.md:27); um valor que o motor nao poderia ter "
             f"produzido e' corrupcao, nunca a ausencia declarada de `motivo_categoria="
             f"{_MOTIVO_SEM_SEVERIDADE}`",

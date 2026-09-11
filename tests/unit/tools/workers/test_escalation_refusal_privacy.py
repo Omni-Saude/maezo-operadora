@@ -161,3 +161,28 @@ async def test_valid_labels_and_missing_producer_preserve_human_route(kind: str)
     else:
         assert result["status"] == "supervisor_notification_skipped_no_producer"
         assert result["require_human_resolution"] is True
+
+
+@pytest.mark.parametrize("kind", ["team", "supervisor"])
+@pytest.mark.parametrize("sink", ["structlog", "stdlib", "exception"])
+async def test_non_string_severidade_never_renders_narrative(
+    kind: str, sink: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Pin do path severidade_tipo_invalido (review PR #365 F1): um valor NÃO-string
+    (dict com narrativa) não pode vazar em detalhe/log/exceção — só o type name."""
+    kafka = FakeKafkaPublisher()
+    handler = _FACTORIES[kind](kafka)
+    payload = {"nota": _NARRATIVE}
+    with (
+        caplog.at_level(logging.ERROR, logger=_LOGGER),
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(WorkerBpmnError) as caught,
+    ):
+        await handler(_task(kind, severidade=payload))
+    exc = caught.value
+    assert exc.error_code == "ERR_ESC_NOTIFY_FAILED"
+    assert not kafka.published
+    assert logs[0]["motivo"] == "severidade_tipo_invalido"
+    assert "dict" in logs[0]["detalhe"]  # o type name permanece (diagnóstico)
+    assert _NARRATIVE not in logs[0]["detalhe"]
+    assert _NARRATIVE not in _sink_text(sink, logs, caplog)
