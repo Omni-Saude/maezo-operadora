@@ -356,3 +356,42 @@ def test_the_installed_owner_survives_a_later_generic_registration():
 
 async def _never(task):  # type: ignore[no-untyped-def]
     raise AssertionError("a sealed topic must never dispatch to a foreign handler")
+
+
+def test_the_basis_still_carries_no_denial_discriminator():
+    """V14 MINOR-7 tripwire — the known weakness, pinned so it cannot become permanent.
+
+    `HumanDecisionBasis` is what `AtomicHumanCommand` writes for EVERY admitted human
+    decision, APROVAR and NEGAR alike: no field says "denial", and none lets the
+    worker verify the sealed `content_digest` covers the three clinical fields. The
+    guard therefore proves a complete human decision exists in custody, not that a
+    denial with complete grounding does.
+
+    That is a property to know, not a defect this PR can fix — the discriminator has
+    to be written engine-side by PR-C's `ClassifiedDecision`. This test fails the day
+    one appears, which is exactly when this guard must start consuming it.
+    """
+    from maezo.gateway.denial_notices.models import HumanDecisionBasis
+
+    fields = set(HumanDecisionBasis.model_fields)
+    assert fields == {
+        "custody_ref",
+        "content_digest",
+        "request_digest",
+        "binding_digest",
+        "principal_ref",
+        "workload_ref",
+        "command_ref",
+        "audit_intent_ref",
+    }, "a new basis field landed — if it discriminates denials, the guard must read it"
+    assert len(BASIS_VARIABLES) == len(fields)
+    # No field name hints at the decision's kind or at the clinical grounding itself.
+    assert not [f for f in fields if any(t in f for t in ("deni", "negar", "outcome", "decis", "kind"))]
+
+    # And the compensating control is real: the worker composes NO denial record for
+    # anything but a NEGAR — the discriminator the basis lacks is supplied, for this
+    # one decision, by the gateway variable the BPMN flow condition already sets.
+    approval = _worker().execute(_vars(decisao_auditor="APROVAR"))
+    assert approval["notice_type"] == "approval"
+    assert approval["error_code"] is None
+    assert "denial_record_ref" not in approval
