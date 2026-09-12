@@ -24,7 +24,6 @@ from maezo.gateway.denial_notices.models import (
 from maezo.gateway.denial_notices.producer import TOPIC, DenialNoticeProducer
 from maezo.tools.workers.base import ERR_AUTH_DENIAL_INCOMPLETE, ERR_DENIAL_NOT_HUMAN, WorkerBase
 from maezo.tools.workers.harness import WorkerBpmnError
-from maezo.tools.workers.phi_vars import redact_phi_vars
 
 
 class TopicOwnershipError(RuntimeError):
@@ -107,9 +106,14 @@ class NativeDenialNoticeWorker(WorkerBase):
             tenant_id=tenant_id,
             notice_composed_asserted_transmission=False,
         )
-        # The record holds no clinical field by construction; the ADR-0006 egress point
-        # stays on the path anyway, so a future key cannot skip it by being added here.
-        return redact_phi_vars(record.variables())
+        # No `redact_phi_vars` here, deliberately. The generic worker needs it because it
+        # reads clinical strings out of engine variables; this owner never does — the
+        # record is a `Closed` model with a fixed, non-clinical field set, so there is
+        # nothing to redact and the enforcement point is the model itself (proven by
+        # `test_the_record_can_never_grow_a_clinical_field`). Adding a third call site
+        # would also invalidate the two-call-site MEASUREMENT that
+        # `PHI-DISPOSITIONS-RECOMMENDATION.md` §3.0 rests on, before a DPO signs it.
+        return record.variables()
 
 
 class DenialNoticeHost:

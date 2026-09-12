@@ -251,3 +251,33 @@ def test_the_topic_declares_exactly_one_reportable_error():
     assert row.error_codes == (ERR_AUTH_DENIAL_INCOMPLETE,)
     # No clinical variable is readable through this row (ADR-0006).
     assert not {"justificativa_clinica", "cid10_referencia", "fundamentacao_dut"} & set(row.read_projection)
+
+
+def test_the_record_can_never_grow_a_clinical_field():
+    """The closed record IS the ADR-0006 enforcement point for this owner.
+
+    This owner reads no clinical variable, so it needs no redactor — and adding one
+    would make a third `redact_phi_vars` call site, invalidating the two-call-site
+    measurement `PHI-DISPOSITIONS-RECOMMENDATION.md` §3.0 rests on. What replaces it
+    is stronger and local: the emitted key set is fixed here, so a clinical field
+    cannot be added without editing this assertion.
+    """
+    from maezo.gateway.denial_notices.models import DenialNoticeRecord
+
+    assert set(DenialNoticeRecord.model_fields) == {
+        "notice_type",
+        "event",
+        "human_approved",
+        "auditor_id",
+        "denial_record_ref",
+        "human_decision_custody_ref",
+    }
+    assert set(_worker().execute(_vars())) == {
+        "notice_type",
+        "error_code",
+        "event",
+        "human_approved",
+        "auditor_id",
+        "denial_record_ref",
+        "human_decision_custody_ref",
+    }
