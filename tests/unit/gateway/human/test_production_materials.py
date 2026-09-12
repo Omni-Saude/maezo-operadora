@@ -11,6 +11,12 @@ import hashlib
 from datetime import UTC, datetime
 
 import pytest
+from tests.unit.gateway.human.materials_builder import (
+    ASSIGNMENT_WORKLOAD,
+    WORKLOAD,
+    build_bundle,
+    build_materials,
+)
 
 from maezo.gateway.human.command_materials import (
     assignment_scope,
@@ -32,8 +38,6 @@ from maezo.gateway.human.production_materials import (
 from maezo.gateway.human.queue import ReadRefusalError
 from maezo.gateway.human.read_materials import MaterialLifetime, read_providers
 
-from tests.unit.gateway.human.materials_builder import ASSIGNMENT_WORKLOAD, WORKLOAD, build_bundle, build_materials
-
 
 def test_read_command_and_assignment_keys_are_distinct_and_purpose_bound(tmp_path):
     """T00-07 — three purposes never share a key id, key material or workload."""
@@ -44,9 +48,7 @@ def test_read_command_and_assignment_keys_are_distinct_and_purpose_bound(tmp_pat
     assert sorted(purposes) == sorted(KEY_FILES)
     assert len({key.key_id for key in manifest.keys}) == 3
     assert len({key.fingerprint for key in manifest.keys}) == 3
-    raw = {
-        purpose: materials.private_key(purpose).private_bytes_raw() for purpose in KEY_FILES
-    }
+    raw = {purpose: materials.private_key(purpose).private_bytes_raw() for purpose in KEY_FILES}
     assert len(set(raw.values())) == 3
 
     # The assignment read plane runs as its own workload; the native client refuses
@@ -167,9 +169,7 @@ def test_material_bundle_is_complete_or_refused(tmp_path):
         broken = dict(files)
         del broken[name]
         with pytest.raises(HumanMaterialError):
-            verify_materials(
-                manifest, broken, now=datetime.now(UTC), directory=str(tmp_path / "current")
-            )
+            verify_materials(manifest, broken, now=datetime.now(UTC), directory=str(tmp_path / "current"))
 
 
 def test_public_file_tampering_is_detected_and_secrets_are_never_hashed_publicly(tmp_path):

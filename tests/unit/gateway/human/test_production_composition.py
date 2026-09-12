@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
+from tests.unit.gateway.human.materials_builder import build_materials
 
 from maezo.gateway.human import production as production_module
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
@@ -44,8 +45,6 @@ from maezo.gateway.human.read_materials import (
 from maezo.gateway.human.read_transport import PortalReadClient
 from maezo.gateway.human.relay import HumanCommandRelay
 from maezo.gateway.human.transport import MTLSHumanEngineTransport, PartitionedEd25519Signer
-
-from tests.unit.gateway.human.materials_builder import build_materials
 
 OUTBOX_DSN = "postgresql://human_outbox:pw@db.invalid:5432/maezo"
 

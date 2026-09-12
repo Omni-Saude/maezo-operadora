@@ -27,10 +27,9 @@ from sqlalchemy.engine import URL, make_url
 from maezo.portal.contracts.models import OpaqueRef, Revision, Sha256Digest
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
-from .read_profile import b64decode, parse_model, wire
-
 from .models import Closed, Scope
 from .read_credentials import ReadAdmission
+from .read_profile import b64decode, parse_model, wire
 
 MATERIAL_PARENT = "/run/maezo-human-materials"
 MATERIAL_DIRECTORY = MATERIAL_PARENT + "/current"
@@ -264,9 +263,7 @@ class HumanPublicManifest(Closed):
 ADMISSION_SCHEMA = "portal-human-read-admission.v1"
 
 
-def verify_read_admission(
-    raw: bytes, root: Ed25519PublicKey, manifest: HumanPublicManifest
-) -> ReadAdmission:
+def verify_read_admission(raw: bytes, root: Ed25519PublicKey, manifest: HumanPublicManifest) -> ReadAdmission:
     """The deployed read installation's capability, signed by the installation root.
 
     The controller's own DTO is explicitly insufficient (`ReadDeploymentAdmission`

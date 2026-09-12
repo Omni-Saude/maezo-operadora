@@ -252,9 +252,7 @@ def build_materials(directory: Path, *, overrides: dict | None = None) -> HumanM
 
 
 def _pem(key: Ed25519PrivateKey) -> bytes:
-    return key.private_bytes(
-        Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-    )
+    return key.private_bytes(Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
 
 
 def _iso(value: datetime) -> str:
