@@ -1742,13 +1742,29 @@ def register_auth_workers(
     request — the outcome design §6 exists to prevent.
     """
     del kafka  # unused — no auth.py worker declares a Kafka dependency
-    for worker_cls in (
+    workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
-        RequestDocumentsWorker,
         IssueAuthorizationWorker,
         SendDenialNoticeWorker,
         NotifySlaRiskWorker,
         ConveneJuntaWorker,
-    ):
+    ]
+    # WP-J1-03 — EXCLUSIVIDADE DE TOPICO. `operadora.auth.request_documents` tem dois
+    # consumidores possiveis e EXATAMENTE UM pode estar registrado:
+    #   (a) este `RequestDocumentsWorker`, que apenas registra em log e NAO entrega nada
+    #       (nenhuma linha de caixa de entrada, nenhum corpo sob custodia PHI); e
+    #   (b) a ponte dedicada `DocumentRequestHost` (gateway/document_requests), que entrega
+    #       de verdade ao prestador E ao beneficiario (decisao #18 do dono).
+    # Se os dois estiverem registrados, os dois fazem fetch-and-lock da MESMA tarefa externa
+    # e quem ganhar a corrida decide se o pedido foi entregue ou apenas logado — o pior
+    # resultado possivel, porque o processo segue para GW_AguardarDocs nos dois casos e a
+    # falta de entrega so aparece quando o prazo P5D expira. Por isso a escolha e' explicita
+    # (`MAEZO_AUTH_DOCUMENT_REQUEST_HOST`), nunca inferida, e a ponte se recusa a instalar
+    # enquanto este topico ainda estiver no conjunto do harness generico
+    # (`DocumentRequestHost.assert_exclusive`). A ausencia do seam mantem o comportamento
+    # historico byte-a-byte: o worker generico registra.
+    if not seams.get("document_request_host_installed", False):
+        workers.insert(1, RequestDocumentsWorker)
+    for worker_cls in workers:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
