@@ -110,3 +110,97 @@ Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquiv
 - **Given** instancia ativa `AUTH-amh-GUIA-TESTE-0001`
 - **When** reenvio da mesma guia
 - **Then** sem segunda instancia ativa
+
+## Pedido de documentos — ponte PHI (WP-J1-03, decisao do dono #18)
+
+Contrato: `docs/processes/contracts/SP-OP-AUTH-001.md`, "Pedido de documentos — ponte PHI".
+Todos os casos abaixo estao implementados em
+`tests/unit/gateway/document_requests/test_production_bridge.py`, exceto os tres marcados
+`[motor]`, que precisam de motor real e estao listados para o executor de integracao.
+
+### Exclusividade do topico
+
+#### test_generic_harness_serves_the_topic_only_while_the_bridge_is_absent
+- **Given** o conjunto canonico de topicos derivado de `register_default_workers`
+- **When** calculado com e sem a ponte instalada
+- **Then** 117 topicos sem a ponte, 116 com; a diferenca e' EXATAMENTE
+  `{operadora.auth.request_documents}` e nenhum topico vizinho se move
+
+#### test_readiness_expectation_and_registration_cannot_disagree
+- **Given** as duas posturas de `MAEZO_AUTH_DOCUMENT_REQUEST_HOST`
+- **Then** o harness vivo e o conjunto esperado por `/readyz` coincidem nas duas — `/readyz`
+  nunca exige um topico deliberadamente ausente
+
+#### test_host_refuses_to_install_while_the_generic_worker_still_holds_the_topic
+- **Given** o conjunto de topicos do harness generico ainda contendo o topico
+- **Then** `DocumentRequestHost.assert_exclusive` recusa
+
+#### test_builder_refuses_on_a_shared_topic_before_composing_anything
+- **Then** a recusa precede `compose` (canais nativos e pools de banco nunca chegam a abrir)
+
+### Destinatarios (decisao #18)
+
+#### test_provider_and_beneficiary_both_become_recipients_when_both_hold_authority
+- **Given** `resource_authority` ativa de `auth.documents.respond` para prestador e beneficiario
+- **Then** dois destinatarios, audiencias `provider` e `beneficiary`, digests ordenados e unicos
+
+#### test_provider_only_is_admitted_when_no_beneficiary_holds_an_authority
+- **Then** um destinatario prestador; a ausencia de delegacao do beneficiario nao e' erro
+
+#### test_a_beneficiary_holding_an_authority_but_omitted_by_the_policy_is_refused
+- **Then** RECUSA — a metade silenciosa da decisao #18
+
+#### test_a_policy_naming_a_principal_with_no_active_authority_is_refused
+#### test_a_request_with_no_provider_recipient_is_refused
+#### test_a_provider_audience_without_a_provider_reference_is_refused
+#### test_a_staff_actor_on_a_respond_authority_is_refused_not_silently_dropped
+#### test_two_authorities_for_one_principal_are_refused_never_preferred
+#### test_every_published_validity_condition_refuses_the_recipient
+- consentimento revogado; base `consent` sem consentimento valido; janela expirada; janela
+  ainda nao aberta
+#### test_an_observation_ceiling_already_passed_refuses_the_recipient
+#### test_recipient_identity_separates_membership_revisions
+#### test_recipient_valid_until_never_outlives_its_authority_or_source
+
+### Fonte de politica (nunca autora)
+
+#### test_policy_returns_the_attested_publication_byte_for_byte
+#### test_policy_refuses_when_the_published_policy_disagrees_with_the_authorities
+#### test_policy_refuses_when_no_document_policy_head_is_published
+- **Then** ausencia de head publicada e' recusa, nunca uma politica default inventada
+#### test_policy_refuses_an_already_answered_request
+#### test_policy_refuses_a_head_bound_to_another_case_or_request
+#### test_restart_resumes_the_sealed_publication_and_refuses_a_newer_head
+#### test_successor_refuses_because_no_installed_source_issues_an_invocation_authority
+#### test_notice_projects_the_recipients_and_carries_no_invented_prior_command
+#### test_notice_rereads_the_authorities_so_a_revocation_between_the_calls_refuses
+#### test_notice_refuses_a_receipt_that_does_not_bind_this_policy
+#### test_the_source_refuses_an_observation_from_another_tenant
+
+### Autoridade de conclusao
+
+#### test_completion_authority_acquires_only_the_outcome_designation
+#### test_completion_authority_refuses_the_fetch_purpose_without_touching_the_provider
+#### test_completion_authority_refuses_a_lease_for_another_capability_or_binding
+
+### Custodia PHI
+
+#### test_the_production_module_never_reaches_phi_body_custody
+- **Then** o modulo de autoridade nao nomeia nenhum simbolo nem tabela do plano de corpo PHI;
+  as unicas relacoes citadas sao `mzo_auth_input_head` e `mzo_auth_input_version`
+
+### Motor real (nao cobertos pelo nivel unitario)
+
+#### [motor] test_case_respond_authorities_selects_by_resource_over_published_heads
+- **Given** heads `resource_authority` publicadas para o mesmo caso, uma delas revogada
+- **When** `CaseRespondAuthorities.read`
+- **Then** so' as verificadas por `NativeAuthReader.head` voltam; a revogada e' omitida
+
+#### [motor] test_document_policy_publication_request_round_trips_from_the_version_row
+- **Then** a `InputPublication` lida de `mzo_auth_input_version` bate digest com a head
+
+#### [motor] test_solicitar_info_produces_one_inbox_line_for_provider_and_one_for_beneficiary
+- **Given** autoridade ativa dos dois e `document_policy` que nomeia os dois
+- **When** o auditor completa com `decisao_auditor=SOLICITAR_INFO`
+- **Then** DUAS linhas de caixa de entrada, uma por destinatario, e a tarefa externa concluida
+  exatamente uma vez

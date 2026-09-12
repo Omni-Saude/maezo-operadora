@@ -114,7 +114,13 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
     <!-- Ramo: pendencia de documentacao -->
     <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Solicitar documentacao ao prestador"
                       camunda:type="external" camunda:topic="operadora.auth.request_documents">
-      <bpmn:documentation>Suspensao de prazo durante pendencia (regra RN — DRAFT/verify com regulatorio). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.auth.pended diretamente — ver ST_PublishAuthPended logo a seguir (T3.1 Wave 1 remedy B, event-gap design doc §2.3).</bpmn:documentation>
+      <bpmn:documentation>Suspensao de prazo durante pendencia (regra RN — DRAFT/verify com regulatorio). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.auth.pended diretamente — ver ST_PublishAuthPended logo a seguir (T3.1 Wave 1 remedy B, event-gap design doc §2.3).
+
+WP-J1-03 (decisao do dono #18, 2026-09-12) — DESTINATARIOS E EXCLUSIVIDADE. Este topico tem DOIS consumidores possiveis no codigo e EXATAMENTE UM pode estar registrado por implantacao: o worker generico `RequestDocumentsWorker` (tools/workers/auth.py), que apenas registra em log e NAO entrega nada, ou a ponte PHI dedicada `DocumentRequestHost` (gateway/document_requests), que entrega de verdade. A escolha e' declarativa (`MAEZO_AUTH_DOCUMENT_REQUEST_HOST`), nunca inferida, e verificada dos dois lados; os dois registrados fariam fetch-and-lock concorrente na MESMA tarefa externa e a entrega passaria a ser decidida por corrida, invisivel ate o prazo P5D de ICE_PrazoPendencia expirar.
+
+Quando a ponte serve o topico, o pedido vai ao PRESTADOR **e** ao BENEFICIARIO — cada um por uma `resource_authority` ATIVA de acao `auth.documents.respond` sobre o mesmo caso, a MESMA acao que ICE_DocsRecebidos reconfere ao aceitar a resposta. O nome desta task continua descrevendo a obrigacao contratual ("ao prestador"): o beneficiario e' destinatario ADICIONAL quando detem delegacao ativa, nunca substituto do prestador, e um pedido sem destinatario prestador e' RECUSADO.
+
+NENHUM DELTA EXECUTAVEL AQUI. Os destinatarios vem das heads publicadas (`document_policy` + `resource_authority`), nunca da carga do evento de dominio de ST_PublishAuthPended — a ponte nao le esse evento. Por isso `event_payload_vars` permanece sem `beneficiario_pseudo_id`: inclui-lo ampliaria a exposicao de um pseudonimo (ADR-0006) num evento que o exclui deliberadamente, sem nenhum consumidor que precise dele. Diff executavel vazio ⇒ nenhuma nova versao de processo. Contrato: docs/processes/contracts/SP-OP-AUTH-001.md, "Pedido de documentos — ponte PHI".</bpmn:documentation>
       <bpmn:incoming>Flow_GW_Pendencia</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
       <bpmn:outgoing>Flow_Solicitar_PubPended</bpmn:outgoing>
