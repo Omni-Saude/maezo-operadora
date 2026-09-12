@@ -282,11 +282,14 @@ def parse_team_notice(value: Any) -> TeamNotice | None:
             value,
             code=REASON_MISSING_ESCALATION_ANCHOR,
         )
-    assert tenant_id is not None and business_key is not None and grupo is not None  # noqa: S101
+    # No `assert` for the narrowing: the `missing` check above already refused every `None`, and
+    # an `assert` in a production path is a statement that vanishes under `-O`. The empty-string
+    # fallbacks below are therefore UNREACHABLE — they exist only to give the type checker a
+    # non-optional value, and reaching one would mean the refusal above stopped working.
     return TeamNotice(
-        tenant_id=tenant_id,
-        business_key=business_key,
-        grupo_atendimento=grupo,
+        tenant_id=tenant_id or "",
+        business_key=business_key or "",
+        grupo_atendimento=grupo or "",
         # Absent AND explicitly-null both arrive as `None`, which is the contract's own value for
         # the `falha_tecnica` exception — see the field's docstring.
         severidade=_non_blank(value, "severidade"),

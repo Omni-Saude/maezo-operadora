@@ -987,8 +987,8 @@ class TestBuckets:
         assert actual == {
             "auditor_id": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:324 (bpmn_form_field)",
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:409 (bpmn_form_field)",
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:547 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:410 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:548 (bpmn_form_field)",
             ],
             "cid10": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59 (bpmn_declared_input)",
@@ -1139,8 +1139,8 @@ class TestZonaAnnotationRule:
     def test_the_live_spec_annotations_are_found_and_all_listed(self, live_sweep: Sweep) -> None:
         assert [(ref.path.name, ref.line, ref.name) for ref in live_sweep.annotated] == [
             ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 305, "justificativa_clinica"),
-            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 390, "justificativa_clinica"),
-            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 528, "justificativa_clinica"),
+            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 391, "justificativa_clinica"),
+            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 529, "justificativa_clinica"),
             ("SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn", 159, "notas_resolucao"),
             ("SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn", 272, "notas_resolucao"),
         ]
