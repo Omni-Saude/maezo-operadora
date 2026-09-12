@@ -76,7 +76,7 @@ import httpx
 import structlog
 
 from maezo.tools.workers._audit_ctx import record_dmn_version
-from maezo.tools.workers.engine_var_types import camunda_int_type
+from maezo.tools.workers.engine_var_types import camunda_int_type, declared_long_variable
 
 logger = structlog.get_logger(__name__)
 
@@ -207,8 +207,9 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     `str(v)` (e.g. `"{'a': 1}"`, `repr()`-like and not valid JSON) — the engine would store it as
     an opaque string, not a structured object/array.
 
-    **This mapper types by the Python RUNTIME type of each value ONLY — it does NOT validate against
-    the DMN input's declared `typeRef`.** A wrong-SHAPE source value is silently typed by whatever
+    **Except for names declared Long (R-173), this mapper types by Python RUNTIME type;
+    it does NOT validate against the DMN input's declared `typeRef`.** A wrong-SHAPE source value
+    is silently typed by whatever
     Python type it happens to be: a `list` bound to a `string`-declared input is encoded as `Json`
     (not the `String` FEEL expects); an LLM-emitted JSON STRING (`"85"`) bound to an `integer`-
     declared input is typed `String` (not `Integer`); a `float` bound to an `integer` input is
@@ -216,11 +217,14 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     or, worst case, match a rule on the wrong-typed value. Ensuring each value's Python type matches
     the DMN's declared `typeRef` is the CALLER's responsibility (e.g. `fraude._collect_scoring_inputs`
     coerces-or-drops its numeric signals before calling in). This function only guarantees each
-    Python type maps to the correct Camunda wire type.
+    Python type maps to the correct Camunda wire type. Declared Long centavos instead require
+    an exact int64 integer, including pre-shaped engine-variable envelopes.
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
-        if isinstance(v, dict) and "value" in v:
+        if (declared := declared_long_variable(k, v)) is not None:
+            camunda_vars[k] = declared
+        elif isinstance(v, dict) and "value" in v:
             camunda_vars[k] = v  # already engine-shaped — pass through unchanged
         elif isinstance(v, bool):
             camunda_vars[k] = {"value": v, "type": "Boolean"}
