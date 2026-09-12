@@ -669,7 +669,82 @@ def _assert_pool_construction_only(source: str) -> None:
         and isinstance(parent.value, ast.Name)
         and parent.value.id == "httpx"
     )
+    # Every mention of the module must BE one of those attribute accesses. Counting
+    # attributes alone let `alternate_http = httpx` through, which rebinds the whole
+    # module and reopens everything this fence closes (found by the mutant suite
+    # below; the sibling `_assert_engine_read_pool_type_only` already counted uses).
+    uses = [node for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "httpx"]
+    parents = {id(child): parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    assert len(uses) == len(attributes), [use.lineno for use in uses]
+    assert all(isinstance(parents[id(use)], ast.Attribute) for use in uses)
     assert attributes == ["AsyncBaseTransport", "AsyncHTTPTransport"], attributes
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "additional_alias",
+        "replace_alias",
+        "from_import",
+        "submodule_alias",
+        "module_assignment",
+        "direct_request",
+        "client_construction",
+        "timeout_construction",
+        "second_pool",
+        "duplicate_import",
+        "nested_import",
+        "mixed_import",
+        "aliased_import",
+        "import_below_module_body",
+        "annotation_only",
+    ],
+)
+async def test_pool_construction_only_rejects_aliases_clients_and_extra_uses(mutation):
+    """WP-J1-00 repair (V10 MINOR-6) — the guard that guards `production.py`.
+
+    `httpx.AsyncHTTPTransport` is outside the CI chokepoint fence's scope
+    (`scripts/ci/check_effect_chokepoint_fence.py` `_HTTPX_CLIENT_ATTRS` is
+    `{"AsyncClient", "Client"}`), so `_assert_pool_construction_only` is the ONLY
+    thing standing between the composition root and an unfenced HTTP surface. An
+    unmutated assertion is not evidence; this is the mirror of
+    `test_read_pool_type_only_rejects_aliases_requests_and_relocations`.
+    """
+    source = (
+        "import httpx\n"
+        "def compose():\n"
+        "    pool: httpx.AsyncBaseTransport = httpx.AsyncHTTPTransport(verify=None, trust_env=False)\n"
+        "    return pool\n"
+    )
+    _assert_pool_construction_only(source)
+    suffixes = {
+        "additional_alias": "import httpx as alternate_http\ndef request(): return alternate_http.get('https://invalid')\n",
+        "from_import": "from httpx import AsyncClient\n",
+        "submodule_alias": "import httpx._client as alternate_http\n",
+        "module_assignment": "alternate_http = httpx\n",
+        "direct_request": "def request(): return httpx.get('https://invalid')\n",
+        "client_construction": "def client(): return httpx.AsyncClient(verify=None)\n",
+        "timeout_construction": "def budget(): return httpx.Timeout(5)\n",
+        "second_pool": "def extra(): return httpx.AsyncHTTPTransport(verify=None)\n",
+        "duplicate_import": "import httpx\n",
+        "nested_import": "def request():\n    import httpx as alternate_http\n",
+        "annotation_only": "def typed(pool: httpx.AsyncBaseTransport): pass\n",
+    }
+    replacements = {
+        "replace_alias": ("import httpx", "import httpx as alternate_http"),
+        "mixed_import": ("import httpx", "import httpx, os"),
+        "aliased_import": ("import httpx\n", "import httpx\nimport httpx as h\n"),
+        "import_below_module_body": (
+            "import httpx\ndef compose():",
+            "def compose():\n    import httpx\ndef _compose():",
+        ),
+    }
+    if mutation in suffixes:
+        source += suffixes[mutation]
+    else:
+        source = source.replace(*replacements[mutation])
+    with pytest.raises(AssertionError):
+        _assert_pool_construction_only(source)
 
 
 def _assert_engine_read_pool_type_only(source: str) -> None:
