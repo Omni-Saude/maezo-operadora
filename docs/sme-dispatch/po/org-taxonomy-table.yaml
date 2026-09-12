@@ -75,17 +75,17 @@ rows:
   nome_real: ''
 - grupo_declarado: medico-auditor
   arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
-  linha: 163
+  linha: 193
   processo: SP-OP-AUTH-001
   em_escopo: true
-  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseMedicoAuditor (linha 264)
+  tarefa_ou_regra_dmn: UT_DecidirPendenciaExpirada; UT_AnaliseMedicoAuditor (linha 324)
   sla_ato: contrato Sec.Papeis linha 206 -- negativa SO aqui
   proposto: true
   notas: caveat PROPOSTO no contrato linha 210-217 (gap AUTH-LGPD-CONTRACTS-NO-PROPOSTO-CAVEAT)
   nome_real: ''
 - grupo_declarado: coordenacao-auditoria-medica
   arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
-  linha: 373
+  linha: 433
   processo: SP-OP-AUTH-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoAssume
@@ -95,7 +95,7 @@ rows:
   nome_real: ''
 - grupo_declarado: junta-medica
   arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
-  linha: 513
+  linha: 573
   processo: SP-OP-AUTH-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_RegistrarParecerJunta
