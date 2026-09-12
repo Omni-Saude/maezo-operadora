@@ -1,8 +1,14 @@
 """Builder for a COMPLETE, valid human material bundle used by the WP-J1-00 tests.
 
 This builds deployment material (keys, certificates, DSNs, a signed manifest) — the
-same shape the operator provisions. It builds no provider and no port: the tests
+same shape the operator provisions — plus the out-of-band `HumanMaterialPin` the
+deployment configures separately. It builds no provider and no port: the tests
 exercise the production providers in `src/`, never a stand-in for one.
+
+It lives under `tests/support/` rather than `tests/unit/` because the live-engine
+proof (`tests/integration/gateway/test_human_relay_live_cib.py`) composes the real
+production root over a bundle whose surfaces and DSNs point at the live CIB Seven and
+its PostgreSQL, and the integration lane may only import from `tests.support`.
 
 Every secret here is a freshly generated test key that never leaves the process.
 """
@@ -25,6 +31,7 @@ from cryptography.x509.oid import NameOID
 from maezo.gateway.human.production_materials import (
     FILES,
     PUBLIC_FILES,
+    HumanMaterialPin,
     HumanMaterials,
     HumanPublicManifest,
     verify_materials,
@@ -76,8 +83,19 @@ def _certificate(common_name: str) -> tuple[bytes, bytes, str]:
     return pem_certificate, pem_key, hashlib.sha256(_spki(key)).hexdigest()
 
 
-def build_bundle(*, directory: Path, overrides: dict | None = None) -> tuple[HumanPublicManifest, dict]:
-    """Write the material files under `directory` and return (manifest, file bytes)."""
+def build_bundle(
+    *,
+    directory: Path,
+    overrides: dict | None = None,
+    replacements: dict[str, bytes] | None = None,
+) -> tuple[HumanPublicManifest, dict]:
+    """Write the material files under `directory` and return (manifest, file bytes).
+
+    `replacements` substitutes real deployment bytes (a live CA, client certificate,
+    client key, signing key or DSN) BEFORE the manifest digests are computed, so the
+    manifest still attests exactly what is on disk. `overrides` patches manifest
+    fields afterwards, which is how a test builds a deliberately invalid manifest.
+    """
     root = Ed25519PrivateKey.generate()
     read_key = Ed25519PrivateKey.generate()
     assignment_key = Ed25519PrivateKey.generate()
@@ -142,6 +160,16 @@ def build_bundle(*, directory: Path, overrides: dict | None = None) -> tuple[Hum
         "source-dsn.txt": b"postgresql+asyncpg://human_source:pw@db.invalid:5432/maezo",
     }
     assert set(files) == FILES
+    for name, raw in (replacements or {}).items():
+        assert name in FILES, name
+        files[name] = raw
+    # Re-derive every attested digest from what is actually on disk, so a replacement
+    # produces a manifest that is still exactly true about the bundle it describes.
+    read_client_spki = _certificate_spki(files["read-client-certificate.pem"])
+    command_client_spki = _certificate_spki(files["command-client-certificate.pem"])
+    read_key = _load_signing(files["read-signing-key.pem"])
+    assignment_key = _load_signing(files["assignment-signing-key.pem"])
+    command_key = _load_signing(files["command-signing-key.pem"])
 
     payload: dict = {
         "schema": "portal-human-material.v1",
@@ -154,7 +182,9 @@ def build_bundle(*, directory: Path, overrides: dict | None = None) -> tuple[Hum
         "engine_name": ENGINE_NAME,
         "database_incarnation": INCARNATION,
         "assignment_workload_ref": ASSIGNMENT_WORKLOAD,
-        "command_endpoint": COMMAND_ORIGIN + "/v1/commands",
+        # The engine BASE url: the transport appends `/v1/commands` and
+        # `/v1/receipts/...` itself, and the deployed surface is mounted at the root.
+        "command_endpoint": COMMAND_ORIGIN,
         "catalog_ref": "catalog-auth-v3",
         "publisher_ref": "publisher-deployment-1",
         "keys": [
@@ -232,6 +262,14 @@ def build_bundle(*, directory: Path, overrides: dict | None = None) -> tuple[Hum
         "relay_lease_seconds": "30",
         "relay_retry_seconds": "1",
         "relay_poll_seconds": "1",
+        "revocation_snapshot": {
+            "scope": {"tenant": TENANT, "environment": ENVIRONMENT, "workload_ref": WORKLOAD},
+            "source_ref": "revocation-observer-1",
+            "revision": "4",
+            "observed_at": _iso(issued_at),
+            "valid_until": _iso(valid_until),
+            "revoked_fingerprints": [],
+        },
         "files": {
             **{name: hashlib.sha256(files[name]).hexdigest() for name in PUBLIC_FILES},
             **{name: None for name in FILES - PUBLIC_FILES},
@@ -246,9 +284,39 @@ def build_bundle(*, directory: Path, overrides: dict | None = None) -> tuple[Hum
     return parse_model(HumanPublicManifest, payload), files
 
 
-def build_materials(directory: Path, *, overrides: dict | None = None) -> HumanMaterials:
-    manifest, files = build_bundle(directory=directory, overrides=overrides)
-    return verify_materials(manifest, files, now=datetime.now(UTC), directory=str(directory))
+def pin_for(manifest: HumanPublicManifest) -> HumanMaterialPin:
+    """The out-of-band anchor an operator would configure for this exact manifest."""
+    return HumanMaterialPin(
+        tenant=manifest.scope.tenant,
+        material_version_id=manifest.material_version_id,
+        public_manifest_sha256=hashlib.sha256(manifest.canonical()).hexdigest(),
+    )
+
+
+def build_materials(
+    directory: Path,
+    *,
+    overrides: dict | None = None,
+    replacements: dict[str, bytes] | None = None,
+    pin: HumanMaterialPin | None = None,
+) -> HumanMaterials:
+    manifest, files = build_bundle(directory=directory, overrides=overrides, replacements=replacements)
+    return verify_materials(
+        pin or pin_for(manifest), manifest, files, now=datetime.now(UTC), directory=str(directory)
+    )
+
+
+def _certificate_spki(pem: bytes) -> str:
+    certificate = x509.load_pem_x509_certificate(pem)
+    return hashlib.sha256(
+        certificate.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    ).hexdigest()
+
+
+def _load_signing(pem: bytes) -> Ed25519PrivateKey:
+    key = serialization.load_pem_private_key(pem, password=None)
+    assert isinstance(key, Ed25519PrivateKey)
+    return key
 
 
 def _pem(key: Ed25519PrivateKey) -> bytes:
