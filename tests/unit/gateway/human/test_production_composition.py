@@ -682,7 +682,10 @@ def test_human_runtime_has_no_seam_that_skips_the_loader():
     defends — no object may arrive already "verified" — still admits no exception.
     """
     signature = inspect.signature(production_module.human_runtime)
-    assert list(signature.parameters) == ["pin", "decision_directory"]
+    # `pin` stays the only positional, and every additional parameter is keyword-only
+    # material *locators* plus their own out-of-band anchors — never materials.
+    assert list(signature.parameters) == ["pin", "decision_directory", "decision_pin"]
+    assert signature.parameters["decision_pin"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["pin"].default is inspect.Parameter.empty
     assert signature.parameters["pin"].annotation == "HumanMaterialPin"
     decision = signature.parameters["decision_directory"]
@@ -692,12 +695,21 @@ def test_human_runtime_has_no_seam_that_skips_the_loader():
     source = inspect.getsource(production_module.human_runtime)
     assert "load_human_materials(MATERIAL_DIRECTORY, pin)" in source
     assert "materials if materials is not None" not in source
-    # The decision plane goes through its own loader, and only by name.
-    assert "load_decision_materials(decision_directory)" in source
+    # The decision plane goes through its own loader, by name AND by its own
+    # out-of-band anchor — naming the directory without the pin is refused (V14 MAJOR-2).
+    assert "load_decision_materials(decision_directory, decision_pin)" in source
+    assert "if decision_pin is None:" in source
     assert "decision is not None" not in source
 
-    from maezo.gateway.human.decision_materials import DecisionMaterialError, load_decision_materials
+    from maezo.gateway.human.decision_materials import (
+        DecisionMaterialError,
+        DecisionMaterialPin,
+        load_decision_materials,
+    )
 
+    anchor = DecisionMaterialPin(
+        tenant="tenant_j1", material_version_id="j1decision" + "0" * 26, public_manifest_sha256="a" * 64
+    )
     for rejected in (None, "", "/tmp/decision", "/run/maezo-decision-materials"):
         with pytest.raises(DecisionMaterialError):
-            load_decision_materials(rejected)
+            load_decision_materials(rejected, anchor)
