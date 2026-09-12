@@ -505,6 +505,7 @@ async def test_production_composition_relay_reconciles_lost_response_with_same_p
         await live.assert_result(command)
     finally:
         await runtime.assignment.close()
+        await runtime.read.close()
         lifetime.close()
         await source_engine.dispose()
 
