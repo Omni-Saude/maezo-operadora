@@ -978,7 +978,7 @@ def _metodos_do_colaborador_substituido(alvo: str, atributo: str) -> frozenset[s
         return frozenset()
     try:
         objeto = getattr(importlib.import_module(alvo), atributo)
-    except Exception:  # noqa: BLE001 — qualquer falha de resolução prova nada (fail-closed)
+    except Exception:  # qualquer falha de resolução prova nada (fail-closed)
         return frozenset()
     identidade = (getattr(objeto, "__module__", None), getattr(objeto, "__qualname__", None))
     return _COLABORADORES_EXTERNOS_SUBSTITUIVEIS.get(identidade, frozenset())

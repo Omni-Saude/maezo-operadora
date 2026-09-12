@@ -581,8 +581,8 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         ),
         identificacao=(
             "tenant + publication_id (FK tenant -> portal_assignment_source); immutable publication "
-            "of one source_revision to the native engine (trigger refuses UPDATE/DELETE); "
-            "no subject column"
+            "of one source_revision to the native engine (a trigger refuses any change or removal "
+            "of the row); no subject column"
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=24,
