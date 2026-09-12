@@ -327,12 +327,95 @@ emitia sem declaracao no contrato).
 | External task | `operadora.events.publish` | consome | publicador generico |
 | External task | `operadora.auth.validate_auto_criteria` | consome | **portao de criterios (GAP-AUTH-4)**: computa tecnico/financeiro/regulatorio/contratual ANTES de `BRT_AutoApproval` |
 | External task | `operadora.auth.analyze_request` | consome | convoca Rafael: dossie de analise (ja registrado) |
-| External task | `operadora.auth.request_documents` | consome | pendencia ao prestador |
+| External task | `operadora.auth.request_documents` | consome | pendencia documental — **um unico consumidor por implantacao**, ver "Pedido de documentos — ponte PHI" |
 | External task | `operadora.auth.issue_authorization` | consome | emite autorizacao (TISS) |
 | External task | `operadora.auth.send_denial_notice` | consome (worker) | worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`): **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
 | External task | `operadora.auth.notify_sla_risk` | consome (worker) | worker `NotifySlaRiskWorker`: registra que a ETAPA de alerta de risco de SLA a `coordenacao-auditoria-medica` rodou (timer nao-interruptivo `BT_AlertaSla`) e retorna `{}` — **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** e nao contata canal algum (worker sincrono, sem seam de Kafka). Aquele evento e publicado por `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise` — outro ramo (FAB-SLA-RISK-NOTIFIED-SLICE4). Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
 | External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT) |
 | Message BPMN | `msg.auth.docs_received` | recebe | correlacao por business key, destrava pendencia |
+
+## Pedido de documentos — ponte PHI
+
+### Quem serve o topico (exclusividade)
+
+`operadora.auth.request_documents` tem DOIS consumidores possiveis no codigo e EXATAMENTE UM
+pode estar registrado em cada implantacao:
+
+| consumidor | o que faz | quando |
+|---|---|---|
+| `RequestDocumentsWorker` (`src/maezo/tools/workers/auth.py`) | registra em log a abertura da pendencia. **Nao entrega nada**: nenhuma linha de caixa de entrada, nenhum corpo sob custodia | `MAEZO_AUTH_DOCUMENT_REQUEST_HOST` ausente/falso (padrao) |
+| `DocumentRequestHost` (`src/maezo/gateway/document_requests`, construido por `production.py:build_document_request_host`) | entrega de verdade: uma comunicacao duravel por destinatario, com corpo sob custodia PHI e recibo | `MAEZO_AUTH_DOCUMENT_REQUEST_HOST` verdadeiro |
+
+Os dois registrados fariam fetch-and-lock concorrente na MESMA tarefa externa: quem ganhasse a
+corrida decidiria se o pedido foi entregue ou apenas registrado em log, e o processo seguiria
+para `GW_AguardarDocs` nos dois casos — a falta de entrega so apareceria quando o prazo `P5D`
+de `ICE_PrazoPendencia` expirasse. Por isso a escolha e declarativa e explicita, nunca inferida
+do modo de implantacao, e e' verificada duas vezes: o daemon deixa de registrar o topico
+(`register_auth_workers`) e a ponte se recusa a instalar enquanto o topico ainda estiver no
+conjunto do harness generico (`DocumentRequestHost.assert_exclusive`).
+
+### Destinatarios — decisao do dono #18 (2026-09-12)
+
+Os destinatarios do pedido de documentos sao o **prestador E o beneficiario**, cada um por uma
+`resource_authority` ATIVA de acao `auth.documents.respond` sobre o mesmo caso. E' a mesma acao
+que o comando documental do motor reconfere ao aceitar a resposta, de modo que o conjunto de
+quem recebe e o conjunto de quem pode responder sao o mesmo conjunto por construcao.
+
+A decisao e aplicada como INVARIANTE DE CONSISTENCIA entre duas publicacoes atestadas, nunca
+como regra calculada em Python: a `document_policy` publicada declara
+`recipient_principal_refs` e as heads `resource_authority` publicadas declaram quem detem a
+delegacao. A ponte recusa quando as duas discordam, nas DUAS direcoes:
+
+| situacao | resultado | porque |
+|---|---|---|
+| politica nomeia um principal sem autoridade ativa | RECUSA | receberia aviso de um caso que ninguem atestou que pode tratar |
+| beneficiario tem autoridade ativa e a politica o omite | RECUSA | e' exatamente assim que o beneficiario deixa de ser avisado em silencio |
+| nenhum destinatario prestador | RECUSA | `ST_SolicitarDocumentos` e' "solicitar documentacao ao prestador"; um pedido que nao chega a ninguem do lado do prestador nao e' este pedido |
+| ator de audiencia `staff` numa autoridade de resposta | RECUSA | staff nao tem vinculo; a linha e falha de instalacao, nao permissao mais fraca |
+| duas autoridades para o mesmo principal | RECUSA | ambiguidade nunca e resolvida por preferencia |
+| consentimento revogado, base `consent` sem consentimento valido, janela expirada/ainda nao aberta, teto de observacao vencido | destinatario nao se forma -> RECUSA pela divergencia com a politica | as mesmas condicoes do caminho de efeito sancionado |
+
+As autoridades sao relidas no momento de montar o aviso: uma delegacao revogada entre a
+publicacao da politica e a montagem do aviso faz o pedido recusar, nunca entregar.
+
+### O que a ponte NAO faz
+
+* **Nao reescreve a politica.** A `document_policy` e uma publicacao atestada por um publicador
+  a montante; a ponte a republica byte-a-byte (obtendo o recibo ja comprometido) em vez de
+  assinar uma versao propria. Reescrever a carga sob a `SourceProvenance` alheia forjaria a
+  atestacao daquele publicador.
+* **Nao inventa destinatario, codigo documental nem prazo.** Nada disso e decidido em Python.
+* **Nao toca o corpo do documento.** O plano de corpo PHI pertence ao produtor sob o seu proprio
+  papel de banco; o modulo de autoridade nao nomeia nenhum simbolo nem tabela desse plano.
+
+### Delta de BPMN: por que NAO ha um
+
+O pacote desta decisao foi planejado prevendo um delta comportamental no BPMN — incluir
+`beneficiario_pseudo_id` em `event_payload_vars` de `ST_PublishAuthPended`. **Esse delta nao e
+necessario e nao foi feito**, por duas razoes independentes:
+
+1. Nenhum mecanismo o consome. Os destinatarios vem das heads publicadas
+   (`document_policy` + `resource_authority`), nao da carga do evento de dominio
+   `agents.events.auth.pended`. A ponte nunca le esse evento.
+2. Incluí-lo ampliaria a exposicao de um pseudonimo (ADR-0006) num evento de dominio que o
+   exclui deliberadamente (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`,
+   comentario de `ST_PublishAuthPended`), sem nenhum consumidor que precise dele.
+
+Como o diff executavel e vazio, nao ha nova versao de processo pela politica de versionamento
+WP-BPMN. A unica alteracao no `.bpmn` e uma `<bpmn:documentation>` em `ST_SolicitarDocumentos`
+registrando a decisao #18 — o `name` da task ("Solicitar documentacao ao prestador") continua
+descrevendo a obrigacao contratual, e o beneficiario e' um destinatario ADICIONAL quando detem
+delegacao ativa, nunca um substituto do prestador.
+
+### Entradas de implantacao ainda exigidas
+
+`build_document_request_host` exige `phi_source` e `metadata_source`
+(`SystemPublicationSource`), o plano de CONCESSAO de sistema — qual identidade produtora pode
+enviar qual aviso a quais destinatarios — cujo dono e uma fonte qualificada separada, com papel
+de banco proprio (`portal_document_request.authority_head`/`authority_publication`, escritos so
+pelos papeis publicadores). Este pacote deliberadamente NAO fornece uma imitacao local desse
+porte: seria exatamente a fonte de politica no-op que esta ponte existe para recusar. Sem ela o
+construtor recusa, e a implantacao mantem `MAEZO_AUTH_DOCUMENT_REQUEST_HOST` desligado.
 
 ## DMN referenciadas
 
