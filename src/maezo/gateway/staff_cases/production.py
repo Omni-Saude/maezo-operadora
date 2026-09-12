@@ -161,7 +161,7 @@ async def staff_runtime(
 ) -> AsyncIterator[StaffCaseRuntime]:
     try:
         if (
-            settings.capabilities != "identity,staff_cases"
+            settings.capabilities not in ("identity,staff_cases", "identity,staff_cases,human")
             or identity.mode != "production"
             or settings.tenant != identity.tenant
             or settings.issuer != identity.issuer

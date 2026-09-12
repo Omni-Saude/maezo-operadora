@@ -640,6 +640,113 @@ async def test_acknowledgement_identity_is_exact(field, value):
         await submit(g)
 
 
+def _assert_pool_construction_only(source: str) -> None:
+    """WP-J1-00: the composition root may build the application-owned pool, nothing else.
+
+    It constructs `httpx.AsyncHTTPTransport` (the pool) and annotates it as
+    `httpx.AsyncBaseTransport`. Any client construction or request call here would
+    escape the fenced transport modules, so both are refused.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    imports = [
+        node
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "httpx" for alias in node.names))
+        or (isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx")
+    ]
+    assert len(imports) == 1
+    imported = imports[0]
+    assert imported in tree.body
+    assert isinstance(imported, ast.Import)
+    assert len(imported.names) == 1
+    assert imported.names[0].name == "httpx" and imported.names[0].asname is None
+    attributes = sorted(
+        parent.attr
+        for parent in ast.walk(tree)
+        if isinstance(parent, ast.Attribute)
+        and isinstance(parent.value, ast.Name)
+        and parent.value.id == "httpx"
+    )
+    # Every mention of the module must BE one of those attribute accesses. Counting
+    # attributes alone let `alternate_http = httpx` through, which rebinds the whole
+    # module and reopens everything this fence closes (found by the mutant suite
+    # below; the sibling `_assert_engine_read_pool_type_only` already counted uses).
+    uses = [node for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "httpx"]
+    parents = {id(child): parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+    assert len(uses) == len(attributes), [use.lineno for use in uses]
+    assert all(isinstance(parents[id(use)], ast.Attribute) for use in uses)
+    assert attributes == ["AsyncBaseTransport", "AsyncHTTPTransport"], attributes
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "additional_alias",
+        "replace_alias",
+        "from_import",
+        "submodule_alias",
+        "module_assignment",
+        "direct_request",
+        "client_construction",
+        "timeout_construction",
+        "second_pool",
+        "duplicate_import",
+        "nested_import",
+        "mixed_import",
+        "aliased_import",
+        "import_below_module_body",
+        "annotation_only",
+    ],
+)
+async def test_pool_construction_only_rejects_aliases_clients_and_extra_uses(mutation):
+    """WP-J1-00 repair (V10 MINOR-6) — the guard that guards `production.py`.
+
+    `httpx.AsyncHTTPTransport` is outside the CI chokepoint fence's scope
+    (`scripts/ci/check_effect_chokepoint_fence.py` `_HTTPX_CLIENT_ATTRS` is
+    `{"AsyncClient", "Client"}`), so `_assert_pool_construction_only` is the ONLY
+    thing standing between the composition root and an unfenced HTTP surface. An
+    unmutated assertion is not evidence; this is the mirror of
+    `test_read_pool_type_only_rejects_aliases_requests_and_relocations`.
+    """
+    source = (
+        "import httpx\n"
+        "def compose():\n"
+        "    pool: httpx.AsyncBaseTransport = httpx.AsyncHTTPTransport(verify=None, trust_env=False)\n"
+        "    return pool\n"
+    )
+    _assert_pool_construction_only(source)
+    suffixes = {
+        "additional_alias": "import httpx as alternate_http\ndef request(): return alternate_http.get('https://invalid')\n",
+        "from_import": "from httpx import AsyncClient\n",
+        "submodule_alias": "import httpx._client as alternate_http\n",
+        "module_assignment": "alternate_http = httpx\n",
+        "direct_request": "def request(): return httpx.get('https://invalid')\n",
+        "client_construction": "def client(): return httpx.AsyncClient(verify=None)\n",
+        "timeout_construction": "def budget(): return httpx.Timeout(5)\n",
+        "second_pool": "def extra(): return httpx.AsyncHTTPTransport(verify=None)\n",
+        "duplicate_import": "import httpx\n",
+        "nested_import": "def request():\n    import httpx as alternate_http\n",
+        "annotation_only": "def typed(pool: httpx.AsyncBaseTransport): pass\n",
+    }
+    replacements = {
+        "replace_alias": ("import httpx", "import httpx as alternate_http"),
+        "mixed_import": ("import httpx", "import httpx, os"),
+        "aliased_import": ("import httpx\n", "import httpx\nimport httpx as h\n"),
+        "import_below_module_body": (
+            "import httpx\ndef compose():",
+            "def compose():\n    import httpx\ndef _compose():",
+        ),
+    }
+    if mutation in suffixes:
+        source += suffixes[mutation]
+    else:
+        source = source.replace(*replacements[mutation])
+    with pytest.raises(AssertionError):
+        _assert_pool_construction_only(source)
+
+
 def _assert_engine_read_pool_type_only(source: str) -> None:
     import ast
 
@@ -753,13 +860,20 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     # also own httpx; both constructor scopes are pinned byte-exactly in
     # scripts/ci/check_effect_chokepoint_fence.py::_HTTPX_SCOPED_SEAMS (AssignmentPrivateTransport,
     # AuthNativeClient). The train shipped them without updating this owner set.
+    # WP-J1-00: the production composition root owns the Q2 connection pool, which
+    # `EngineReadComposition` documents as having application lifespan and requires
+    # to be application-owned (`_owns_transport` must be False on the per-request
+    # client). Constructing it is the ONLY httpx use in production.py: it builds no
+    # client and issues no request — both remain fenced in the transport modules.
     assert http_owners == {
         "transport.py",
         "read_transport.py",
         "engine_reads.py",
         "assignment_transport.py",
         "auth_transport.py",
+        "production.py",
     }
+    _assert_pool_construction_only((Path(module.__file__).parent / "production.py").read_text())
     # Q2 composition only annotates its borrowed application-owned pool here.
     # It gets no constructor/request exemption from the two transport owners.
     _assert_engine_read_pool_type_only((Path(module.__file__).parent / "engine_reads.py").read_text())

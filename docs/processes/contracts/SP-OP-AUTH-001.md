@@ -190,6 +190,64 @@ consumidores E05 e aceitos em CIB/PG real + browser sintético antes de habilita
 Inventariar instâncias/esperas/bindings ativos antes de implantação; migração/rollback de
 instância exige pacote separado. Testes estáticos não provam entrega nem autorização viva.
 
+### Emenda E01-b (WP-BPMN-J1) — entradas das jornadas no MESMO processo
+
+Ao contrário de E01, **esta emenda altera o XML executável** do BPMN. O que ela acrescenta,
+e só isso: (1) uma mensagem `msg.auth.start` e um start alternativo `Start_IntakePortal` que
+converge em `ST_PublishReceived`; (2) documentação de processo/elemento; (3) o
+`camunda:formData` de `UT_DecidirPendenciaExpirada` (WP-J1-05). Nenhuma aresta de negócio
+nova, nenhum ID/mensagem/timer/decisão existente alterado, nenhum elemento removido — o
+diff do modelo executável (DI removido) é estritamente aditivo. **Sem AUTH→PAGTO e sem
+CONTAS→RECURSO automático.**
+
+| Entrada | Elemento BPMN | Mensagem | Operação nativa do portal | Público |
+|---|---|---|---|---|
+| Intake | `Start_IntakePortal` (message start) | `msg.auth.start` | `auth.start` | prestador |
+| Intake (agente) | `Start_SolicitacaoRecebida` (none start, inalterado) | — | — | canal de agente |
+| Resposta documental | `ICE_DocsRecebidos` (espera existente em `GW_AguardarDocs`) | `msg.auth.docs_received` (**reutilizada**, nada novo) | `auth.documents.respond` | prestador e beneficiário autorizado |
+
+As três entram na MESMA instância de `SP-OP-AUTH-001`: não há processo, evento nem fluxo
+por público. A business key permanece a contratual `AUTH-{tenant_id}-{numero_guia_tiss}`
+(decisão do dono #16, opção (a)) — o objetivo declarado do start de mensagem é que portal e
+canal de agente compartilhem UM domínio de idempotência, e não criar um segundo.
+
+**Estado: caminho de intake INERTE nesta entrega.** O BPMN passa a admitir o start por
+mensagem, mas nenhum chamador o utiliza: o despachante ainda inicia por id/key com a chave
+legada, e `AUTH` está hoje classificado `NON_STRICT` em `_START_DEDUP_POLICY` (`transport.py:1211`) —
+habilitar o start por mensagem exige promovê-lo à postura mais estrita adequada
+(`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar). Habilitar exige os dois
+juntos (WP-J1-01 / WP-J1-11) mais o teste "dois canais, uma guia → uma instância"; enquanto
+isso, **somente guias sintéticas**. A resposta documental não depende desta emenda: já
+correlacionava em `ICE_DocsRecebidos` por ocorrência/subscrição exata.
+
+**Sem `camunda:formKey`, por decisão.** O repositório não usa `camunda:formKey` em nenhum
+artefato; formulário é ligado à tarefa pelo catálogo fechado do portal
+(`portal/contracts/models.py`) e verificado contra o `camunda:formData` implantado. Declarar
+um start form da Tasklist abriria o caminho de variáveis semeadas pelo browser que o
+ADR-0049 D4 proíbe, sem nenhum consumidor que o leia. Se um dia um consumidor existir, é
+mudança com dono, não decoração.
+
+**Política de versão/instância (ADR-0049 D2).** Delta comportamental ⇒ nova definição de
+processo no engine; o XML fonte não carrega `versionTag` e nenhum foi inventado aqui. O
+catálogo de deployment congela definição/versão/digest BPMN + DMN/formulário/worker/adaptador
+compatíveis; `latest` continua proibido como binding de tarefa viva. Instâncias ATIVAS na
+definição anterior **não migram**: seguem na sua versão, onde `UT_DecidirPendenciaExpirada`
+não tem `formData` e o binding daquela tarefa permanece indisponível — o binding é checado
+contra o BPMN *daquela* instância (`gateway.human.decision_binding`), então uma instância
+antiga não passa a aceitar decisão por efeito desta emenda. Inventariar instâncias, esperas
+e bindings ativos antes de implantar; migração/rollback de instância é pacote separado.
+
+**O que a emenda NÃO resolve.** `conceder_prazo_extra` continua sem rearmar a espera
+documental (ver "Lacunas comportamentais" acima): `Flow_GWPend_PrazoExtra` aponta para
+`BRT_SlaAnalise`, como `seguir_analise`. O `formData` apenas passa a enunciar o domínio
+fechado dos três literais no modelo implantado; o rótulo do valor diz explicitamente que não
+há prazo novo, e nenhuma superfície pode prometê-lo. Corrigir a semântica exige decisão do
+dono do contrato/SME e pacote BPMN/DMN/form/worker compatível. Também permanece fora desta
+emenda o delta de payload de `ST_PublishAuthPended` que a decisão do dono #18
+(prestador + beneficiário com `resource_authority` ativa) implica: `beneficiario_pseudo_id`
+segue deliberadamente EXCLUÍDO do payload, e a mudança pertence ao WP-J1-03 com sua própria
+análise de minimização.
+
 ## Variaveis de entrada
 
 | Variavel | Tipo | Obrigatoria | Descricao |

@@ -88,7 +88,7 @@ def manifest_matches(settings: PortalProductionSettings, manifest: PublicManifes
     )
     snapshot = manifest.revocation_snapshot
     if (
-        settings.capabilities != "identity,staff_cases"
+        settings.capabilities not in ("identity,staff_cases", "identity,staff_cases,human")
         or actual != expected
         or digest(manifest.wire()) != settings.staff_public_manifest_sha256
         or settings.staff_maximum_seconds is None
