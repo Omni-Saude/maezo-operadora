@@ -74,6 +74,11 @@ class PortalProductionSettings(BaseSettings):
     #: AND the capabilities literal names it; the material bundle itself carries the
     #: keys, pins and connection strings (see `gateway/human/production_materials.py`).
     human_material_directory: Literal["/run/maezo-human-materials/current"] | None = None
+    #: WP-J1-06 Phase 0. The decision ports (#22 binding / #23 PHI custody / #25
+    #: admission) bind only when this second fixed path is configured; without it the
+    #: human plane still serves reads and assignments and `submit_decision` refuses,
+    #: which is exactly `main`'s behaviour. It may not be named without the human plane.
+    decision_material_directory: Literal["/run/maezo-decision-materials/current"] | None = None
     staff_material_directory: Literal["/run/maezo-staff-materials/current"] | None = None
     staff_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
     staff_public_manifest_sha256: Digest | None = None
@@ -93,6 +98,10 @@ class PortalProductionSettings(BaseSettings):
         # The human profile is complete-or-absent exactly like the staff one: a
         # half-configured plane must not start (WP-J1-00).
         if (self.human_material_directory is not None) != (self.capabilities == "identity,staff_cases,human"):
+            raise PortalStaffBootstrapError()
+        # The decision plane is an addition to the human plane, never a substitute for
+        # it: there is no deployment in which decisions bind while reads do not.
+        if self.decision_material_directory is not None and self.human_material_directory is None:
             raise PortalStaffBootstrapError()
         if self.capabilities == "identity":
             if any(v is not None for v in values):

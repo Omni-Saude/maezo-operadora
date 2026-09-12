@@ -67,11 +67,18 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
     the in-flight delivery before its own pools close. The document slot stays `None`
     (WP-J1-04) and the communication slot stays `None` (its publication source is not
     built yet) — the routes refuse rather than answer from a stub.
+
+    `decision_material_directory` (WP-J1-06 Phase 0) decides whether the decision
+    ports bind. Passing `None` through is the deployment saying "no decision plane":
+    the gateway then keeps refusing `POST /tasks/{id}/decisions`, which is not a stub
+    but the same fail-closed refusal `main` ships.
     """
     if settings.human_material_directory is None:
         raise PortalStaffBootstrapError()
     async with AsyncExitStack() as resources:
-        runtime = await resources.enter_async_context(human_runtime())
+        runtime = await resources.enter_async_context(
+            human_runtime(decision_directory=settings.decision_material_directory)
+        )
         if runtime.scope.tenant != settings.tenant:
             raise PortalStaffBootstrapError()
         # Never displace an already-bound factory: an ambiguous composition is a refusal.
