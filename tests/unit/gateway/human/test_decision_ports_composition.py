@@ -49,6 +49,10 @@ OUTBOX_DSN = "postgresql://human_outbox:pw@db.invalid:5432/maezo"
 def _plane(tmp_path, *, with_decision: bool, **decision_kwargs):
     """Compose the real production plane over unopened (never connected) resources.
 
+    Callers are `async def`: `asyncpg.create_pool()` binds the running loop, so the
+    plane must be composed inside one — the same reason WP-J1-00's own composition
+    tests are async.
+
     `asyncpg.create_pool` without `await` and `create_async_engine` are both lazy, so
     this is the production wiring with production providers — only the network and the
     databases are absent. Neither the binding connection nor the PHI connection opens
@@ -70,7 +74,7 @@ def _plane(tmp_path, *, with_decision: bool, **decision_kwargs):
     return materials, decision, runtime
 
 
-def test_decision_ports_bind_to_the_three_concrete_providers(tmp_path):
+async def test_decision_ports_bind_to_the_three_concrete_providers(tmp_path):
     """#22 binding, #23 PHI custody and #25 admission — no stand-in behind any of them."""
     materials, decision, runtime = _plane(tmp_path, with_decision=True)
     ports = runtime.assignment.decision_ports
@@ -86,7 +90,7 @@ def test_decision_ports_bind_to_the_three_concrete_providers(tmp_path):
     assert decision is not None and decision.manifest.scope == materials.manifest.scope
 
 
-def test_the_binding_plane_is_opened_reader_only(tmp_path):
+async def test_the_binding_plane_is_opened_reader_only(tmp_path):
     """Qualification is installed by deployment, never by the serving composition."""
     _, _, runtime = _plane(tmp_path, with_decision=True)
     ports = runtime.assignment.decision_ports
@@ -95,7 +99,7 @@ def test_the_binding_plane_is_opened_reader_only(tmp_path):
     assert ports.binding._db.database.reader_role == "binding_reader"
 
 
-def test_custody_authorization_is_the_engine_backed_recheck(tmp_path):
+async def test_custody_authorization_is_the_engine_backed_recheck(tmp_path):
     """#24 is the authorization the custody provider re-checks on EVERY operation."""
     _, _, runtime = _plane(tmp_path, with_decision=True)
     ports = runtime.assignment.decision_ports
@@ -105,14 +109,14 @@ def test_custody_authorization_is_the_engine_backed_recheck(tmp_path):
     assert set(ports.custody._keys) == {ACTIVE_KEY, RETIRED_KEY}
 
 
-def test_without_the_decision_plane_the_ports_stay_unbound(tmp_path):
+async def test_without_the_decision_plane_the_ports_stay_unbound(tmp_path):
     """Dark by default: absent material keeps `main`'s refusal, never a stub provider."""
     _, decision, runtime = _plane(tmp_path, with_decision=False)
     assert decision is None
     assert runtime.assignment.decision_ports is None
 
 
-def test_a_decision_plane_for_another_scope_is_refused(tmp_path):
+async def test_a_decision_plane_for_another_scope_is_refused(tmp_path):
     """Material for another tenant may not bind this gateway's decision ports."""
     other = {"tenant": "tenant_outro", "environment": "producao", "workload_ref": "portal-human"}
     with pytest.raises(DecisionMaterialError):
@@ -139,7 +143,7 @@ def test_a_root_pin_for_another_database_is_refused(tmp_path):
         )
 
 
-def test_a_partial_vault_key_set_fails_closed(tmp_path):
+async def test_a_partial_vault_key_set_fails_closed(tmp_path):
     """Removing a retained key never silently degrades to "decrypt what we can"."""
     materials = build_materials(tmp_path / "human")
     decision = build_decision_materials(tmp_path / "decision")

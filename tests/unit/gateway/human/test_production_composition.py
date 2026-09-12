@@ -144,7 +144,11 @@ async def test_synthetic_or_in_memory_provider_is_refused(tmp_path):
     """T00-03 — there is no seam through which a fake provider can be installed."""
     parameters = inspect.signature(compose_human_plane).parameters
     # Materials + deployment resources only: no provider parameter exists at all.
-    assert set(parameters) == {"material", "pool", "source_engine", "lifetime"}
+    # `decision` (WP-J1-06) is the second MATERIAL bundle, not a provider seam — it is
+    # a verified `DecisionMaterials`, and the providers it produces are built inside
+    # `compose_decision_ports` from those bytes, exactly as `material` is used here.
+    assert set(parameters) == {"material", "pool", "source_engine", "lifetime", "decision"}
+    assert parameters["decision"].annotation == "DecisionMaterials | None"
 
     _, runtime = _plane(tmp_path)
     bundle = runtime.read._new_bundle()

@@ -73,6 +73,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.gateway.required_text import ZERO_WIDTH_CHARS, ZERO_WIDTH_TRANSLATION, is_blank
 from maezo.platform.observability import record_worker_error
 from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
 from maezo.tools.workers.base import (
@@ -1373,8 +1374,12 @@ class IssueAuthorizationWorker(WorkerBase):
 # Zero-width / BOM code points that carry NO visible content but which `str.strip()` does NOT
 # remove (their `str.isspace()` is False): zero-width space, ZWNJ, ZWJ, word joiner, BOM /
 # zero-width no-break space. A grounding field made only of these is empty for completeness.
-_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\u2060\ufeff"  # ZWSP, ZWNJ, ZWJ, word-joiner, BOM/ZWNBSP
-_ZERO_WIDTH_TRANSLATION = dict.fromkeys(map(ord, _ZERO_WIDTH_CHARS))
+# The table and the emptiness rule now live in ONE place (`gateway/required_text.py`) because a
+# second denial guard (the portal-decision owner, WP-J1-06) depends on the identical rule and a
+# duplicated normalization is a normalization that eventually diverges. Names kept for the
+# docstring below and for anything that reads them.
+_ZERO_WIDTH_CHARS = ZERO_WIDTH_CHARS
+_ZERO_WIDTH_TRANSLATION = ZERO_WIDTH_TRANSLATION
 
 
 def _is_blank(value: Any) -> bool:
@@ -1389,9 +1394,7 @@ def _is_blank(value: Any) -> bool:
         zero-width strip closes a gap where ``"\\u200b"`` alone (isspace() is False) would otherwise
         survive ``.strip()`` and read as present.
     """
-    if not isinstance(value, str):
-        return True
-    return not value.translate(_ZERO_WIDTH_TRANSLATION).strip()
+    return is_blank(value)
 
 
 class SendDenialNoticeWorker(WorkerBase):
@@ -1740,15 +1743,30 @@ def register_auth_workers(
     `*_TABELA_INDISPONIVEL` token (-> human review). Refusing to register, or raising here,
     would leave `ST_ValidateAutoApprovalCriteria` unserved and STALL every authorization
     request — the outcome design §6 exists to prevent.
+
+    `denial_notice_host` (WP-J1-06) is the opposite kind of seam: it names ANOTHER owner
+    for `operadora.auth.send_denial_notice`, so `SendDenialNoticeWorker` must NOT be
+    registered alongside it. Two workers on one topic race for the same external task and
+    the loser's guard never runs — one owner per topic, decided here, at the only place
+    that registers the generic one. Absent the seam nothing changes: the generic worker
+    stays the owner and reads its grounding from process variables as it always has.
     """
     del kafka  # unused — no auth.py worker declares a Kafka dependency
-    for worker_cls in (
+    host = seams.get("denial_notice_host")
+    generic = [
         AnalyzeRequestWorker,
         RequestDocumentsWorker,
         IssueAuthorizationWorker,
-        SendDenialNoticeWorker,
         NotifySlaRiskWorker,
         ConveneJuntaWorker,
-    ):
+    ]
+    if host is None:
+        generic.insert(3, SendDenialNoticeWorker)
+    for worker_cls in generic:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
+    if host is not None:
+        # Re-assert exclusivity AFTER registration: the seam's own installation check
+        # cannot see workers registered later on the same harness.
+        host.assert_exclusive(harness.registered_topics)
+        harness.register_worker(host.worker())
