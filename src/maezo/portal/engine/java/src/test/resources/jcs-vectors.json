@@ -1,0 +1,5 @@
+[
+ {"input":"{\"z\":null,\"a\":[true,false,\"123456789012345678901234567890\"]}","canonical":"{\"a\":[true,false,\"123456789012345678901234567890\"],\"z\":null}"},
+ {"input":"{\"\\ue000\":\"bmp\",\"\\ud83d\\ude00\":\"astral\"}","canonical":"{\"😀\":\"astral\",\"\":\"bmp\"}"},
+ {"input":"{\"unicode\":\"éé\",\"escapes\":\"\\u0000\\b\\t\\n\\f\\r\\\"\\\\/\"}","canonical":"{\"escapes\":\"\\u0000\\b\\t\\n\\f\\r\\\"\\\\/\",\"unicode\":\"éé\"}"}
+]
