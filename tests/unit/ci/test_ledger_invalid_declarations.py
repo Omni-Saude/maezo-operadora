@@ -571,6 +571,20 @@ def test_raw_positive_control_does_not_create_a_verified_result() -> None:
     invalid.validate_raw_streams(OLD_OUTPUT, b"", TEST, expected, 1)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com "
+        "excecao de CI. Este teste afirma que o ledger de main comeca com o ledger integralmente "
+        "qualificado do train (commit 5b70a6e9...) — medido, nao hipotetico: main ja diverge "
+        "dentro desse prefixo obrigatorio, entao nenhum append futuro pode repara-lo enquanto "
+        "main permanecer main. expected-fail-until=2026-11-11. Criterio de saida MENSURAVEL: um "
+        "catalogo D7 derivado da propria historia de main aterrissa (WP novo) — ou o dono "
+        "re-ratifica um prazo novo em PR revisado. SEM RENOVACAO SILENCIOSA: "
+        "scripts/ci/check_d7_xfail_expiry.py reprova a build a partir do dia seguinte ao prazo. "
+        "Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+    ),
+)
 def test_exact_test_bodies_and_ledger_history_unchanged() -> None:
     root = Path(__file__).resolve().parents[3]
     for path in (

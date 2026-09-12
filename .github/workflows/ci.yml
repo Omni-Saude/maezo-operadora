@@ -318,6 +318,16 @@ jobs:
       - name: Lifecycle expected-fail marker expiry gate (R-040/SC-07)
         run: make check-lifecycle-expected-fail-expiry
 
+      # Owner override of V6-Q6's advice (2026-09-12): the D7 catalogue (D7unit802 in
+      # scripts/ci/ledger_history_proofs.py::D7_CATALOG) is KEPT, not excluded. Its two durable-red
+      # consequences are declared dated xfail(strict=True) markers instead of deleted tests. Same
+      # no-silent-renewal discipline as the two gates above, scoped to these two markers: this gate
+      # reads each tracked test's xfail via AST (never re-parsing prose) and reprovas the build the
+      # day after 2026-11-11 passes, or if the marker loses strict=True or its reason drifts from
+      # the tracked deadline. Belt-and-suspenders with tests/unit/ci/test_check_d7_xfail_expiry.py.
+      - name: D7 catalogue expected-fail expiry gate (owner override, 2026-09-12)
+        run: make check-d7-xfail-expiry
+
       - name: Upload strict-xfail census
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

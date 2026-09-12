@@ -7,6 +7,7 @@
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
+        check-d7-xfail-expiry \
         check-ledger-hashes check-ledger-row-cell-count \
         check-phi-scrub-prereqs \
         release-floor-check release-floor-write \
@@ -164,6 +165,18 @@ check-lifecycle-expected-fail-expiry: ## R-040/SC-07: marcador expected-fail-unt
 	# EXIGE `helm` no PATH (>=3.15, o mesmo binario de `make helm-lint`): a ausencia e' FALHA
 	# explicita, nunca skip.
 	.venv/bin/python scripts/ci/check_lifecycle_expected_fail_expiry.py
+
+check-d7-xfail-expiry: ## DONO 2026-09-12 (override V6-Q6): os 2 xfail estritos do catalogo D7 nao podem vencer em silencio
+	# O dono manteve o catalogo D7 (D7unit802 em D7_CATALOG) em vez de excluir a entrada, com a
+	# MESMA disciplina de check_deviation_expiry.py/check_lifecycle_expected_fail_expiry.py: os 2
+	# testes que provam a entrada insatisfazivel em main (R1 test_historical_async_recipe.py,
+	# R2 test_ledger_invalid_declarations.py) viram xfail(strict=True) datado ate 2026-11-11, e
+	# este gate le o marcador de CADA teste rastreado via AST (nunca YAML/prosa) e reprova a build
+	# a partir do dia seguinte ao prazo, ou se o marcador sumir, perder o strict=True, ou a data no
+	# reason= divergir da rastreada em TRACKED_XFAILS. `--today YYYY-MM-DD` simula qualquer data.
+	# SEM RENOVACAO SILENCIOSA: sair do vermelho exige um catalogo D7 derivado de main (WP novo) ou
+	# re-ratificacao do dono em PR revisado que atualize a data em AMBOS os lugares.
+	.venv/bin/python scripts/ci/check_d7_xfail_expiry.py
 
 check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das linhas NOVAS de docs/evidence-ledger.md que declaram caminho
 	# Uma linha nova opta em ser verificavel por maquina declarando, dentro da propria celula de

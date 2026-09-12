@@ -471,6 +471,20 @@ def test_async_module_pin_refuses_before_import(
         catalog.load_async_producer()
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "DECISAO DO DONO 2026-09-12 (override da recomendacao V6-Q6): manter o catalogo D7 com "
+        "excecao de CI em vez de excluir a entrada 'D7unit802'. source_commit=80206e29ab4b... e "
+        "exclusivo da linhagem do train e nunca sera ancestral de main sob a regra de "
+        "transplante-apenas-conteudo desta frota — este teste preflighta essa entrada e "
+        "permanece vermelho por desenho ate' o prazo. expected-fail-until=2026-11-11. "
+        "Criterio de saida MENSURAVEL: um catalogo D7 derivado da propria historia de main "
+        "aterrissa (WP novo, nao correcao deste PR) — ou o dono re-ratifica um prazo novo em PR "
+        "revisado. SEM RENOVACAO SILENCIOSA: scripts/ci/check_d7_xfail_expiry.py reprova a build "
+        "a partir do dia seguinte ao prazo. Ref: BRIEF-R6b-Q6-pr-d-rework.md."
+    ),
+)
 def test_explicit_cli_preflight_reads_only_closed_d7_source() -> None:
     result = subprocess.run(
         [
