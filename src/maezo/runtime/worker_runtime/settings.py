@@ -123,9 +123,7 @@ class WorkerRuntimeSettings(BaseSettings):
     # a ponte deixa o topico sem consumidor — visivel de imediato porque `/readyz` passa a
     # declarar o topico ausente do conjunto esperado e as instancias param em
     # ST_SolicitarDocumentos, nunca uma entrega silenciosamente perdida.
-    document_request_host_installed: bool = Field(
-        default=False, alias="MAEZO_AUTH_DOCUMENT_REQUEST_HOST"
-    )
+    document_request_host_installed: bool = Field(default=False, alias="MAEZO_AUTH_DOCUMENT_REQUEST_HOST")
 
     @field_validator(
         "lock_duration_ms",

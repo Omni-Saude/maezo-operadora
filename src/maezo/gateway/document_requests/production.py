@@ -56,6 +56,7 @@ from maezo.gateway.human.auth_profile import (
 from maezo.gateway.human.auth_publisher import AuthInputPublisher, AuthPublicationSnapshot
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import ArtifactPin, SourceProvenance, digest, parse_model, wire
+from maezo.gateway.human.read_publisher import PublicationReceipt as Q2PublicationReceipt
 from maezo.gateway.human.read_publisher import SourceFreezeLease, SourceSnapshot
 from maezo.gateway.intake.native_authority import NativeAuthReader
 from maezo.gateway.native_fetch.models import FetchProfile, sha
@@ -292,7 +293,8 @@ def resolve_document_recipients(
     prestador" and a request that reaches nobody on the provider side is not this request.
     Ambiguity (two authorities for one principal) is refused, never resolved by preference.
     """
-    recipients = tuple(_recipient(entry, scope=scope, policy_digest=digest(policy), now=now) for entry in authorities)
+    bound = digest(policy)
+    recipients = tuple(_recipient(entry, scope=scope, policy_digest=bound, now=now) for entry in authorities)
     principals = [r.principal_ref for r in recipients]
     require(len(set(principals)) == len(principals), "denied")
     require(set(principals) == set(policy.recipient_principal_refs), "denied")
@@ -327,8 +329,22 @@ class _PolicyFreeze:
         self.live()
         require(type(raw) is bytes and raw == self.payload_bytes, "unavailable")
 
-    def committed(self, receipt: PublicationReceipt) -> None:
+    def acknowledge(self, receipt: PublicationReceipt) -> None:
+        """The real AUTH acknowledgement barrier (`AuthPublicationSnapshot.acknowledge`)."""
         require(type(receipt) is PublicationReceipt, "unavailable")
+        self.live()
+
+    @staticmethod
+    def legacy_committed(receipt: Q2PublicationReceipt) -> None:
+        """The Q2 `SourceFreezeLease.committed` callback, which this path must never reach.
+
+        `AuthPublicationSnapshot` documents that the legacy Q2 callback is deliberately not
+        called with a fabricated Q2 receipt; the AUTH acknowledgement above is the real one.
+        Reaching here would mean something manufactured a Q2 receipt for an AUTH publication,
+        so it refuses instead of accepting a receipt of the wrong plane.
+        """
+        del receipt
+        require(False, "unavailable")
 
     def uncertain(self) -> None:
         # The upstream publication is immutable and already committed; an uncertain send leaves
@@ -340,7 +356,7 @@ class _PolicyFreeze:
             provenance=self.provenance,
             verify=self.verify,
             live=self.live,
-            committed=self.committed,
+            committed=self.legacy_committed,
             uncertain=self.uncertain,
         )
 
@@ -411,7 +427,7 @@ class PublishedDocumentPolicySource(DocumentRequestPolicySource):
         return AuthPublicationSnapshot(
             publication=publication,
             snapshot=SourceSnapshot(publication.source, document_policy, freeze.lease()),
-            acknowledge=freeze.committed,
+            acknowledge=freeze.acknowledge,
         )
 
     async def notice(
@@ -460,9 +476,7 @@ class NativeCompletionAuthority(CompletionAuthority):
     ) -> None:
         if not isinstance(provider, NativeAdmissionProvider):
             raise _unavailable()
-        require(
-            type(capability_digest) is str and len(capability_digest) == 64, "unavailable"
-        )
+        require(type(capability_digest) is str and len(capability_digest) == 64, "unavailable")
         self.provider, self.capability_digest, self.clock = provider, capability_digest, clock
 
     async def acquire(self, selection_digest: str, binding: bytes, purpose: str) -> CompletionLease:

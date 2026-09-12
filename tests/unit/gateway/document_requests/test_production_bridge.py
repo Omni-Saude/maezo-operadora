@@ -38,6 +38,7 @@ from maezo.gateway.human.auth_profile import (
 )
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import ArtifactPin, SourceProvenance, digest, wire
+from maezo.gateway.native_fetch.models import FetchUnavailableError
 from maezo.gateway.native_fetch.transport import AdmissionLease, NativeAdmissionProvider
 from maezo.runtime.worker_runtime.document_requests import TOPIC, DocumentRequestHost
 from maezo.runtime.worker_runtime.service import _expected_worker_topics
@@ -269,9 +270,11 @@ def test_readiness_expectation_and_registration_cannot_disagree():
 def test_host_refuses_to_install_while_the_generic_worker_still_holds_the_topic():
     DocumentRequestHost.assert_exclusive(())
     DocumentRequestHost.assert_exclusive(("operadora.auth.analyze_request",))
-    with pytest.raises(Exception):
+    with pytest.raises(FetchUnavailableError):
         DocumentRequestHost.assert_exclusive((TOPIC,))
-    with pytest.raises(Exception):
+    # The live generic set, not a hand-written tuple: the refusal must hold against what the
+    # daemon actually registers when the seam is off.
+    with pytest.raises(FetchUnavailableError):
         DocumentRequestHost.assert_exclusive(_expected_worker_topics(False))
 
 
@@ -285,7 +288,7 @@ async def test_builder_refuses_on_a_shared_topic_before_composing_anything(monke
         raise AssertionError("compose must not run on a shared topic")
 
     monkeypatch.setattr(production_module, "compose", never)
-    with pytest.raises(Exception):
+    with pytest.raises(FetchUnavailableError):
         await build_document_request_host(
             placement=object(),
             producer=object(),
@@ -348,9 +351,7 @@ def test_a_beneficiary_holding_an_authority_but_omitted_by_the_policy_is_refused
         entry(authority(BENEFICIARY_PRINCIPAL, "beneficiary", provider_ref=None)),
     )
     with pytest.raises(ExternalCaseError):
-        resolve_document_recipients(
-            entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW
-        )
+        resolve_document_recipients(entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW)
 
 
 def test_a_policy_naming_a_principal_with_no_active_authority_is_refused():
@@ -364,17 +365,13 @@ def test_a_policy_naming_a_principal_with_no_active_authority_is_refused():
 def test_a_request_with_no_provider_recipient_is_refused():
     entries = (entry(authority(BENEFICIARY_PRINCIPAL, "beneficiary", provider_ref=None)),)
     with pytest.raises(ExternalCaseError):
-        resolve_document_recipients(
-            entries, scope=scope(), policy=policy(BENEFICIARY_PRINCIPAL), now=NOW
-        )
+        resolve_document_recipients(entries, scope=scope(), policy=policy(BENEFICIARY_PRINCIPAL), now=NOW)
 
 
 def test_a_provider_audience_without_a_provider_reference_is_refused():
     entries = (entry(authority(PROVIDER_PRINCIPAL, "provider", provider_ref=None)),)
     with pytest.raises(ExternalCaseError):
-        resolve_document_recipients(
-            entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW
-        )
+        resolve_document_recipients(entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW)
 
 
 def test_a_staff_actor_on_a_respond_authority_is_refused_not_silently_dropped():
@@ -412,9 +409,7 @@ def test_every_published_validity_condition_refuses_the_recipient(overrides):
 def test_an_observation_ceiling_already_passed_refuses_the_recipient():
     entries = (entry(authority(PROVIDER_PRINCIPAL, "provider"), NOW - timedelta(seconds=1)),)
     with pytest.raises(ExternalCaseError):
-        resolve_document_recipients(
-            entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW
-        )
+        resolve_document_recipients(entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW)
 
 
 def test_two_authorities_for_one_principal_are_refused_never_preferred():
@@ -423,9 +418,7 @@ def test_two_authorities_for_one_principal_are_refused_never_preferred():
         entry(authority(PROVIDER_PRINCIPAL, "provider", membership_revision=2)),
     )
     with pytest.raises(ExternalCaseError):
-        resolve_document_recipients(
-            entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW
-        )
+        resolve_document_recipients(entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW)
 
 
 def test_recipient_identity_separates_membership_revisions():
@@ -466,6 +459,34 @@ async def test_policy_returns_the_attested_publication_byte_for_byte():
     assert snapshot.snapshot.source == published.source
     # `AuthInputPublisher.publish` guards the snapshot before every step; it must pass.
     snapshot.guard(NOW)
+
+
+@pytest.mark.asyncio
+async def test_the_legacy_q2_committed_barrier_refuses_a_fabricated_receipt():
+    """`AuthPublicationSnapshot` documents that the Q2 callback must not be fed a Q2 receipt.
+
+    The two planes have DIFFERENT receipt types. The AUTH acknowledgement is the real barrier;
+    the legacy Q2 `committed` hook on the freeze lease must refuse rather than accept a receipt
+    of the wrong plane, so nothing can acknowledge an AUTH publication through the Q2 path.
+    """
+    current = policy(PROVIDER_PRINCIPAL)
+    source = PublishedDocumentPolicySource(
+        authorities=authorities_double(
+            (entry(authority(PROVIDER_PRINCIPAL, "provider")),),
+            published=(publication(current), current, HOUR),
+        ),
+        template=PIN,
+        clock=clock,
+    )
+    snapshot = await source.policy(observation(), None)
+    # The AUTH barrier accepts the AUTH receipt...
+    snapshot.acknowledge(receipt(current))
+    # ...and refuses anything that is not one.
+    with pytest.raises(ExternalCaseError):
+        snapshot.acknowledge(object())
+    # The Q2 hook refuses unconditionally: reaching it at all is the fault.
+    with pytest.raises(ExternalCaseError):
+        snapshot.snapshot.lease.committed(object())
 
 
 @pytest.mark.asyncio
@@ -555,9 +576,7 @@ async def test_restart_resumes_the_sealed_publication_and_refuses_a_newer_head()
 
 @pytest.mark.asyncio
 async def test_successor_refuses_because_no_installed_source_issues_an_invocation_authority():
-    source = PublishedDocumentPolicySource(
-        authorities=authorities_double(()), template=PIN, clock=clock
-    )
+    source = PublishedDocumentPolicySource(authorities=authorities_double(()), template=PIN, clock=clock)
     assert type(source).successor is DocumentRequestPolicySource.successor
     with pytest.raises(ExternalCaseError):
         await source.successor(observation(), object(), "invocation" * 2, None)
@@ -641,9 +660,7 @@ def test_the_source_refuses_construction_without_a_real_authority_reader():
     with pytest.raises(AuthUnavailableError):
         PublishedDocumentPolicySource(authorities=object(), template=PIN, clock=clock)
     with pytest.raises(AuthUnavailableError):
-        PublishedDocumentPolicySource(
-            authorities=authorities_double(()), template="not-a-pin", clock=clock
-        )
+        PublishedDocumentPolicySource(authorities=authorities_double(()), template="not-a-pin", clock=clock)
 
 
 def test_the_authority_reader_refuses_a_reader_that_is_not_the_native_one():
@@ -685,9 +702,9 @@ class Provider(NativeAdmissionProvider):
 @pytest.mark.asyncio
 async def test_completion_authority_acquires_only_the_outcome_designation():
     provider = Provider(lease())
-    granted = await NativeCompletionAuthority(
-        provider, capability_digest="d" * 64, clock=clock
-    ).acquire(HASH, b"binding", "outcome")
+    granted = await NativeCompletionAuthority(provider, capability_digest="d" * 64, clock=clock).acquire(
+        HASH, b"binding", "outcome"
+    )
     assert provider.calls == ["outcome"]
     granted.guard(clock, HASH, b"binding", "outcome")
 
@@ -704,12 +721,13 @@ async def test_completion_authority_refuses_the_fetch_purpose_without_touching_t
 
 @pytest.mark.asyncio
 async def test_completion_authority_refuses_a_lease_for_another_capability_or_binding():
-    for overrides in ({"capability_digest": "9" * 64, "capabilities": ("9" * 64,)}, {"binding": b"other"}):
+    wrong_capability = {"capability_digest": "9" * 64, "capabilities": ("9" * 64,)}
+    for overrides in (wrong_capability, {"binding": b"other"}):
         provider = Provider(lease(**overrides))
         with pytest.raises(ExternalCaseError):
-            await NativeCompletionAuthority(
-                provider, capability_digest="d" * 64, clock=clock
-            ).acquire(HASH, b"binding", "outcome")
+            await NativeCompletionAuthority(provider, capability_digest="d" * 64, clock=clock).acquire(
+                HASH, b"binding", "outcome"
+            )
 
 
 def test_completion_authority_refuses_a_provider_that_is_not_one():
@@ -728,7 +746,9 @@ def test_the_production_module_never_reaches_phi_body_custody():
     PHI role and must not appear here at all — a policy source that could read a body would
     put document content on the authority path.
     """
-    text = (production_module.__file__ and open(production_module.__file__).read()) or ""
+    assert production_module.__file__ is not None
+    with open(production_module.__file__, encoding="utf-8") as handle:
+        text = handle.read()
     for forbidden in (
         "PhiRequestContent",
         "PhiContentKeys",
