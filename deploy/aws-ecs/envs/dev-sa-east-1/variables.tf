@@ -222,7 +222,7 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "beb14460" # 12/09/2026: greeting (classify-v3) + o ack devolvendo `resposta`/`conversation_id`. O RECEPTOR e quem executa turno; agent-helena segue em c745fd94 ate a proxima promocao
+  default     = "614811da" # 12/09/2026: greeting + response-v3 (sem negativa clinica) + o ack devolvendo `resposta`/`conversation_id`. O RECEPTOR e quem executa turno; agent-helena segue em c745fd94 ate a proxima promocao
 }
 
 variable "webhook_receiver_desired_count" {
@@ -443,7 +443,7 @@ variable "canal_teste_image_tag" {
     de funcionar.
   EOT
   type        = string
-  default     = "beb14460" # 12/09/2026: pagina reescrita como conversa + o canal elevando os dois campos do turno
+  default     = "614811da" # 12/09/2026: pagina como conversa + canal elevando os campos + response-v3
 }
 
 variable "canal_teste_desired_count" {
