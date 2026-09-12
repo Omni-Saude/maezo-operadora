@@ -88,6 +88,14 @@ class PortalProductionSettings(BaseSettings):
     #: human plane still serves reads and assignments and `submit_decision` refuses,
     #: which is exactly `main`'s behaviour. It may not be named without the human plane.
     decision_material_directory: Literal["/run/maezo-decision-materials/current"] | None = None
+    #: The decision plane's out-of-band anchor, complete-or-absent with the directory
+    #: above and the exact counterpart of the human/staff pins. This plane holds the
+    #: AES-GCM custody keys and the PHI deployment designation, so a self-attesting
+    #: bundle here is worth more to an adversary than anywhere else: these two facts
+    #: are what say WHICH bundle the deployment accepts, and they are compared before
+    #: a byte of vault material is parsed (`decision_materials.decision_manifest_matches`).
+    decision_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
+    decision_public_manifest_sha256: Digest | None = None
     staff_material_directory: Literal["/run/maezo-staff-materials/current"] | None = None
     staff_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
     staff_public_manifest_sha256: Digest | None = None
@@ -121,6 +129,31 @@ class PortalProductionSettings(BaseSettings):
         # The decision plane is an addition to the human plane, never a substitute for
         # it: there is no deployment in which decisions bind while reads do not.
         if self.decision_material_directory is not None and self.human_material_directory is None:
+            raise PortalStaffBootstrapError()
+        # And it is complete-or-absent in its own right: naming the directory without
+        # the anchor would start the plane pinned to nothing, which is the whole of
+        # V14 MAJOR-2. Its version and digest are distinct from both other planes'.
+        decision = [getattr(self, n) for n in type(self).model_fields if n.startswith("decision_")]
+        if any(v is not None for v in decision) and any(v is None for v in decision):
+            raise PortalStaffBootstrapError()
+        if any(v is not None for v in decision) and (
+            len(
+                {
+                    self.decision_material_version_id,
+                    self.human_material_version_id,
+                    self.staff_material_version_id,
+                }
+            )
+            != 3
+            or len(
+                {
+                    self.decision_public_manifest_sha256,
+                    self.human_public_manifest_sha256,
+                    self.staff_public_manifest_sha256,
+                }
+            )
+            != 3
+        ):
             raise PortalStaffBootstrapError()
         if self.capabilities == "identity":
             if any(v is not None for v in values):

@@ -7,6 +7,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 
+from maezo.gateway.human.decision_materials import DecisionMaterialPin
 from maezo.gateway.human.production import human_runtime
 from maezo.gateway.human.production_materials import HumanMaterialPin
 from maezo.gateway.staff_cases.production import staff_runtime
@@ -84,7 +85,11 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
         # that verification succeeds; `None` means no decision plane and the gateway
         # keeps refusing decisions.
         runtime = await resources.enter_async_context(
-            human_runtime(pin, decision_directory=settings.decision_material_directory)
+            human_runtime(
+                pin,
+                decision_directory=settings.decision_material_directory,
+                decision_pin=_decision_material_pin(settings),
+            )
         )
         if runtime.scope.tenant != settings.tenant:
             raise PortalStaffBootstrapError()
@@ -122,4 +127,22 @@ def _human_material_pin(settings: PortalProductionSettings) -> HumanMaterialPin:
         tenant=settings.tenant,
         material_version_id=settings.human_material_version_id,
         public_manifest_sha256=settings.human_public_manifest_sha256,
+    )
+
+
+def _decision_material_pin(settings: PortalProductionSettings) -> DecisionMaterialPin | None:
+    """The deployment's out-of-band anchor for the decision material bundle.
+
+    `None` exactly when the plane is dark. `complete_profile` already refuses a
+    half-configured decision profile; this repeats the narrowing so the pin can never
+    be built from a partially present one.
+    """
+    if settings.decision_material_directory is None:
+        return None
+    if settings.decision_material_version_id is None or settings.decision_public_manifest_sha256 is None:
+        raise PortalStaffBootstrapError()
+    return DecisionMaterialPin(
+        tenant=settings.tenant,
+        material_version_id=settings.decision_material_version_id,
+        public_manifest_sha256=settings.decision_public_manifest_sha256,
     )

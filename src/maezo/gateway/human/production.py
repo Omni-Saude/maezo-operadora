@@ -46,6 +46,7 @@ from .decision_custody_connection import PhiPostgresConnection
 from .decision_materials import (
     DECISION_MATERIAL_DIRECTORY,
     DecisionMaterialError,
+    DecisionMaterialPin,
     DecisionMaterials,
     load_decision_materials,
 )
@@ -284,7 +285,10 @@ def compose_human_plane(
 
 @asynccontextmanager
 async def human_runtime(
-    pin: HumanMaterialPin, *, decision_directory: str | None = None
+    pin: HumanMaterialPin,
+    *,
+    decision_directory: str | None = None,
+    decision_pin: DecisionMaterialPin | None = None,
 ) -> AsyncIterator[HumanRuntime]:
     """Compose the human plane; every resource opened here is closed here.
 
@@ -301,16 +305,27 @@ async def human_runtime(
     `decision_directory` names the decision material plane (WP-J1-06 Phase 0). Naming
     it is the whole activation: absent, the decision ports stay unbound and the gateway
     refuses decisions exactly as it does on `main`; present, it must be the one fixed
-    path and the bundle must verify, or the plane fails to start. It is loaded only
-    AFTER the human bundle has been pinned and verified — a decision plane is an
-    addition to a trusted human plane, never a way to reach one.
+    path AND carry its own out-of-band `decision_pin`, or the plane fails to start. It
+    is loaded only AFTER the human bundle has been pinned and verified — a decision
+    plane is an addition to a trusted human plane, never a way to reach one.
+
+    Both bundles, and the agreement between their scopes, are settled BEFORE the exit
+    stack: a decision bundle from another tenant is refused with zero connections
+    attempted, not after a pool is already open (V14 MINOR-4).
     """
     lifetime = MaterialLifetime()
     try:
         material = load_human_materials(MATERIAL_DIRECTORY, pin)
-        decision = (
-            None if decision_directory is None else load_decision_materials(decision_directory)
-        )
+        decision = None
+        if decision_directory is not None:
+            if decision_pin is None:
+                raise unavailable()
+            decision = load_decision_materials(decision_directory, decision_pin)
+            # Cross-plane agreement, still before any resource is acquired. The two
+            # bundles are separately pinned and separately signed; nothing but this
+            # says they describe the same deployment.
+            if decision.manifest.scope != material.manifest.scope:
+                raise unavailable()
         async with AsyncExitStack() as resources:
             pool = await asyncpg.create_pool(
                 dsn=material.outbox_url.render_as_string(hide_password=False).replace(
