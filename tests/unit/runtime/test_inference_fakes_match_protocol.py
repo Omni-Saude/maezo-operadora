@@ -412,10 +412,20 @@ _AGENTES_CONHECIDOS: frozenset[str] = frozenset(
 #: variables)` (`tools/workers/harness.py`, os falsos de `_harness_emit_killtest_writer.py`/
 #: `test_harness_audit_emit.py`). So' sao checados quando a classe JA foi classificada em UMA
 #: familia por outra via (`send` para `FactBrokerPublisher`; `claim_or_get` para
-#: `IdempotencyStore`) -- ver `_SECUNDARIOS_POR_FAMILIA` abaixo.
+#: `IdempotencyStore`; `evaluate` para `DmnTransport`) -- ver `_SECUNDARIOS_POR_FAMILIA` abaixo.
+#: `close` entrou em S6b (controller-D): e' o metodo de ciclo de vida mais generico do Python e
+#: colide com `Cursor.close`/`Connection.close` de `platform/engine_bootstrap/
+#: controller_postgres_storage.py:70-83` -- um Protocol REAL, no repo, fora desta tabela, cujo
+#: `close` e' SINCRONO por ser a superficie DB-API do psycopg. O metodo que IDENTIFICA
+#: `DmnTransport` e' `evaluate` (`tools/workers/dmn_transport.py:185`), nao `close`
+#: (`:193`): um `close()` sozinho nunca foi evidencia de ser um falso de `DmnTransport`, e como
+#: ancora independente ele atribuia qualquer cursor/conexao falsa a' familia errada. Um
+#: `FakeDmnTransport` de verdade continua ancorado por `evaluate` e tem o seu `close` checado
+#: normalmente pelo laco de secundarios -- nenhuma cobertura real e' perdida.
 _SECUNDARIOS_POR_FAMILIA: dict[str, tuple[str, ...]] = {
     "IdempotencyStore": ("complete",),
     "FactBrokerPublisher": ("start", "stop"),
+    "DmnTransport": ("close",),
 }
 _NOMES_SOMENTE_SECUNDARIOS = frozenset(nome for nomes in _SECUNDARIOS_POR_FAMILIA.values() for nome in nomes)
 
@@ -1512,8 +1522,20 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
                 familia = _FAMILIA_POR_NOME[nome_familia]
                 if nome_secundario not in familia.metodos():
                     continue
-                achado = _achado_de_metodo(
-                    rotulo, classe, nome_secundario, metodos_classe[nome_secundario], familia, nome_familia
+                # S6b: a familia JA foi ancorada POSITIVAMENTE por outro metodo desta mesma
+                # classe (`evaluate`/`send`/`claim_or_get`), entao vale o mesmo regime do
+                # §Delta-F1 com o gate de forma DESLIGADO, exatamente como no caminho resolvido
+                # por CONTEXTO: sync/async errado num secundario e' ofensa, nao exclusao
+                # silenciosa. O `_achado_de_metodo` original engolia esse defeito aqui -- e a
+                # sua propria docstring ja' diz que o unico caso que ainda precisa dele e' o
+                # `send` ambiguo entre DUAS famílias identicas, nao este laco.
+                achado = _achado_de_metodo_para_familia(
+                    rotulo,
+                    classe,
+                    nome_secundario,
+                    metodos_classe[nome_secundario],
+                    nome_familia,
+                    exige_forma_igual_para_sync_async=False,
                 )
                 if achado:
                     achados_da_classe.append(achado)
@@ -1774,6 +1796,38 @@ def test_achados_estruturais_checa_start_stop_so_apos_ancorar_em_factbrokerpubli
 # (D) §Delta -- correcoes de verificacao independente (F1 sync/async em ancora sem colisao real,
 # F2 parametro extra do falso, F3 exempcao estrutural para fixture NEGATIVA deliberada)
 # =================================================================================================
+
+
+def test_close_sozinho_nao_ancora_um_cursor_de_banco_em_dmntransport() -> None:
+    """S6b: `close` saiu de `_nomes_unicos` para `_SECUNDARIOS_POR_FAMILIA["DmnTransport"]`.
+    Um duplo psycopg (o `Cursor`/`Connection` Protocol REAL de
+    `platform/engine_bootstrap/controller_postgres_storage.py:70-83`, cujo `close` e' SINCRONO
+    por ser a superficie DB-API) nao declara `evaluate` e portanto nao e' ancorado em nenhuma
+    familia: `close` sozinho nunca foi evidencia de ser um falso de `DmnTransport`. Antes deste
+    fix, os tres duplos de S6b eram apontados contra a familia ERRADA."""
+    fonte = (
+        "class Cursor:\n"
+        "    def execute(self, operation, parameters=None):\n        return None\n"
+        "    def fetchone(self):\n        return None\n"
+        "    def close(self):\n        return None\n"
+    )
+    assert _achados_estruturais_em_fonte(fonte, "sintetico.py") == []
+
+
+def test_close_secundario_continua_sendo_ofensa_num_falso_ancorado_de_dmntransport() -> None:
+    """O outro lado do fix acima: rebaixar `close` a SECUNDARIO nao pode custar cobertura real.
+    Uma classe ancorada POSITIVAMENTE em `DmnTransport` pelo seu metodo identificador
+    (`evaluate`, com a assinatura certa) e que declare `close` SINCRONO continua sendo ofensa --
+    o laco de secundarios usa `_achado_de_metodo_para_familia` com o gate de forma DESLIGADO
+    (mesmo regime do caminho resolvido por CONTEXTO), nunca a exclusao silenciosa do
+    `_achado_de_metodo` original."""
+    base = "class _FakeDmn:\n    async def evaluate(self, decision_key, variables, *, tenant=None):\n        return ([], None)\n"
+    achados = _achados_estruturais_em_fonte(base + "    def close(self):\n        return None\n", "sintetico.py")
+    assert len(achados) == 1
+    assert "`_FakeDmn`.close" in achados[0] and "DmnTransport.close" in achados[0]
+    assert "`async def`" in achados[0] and "sincrono" in achados[0]
+    # e o mesmo falso com `close` CORRETO nao gera achado nenhum
+    assert _achados_estruturais_em_fonte(base + "    async def close(self):\n        return None\n", "sintetico.py") == []
 
 
 def test_achados_estruturais_recusa_ancora_unica_com_sync_async_trocado() -> None:
