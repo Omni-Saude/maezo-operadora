@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
+from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption, PrivateFormat, PublicFormat
 
 from maezo.gateway.human.decision_binding import RELATIONS, BindingDatabase
 from maezo.gateway.human.decision_binding_qualification import canonical, sha
@@ -189,12 +189,8 @@ def build_decision_materials(
     database: BindingDatabase | None = None,
     scope: dict[str, str] | None = None,
 ) -> DecisionMaterials:
-    manifest, files = build_bundle(
-        directory=directory, overrides=overrides, database=database, scope=scope
-    )
-    return verify_decision_materials(
-        manifest, files, now=datetime.now(UTC), directory=str(directory)
-    )
+    manifest, files = build_bundle(directory=directory, overrides=overrides, database=database, scope=scope)
+    return verify_decision_materials(manifest, files, now=datetime.now(UTC), directory=str(directory))
 
 
 def _wire(value: object) -> object:

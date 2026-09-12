@@ -241,7 +241,7 @@ def all_rows():
 
 
 @pytest.mark.parametrize("schema", all_rows(), ids=lambda s: s.schema_id)
-def test_all_47_frozen_rows_have_only_b_minimum_grants(schema):
+def test_all_52_frozen_rows_have_only_b_minimum_grants(schema):
     from maezo.gateway.engine_contracts import FieldOrigin
 
     attestations = [
@@ -262,7 +262,9 @@ def test_all_47_frozen_rows_have_only_b_minimum_grants(schema):
         ("locked_external" if schema.source_topic else "completed_human") if schema.source_process_key else ""
     )
     plan = compile(boundary(schema, source, attestations))
-    assert len(all_rows()) == 47
+    # 47 + the WP-J1-06 denial boundary row and its 4 lifecycle companions. The count
+    # is frozen so the reviewed catalog cannot grow without someone editing this line.
+    assert len(all_rows()) == 52
     assert plan["execution_authorized"] is False
     assert all(g["engine_user"] == "syntheticworker" for g in plan["grants"])
     for grant in plan["grants"]:

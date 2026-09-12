@@ -82,8 +82,7 @@ class NativeDenialNoticeWorker(WorkerBase):
                 tenant_id=tenant_id,
                 missing_fields=list(incomplete.missing),
                 reason=(
-                    "negativa formal exige fundamentacao completa em custodia PHI "
-                    "(RN 395 art. 10, L0 hard)"
+                    "negativa formal exige fundamentacao completa em custodia PHI (RN 395 art. 10, L0 hard)"
                 ),
             )
             raise WorkerBpmnError(

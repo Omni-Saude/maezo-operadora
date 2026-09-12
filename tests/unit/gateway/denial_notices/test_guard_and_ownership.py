@@ -201,8 +201,7 @@ def test_with_the_seam_the_native_owner_replaces_it_exactly_once():
     assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
     assert harness.registered_topics.count(TOPIC) == 1
     assert not any(
-        isinstance(harness.registry.get(topic), SendDenialNoticeWorker)
-        for topic in harness.registered_topics
+        isinstance(harness.registry.get(topic), SendDenialNoticeWorker) for topic in harness.registered_topics
     )
 
 
@@ -235,3 +234,20 @@ def test_the_record_reference_is_computed_from_the_basis_alone():
 
     basis = read_basis(_vars())
     assert denial_record_ref(basis) == denial_record_ref(read_basis(_vars()))
+
+
+# --- the reviewed D7-A row for this topic ------------------------------------
+
+
+def test_the_topic_declares_exactly_one_reportable_error():
+    """The catalog row states the boundary set, and grants nothing by existing."""
+    from maezo.gateway.engine_contracts import EngineOperation
+    from maezo.gateway.engine_schemas import SCHEMAS, schema_by_id
+
+    row = schema_by_id("auth.send_denial_notice.bpmn_error.v1")
+    assert row in SCHEMAS
+    assert row.topic == TOPIC
+    assert row.operation is EngineOperation.BPMN_ERROR
+    assert row.error_codes == (ERR_AUTH_DENIAL_INCOMPLETE,)
+    # No clinical variable is readable through this row (ADR-0006).
+    assert not {"justificativa_clinica", "cid10_referencia", "fundamentacao_dut"} & set(row.read_projection)

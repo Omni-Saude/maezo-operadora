@@ -59,9 +59,7 @@ def _plane(tmp_path, *, with_decision: bool, **decision_kwargs):
     a socket at composition time, by construction.
     """
     materials = build_materials(tmp_path / "human")
-    decision = (
-        build_decision_materials(tmp_path / "decision", **decision_kwargs) if with_decision else None
-    )
+    decision = build_decision_materials(tmp_path / "decision", **decision_kwargs) if with_decision else None
     pool = asyncpg.create_pool(dsn=OUTBOX_DSN, min_size=1, max_size=2)
     engine = create_async_engine(materials.source_url)
     runtime = compose_human_plane(
@@ -84,9 +82,7 @@ async def test_decision_ports_bind_to_the_three_concrete_providers(tmp_path):
     assert type(ports.custody) is PostgresHumanDecisionCustody
     assert type(ports.admission) is PostgresDecisionAdmission
     # `HumanGateway._check_scope` refuses unless all three carry the gateway's scope.
-    assert {ports.binding.scope, ports.custody.scope, ports.admission.scope} == {
-        materials.manifest.scope
-    }
+    assert {ports.binding.scope, ports.custody.scope, ports.admission.scope} == {materials.manifest.scope}
     assert decision is not None and decision.manifest.scope == materials.manifest.scope
 
 
@@ -147,9 +143,7 @@ async def test_a_partial_vault_key_set_fails_closed(tmp_path):
     """Removing a retained key never silently degrades to "decrypt what we can"."""
     materials = build_materials(tmp_path / "human")
     decision = build_decision_materials(tmp_path / "decision")
-    partial = dataclasses.replace(
-        decision, vault_material={ACTIVE_KEY: decision.vault_material[ACTIVE_KEY]}
-    )
+    partial = dataclasses.replace(decision, vault_material={ACTIVE_KEY: decision.vault_material[ACTIVE_KEY]})
     pool = asyncpg.create_pool(dsn=OUTBOX_DSN, min_size=1, max_size=2)
     with pytest.raises(DecisionCustodyError):
         compose_human_plane(
@@ -163,12 +157,11 @@ async def test_a_partial_vault_key_set_fails_closed(tmp_path):
 
 def test_a_secret_may_not_carry_a_public_digest(tmp_path):
     """A public digest of a secret is a dictionary-attack oracle; the manifest refuses it."""
-    with pytest.raises(Exception) as raised:
+    with pytest.raises(DecisionMaterialError):
         build_bundle(
             directory=tmp_path / "decision",
             overrides={"files": {"vault-keys.json": "6" * 64}},
         )
-    assert raised.value is not None
 
 
 def test_expired_material_is_refused(tmp_path):
@@ -185,7 +178,7 @@ def test_expired_material_is_refused(tmp_path):
 
 def test_material_may_not_outlive_the_phi_deployment_it_describes(tmp_path):
     """An expired PHI deployment authorizes nothing; material may not claim otherwise."""
-    with pytest.raises(Exception):
+    with pytest.raises(DecisionMaterialError):
         build_bundle(
             directory=tmp_path / "decision",
             overrides={
