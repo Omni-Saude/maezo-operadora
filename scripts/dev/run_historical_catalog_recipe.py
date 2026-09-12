@@ -26,7 +26,7 @@ from typing import Any, NamedTuple
 
 ROOT = Path(__file__).resolve().parents[2]
 LOADER = "scripts/dev/historical_tool_sources.py"
-LOADER_SHA256 = "0c9f10f5b2a7a8e5a290ca43fb204bddfdc090462d3a02b318fe6e5297ab7c25"
+LOADER_SHA256 = "ba40c7ac860fb85016ede71e94cbb9014258130a4b56d882654ea239620df63f"
 ENTRYPOINT = "scripts/dev/run_historical_catalog_recipe.py"
 ASYNC_PRODUCER = "scripts/dev/historical_async_recipe.py"
 ASYNC_SHA256 = "241e0c9a9f636abe50f6765f148d0668c78ea3f26ab90f91725368434f83d4af"

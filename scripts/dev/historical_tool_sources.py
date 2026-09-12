@@ -23,15 +23,15 @@ from types import ModuleType
 # Same immutable closure as scripts/ci/ledger_history_proofs.py:TOOL_SOURCES.
 TOOL_SOURCES = {
     "scripts/dev/run_historical_unit_recipe.py": (
-        "babecc190d4fc6987165f6f0899c886d2d0a4e71",
+        "fb4127390c6641dda015766bc97529bb3512bf2c",
         "25a412499cd64ae663de1358e488480cb6b6a5c0e772583ccc0bece45380877c",
     ),
     "scripts/ci/check_evidence_ledger_hashes.py": (
-        "7189bcb0b3532a48401bf86f376cf37e876adabf",
+        "ea56426938ac1cba8be265bab046d39b684c9d89",
         "8ac5085b95b6d4e3cbaee4decfa1315306ae3747eb77a54a57024096c38bfcac",
     ),
     "scripts/dev/run_engine_integration.py": (
-        "7189bcb0b3532a48401bf86f376cf37e876adabf",
+        "ea56426938ac1cba8be265bab046d39b684c9d89",
         "02810ce8ecda0c7d609c1f58a3b3da8816a1cc5190c37e746593bcd39f3b80d3",
     ),
 }

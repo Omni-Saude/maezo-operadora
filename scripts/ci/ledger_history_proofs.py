@@ -25,8 +25,8 @@ from typing import Any, Literal
 from scripts.ci import check_evidence_ledger_hashes as checker
 from scripts.ci import ledger_invalid_declarations as static
 
-BASE = "7189bcb0b3532a48401bf86f376cf37e876adabf"
-PRODUCER = "babecc190d4fc6987165f6f0899c886d2d0a4e71"
+BASE = "ea56426938ac1cba8be265bab046d39b684c9d89"
+PRODUCER = "fb4127390c6641dda015766bc97529bb3512bf2c"
 TOOL_SOURCES = {
     "scripts/dev/run_historical_unit_recipe.py": (
         PRODUCER,
@@ -126,7 +126,7 @@ D7_TOOL_SOURCES = {
         "a814ab8dacce1e6e5541af01e601aaa183d6e6917da014145a46d47ab54c9be4"
     ),
     "scripts/dev/historical_tool_sources.py": (
-        "0c9f10f5b2a7a8e5a290ca43fb204bddfdc090462d3a02b318fe6e5297ab7c25"
+        "ba40c7ac860fb85016ede71e94cbb9014258130a4b56d882654ea239620df63f"
     ),
 }
 

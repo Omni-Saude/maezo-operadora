@@ -60,7 +60,7 @@ with os.fdopen(_tool_fd, "rb") as _tool_stream:
         raise ValueError("historical tool-source loader changed during read")
 # New loader pin; the original helper/runner/checker pins remain untouched.
 if _tool_path.is_symlink() or hashlib.sha256(_tool_data).hexdigest() != (
-    "0c9f10f5b2a7a8e5a290ca43fb204bddfdc090462d3a02b318fe6e5297ab7c25"
+    "ba40c7ac860fb85016ede71e94cbb9014258130a4b56d882654ea239620df63f"
 ):
     raise ValueError("historical tool-source loader pin mismatch")
 _tool_spec = importlib.util.spec_from_file_location("historical_tool_sources", _tool_path)
