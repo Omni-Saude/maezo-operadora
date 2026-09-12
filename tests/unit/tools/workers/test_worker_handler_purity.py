@@ -123,6 +123,13 @@ _INFRA_MODULES: frozenset[str] = frozenset(
         # single copy of the Java int32 bounds shared by `harness`/`dmn_transport`/
         # `mcp_cibseven.transport`, all three of which are already infra above.
         "engine_var_types",
+        # E04 mechanical amendment v1 (portal AUTH intake): the `portal-auth-intake.v1` exact
+        # money CODEC (`AuthExactAmount` + `hydrate_auth_amount`). A leaf module like
+        # `engine_var_types` directly above — stdlib `re`/`dataclasses` only, no engine client, no
+        # PHI, no policy file, no worker registration and no handler; consumed by
+        # `auth._ceiling_valor_cents` only, and only when the native acquisition adapter already
+        # selected that hydration type (a caller/browser cannot select a profile).
+        "auth_exact_amount",
     }
 )
 

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -168,6 +169,10 @@ def test_rendered_probe_command_runs_correctly_for_every_poll_interval(
     deployment = _find(docs, "Deployment", "a2a-outbox-relay")
     container = deployment["spec"]["template"]["spec"]["containers"][0]
     probe_command = container["livenessProbe"]["exec"]["command"]
+    assert probe_command[:2] == ["python", "-c"]
+    assert len(probe_command) == 3
+    host_command = [sys.executable, *probe_command[1:]]
+    assert host_command[1:] == probe_command[1:]
     heartbeat_path = str(tmp_path / "heartbeat")
     env = {
         **os.environ,
@@ -175,14 +180,14 @@ def test_rendered_probe_command_runs_correctly_for_every_poll_interval(
         "A2A_OUTBOX_RELAY_POLL_INTERVAL_S": poll_interval_s,
     }
 
-    missing = subprocess.run(probe_command, env=env, timeout=10)
+    missing = subprocess.run(host_command, env=env, timeout=10)
     assert missing.returncode != 0, "no heartbeat file yet -> must fail (no sweep has completed)"
 
     Path(heartbeat_path).touch()
-    fresh = subprocess.run(probe_command, env=env, timeout=10)
+    fresh = subprocess.run(host_command, env=env, timeout=10)
     assert fresh.returncode == 0, f"fresh heartbeat must pass at pollIntervalS={poll_interval_s}"
 
     old_mtime = time.time() - 3600
     os.utime(heartbeat_path, (old_mtime, old_mtime))
-    stale = subprocess.run(probe_command, env=env, timeout=10)
+    stale = subprocess.run(host_command, env=env, timeout=10)
     assert stale.returncode != 0, "an hour-old heartbeat must fail regardless of poll interval"

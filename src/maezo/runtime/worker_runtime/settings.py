@@ -12,8 +12,12 @@ fight over the same lock (design §8). Falls back to a stable local default othe
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from maezo.gateway.kafka_client import KafkaConnectionSettings
 
 
 class WorkerRuntimeSettings(BaseSettings):
@@ -39,6 +43,12 @@ class WorkerRuntimeSettings(BaseSettings):
     # health-first bring-up keeps `/healthz` green (liveness) while `/readyz` stays red.
     database_url: str | None = Field(default=None, alias="DATABASE_URL")
     kafka_bootstrap_servers: str = Field(default="localhost:9092", alias="KAFKA_BOOTSTRAP_SERVERS")
+    kafka_auth_mode: Literal["development", "msk_iam"] = Field(default="development", alias="KAFKA_AUTH_MODE")
+    kafka_aws_region: str | None = Field(default=None, alias="KAFKA_AWS_REGION")
+    kafka_cluster_arn: str | None = Field(default=None, alias="KAFKA_CLUSTER_ARN")
+    kafka_cluster_owner_account: str | None = Field(default=None, alias="KAFKA_CLUSTER_OWNER_ACCOUNT")
+    kafka_task_role_arn: str | None = Field(default=None, alias="KAFKA_TASK_ROLE_ARN")
+
     # HAPI FHIR base URL for the DOSSIER delegation edges' read seams (CC-03/AND-03). Same name,
     # alias and default as `agent_runtime/settings.py::AgentRuntimeSettings.fhir_base_url` — the
     # two roots must not disagree about where FHIR is. Declared here rather than left to
@@ -135,3 +145,19 @@ class WorkerRuntimeSettings(BaseSettings):
     def cibseven_auth_token_value(self) -> str | None:
         """The raw service token, or None if not injected (blocked seam)."""
         return self.cibseven_auth_token
+
+    def kafka_connection_settings(self) -> KafkaConnectionSettings:
+        """Nonsecret explicit selection; no credential lookup during configuration."""
+        return KafkaConnectionSettings(
+            bootstrap_servers=self.kafka_bootstrap_servers,
+            auth_mode=self.kafka_auth_mode,
+            region=self.kafka_aws_region,
+            cluster_arn=self.kafka_cluster_arn,
+            cluster_owner_account=self.kafka_cluster_owner_account,
+            task_role_arn=self.kafka_task_role_arn,
+        )
+
+    @model_validator(mode="after")
+    def _validate_kafka_connection(self) -> WorkerRuntimeSettings:
+        self.kafka_connection_settings()
+        return self

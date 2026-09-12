@@ -885,6 +885,83 @@ async def test_escalate_defaults_motivo_from_error_when_absent() -> None:
     assert result["escalation_motivo"] == "falha_tecnica"
 
 
+async def test_escalate_never_fabricates_outro_when_motivo_absent() -> None:
+    """HELENA-ESCALATION-MOTIVO-OUTRO-FALLBACK: mirrors
+    `test_escalate_never_fabricates_leve_when_severidade_absent` one field over. `escalate`'s
+    Direct defensive invocation without a gatilho-assigned `escalation_motivo` or `error`
+    is represented by `_base_state`. Current receive sets falha_tecnica on missing context;
+    this test does not claim that path lacks an error. An unclassified
+    motivo is UNKNOWN, never the catch-all `"outro"` — it must ride through as `None` verbatim
+    into the engine payload (mirroring Lucas's own `LUCAS-MOTIVO-SEVERIDADE-DEFAULTS` treatment
+    of `motivo_categoria`), so the worker boundary (`escalation.py::_rotulo_opcional_tolerante`)
+    is the one that treats it as absent, never this graph fabricating a classified-looking label."""
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    inference = _FakeInference(["resumo", "resposta"])
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven())
+
+    result = await graph.escalate(_base_state())
+
+    assert result["escalation_motivo"] is None
+    assert recording, "escalate must still start SP-OP-ESCALATION-001 (never a dead end)"
+    assert recording[0]["motivo_categoria"] is None
+
+
+async def test_resumo_contexto_never_leaks_the_literal_none_when_motivo_absent() -> None:
+    """HELENA-ESCALATION-MOTIVO-OUTRO-FALLBACK, metade de TEXTO LIVRE: com `motivo` `None`, nem o
+    prompt entregue ao provedor de inferencia nem a frase de fallback lida pelo atendente humano
+    podem conter a string literal `"None"`.
+
+    O irmao acima (`test_escalate_never_fabricates_outro_when_motivo_absent`) prende o campo de
+    CONTRATO (`motivo_categoria is None`, que rideia ate a variavel de processo). Este prende a
+    outra metade da mesma correcao: `_resumo_contexto` recebe o MESMO `motivo` agora anulavel e o
+    interpola em duas superficies de texto livre — o prompt (`motivo={...}`) e a sentenca de
+    fallback (`Encaminhamento automatico ({...})`). Sem o token de exibicao `motivo_label`, a
+    interpolacao de `None` escreve `"None"` nas duas: um prompt que diz ao modelo que o motivo se
+    chama "None", e uma frase entregue a um humano dizendo "Encaminhamento automatico (None)."
+    `nao_classificado` e' um rotulo de EXIBICAO honesto, nunca o valor de contrato — por isso ele
+    aparece aqui e `motivo_categoria` continua `None`.
+
+    Mutacao que leva este teste a RED: em `helena/graph.py::_resumo_contexto`, trocar
+    `motivo_label = motivo or "nao_classificado"` por `motivo_label = str(motivo)`."""
+    recording: list[dict[str, Any]] = []
+
+    class _RecordingCibSeven(FakeCibSevenTransport):
+        async def start_process_instance(
+            self, process_key: str, business_key: str, variables: dict[str, Any]
+        ) -> ProcessInstance:
+            recording.append(dict(variables))
+            return await super().start_process_instance(process_key, business_key, variables)
+
+    # Lista de respostas VAZIA: `_FakeInference.generate` devolve "" e `_resumo_contexto` cai na
+    # sentenca de fallback — o caminho exato que um humano leria se o resumo falhasse.
+    inference = _FakeInference([])
+    graph = _graph(inference=inference, cibseven=_RecordingCibSeven())
+
+    result = await graph.escalate(_base_state())
+
+    assert result["escalation_motivo"] is None, "pre-condicao: o motivo tem mesmo de estar ausente"
+    prompts = [prompt for (prompt, _phi) in inference.calls if "motivo=" in prompt]
+    assert len(prompts) == 1, f"esperado exatamente 1 prompt de resumo, veio {len(prompts)}"
+    assert "motivo=nao_classificado" in prompts[0], prompts[0]
+    assert "None" not in prompts[0], (
+        f"a string literal 'None' vazou para o prompt do provedor de inferencia: {prompts[0]!r}"
+    )
+
+    resumo = recording[0]["resumo_contexto"]
+    assert resumo == "Encaminhamento automatico (nao_classificado).", resumo
+    assert "None" not in resumo, (
+        f"a string literal 'None' vazou para a frase que o atendente humano le: {resumo!r}"
+    )
+
+
 async def test_escalate_never_fabricates_leve_when_severidade_absent() -> None:
     """HELENA-SEVERIDADE-DEFAULT: mirrors GAP-ESC-SEVERITY-GROUP's own principle one layer up.
     `escalate`'s ONLY reachable caller without a real, gatilho-assigned `escalation_severidade`
@@ -1281,3 +1358,15 @@ async def test_resumo_contexto_identifiers_are_scrubbed_at_the_producer(
     assert "123.456.789-09" not in resumo and "98765-4321" not in resumo
     assert "[REDACTED_DIGITS]" in resumo and "[REDACTED_PHONE]" in resumo
     assert "Beneficiario quer atendente" in resumo
+
+
+async def test_escalate_preserves_genuinely_classified_outro() -> None:
+    """Absence recovery must not erase a real domain classification, even with an error."""
+    graph = _graph(inference=_FakeInference(["resumo", "resposta"]))
+    state = _base_state()
+    state["escalation_motivo"] = "outro"
+    state["escalation_severidade"] = "moderada"
+    state["error"] = "dependency_unavailable"
+    result = await graph.escalate(state)
+    assert result["escalation_motivo"] == "outro"
+    assert result["escalation_started"] is True

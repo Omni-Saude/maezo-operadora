@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.platform.integrations.partition_key import partition_key_for_task
+from maezo.platform.privacy.program_publication import validate_program_publication
 from maezo.tools.workers.base import FunctionWorker, reclassify_coded_exception
 from maezo.tools.workers.harness import WorkerBpmnError
 
@@ -693,6 +694,7 @@ def make_stratify_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
         # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
         # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        validate_program_publication(_NOTIFICATIONS_TOPIC, notification)
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
@@ -726,6 +728,7 @@ def make_stop_processing_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
         # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
         # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        validate_program_publication(_NOTIFICATIONS_TOPIC, notification)
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
@@ -759,6 +762,7 @@ def make_proactive_contact_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
         # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
         # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        validate_program_publication(_NOTIFICATIONS_TOPIC, notification)
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return result
@@ -802,6 +806,7 @@ def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # round-robin across the topic's 3 default partitions and no per-entity ordering. Hoisted
         # above the publish so a `PseudonymizerKeyMissingError` (ratified `scrub_only` with no
         # provisioned `PHI_HMAC_KEY`) stays a configuration fault, never a broker diagnosis.
+        validate_program_publication(_NOTIFICATIONS_TOPIC, notification)
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
         await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
         return {}

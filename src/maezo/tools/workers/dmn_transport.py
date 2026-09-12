@@ -76,7 +76,11 @@ import httpx
 import structlog
 
 from maezo.tools.workers._audit_ctx import record_dmn_version
-from maezo.tools.workers.engine_var_types import camunda_int_type, declared_long_variable
+from maezo.tools.workers.engine_var_types import (
+    camunda_int_type,
+    declared_long_variable,
+    validate_centavos_engine_var,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -218,10 +222,13 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     the DMN's declared `typeRef` is the CALLER's responsibility (e.g. `fraude._collect_scoring_inputs`
     coerces-or-drops its numeric signals before calling in). This function only guarantees each
     Python type maps to the correct Camunda wire type. Declared Long centavos instead require
-    an exact int64 integer, including pre-shaped engine-variable envelopes.
+    an exact int64 integer, including pre-shaped engine-variable envelopes; the five declared
+    integer-centavos names (`EXACT_CENTAVOS_ENGINE_VARS`) must be exact integers representable
+    by their wire type before any passthrough or raw typing.
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
+        validate_centavos_engine_var(k, v)
         if (declared := declared_long_variable(k, v)) is not None:
             camunda_vars[k] = declared
         elif isinstance(v, dict) and "value" in v:

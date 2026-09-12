@@ -226,6 +226,12 @@ def _ceiling_valor_cents(value: Any) -> int | None:
     number: this function's rejection set is a strict superset of what either call site needs, so
     the stricter shared behaviour never opens a path either consumer would have kept closed.
     """
+    # Portal AUTH uses the independently installed exact native money serializer.
+    # Only its explicit hydration type selects this additive integer arithmetic path.
+    from .auth_exact_amount import AuthExactAmount
+
+    if type(value) is AuthExactAmount:
+        return value.cents
     if isinstance(value, bool) or not isinstance(value, int | float | str):
         return None
     try:

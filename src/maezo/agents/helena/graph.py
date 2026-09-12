@@ -381,7 +381,7 @@ class HelenaState(TypedDict, total=False):
 
     # Routing.
     next_kind: ResponseKind
-    escalation_motivo: MotivoCategoria
+    escalation_motivo: MotivoCategoria | None
     escalation_severidade: Severidade | None
 
     # `escalate` outputs.
@@ -1220,8 +1220,9 @@ class HelenaGraph:
         continues along `Flow_Notificar_UT` -> `UT_TratarEscalonamento`. What is removed is the
         fabricated value, not the page.
         """
-        motivo: MotivoCategoria = state.get("escalation_motivo") or (
-            "falha_tecnica" if state.get("error") else "outro"
+        # Ausencia nao e classificacao "outro" (HELENA-ESCALATION-MOTIVO-OUTRO-FALLBACK).
+        motivo: MotivoCategoria | None = state.get("escalation_motivo") or (
+            "falha_tecnica" if state.get("error") else None
         )
         severidade: Severidade | None = state.get("escalation_severidade")
         return await self._start_escalation(
@@ -1232,7 +1233,7 @@ class HelenaGraph:
         self,
         state: HelenaState,
         *,
-        motivo: MotivoCategoria,
+        motivo: MotivoCategoria | None,
         severidade: Severidade | None,
         response_kind: ResponseKind,
     ) -> dict[str, Any]:
@@ -1642,7 +1643,9 @@ class HelenaGraph:
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
 
-    async def _resumo_contexto(self, state: HelenaState, motivo: str) -> str:
+    async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
+        # Token somente de exibicao; motivo_categoria continua None na ausencia.
+        motivo_label = motivo or "nao_classificado"
         # HEL-06: este resumo e' lido por um ATENDENTE HUMANO e aterra em variaveis de processo
         # (Zona Geral) depois do scrub de identificadores de `_start_escalation`. Uma injecao que
         # sequestrasse este prompt escreveria no handoff o que quisesse sobre o proprio caso — por
@@ -1652,7 +1655,7 @@ class HelenaGraph:
         prompt = (
             "Resuma em 1-2 frases, em portugues, o contexto desta conversa para um atendente "
             "humano assumir. NAO inclua dado identificavel. NAO de conduta clinica. Apenas o "
-            f"essencial do caso e o motivo do encaminhamento.\nmotivo={motivo}\n"
+            f"essencial do caso e o motivo do encaminhamento.\nmotivo={motivo_label}\n"
             f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
         )
         try:
@@ -1669,7 +1672,7 @@ class HelenaGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe: never block the escalation on a summary.
             text = ""
-        return text or f"Encaminhamento automatico ({motivo})."
+        return text or f"Encaminhamento automatico ({motivo_label})."
 
     # -- Graph assembly -----------------------------------------------------------------------
 
