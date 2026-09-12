@@ -95,6 +95,7 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenTransport,
     start_process_idempotent,
 )
+from maezo.tools.process_business_keys import auth_business_key
 from maezo.tools.workers.dmn_transport import (
     DmnEvaluationError,
     DmnNoResultError,
@@ -210,8 +211,22 @@ class RafaelState(TypedDict, total=False):
 
 
 def _business_key(state: RafaelState) -> str:
-    """Idempotent business key per contract: `AUTH-{tenant_id}-{numero_guia_tiss}`."""
-    return f"AUTH-{state.get('tenant_id', '')}-{state.get('numero_guia_tiss', '')}"
+    """Idempotent business key per contract: `AUTH-{tenant_id}-{numero_guia_tiss}`.
+
+    WP-J1-11: delega ao compositor UNICO (`tools/process_business_keys.auth_business_key`), o
+    mesmo que o canal de intake do portal usa — e' isso que faz dos dois canais UM dominio de
+    idempotencia por guia (decisao do dono #16, opcao (a)).
+
+    A forma da chave nao mudou um byte. O que mudou e' que um componente AUSENTE deixou de
+    produzir `"AUTH--"` — uma chave unica compartilhada por toda solicitacao malformada — e
+    passou a levantar `BusinessKeyComponentError`. Isso importa porque `SP-OP-AUTH-001` foi
+    promovido a `EXCLUSIVE` em `_START_DEDUP_POLICY` no mesmo pacote: sob a chave colapsada a
+    segunda solicitacao malformada resolveria a reivindicacao duravel da primeira e receberia a
+    instancia (o caso clinico) dela.
+    """
+    return auth_business_key(
+        tenant_id=state.get("tenant_id", ""), numero_guia_tiss=state.get("numero_guia_tiss", "")
+    )
 
 
 # --- Input/output field split + input-boundary gate (T1.11 caller-planted read-through fix) ---

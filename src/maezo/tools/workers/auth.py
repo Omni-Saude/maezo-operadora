@@ -1753,16 +1753,42 @@ def register_auth_workers(
     """
     del kafka  # unused — no auth.py worker declares a Kafka dependency
     host = seams.get("denial_notice_host")
-    generic = [
+    workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
-        RequestDocumentsWorker,
         IssueAuthorizationWorker,
         NotifySlaRiskWorker,
         ConveneJuntaWorker,
     ]
+    # WP-J1-03 — EXCLUSIVIDADE DE TOPICO. `operadora.auth.request_documents` tem dois
+    # consumidores possiveis e EXATAMENTE UM pode estar registrado:
+    #   (a) este `RequestDocumentsWorker`, que apenas registra em log e NAO entrega nada
+    #       (nenhuma linha de caixa de entrada, nenhum corpo sob custodia PHI); e
+    #   (b) a ponte dedicada `DocumentRequestHost` (gateway/document_requests), que entrega
+    #       de verdade ao prestador E ao beneficiario (decisao #18 do dono).
+    # Se os dois estiverem registrados, os dois fazem fetch-and-lock da MESMA tarefa externa
+    # e quem ganhar a corrida decide se o pedido foi entregue ou apenas logado — o pior
+    # resultado possivel, porque o processo segue para GW_AguardarDocs nos dois casos e a
+    # falta de entrega so aparece quando o prazo P5D expira. Por isso a escolha e' explicita
+    # (`MAEZO_AUTH_DOCUMENT_REQUEST_HOST`), nunca inferida, e a ponte se recusa a instalar
+    # enquanto este topico ainda estiver no conjunto do harness generico
+    # (`DocumentRequestHost.assert_exclusive`). A ausencia do seam mantem o comportamento
+    # historico byte-a-byte: o worker generico registra.
+    if not seams.get("document_request_host_installed", False):
+        workers.insert(1, RequestDocumentsWorker)
+    # WP-J1-06 — A MESMA REGRA, SEGUNDO TOPICO. `operadora.auth.send_denial_notice`
+    # tambem tem dois consumidores possiveis e exatamente um pode estar registrado:
+    #   (a) este `SendDenialNoticeWorker`, que le a fundamentacao das variaveis de
+    #       processo; e
+    #   (b) o dono nativo do portal (`DenialNoticeHost`, instalado so quando
+    #       `MAEZO_DENIAL_NOTICE_OWNER` esta ligado), que le a base da decisao humana em
+    #       custodia PHI.
+    # Dois workers num topico correm pela mesma tarefa externa e o guard do perdedor
+    # nunca corre. A ausencia do seam mantem o comportamento historico byte-a-byte.
+    # A ordem de registo e' indiferente (topicos distintos), por isso um `append` basta
+    # e evita aritmetica de indices que dependa do bloco acima.
     if host is None:
-        generic.insert(3, SendDenialNoticeWorker)
-    for worker_cls in generic:
+        workers.append(SendDenialNoticeWorker)
+    for worker_cls in workers:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
     if host is not None:
