@@ -77,6 +77,13 @@ PINNED_DSN_ENV = (
     "MAEZO_TEST_AUDIT_ANCHOR_DRILL_DATABASE_URL",
     "MAEZO_TEST_CHECKPOINT_DATABASE_URL",
 )
+#: Opt-in que o ROOT liga para SELECIONAR as suites `root_fixture` (as que so' correm com um
+#: fixture PRIVADO fornecido pelo ROOT). A descoberta usa-o para distinguir uma desselecao
+#: DECLARADA de um ficheiro de teste vazio — ver `discover()`. Tem de ser o mesmo nome que
+#: `tests/integration/conftest.py::ROOT_FIXTURE_OPT_IN_ENV`, o que
+#: `tests/unit/dev/test_engine_integration_runner.py` fixa.
+ROOT_FIXTURE_OPT_IN_ENV = "MAEZO_ROOT_FIXTURES"
+
 RUNTIME_ENV_KEYS = frozenset(
     (
         "DATABASE_URL",
@@ -89,6 +96,7 @@ RUNTIME_ENV_KEYS = frozenset(
         "MAEZO_PG_HOST_PORT",
         "MAEZO_PG_PASSWORD",
         "MAEZO_PG_USER",
+        ROOT_FIXTURE_OPT_IN_ENV,
         "NO_PROXY",
         "PYTHONHASHSEED",
         "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
@@ -611,7 +619,12 @@ def _assert_execution_source(checkout: Path) -> None:
 
 
 def _collect(
-    checkout: Path, args: list[str], log_path: Path, *, mutation_nodeid: str | None = None
+    checkout: Path,
+    args: list[str],
+    log_path: Path,
+    *,
+    mutation_nodeid: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> set[str]:
     evidence = log_path.with_suffix(".execution.json")
     _collected_items.pop(log_path, None)
@@ -637,6 +650,7 @@ def _collect(
                 mutation_nodeid=mutation_nodeid,
             ),
             cwd=checkout,
+            env=env,
             timeout=180,
             log_path=raw_log,
         )
@@ -817,7 +831,7 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
     discovery_path.unlink(missing_ok=True)
     # Uma nova descoberta invalida a tentativa inteira, mesmo se a primeira
     # coleta falhar e as seleções seguintes nunca chegarem a executar.
-    for label in ("integration", "integration-dir", "core", "chaos", "db-unit"):
+    for label in ("integration", "integration-dir", "core", "chaos", "db-unit", "root-fixture"):
         path = results_dir / f"collect-{label}.log"
         _collected_items.pop(path, None)
         path.unlink(missing_ok=True)
@@ -847,6 +861,20 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         ["tests/unit", "-m", "integration"],
         results_dir / "collect-db-unit.log",
     )
+    # Segunda coleta do MESMO escopo, com o opt-in declarado ligado. Serve apenas para
+    # DISTINGUIR "o ficheiro existe mas todos os seus casos foram desselecionados por um
+    # mecanismo DECLARADO" de "o ficheiro nao produz nodeid nenhum". Sem isto, a desselecao
+    # `root_fixture` (suites cuja unica coordenada e' um fixture PRIVADO do ROOT — ver
+    # tests/integration/conftest.py e a cerca tests/unit/ci/test_root_fixture_deselection.py)
+    # era indistinguivel de um ficheiro de teste vazio/partido, e a descoberta abortava.
+    # A distincao e' MEDIDA, nao declarada: o ficheiro tem de voltar a produzir nodeids sob o
+    # opt-in. Um ficheiro vazio sob AMBAS as coletas continua a ser erro (fail-closed).
+    root_fixture_optin = _collect(
+        checkout,
+        ["tests/integration"],
+        results_dir / "collect-root-fixture.log",
+        env={**os.environ, ROOT_FIXTURE_OPT_IN_ENV: "1"},
+    )
     identities = _collected_items[results_dir / "collect-integration.log"]
     test_files = {
         path.relative_to(checkout).as_posix() for path in (checkout / "tests/integration").rglob("test_*.py")
@@ -857,7 +885,12 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
     partition = core | chaos | db_unit
     uncovered = sorted(integration - partition)
     unexpected = sorted(partition - integration)
-    missing_files = sorted(test_files - collected_files)
+    optin_files = {nodeid.split("::", 1)[0] for nodeid in root_fixture_optin}
+    absent_files = test_files - collected_files
+    # Desselecionado por mecanismo declarado: nada na coleta normal, mas casos reais sob o opt-in.
+    deselected_root_fixture_files = sorted(absent_files & optin_files)
+    # Genuinamente sem nodeid nenhum, com ou sem opt-in — continua a abortar a descoberta.
+    missing_files = sorted(absent_files - optin_files)
     required_families = {
         "lgpd": sorted(nodeid for nodeid in integration if "test_sp_op_lgpd_dsr_001.py::" in nodeid),
         "escalation": sorted(nodeid for nodeid in integration if "test_sp_op_escalation_001.py::" in nodeid),
@@ -924,6 +957,7 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         "unexpected_nodeids": unexpected,
         "test_files": sorted(test_files),
         "missing_test_files": missing_files,
+        "deselected_root_fixture_files": deselected_root_fixture_files,
         "required_families": required_families,
         "suite_dependencies": suite_dependencies,
         "execution_manifest": execution_manifest,
@@ -937,6 +971,8 @@ def discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict
         failures.append("partição core/chaos/db-unit não cobre a coleção integration exatamente uma vez")
     if missing_files:
         failures.append("há arquivos test_*.py sem nodeid coletado")
+    if not root_fixture_optin >= integration_dir:
+        failures.append("o opt-in root_fixture perdeu casos que a coleta normal coletou")
     if not all(required_families.values()):
         failures.append("famílias obrigatórias LGPD/escalation não foram coletadas")
     manifest_nodeids = {str(nodeid) for entry in execution_manifest for nodeid in entry["nodeids"]}

@@ -111,3 +111,24 @@ def test_database_url_binds_env_alias() -> None:
 def test_database_url_binds_by_field_name() -> None:
     settings = WorkerRuntimeSettings(database_url="postgresql://x@localhost:5432/db")
     assert settings.database_url == "postgresql://x@localhost:5432/db"
+
+
+def test_explicit_msk_settings_are_nonsecret_and_complete() -> None:
+    settings = WorkerRuntimeSettings(
+        KAFKA_AUTH_MODE="msk_iam",
+        KAFKA_AWS_REGION="sa-east-1",
+        KAFKA_CLUSTER_ARN="arn:aws:kafka:sa-east-1:111111111111:cluster/fixture/00000000-0000-0000-0000-000000000000",
+        KAFKA_CLUSTER_OWNER_ACCOUNT="111111111111",
+        KAFKA_TASK_ROLE_ARN="arn:aws:iam::222222222222:role/fixture-worker",
+        KAFKA_BOOTSTRAP_SERVERS="fixture.kafka-serverless.sa-east-1.amazonaws.com:9098",
+    )
+    assert settings.kafka_connection_settings().auth_mode == "msk_iam"
+    assert settings.kafka_connection_settings().cluster_owner_account == "111111111111"
+
+
+def test_partial_iam_or_silent_downgrade_refuses_at_settings_boundary() -> None:
+    with pytest.raises(ValidationError):
+        WorkerRuntimeSettings(KAFKA_AUTH_MODE="msk_iam")
+    with pytest.raises(ValidationError):
+        WorkerRuntimeSettings(KAFKA_CLUSTER_OWNER_ACCOUNT="111111111111")
+    assert WorkerRuntimeSettings().kafka_connection_settings().auth_mode == "development"

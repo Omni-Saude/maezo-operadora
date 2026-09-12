@@ -98,6 +98,10 @@ import structlog
 # `gateway.{log_scrubber,pseudonymizer}` only and defers `phi_key_policy` lazily inside the function
 # body, so there is no cycle back into `tools.workers`.
 from maezo.platform.integrations.partition_key import partition_key_for_task
+from maezo.platform.privacy.program_publication import (
+    validate_program_publication,
+    validate_program_publication_source,
+)
 from maezo.tools.workers.harness import ExternalTask, WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -293,6 +297,11 @@ def make_publish_event_handler(
         # res-ans-competencia-sentinel (module docstring): stamp the tick-instant date ONCE, here.
         if event_type == _ANS_CRON_DUE_EVENT_TYPE:
             payload[_ANS_CRON_REFERENCE_DATE_KEY] = datetime.now(UTC).date().isoformat()
+
+        validate_program_publication_source(
+            task.process_definition_key, task.activity_id, task.topic, str(event_topic), payload
+        )
+        validate_program_publication(str(event_topic), payload)
 
         if kafka is None:
             # kafka=None reality (module docstring: fail-closed decision + evidence). Loud log,

@@ -94,3 +94,11 @@ a2a:
   queue_ref: agents.tasks.fernando
   handler_status: registrado   # handler REGISTRADO no composition root (a2a_composition.py)
   handler_symbol: maezo.agents.fernando.delegation::make_fernando_handler
+# GAP 11.7 (estrutural — validado por validation.agent_def): `inbound: false` — o canal AGENTE-A-
+# AGENTE acima (`arrears.followup`) e' real, mas nenhum webhook receptivo do BENEFICIARIO aponta
+# para Fernando; ver o comentario GAP 11.7 acima e `docs/processes/contracts/
+# SP-OP-INADIMPLENCIA-001.md` "Canal de entrada" para o quadro completo.
+channels:
+  whatsapp:
+    outbound: true
+    inbound: false

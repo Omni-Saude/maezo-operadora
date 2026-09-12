@@ -165,6 +165,8 @@ async def _drain_instance(
                 worker_id=worker_id,
                 variables={key: _from_camunda_var(value) for key, value in item["variables"].items()},
                 retries=item.get("retries"),
+                process_definition_key=item.get("processDefinitionKey"),
+                activity_id=item.get("activityId"),
             )
             handled.append(task)
             await harness._handle(task)

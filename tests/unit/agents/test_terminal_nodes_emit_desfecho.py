@@ -195,6 +195,129 @@ def test_desfecho_erro_inicio_processo_literal_matches_start_outcome() -> None:
         assert start_outcome.DESFECHO_ERRO_INICIO_PROCESSO in vocab, agent_id
 
 
+def test_fernando_desfecho_constants_are_declared_in_the_vocab() -> None:
+    """FERNANDO-NOTIFY-DESFECHO-LITERAL: `fernando/graph.py`'s three named `desfecho` constants
+    (mirroring `_DESFECHO_ERRO_INICIO_PROCESSO`/`DESFECHO_ERRO_INICIO_PROCESSO`'s own
+    two-independent-copies-checked-equal idiom, one level up) must never drift from the closed
+    vocabulary `_DESFECHO_VOCAB["fernando"]` declares."""
+    from maezo.agents.fernando import graph as fernando_graph
+
+    constantes = {
+        fernando_graph.DESFECHO_NOTIFICACAO_PREVIA_ENVIADA,
+        fernando_graph.DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO,
+        fernando_graph.DESFECHO_ENCAMINHADO_ANALISE_HUMANA,
+    }
+    assert constantes <= turn_telemetry._DESFECHO_VOCAB["fernando"]
+
+
+def _desfecho_literal_values(no: ast.AST) -> list[str]:
+    """Every BARE string literal (never a `Name`/`Attribute` reference to a constant) written as a
+    `desfecho` value ANYWHERE under `no`: a `return {"desfecho": ...}` dict entry, a `desfecho=`
+    keyword argument (e.g. to `emit_turn_desfecho`), or either branch of an `if/else` expression
+    assigned to a local named `desfecho`. Tree-derived (BRIEF-COMMON fence rule) — no `file:line`,
+    no hand-maintained inventory of what the code currently happens to contain.
+
+    `no` is any AST node: a single function (the Fernando STRUCTURAL fence, which asks "does THIS
+    function use a bare literal at all?") or a whole `ast.Module` (the fleet-wide VALUE fence,
+    which asks "is every literal this graph writes inside the agent's declared vocabulary?")."""
+    literais: list[str] = []
+
+    def _colhe(valor: ast.expr) -> None:
+        if isinstance(valor, ast.Constant) and isinstance(valor.value, str):
+            literais.append(valor.value)
+        elif isinstance(valor, ast.IfExp):
+            _colhe(valor.body)
+            _colhe(valor.orelse)
+
+    for node in ast.walk(no):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values, strict=True):
+                if isinstance(key, ast.Constant) and key.value == "desfecho":
+                    _colhe(value)
+        elif isinstance(node, ast.Call):
+            for kw in node.keywords:
+                if kw.arg == "desfecho":
+                    _colhe(kw.value)
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "desfecho" for t in node.targets
+        ):
+            _colhe(node.value)
+    return literais
+
+
+@pytest.mark.parametrize("node_name", ["notify", "escalate"])
+def test_fernando_graph_never_writes_a_bare_desfecho_literal(node_name: str) -> None:
+    """FERNANDO-NOTIFY-DESFECHO-LITERAL — RED PROOF. `notify()`/`escalate()` must write `desfecho`
+    through the module's named `DESFECHO_*` constants, never a bare string — structural (AST
+    shape), not value-based, so reverting either call site to a bare literal fails here even when
+    the literal's STRING VALUE is still in `_DESFECHO_VOCAB["fernando"]` (that value-domain check
+    is `test_fernando_desfecho_constants_are_declared_in_the_vocab`, above — a DIFFERENT property).
+    Mutation: put back `"desfecho": "encaminhado_analise_humana"` (or the `notify()` ternary's two
+    bare strings) -> this goes RED."""
+    path = _agent_graph_path("fernando")
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    fn = _find_function(tree, node_name)
+    literais = _desfecho_literal_values(fn)
+    assert not literais, (
+        f"fernando/graph.py::{node_name} atribui `desfecho` a partir de um literal de string "
+        f"bruto {literais!r} em vez de uma das constantes nomeadas "
+        "(DESFECHO_NOTIFICACAO_PREVIA_ENVIADA/DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO/"
+        "DESFECHO_ENCAMINHADO_ANALISE_HUMANA)"
+    )
+
+
+def _real_agent_ids() -> list[str]:
+    """Os agentes REAIS, derivados da ARVORE (`src/maezo/agents/<id>/graph.py` via a introspecao do
+    pacote, nunca um caminho de repositorio escrito a mao nem uma lista mantida a mao).
+
+    `_template` fica de fora e o motivo e' de conteudo, nao de conveniencia: ele e' o scaffold, o
+    docstring dele INSTRUI o autor de um agente novo a substituir `DESFECHO_PROCESSO_INICIADO` por
+    literais proprios, e ele nao tem (nem deve ter) entrada em `_DESFECHO_VOCAB` porque nao e' um
+    agente que emita telemetria."""
+    pacote = Path(importlib.import_module("maezo.agents").__file__).parent
+    return sorted(d.name for d in pacote.iterdir() if d.name != "_template" and (d / "graph.py").is_file())
+
+
+@pytest.mark.parametrize("agent_id", _real_agent_ids())
+def test_every_agent_graph_only_writes_declared_desfecho_literals(agent_id: str) -> None:
+    """FERNANDO-NOTIFY-DESFECHO-LITERAL, CERCA AMPLA (achado F3 do gatekeeper R1): TODO literal de
+    `desfecho` escrito por QUALQUER grafo de agente esta dentro do vocabulario FECHADO que aquele
+    agente declara em `turn_telemetry._DESFECHO_VOCAB`.
+
+    Propriedade DIFERENTE da cerca estrutural do fernando acima. Aquela pergunta "esta funcao usa
+    literal solto?" (e so' fernando responde "nao", porque so' fernando ganhou constantes
+    nomeadas); esta pergunta "o VALOR escrito esta declarado?", que e' a propriedade que os 9
+    outros agentes tambem podem — e devem — satisfazer mantendo seus literais soltos, que e' a
+    convencao que `_template/graph.py` ensina. Sem ela, um branch novo com um literal nao
+    declarado nao quebra teste nenhum: `emit_turn_desfecho` normaliza silenciosamente para
+    `"outro"` (a defesa de cardinalidade/PHI do §3 deste modulo), entao o KPI daquele desfecho
+    simplesmente nunca aparece — o mesmo tipo de "inaferivel" que a cerca CC-09 existe para
+    impedir.
+
+    A string VAZIA nao conta e nao e' excecao de conveniencia: os quatro sites que a produzem
+    (`andre`/`fernando`/`valentina`/`helena`) sao os dicionarios de fabrica de estado
+    (`new_*_state`), onde `"desfecho": ""` e' o sentinela "ainda nao houve desfecho neste turno",
+    nunca um desfecho escrito por um no' terminal.
+
+    Mutacao que leva este teste a RED: escrever um literal fora do vocabulario em QUALQUER agente
+    (p.ex. em `beatriz/graph.py`, `"desfecho": "dossie_instruido"` -> `"desfecho_inventado"`) ->
+    RED so' no caso `[beatriz]`."""
+    vocabulario = turn_telemetry._DESFECHO_VOCAB.get(agent_id)
+    assert vocabulario is not None, (
+        f"o agente {agent_id!r} tem `graph.py` mas NENHUMA entrada em `_DESFECHO_VOCAB` — todo "
+        "desfecho que ele escrever seria normalizado para `outro` e o KPI dele ficaria inaferivel"
+    )
+    caminho = _agent_graph_path(agent_id)
+    arvore = ast.parse(caminho.read_text(encoding="utf-8"), filename=str(caminho))
+    literais = {valor for valor in _desfecho_literal_values(arvore) if valor != ""}
+    fora = sorted(literais - vocabulario)
+    assert not fora, (
+        f"{agent_id}/graph.py escreve o(s) desfecho(s) {fora!r} fora do vocabulario declarado em "
+        f"`turn_telemetry._DESFECHO_VOCAB[{agent_id!r}]` — `emit_turn_desfecho` normalizaria "
+        "silenciosamente para `outro` e o KPI desse desfecho nunca apareceria"
+    )
+
+
 # ---------------------------------------------------------------------------------------------
 # 2. Cerca COMPORTAMENTAL — uma emissao por turno, labels corretos
 # ---------------------------------------------------------------------------------------------

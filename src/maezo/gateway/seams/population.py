@@ -12,7 +12,7 @@ chokes nothing yet, and `action-approvals.yaml`'s two `leitura_populacional` sur
 backs — exactly what I-10 forbids ("a class with zero shadow lines is not approvable").
 
 The wrapper is built and TESTED now anyway, on purpose: the day WB.4 lands, the registry has a
-gated constructor to return and the composition roots need no edit. That is the difference
+gated constructor to return. R117 additionally requires canonical privacy ratification. That is the difference
 between a seam that is unwired and one that is unwritten.
 
 `cohort_id` and `features` never enter a decision (I-3) — and note they are not PHI to begin
@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from maezo.gateway.seams._base import GatedSeam, SeamContext, gate
+from maezo.platform.privacy.population_policy import PopulationPolicyUnavailableError, load_population_policy
 
 if TYPE_CHECKING:  # pragma: no cover - types only; no runtime `maezo.agents` import at module scope
     from maezo.agents.andre.graph import CohortAggregate
@@ -42,12 +43,20 @@ class GatedPopulationFeatureClient(GatedSeam):
 
     async def actuarial_risk(self, cohort_id: str, *, features: list[str]) -> CohortAggregate:
         await gate(self._seam, _OP_ACTUARIAL_RISK)
+        policy = load_population_policy()
+        if not features or not set(features) <= policy.allowed_metrics:
+            raise PopulationPolicyUnavailableError("population_features_not_ratified")
         risk: CohortAggregate = await self._inner.actuarial_risk(cohort_id, features=features)
+        policy.validate(risk)
         return risk
 
     async def population_metrics(self, cohort_id: str, *, features: list[str]) -> CohortAggregate:
         await gate(self._seam, _OP_POPULATION_METRICS)
+        policy = load_population_policy()
+        if not features or not set(features) <= policy.allowed_metrics:
+            raise PopulationPolicyUnavailableError("population_features_not_ratified")
         metrics: CohortAggregate = await self._inner.population_metrics(cohort_id, features=features)
+        policy.validate(metrics)
         return metrics
 
 

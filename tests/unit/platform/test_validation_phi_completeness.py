@@ -1331,7 +1331,12 @@ class TestDispositionTable:
         """It must not be laundered into the DPO's directory before ratification."""
         privacy = _REPO_ROOT / "spec" / "policies" / "privacy"
         assert not (privacy / "phi-process-vars-disposition.yaml").exists()
-        assert sorted(p.name for p in privacy.glob("*.yaml")) == ["phi-business-key-remediation.yaml"]
+        # R117 / ADR-0019 has a separate unratified policy vehicle. Its blank
+        # human fields and fail-closed loader are fenced in test_population_policy.
+        assert sorted(p.name for p in privacy.glob("*.yaml")) == [
+            "phi-business-key-remediation.yaml",
+            "population-egress-v1.yaml",
+        ]
 
     def test_the_review_queue_records_the_migration_and_the_questions(self) -> None:
         queue = (_REPO_ROOT / "docs" / "review-queue.md").read_text(encoding="utf-8")

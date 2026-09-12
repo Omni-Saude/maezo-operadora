@@ -55,7 +55,7 @@ from typing import Any
 
 import yaml
 
-from maezo.agents import AgentLoader
+from maezo.agents import AgentDefinition, AgentLoader
 from maezo.tools.process_allowlist import KNOWN_PROCESS_KEYS
 
 from .result import Report
@@ -206,6 +206,42 @@ def _validate_a2a_handler_disclosure(path: Path, agent_id: str, a2a: dict[str, A
         report.error(path, f"a2a.handler_symbol {symbol!r} does not resolve to a callable attribute")
 
 
+#: The one tool id whose grant implies an OUTBOUND WhatsApp effect (GAP 11.7). An agent granting
+#: it makes an inbound-posture claim meaningful: can a beneficiary's reply ever route back to
+#: THIS agent, or only to `HelenaDispatcher` (the platform's one hardcoded WhatsApp-inbound seam,
+#: `platform/webhooks/whatsapp/dispatch.py`)?
+_WHATSAPP_SEND_TOOL = "mcp-whatsapp.send_message"
+
+
+def _validate_whatsapp_channel_posture(path: Path, definition: AgentDefinition, report: Report) -> None:
+    """GAP 11.7 — an agent granting `mcp-whatsapp.send_message` must declare its INBOUND posture.
+
+    `channels.whatsapp.inbound` must be an explicit `bool`: `False` for the (today, all but one)
+    agents with no path back from a beneficiary reply — documented honestly instead of silently
+    implied — and `True` for the one agent `HelenaDispatcher` actually routes to (`helena`). A
+    missing/malformed block is refused rather than defaulted, for the same reason `_exigir_
+    severidade` refuses rather than guesses: a silently-assumed posture is indistinguishable from
+    a checked one until the day it is wrong.
+    """
+    if _WHATSAPP_SEND_TOOL not in definition.tools:
+        return
+    whatsapp = definition.channels.get("whatsapp")
+    if not isinstance(whatsapp, dict) or not isinstance(whatsapp.get("inbound"), bool):
+        report.error(
+            path,
+            f"tool '{_WHATSAPP_SEND_TOOL}' is granted but 'channels.whatsapp.inbound' is not an "
+            "explicit true/false (GAP 11.7 — declare whether a beneficiary reply ever routes "
+            "back to this agent, e.g. `channels: {whatsapp: {outbound: true, inbound: false}}`)",
+        )
+
+    elif whatsapp["inbound"] is not (definition.id == "helena"):
+        report.error(
+            path,
+            "channels.whatsapp.inbound contradicts HelenaDispatcher: only helena receives "
+            "WhatsApp inbound (agent-scoped HTTP ingress is a different channel)",
+        )
+
+
 def validate_file(
     path: Path,
     mcp_servers: frozenset[str],
@@ -242,6 +278,8 @@ def validate_file(
                 f"tool '{tool}' references an unknown MCP server "
                 f"(expected src/maezo/tools/mcp_{server}/ to exist)",
             )
+
+    _validate_whatsapp_channel_posture(path, definition, report)
 
     # HEL-12 spec-first fence. ADDITIVE: it validates the keys an agent DECLARES. An agent that
     # declares NO `process_keys` at all is not caught here — that is the separate, OPEN,

@@ -71,3 +71,27 @@ d3c5ac141e0f43587bf6278579e43afe05bb9aa3:.gitleaksignore:generic-api-key:46
 # fingerprints preserve scanning of every other occurrence and all default rules.
 92f98281696b31a0151d8ba0d48bdabe2d80a8be:tests/unit/gateway/human/test_receipt_recording_metadata.py:generic-api-key:42
 1dd1afe304d62f8d4dd78304272ec64294112e70:tests/unit/portal/test_engine_profile.py:generic-api-key:42
+
+# PR-A (build/pr-a-backend, transplante do tip e8bbccfb) — Security lane em origin/main..HEAD.
+# Seis achados `generic-api-key`, todos inspecionados um a um (relatório Q3-BUILD-REPORT.md §gitleaks);
+# NENHUM valor literal de credencial. Fingerprints com escopo exato commit:arquivo:regra:linha sobre
+# os commits IMUTÁVEIS desta branch (nunca reescritos); as 7 fingerprints do train (commits
+# 6770eb84/9253328b/262f004d/a71a14e1/d71dac00/206a53dd/82d68600) não se aplicam a esta branch e
+# NÃO foram copiadas.
+#
+# (a) Anotacoes de tipo Ed25519PrivateKey (campos de dataclass terminados em "key", repr=False)
+#     nas particoes de credenciais — a regra casa o identificador + a entropia do nome do tipo; o
+#     valor e injetado em runtime pela particao, nunca um literal.
+9b3d1a7e64c0b0a042f7d55c96991d68c1cc313d:src/maezo/gateway/human/credentials.py:generic-api-key:72
+9b3d1a7e64c0b0a042f7d55c96991d68c1cc313d:src/maezo/gateway/human/auth_transport.py:generic-api-key:65
+9b3d1a7e64c0b0a042f7d55c96991d68c1cc313d:src/maezo/gateway/human/read_credentials.py:generic-api-key:72
+9b3d1a7e64c0b0a042f7d55c96991d68c1cc313d:src/maezo/gateway/staff_cases/publisher.py:generic-api-key:48
+# (b) Identificador de argumento nomeado (parametro `body_keys` seguido do parametro de validade)
+#     na composicao de pedidos de documento — nome de parametro contendo "keys", sem literal.
+c3b3a9d059c21ce2d231d9486a7f4a0071ba30e5:src/maezo/gateway/document_requests/composition.py:generic-api-key:267
+# (c) Identificador SINTETICO e publico de formulario (o mesmo `maezo.synthetic-ack.v1` de
+#     tests/unit/portal/test_engine_profile.py::SYNTHETIC_FORM) no campo de selecao de formulario
+#     de uma fixture unitaria offline — mesma classe ja fingerprintada acima para o commit 92f98281
+#     do train ("form-selection data, not credentials"); nao pode ser reescrito sem alterar os
+#     bytes canonicos que o teste prova.
+9b3d1a7e64c0b0a042f7d55c96991d68c1cc313d:tests/unit/gateway/human/test_receipt_recording_metadata.py:generic-api-key:42

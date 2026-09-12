@@ -1099,13 +1099,54 @@ def test_no_class_declares_a_pre_effect_audit_yet() -> None:
     assert [s.name for s in effect_classes.ACTION_CLASSES.values() if s.audita_antes] == []
 
 
-def test_every_catalogued_tool_id_is_declared_by_some_agent() -> None:
-    """The catalogue must describe the tree, not an aspiration: each `mcp-*` id it names is real."""
+# DISCLOSED GAP (PR-A, dark landing of the AMH clinical context). The four `mcp-amh.*` operations
+# are catalogued (`gateway/effect_classes.py`) and gated (`spec/policies/autonomy/action-approvals.yaml`
+# `agente.amh.*` -> `leitura_phi_clinica`; `gateway/amh.py`) BEFORE any agent consumes them: no agent
+# graph binds `clinical_context` and no `spec/agents/*/agent.yaml` declares an `mcp-amh.*` tool.
+# Landing the gate before the capability is the only safe order (the reverse would be a capability
+# without an approval row). Recorded here so the omission is a decision, not an oversight, and
+# fail-closed BOTH ways: the day an agent declares one of these ids, `..._gap_is_recorded...`
+# below fails and this set must shrink.
+CATALOGUED_AMH_IDS_AWAITING_CONSUMER: frozenset[str] = frozenset(
+    {
+        "mcp-amh.get_subject_context",
+        "mcp-amh.list_subject_encounters",
+        "mcp-amh.list_subject_conditions",
+        "mcp-amh.get_subject_coverage",
+    }
+)
+
+
+def _tool_ids_declared_by_agents() -> set[str]:
     declared: set[str] = set()
     for path in sorted((_REPO_ROOT / "spec" / "agents").glob("*/agent.yaml")):
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         declared.update(data.get("tools") or [])
-    assert declared >= effect_classes.CATALOGUED_TOOL_IDS
+    return declared
+
+
+def test_every_catalogued_tool_id_is_declared_by_some_agent() -> None:
+    """The catalogue must describe the tree, not an aspiration: each `mcp-*` id it names is real —
+    except the recorded AMH gap above, which is asserted in the opposite direction right below."""
+    declared = _tool_ids_declared_by_agents()
+    assert declared >= (effect_classes.CATALOGUED_TOOL_IDS - CATALOGUED_AMH_IDS_AWAITING_CONSUMER)
+
+
+def test_the_amh_context_gap_is_recorded_not_silently_catalogued() -> None:
+    """Two-way fence for the disclosed gap: the ids ARE catalogued (so the gate exists), NO agent
+    declares them (so the exception is still needed) and NO agent graph binds `clinical_context`
+    (so nothing can reach them). Any of the three changing means this set must shrink."""
+    assert CATALOGUED_AMH_IDS_AWAITING_CONSUMER <= effect_classes.CATALOGUED_TOOL_IDS
+    declared = _tool_ids_declared_by_agents()
+    assert declared.isdisjoint(CATALOGUED_AMH_IDS_AWAITING_CONSUMER), sorted(
+        declared & CATALOGUED_AMH_IDS_AWAITING_CONSUMER
+    )
+    consumers = [
+        path
+        for path in sorted((_REPO_ROOT / "src" / "maezo" / "agents").rglob("*.py"))
+        if "clinical_context" in path.read_text(encoding="utf-8")
+    ]
+    assert consumers == [], [str(p.relative_to(_REPO_ROOT)) for p in consumers]
 
 
 def test_the_memory_tool_gap_is_recorded_not_silently_catalogued() -> None:
