@@ -281,3 +281,117 @@ def test_the_record_can_never_grow_a_clinical_field():
         "denial_record_ref",
         "human_decision_custody_ref",
     }
+
+
+def _harness():  # type: ignore[no-untyped-def]
+    return WorkerHarness(FakeWorkerTransport(), worker_id="j1-06-owner-probe")
+
+
+def test_the_production_daemon_installs_exactly_one_owner_and_is_dark_by_default():
+    """V14 MAJOR-1 — the NEGAR owner now HAS a production installation path.
+
+    Before this repair `denial_notice_host` was read by `register_auth_workers` and
+    passed by no caller in `src/`: the live daemon threaded six seams and this was not
+    among them, and no setting existed. So in every deployment the generic
+    `SendDenialNoticeWorker` stayed the owner and the portal NEGAR journey was as dead
+    as it is on `main` — while the PR read as delivered capability.
+
+    The switch is `MAEZO_DENIAL_NOTICE_OWNER`, dark by default. This proves both
+    positions and that the topic never has two owners.
+    """
+    from maezo.runtime.worker_runtime.denial_notices import TOPIC, NativeDenialNoticeWorker
+    from maezo.runtime.worker_runtime.service import register_default_workers
+    from maezo.runtime.worker_runtime.settings import WorkerRuntimeSettings
+    from maezo.tools.workers.auth import SendDenialNoticeWorker
+
+    assert WorkerRuntimeSettings().denial_notice_owner is False, "dark by default"
+
+    dark = _harness()
+    register_default_workers(dark)
+    assert type(dark.registry.get(TOPIC)) is SendDenialNoticeWorker
+
+    live = _harness()
+    register_default_workers(live, denial_notice_host=install_denial_notice_host())
+    assert type(live.registry.get(TOPIC)) is NativeDenialNoticeWorker
+
+    # Exactly one owner, and the served topic set is identical either way — the
+    # daemon's readiness probe derives its expectation from this same function.
+    assert sorted(dark.registered_topics) == sorted(live.registered_topics)
+    assert live.registered_topics.count(TOPIC) == 1
+
+
+def test_the_installed_owner_survives_a_later_generic_registration():
+    """V14 MINOR-5 — exclusivity is durable, not a single moment in time.
+
+    `assert_exclusive` ran at construction and once after `register_auth_workers`.
+    Registering the generic worker afterwards silently won, because the registry warns
+    and overwrites on a duplicate topic — and `register_all_workers` is documented as
+    idempotent and safe to call again, so a second call without the seam handed the
+    topic straight back.
+    """
+    from maezo.runtime.worker_runtime.denial_notices import TOPIC, NativeDenialNoticeWorker
+    from maezo.runtime.worker_runtime.service import register_default_workers
+    from maezo.tools.workers.auth import SendDenialNoticeWorker
+    from maezo.tools.workers.harness import TopicSealError
+
+    harness = _harness()
+    register_default_workers(harness, denial_notice_host=install_denial_notice_host())
+    assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
+
+    # The exact D9 mutation V14 observed: register the generic worker afterwards.
+    with pytest.raises(TopicSealError):
+        harness.register_worker(SendDenialNoticeWorker())
+    # And a raw handler cannot take it either.
+    with pytest.raises(TopicSealError):
+        harness.register(TOPIC, _never)
+    # A second seam-less bootstrap pass no longer hands the topic back.
+    with pytest.raises(TopicSealError):
+        register_default_workers(harness)
+    assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
+
+    # Re-registering the SAME owner stays idempotent.
+    register_default_workers(harness, denial_notice_host=install_denial_notice_host())
+    assert type(harness.registry.get(TOPIC)) is NativeDenialNoticeWorker
+
+
+async def _never(task):  # type: ignore[no-untyped-def]
+    raise AssertionError("a sealed topic must never dispatch to a foreign handler")
+
+
+def test_the_basis_still_carries_no_denial_discriminator():
+    """V14 MINOR-7 tripwire — the known weakness, pinned so it cannot become permanent.
+
+    `HumanDecisionBasis` is what `AtomicHumanCommand` writes for EVERY admitted human
+    decision, APROVAR and NEGAR alike: no field says "denial", and none lets the
+    worker verify the sealed `content_digest` covers the three clinical fields. The
+    guard therefore proves a complete human decision exists in custody, not that a
+    denial with complete grounding does.
+
+    That is a property to know, not a defect this PR can fix — the discriminator has
+    to be written engine-side by PR-C's `ClassifiedDecision`. This test fails the day
+    one appears, which is exactly when this guard must start consuming it.
+    """
+    from maezo.gateway.denial_notices.models import HumanDecisionBasis
+
+    fields = set(HumanDecisionBasis.model_fields)
+    assert fields == {
+        "custody_ref",
+        "content_digest",
+        "request_digest",
+        "binding_digest",
+        "principal_ref",
+        "workload_ref",
+        "command_ref",
+        "audit_intent_ref",
+    }, "a new basis field landed — if it discriminates denials, the guard must read it"
+    assert len(BASIS_VARIABLES) == len(fields)
+    # No field name hints at the decision's kind or at the clinical grounding itself.
+    assert not [f for f in fields if any(t in f for t in ("deni", "negar", "outcome", "decis", "kind"))]
+
+    # And the compensating control is real: the worker composes NO denial record for
+    # anything but a NEGAR — the discriminator the basis lacks is supplied, for this
+    # one decision, by the gateway variable the BPMN flow condition already sets.
+    approval = _worker().execute(_vars(decisao_auditor="APROVAR"))
+    assert approval["notice_type"] == "approval"
+    assert approval["error_code"] is None
+    assert "denial_record_ref" not in approval

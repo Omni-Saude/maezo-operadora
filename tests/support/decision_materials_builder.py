@@ -1,6 +1,7 @@
 """Builder for a COMPLETE, valid decision material bundle used by the WP-J1-06 tests.
 
-The sibling of `materials_builder.py`, for the second material plane: an installation
+The sibling of `materials_builder.py` (same package, moved here by #384's convention
+for shared builders), for the second material plane: an installation
 root pin, a pinned `BindingDatabase`, a PHI deployment designation and the AES-GCM
 vault keys. It builds deployment material only — no provider and no port; the tests
 exercise the production providers in `src/`, never a stand-in for one.
@@ -23,6 +24,7 @@ from maezo.gateway.human.decision_binding_qualification import canonical, sha
 from maezo.gateway.human.decision_materials import (
     FILES,
     PUBLIC_FILES,
+    DecisionMaterialPin,
     DecisionMaterials,
     DecisionPublicManifest,
     verify_decision_materials,
@@ -168,18 +170,38 @@ def build_bundle(
         ],
         "binding_timeout_seconds": "10",
         "phi_timeout_seconds": "10",
+        "revocation_snapshot": {
+            "scope": scope,
+            "source_ref": "decision-revocation-observer-1",
+            "revision": "3",
+            "observed_at": _iso(issued_at),
+            "valid_until": _iso(valid_until),
+            "revoked_fingerprints": [],
+        },
         "files": {
             **{name: hashlib.sha256(files[name]).hexdigest() for name in PUBLIC_FILES},
             **{name: None for name in FILES - PUBLIC_FILES},
         },
     }
     for key, value in (overrides or {}).items():
-        payload[key] = value
+        current = payload.get(key)
+        payload[key] = (
+            {**current, **value} if isinstance(current, dict) and isinstance(value, dict) else value
+        )
 
     directory.mkdir(parents=True, exist_ok=True)
     for name, raw in files.items():
         (directory / name).write_bytes(raw)
     return parse_model(DecisionPublicManifest, payload), files
+
+
+def decision_pin_for(manifest: DecisionPublicManifest) -> DecisionMaterialPin:
+    """The out-of-band anchor an operator would configure for this exact manifest."""
+    return DecisionMaterialPin(
+        tenant=manifest.scope.tenant,
+        material_version_id=manifest.material_version_id,
+        public_manifest_sha256=hashlib.sha256(manifest.canonical()).hexdigest(),
+    )
 
 
 def build_decision_materials(
@@ -188,9 +210,12 @@ def build_decision_materials(
     overrides: dict | None = None,
     database: BindingDatabase | None = None,
     scope: dict[str, str] | None = None,
+    pin: DecisionMaterialPin | None = None,
 ) -> DecisionMaterials:
     manifest, files = build_bundle(directory=directory, overrides=overrides, database=database, scope=scope)
-    return verify_decision_materials(manifest, files, now=datetime.now(UTC), directory=str(directory))
+    return verify_decision_materials(
+        pin or decision_pin_for(manifest), manifest, files, now=datetime.now(UTC), directory=str(directory)
+    )
 
 
 def _wire(value: object) -> object:

@@ -20,12 +20,24 @@ AES vault keys exist only to be handed to `PostgresHumanDecisionCustody`.
 The plane is optional and complete-or-absent: without the directory the decision
 ports stay unbound and the gateway keeps its historical refusal (fail closed), and
 with it every port is a concrete provider — never a stand-in.
+
+The parity with the human plane includes its *second channel*. A bundle does not
+attest itself: `DecisionMaterialPin` carries the tenant, the material version and the
+canonical manifest digest from deployment configuration — facts the directory cannot
+amend — and `decision_manifest_matches` compares them before any key material is read,
+exactly as `manifest_matches` does for the human plane (`production_materials.py`) and
+the staff plane (`gateway/staff_cases/materials.py:63-95`). The manifest also carries a
+`DecisionRevocationSnapshot` with its own observation window, so withdrawn material is
+refused and every key handed out is clamped by that observation — not only by the
+issue window. Without those, every check here compares the directory to itself and a
+wholly substituted bundle (adversary's root key, binding host and vault keys) verifies.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Literal, Self
@@ -33,7 +45,7 @@ from typing import Annotated, Literal, Self
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pydantic import Field, StringConstraints, model_validator
 
-from maezo.portal.contracts.models import Sha256Digest
+from maezo.portal.contracts.models import OpaqueRef, Revision, Sha256Digest
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
 from .decision_binding import BindingDatabase
@@ -145,6 +157,35 @@ class PhiDeployment(Closed):
         )
 
 
+class DecisionRevocationSnapshot(Closed):
+    """A fresh observation that nothing in this bundle has been withdrawn.
+
+    Mirror of the human plane's `HumanRevocationSnapshot` and of the staff
+    `RevocationSnapshot` (`gateway/staff_cases/production_config.py:161-176`): sorted,
+    de-duplicated fingerprints and a closed observation window of its own. Without it
+    the issue window is the only bound, so a rolled-back snapshot of revoked vault keys
+    stays acceptable for the remainder of that window.
+    """
+
+    scope: Scope
+    source_ref: OpaqueRef
+    revision: Revision
+    observed_at: datetime
+    valid_until: datetime
+    revoked_fingerprints: tuple[Sha256Digest, ...]
+
+    @model_validator(mode="after")
+    def closed_snapshot(self) -> Self:
+        if (
+            tuple(sorted(set(self.revoked_fingerprints))) != self.revoked_fingerprints
+            or self.observed_at.tzinfo is None
+            or self.valid_until.tzinfo is None
+            or self.observed_at >= self.valid_until
+        ):
+            raise DecisionMaterialError()
+        return self
+
+
 class DecisionPublicManifest(Closed):
     """The public half of the decision plane: pins only, never a secret's digest."""
 
@@ -161,6 +202,7 @@ class DecisionPublicManifest(Closed):
     vault_keys: tuple[VaultKeyDesignation, ...]
     binding_timeout_seconds: Seconds
     phi_timeout_seconds: Seconds
+    revocation_snapshot: DecisionRevocationSnapshot
     files: dict[str, Sha256Digest | None]
 
     @model_validator(mode="after")
@@ -189,9 +231,25 @@ class DecisionPublicManifest(Closed):
             or self.issued_at >= self.valid_until
             # Material may not outlive the PHI deployment assurance it describes.
             or self.valid_until > self.phi.valid_until
+            # The withdrawal channel must speak for THIS plane and must not attest
+            # material it simultaneously declares revoked.
+            or self.revocation_snapshot.scope != self.scope
+            or bool(self.attested_digests() & set(self.revocation_snapshot.revoked_fingerprints))
         ):
             raise DecisionMaterialError()
         return self
+
+    def attested_digests(self) -> frozenset[str]:
+        """Every digest this manifest vouches for; none of them may be revoked."""
+        return frozenset(
+            {self.root_key_fingerprint, self.phi.client_certificate_sha256, self.phi.evidence_digest}
+            | {key.material_sha256 for key in self.vault_keys}
+            | {
+                self.binding_database.resource_publisher_fingerprint,
+                self.binding_database.installer_certificate_digest,
+                self.binding_database.reader_certificate_digest,
+            }
+        )
 
     def canonical(self) -> bytes:
         return canonicalize(wire(self))
@@ -215,6 +273,51 @@ class VaultKeyBundle(Closed):
 
 
 @dataclass(frozen=True, repr=False)
+class DecisionMaterialPin:
+    """The out-of-band half of the decision plane's trust chain: configuration, not bundle.
+
+    `verify_root` compares the installation root to `manifest.root_key_fingerprint` and
+    the installation digest to a hash of the manifest's own `binding_database` — the
+    bundle vouching for the bundle. An adversary who can write the material directory
+    supplies their own root keypair, their own binding host and their own AES vault
+    keys, and every internal check passes. This is the second, independently
+    configured channel that says WHICH bundle this deployment accepts.
+    """
+
+    tenant: str
+    material_version_id: str
+    public_manifest_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}", self.tenant)
+            or not re.fullmatch(r"[A-Za-z0-9-]{32,64}", self.material_version_id)
+            or not re.fullmatch(r"[0-9a-f]{64}", self.public_manifest_sha256)
+        ):
+            raise DecisionMaterialError()
+
+
+def decision_manifest_matches(
+    pin: DecisionMaterialPin, manifest: DecisionPublicManifest, now: datetime
+) -> None:
+    """Refuse an unpinned, stale or withdrawn manifest before anything is read or opened.
+
+    First statement of `verify_decision_materials`, which `load_decision_materials`
+    reaches before `human_runtime` enters its `AsyncExitStack` — so a decision bundle
+    for the wrong tenant never contributes a connection, a cipher or a binding.
+    """
+    snapshot = manifest.revocation_snapshot
+    if (
+        manifest.scope.tenant != pin.tenant
+        or manifest.material_version_id != pin.material_version_id
+        or hashlib.sha256(manifest.canonical()).hexdigest() != pin.public_manifest_sha256
+        or not manifest.issued_at <= now < manifest.valid_until
+        or not snapshot.observed_at <= now < snapshot.valid_until
+    ):
+        raise DecisionMaterialError()
+
+
+@dataclass(frozen=True, repr=False)
 class DecisionMaterials:
     """Everything the production composition root may build the decision ports from."""
 
@@ -222,6 +325,10 @@ class DecisionMaterials:
     root: RootDesignation
     vault: VaultKeyBundle
     vault_material: dict[str, bytes]
+    #: `min(manifest.valid_until, revocation_snapshot.valid_until, root.valid_until)`.
+    #: A stale withdrawal observation shortens the plane's life instead of being
+    #: ignored — the clamp the human plane applies to every lease it mints.
+    not_after: datetime = datetime.max.replace(tzinfo=UTC)
     directory: str = DECISION_MATERIAL_DIRECTORY
 
     def ciphers(self) -> dict[str, AESGCM]:
@@ -255,20 +362,25 @@ def verify_root(raw: bytes, manifest: DecisionPublicManifest, *, now: datetime) 
 
 
 def verify_decision_materials(
+    pin: DecisionMaterialPin,
     manifest: DecisionPublicManifest,
     files: dict[str, bytes],
     *,
     now: datetime,
     directory: str = DECISION_MATERIAL_DIRECTORY,
 ) -> DecisionMaterials:
-    """Prove the bundle, then hand back only what the composition root may use."""
+    """Prove the bundle, then hand back only what the composition root may use.
+
+    The out-of-band pin is checked FIRST, before a byte of key material is read: the
+    tenant cross-check is a precondition of trusting the directory, not a conclusion
+    drawn after building from it.
+    """
+    decision_manifest_matches(pin, manifest, now)
     if set(files) != FILES:
         raise DecisionMaterialError()
     for name in PUBLIC_FILES:
         if hashlib.sha256(files[name]).hexdigest() != manifest.files[name]:
             raise DecisionMaterialError()
-    if not manifest.issued_at <= now < manifest.valid_until:
-        raise DecisionMaterialError()
     root = verify_root(files["installation-root.json"], manifest, now=now)
 
     bundle = _parse(VaultKeyBundle, files["vault-keys.json"])
@@ -291,18 +403,27 @@ def verify_decision_materials(
     # `PhiDatabaseDeployment.__post_init__` a load-time failure.
     manifest.phi.deployment(manifest.scope)
     return DecisionMaterials(
-        manifest=manifest, root=root, vault=bundle, vault_material=material, directory=directory
+        manifest=manifest,
+        root=root,
+        vault=bundle,
+        vault_material=material,
+        not_after=min(manifest.valid_until, manifest.revocation_snapshot.valid_until, root.valid_until),
+        directory=directory,
     )
 
 
-def load_decision_materials(directory_setting: str | None) -> DecisionMaterials:
-    """Read the single fixed read-only decision directory; no search path, no fallback."""
+def load_decision_materials(directory_setting: str | None, pin: DecisionMaterialPin) -> DecisionMaterials:
+    """Read the single fixed read-only decision directory; no search path, no fallback.
+
+    `pin` is the deployment's out-of-band anchor and is not optional: without it the
+    directory would be the sole authority on its own contents.
+    """
     try:
         if directory_setting != DECISION_MATERIAL_DIRECTORY:
             raise DecisionMaterialError()
         files = read_material_directory(DECISION_MATERIAL_PARENT, FILES)
         manifest = _parse(DecisionPublicManifest, files.pop("manifest.json"))
-        return verify_decision_materials(manifest, files, now=datetime.now(UTC))
+        return verify_decision_materials(pin, manifest, files, now=datetime.now(UTC))
     except Exception:
         raise DecisionMaterialError() from None
 
@@ -314,11 +435,14 @@ __all__ = [
     "PRIVATE_FILES",
     "PUBLIC_FILES",
     "DecisionMaterialError",
+    "DecisionMaterialPin",
     "DecisionMaterials",
     "DecisionPublicManifest",
+    "DecisionRevocationSnapshot",
     "PhiDeployment",
     "VaultKeyBundle",
     "VaultKeyDesignation",
+    "decision_manifest_matches",
     "load_decision_materials",
     "verify_decision_materials",
     "verify_root",

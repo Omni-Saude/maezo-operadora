@@ -7,7 +7,9 @@ from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 
+from maezo.gateway.human.decision_materials import DecisionMaterialPin
 from maezo.gateway.human.production import human_runtime
+from maezo.gateway.human.production_materials import HumanMaterialPin
 from maezo.gateway.staff_cases.production import staff_runtime
 from maezo.gateway.staff_cases.production_config import PortalProductionSettings, PortalStaffBootstrapError
 from maezo.portal.api.app import create_app
@@ -73,11 +75,21 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
     the gateway then keeps refusing `POST /tasks/{id}/decisions`, which is not a stub
     but the same fail-closed refusal `main` ships.
     """
-    if settings.human_material_directory is None:
-        raise PortalStaffBootstrapError()
+    pin = _human_material_pin(settings)
     async with AsyncExitStack() as resources:
+        # The tenant cross-check travels INSIDE the pin, so a bundle for another tenant
+        # is refused while parsing the manifest — before a pool is opened, before the
+        # first query and before the command relay starts. The assertion below is the
+        # cheap belt to that braces, not the control.
+        # The decision plane (WP-J1-06) rides the same call and is loaded only after
+        # that verification succeeds; `None` means no decision plane and the gateway
+        # keeps refusing decisions.
         runtime = await resources.enter_async_context(
-            human_runtime(decision_directory=settings.decision_material_directory)
+            human_runtime(
+                pin,
+                decision_directory=settings.decision_material_directory,
+                decision_pin=_decision_material_pin(settings),
+            )
         )
         if runtime.scope.tenant != settings.tenant:
             raise PortalStaffBootstrapError()
@@ -96,3 +108,41 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
         finally:
             application.state.task_read_service_factory = None
             application.state.decision_service_factory = None
+
+
+def _human_material_pin(settings: PortalProductionSettings) -> HumanMaterialPin:
+    """The deployment's out-of-band anchor for the human material bundle.
+
+    `complete_profile` already refuses a half-configured human profile; this repeats
+    the narrowing so the pin can never be built from a partially present one, and so
+    the type checker sees three non-optional facts.
+    """
+    if (
+        settings.human_material_directory is None
+        or settings.human_material_version_id is None
+        or settings.human_public_manifest_sha256 is None
+    ):
+        raise PortalStaffBootstrapError()
+    return HumanMaterialPin(
+        tenant=settings.tenant,
+        material_version_id=settings.human_material_version_id,
+        public_manifest_sha256=settings.human_public_manifest_sha256,
+    )
+
+
+def _decision_material_pin(settings: PortalProductionSettings) -> DecisionMaterialPin | None:
+    """The deployment's out-of-band anchor for the decision material bundle.
+
+    `None` exactly when the plane is dark. `complete_profile` already refuses a
+    half-configured decision profile; this repeats the narrowing so the pin can never
+    be built from a partially present one.
+    """
+    if settings.decision_material_directory is None:
+        return None
+    if settings.decision_material_version_id is None or settings.decision_public_manifest_sha256 is None:
+        raise PortalStaffBootstrapError()
+    return DecisionMaterialPin(
+        tenant=settings.tenant,
+        material_version_id=settings.decision_material_version_id,
+        public_manifest_sha256=settings.decision_public_manifest_sha256,
+    )

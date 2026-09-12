@@ -753,7 +753,20 @@ async def test_repair_canonical_dossier_refuses_before_authority_and_recovers(si
 @pytest.mark.parametrize("shape", ["dict", "list"])
 async def test_repair_snapshot_is_the_audited_and_emitted_payload_at_every_await(boundary, shape):
     p = profile(RAFAEL_START)
-    profiles = (p, replace(p, schema=start_read_schema(p.schema, EngineOperation.READ_ACTIVE)))
+    # WP-J1-11: `SP-OP-AUTH-001` passou a ser familia GATED (`EXCLUSIVE`, decisao do dono #16),
+    # e o preflight D7-A autoriza `READ_HISTORY` ALEM de `READ_ACTIVE` para familia gated
+    # (`gateway/engine_start.py::authorize_start`) — o portao precisa poder perguntar ao engine
+    # se a geracao reivindicada terminou. Sem esse perfil o start e' negado
+    # (`engine_operation_denied`) antes de qualquer boundary pausado. E' o MESMO provisionamento
+    # que `test_preclaim_denial_and_recovery_same_key` ja faz para `CONTAS_PAGTO_START`, e o
+    # plano seguro de producao ja o deriva para TODO schema de START
+    # (`platform/engine_bootstrap/secured_plan.py::_registered`), entao isto alinha a fixture
+    # com o que a implantacao real instala — nao afrouxa nada.
+    profiles = (
+        p,
+        replace(p, schema=start_read_schema(p.schema, EngineOperation.READ_ACTIVE)),
+        replace(p, schema=start_read_schema(p.schema, EngineOperation.READ_HISTORY)),
+    )
     data = variables(p.schema)
     field = "dmn_decision_refs" if shape == "dict" else "documentos_refs"
     data[field] = {"refs": [{"id": "original"}]} if shape == "dict" else [{"refs": ["original"]}]

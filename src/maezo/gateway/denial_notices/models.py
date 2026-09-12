@@ -71,7 +71,25 @@ blank = is_blank
 
 
 class HumanDecisionBasis(Closed):
-    """The engine-visible, non-PHI basis of one admitted human decision."""
+    """The engine-visible, non-PHI basis of one admitted human decision.
+
+    KNOWN PROPERTY (V14 MINOR-7), recorded so nobody mistakes what this proves.
+    These eight references are what `AtomicHumanCommand` writes for EVERY admitted
+    human decision — APROVAR and NEGAR alike. Nothing in them says "this decision was
+    a denial", and nothing here lets the worker verify that the sealed
+    `content_digest` covers three non-blank clinical fields. So the guard proves *a
+    complete human decision exists in custody*, not *a denial with complete grounding
+    exists* — strictly weaker evidence than the generic worker's, which reads the
+    clinical text directly.
+
+    The chain still holds end to end: `AuthDecisionInputs` refuses a NEGAR without the
+    three fields, `content_digest` seals exactly those inputs, and the worker gates on
+    `decisao_auditor == "NEGAR"` before composing anything. Closing the gap needs a
+    discriminator written into the basis by the engine-side writer (PR-C's
+    `ClassifiedDecision`), which does not exist yet — so the day it appears,
+    `test_the_basis_still_carries_no_denial_discriminator` fails and forces this guard
+    to consume it, rather than the gap quietly becoming permanent.
+    """
 
     custody_ref: OpaqueRef
     content_digest: Sha256Digest
