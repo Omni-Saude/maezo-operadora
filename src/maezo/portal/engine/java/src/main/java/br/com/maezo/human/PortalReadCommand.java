@@ -303,8 +303,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     if (stream == null)
       throw unavailable();
     try (stream) {
-      byte[] raw = stream.readNBytes(RESOURCE_MAX + 1);
-      if (raw.length > RESOURCE_MAX || !Jcs.digest(raw).equals(expected))
+      if (!resourceMatches(stream, expected))
         throw unavailable();
     } catch (IOException ex) {
       throw unavailable();

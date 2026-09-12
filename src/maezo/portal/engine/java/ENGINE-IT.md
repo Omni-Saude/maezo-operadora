@@ -31,11 +31,35 @@ export MAEZO_HUMAN_IT_DB_USER='maezo'
 export MAEZO_HUMAN_IT_DB_PASSWORD="${MAEZO_PG_PASSWORD:-maezo}"
 export MAEZO_PORTAL_READ_IT_REPO="$PWD"
 mvn -B -o -f src/maezo/portal/engine/java/pom.xml test \
-    -Dmaezo.repo.root="$PWD" -Dtest='AtomicEngineIT,EnlistmentEngineIT,FreshnessEngineIT,ReviewerEngineIT,WorkloadEngineIT' -DfailIfNoSpecifiedTests=false
+    -Dmaezo.repo.root="$PWD" -DfailIfNoSpecifiedTests=false \
+    -Dtest='AtomicEngineIT,EnlistmentEngineIT,FreshnessEngineIT,ReviewerEngineIT,WorkloadEngineIT,PortalReadEngineIT,PortalReadPublisherEngineIT,StaffCaseReadEngineIT'
 ```
+
+**Os 3 do grupo B estão nesse mesmo comando de propósito**: são eles que exercitam o reparo do cap
+de leitura (§6) — a coisa mais importante a confirmar contra motor real. Rodar só o grupo A deixa o
+reparo sem prova.
 
 A URL admin é recusada se trouxer `currentSchema=` ou `options=` (`AtomicEngineIT.java:41-42`):
 cada classe acrescenta o próprio `currentSchema`.
+
+### 2.1 Contagens esperadas (baseline V3-Q3 § 3, motor real)
+
+Sem elas não dá para distinguir "rodou tudo" de "coletou nada em silêncio".
+
+| Classe | Testes | Baseline V3-Q3 |
+|---|---|---|
+| `AtomicEngineIT` | 18 | PASS |
+| `EnlistmentEngineIT` | 22 | PASS |
+| `FreshnessEngineIT` | 27 | PASS |
+| `ReviewerEngineIT` | 24 | PASS |
+| `WorkloadEngineIT` | 43 | PASS |
+| `PortalReadEngineIT` | 8 | **FAIL → deve virar PASS** com o reparo §6 |
+| `PortalReadPublisherEngineIT` | 4 | **FAIL → deve virar PASS** |
+| `StaffCaseReadEngineIT` | 2 | **FAIL → deve virar PASS** |
+
+Grupo A = **134 testes**, todos PASS na baseline; grupo B = **14 erros**, todos
+`Rejected: READ_DEPENDENCY_UNAVAILABLE`, uma só causa. Qualquer total menor que o da tabela
+significa coleta vazia, não sucesso.
 
 ## 3. Fixture Postgres **com TLS** (grupos C e D)
 
@@ -60,7 +84,14 @@ Pré-condições verificadas por `session()`:
 ### 3.1 Subir um Postgres descartável com TLS
 
 Use uma porta e um projeto próprios; **não** altere o Postgres do compose (ele é compartilhado e
-pertence ao `engine.lock`). Material efêmero, gerado na hora, nunca commitado:
+pertence ao `engine.lock`).
+
+**Pré-requisitos desta seção:** `docker`, `openssl`, `psql` e **`sudo`** — o `chown 999:999` abaixo
+é obrigatório porque o `postgres:16` recusa subir se a chave do servidor não pertencer ao uid do
+processo. Sem `sudo`, use um Postgres já provisionado com TLS pelo dono e pule para §3.2; não
+existe caminho sem TLS (§3, item 3).
+
+Material efêmero, gerado na hora, nunca commitado:
 
 ```sh
 FIXTURE="$(mktemp -d)"; chmod 700 "$FIXTURE"
@@ -87,7 +118,9 @@ psql "postgresql://maezo@localhost:5434/maezo?sslmode=require" \
 `NOLOGIN` não serve (item 4 exige `rolcanlogin`), e o papel não pode herdar nada:
 
 ```sh
-psql "postgresql://maezo@localhost:5434/maezo?sslmode=require" <<'SQL'
+# `-v pw=…` é obrigatório: o bloco abaixo referencia :'pw'. A senha vem do ambiente, nunca do
+# arquivo nem do histórico do shell.
+psql "postgresql://maezo@localhost:5434/maezo?sslmode=require" -v pw="$MAEZO_CONSUMER_IT_RUNTIME_PASSWORD" <<'SQL'
 DROP ROLE IF EXISTS consumer_runtime;
 CREATE ROLE consumer_runtime LOGIN PASSWORD :'pw'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT;
@@ -97,8 +130,8 @@ SELECT count(*) AS memberships FROM pg_auth_members m JOIN pg_roles r ON r.oid=m
 SQL
 ```
 
-(`:'pw'` vem de `psql -v pw="$MAEZO_CONSUMER_IT_RUNTIME_PASSWORD"`; nunca escreva a senha no
-arquivo nem no histórico.) Esperado: `f f f f t` e `memberships = 0`.
+Esperado: `f f f f t` e `memberships = 0`. Exporte
+`MAEZO_CONSUMER_IT_RUNTIME_PASSWORD` antes (§3.3), para que o `-v pw=` acima resolva.
 
 ### 3.3 Rodar C e D
 
@@ -145,5 +178,12 @@ que é a cerca de *entrada não confiável*. 7 dos 16 BPMN de produção passam 
 `verifyCatalog` recusava o próprio catálogo da operadora com `READ_DEPENDENCY_UNAVAILABLE`. O
 limite do recurso implantado agora é `RESOURCE_MAX` (1 MiB), o **mesmo** que o leitor Python já
 aplica aos mesmos bytes de `ACT_GE_BYTEARRAY`
-(`src/maezo/gateway/human/decision_binding.py:707,758`). `MAX` continua 65536. Fixado por
-`PortalReadResourceBoundTest` e `tests/unit/portal/test_read_dependency_resource_bound.py`.
+(`src/maezo/gateway/human/decision_binding.py:707,758`). `MAX` continua 65536.
+
+A leitura limitada existe **uma vez só**, em `PortalReadModels.resourceMatches`: os 7 pontos do
+pacote que leem `getProcessModel`/`getDecisionModel` passam por ela (V9-Q4 F2 — antes, o
+`AuthRuntime` repetia os literais `1048577`/`1048576` e o `AtomicHumanCommand` lia sem limite
+nenhum). Cada chamador mantém o próprio código de recusa (503 / 403 / 409), que é contrato dele.
+
+Fixado por `PortalReadResourceBoundTest` e `tests/unit/portal/test_read_dependency_resource_bound.py`
+— ambos varrem o pacote inteiro, então um leitor novo não consegue reintroduzir limite próprio.

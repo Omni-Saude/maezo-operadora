@@ -73,7 +73,7 @@ final class AtomicHumanCommand implements Command<AtomicHumanCommand.Result> {
             .getProcessEngineConfiguration()
             .getRepositoryService()
             .getProcessModel(c.processId())) {
-      if (!Jcs.digest(resource.readAllBytes()).equals(c.processDigest())) throw Rejected.conflict();
+      if (!PortalReadModels.resourceMatches(resource, c.processDigest())) throw Rejected.conflict();
     } catch (java.io.IOException ex) {
       throw EngineStore.unavailable();
     }

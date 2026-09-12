@@ -83,8 +83,7 @@ final class AuthRuntime {
       if(deployed==null||!scope.get("tenant").equals(deployed.getTenantId())||!"SP-OP-AUTH-001".equals(deployed.getKey())
           ||!definition.get("deployment_id").equals(deployed.getDeploymentId()))throw Rejected.denied();
       try(var stream=repository.getProcessModel(deployed.getId())) {
-        byte[] model=stream.readNBytes(1048577);
-        if(model.length>1048576||!Jcs.digest(model).equals(definition.get("definition_digest")))throw Rejected.denied();
+        if(!PortalReadModels.resourceMatches(stream,definition.get("definition_digest")))throw Rejected.denied();
       }catch(java.io.IOException failure){throw Rejected.denied();}
       current();
     }

@@ -94,4 +94,62 @@ class PortalReadResourceBoundTest {
     assertDoesNotThrow(
         () -> PortalReadCommand.resourceDigest(new ByteArrayInputStream(body), Jcs.digest(body)));
   }
+
+  // --- V9-Q4 F2: the bound must hold for EVERY deployed-model reader, not just this one file. ---
+
+  private static List<Path> humanMainSources() throws Exception {
+    Path dir = Path.of(System.getProperty("basedir", "."), "src/main/java/br/com/maezo/human");
+    assertTrue(Files.isDirectory(dir), "package source dir not found at " + dir.toAbsolutePath());
+    try (Stream<Path> walk = Files.list(dir)) {
+      var sources = walk.filter(f -> f.toString().endsWith(".java")).sorted().toList();
+      assertFalse(sources.isEmpty(), "no sources under " + dir);
+      return sources;
+    }
+  }
+
+  @Test
+  void resourceMatchesIsExactAtTheBoundary() throws Exception {
+    byte[] atLimit = new byte[PortalReadModels.RESOURCE_MAX];
+    assertTrue(
+        PortalReadModels.resourceMatches(new ByteArrayInputStream(atLimit), Jcs.digest(atLimit)));
+    byte[] over = new byte[PortalReadModels.RESOURCE_MAX + 1];
+    assertFalse(PortalReadModels.resourceMatches(new ByteArrayInputStream(over), Jcs.digest(over)),
+        "a model one byte over RESOURCE_MAX must not match, whatever its digest");
+    assertFalse(
+        PortalReadModels.resourceMatches(new ByteArrayInputStream(atLimit), "0".repeat(64)),
+        "integrity still governs inside the bound");
+  }
+
+  @Test
+  void everyDeployedModelReaderGoesThroughTheSharedBoundedRead() throws Exception {
+    var unbounded = new ArrayList<String>();
+    for (Path source : humanMainSources()) {
+      String text = Files.readString(source);
+      if (!text.contains("getProcessModel(") && !text.contains("getDecisionModel("))
+        continue;
+      if (!text.contains("resourceMatches(") && !text.contains("resourceDigest("))
+        unbounded.add(source.getFileName().toString());
+    }
+    assertEquals(List.of(), unbounded,
+        "these read an engine-deployed model without the shared bounded read "
+            + "(PortalReadModels.resourceMatches): an unbounded readAllBytes() on a deployed model "
+            + "is exactly the regression this fence exists to stop");
+  }
+
+  @Test
+  void theResourceBoundIsStatedOnlyOnce() throws Exception {
+    var retyped = new ArrayList<String>();
+    for (Path source : humanMainSources()) {
+      String name = source.getFileName().toString();
+      if (name.equals("PortalReadModels.java"))
+        continue;
+      String text = Files.readString(source);
+      if (text.contains(String.valueOf(PortalReadModels.RESOURCE_MAX))
+          || text.contains(String.valueOf(PortalReadModels.RESOURCE_MAX + 1)))
+        retyped.add(name);
+    }
+    assertEquals(List.of(), retyped,
+        "the 1 MiB deployed-model bound is re-typed as a literal here; use "
+            + "PortalReadModels.RESOURCE_MAX so it cannot drift");
+  }
 }

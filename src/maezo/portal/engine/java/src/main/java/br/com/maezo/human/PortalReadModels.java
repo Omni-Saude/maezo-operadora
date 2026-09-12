@@ -1,5 +1,7 @@
 package br.com.maezo.human;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
@@ -26,6 +28,26 @@ final class PortalReadModels {
    * Pinned by `PortalReadResourceBoundTest` and
    * `tests/unit/portal/test_read_dependency_resource_bound.py`. */
   static final int RESOURCE_MAX = 1048576;
+  /**
+   * The ONLY bounded read of an engine-deployed process/decision model. Every reader of
+   * {@code RepositoryService.getProcessModel/getDecisionModel} in this package goes through it, so
+   * the bound is stated once instead of being re-typed per call site (V9-Q4 F2: `AuthRuntime`
+   * carried its own `1048577`/`1048576` literals and `AtomicHumanCommand` read with an unbounded
+   * `readAllBytes()`).
+   *
+   * <p>Returns whether the model is within {@link #RESOURCE_MAX} AND matches {@code expected};
+   * it never throws a refusal itself, because the callers' refusal codes differ and are part of
+   * their own contracts (503 READ_DEPENDENCY_UNAVAILABLE, 403 denied, 409 conflict). Memory stays
+   * bounded: it reads at most RESOURCE_MAX+1 bytes and rejects at RESOURCE_MAX+1.
+   *
+   * <p>Pinned by {@code PortalReadResourceBoundTest} and
+   * {@code tests/unit/portal/test_read_dependency_resource_bound.py}, both of which scan the whole
+   * package so a future reader cannot reintroduce a private bound.
+   */
+  static boolean resourceMatches(InputStream stream, Object expected) throws IOException {
+    byte[] raw = stream.readNBytes(RESOURCE_MAX + 1);
+    return raw.length <= RESOURCE_MAX && Jcs.digest(raw).equals(expected);
+  }
   static final String[] COMMON = {"schema", "operation", "scope", "engine_name",
       "database_incarnation", "read_deployment_ref", "read_deployment_digest", "request_id",
       "read_context_id"};
