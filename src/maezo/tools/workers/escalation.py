@@ -99,7 +99,6 @@ import structlog
 
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.tools.workers.harness import WorkerBpmnError
-from maezo.tools.workers.phi_vars import redact_free_text
 
 if TYPE_CHECKING:
     from maezo.tools.workers.harness import ExternalTask, KafkaPublisher, TaskHandler, WorkerHarness
@@ -241,6 +240,9 @@ def _recusar(task: ExternalTask, motivo: str, detalhe: str) -> NoReturn:
     outcome the module forbids. The modeled error instead drives `BE_FalhaNotificacao` ->
     `ST_NotificarFallback` -> (and, if that refuses too) `BE_NotifFallbackFailed` ->
     `UT_TratarEscalonamento`. Fail CLOSED on the payload, fail SAFE on the flow.
+
+    ADR-0006: callers supply only static diagnostics and closed-domain field names/values.
+    Never interpolate the refused input into `detalhe`: it also reaches exception rendering.
     """
     logger.error(
         "escalation_routing_input_recusado",
@@ -351,7 +353,7 @@ def _exigir_severidade(task: ExternalTask, v: Mapping[str, Any]) -> str | None:
         _recusar(
             task,
             "severidade_tipo_invalido",
-            f"`severidade` chegou como {type(bruta).__name__} ({bruta!r}), nao texto — o contrato "
+            f"`severidade` chegou como {type(bruta).__name__}, nao texto — o contrato "
             "a declara `string` (SP-OP-ESCALATION-001.md:27); um valor que o motor nao poderia ter "
             f"produzido e' corrupcao, nunca a ausencia declarada de `motivo_categoria="
             f"{_MOTIVO_SEM_SEVERIDADE}`",
@@ -361,7 +363,7 @@ def _exigir_severidade(task: ExternalTask, v: Mapping[str, Any]) -> str | None:
         _recusar(
             task,
             "severidade_fora_do_dominio",
-            f"`severidade`={severidade!r} fora do dominio contratual "
+            "`severidade` fora do dominio contratual "
             f"{sorted(_SEVERIDADES_CONTRATUAIS)} (SP-OP-ESCALATION-001.md:27,:57)",
         )
     return severidade
@@ -390,7 +392,7 @@ def _exigir_grupo_atendimento(task: ExternalTask, v: Mapping[str, Any]) -> str:
         _recusar(
             task,
             "grupo_atendimento_fora_do_dominio",
-            f"`grupo_atendimento`={grupo!r} fora do dominio da DMN "
+            "`grupo_atendimento` fora do dominio da DMN "
             f"{sorted(_GRUPOS_ATENDIMENTO_DMN)} (escalation_routing.dmn:33,42,51,60,69,78,87; "
             "contrato :59)",
         )
@@ -434,7 +436,7 @@ def _rotulo_opcional_validado(
         _recusar(
             task,
             f"{nome}_fora_do_dominio",
-            f"`{nome}`={rotulo!r} fora do dominio {sorted(dominio)}",
+            f"`{nome}` fora do dominio {sorted(dominio)}",
         )
     return rotulo
 
@@ -461,26 +463,15 @@ def _rotulo_opcional_tolerante(
     not an upstream-supplied category, so an out-of-domain value there means the engine itself is
     corrupted — a different failure class that must NOT be tolerated the same way.
 
-    PHI (gap `ESC-TOLERANT-LOG-RAW-VALUE`): o valor rejeitado NAO vai bruto para o log. Por
-    construcao ele e um valor que a DMN nao reconhece — texto livre vindo de cima, nao um rotulo
-    do dominio — e a sonda adversarial do gatekeeper de VERIFY-R4-DEFAULTS provou um CPF completo
-    saindo verbatim em WARNING. Ele passa por `phi_vars.redact_free_text` antes das duas pernas de
-    log; o `campo` e o `dominio` continuam inteiros, entao a linha permanece diagnostica.
+    PHI (ESC-TOLERANT-LOG-RAW-VALUE, ADR-0006): reject the ENTIRE untrusted label from
+    diagnostics too. A heuristic redactor cannot recognize arbitrary clinical narrative.
+    Keep only the field, contractual domain and existing correlation metadata in both logs.
     """
     rotulo = _rotulo_opcional(v, nome)
     if rotulo is not None and rotulo not in dominio:
-        # Gap `ESC-TOLERANT-LOG-RAW-VALUE`: o valor logado aqui e, POR DEFINICAO, um valor que a
-        # DMN nao reconhece — ou seja, texto arbitrario vindo de cima, nao um rotulo do dominio.
-        # A sonda adversarial do gatekeeper de VERIFY-R4-DEFAULTS provou o vazamento verbatim
-        # (`valor='CPF 123.456.789-00 do Sr. Joao'`). A notificacao publicada ja omitia o valor;
-        # faltava o log. `redact_free_text` e a MESMA rede de texto livre do chokepoint
-        # agente -> engine (CC-06), aplicada uma vez e reutilizada nas DUAS pernas (structlog e
-        # stdlib) para que elas nao possam divergir.
-        valor_redigido = redact_free_text(rotulo)
         logger.warning(
             "escalation_rotulo_fora_do_dominio_tolerado",
             campo=nome,
-            valor=valor_redigido,
             dominio=sorted(dominio),
             business_key=task.business_key,
             topic=task.topic,
@@ -488,13 +479,11 @@ def _rotulo_opcional_tolerante(
         )
         _stdlib_logger.warning(
             "escalation_rotulo_fora_do_dominio_tolerado business_key=%s topic=%s campo=%s "
-            "valor=%r fora do dominio %s — OMITIDO da notificacao (a DMN escalation_routing ja' "
-            "tolera motivo desconhecido via seu catch-all r7; isto NAO e' uma recusa; valor "
-            "redigido por redact_free_text, gap ESC-TOLERANT-LOG-RAW-VALUE)",
+            "fora do dominio %s — OMITIDO da notificacao (a DMN escalation_routing ja' "
+            "tolera motivo desconhecido via seu catch-all r7; isto NAO e' uma recusa)",
             task.business_key,
             task.topic,
             nome,
-            valor_redigido,
             sorted(dominio),
         )
         return None
@@ -618,6 +607,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # order is pinned so that adding an escalation anchor group later cannot silently derive a
         # key from a payload that is missing fields the message carries.
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        publish_failed = False
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): _NOTIFICATIONS_TOPIC is in
             # the producer's BEST_EFFORT_TOPICS, so the DEFAULT posture would SWALLOW a broker-down
@@ -625,7 +615,7 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             # bug). Forcing best_effort=False makes the real producer PROPAGATE, so the failure
             # reaches the except below and the modeled boundary actually fires.
             await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
-        except Exception as exc:
+        except Exception:
             # ADR-0030 Tier-1 (G2-fs): a notify-channel failure is a MODELED fail-safe, NOT an
             # incident. Raise ERR_ESC_NOTIFY_FAILED so `BE_FalhaNotificacao` (attached to
             # ST_NotificarTime) routes to the supervisor fallback (ST_NotificarFallback) and STILL
@@ -640,12 +630,15 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 grupo_atendimento=grupo,
                 prioridade=prioridade,
                 business_key=task.business_key,
-                error=str(exc),
             )
+            publish_failed = True
+        if publish_failed:
+            # ADR-0006: discard broker text and leave the except scope before raising,
+            # so neither rendered traces nor __context__ retain the broker exception.
             raise WorkerBpmnError(
                 _ERR_ESC_NOTIFY_FAILED,
-                f"Falha ao notificar time humano ({grupo}): {exc}",
-            ) from exc
+                f"Falha ao notificar time humano ({grupo})",
+            ) from None
         logger.info(
             "escalation_notify_team_sent",
             tenant_id=tenant_id,
@@ -759,12 +752,13 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
         # order is pinned so that adding an escalation anchor group later cannot silently derive a
         # key from a payload that is missing fields the message carries.
         message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        publish_failed = False
         try:
             # best_effort=False (t8-escalation-boundary ROOT-CAUSE fix): force the real producer to
             # PROPAGATE a broker-down failure on _NOTIFICATIONS_TOPIC (otherwise topic-default
             # best-effort would swallow it below and this except would never fire).
             await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
-        except Exception as exc:
+        except Exception:
             # ADR-0030 Tier-1 (G2-fs): this handler serves BOTH ST_NotificarSupervisor (SLA breach)
             # AND ST_NotificarFallback (the notify_team channel fallback). On a publish failure raise
             # ERR_ESC_NOTIFY_FAILED so the attached boundary continues the fail-safe route:
@@ -779,12 +773,15 @@ def make_notify_supervisor_handler(kafka: KafkaPublisher | None) -> TaskHandler:
                 grupo_atendimento=grupo,
                 motivo_alerta=motivo_alerta,
                 business_key=task.business_key,
-                error=str(exc),
             )
+            publish_failed = True
+        if publish_failed:
+            # ADR-0006: no arbitrary broker diagnostics or retained exception chain.
+            # The modeled failure still reaches the same mandatory human fallback.
             raise WorkerBpmnError(
                 _ERR_ESC_NOTIFY_FAILED,
-                f"Falha ao notificar supervisor: {exc}",
-            ) from exc
+                "Falha ao notificar supervisor",
+            ) from None
         logger.warning(
             "escalation_supervisor_notified",
             tenant_id=tenant_id,
