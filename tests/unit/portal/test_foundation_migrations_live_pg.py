@@ -63,6 +63,8 @@ def _skip_if_postgres_unreachable() -> None:
             "silent). Start it with `docker compose --profile core up -d postgres` and re-run "
             "this file."
         )
+
+
 _PORTAL_TABLES = ("portal_login_transactions", "portal_code_claims", "portal_sessions", "portal_memberships")
 
 
