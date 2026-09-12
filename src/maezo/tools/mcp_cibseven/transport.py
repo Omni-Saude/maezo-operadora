@@ -49,7 +49,11 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+
+if TYPE_CHECKING:
+    from maezo.gateway.intake.native_dispatch import HumanIntakeProvenance, HumanIntakeStartTransport
+    from maezo.gateway.intake.native_store import PostgresAuthDispatchStore
 
 import httpx
 import structlog
@@ -66,7 +70,12 @@ import structlog
 # concrete-typed only under TYPE_CHECKING) — so a consumer of the read/transport primitives pays
 # no new heavyweight cost.
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
-from maezo.tools.workers.engine_var_types import camunda_int_type, declared_long_variable
+from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode, parse_json
+from maezo.tools.workers.engine_var_types import (
+    camunda_int_type,
+    declared_long_variable,
+    validate_centavos_engine_var,
+)
 from maezo.tools.workers.phi_vars import redact_free_text_vars, redact_phi_vars
 
 logger = structlog.get_logger(__name__)
@@ -81,6 +90,14 @@ logger = structlog.get_logger(__name__)
 
 class CibSevenError(RuntimeError):
     """Engine unreachable or non-2xx — TRANSIENT (mirrors `DmnEvaluationError`'s classification)."""
+
+
+class CibSevenStartAuthorizationError(CibSevenError):
+    """D7 refusal, distinguishable from transient I/O; never reports a missing instance."""
+
+    def __init__(self, code: EngineRefusalCode) -> None:
+        self.code = code
+        super().__init__(code.value)
 
 
 class ProcessNotFoundError(CibSevenError):
@@ -216,6 +233,25 @@ class CibSevenTransport(Protocol):
 
 
 @runtime_checkable
+class StartAuthorizingTransport(Protocol):
+    """D7-A optional migration port; implemented by an explicitly bound gateway profile.
+
+    Absence means legacy/unmigrated, never D7-ready. Secure composition always implements this
+    port and refuses missing profile/identity before any start audit intent or dedup claim.
+    Separate from CibSevenTransport to preserve existing capability/override contracts.
+    """
+
+    async def authorize_process_start(
+        self,
+        *,
+        process_key: str,
+        business_key: str,
+        variables: dict[str, Any],
+        provenance: AgentDecisionProvenance,
+    ) -> bytes: ...
+
+
+@runtime_checkable
 class HistoryQueryingTransport(Protocol):
     """A `CibSevenTransport` that can also answer "did an instance for this key EVER exist?".
 
@@ -251,6 +287,7 @@ def _to_camunda_vars(variables: dict[str, Any]) -> dict[str, Any]:
     """
     camunda_vars: dict[str, Any] = {}
     for k, v in variables.items():
+        validate_centavos_engine_var(k, v)
         if (declared := declared_long_variable(k, v)) is not None:
             camunda_vars[k] = declared
         elif isinstance(v, dict) and "value" in v:
@@ -1443,13 +1480,13 @@ async def _resolve_strict_dedup_hit(
 
 
 async def start_process_idempotent(
-    transport: CibSevenTransport,
+    transport: CibSevenTransport | HumanIntakeStartTransport,
     *,
     process_key: str,
     business_key: str,
     variables: dict[str, Any],
-    audit_sink: AuditStartSink,
-    provenance: AgentDecisionProvenance,
+    audit_sink: AuditStartSink | PostgresAuthDispatchStore,
+    provenance: AgentDecisionProvenance | HumanIntakeProvenance,
 ) -> ProcessInstance:
     """Idempotent, ADR-0007-audited process start — the SINGLE agent-side effect chokepoint (T-C2).
 
@@ -1543,10 +1580,48 @@ async def start_process_idempotent(
     exclusive right to perform it — permanently under `PERMANENT`, for the duration of the claimed
     generation under `EXCLUSIVE`.
     """
+    from maezo.gateway.human.auth_transport import AuthUnavailableError
+    from maezo.gateway.intake.native_dispatch import (
+        HumanIntakeProvenance,
+        HumanIntakeStartTransport,
+        start_human,
+    )
+
+    if type(provenance) is HumanIntakeProvenance:
+        if type(transport) is not HumanIntakeStartTransport or audit_sink is not transport.dispatcher.store:
+            raise AuthUnavailableError()
+        return await start_human(
+            transport,
+            process_key=process_key,
+            business_key=business_key,
+            variables=variables,
+            provenance=provenance,
+        )
+    if isinstance(transport, HumanIntakeStartTransport):
+        raise AuthUnavailableError()
+    audit_sink = cast(AuditStartSink, audit_sink)
+    provenance = cast(AgentDecisionProvenance, provenance)
+
     # -1. CC-06 PHI SCRUB, BEFORE ANYTHING ELSE. `variables` is rebound here and the raw mapping
     #     is never read again in this function, so there is structurally no path on which raw
     #     free text reaches either the durable claim or the engine.
     variables = redact_start_variables(variables)
+
+    # D7-A local preflight precedes EVERY durable write, including NON_STRICT audit intent.
+    # Raw legacy transports remain explicitly unmigrated; this does not activate cutover.
+    if isinstance(transport, StartAuthorizingTransport):
+        try:
+            authorized_variables_json = await transport.authorize_process_start(
+                process_key=process_key,
+                business_key=business_key,
+                variables=variables,
+                provenance=provenance,
+            )
+            # Only this detached projection of the authorized immutable snapshot survives into
+            # audit/claim/read/effect. Neither the caller nor the resolver retains a dict alias.
+            variables = parse_json(authorized_variables_json)
+        except EngineCapabilityError as exc:
+            raise CibSevenStartAuthorizationError(exc.code) from None
 
     posture = start_dedup_posture(process_key)
     gated = posture is not StartDedupPosture.NON_STRICT

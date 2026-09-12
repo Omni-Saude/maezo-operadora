@@ -252,6 +252,146 @@ def test_httpx_client_imported_by_name_is_also_caught(tmp_path: Path) -> None:
     assert any("httpx.AsyncClient" in v for v in result.violations)
 
 
+@pytest.mark.parametrize(
+    ("relative_path", "source"),
+    [
+        (
+            "gateway/human/assignment_transport.py",
+            "import httpx\n\n"
+            "class AssignmentPrivateTransport:\n"
+            "    def __init__(self):\n"
+            "        self._http = httpx.AsyncClient(\n"
+            "            verify=tls_context, transport=transport, timeout=timeout_seconds,\n"
+            "            trust_env=False, follow_redirects=False,\n"
+            "        )\n",
+        ),
+        (
+            "gateway/human/auth_transport.py",
+            "import httpx\n\n"
+            "class AuthNativeClient:\n"
+            "    def __init__(self):\n"
+            "        self._http = httpx.AsyncClient(\n"
+            "            verify=tls_context, transport=transport, follow_redirects=False,\n"
+            "            trust_env=False, timeout=timeout_seconds,\n"
+            "        )\n",
+        ),
+        (
+            "gateway/native_fetch/transport.py",
+            "import httpx\n\n"
+            "class NativeFetchClient:\n"
+            "    async def _exchange(self):\n"
+            "        async with httpx.AsyncClient(\n"
+            "            verify=context, trust_env=False, follow_redirects=False, timeout=30,\n"
+            "        ) as client:\n"
+            "            return client\n",
+        ),
+        (
+            "gateway/document_requests/transport.py",
+            "import httpx\n\n"
+            "class NativeChannel:\n"
+            "    async def exchange(self):\n"
+            "        async with httpx.AsyncClient(\n"
+            "            verify=tls, trust_env=False, follow_redirects=False, timeout=30,\n"
+            "        ) as client:\n"
+            "            return client\n",
+        ),
+    ],
+)
+def test_exact_registered_httpx_scoped_seams_are_allowed(
+    tmp_path: Path, relative_path: str, source: str
+) -> None:
+    """Literal copies pin each admitted constructor independently from the gate's own table."""
+    _write(tmp_path / relative_path, source)
+
+    result = scan_tree(tmp_path)
+
+    assert result.ok, result.render()
+    assert result.counters.get("8.2_httpx_scoped_seam_sanctioned") == 1
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        (
+            "httpx.AsyncClient(verify=False, transport=transport, timeout=timeout_seconds, "
+            "trust_env=False, follow_redirects=False)"
+        ),
+        (
+            "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=timeout_seconds, "
+            "trust_env=True, follow_redirects=False)"
+        ),
+        (
+            "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=timeout_seconds, "
+            "trust_env=False, follow_redirects=True)"
+        ),
+        (
+            "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=31, "
+            "trust_env=False, follow_redirects=False)"
+        ),
+    ],
+)
+def test_registered_httpx_scope_rejects_security_shape_mutations(tmp_path: Path, expression: str) -> None:
+    _write(
+        tmp_path / "gateway" / "human" / "assignment_transport.py",
+        "import httpx\n\n"
+        "class AssignmentPrivateTransport:\n"
+        "    def __init__(self):\n"
+        f"        self._http = {expression}\n",
+    )
+
+    result = scan_tree(tmp_path)
+
+    assert not result.ok
+    assert any("httpx.AsyncClient" in v and "[8.2]" in v for v in result.violations), result.render()
+
+
+def test_registered_httpx_scope_rejects_duplicate_constructors(tmp_path: Path) -> None:
+    expression = (
+        "httpx.AsyncClient(verify=tls_context, transport=transport, timeout=timeout_seconds, "
+        "trust_env=False, follow_redirects=False)"
+    )
+    _write(
+        tmp_path / "gateway" / "human" / "assignment_transport.py",
+        "import httpx\n\n"
+        "class AssignmentPrivateTransport:\n"
+        "    def __init__(self):\n"
+        f"        self._primary = {expression}\n"
+        f"        self._secondary = {expression}\n",
+    )
+
+    result = scan_tree(tmp_path)
+
+    assert not result.ok
+    assert len([v for v in result.violations if "httpx.AsyncClient" in v and "[8.2]" in v]) == 2
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "method_name"),
+    [
+        ("gateway/human/assignment_transport.py", "build"),
+        ("gateway/human/assignment_transport_extra.py", "__init__"),
+    ],
+)
+def test_registered_httpx_constructor_is_rejected_in_adjacent_scope_or_path(
+    tmp_path: Path, relative_path: str, method_name: str
+) -> None:
+    _write(
+        tmp_path / relative_path,
+        "import httpx\n\n"
+        "class AssignmentPrivateTransport:\n"
+        f"    def {method_name}(self):\n"
+        "        self._http = httpx.AsyncClient(\n"
+        "            verify=tls_context, transport=transport, timeout=timeout_seconds,\n"
+        "            trust_env=False, follow_redirects=False,\n"
+        "        )\n",
+    )
+
+    result = scan_tree(tmp_path)
+
+    assert not result.ok
+    assert any("httpx.AsyncClient" in v and "[8.2]" in v for v in result.violations), result.render()
+
+
 #: §8.2's four path fragments, written out as LITERALS rather than read from
 #: `FORBIDDEN_REST_PATH_SUBSTRINGS`. That distinction is the whole point of this table: the
 #: positive-case test below used to parametrize over the constant itself, so DELETING a fragment
@@ -860,3 +1000,27 @@ def test_completeness_item4_missing_test_function_raises(tmp_path: Path) -> None
     violations, _counters = check_completeness(src_dir, tmp_path)
 
     assert any("item 4" in v and "no longer defines" in v for v in violations), violations
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("verify=tls", "verify=False"),
+        ("trust_env=False", "trust_env=True"),
+        ("follow_redirects=False", "follow_redirects=True"),
+        ("async def exchange", "async def unrelated"),
+    ],
+)
+def test_document_request_httpx_seam_rejects_tls_or_scope_drift(tmp_path: Path, old: str, new: str) -> None:
+    source = (
+        "import httpx\n"
+        "class NativeChannel:\n"
+        "    async def exchange(self):\n"
+        "        return httpx.AsyncClient(verify=tls, trust_env=False, "
+        "follow_redirects=False, timeout=30)\n"
+    )
+    assert old in source
+    _write(tmp_path / "gateway/document_requests/transport.py", source.replace(old, new))
+    result = scan_tree(tmp_path)
+    assert not result.ok
+    assert any("httpx.AsyncClient" in violation for violation in result.violations)

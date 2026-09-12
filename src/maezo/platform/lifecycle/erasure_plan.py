@@ -6,7 +6,8 @@ destructive statement, and it never invents a human decision. Two things live he
 1. **The structural enumeration** (`PERSISTENCE_LAYERS`): every persistence relation the
    custody/erasure design names, each carrying its migration citation, how a titular's rows
    are identified, and — where an honest one exists — a `SELECT count(*)` probe. The
-   enumeration is a FACT about the schema, derived from migrations 0001-0009 (16 layers; DU-05 —
+   enumeration is a FACT about the schema, derived from migrations 0001-0014 (25 layers;
+   the original 16 plus nine ADR-0049 relations —
    one of them, `agent_memory.embedding`, is RETIRADA since `0009_drop_pgvector`, DU-01-b: the
    relation stays enumerated, its probe does not), and it is authored here rather than read from
    YAML so that a human editing the (CODEOWNERS-gated) plan artifact cannot introduce a statement
@@ -23,7 +24,7 @@ WHAT THIS MODULE DOES NOT DO, stated plainly because the omissions are the desig
   `assert_dry_run_only()`. While the plan is unratified the reason is `plan_unratified`;
   once a DPO ratifies it, the reason becomes `execution_mechanism_absent` — because
   `ErasureManager.erase()` still raises `ErasureNotImplementedError`
-  (`src/maezo/platform/erasure.py:152`) and the two identity bridges below still do not
+  (`src/maezo/platform/erasure.py:152`) and the identity bridges below still do not
   exist. Ratification alone is therefore NEVER sufficient to cause an effect, which is the
   point: a governance act must not double as a destructive trigger.
 - It decides nothing. Every `decisao_dpo`, `base_legal` and `retencao` is the DPO's, and an
@@ -33,16 +34,19 @@ WHAT THIS MODULE DOES NOT DO, stated plainly because the omissions are the desig
   by a `counter` callable the CALLER supplies; with no counter, every countable layer
   reports `NOT_COUNTED_NO_COUNTER` and no count is fabricated.
 
-THE TWO MISSING IDENTITY BRIDGES (the reason most layers cannot be counted at all):
+MISSING IDENTITY BRIDGES (why subject references do not imply a countable relation):
 
 - `titular_pseudo_id` -> `fhir_patient_id`. The LGPD DSR process carries a pseudonym
-  (`src/maezo/tools/workers/lgpd.py:112`); the only two columns that identify a titular in
-  the Alembic chain are `fhir_patient_id`. No mapping exists (`lgpd.py:293-294`).
+  (`src/maezo/tools/workers/lgpd.py:112`); the two FHIR patient columns in the
+  Alembic chain are `fhir_patient_id`. No mapping exists (`lgpd.py:293-294`).
 - `thread_id` -> `fhir_patient_id`. The working layer is keyed by `thread_id`, not by
   patient (`src/maezo/platform/erasure.py:196-206`).
+- DSR/FHIR reference -> portal principal. ADR-0049 D4/D6 authenticates human actors;
+  issuer/subject/principal_ref and reviewed subject_bindings are not a contracted
+  per-titular erasure bridge. None of the nine portal relations carries a count probe.
 
-A dry-run given a `titular_pseudo_id` therefore reports `NOT_COUNTED_IDENTITY_BRIDGE_ABSENT`
-for EVERY layer. That is not a degraded result — it is the true state of the system, and
+A dry-run given a `titular_pseudo_id` therefore counts no layer: it reports the absent
+bridge or the applicable structural blocker (no column, retired, etc.). This is the true state, and
 reporting a count of 0 instead would assert "nothing to erase", which is the same class of
 false success `ErasureManager` was made to refuse.
 
@@ -202,7 +206,7 @@ class SubjectRefKind(StrEnum):
     """Which KIND of reference the caller holds. The distinction is load-bearing.
 
     `TITULAR_PSEUDO_ID` is what the LGPD DSR process actually carries; `FHIR_PATIENT_ID` is
-    what the two subject-bearing columns are keyed on. No mapping between them exists, so a
+    what the two patient columns are keyed on. No mapping between them exists, so a
     caller holding the former can count nothing — and the report says so per layer instead of
     silently returning zeroes.
     """
@@ -242,14 +246,15 @@ class PersistenceLayer:
 
     Attributes:
         camada: Layer family (trabalho / episodica / semantica / auditoria / custodia /
-            registro_de_eliminacao / idempotencia / inbox_amh).
+            registro_de_eliminacao / idempotencia / inbox_amh / identidade_portal / comando_humano /
+            autoridade_atribuicao).
         tabela: Relation name, as the migration writes it.
         migracao: Citation for where the relation is created (or that nothing creates it).
         identificacao: How a titular's rows would be identified, in prose.
         resolucao: The `IdentityResolution` verdict for this relation.
-        ordem: Logical order of operations. NOT a database constraint — the chain declares
-            no foreign key anywhere, so ordering is a procedural commitment, reviewable
-            rather than enforced.
+        ordem: Review/report order, not an executable deletion sequence. Migration 0013
+            adds a delivery-to-outbox foreign key and immutable-command triggers; these
+            constraints cannot be overridden by an order or a DPO disposition.
         subject_column: The column a subject reference binds to, or None.
         count_statement: A `SELECT count(*)` probe with named parameters, or None when no
             honest per-titular count exists. Values are NEVER interpolated into this text.
@@ -266,13 +271,14 @@ class PersistenceLayer:
 
 
 # ---------------------------------------------------------------------------------------
-# The enumeration. Derived from migrations 0001-0009; every entry cites its source. Held in
+# The enumeration. Derived from migrations 0001-0014; every entry cites its source. Held in
 # CODE, not read from the artifact, so that editing the (human-owned) plan can never change
 # which statement a probe would issue.
 #
-# Only two relations in the whole chain carry a subject column, and both are `fhir_patient_id`
-# (`agent_memory` 0001:69, `erasure_log` 0004:67). Everything else is either keyed on
-# something derived from the event, or provably holds no subject reference at all.
+# Only two relations carry a FHIR patient column (`agent_memory` 0001:69,
+# `erasure_log` 0004:67). Portal principals (0012/0013, ADR-0049 D4/D6) and the staff
+# assignment authority source (0014, E03) are a different identity namespace: no
+# DSR/FHIR-to-principal bridge is contracted here.
 # ---------------------------------------------------------------------------------------
 PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
     PersistenceLayer(
@@ -471,6 +477,129 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         ),
         resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
         ordem=16,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="identidade_portal",
+        tabela="portal_login_transactions",
+        migracao="0012_portal_identity_session.py::upgrade (portal_login_transactions)",
+        identificacao=(
+            "tenant + state_hash/browser_hash; payload is LoginTransaction "
+            "(portal/api/records.py), with OIDC nonce/verifier; no DSR/FHIR subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=17,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="identidade_portal",
+        tabela="portal_code_claims",
+        migracao="0012_portal_identity_session.py::upgrade (portal_code_claims)",
+        identificacao=(
+            "tenant + code_hash + expires_at; replay-prevention digest, not a DSR/FHIR subject reference"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=18,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="identidade_portal",
+        tabela="portal_sessions",
+        migracao="0012_portal_identity_session.py::upgrade (portal_sessions)",
+        identificacao=(
+            "tenant + secret_hash; issuer/subject/principal_ref inside SessionRecord payload "
+            "(portal/api/records.py), not a DSR/FHIR column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=19,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="identidade_portal",
+        tabela="portal_memberships",
+        migracao="0012_portal_identity_session.py::upgrade (portal_memberships)",
+        identificacao=(
+            "tenant + issuer + subject; unique tenant + principal_ref; reviewed subject_bindings "
+            "in payload do not define a DSR/FHIR-to-principal erasure bridge (ADR-0049 D4)"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=20,
+        subject_column="principal_ref",
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="comando_humano",
+        tabela="human_command_delivery",
+        migracao="0013_human_command_outbox.py::upgrade (human_command_delivery; FK; guards)",
+        identificacao=(
+            "tenant + task_id + command_id references human_command_outbox; engine_receipt bytea, "
+            "no subject column or contracted DSR/FHIR mapping (ADR-0049 D6)"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=21,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="comando_humano",
+        tabela="human_command_outbox",
+        migracao="0013_human_command_outbox.py::upgrade (human_command_outbox; immutable trigger)",
+        identificacao=(
+            "tenant + task_id + command_id; principal_ref/principal_issuer/principal_subject "
+            "identify the human actor; no beneficiary identity is established for canonical_payload "
+            "(ADR-0049 D6)"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=22,
+        subject_column="principal_ref",
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="autoridade_atribuicao",
+        tabela="portal_assignment_source",
+        migracao="0014_staff_assignment_authority.py::upgrade (portal_assignment_source)",
+        identificacao=(
+            "tenant PRIMARY KEY; source_revision/state/active_generation_digest and the "
+            "designation_bytes/source_bytes/owner_receipt of the staff assignment authority "
+            "source (E03); no DSR/FHIR subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=23,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="autoridade_atribuicao",
+        tabela="portal_assignment_publications",
+        migracao=(
+            "0014_staff_assignment_authority.py::upgrade "
+            "(portal_assignment_publications; FK; immutable trigger)"
+        ),
+        identificacao=(
+            "tenant + publication_id (FK tenant -> portal_assignment_source); immutable publication "
+            "of one source_revision to the native engine (a trigger refuses any change or removal "
+            "of the row); no subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=24,
+        subject_column=None,
+        count_statement=None,
+    ),
+    PersistenceLayer(
+        camada="autoridade_atribuicao",
+        tabela="portal_assignment_receipt_source",
+        migracao="0014_staff_assignment_authority.py::upgrade (portal_assignment_receipt_source; FK)",
+        identificacao=(
+            "tenant + task_id + command_id (FK tenant -> portal_assignment_source); identity_digest is "
+            "the digest of the ASSIGNMENT identity (task/command receipt), not a DSR/FHIR or "
+            "principal reference; no subject column"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=25,
         subject_column=None,
         count_statement=None,
     ),
@@ -863,6 +992,11 @@ def _probe(
     static = _static_status(layer)
     if static is not None:
         return static, None, layer.identificacao
+
+    # A principal column does not become a beneficiary column because the caller has a
+    # FHIR reference. ADR-0049 introduces human actors, not a DSR identity bridge.
+    if layer.resolucao is IdentityResolution.PONTE_AUSENTE and layer.subject_column != "fhir_patient_id":
+        return LayerFindingStatus.NOT_COUNTED_IDENTITY_BRIDGE_ABSENT, None, layer.identificacao
 
     if subject_ref_kind is not SubjectRefKind.FHIR_PATIENT_ID:
         return (

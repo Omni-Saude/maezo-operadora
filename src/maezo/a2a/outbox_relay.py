@@ -7,9 +7,9 @@ instead of dropping it (`_NoopKafkaProducer`), and this is what later moves thos
 =================================================================================================
 Explicitly invocable. Never auto-started. This is a property, not an omission.
 =================================================================================================
-Nothing imports this module. It is not wired into `agent_runtime/service.py`, not into
-`worker_runtime/service.py`, not into any Helm template, and no composition root constructs it. It
-runs when a human or a scheduler runs it:
+The agent/worker composition roots do not start this service. R-004 already
+provides ECS and Helm relay deployment templates; they own its separate
+lifecycle. It is also explicitly invocable:
 
     python -m maezo.a2a.outbox_relay --once          # drain what is there, then exit
     python -m maezo.a2a.outbox_relay                 # poll until SIGTERM/SIGINT
@@ -20,7 +20,7 @@ site (`facts.py`'s own docstring), and the topics may not exist on the target cl
 a publisher for topics nobody consumes, from a daemon whose readiness would then depend on a broker
 it never needed, is how a build wave manufactures an outage out of an observability feature. The
 outbox accumulates safely in the meantime — rows are `pending`, nothing is lost, and starting the
-relay later delivers the backlog oldest-first.
+relay later delivers the backlog at-least-once.
 
 =================================================================================================
 At-least-once, and exactly where the duplicate comes from
@@ -39,10 +39,12 @@ The reverse order (mark-then-publish) would be at-most-once: a crash after marki
 permanently, which is `_NoopKafkaProducer` again with a database bill. There is no third option
 without broker-side transactions this platform does not have.
 
-Ordering: `drain_once` stops the batch at the FIRST publish failure rather than skipping past it,
-so facts are not reordered on the wire behind a failed one. Rows already published in that batch
-are marked delivered; the failed row and everything after it are released to `pending` with
-`last_error`, and the next batch retries from the same point.
+Ordering: one drain stops its returned batch at the first publish failure.
+This is not a global FIFO guarantee: UPDATE RETURNING does not promise row
+order, and concurrent workers or expired leases can deliver out of order.
+Rows already published are marked delivered; the failed row and remaining
+batch are released to pending. Consumers must deduplicate and handle ordering
+according to their own contract.
 
 =================================================================================================
 Fail-closed composition
@@ -195,7 +197,14 @@ class AioKafkaFactPublisher:
             bootstrap_servers=self._bootstrap_servers,
             request_timeout_ms=int(self._send_timeout_s * 1000),
         )
-        await asyncio.wait_for(producer.start(), timeout=self._connect_timeout_s)
+        try:
+            await asyncio.wait_for(producer.start(), timeout=self._connect_timeout_s)
+        except BaseException:
+            # A failed connect still owns client resources. Close before retry;
+            # CancelledError remains cancellation, never a delivered fact.
+            with contextlib.suppress(Exception):
+                await producer.stop()
+            raise
         self._producer = producer
 
     async def stop(self) -> None:
@@ -268,9 +277,9 @@ async def drain_once(
     with an expiring lease, so the next sweep republishes it. That duplicate is the at-least-once
     guarantee working, not a bug — `dedup_key` is stable across it.
 
-    Stops at the FIRST publish failure so the wire order is not shuffled behind a failed row: what
-    was already published is sealed, the failure and everything behind it goes back to `pending`
-    carrying `last_error`.
+    Stops at the first publish failure in this returned batch. Published rows
+    are sealed and remaining rows become pending with a bounded error token.
+    This does not establish FIFO across rows, workers or expired leases.
     """
     records: list[OutboxRecord] = await outbox.claim_batch(
         claimed_by=claimed_by, batch_size=batch_size, claim_ttl_s=claim_ttl_s
@@ -287,8 +296,8 @@ async def drain_once(
                 record.payload,
                 key=None if record.partition_key is None else record.partition_key.encode("utf-8"),
             )
-        except Exception as exc:  # the whole point: a broker failure must not lose the row
-            failure = f"{type(exc).__name__}: {exc}"
+        except Exception:  # the whole point: a broker failure must not lose the row
+            failure = "broker_publish_failed"
             logger.error(
                 "a2a_outbox_relay_publish_failed",
                 topic=record.topic,

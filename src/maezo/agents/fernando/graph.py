@@ -299,13 +299,18 @@ _ENTREGA_ESTADOS: Final[tuple[str, ...]] = ("enviada", "nao_enviada", "canal_sem
 # (`runtime/turn_telemetry.py::_DESFECHO_VOCAB`) e' reproduzido por grep dos literais, e uma
 # cerca (`test_notify_desfecho_tables_are_declared_in_the_closed_vocabulary`) exige que cada um
 # esteja la — um rotulo nao declarado viraria `"outro"` no Prometheus, um KPI cego.
+# FERNANDO-NOTIFY-DESFECHO-LITERAL: valores nomeados; entrega continua decidida pelas tabelas.
+DESFECHO_NOTIFICACAO_PREVIA_ENVIADA: Final[str] = "notificacao_previa_enviada"
+DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO: Final[str] = "lembrete_regularizacao_enviado"
+DESFECHO_ENCAMINHADO_ANALISE_HUMANA: Final[str] = "encaminhado_analise_humana"
+
 _DESFECHO_NOTIFICACAO_PREVIA: Final[dict[str, str]] = {
-    "enviada": "notificacao_previa_enviada",
+    "enviada": DESFECHO_NOTIFICACAO_PREVIA_ENVIADA,
     "nao_enviada": "notificacao_previa_nao_enviada",
     "canal_sem_entrega": "notificacao_previa_canal_sem_entrega",
 }
 _DESFECHO_LEMBRETE: Final[dict[str, str]] = {
-    "enviada": "lembrete_regularizacao_enviado",
+    "enviada": DESFECHO_LEMBRETE_REGULARIZACAO_ENVIADO,
     "nao_enviada": "lembrete_regularizacao_nao_enviado",
     "canal_sem_entrega": "lembrete_regularizacao_canal_sem_entrega",
 }
@@ -820,7 +825,7 @@ class FernandoGraph:
         INSTRUCTS the human, it never substitutes for `UT_AnaliseInadimplencia` (mirrors
         Rafael's `human_auditor`/`_build_dossier` discipline exactly)."""
         dossier = await self._build_dossier(state)
-        return {"dossier": dossier, "desfecho": "encaminhado_analise_humana"}
+        return {"dossier": dossier, "desfecho": DESFECHO_ENCAMINHADO_ANALISE_HUMANA}
 
     async def start_process(self, state: FernandoState) -> dict[str, Any]:
         """Start SP-OP-INADIMPLENCIA-001 idempotently (business key `INAD-{tenant}-{contrato}`).

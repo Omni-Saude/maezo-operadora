@@ -72,6 +72,60 @@ class TestUnknownMcpServer:
         assert any("does not follow the mcp-<server>.<action> pattern" in f.message for f in report.findings)
 
 
+WHATSAPP_AGENT_YAML = """\
+id: test-agent
+name: "Test Agent"
+role: "Testing"
+phase: 0
+autonomy_level: L3
+tools:
+  - mcp-whatsapp.send_message
+"""
+
+
+class TestWhatsappChannelPosture:
+    """GAP 11.7: an agent granting `mcp-whatsapp.send_message` must declare
+    `channels.whatsapp.inbound` explicitly (true/false) — never silently assumed."""
+
+    def test_missing_channels_block_fails(self, tmp_path: Path) -> None:
+        path = _agent_file(tmp_path, WHATSAPP_AGENT_YAML)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("channels.whatsapp.inbound" in f.message for f in report.findings)
+
+    def test_non_boolean_inbound_fails(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML + 'channels:\n  whatsapp:\n    inbound: "no"\n'
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("channels.whatsapp.inbound" in f.message for f in report.findings)
+
+    def test_explicit_inbound_false_passes(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML + "channels:\n  whatsapp:\n    outbound: true\n    inbound: false\n"
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_explicit_inbound_true_passes(self, tmp_path: Path) -> None:
+        # True is truthful only for the graph the actual WhatsApp dispatcher invokes.
+        content = WHATSAPP_AGENT_YAML.replace("id: test-agent", "id: helena") + (
+            "channels:\n  whatsapp:\n    outbound: true\n    inbound: true\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="helena")
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_agent_without_the_tool_is_unaffected(self, tmp_path: Path) -> None:
+        path = _agent_file(tmp_path, VALID_AGENT_YAML)  # no mcp-whatsapp.send_message
+        report = Report()
+        validate_file(path, frozenset({"dmn", "memory"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+
 class TestEmptyToolsAllowlist:
     def test_empty_tools_fails(self, tmp_path: Path) -> None:
         content = VALID_AGENT_YAML.replace(
@@ -300,3 +354,54 @@ class TestA2AHandlerDisclosure:
         report = Report()
         validate_file(path, frozenset({"dmn", "memory"}), report)
         assert report.ok, [f.message for f in report.findings]
+
+
+class TestWhatsappPostureRuntimeBinding:
+    def test_declared_postures_match_actual_helena_dispatcher(self) -> None:
+        import ast
+        import inspect
+
+        from maezo.agents import AgentLoader
+        from maezo.agents.helena import graph
+        from maezo.platform.webhooks.whatsapp import dispatch
+
+        # The symbols actually invoked by dispatch belong to Helena; HTTP ingress is separate.
+        assert dispatch.build is graph.build
+        assert dispatch.new_helena_state is graph.new_helena_state
+        tree = ast.parse(inspect.getsource(dispatch.HelenaDispatcher))
+        called = {
+            n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        }
+        assert {"build", "new_helena_state"} <= called
+        root = Path(__file__).resolve().parents[3] / "spec" / "agents"
+        senders = {}
+        loader = AgentLoader()
+        for path in root.glob("*/agent.yaml"):
+            if path.parent.name == "_template":
+                continue
+            definition = loader.load(path)
+            if "mcp-whatsapp.send_message" in definition.tools:
+                senders[definition.id] = definition.channels["whatsapp"]
+        assert senders == {
+            "helena": {"outbound": True, "inbound": True},
+            "lucas": {"outbound": True, "inbound": False},
+            "fernando": {"outbound": True, "inbound": False},
+        }
+
+    def test_non_helena_cannot_claim_whatsapp_inbound(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML + "channels:\n  whatsapp:\n    inbound: true\n"
+        path = _agent_file(tmp_path, content)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("HelenaDispatcher" in item.message for item in report.findings)
+
+    def test_helena_cannot_deny_whatsapp_inbound(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML.replace("id: test-agent", "id: helena") + (
+            "channels:\n  whatsapp:\n    inbound: false\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="helena")
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("HelenaDispatcher" in item.message for item in report.findings)

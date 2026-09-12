@@ -45,7 +45,7 @@ um agente supra assinatura humana.
 ## 2. Escopo — opção **B** (decisão aprovada do dono, R-022)
 
 Cobertura: **apenas as camadas que os 3 CronJobs de lifecycle tocam**. Todas as demais relações
-enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (16 relações)
+enumeradas em `src/maezo/platform/lifecycle/erasure_plan.py::PERSISTENCE_LAYERS` (25 relações)
 ficam **declaradas como NÃO COBERTAS** por esta matriz — não são omissão, são exclusão explícita.
 
 | CronJob (`values.yaml::lifecycle.jobs`) | Comando | Camadas / relações que ele tocaria |
@@ -64,8 +64,24 @@ marcadas `retirada: true` (§8.3). Ver §8.2.
 
 **Fora do escopo B (declaradas não cobertas):** `custodia`/`custody_bundles`,
 `idempotencia`/`a2a_idempotency`, `idempotencia`/`driver_idempotency`, `inbox_amh`/`amh_inbox`,
-`outbox_a2a`/`a2a_fact_outbox`. Essas cinco relações continuam sem decisão de retenção — e sem
-qualquer mecanismo que as toque.
+`outbox_a2a`/`a2a_fact_outbox`; `identidade_portal`/`portal_login_transactions`,
+`portal_code_claims`, `portal_sessions`, `portal_memberships`; e `comando_humano`/
+`human_command_delivery`, `human_command_outbox`; e `autoridade_atribuicao`/`portal_assignment_source`,
+`portal_assignment_publications`, `portal_assignment_receipt_source`. Essas catorze relações continuam sem decisão de
+retenção — e sem qualquer mecanismo que as toque. As seis últimas foram introduzidas pelas
+migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
+`src/maezo/platform/migrations/versions/0013_human_command_outbox.py`: as três primeiras relações
+de portal e `human_command_delivery` estão como `SEM_COLUNA_DE_TITULAR`; `portal_memberships` e
+`human_command_outbox` estão como `PONTE_AUSENTE` e têm `principal_ref`, mas ele identifica o ator
+humano autenticado, não o beneficiário. As três de 0014
+(`src/maezo/platform/migrations/versions/0014_staff_assignment_authority.py`, autoridade de
+atribuição de pessoal — E03) estão como `SEM_COLUNA_DE_TITULAR`: `identity_digest` é o digest da
+identidade da atribuição (task/command), não de um titular nem de um principal. As nove têm
+`count_statement: None`. Não existe ponte
+contratada entre sujeito DSR/FHIR e principal do portal. A ordem
+17–25 em `PERSISTENCE_LAYERS` é ordem de relatório/revisão, não autorização nem sequência para
+eliminar dados; a migração 0013 ainda impõe vínculo por chave estrangeira e imutabilidade do
+comando humano, e a 0014 impõe FK para `portal_assignment_source` e imutabilidade das publicações.
 
 ---
 
@@ -149,7 +165,7 @@ escopo_b:
         RETIRADAS pela migracao `0006_retire_dead_checkpoint_tables` (criadas por 0001, removidas
         por 0006). Em `erasure_plan.py::PERSISTENCE_LAYERS` sao as entradas de ordem 5 e 6, ambas
         `resolucao: RETIRADA` e sem probe. Estavam so na prosa da §2 ate 2026-09-05 (§Delta-4);
-        agora estao no bloco assinavel, para que ele enumere as DEZESSEIS relacoes da plataforma e
+        agora estao no bloco assinavel, para que ele enumere as VINTE E CINCO relacoes da plataforma e
         nao um subconjunto -- ver §8.3.
     - camada: episodica           # CronJob lifecycle-verify-erasure
       tabelas: [agent_memory]
@@ -179,6 +195,22 @@ escopo_b:
     - camada: outbox_a2a
       tabelas: [a2a_fact_outbox]
       motivo: "fora do escopo B; sem decisao de retencao ratificada"
+    - camada: identidade_portal
+      tabelas: [portal_login_transactions, portal_code_claims, portal_sessions, portal_memberships]
+      motivo: >-
+        fora do escopo B; 0012 autentica atores humanos do portal, mas nao cria ponte entre sujeito
+        DSR/FHIR e principal_ref do portal; sem decisao de retencao ratificada
+    - camada: comando_humano
+      tabelas: [human_command_delivery, human_command_outbox]
+      motivo: >-
+        fora do escopo B; 0013 preserva custodia, FK e imutabilidade do comando, mas principal_ref
+        identifica o ator humano e nao o beneficiario; sem decisao de retencao ratificada
+    - camada: autoridade_atribuicao
+      tabelas: [portal_assignment_source, portal_assignment_publications, portal_assignment_receipt_source]
+      motivo: >-
+        fora do escopo B; 0014 guarda a fonte de autoridade de atribuicao de pessoal (E03), as
+        publicacoes imutaveis e os recibos; identity_digest e digest da identidade da atribuicao,
+        nao coluna de titular nem de principal; sem decisao de retencao ratificada
   categorias_nao_cobertas:
     - financeiros_faturamento
     - regulatorios_ans
@@ -264,8 +296,8 @@ assinatura.
 
 ## 8. Adendo de re-verificação — 2026-09-05 (`ce38100`)
 
-Este dossiê foi escrito sobre `0433db0` e re-verificado contra `ce38100` (merge de #318). **Nenhum
-fato material mudou:** `PERSISTENCE_LAYERS` continua com 16 relações, os 3 CronJobs e seus
+Este dossiê foi escrito sobre `0433db0` e re-verificado contra `ce38100` (merge de #318). **Naquele
+snapshot nenhum fato material mudou:** `PERSISTENCE_LAYERS` continuava com 16 relações, os 3 CronJobs e seus
 `schedule` continuam os mesmos em `values.yaml::lifecycle.jobs`, `load_retention_matrix` continua
 recusando (incluindo a recusa pela raiz `unratified`), `ErasureManager.erase()/.verify()` continuam
 levantando `ErasureNotImplementedError`, e `spec/policies/retention/` continua intocado.
@@ -299,7 +331,7 @@ A cerca passou a **derivar** `escopo_b` de `PERSISTENCE_LAYERS`: toda camada/tab
 nomeia precisa existir na enumeração, e toda camada com `resolucao: RETIRADA` precisa estar marcada
 `retirada: true` (e vice-versa). Nenhum dos dois lados pode envelhecer em silêncio de novo.
 
-### 8.3 O bloco assinável enumera as DEZESSEIS relações — 2026-09-05 (§Delta-4 Δ4·1)
+### 8.3 O bloco assinável enumerava as DEZESSEIS relações daquele snapshot — 2026-09-05 (§Delta-4 Δ4·1)
 
 A cerca da §8.2 era **de mão única**: ela conferia o que o bloco NOMEIA, então **apagar** a entrada
 inteira de uma camada passava verde. Para um documento de assinatura isso é o pior sentido do erro:
@@ -308,8 +340,8 @@ some-se com uma camada e o encarregado nunca fica sabendo que ela existia.
 Escolha feita, e ela é uma escolha: em vez de manter uma lista de exceções "só na prosa", as duas
 relações que faltavam — `trabalho`/`agent_checkpoints` e `trabalho`/`agent_checkpoint_writes`,
 retiradas por `0006_retire_dead_checkpoint_tables` — **entraram no bloco**, marcadas
-`retirada: true`, exatamente como a `semantica` da §8.2. O bloco passa a enumerar as **16**
-relações de `PERSISTENCE_LAYERS`, sem subconjunto e sem exceção, e a cerca exige **igualdade
+`retirada: true`, exatamente como a `semantica` da §8.2. Naquele snapshot, o bloco passou a enumerar
+as **16** relações de `PERSISTENCE_LAYERS`, sem subconjunto e sem exceção, e a cerca passou a exigir **igualdade
 exata** entre o conjunto de `(camada, tabela)` do bloco e o da enumeração.
 
 Por que incluir em vez de excetuar: uma lista de exceções é mais uma coisa que envelhece em
@@ -317,3 +349,16 @@ silêncio — foi exatamente assim que a `semantica` sobreviveu como "coberta e 
 `0009`. Três relações retiradas, três linhas marcadas, zero exceções. O custo é o encarregado ler
 duas linhas a mais que dizem "não há dado aqui"; o benefício é que nenhuma camada pode sumir do
 documento sem a cerca reclamar.
+
+### 8.4 Reancoragem nas 22 relações após as migrações 0012/0013 — 2026-09-09
+
+O estado atual acrescenta seis relações vivas às 16 históricas: quatro de `identidade_portal` pela
+migração 0012 e duas de `comando_humano` pela migração 0013. O bloco assinável agora enumera as
+**22** relações de `PERSISTENCE_LAYERS`; as cinco relações não cobertas anteriores passam a onze,
+sem mover nenhuma delas para `camadas_cobertas` e sem marcar relação viva como retirada.
+
+Esta reancoragem só expõe ao encarregado o escopo real que precisa de decisão. Ela não cria ponte
+de identidade, prazo, base legal, mecanismo de eliminação ou ratificação. Em particular,
+`principal_ref` registra o ator humano do portal/comando e não estabelece identidade de
+beneficiário para DSR/FHIR; a ordem da enumeração continua sendo apenas ordem de relatório e
+revisão. Os bloqueios da §5 e todos os campos de assinatura permanecem inalterados.

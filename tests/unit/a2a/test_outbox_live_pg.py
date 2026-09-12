@@ -139,12 +139,14 @@ async def tenant_schema(pg_dsn: str) -> AsyncIterator[str]:
         await conn.close()
 
 
-def _fact(kind: DelegationFactKind = DelegationFactKind.REQUESTED, task_id: str = "t1") -> bytes:
+def _fact(
+    kind: DelegationFactKind = DelegationFactKind.REQUESTED, task_id: str = "t1", *, tenant: str = "amh"
+) -> bytes:
     return build_fact(
         kind,
         task_id=task_id,
         task_type="authorization.analyze",
-        tenant="amh",
+        tenant=tenant,
         origin="helena",
         target="rafael",
         delegation_chain=("helena", "rafael"),
@@ -190,7 +192,7 @@ async def test_a_rollback_of_the_enlisting_transaction_leaves_no_fact_row(
         await conn.execute(f'SET search_path TO "{tenant_schema}"')
         with pytest.raises(RuntimeError, match="the caller's effect failed"):
             async with conn.transaction(), outbox_transaction(conn):
-                await outbox.enqueue("agents.events.delegation.requested", _fact())
+                await outbox.enqueue("agents.events.delegation.requested", _fact(tenant=tenant_schema))
                 # Non-vacuity: the row IS visible inside the transaction before the rollback.
                 assert await conn.fetchval("SELECT count(*) FROM a2a_fact_outbox") == 1
                 raise RuntimeError("the caller's effect failed")
@@ -209,7 +211,7 @@ async def test_a_commit_of_the_enlisting_transaction_leaves_exactly_one_fact_row
     try:
         await conn.execute(f'SET search_path TO "{tenant_schema}"')
         async with conn.transaction(), outbox_transaction(conn):
-            await outbox.enqueue("agents.events.delegation.requested", _fact())
+            await outbox.enqueue("agents.events.delegation.requested", _fact(tenant=tenant_schema))
     finally:
         await conn.close()
         await outbox.aclose()

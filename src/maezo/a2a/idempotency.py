@@ -15,7 +15,13 @@ Guard 4 DURABLE and cross-replica, mirroring `gateway.audit_postgres` (asyncpg, 
     are terminal 'done', ADR-0003: a rejection never retries).
   - `PostgresIdempotencyStore`: the asyncpg implementation.
 
-**SCHEMA NOTE — no new migration added (deviation from a literal donor port):** the donor's SQL
+Production roots now use `PostgresDelegationTransactions` and the explicit
+`claim_on`/`complete_on` operations. Migration 0011 adds a nullable
+`requested_enqueued_at` marker, set only with enqueue/legacy recognition in
+that transaction. A legacy row is never inferred to have emitted a fact.
+The standalone API below remains a compatibility seam with independent writes.
+
+**ORIGINAL SCHEMA NOTE — no new migration added (deviation from a literal donor port):** the donor's SQL
 targets columns `(task_id, tenant, task_type, state, origin, target)` with `state IN ('pending',
 'done')` and 4 separate result columns (`success`, `output_ref`, `rejection_reason`, `detail`),
 under a single-column `PRIMARY KEY (task_id)`. v2 ALREADY HAS an `a2a_idempotency` table —
@@ -271,6 +277,35 @@ class PostgresIdempotencyStore:
         # `self._schema` was validated by `schema_for_tenant()` in `__init__` (anti-injection).
         await conn.execute(f'SET search_path TO "{self._schema}"')
 
+    async def claim_on(self, conn: asyncpg.Connection, *, tenant: str, task_id: str) -> tuple[bool, Any]:
+        """Read/claim under a caller-owned transaction; never poll while locked."""
+        if tenant != self._tenant or not conn.is_in_transaction():
+            raise ValueError("invalid enlisted idempotency transaction")
+        if await conn.fetchval("SELECT current_schema()") != self._schema:
+            raise ValueError("enlisted idempotency schema mismatch")
+        await conn.execute(ADVISORY_LOCK_SQL, task_id)
+        fresh = await conn.fetchval(CLAIM_SQL, task_id, tenant, _UNKNOWN, _UNKNOWN, _UNKNOWN)
+        row = await conn.fetchrow(
+            "SELECT status, result, requested_enqueued_at FROM a2a_idempotency "
+            "WHERE task_id = $1 AND tenant = $2 FOR UPDATE",
+            task_id,
+            tenant,
+        )
+        if row is None:
+            raise RuntimeError("claimed A2A row disappeared")
+        return fresh is not None, row
+
+    async def complete_on(
+        self, conn: asyncpg.Connection, *, tenant: str, task_id: str, result: DelegationResult
+    ) -> None:
+        """Seal inside the same transaction as terminal audit and outbox."""
+        if tenant != self._tenant or task_id != result.task_id or not conn.is_in_transaction():
+            raise ValueError("invalid enlisted completion")
+        if await conn.fetchval("SELECT current_schema()") != self._schema:
+            raise ValueError("enlisted completion schema mismatch")
+        stored_task_id, payload = complete_params(result=result)
+        await conn.execute(COMPLETE_SQL, stored_task_id, tenant, payload)
+
     async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | None:
         """Atomically claim `task_id` (durable Guard 4).
 
@@ -280,7 +315,8 @@ class PostgresIdempotencyStore:
           the budget is exceeded, `None` (best-effort — the PK + idempotent `complete` still
           protect the persisted result).
         """
-        _ = tenant  # tenant already fixes the schema at construction; kept for Protocol parity.
+        if tenant != self._tenant:
+            raise ValueError("idempotency tenant mismatch")
         pool = await self._ensure_pool()
         async with pool.acquire() as conn, conn.transaction():
             # Serializes the concurrent claim of the SAME task_id; released at transaction end.
@@ -308,7 +344,8 @@ class PostgresIdempotencyStore:
 
     async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
         """Seal the terminal result (success OR rejection). Idempotent: only updates 'processing'."""
-        _ = task_id  # derives from result.task_id via complete_params (Protocol-shape parity).
+        if tenant != self._tenant or task_id != result.task_id:
+            raise ValueError("idempotency completion identity mismatch")
         pool = await self._ensure_pool()
         stored_task_id, result_json = complete_params(result=result)
         async with pool.acquire() as conn:

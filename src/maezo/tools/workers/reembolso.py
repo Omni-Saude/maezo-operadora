@@ -20,6 +20,7 @@ import structlog
 
 from maezo.tools.workers.base import FunctionWorker, pick_fields
 from maezo.tools.workers.ceilings import CeilingResolver
+from maezo.tools.workers.engine_var_types import is_exact_engine_integer
 from maezo.tools.workers.harness import WorkerBpmnError
 
 if TYPE_CHECKING:
@@ -528,7 +529,10 @@ def validate_reembolso(input_data: ReembolsoInput) -> ReembolsoValidationResult:
     if not input_data.codigo_procedimento_tuss.strip():
         errors.append("codigo_procedimento_tuss ausente")
 
-    if input_data.valor_solicitado_cents <= 0:
+    if (
+        not is_exact_engine_integer(input_data.valor_solicitado_cents)
+        or input_data.valor_solicitado_cents <= 0
+    ):
         errors.append("valor_solicitado_cents invalido")
 
     result = ReembolsoValidationResult(
@@ -650,6 +654,12 @@ def calculate_value(
     applied, and ``dmn_decisao_id`` / ``dmn_atividade_bpmn`` name the decision that is the basis
     for all of it.
     """
+    # Validate the untyped request and directly constructed DMN dataclass before
+    # comparison, ceiling resolution or relaying an amount. Zero/sign behavior in
+    # these comparisons stays unchanged; validate_reembolso owns request positivity.
+    if not is_exact_engine_integer(input_data.valor_solicitado_cents):
+        raise ReembolsoCalculoIndisponivelError("valor_solicitado_cents integer-centavos invalido")
+    valor_calculado = _require_dmn_valor_cents(calculo.valor_calculado_tabela_cents)
     resolver = resolver if resolver is not None else CeilingResolver()
 
     logger.info(
@@ -659,8 +669,6 @@ def calculate_value(
         dmn_decisao_id=_DMN_DECISAO_ID,
         fonte_tabela=calculo.fonte_tabela,
     )
-
-    valor_calculado = calculo.valor_calculado_tabela_cents
 
     dentro_tabela = (
         calculo.categoria_na_tabela
@@ -996,8 +1004,16 @@ def send_reembolso_denial(denial_input: ReembolsoDenialInput) -> dict[str, Any]:
     if not has_human:
         missing.append("analista_id (or auditor_id)")
 
-    # APROVAR_PARCIAL requires a valid reduced value
-    if denial_input.decisao_reembolso == "APROVAR_PARCIAL":
+    requested_exact = is_exact_engine_integer(denial_input.valor_solicitado_cents)
+    approved_exact = is_exact_engine_integer(denial_input.valor_reembolso_aprovado_cents)
+    if not requested_exact:
+        missing.append("valor_solicitado_cents integer-centavos invalido")
+    if not approved_exact:
+        missing.append("valor_reembolso_aprovado_cents integer-centavos invalido")
+
+    # APROVAR_PARCIAL retains its existing positive/reduced-value human rule.
+    # Non-exact values must never reach comparisons (bool is an int subclass).
+    if denial_input.decisao_reembolso == "APROVAR_PARCIAL" and requested_exact and approved_exact:
         if denial_input.valor_reembolso_aprovado_cents <= 0:
             missing.append("valor_reembolso_aprovado_cents")
         elif denial_input.valor_reembolso_aprovado_cents >= denial_input.valor_solicitado_cents:
@@ -1070,7 +1086,7 @@ def _require_valor_pagamento_cents(valor_cents: Any) -> int:
             f"valor_reembolso_aprovado_cents float ({valor_cents!r}) — dinheiro e centavos "
             "INTEIROS (ADR-0018); nenhum arredondamento e aplicado"
         )
-    if not isinstance(valor_cents, int):
+    if type(valor_cents) is not int:
         raise ReembolsoValorPagamentoInvalidoError(
             f"valor_reembolso_aprovado_cents tipo invalido ({type(valor_cents).__name__}) — "
             "esperado integer-centavos"
@@ -1079,6 +1095,8 @@ def _require_valor_pagamento_cents(valor_cents: Any) -> int:
         raise ReembolsoValorPagamentoInvalidoError(
             f"valor_reembolso_aprovado_cents <= 0 ({valor_cents}) — nenhum pagamento e emitido"
         )
+    if not is_exact_engine_integer(valor_cents):
+        raise ReembolsoValorPagamentoInvalidoError("valor_reembolso_aprovado_cents fora de Long")
     return valor_cents
 
 
@@ -1203,7 +1221,7 @@ def _require_dmn_valor_cents(value: Any) -> int:
             f"{_DMN_VAR_VALOR} float ({value!r}) — dinheiro e centavos INTEIROS (ADR-0018; a DMN "
             'declara typeRef="integer"); nenhum arredondamento e aplicado'
         )
-    if not isinstance(value, int):
+    if type(value) is not int:
         raise ReembolsoCalculoIndisponivelError(
             f"{_DMN_VAR_VALOR} tipo invalido ({type(value).__name__}) — esperado integer-centavos"
         )
@@ -1211,6 +1229,10 @@ def _require_dmn_valor_cents(value: Any) -> int:
         raise ReembolsoCalculoIndisponivelError(
             f"{_DMN_VAR_VALOR} negativo ({value}) — nao e um valor de tabela de referencia"
         )
+    # reembolso_calculo declares typeRef=integer: CIB Seven 2.1.0 maps that
+    # output to java.lang.Integer, not Long. Keep its zero SEM_TABELA sentinel.
+    if not is_exact_engine_integer(value, wire_type="Integer"):
+        raise ReembolsoCalculoIndisponivelError(f"{_DMN_VAR_VALOR} fora de Integer da DMN")
     return value
 
 

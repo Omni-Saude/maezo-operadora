@@ -353,7 +353,8 @@ def _parse_disposition(index: int, raw: object) -> PhiDisposition:
 def load_phi_dispositions(path: Path) -> PhiDispositionsManifest:
     """Load and fully validate the PHI dispositions manifest, or raise `PhiDispositionsError`.
 
-    Fail-closed on: a missing/unreadable/malformed file, a non-mapping root, the template
+    Fail-closed on: a missing/unreadable/malformed file, duplicate YAML mapping keys at
+    any depth, a non-mapping root, the template
     marker `unratified: true`, a wrong `version`/`id`, an unknown `status`, a manifest that
     claims `RATIFICADO` without the three accountability fields, a duplicated name, a
     disposition outside the closed vocabulary, a partial or contradictory ratification, a
@@ -363,7 +364,7 @@ def load_phi_dispositions(path: Path) -> PhiDispositionsManifest:
     if not path.is_file():
         raise PhiDispositionsError(f"{path}: manifesto de disposicoes PHI ausente")
     try:
-        data = _as_dict(load_yaml(path))
+        data = _as_dict(load_yaml(path, reject_duplicate_keys=True))
     except ParseError as exc:
         raise PhiDispositionsError(f"{path}: {exc}") from exc
     if data is None:

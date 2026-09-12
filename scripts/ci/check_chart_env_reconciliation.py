@@ -275,6 +275,37 @@ _require_reasons(INFRA_OWNED_DECLARED, label="INFRA_OWNED_DECLARED")
 DEFERRED_UNRECONCILED_DECLARED: dict[str, str] = {}
 _require_reasons(DEFERRED_UNRECONCILED_DECLARED, label="DEFERRED_UNRECONCILED_DECLARED")
 
+#: The mirror of the table above for the OTHER direction: required-but-undeclared names whose
+#: DEPLOYER is a tracked deploy artifact that has not landed yet. The human portal BFF (ADR-0049
+#: D3/D4, `src/maezo/portal/api/config.py::PortalSettings`, `env_prefix="MAEZO_PORTAL_"`) landed
+#: DARK in PR-A: no chart/TF launches `maezo.portal.api`, so nothing can fail closed at boot today;
+#: its deployer is `deploy/aws-ecs/envs/dev-sa-east-1/service-portal.tf` (PR-C, REPORT-05 slice
+#: S8), which declares all eight names. Entries are reported in their OWN bucket (never merged
+#: into `allowlisted` or silently dropped), and
+#: `tests/unit/ci/test_check_chart_env_reconciliation.py::
+#: test_deferred_required_entries_are_genuinely_required_and_undeclared_today` fails the moment an
+#: entry stops being genuinely required-and-undeclared — the PR that lands the TF must delete it.
+_PORTAL_BFF_DEFERRED_REASON = (
+    "ADR-0049 D3/D4 human portal BFF (`src/maezo/portal/api/config.py::PortalSettings`) landed "
+    "dark in PR-A; no chart/TF launches `maezo.portal.api` yet — the deployer "
+    "`deploy/aws-ecs/envs/dev-sa-east-1/service-portal.tf` (PR-C, S8) declares it; remove this "
+    "entry in that PR"
+)
+DEFERRED_UNDECLARED_REQUIRED: dict[str, str] = dict.fromkeys(
+    (
+        "MAEZO_PORTAL_CAPABILITIES",
+        "MAEZO_PORTAL_CLIENT_ID",
+        "MAEZO_PORTAL_CLIENT_PURPOSE",
+        "MAEZO_PORTAL_COGNITO_ORIGIN",
+        "MAEZO_PORTAL_ISSUER",
+        "MAEZO_PORTAL_MACHINE_CLIENT_ID",
+        "MAEZO_PORTAL_PUBLIC_ORIGIN",
+        "MAEZO_PORTAL_TENANT",
+    ),
+    _PORTAL_BFF_DEFERRED_REASON,
+)
+_require_reasons(DEFERRED_UNDECLARED_REQUIRED, label="DEFERRED_UNDECLARED_REQUIRED")
+
 
 @dataclass(frozen=True)
 class EnvNameRef:
@@ -290,6 +321,7 @@ class ReconciliationResult:
     required_undeclared: list[EnvNameRef] = field(default_factory=list)
     allowlisted: list[EnvNameRef] = field(default_factory=list)
     deferred: list[EnvNameRef] = field(default_factory=list)
+    deferred_required: list[EnvNameRef] = field(default_factory=list)
     declared_total: int = 0
     read_total: int = 0
     required_total: int = 0
@@ -322,6 +354,12 @@ class ReconciliationResult:
             # closed at CALL time instead). `ref.source` now carries the full, name-specific
             # explanation (see `_required_env_refs` below) instead of a one-size-fits-all suffix.
             lines.append(f"  REQUIRED BUT NEVER DECLARED: `{ref.name}` ({ref.source})")
+        # Never silently green: a deferred required name is always listed, with its reason.
+        for ref in self.deferred_required:
+            lines.append(
+                f"  REQUIRED, DEPLOYER DEFERRED (DEFERRED_UNDECLARED_REQUIRED): `{ref.name}` — "
+                f"{DEFERRED_UNDECLARED_REQUIRED[ref.name]}"
+            )
         if self.ok:
             lines.append("  Every declared name is read; every required name is declared. OK.")
         return "\n".join(lines)
@@ -744,8 +782,12 @@ def reconcile(
         if ref.name in seen_required:
             continue
         seen_required.add(ref.name)
-        if ref.name not in declared_names:
-            result.required_undeclared.append(ref)
+        if ref.name in declared_names:
+            continue
+        if ref.name in DEFERRED_UNDECLARED_REQUIRED:
+            result.deferred_required.append(ref)
+            continue
+        result.required_undeclared.append(ref)
     return result
 
 

@@ -87,7 +87,7 @@ linhas:
     termo_pagador_proposto: "worker `registrar_glosa` / topico `operadora.contas.registrar_glosa`"
     razao: "Q1: o worker materializa o ato da operadora. O nome pt-BR alinha-se ao dominio (`registrar_glosa`), e o topico e a superficie que o BPMN chama."
     arquivo: src/maezo/tools/workers/contas.py
-    linha: 486
+    linha: 487
     ancora: "def registrar_glosa(input_data: GlosaRegistroInput)"
   - id: C07
     cadeia: CONTAS
