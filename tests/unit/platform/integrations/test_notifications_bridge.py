@@ -175,8 +175,15 @@ def sla_metric_recorder(monkeypatch: pytest.MonkeyPatch) -> _MetricRecorder:
 
 
 _SLA_ALERT_MESSAGES: dict[str, dict[str, Any]] = {
-    # Exactly the payloads the three real publishers stamp (recurso.py/programa.py/lgpd.py
+    # Exactly the payloads the four real publishers stamp (auth.py/recurso.py/programa.py/lgpd.py
     # `make_notify_sla_risk_handler`), so these are messages the bridge really can receive.
+    # WP-J1-09 (owner decision #17) added `auth`: its alert used to reach nobody at all.
+    "auth.notify_sla_risk": {
+        "type": "auth.notify_sla_risk",
+        "tenant_id": "amh",
+        "numero_guia_tiss": "GUIA-7",
+        "beneficiario_pseudo_id": "PSEUDO-7",
+    },
     "recurso.notify_sla_risk": {
         "type": "recurso.notify_sla_risk",
         "tenant_id": "amh",
@@ -201,6 +208,8 @@ _SLA_ALERT_MESSAGES: dict[str, dict[str, Any]] = {
 }
 
 _SLA_ALERT_BUSINESS_KEYS = {
+    # The key owner decision #17 ratified verbatim: `ESC-{tenant}-sla-auth-{numero_guia_tiss}`.
+    "auth.notify_sla_risk": "ESC-amh-sla-auth-GUIA-7",
     "recurso.notify_sla_risk": "ESC-amh-sla-recurso-GUIA-1-GLOSA-1",
     "programa.notify_sla_risk": "ESC-amh-sla-programa-PROG-1",
     "lgpd.notify_sla_risk": "ESC-amh-sla-lgpd-PSEUDO-9-resolution",
@@ -456,9 +465,16 @@ async def test_uma_falha_inesperada_de_telemetria_nao_e_engolida(monkeypatch: py
 
 def test_a_tabela_de_alertas_de_sla_e_o_conjunto_real_de_publicadores() -> None:
     """Documents the spec table so a future edit is a REVIEWED diff, not a silent drift. Measured:
-    `grep -rln "_NOTIFY_SLA_RISK_NOTIFICATION_TYPE" src/maezo/tools/workers/` -> lgpd, programa,
-    recurso (2026-09-04)."""
+    `grep -rln "_NOTIFY_SLA_RISK_NOTIFICATION_TYPE" src/maezo/tools/workers/` -> auth, lgpd,
+    programa, recurso.
+
+    WP-J1-09 (owner decision #17) added `auth`. It is NOT a fourth entry in a list that happened
+    to grow: `auth` was the ONE domain this table's own docstring named as carrying an SLA-risk
+    step with NO publisher, and ratifying the AUTH->ESCALATION handoff is what gave it one. A
+    fifth entry appearing without a matching `make_notify_sla_risk_handler` in `src/maezo/tools/
+    workers/` is drift, and this assertion is what refuses it."""
     assert {
+        "auth.notify_sla_risk",
         "lgpd.notify_sla_risk",
         "recurso.notify_sla_risk",
         "programa.notify_sla_risk",
@@ -603,7 +619,7 @@ def test_build_bridge_constructs_bridge_with_fenced_starter() -> None:
     bridge, transport, audit_sink = build_bridge(settings)
     assert isinstance(bridge, NotificationBridge)
     # 10 = 5 pre-T2.6-7 + 2 T2.6-7 ANS-SUBMIT + 3 R-104 SLA-alert -> SP-OP-ESCALATION-001.
-    assert bridge.count_handoffs() == 10
+    assert bridge.count_handoffs() == 11
     assert transport is not None
     assert audit_sink is not None
 
