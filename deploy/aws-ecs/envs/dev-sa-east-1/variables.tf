@@ -222,7 +222,7 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "c745fd94" # igual a image_tag desde a promocao de 09/09 — a separacao cumpriu o papel e pode ser unificada num proximo PR
+  default     = "5cdb09a5" # 11/09/2026: intent "greeting" (classify-v3). O RECEPTOR e quem executa turno, entao a correcao vale aqui; agent-helena segue em c745fd94 ate a proxima promocao
 }
 
 variable "webhook_receiver_desired_count" {

@@ -1,0 +1,39 @@
+{
+  "id": "EVL-HELENA-17",
+  "agent": "helena",
+  "class": "SD",
+  "tier": [
+    "A",
+    "B"
+  ],
+  "description": "Greeting WITH a request attached ('oi, quero remarcar minha consulta') must NOT be greeting: scheduling wins, and the turn hands off to a human as GAP 9.2 requires. The half of the rule a greeting intent can silently break. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-17",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-17",
+      "message_body": "oi, quero remarcar minha consulta"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Vou encaminhar seu pedido de remarcacao para um atendente.",
+    "Um atendente vai continuar seu atendimento agora."
+  ],
+  "expect": {
+    "next_kind": "schedule",
+    "fields": {
+      "intent": "scheduling",
+      "escalation_motivo": "solicitacao_humano"
+    }
+  },
+  "leak_canaries": [],
+  "live": {
+    "assert": "fields",
+    "match": [
+      "intent"
+    ],
+    "threshold": 0.9
+  }
+}

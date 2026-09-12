@@ -30,7 +30,7 @@ from __future__ import annotations
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-CLASSIFY_PROMPT_VERSION = "classify-v2"  # HEL-06: fronteira NAO CONFIAVEL da mensagem
+CLASSIFY_PROMPT_VERSION = "classify-v3"  # 11/09/2026: intent "greeting" (v2: fronteira NAO CONFIAVEL)
 RESPONSE_PROMPT_VERSION = "response-v2"  # HEL-06: fronteira NAO CONFIAVEL da mensagem
 COLETA_PROMPT_VERSION = "coleta-v1"  # passo 4 (09/09/2026): a pergunta pelo dado que falta
 
@@ -110,7 +110,8 @@ Tarefa: leia a mensagem do beneficiario (ja pseudonimizada) e devolva APENAS um 
 (sem markdown, sem texto antes/depois) com exatamente estes campos:
 
 {{
-  "intent": um de ["symptom", "scheduling", "information", "human_request", "clinical_question"],
+  "intent": um de ["symptom", "scheduling", "information", "human_request", "clinical_question",
+    "greeting"],
   "population": um de ["adult", "pediatric", "gestante", "mental_health", "none"],
   "psychosocial_risk": true ou false (true se HOUVER qualquer sinal de risco a vida/autolesao/
     ideacao suicida/crise psiquiatrica aguda — na duvida, true; este campo e sempre avaliado,
@@ -137,7 +138,11 @@ Regras: intent="symptom" sempre que houver relato de sintoma fisico ou mental, m
 intent="clinical_question" e para perguntas que pedem uma opiniao/conduta clinica de voce
 ("isso e grave?", "devo tomar tal remedio?") — voce NUNCA responde essas, apenas classifica.
 intent="human_request" quando o beneficiario pede explicitamente para falar com uma pessoa/
-atendente/enfermeiro. Caso contrario, use "information" para duvidas administrativas
+atendente/enfermeiro. intent="greeting" para saudacao ou abertura de conversa SEM PEDIDO
+NENHUM ("oi", "bom dia", "opa", "ola, tudo bem?"): ela nao pede nada, entao nao e' trabalho
+para ninguem. Se houver QUALQUER pedido junto da saudacao, vale a outra intencao e nunca
+"greeting" — "oi, quero remarcar minha consulta" e' "scheduling", "bom dia, estou com dor de
+cabeca" e' "symptom". Caso contrario, use "information" para duvidas administrativas
 (cobertura, rede, elegibilidade) e "scheduling" para pedidos de marcar consulta/exame."""
 
 
