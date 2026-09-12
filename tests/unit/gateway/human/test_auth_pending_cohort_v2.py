@@ -64,7 +64,8 @@ def seven_fixture(*, database=None, keys=None):
             task_definition_key=PENDING[1],
             form_key="auth_pendencia",
             form_digest=form.digest,
-            form_source_status="BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+            # WP-J1-05: UT_DecidirPendenciaExpirada now carries camunda:formData.
+            form_source_status="BPMN_FORMDATA",
             allowed_inputs=("decisao_pendencia",),
         )
     )
