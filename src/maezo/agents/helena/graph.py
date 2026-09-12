@@ -179,9 +179,7 @@ logger = structlog.get_logger(__name__)
 
 # --- Domain enums (mirror the SP-OP-ESCALATION-001 contract + DMN schema) -------------------
 
-Intent = Literal[
-    "symptom", "scheduling", "information", "human_request", "clinical_question", "greeting"
-]
+Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question", "greeting"]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 #: `collect` (COLETA, 09/09/2026): o turno termina numa PERGUNTA ao beneficiario, nao numa
 #: resposta — a mensagem descreveu um sintoma, a tabela de red flag NAO acusou bandeira, e a
