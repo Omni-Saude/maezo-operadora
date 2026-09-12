@@ -8,7 +8,24 @@ import java.util.*;
 /** Closed number-free Q2 records. Shape is never native authority. */
 final class PortalReadModels {
   private PortalReadModels() {}
+  /** Untrusted ingress bound: request bodies, canonical envelopes, base64 fields, stored rows.
+   * Mirrors the Python read plane (`gateway/human/read_profile.py:150`,
+   * `read_transport.py:156`, `auth_transport.py:184`). Never raise this to admit a resource. */
   static final int MAX = 65536;
+  /** Deployed process/decision model bound, a different concern from {@link #MAX}: these bytes
+   * come from the engine deployment the operadora itself published (ACT_GE_BYTEARRAY), not from
+   * a caller. 7 of the 16 production BPMN exceed 64 KiB (largest today
+   * `SP-OP-RECURSO-001_Recurso_Glosa.bpmn` 90 561 B; `SP-OP-AUTH-001_Autorizacao_Previa.bpmn`
+   * 69 706 B), so reusing MAX made `verifyCatalog` refuse the operadora's own catalog with
+   * READ_DEPENDENCY_UNAVAILABLE. The bound is not invented here: it is the SAME 1 MiB the landed
+   * Python reader already applies to the SAME artifact
+   * (`gateway/human/decision_binding.py:707,758` `octet_length(b.bytes_)<=1048576`), and it stays
+   * well under the 2 MiB qualification-artifact bound
+   * (`gateway/human/decision_binding_qualification.py:26`). Memory stays bounded: the reader still
+   * refuses at RESOURCE_MAX+1 instead of streaming without limit.
+   * Pinned by `PortalReadResourceBoundTest` and
+   * `tests/unit/portal/test_read_dependency_resource_bound.py`. */
+  static final int RESOURCE_MAX = 1048576;
   static final String[] COMMON = {"schema", "operation", "scope", "engine_name",
       "database_incarnation", "read_deployment_ref", "read_deployment_digest", "request_id",
       "read_context_id"};
