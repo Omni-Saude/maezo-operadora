@@ -4,8 +4,13 @@ its heartbeat to a read-only `/tmp` (gatekeeper finding G2, VERIFY-A1-HELM.md se
 Why this exists
 ----------------
 `service-a2a-outbox-relay.tf`'s container definition has `readonlyRootFilesystem = true` and
-declares NO `volume`/`mountPoints` anywhere in this Terraform environment (verified: no `.tf` file
-under `deploy/aws-ecs/envs/dev-sa-east-1/` uses either) — `/tmp` there is read-only. If
+declares NO `volume`/`mountPoints` of its own, and no task in this environment mounts anything at
+`/tmp` — `/tmp` for the relay is therefore read-only. (Until the portal service landed, no `.tf`
+file under `deploy/aws-ecs/envs/dev-sa-east-1/` used either keyword at all, and this guard swept
+for that. `service-portal.tf` now mounts `staff-materials`/`staff-scratch` at `/run/maezo-staff-*`
+for a different task family, and redirects that task's `TMPDIR` to `/run/maezo-staff-scratch`
+rather than `/tmp`. The premise below is re-aimed at the property that actually protects the
+relay, so the guard stays non-vacuous instead of being deleted or broadened away.) If
 `A2A_OUTBOX_RELAY_HEARTBEAT_PATH` were left unset, `OutboxRelaySettings` would default to
 `DEFAULT_HEARTBEAT_PATH` ("/tmp/maezo-a2a-outbox-relay.heartbeat") and `run_relay_loop` would call
 `Path(heartbeat_path).touch()` on EVERY sweep, always raising `OSError` (Read-only file system) —
@@ -38,22 +43,35 @@ def test_the_task_definition_file_exists() -> None:
     assert _TF_PATH.is_file(), f"expected file missing: {_TF_PATH}"
 
 
+def _code(tf_path: Path) -> str:
+    return "\n".join(
+        line
+        for line in tf_path.read_text(encoding="utf-8").splitlines()
+        if not line.strip().startswith("#")
+    )
+
+
+def test_the_relay_task_declares_no_volume_or_mount_of_its_own() -> None:
+    """Non-vacuity, half 1: the relay container gets no writable mount at all. If a future PR
+    gives it one, this fails, forcing a deliberate decision about whether the heartbeat override
+    below is still correct rather than letting it silently go stale."""
+    code_text = _code(_TF_PATH)
+    assert not re.search(r"\bmountPoints\s*=", code_text), (
+        f"{_TF_PATH.name} declares mountPoints — re-check G2"
+    )
+    assert not re.search(r"\bvolume\s*\{", code_text), f"{_TF_PATH.name} declares a volume — re-check G2"
+
+
 def test_the_task_has_no_writable_mount_for_tmp() -> None:
-    """Non-vacuity for the rest of this file's reasoning: confirm the premise (no volume/
-    mountPoints anywhere in this environment) is still true. If a future PR adds one, this test
-    fails, forcing a deliberate decision about whether the heartbeat override below is still
-    correct rather than silently going stale."""
+    """Non-vacuity, half 2: no task in this environment mounts anything at `/tmp`, so nothing can
+    hand the relay (or any sibling) a writable `/tmp` through a shared volume. Other tasks may
+    mount elsewhere — `service-portal.tf` mounts `/run/maezo-staff-*` — which cannot change the
+    relay's read-only `/tmp`."""
     for tf_path in sorted(_TF_ROOT.glob("*.tf")):
-        code_lines = [
-            line
-            for line in tf_path.read_text(encoding="utf-8").splitlines()
-            if not line.strip().startswith("#")
-        ]
-        code_text = "\n".join(code_lines)
-        assert not re.search(r"\bmountPoints\s*=", code_text), (
-            f"{tf_path.name} declares mountPoints — re-check G2"
+        code_text = _code(tf_path)
+        assert not re.search(r'containerPath\s*=\s*"/tmp(/|")', code_text), (
+            f"{tf_path.name} mounts a path under /tmp — re-check G2"
         )
-        assert not re.search(r"\bvolume\s*\{", code_text), f"{tf_path.name} declares a volume — re-check G2"
 
 
 def test_readonly_root_filesystem_is_still_true() -> None:

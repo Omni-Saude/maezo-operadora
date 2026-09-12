@@ -35,19 +35,37 @@ INPUTS = {
 }
 
 
+# `each.value.staff == null ? "<dark>" : "<with staff>"`. The dark branch is what the service
+# actually ships today (`portal_enabled = false`, `portal = null`): resolve to it, and refuse any
+# other conditional shape rather than skipping the entry.
+_STAFF_NULL_RE = re.compile(r'each\.value\.staff == null \? ("[^"]*") : "[^"]*"')
+
+
 def deployment_environment() -> dict[str, str]:
-    """Read actual literal/source-field pairs, refusing an unrecognized new shape."""
+    """Read actual literal/source-field pairs, refusing an unrecognized new shape.
+
+    The block is `environment = concat([<base>], <per-staff extras>...)`. Only the base list is
+    parsed: the extras exist solely when a staff bundle is configured, which the dark landing does
+    not do. A reshape that breaks either delimiter or the entry count fails loudly here instead of
+    letting the task configuration drift away from the settings class that consumes it.
+    """
     text = TASK.read_text()
-    block = text.split("    environment = [", 1)[1].split("\n    ]", 1)[0]
+    opener, closer = "    environment = concat([", "\n      ], "
+    assert text.count(opener) == 2, "portal task/materialize environment blocks reshaped"
+    block = text.split(opener, 1)[1]
+    assert closer in block, "base environment list no longer ends with the concat delimiter"
+    block = block.split(closer, 1)[0]
     entries = re.findall(r'\{ name = "([A-Z_]+)", value = (.*?) \}', block)
-    assert len(entries) == block.count("{ name =") == 9
+    assert len(entries) == block.count("{ name =") == 10
     values = {}
     for name, value in entries:
-        values[name] = (
-            INPUTS[value.removeprefix("each.value.")]
-            if value.startswith("each.value.")
-            else json.loads(value)
-        )
+        staff_null = _STAFF_NULL_RE.fullmatch(value)
+        if staff_null is not None:
+            values[name] = json.loads(staff_null.group(1))
+        elif value.startswith("each.value."):
+            values[name] = INPUTS[value.removeprefix("each.value.")]
+        else:
+            values[name] = json.loads(value)
     return values
 
 
@@ -168,7 +186,7 @@ def test_entrypoint_is_the_deployed_module_with_exact_security_options(monkeypat
     entrypoint.main()
     assert called == [
         (
-            ("maezo.portal.api.app:create_app",),
+            ("maezo.portal.api.production:create_production_app",),
             {"factory": True, "host": "0.0.0.0", "port": 8080, "access_log": False, "proxy_headers": False},
         )
     ]
