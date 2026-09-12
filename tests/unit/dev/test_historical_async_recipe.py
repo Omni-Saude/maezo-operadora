@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -469,12 +471,21 @@ def test_async_module_pin_refuses_before_import(
         catalog.load_async_producer()
 
 
-# test_explicit_cli_preflight_reads_only_closed_d7_source removed 2026-09-12 (owner decision,
-# V6-Q6 D7 catalogue exclusion): it preflighted the "D7unit802" catalogue entry, whose
-# source_commit (80206e29ab4b...) is train-only and never an ancestor of main. The entry
-# itself was removed from scripts/ci/ledger_history_proofs.py::D7_CATALOG for the same
-# reason. See that module's D7_CATALOG comment for the full rationale. Not disabled
-# validation: the CLI's own ancestry refusal (run_historical_catalog_recipe.py, unedited,
-# still catalogues "D7unit802" in its own SOURCE_CATALOG_V1) already fails closed with a
-# non-zero exit and a clear error when the commit is not an ancestor — this removes only
-# the test asserting success against a source that can never be valid on main.
+def test_explicit_cli_preflight_reads_only_closed_d7_source() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-S",
+            str(ROOT / catalog.ENTRYPOINT),
+            "preflight-async",
+            "D7unit802",
+            "--repo",
+            str(ROOT),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["entry"]["source"] == "80206e29ab4bb4f71556b6f119ba9dd777370fe0"
