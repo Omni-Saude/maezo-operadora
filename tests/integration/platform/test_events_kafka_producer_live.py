@@ -1217,6 +1217,80 @@ async def _fetch_audit_rows(dsn: str, tenant_id: str, action: str) -> list[Any]:
         await conn.close()
 
 
+async def _lock_own_external_task(
+    engine_client: httpx.AsyncClient,
+    transport: CibSevenWorkerTransport,
+    *,
+    worker_id: str,
+    instance_id: str,
+    topic: str,
+    lock_duration_ms: int,
+) -> ExternalTask:
+    """Lock and return THE external task that `instance_id` itself parked on `topic`.
+
+    ROOT CAUSE this replaces (full-lane failure, round 3 of PR-A's CI-equivalent
+    `-m integration` run). The previous code chose the task to handle by TOPIC ALONE —
+    `fetch_and_lock(worker_id, [TopicSubscription(topic, ...)], max_tasks=1)` — and only
+    afterwards asserted that whatever came back belonged to this test's instance. `fetchAndLock`
+    has NO process-instance filter: `harness.py::CibSevenWorkerTransport.fetch_and_lock` puts
+    exactly `topicName` + `lockDuration` (+ optional `variables`) on the wire. And both topics
+    this test drains are SHARED surfaces, not per-variant ones: all five
+    `SP-OP-ANS-CRON-001-{RN124SIP,RN209,RN388,RN424TISS,DIOPS}` variants live in ONE BPMN whose
+    ten service tasks declare only `operadora.ans_cron.trigger_submissions` and
+    `operadora.events.publish`, and the latter is the generic publish topic nearly every SP-OP-*
+    process uses. So ANY unlocked task some other instance left parked on either topic satisfied
+    the old lookup, and the test then compared its own freshly created instance id against a
+    stranger's. Run standalone the file passes (nothing else is parked on those topics); run in
+    the full lane, alongside every other suite on the one shared engine, it does not.
+
+    Why this replacement is DETERMINISTIC, rather than a narrower race:
+
+    * the task is guaranteed to already exist when it is queried: the cron BPMN declares no
+      `camunda:asyncBefore`/`asyncAfter` at all (zero occurrences in
+      `spec/processes/bpmn/SP-OP-ANS-CRON-001_Agendador_Envios_ANS.bpmn`), so
+      `POST /job/{id}/execute` and each worker `complete` advance the instance to its next
+      external task SYNCHRONOUSLY, inside the call. Nothing here polls, sleeps or retries;
+    * the task id is resolved by IDENTITY — the engine's own task list read at instance scope —
+      never by "whichever task is sitting on the topic";
+    * `max_tasks` is derived from the engine's live task list for this topic, so the single
+      `fetchAndLock` batch necessarily contains every task on it that is currently unlockable,
+      ours included; and the returned task is matched by id, so a batch full of strangers can
+      no longer masquerade as this instance's work;
+    * any foreign task that batch happened to lock is unlocked again BEFORE any assertion runs,
+      so this helper leaves engine state exactly as it found it even on the failing path.
+
+    Only engine calls already exercised live by this repo are used: `GET /external-task`
+    (`_assert_native_fraude_effect` above), `fetch_and_lock`, and `unlock`
+    (`test_worker_runtime_spine.py`).
+    """
+    listed = await engine_client.get("/external-task")
+    listed.raise_for_status()
+    on_topic = [row for row in listed.json() if row["topicName"] == topic]
+    own = [row for row in on_topic if row["processInstanceId"] == instance_id]
+    assert len(own) == 1, (
+        f"instance {instance_id} must have exactly one pending task on {topic}; saw {len(own)}"
+    )
+    own_task_id = str(own[0]["id"])
+
+    batch = await transport.fetch_and_lock(
+        worker_id,
+        [TopicSubscription(topic, lock_duration_ms)],
+        max_tasks=len(on_topic),
+        async_response_timeout_ms=5_000,
+    )
+    mine = [task for task in batch if task.task_id == own_task_id]
+    for task in batch:
+        if task.task_id != own_task_id:
+            # Never hold a stranger's task: hand it straight back, before asserting anything, so
+            # neither the passing nor the failing path perturbs whichever suite owns it.
+            await transport.unlock(task.task_id)
+    assert len(mine) == 1, (
+        f"fetchAndLock on {topic} returned {len(batch)} task(s), none of them {own_task_id} — "
+        f"the task this instance parked there"
+    )
+    return mine[0]
+
+
 @pytest.mark.parametrize(
     ("suffix", "activity_suffix", "report_type", "periodicidade"),
     [
@@ -1309,14 +1383,17 @@ async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
             ("operadora.ans_cron.trigger_submissions", f"ST_ResolverCompetencia{activity_suffix}"),
             ("operadora.events.publish", f"ST_PublishCronDue{activity_suffix}"),
         ):
-            tasks = await transport.fetch_and_lock(
-                worker_id,
-                [TopicSubscription(topic, 10_000)],
-                max_tasks=1,
-                async_response_timeout_ms=5_000,
+            task = await _lock_own_external_task(
+                engine_client,
+                transport,
+                worker_id=worker_id,
+                instance_id=instance_id,
+                topic=topic,
+                lock_duration_ms=10_000,
             )
-            assert len(tasks) == 1
-            task = tasks[0]
+            # Kept as a cross-check between the two engine surfaces (the instance-scoped task
+            # list the id was resolved from, and `fetchAndLock`'s own `processInstanceId`
+            # field) — it is no longer the mechanism deciding WHICH task gets handled.
             assert task.process_instance_id == instance_id
             assert task.process_definition_key == process_key
             assert task.activity_id == activity
