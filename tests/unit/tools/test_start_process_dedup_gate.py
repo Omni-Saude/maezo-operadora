@@ -80,8 +80,10 @@ PAGTO = "SP-OP-PAGTO-001"  # the one PERMANENT family
 PAGTO_KEY = "PAGTO-amh-OP-001"
 INAD = "SP-OP-INADIMPLENCIA-001"  # a classified NON_STRICT family
 INAD_KEY = "INAD-amh-C-001"
-CANCEL = "SP-OP-CANCEL-001"  # the one EXCLUSIVE family (GAP-D3-02)
+CANCEL = "SP-OP-CANCEL-001"  # an EXCLUSIVE family (GAP-D3-02)
 CANCEL_KEY = "CANCEL-amh-C-001"
+AUTH = "SP-OP-AUTH-001"  # the second EXCLUSIVE family (WP-J1-11, owner decision #16)
+AUTH_KEY = "AUTH-amh-GUIA-001"
 
 
 def _provenance(**overrides: Any) -> AgentDecisionProvenance:
@@ -975,16 +977,20 @@ async def test_permanent_and_exclusive_diverge_only_on_the_finished_instance_bra
 # ---------------------------------------------------------------------------
 
 
-def test_pagto_is_the_only_permanent_family_and_cancel_the_only_exclusive_one() -> None:
+def test_pagto_is_the_only_permanent_family_and_the_exclusive_set_is_cancel_and_auth() -> None:
     """Pins the deliberate scope of BOTH gated postures. `PERMANENT` (a key that may never start
     again) is PAGTO and PAGTO alone — money release is one-shot. `EXCLUSIVE` (concurrent starts
-    mutually excluded, but NEVER a permanent gate) is CANCEL and CANCEL alone since GAP-D3-02.
-    Everything else stays `NON_STRICT`, because those keys either legitimately re-run across time
-    or raise a domain question an engineering change may not answer.
+    mutually excluded, but NEVER a permanent gate) is CANCEL (GAP-D3-02) and, since WP-J1-11 /
+    owner decision #16, AUTH. Everything else stays `NON_STRICT`, because those keys either
+    legitimately re-run across time or raise a domain question an engineering change may not
+    answer.
 
     Widening either set is a REVIEWED decision, not a refactor — and MOVING a key from `EXCLUSIVE`
     to `PERMANENT` is the one that needs the most review: it converts an idempotency gate into a
-    denial of a legitimate second case with no human in the loop."""
+    denial of a legitimate second case with no human in the loop. AUTH is the live example: the
+    owner ruled ONE IDEMPOTENCY DOMAIN PER GUIA (#16) but did NOT rule on cross-time reuse of a
+    TISS guia number, so it lands on `EXCLUSIVE`, and `PERMANENT` stays flagged in the policy
+    comment as `postura-alvo a ratificar` by medico-auditor/ANS."""
     from maezo.tools.mcp_cibseven.transport import _START_DEDUP_POLICY
 
     by_posture = {
@@ -992,18 +998,26 @@ def test_pagto_is_the_only_permanent_family_and_cancel_the_only_exclusive_one() 
         for posture in StartDedupPosture
     }
     assert by_posture[StartDedupPosture.PERMANENT] == [PAGTO]
-    assert by_posture[StartDedupPosture.EXCLUSIVE] == [CANCEL]
-    assert len(by_posture[StartDedupPosture.NON_STRICT]) == len(_START_DEDUP_POLICY) - 2
+    assert by_posture[StartDedupPosture.EXCLUSIVE] == sorted([AUTH, CANCEL])
+    assert len(by_posture[StartDedupPosture.NON_STRICT]) == len(_START_DEDUP_POLICY) - 3
 
     assert start_dedup_posture(PAGTO) is StartDedupPosture.PERMANENT
     assert start_dedup_posture(CANCEL) is StartDedupPosture.EXCLUSIVE
+    assert start_dedup_posture(AUTH) is StartDedupPosture.EXCLUSIVE
     assert start_dedup_posture(INAD) is StartDedupPosture.NON_STRICT
 
     # `is_strict_start_dedup` is the "does the claim gate the EFFECT?" predicate the chokepoint
     # branches on — TRUE for both gated postures, and it must not silently narrow back to PAGTO.
     assert is_strict_start_dedup(PAGTO) is True
     assert is_strict_start_dedup(CANCEL) is True
+    assert is_strict_start_dedup(AUTH) is True
     assert is_strict_start_dedup(INAD) is False
+
+    # AUTH is EXCLUSIVE, never PERMANENT: a guia whose case CLOSED may start its next case.
+    # Under `PERMANENT` that second case would be refused `ALREADY_COMPLETED` with no human in
+    # the loop — and, worse, refused ONLY on the agent channel (the portal channel short-circuits
+    # this gate entirely), i.e. a guarantee that one of the two doors does not honour.
+    assert start_dedup_posture(AUTH) is not StartDedupPosture.PERMANENT
 
 
 @pytest.mark.parametrize(

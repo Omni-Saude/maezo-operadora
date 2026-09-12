@@ -45,7 +45,17 @@ The closed source-level form set is:
 * ANS submission review/legal, coordination, correction and NACK -> ``ans_revisao``,
   ``ans_coordenacao``, ``ans_pendencia`` and ``ans_nack``.
 
-All eleven additional task bindings remain DRAFT/verify. Source shape coverage of all 43 tasks
+Ten of those eleven additional task bindings remain DRAFT/verify.  The exception is AUTH
+``UT_DecidirPendenciaExpirada`` -> ``auth_pendencia``, now ``BPMN_FORMDATA``: WP-J1-05 added the
+``camunda:formData`` block to that User Task, so the deployed process definition — not prose —
+states the form.  Its single ``decisao_pendencia`` enum field is exactly ``allowed_inputs``, which
+is what ``gateway.human.decision_binding`` re-checks against the deployed BPMN; no ``auditor_id``
+is declared there because no denial is born in that task.  The behavioural gap the flip does NOT
+close is recorded in the process contract: ``conceder_prazo_extra`` does not re-arm the document
+wait (its gateway flow targets ``BRT_SlaAnalise``, like ``seguir_analise``), so no caller may
+present that literal as a new deadline.
+
+Source shape coverage of all 43 tasks
 is not operational completion. Fraud still requires trusted seal-before-decision verification,
 citation/corpus binding and a server projection of referral choices to flat gateway flags. ANS
 correction confirmations require authenticated human and current dataset binding, while NACK's
@@ -1315,10 +1325,10 @@ _BINDINGS: dict[tuple[str, str], tuple[FormKey, FormSourceStatus]] = {
         "lgpd_decisao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
     ),
-    ("SP-OP-AUTH-001", "UT_DecidirPendenciaExpirada"): (
-        "auth_pendencia",
-        "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
-    ),
+    # WP-J1-05: the BPMN now carries camunda:formData for this task (one enum field,
+    # `decisao_pendencia`, exactly this form's allowed_inputs), so the binding is verifiable
+    # against the deployed definition instead of prose task documentation.
+    ("SP-OP-AUTH-001", "UT_DecidirPendenciaExpirada"): ("auth_pendencia", "BPMN_FORMDATA"),
     ("SP-OP-PAGTO-001", "UT_AprovacaoAlcada"): (
         "pagto_aprovacao",
         "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",

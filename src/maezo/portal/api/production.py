@@ -8,6 +8,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI
 
 from maezo.gateway.human.production import human_runtime
+from maezo.gateway.human.production_materials import HumanMaterialPin
 from maezo.gateway.staff_cases.production import staff_runtime
 from maezo.gateway.staff_cases.production_config import PortalProductionSettings, PortalStaffBootstrapError
 from maezo.portal.api.app import create_app
@@ -68,10 +69,13 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
     (WP-J1-04) and the communication slot stays `None` (its publication source is not
     built yet) — the routes refuse rather than answer from a stub.
     """
-    if settings.human_material_directory is None:
-        raise PortalStaffBootstrapError()
+    pin = _human_material_pin(settings)
     async with AsyncExitStack() as resources:
-        runtime = await resources.enter_async_context(human_runtime())
+        # The tenant cross-check travels INSIDE the pin, so a bundle for another tenant
+        # is refused while parsing the manifest — before a pool is opened, before the
+        # first query and before the command relay starts. The assertion below is the
+        # cheap belt to that braces, not the control.
+        runtime = await resources.enter_async_context(human_runtime(pin))
         if runtime.scope.tenant != settings.tenant:
             raise PortalStaffBootstrapError()
         # Never displace an already-bound factory: an ambiguous composition is a refusal.
@@ -89,3 +93,23 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
         finally:
             application.state.task_read_service_factory = None
             application.state.decision_service_factory = None
+
+
+def _human_material_pin(settings: PortalProductionSettings) -> HumanMaterialPin:
+    """The deployment's out-of-band anchor for the human material bundle.
+
+    `complete_profile` already refuses a half-configured human profile; this repeats
+    the narrowing so the pin can never be built from a partially present one, and so
+    the type checker sees three non-optional facts.
+    """
+    if (
+        settings.human_material_directory is None
+        or settings.human_material_version_id is None
+        or settings.human_public_manifest_sha256 is None
+    ):
+        raise PortalStaffBootstrapError()
+    return HumanMaterialPin(
+        tenant=settings.tenant,
+        material_version_id=settings.human_material_version_id,
+        public_manifest_sha256=settings.human_public_manifest_sha256,
+    )

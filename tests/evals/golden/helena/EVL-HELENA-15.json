@@ -1,0 +1,37 @@
+{
+  "id": "EVL-HELENA-15",
+  "agent": "helena",
+  "class": "SD",
+  "tier": [
+    "A",
+    "B"
+  ],
+  "description": "Greeting 'bom dia' -> intent=greeting -> inform. Paired with EVL-HELENA-14/16 so the three most common openings are pinned to the SAME outcome; before classify-v3 'Ola, bom dia' resolved itself while 'Opa' opened a P3 human-queue item. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-15",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-15",
+      "message_body": "bom dia"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"greeting\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Ola! Sou a Helena, navegadora de saude. Como posso ajudar voce hoje?"
+  ],
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "intent": "greeting"
+    }
+  },
+  "leak_canaries": [],
+  "live": {
+    "assert": "fields",
+    "match": [
+      "intent"
+    ],
+    "threshold": 0.9
+  }
+}

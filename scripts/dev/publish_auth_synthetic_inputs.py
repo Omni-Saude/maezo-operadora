@@ -32,7 +32,7 @@ import hashlib
 import json
 import os
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -256,10 +256,17 @@ async def publish_all(
     return tuple([await publisher.publish(snapshot) for snapshot in snapshots])
 
 
-async def run(arguments: argparse.Namespace, environ: dict[str, str] | None = None) -> int:
+async def run(
+    arguments: argparse.Namespace,
+    environ: dict[str, str] | None = None,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> int:
+    """`clock` defaults to the real wall clock; a caller may inject a frozen one (tests only —
+    a real run must always check the fixture's window against the actual moment of running).
+    """
     marker = require_marker(arguments.tenant, environ)
     fixture = load_fixture(Path(arguments.fixture), marker)
-    snapshots = build_snapshots(fixture, marker, datetime.now(UTC))
+    snapshots = build_snapshots(fixture, marker, clock())
     if arguments.dry_run:
         for snapshot in snapshots:
             print(f"{snapshot.publication.kind}\t{snapshot.publication.publication_id}\tSYNTHETIC")
@@ -324,9 +331,13 @@ def parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Sequence[str] | None = None, environ: dict[str, str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    environ: dict[str, str] | None = None,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> int:
     try:
-        return asyncio.run(run(parse_arguments(argv), environ))
+        return asyncio.run(run(parse_arguments(argv), environ, clock))
     except SyntheticRefusalError as refusal:
         print(f"REFUSED: {refusal}", file=sys.stderr)
         return 2
