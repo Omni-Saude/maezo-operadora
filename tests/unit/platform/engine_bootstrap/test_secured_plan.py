@@ -241,7 +241,7 @@ def all_rows():
 
 
 @pytest.mark.parametrize("schema", all_rows(), ids=lambda s: s.schema_id)
-def test_all_47_frozen_rows_have_only_b_minimum_grants(schema):
+def test_all_57_frozen_rows_have_only_b_minimum_grants(schema):
     from maezo.gateway.engine_contracts import FieldOrigin
 
     attestations = [
@@ -262,7 +262,16 @@ def test_all_47_frozen_rows_have_only_b_minimum_grants(schema):
         ("locked_external" if schema.source_topic else "completed_human") if schema.source_process_key else ""
     )
     plan = compile(boundary(schema, source, attestations))
-    assert len(all_rows()) == 47
+    # WP-J1-03 (2026-09-12): 47 -> 57. The count is a drift detector, not a ceiling: it exists
+    # so that adding a reviewed row forces someone to re-read THIS test and confirm the new row
+    # still gets only B-minimum grants. That happened. The ten new rows are the dedicated PHI
+    # document-request bridge's two base rows (`auth.request_documents.bridge.fetch_lock.v2` and
+    # `.complete.v2`, workload `auth_document_request_bridge`) plus the eight lifecycle rows
+    # `worker_lifecycle_schema` derives from them — the bridge fetches, and must therefore also
+    # be able to fail/extend/unlock, its own external task. Two base rows and not one because
+    # `FetchProfile` requires the classified variables in `read_projection` while the
+    # external_complete contract requires that same field to be EMPTY.
+    assert len(all_rows()) == 57
     assert plan["execution_authorized"] is False
     assert all(g["engine_user"] == "syntheticworker" for g in plan["grants"])
     for grant in plan["grants"]:

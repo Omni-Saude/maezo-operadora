@@ -108,6 +108,23 @@ class WorkerRuntimeSettings(BaseSettings):
     transport_fan_in_ceiling: int | None = Field(default=None, alias="MAEZO_TRANSPORT_FAN_IN_CEILING")
     harness_fan_in_ceiling: int | None = Field(default=None, alias="MAEZO_HARNESS_FAN_IN_CEILING")
 
+    # --- WP-J1-03: exclusividade do topico do pedido de documentos ----------------------------
+    # `operadora.auth.request_documents` e' servido OU pelo worker generico deste daemon
+    # (`tools/workers/auth.py:RequestDocumentsWorker`, que so' registra em log) OU pela ponte
+    # PHI dedicada (`gateway/document_requests`, que entrega de verdade ao prestador e ao
+    # beneficiario — decisao #18 do dono). Os dois registrados significam dois fetch-and-lock
+    # concorrentes na mesma tarefa externa, com a entrega decidida por corrida.
+    #
+    # Esta bandeira e' declarativa e EXPLICITA de proposito: nao ha inferencia a partir de
+    # DATABASE_URL, de credenciais PHI presentes nem do modo de implantacao. Ligada, este
+    # daemon deixa de registrar o topico e a ponte pode instalar-se; desligada (o padrao, e o
+    # comportamento historico byte-a-byte) o worker generico continua registrado e a ponte
+    # RECUSA instalar (`DocumentRequestHost.assert_exclusive`). Ligar a bandeira sem instalar
+    # a ponte deixa o topico sem consumidor — visivel de imediato porque `/readyz` passa a
+    # declarar o topico ausente do conjunto esperado e as instancias param em
+    # ST_SolicitarDocumentos, nunca uma entrega silenciosamente perdida.
+    document_request_host_installed: bool = Field(default=False, alias="MAEZO_AUTH_DOCUMENT_REQUEST_HOST")
+
     @field_validator(
         "lock_duration_ms",
         "poll_interval_ms",

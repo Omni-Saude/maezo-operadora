@@ -7,6 +7,7 @@ the same arrangement `test_publisher.py:107-126` uses for the same publisher.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import sys
@@ -256,16 +257,55 @@ def test_refuses_without_explicit_synthetic_marker(seeded) -> None:
     assert SEEDER.main(["--tenant", TENANT, "--fixture", str(fixture), "--dry-run"], {}) == 2
 
 
-def test_marker_is_material_not_a_mode(tmp_path: Path) -> None:
-    import ast
+def _mode_access_violations(tree: ast.AST) -> list[Any]:
+    """Every way the seeder could let the deployment mode gate synthetic publication.
 
+    `.mode` attribute access and the literal strings `"production"` / `"local-test"` are
+    the direct paths. `getattr(obj, "mode")` (with or without a default) reaches the same
+    attribute without ever producing an `ast.Attribute` node, so it must be caught
+    separately — this is exactly the bypass a prior review found unguarded.
+    """
+    violations: list[Any] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute) and node.attr == "mode") or (
+            isinstance(node, ast.Constant) and node.value in ("production", "local-test")
+        ):
+            violations.append(node)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            is_getattr = (isinstance(func, ast.Name) and func.id == "getattr") or (
+                isinstance(func, ast.Attribute) and func.attr == "getattr"
+            )
+            if is_getattr and len(node.args) >= 2:
+                name_arg = node.args[1]
+                if isinstance(name_arg, ast.Constant) and name_arg.value == "mode":
+                    violations.append(node)
+    return violations
+
+
+def test_fence_catches_the_getattr_mode_bypass() -> None:
+    """`getattr(obj, "mode")` reads the same attribute `test_marker_is_material_not_a_mode`
+    forbids, without ever producing the `ast.Attribute` node that check walks for. The
+    fence must flag it too, or a rewrite of the seeder could gate on deployment mode via
+    `getattr` and the AST sweep would wave it through.
+    """
+    bypass = ast.parse('mode = getattr(config, "mode")\n')
+    assert _mode_access_violations(bypass)
+    # A default argument, or `getattr` reached off an attribute chain, must not slip past.
+    with_default = ast.parse('mode = getattr(config, "mode", "local-test")\n')
+    assert _mode_access_violations(with_default)
+    via_attribute = ast.parse('mode = builtins.getattr(config, "mode")\n')
+    assert _mode_access_violations(via_attribute)
+    # An unrelated getattr call must not false-positive.
+    unrelated = ast.parse('value = getattr(config, "other_field")\n')
+    assert not _mode_access_violations(unrelated)
+
+
+def test_marker_is_material_not_a_mode(tmp_path: Path) -> None:
     # The seeder must never consult the deployment mode to decide whether to publish.
     # Scanned over the AST, so the prose that *explains* the rule cannot satisfy it.
     tree = ast.parse(SCRIPT.read_text())
-    assert not [n for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "mode"]
-    assert not [
-        n for n in ast.walk(tree) if isinstance(n, ast.Constant) and n.value in ("production", "local-test")
-    ]
+    assert not _mode_access_violations(tree)
     for change, expected in (
         ({"marker": "something-else"}, "marker string"),
         ({"acknowledged": False}, "acknowledgement"),
@@ -375,7 +415,15 @@ def test_expired_fixture_publishes_nothing(seeded) -> None:
 
 def test_dry_run_publishes_nothing_and_labels_every_line(seeded, capsys) -> None:
     _marker_path, fixture_path, env = seeded
-    assert SEEDER.main(["--tenant", TENANT, "--fixture", str(fixture_path), "--dry-run"], env) == 0
+    # `main` must check the fixture window against the SAME instant the fixture was built
+    # against, not the real wall clock: the fixture's `valid_until` is `NOW + 6h`, and the
+    # real clock would eventually run past it regardless of the actual calendar date,
+    # making this test non-deterministic. Freezing the injected clock at `NOW` is what
+    # keeps it deterministic on any date, without ever widening the fixture's window.
+    assert (
+        SEEDER.main(["--tenant", TENANT, "--fixture", str(fixture_path), "--dry-run"], env, clock=lambda: NOW)
+        == 0
+    )
     lines = capsys.readouterr().out.strip().splitlines()
     assert len(lines) == 5 and all(line.endswith("SYNTHETIC") for line in lines)
 

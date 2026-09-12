@@ -369,7 +369,10 @@ async def test_start_chokepoint_refuses_human_provenance_on_agent_transport():
         await start_process_idempotent(
             Agent(),
             process_key="SP-OP-AUTH-001",
-            business_key="AUTHI-guide",
+            # WP-J1-11: chave CONTRATUAL. A recusa aqui e' pela PROVENIENCIA/transporte
+            # (proveniencia humana num transporte de agente), nao pela forma da chave — usar a
+            # chave legada aqui mascarava qual das duas guardas estava provando o quê.
+            business_key="AUTH-tenant-GUIA-001",
             variables={},
             audit_sink=object(),
             provenance=provenance,
@@ -402,7 +405,10 @@ async def test_real_human_start_chokepoint_uses_durable_dispatch_and_receipt_onl
     result = await start_process_idempotent(
         transport,
         process_key="SP-OP-AUTH-001",
-        business_key="AUTHI-guide",
+        # WP-J1-11 / decisao do dono #16: o canal do portal usa a MESMA chave contratual do
+        # canal de agente (`AUTH-{tenant_id}-{numero_guia_tiss}`). Antes era
+        # `"AUTHI-" + guide_identity_ref` — um SEGUNDO dominio de idempotencia por guia.
+        business_key="AUTH-tenant-GUIA-001",
         variables={},
         audit_sink=s,
         provenance=provenance,

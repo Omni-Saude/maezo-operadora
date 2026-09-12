@@ -23,7 +23,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import TypeAdapter, ValidationError
 
-from maezo.gateway.human.auth_profile import ResourceAuthority
+from maezo.gateway.human.auth_profile import Actor, ResourceAuthority
 from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
 from maezo.portal.contracts.intake import IntakeLink, IntakeLinks, ResourceRef
 from maezo.portal.contracts.models import HumanPrincipal
@@ -65,6 +65,36 @@ def _reference(value: str) -> str | None:
 Audience = Literal["beneficiary", "provider"]
 
 
+def actor_matches(actor: Actor, principal: HumanPrincipal, audience: Audience | None) -> bool:
+    """The single identity check every published-authority consumer must use.
+
+    Both `admit`/`read` (`published_authority.py`) and this module's `project_links` need
+    to decide whether a published `Actor` row names a given principal; before this helper
+    they did it with two independently written comparisons, and only one of them compared
+    `actor.audience` — a published row naming a `staff` actor was silently honoured by
+    `admit`/`read` while `links` structurally could never receive `audience="staff"` to
+    match against. One function now settles both:
+
+    - `audience` given (the caller's own server-verified session audience, never
+      `"staff"` — `links` is never called for a staff session): the actor's `audience`
+      must equal it exactly, matching this exact delegation side.
+    - `audience=None` (`admit`/`read`, which have no caller audience to compare — a
+      `HumanPrincipal` carries none): the floor is that the actor must not be `"staff"`.
+      Staff hold no vínculo anywhere in this plane (ADR-0049 D4); a row naming one is
+      never a submit or read grant either.
+    """
+    if (actor.principal_ref, actor.issuer, actor.subject, actor.membership_revision) != (
+        principal.principal_ref,
+        principal.issuer,
+        principal.subject,
+        principal.membership_revision,
+    ):
+        return False
+    if audience is None:
+        return actor.audience != "staff"
+    return actor.audience == audience
+
+
 @runtime_checkable
 class IntakeLinkSource(Protocol):
     async def links(self, principal: HumanPrincipal, audience: Audience) -> IntakeLinks:
@@ -91,20 +121,7 @@ def project_links(
     links: list[IntakeLink] = []
     seen: set[tuple[str, str]] = set()
     for authority, ceiling in authorities:
-        actor = authority.actor
-        if (
-            actor.principal_ref,
-            actor.issuer,
-            actor.subject,
-            actor.membership_revision,
-            actor.audience,
-        ) != (
-            principal.principal_ref,
-            principal.issuer,
-            principal.subject,
-            principal.membership_revision,
-            audience,
-        ):
+        if not actor_matches(authority.actor, principal, audience):
             continue
         if (
             authority.state != "active"

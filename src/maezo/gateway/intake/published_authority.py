@@ -28,7 +28,7 @@ from maezo.gateway.human.read_profile import digest
 from maezo.portal.contracts.intake import AuthIntakeSubmission, IntakeLinks
 from maezo.portal.contracts.models import HumanPrincipal
 
-from .links import Audience, IntakeLinkSource, project_links
+from .links import Audience, IntakeLinkSource, actor_matches, project_links
 from .models import AdmissionGrant, IntakeAuthority, IntakeError, request_bytes
 from .native_authority import AuthorityAction, NativeAuthReader, PublishedAuthorities
 
@@ -54,16 +54,17 @@ class PublishedIntakeAuthority:
 
     @staticmethod
     def _covers(authority: ResourceAuthority, principal: HumanPrincipal, now: datetime) -> bool:
-        """The published contract's own validity — identical to the sanctioned effect path."""
-        actor = authority.actor
+        """The published contract's own validity — identical to the sanctioned effect path.
+
+        Actor identity is the single `actor_matches` predicate `project_links` also uses
+        (`links.py`), so the two consumers of a published `Actor` row can never drift.
+        `admit`/`read` have no caller-supplied audience to match against — `HumanPrincipal`
+        carries none — so the floor is `audience=None`: a row naming a `staff` actor is
+        refused here exactly as it is structurally excluded from `links`, since staff hold
+        no vínculo anywhere in this plane (ADR-0049 D4).
+        """
         return (
-            (actor.principal_ref, actor.issuer, actor.subject, actor.membership_revision)
-            == (
-                principal.principal_ref,
-                principal.issuer,
-                principal.subject,
-                principal.membership_revision,
-            )
+            actor_matches(authority.actor, principal, None)
             and authority.state == "active"
             and authority.consent_state != "revoked"
             and not (authority.legal_basis == "consent" and authority.consent_state != "valid")

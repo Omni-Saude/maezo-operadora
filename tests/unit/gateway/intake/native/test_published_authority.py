@@ -23,7 +23,7 @@ from maezo.gateway.human.auth_profile import (
 )
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import SourceProvenance, digest
-from maezo.gateway.intake.links import SYNTHETIC_PUBLISHER_REF, IntakeLinkSource
+from maezo.gateway.intake.links import SYNTHETIC_PUBLISHER_REF, IntakeLinkSource, actor_matches
 from maezo.gateway.intake.models import IntakeError, request_bytes
 from maezo.gateway.intake.native_authority import (
     NativeAuthReader,
@@ -282,6 +282,18 @@ async def test_admit_refuses_an_authority_naming_another_identity(
         await PublishedIntakeAuthority(reader()).admit(principal(), submission())
 
 
+async def test_admit_refuses_an_authority_naming_a_staff_actor(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Staff hold no vínculo anywhere in this plane (ADR-0049 D4): a row that otherwise
+    # names this exact principal, issuer, subject and membership revision but labels the
+    # actor `staff` is not a submit grant either. `_covers` and `project_links` share one
+    # `actor_matches` predicate (`links.py`) so this floor cannot drift between them.
+    staff = authority().actor.model_copy(update={"audience": "staff"})
+    install(monkeypatch, (authority(actor=staff),))
+    with pytest.raises(IntakeError) as refusal:
+        await PublishedIntakeAuthority(reader()).admit(principal(), submission())
+    assert refusal.value.code == "operation_forbidden"
+
+
 async def test_admit_refuses_an_expired_window_or_an_expired_head(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -371,6 +383,19 @@ async def test_read_requires_a_published_read_authority_over_that_intake(
     assert now() < until <= readable.valid_until
 
 
+async def test_read_refuses_a_read_authority_naming_a_staff_actor(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Before this fix a `read`-authorised row naming a staff actor was honoured: `_covers`
+    # compared identity but never `actor.audience`, unlike `project_links`, which can never
+    # even receive `audience="staff"` to compare against (`links` is refused for staff
+    # sessions upstream). One `actor_matches` predicate now floors both at "not staff".
+    readable = authority(action="auth.receipt.read", resource_kind="intake", resource_ref=INTAKE)
+    staff = readable.actor.model_copy(update={"audience": "staff"})
+    install(monkeypatch, (readable.model_copy(update={"actor": staff}),))
+    with pytest.raises(IntakeError) as refusal:
+        await PublishedIntakeAuthority(reader()).read(principal(), INTAKE)
+    assert refusal.value.code == "operation_forbidden"
+
+
 async def test_links_are_audience_scoped_and_read_the_start_authorities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -390,3 +415,25 @@ async def test_the_class_satisfies_both_protocols_and_refuses_a_fake_reader() ->
     for fake in (None, object(), "reader"):
         with pytest.raises(AuthUnavailableError):
             PublishedIntakeAuthority(fake)  # type: ignore[arg-type]
+
+
+async def test_actor_matches_is_the_single_identity_and_audience_predicate() -> None:
+    """The exact function `_covers` and `project_links` both call — proven at each branch
+    so the two call sites can never silently diverge again."""
+    p = principal()
+    matching = authority().actor
+    assert actor_matches(matching, p, "provider")
+    assert actor_matches(matching, p, None)
+    # A caller-supplied audience must equal the actor's exactly.
+    assert not actor_matches(matching, p, "beneficiary")
+    # No caller audience (admit/read): the floor is "not staff", any real audience passes.
+    beneficiary_actor = matching.model_copy(update={"audience": "beneficiary"})
+    assert actor_matches(beneficiary_actor, p, None)
+    # A staff-labelled actor is refused whether or not a caller audience is supplied —
+    # `links` structurally never passes "staff", and admit/read must floor it too.
+    staff_actor = matching.model_copy(update={"audience": "staff"})
+    assert not actor_matches(staff_actor, p, None)
+    # Identity mismatch refuses regardless of audience.
+    foreign = matching.model_copy(update={"principal_ref": "human-published-9"})
+    assert not actor_matches(foreign, p, "provider")
+    assert not actor_matches(foreign, p, None)
