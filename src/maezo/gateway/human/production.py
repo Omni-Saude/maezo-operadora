@@ -1,0 +1,259 @@
+"""Production composition root of the human gateway (WP-J1-00).
+
+`create_production_gateway` refuses unconditionally by design and keeps refusing:
+it has no way to know whether the ports handed to it are real. This module is the
+other half of that contract — the one place that builds the human plane from
+attested deployment materials and therefore *may* activate it.
+
+Every port is bound to a concrete provider:
+
+* the Q2 read plane — `EngineReadComposition` over `PortalReadClient`,
+  `AeadQueueCursorCustody` and the material-backed read providers (#1, #2, #3);
+* the command plane — `AssignmentRuntime` over `PostgresHumanOutbox`,
+  `MTLSHumanEngineTransport`, `NativeAssignmentClient` and
+  `NativeAssignmentReceiptAuthority`, with the installed `human-command`
+  credential (#15) and the `human-assignment-read` lease (#16);
+* the admission plane — `PostgresHumanAdmission` over the engine-backed
+  `EvidenceReferenceSource` (#7).
+
+Nothing here is a no-op, an in-memory double or a test fixture: this module imports
+nothing from `tests/` and nothing from `maezo.runtime.inference`, and it holds no
+business rule — eligibility, deadlines, candidate groups and outcomes stay in DMN,
+`spec/policies/autonomy/` and the BPMN timers.
+"""
+
+from __future__ import annotations
+
+import ssl
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
+
+import asyncpg  # type: ignore[import-untyped]
+import httpx
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+from .assignment_composition import AssignmentRuntime
+from .assignment_receipt import NativeAssignmentReceiptAuthority
+from .assignment_transport import AssignmentPrivateTransport, NativeAssignmentClient
+from .command_materials import assignment_scope, assignment_signing_lease, install_command_credential
+from .engine_evidence import EngineEvidenceReferenceSource
+from .engine_reads import EngineReadBundle, EngineReadComposition
+from .errors import GatewayRefusalError
+from .models import Scope
+from .outbox import PostgresHumanAdmission, PostgresHumanOutbox
+from .production_materials import (
+    MATERIAL_DIRECTORY,
+    HumanMaterialError,
+    HumanMaterials,
+    PrivateSurface,
+    load_human_materials,
+)
+from .queue import CatalogTrustAnchor
+from .queue_cursor import AeadQueueCursorCustody
+from .read_credentials import ReadCredentialPartition
+from .read_materials import MaterialLifetime, read_providers
+from .read_transport import PortalReadClient
+from .relay import RelaySettings
+from .transport import HumanTLSIdentity, MTLSHumanEngineTransport
+
+
+def unavailable() -> GatewayRefusalError:
+    return GatewayRefusalError("production_capabilities_unavailable")
+
+
+def _surface_identity(surface: PrivateSurface, scope: Scope, directory: str) -> HumanTLSIdentity:
+    """Client mTLS material for one private engine surface, from the bundle only.
+
+    The path comes from the verified `HumanMaterials`, and the loader accepts exactly
+    one fixed path — so this cannot be pointed anywhere by configuration.
+    """
+    root = Path(directory)
+    return HumanTLSIdentity(
+        scope=scope,
+        ca_file=root / surface.ca_file,
+        certificate_file=root / surface.certificate_file,
+        private_key_file=root / surface.private_key_file,
+    )
+
+
+def _surface_context(surface: PrivateSurface, scope: Scope, directory: str) -> ssl.SSLContext:
+    context = _surface_identity(surface, scope, directory).context()
+    if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+        raise unavailable()
+    return context
+
+
+@dataclass(frozen=True, repr=False)
+class HumanRuntime:
+    """The two compositions `create_app` binds, plus the lifetime that revokes them."""
+
+    read: EngineReadComposition
+    assignment: AssignmentRuntime
+    lifetime: MaterialLifetime
+    scope: Scope
+
+
+def compose_human_plane(
+    material: HumanMaterials,
+    *,
+    pool: asyncpg.Pool,
+    source_engine: AsyncEngine,
+    lifetime: MaterialLifetime,
+) -> HumanRuntime:
+    """Bind every human port to its concrete provider. Pure wiring: no I/O happens here.
+
+    Separating the wiring from resource acquisition is what makes the binding
+    provable: a test can assert which provider sits behind each port without a
+    database, and the assertion is about the same code production runs.
+    """
+    manifest = material.manifest
+    scope = manifest.scope
+    read_admission, read_credentials, cursor_keys = read_providers(material, lifetime)
+    command = install_command_credential(material, lifetime)
+    signing = assignment_signing_lease(material, lifetime)
+
+    read_context = _surface_context(manifest.read_surface, scope, material.directory)
+    command_identity = _surface_identity(manifest.command_surface, scope, material.directory)
+    # Fail closed now if the command surface material cannot produce a verifying context.
+    _surface_context(manifest.command_surface, scope, material.directory)
+    read_key_id = manifest.key("portal-task-read").key_id
+    cursor_key_id = manifest.current_cursor().key_id
+    anchor = CatalogTrustAnchor(
+        scope=scope, catalog_ref=manifest.catalog_ref, publisher_ref=manifest.publisher_ref
+    )
+
+    # --- command plane -----------------------------------------------------------
+    outbox = PostgresHumanOutbox(scope=scope, pool=pool)
+    engine_transport = MTLSHumanEngineTransport(
+        scope=scope,
+        endpoint=command.endpoint,
+        identity=command_identity,
+        signer=command.signer,
+        timeout_seconds=command.timeout_seconds,
+    )
+    assignment_transport = AssignmentPrivateTransport(
+        origin=manifest.read_surface.origin,
+        tls_context=read_context,
+        server_spki_sha256=manifest.read_surface.server_spki_sha256,
+        signing=signing,
+        timeout_seconds=manifest.read_surface.timeout_seconds,
+    )
+    client = NativeAssignmentClient(
+        transport=assignment_transport,
+        source_engine=source_engine,
+        command_scope=scope,
+        engine_name=manifest.engine_name,
+        database_incarnation=manifest.database_incarnation,
+    )
+    receipt_authority = NativeAssignmentReceiptAuthority(
+        transport=assignment_transport, source_engine=source_engine, command_scope=scope
+    )
+    assignment = AssignmentRuntime(
+        scope=scope,
+        client=client,
+        outbox=outbox,
+        transport=engine_transport,
+        credentials=command.partition,
+        receipt_authority=receipt_authority,
+        relay_settings=RelaySettings(
+            lease_seconds=manifest.relay_lease_seconds,
+            retry_seconds=manifest.relay_retry_seconds,
+            poll_seconds=manifest.relay_poll_seconds,
+        ),
+    )
+
+    # --- read plane --------------------------------------------------------------
+    transport_pool: httpx.AsyncBaseTransport = httpx.AsyncHTTPTransport(verify=read_context, trust_env=False)
+    admission_port = PostgresHumanAdmission(outbox, EngineEvidenceReferenceSource(client))
+
+    def new_bundle() -> EngineReadBundle:
+        # A fresh partition per request: the read partition is explicitly one
+        # request's monotonic lifetime, never a shared one.
+        partition = ReadCredentialPartition(
+            scope=scope,
+            engine_name=manifest.engine_name,
+            key_id=read_key_id,
+            credentials=read_credentials,
+            admission=read_admission,
+        )
+        return EngineReadBundle(
+            client=PortalReadClient(
+                origin=manifest.read_surface.origin,
+                tls_context=read_context,
+                server_spki_sha256=manifest.read_surface.server_spki_sha256,
+                partition=partition,
+                timeout_seconds=manifest.read_surface.timeout_seconds,
+                transport=transport_pool,
+            ),
+            anchor=anchor,
+            cursor=AeadQueueCursorCustody(partition=partition, provider=cursor_keys, key_id=cursor_key_id),
+        )
+
+    read = EngineReadComposition(
+        new_bundle=new_bundle,
+        command_credentials=command.partition,
+        command_admission=admission_port,
+        transport_pool=transport_pool,
+    )
+    return HumanRuntime(read=read, assignment=assignment, lifetime=lifetime, scope=scope)
+
+
+@asynccontextmanager
+async def human_runtime(materials: HumanMaterials | None = None) -> AsyncIterator[HumanRuntime]:
+    """Compose the human plane; every resource opened here is closed here.
+
+    Ordering is the contract: the relay starts before any gateway is built, and on
+    the way out the in-flight delivery is awaited before the pools it uses close.
+    Pools owned by other packages (identity, staff, intake) are never touched.
+    """
+    lifetime = MaterialLifetime()
+    try:
+        material = materials if materials is not None else load_human_materials(MATERIAL_DIRECTORY)
+        async with AsyncExitStack() as resources:
+            pool = await asyncpg.create_pool(
+                dsn=material.outbox_url.render_as_string(hide_password=False).replace(
+                    "postgresql+asyncpg://", "postgresql://", 1
+                ),
+                min_size=1,
+                max_size=8,
+            )
+            if pool is None:
+                raise unavailable()
+            resources.push_async_callback(pool.close)
+
+            source_engine: AsyncEngine = create_async_engine(
+                material.source_url, echo=False, hide_parameters=True, pool_size=2, max_overflow=0
+            )
+            resources.push_async_callback(source_engine.dispose)
+
+            runtime = compose_human_plane(material, pool=pool, source_engine=source_engine, lifetime=lifetime)
+            # The relay must be running before any gateway is built from this runtime.
+            await runtime.assignment.start()
+            resources.push_async_callback(runtime.assignment.close)
+            resources.push_async_callback(runtime.read.close)
+            try:
+                yield runtime
+            finally:
+                # Revoke every issued lease before the resources behind them go away.
+                lifetime.close()
+    except (GatewayRefusalError, HumanMaterialError):
+        raise
+    except Exception:
+        raise unavailable() from None
+    finally:
+        lifetime.close()
+
+
+def assignment_read_scope(materials: HumanMaterials) -> Scope:
+    """Exposed for evidence: the assignment plane's own workload reference."""
+    return assignment_scope(materials)
+
+
+__all__ = [
+    "HumanRuntime",
+    "assignment_read_scope",
+    "compose_human_plane",
+    "human_runtime",
+]

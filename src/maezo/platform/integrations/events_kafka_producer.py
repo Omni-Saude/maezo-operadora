@@ -101,6 +101,7 @@ from typing import Any, Protocol
 
 import structlog
 
+from maezo.gateway.kafka_client import KafkaConnectionSettings, create_kafka_producer
 from maezo.platform.integrations.partition_key import (
     MissingPartitionKeyError,
     derive_partition_key,
@@ -311,14 +312,24 @@ class AioKafkaEventsProducer:
         *,
         bootstrap_servers: str | None = None,
         raw_producer: RawKafkaProducer | None = None,
+        connection_settings: KafkaConnectionSettings | None = None,
         connect_timeout_s: float = 10.0,
         send_timeout_s: float = 10.0,
     ) -> None:
+        if connection_settings is not None:
+            if raw_producer is not None or (
+                bootstrap_servers is not None and bootstrap_servers != connection_settings.bootstrap_servers
+            ):
+                raise ValueError("kafka_connection_configuration_conflict")
+            bootstrap_servers = connection_settings.bootstrap_servers
         if bootstrap_servers is None and raw_producer is None:
             raise ValueError(
                 "AioKafkaEventsProducer requires either bootstrap_servers (production) or "
                 "raw_producer (tests) — never neither."
             )
+        self._connection_settings = connection_settings or (
+            KafkaConnectionSettings(bootstrap_servers) if bootstrap_servers is not None else None
+        )
         self._bootstrap_servers = bootstrap_servers
         self._raw = raw_producer
         self._connect_timeout_s = connect_timeout_s
@@ -341,15 +352,18 @@ class AioKafkaEventsProducer:
             return self._raw
         async with self._start_lock:
             if not self._started:
-                from aiokafka import (  # type: ignore[import-untyped]  # lazy: no import-time network dep
-                    AIOKafkaProducer,
-                )
-
-                producer = AIOKafkaProducer(
-                    bootstrap_servers=self._bootstrap_servers,
+                assert self._connection_settings is not None
+                producer = await create_kafka_producer(
+                    self._connection_settings,
                     request_timeout_ms=int(self._send_timeout_s * 1000),
                 )
-                await asyncio.wait_for(producer.start(), timeout=self._connect_timeout_s)
+                try:
+                    await asyncio.wait_for(producer.start(), timeout=self._connect_timeout_s)
+                except BaseException:
+                    # Failed/cancelled authentication must not orphan allocated clients.
+                    with contextlib.suppress(Exception):
+                        await asyncio.wait_for(producer.stop(), timeout=self._connect_timeout_s)
+                    raise
                 self._raw = producer
                 self._started = True
         assert self._raw is not None  # narrows for mypy — set immediately above under the lock

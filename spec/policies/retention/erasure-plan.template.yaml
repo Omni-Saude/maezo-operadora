@@ -107,10 +107,10 @@ review_packet: docs/reviews/adr-0029-erasure-packet.md
 # =============================================================================
 # CAMADAS
 # =============================================================================
-# `ordem` e ordem LOGICA de operacoes, nao restricao do banco: NAO EXISTE NENHUMA
-# FOREIGN KEY em nenhuma das sete migracoes (verificado por varredura; ver o pacote
-# de revisao secao 4). Nada no banco impede a ordem errada — a ordem e um
-# compromisso do procedimento, e por isso e revisavel aqui.
+# `ordem` organiza a revisao/relatorio; nao e uma sequencia executavel de eliminacao.
+# A migracao 0013 acrescenta FK de human_command_delivery para human_command_outbox
+# e triggers de imutabilidade. Uma ordem ou decisao DPO nao remove essas restricoes.
+# O pacote historico descreve a cadeia anterior; as entradas 0012/0013/0014 abaixo a ampliam.
 # =============================================================================
 
 camadas:
@@ -430,6 +430,153 @@ camadas:
       depois que sua linha de idempotencia foi expurgada e um fato cuja semantica de
       replay mudou. A janela escolhida aqui nao pode ser decidida isoladamente da
       janela de a2a_idempotency (ordem 13, acima).
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # PORTAL / COMANDOS HUMANOS — ADR-0049 D4/D6, inventario DRAFT
+  # Expiracao de autenticacao nao constitui prazo legal de retencao. A matriz
+  # DPO/seguranca de intent, payload, receipt e chaves continua SEPARADA e pendente.
+  # Nenhum vinculo principal->beneficiario para eliminacao e criado por estas linhas.
+  # ---------------------------------------------------------------------------
+  - camada: identidade_portal
+    tabela: portal_login_transactions
+    migracao: "0012_portal_identity_session.py::upgrade (portal_login_transactions)"
+    identificacao: "tenant + state_hash/browser_hash; payload is LoginTransaction (portal/api/records.py), with OIDC nonce/verifier; no DSR/FHIR subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 17
+    tensao: null
+    notas: >-
+      Estado OIDC com segredos verifier/nonce, sem titular resolvivel. Consumo/expiracao
+      operacional em portal/api/postgres.py nao ratifica eliminacao LGPD nem prazo legal.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: identidade_portal
+    tabela: portal_code_claims
+    migracao: "0012_portal_identity_session.py::upgrade (portal_code_claims)"
+    identificacao: "tenant + code_hash + expires_at; replay-prevention digest, not a DSR/FHIR subject reference"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 18
+    tensao: null
+    notas: >-
+      Prevencao de replay por digest de codigo. expires_at e validade operacional, nao uma
+      decisao de retencao DPO.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: identidade_portal
+    tabela: portal_sessions
+    migracao: "0012_portal_identity_session.py::upgrade (portal_sessions)"
+    identificacao: "tenant + secret_hash; issuer/subject/principal_ref inside SessionRecord payload (portal/api/records.py), not a DSR/FHIR column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 19
+    tensao: null
+    notas: >-
+      Identidade OIDC/principal dentro do payload; secret_hash identifica a sessao.
+      Expiracao/revogacao operacional nao e uma ponte DSR nem decisao legal de expurgo.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: identidade_portal
+    tabela: portal_memberships
+    migracao: "0012_portal_identity_session.py::upgrade (portal_memberships)"
+    identificacao: "tenant + issuer + subject; unique tenant + principal_ref; reviewed subject_bindings in payload do not define a DSR/FHIR-to-principal erasure bridge (ADR-0049 D4)"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 20
+    tensao: null
+    notas: >-
+      Identidade do principal humano e vinculos revisados no payload MembershipRecord. Um
+      ator pode ser colaborador, prestador ou beneficiario; principal_ref nao equivale a
+      fhir_patient_id ou titular_pseudo_id. Administracao humana externa ao BFF; sem ponte
+      de eliminacao contratada.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: comando_humano
+    tabela: human_command_delivery
+    migracao: "0013_human_command_outbox.py::upgrade (human_command_delivery; FK; guards)"
+    identificacao: "tenant + task_id + command_id references human_command_outbox; engine_receipt bytea, no subject column or contracted DSR/FHIR mapping (ADR-0049 D6)"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 21
+    tensao: null
+    notas: >-
+      FK (tenant, task_id, command_id) aponta para human_command_outbox. Triggers recusam
+      DELETE/TRUNCATE e alteracao de resultado final. Ordenada antes do outbox apenas para
+      revisao da dependencia; nao autoriza expurgo nem remove os guards. Receipt e
+      resultado auditavel exigem disposicao humana separada (ADR-0049 D6).
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: comando_humano
+    tabela: human_command_outbox
+    migracao: "0013_human_command_outbox.py::upgrade (human_command_outbox; immutable trigger)"
+    identificacao: "tenant + task_id + command_id; principal_ref/principal_issuer/principal_subject identify the human actor; no beneficiary identity is established for canonical_payload (ADR-0049 D6)"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 22
+    tensao: null
+    notas: >-
+      Intent/payload imutaveis: triggers recusam UPDATE/DELETE/TRUNCATE. principal_ref
+      identifica quem comandou, nao o titular dos dados afetados. Retencao/expurgo de
+      intent, payload, receipt e chaves pertence a matriz DPO/seguranca separada (ADR-0049
+      D6); nenhuma excecao de runtime e criada.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  # ---------------------------------------------------------------------------
+  # AUTORIDADE DE ATRIBUICAO DE PESSOAL — E03 (migracao 0014), inventario DRAFT
+  # Fonte de autoridade, publicacoes imutaveis e recibos de atribuicao. identity_digest e o
+  # digest da identidade da ATRIBUICAO (task/command), nao de um titular. Nenhum vinculo
+  # principal->beneficiario para eliminacao e criado por estas linhas.
+  # ---------------------------------------------------------------------------
+  - camada: autoridade_atribuicao
+    tabela: portal_assignment_source
+    migracao: "0014_staff_assignment_authority.py::upgrade (portal_assignment_source)"
+    identificacao: "tenant PRIMARY KEY; source_revision/state/active_generation_digest and the designation_bytes/source_bytes/owner_receipt of the staff assignment authority source (E03); no DSR/FHIR subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 23
+    tensao: null
+    notas: >-
+      Uma linha por tenant com a fonte de autoridade de atribuicao (bytes assinados e recibo do
+      dono). Nao identifica beneficiario; REVOKE ALL FROM PUBLIC na migracao. Retencao e
+      expurgo pertencem a matriz DPO/seguranca separada.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: autoridade_atribuicao
+    tabela: portal_assignment_publications
+    migracao: "0014_staff_assignment_authority.py::upgrade (portal_assignment_publications; FK; immutable trigger)"
+    identificacao: "tenant + publication_id (FK tenant -> portal_assignment_source); immutable publication of one source_revision to the native engine (trigger refuses UPDATE/DELETE); no subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 24
+    tensao: null
+    notas: >-
+      Trigger portal_assignment_publication_immutable recusa DELETE e alteracao dos campos
+      publicados. FK para portal_assignment_source. Ordenada depois da fonte apenas para
+      revisao da dependencia; nao autoriza expurgo nem remove o trigger.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: autoridade_atribuicao
+    tabela: portal_assignment_receipt_source
+    migracao: "0014_staff_assignment_authority.py::upgrade (portal_assignment_receipt_source; FK)"
+    identificacao: "tenant + task_id + command_id (FK tenant -> portal_assignment_source); identity_digest is the digest of the ASSIGNMENT identity (task/command receipt), not a DSR/FHIR or principal reference; no subject column"
+    resolucao_identidade: SEM_COLUNA_DE_TITULAR
+    ordem: 25
+    tensao: null
+    notas: >-
+      Recibos de atribuicao por task/command com FK para a fonte. identity_digest e digest da
+      identidade da atribuicao, nao coluna de titular nem de principal. Retencao pertence a
+      matriz DPO/seguranca separada.
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO

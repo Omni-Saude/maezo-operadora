@@ -230,13 +230,13 @@ def _classify_json(**overrides: Any) -> str:
 
 
 async def test_red_flag_message_starts_escalation_with_correct_business_key_and_group(
-    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
     """(a) simulated red-flag input -> SP-OP-ESCALATION-001 instance ACTIVE, business key
     `ESC-{tenant}-{conversation_id}`, candidate group `plantao-clinico` (motivo_categoria=
     red_flag_clinico, severidade=grave -> escalation_routing r1, verified via engine REST)."""
-    conversation_id = f"wa:amh:t111-redflag-{_RUN_ID}"
-    business_key = f"ESC-amh-{conversation_id}"
+    conversation_id = f"wa:{audit_tenant}:t111-redflag-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
@@ -266,7 +266,7 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
     try:
         result = await compiled.ainvoke(
             {
-                "tenant_id": "amh",
+                "tenant_id": audit_tenant,
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}",
@@ -300,12 +300,12 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
 
 
 async def test_non_red_flag_message_never_starts_escalation(
-    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
     """(b) non-red-flag input -> Helena's `inform` path — no SP-OP-ESCALATION-001 instance is
     ever started for this conversation's business key."""
-    conversation_id = f"wa:amh:t111-inform-{_RUN_ID}"
-    business_key = f"ESC-amh-{conversation_id}"
+    conversation_id = f"wa:{audit_tenant}:t111-inform-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
@@ -332,7 +332,7 @@ async def test_non_red_flag_message_never_starts_escalation(
     try:
         result = await compiled.ainvoke(
             {
-                "tenant_id": "amh",
+                "tenant_id": audit_tenant,
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-b",
@@ -356,13 +356,13 @@ async def test_non_red_flag_message_never_starts_escalation(
 
 
 async def test_psychosocial_risk_always_escalates_even_when_intent_looks_administrative(
-    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
     """Gatilho 5 (always active): psychosocial risk escalates regardless of `intent`, verified
     against the REAL `triage_redflag_mental_health` table + `escalation_routing` (motivo=
     risco_psicossocial, severidade=grave -> r2 -> plantao-clinico)."""
-    conversation_id = f"wa:amh:t111-psy-{_RUN_ID}"
-    business_key = f"ESC-amh-{conversation_id}"
+    conversation_id = f"wa:{audit_tenant}:t111-psy-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
@@ -389,7 +389,7 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
     try:
         result = await compiled.ainvoke(
             {
-                "tenant_id": "amh",
+                "tenant_id": audit_tenant,
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-c",
@@ -440,13 +440,13 @@ class _RaisingInference:
 
 
 async def test_malformed_classifier_json_escalates_falha_tecnica(
-    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
     """Verifier live case 1: malformed classify JSON + 'não consigo respirar' -> a REAL
     SP-OP-ESCALATION-001 instance (motivo=falha_tecnica -> escalation_routing r6 -> P3
     atendimento-humano), never inform."""
-    conversation_id = f"wa:amh:t111-clf-badjson-{_RUN_ID}"
-    business_key = f"ESC-amh-{conversation_id}"
+    conversation_id = f"wa:{audit_tenant}:t111-clf-badjson-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
@@ -474,7 +474,7 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
     try:
         result = await compiled.ainvoke(
             {
-                "tenant_id": "amh",
+                "tenant_id": audit_tenant,
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-clf1",
@@ -505,14 +505,14 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
 
 
 async def test_classifier_llm_exception_escalates_falha_tecnica(
-    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
     """Verifier live case 2: LLM exception + 'dor no peito muito forte' -> a REAL
     SP-OP-ESCALATION-001 instance, never inform. The LLM is fully down for the whole turn
     (classify, resumo, respond) — resumo/respond degrade to canned fail-safe text while the
     escalation still starts."""
-    conversation_id = f"wa:amh:t111-clf-exc-{_RUN_ID}"
-    business_key = f"ESC-amh-{conversation_id}"
+    conversation_id = f"wa:{audit_tenant}:t111-clf-exc-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
@@ -534,7 +534,7 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
     try:
         result = await compiled.ainvoke(
             {
-                "tenant_id": "amh",
+                "tenant_id": audit_tenant,
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-clf2",
@@ -559,7 +559,7 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
 
 
 async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
-    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any
+    engine_base_url: str, engine_client: httpx.AsyncClient, audit_sink: Any, audit_tenant: str
 ) -> None:
     """R1 cycle-2 regression (leak, the verifier's exact live probe): the LLM copies a
     beneficiary-typed CPF into `sintoma_codigo` — schema-invalid -> escalate falha_tecnica —
@@ -567,8 +567,8 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
     value, only the class token. Pre-fix, `_short()`'s `repr(value)[:80]` shipped the CPF
     verbatim into the engine var `resumo_contexto` (verifier's instance c0cbc6d2...)."""
     leaked_value = "CPF 123.456.789-00 dor"
-    conversation_id = f"wa:amh:t111-clf-leak-{_RUN_ID}"
-    business_key = f"ESC-amh-{conversation_id}"
+    conversation_id = f"wa:{audit_tenant}:t111-clf-leak-{_RUN_ID}"
+    business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
     cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
@@ -596,7 +596,7 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
     try:
         result = await compiled.ainvoke(
             {
-                "tenant_id": "amh",
+                "tenant_id": audit_tenant,
                 "conversation_id": conversation_id,
                 "canal": "whatsapp",
                 "beneficiario_pseudo_id": f"pseudo-{_RUN_ID}-clf3",

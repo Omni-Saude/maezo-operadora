@@ -44,6 +44,7 @@ from scripts.ci.check_chart_env_reconciliation import (
     _MARKER_REASON,
     _NO_DEFAULT_REASON,
     _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS,
+    DEFERRED_UNDECLARED_REQUIRED,
     DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
     EnvNameRef,
@@ -1009,3 +1010,50 @@ def test_opaque_whole_mapping_set_no_longer_includes_copy_or_update() -> None:
     assert "copy" not in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
     assert "update" not in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
     assert {"items", "keys", "values", "clear"} == _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
+
+
+# ---------------------------------------------------------------------------
+# DEFERRED_UNDECLARED_REQUIRED — the required-direction mirror of the deferred table (PR-A)
+# ---------------------------------------------------------------------------
+
+
+def test_reconcile_exempts_a_deferred_required_name_but_keeps_it_visible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A required name whose deployer is tracked-but-not-landed does not fail the gate, but is
+    reported in its OWN bucket (`deferred_required`) and rendered with its reason — never merged
+    into `allowlisted`/`deferred`, never dropped."""
+    monkeypatch.setattr(
+        "scripts.ci.check_chart_env_reconciliation.DEFERRED_UNDECLARED_REQUIRED",
+        {"SYNTHETIC_REQUIRED_VAR": "synthetic deployer reason for this test"},
+    )
+    required = [EnvNameRef(name="SYNTHETIC_REQUIRED_VAR", source="synthetic")]
+    result = reconcile([], read_names=set(), required=required)
+    assert result.ok, result.render()
+    assert result.required_undeclared == []
+    assert result.allowlisted == [] and result.deferred == []
+    assert [r.name for r in result.deferred_required] == ["SYNTHETIC_REQUIRED_VAR"]
+    assert "SYNTHETIC_REQUIRED_VAR" in result.render()
+    assert "synthetic deployer reason for this test" in result.render()
+
+
+def test_a_required_name_outside_the_deferred_table_still_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("scripts.ci.check_chart_env_reconciliation.DEFERRED_UNDECLARED_REQUIRED", {})
+    required = [EnvNameRef(name="SYNTHETIC_REQUIRED_VAR", source="synthetic")]
+    result = reconcile([], read_names=set(), required=required)
+    assert not result.ok
+    assert [r.name for r in result.required_undeclared] == ["SYNTHETIC_REQUIRED_VAR"]
+    assert result.deferred_required == []
+
+
+def test_deferred_required_entries_are_genuinely_required_and_undeclared_today() -> None:
+    """Non-vacuity, both ways: every deferred required name must (1) be a genuinely REQUIRED
+    `BaseSettings` name in today's src/ and (2) be declared NOWHERE in today's chart/TF. The
+    moment the portal deployer lands (PR-C `service-portal.tf`), (2) breaks and the entry must be
+    deleted — a deferral can never outlive its reason."""
+    _, required_names, _, _ = extract_settings_env_names(_SRC_DIR)
+    deferred = set(DEFERRED_UNDECLARED_REQUIRED)
+    assert deferred, "table unexpectedly empty — delete this test's premise, not the check"
+    assert deferred <= required_names, sorted(deferred - required_names)
+    assert deferred.isdisjoint(_real_declared_names()), sorted(deferred & _real_declared_names())
+    _require_reasons(DEFERRED_UNDECLARED_REQUIRED, label="DEFERRED_UNDECLARED_REQUIRED")

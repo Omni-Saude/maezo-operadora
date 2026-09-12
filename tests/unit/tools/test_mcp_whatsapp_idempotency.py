@@ -248,3 +248,86 @@ async def test_an_unsealed_claim_still_suppresses_a_repeat_within_the_lease() ->
 
     assert client.post.await_count == 1
     assert repeat == {"suppressed_duplicate": True, "idempotency_key": _KEY}
+
+
+# R19: an outbound provider id can embed the counterpart phone. Construct only
+# synthetic data; inspect actual emitted log dictionaries, never a logger stub.
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["unguarded", "guarded", "seal_failure", "duplicate"])
+async def test_outbound_success_logs_omit_provider_id_preserving_delivery(mode):
+    import base64
+    import json
+
+    import structlog.testing
+
+    phone = "5511000000000"
+    encoded = base64.b64encode((phone + ":synthetic-outbound").encode()).decode()
+    provider_id = "wamid." + encoded
+    response = {"messaging_product": "whatsapp", "messages": [{"id": provider_id}]}
+    registry = (
+        None
+        if mode == "unguarded"
+        else FakeDedupRegistry(
+            fail_ops=frozenset({"mark_processed"}) if mode == "seal_failure" else frozenset()
+        )
+    )
+    server = WhatsAppServer(settings=_settings(), dedup=registry)
+    client = _mock_httpx_client()
+    client.post.return_value.json.return_value = response
+    key = None if registry is None else _KEY
+    with patch("httpx.AsyncClient", return_value=client), structlog.testing.capture_logs() as logs:
+        returned = await server.send_message(phone, "synthetic body", idempotency_key=key)
+        if mode == "duplicate":
+            repeated = await server.send_message(phone, "synthetic body", idempotency_key=key)
+            assert repeated == {"suppressed_duplicate": True, "idempotency_key": _KEY}
+
+    assert returned is response and returned["messages"][0]["id"] == provider_id
+    client.post.assert_awaited_once()
+    sent = client.post.call_args.kwargs
+    assert sent["json"] == {
+        "messaging_product": "whatsapp",
+        "to": phone,
+        "type": "text",
+        "text": {"body": "synthetic body"},
+    }
+    assert sent["headers"]["Authorization"] == "Bearer " + _settings().whatsapp_token
+    if registry is not None:
+        assert registry.rows == {_KEY: "pending" if mode == "seal_failure" else "processed"}
+    success = [entry for entry in logs if entry["event"] == "whatsapp_message_sent"]
+    assert len(success) == 1
+    rendered = json.dumps(logs)
+    assert all(value not in rendered for value in (provider_id, encoded, phone, "synthetic body"))
+    assert "message_id" not in success[0]
+    if mode == "seal_failure":
+        assert any(entry["event"] == "whatsapp_send_claim_seal_failed" for entry in logs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("release_fails", [False, True])
+async def test_outbound_failed_post_logs_no_provider_id_and_preserves_retry_state(release_fails):
+    import json
+
+    import structlog.testing
+
+    # The failure object remains the caller's; this fix changes only this server's log.
+    provider_error = RuntimeError("wamid.synthetic-outbound-error")
+    registry = FakeDedupRegistry(fail_ops=frozenset({"release"}) if release_fails else frozenset())
+    server = WhatsAppServer(settings=_settings(), dedup=registry)
+    client = _mock_httpx_client()
+    client.post.side_effect = provider_error
+    with (
+        patch("httpx.AsyncClient", return_value=client),
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(RuntimeError) as caught,
+    ):
+        await server.send_message("5511000000000", "synthetic body", idempotency_key=_KEY)
+    assert caught.value is provider_error
+    assert not any(entry["event"] == "whatsapp_message_sent" for entry in logs)
+    assert "wamid.synthetic-outbound-error" not in json.dumps(logs)
+    assert registry.rows == ({_KEY: "pending"} if release_fails else {})
+    if not release_fails:
+        client.post.side_effect = None
+        with patch("httpx.AsyncClient", return_value=client), structlog.testing.capture_logs():
+            result = await server.send_message("5511000000000", "synthetic body", idempotency_key=_KEY)
+        assert result["messages"][0]["id"] == "wamid.out1"
+        assert client.post.await_count == 2

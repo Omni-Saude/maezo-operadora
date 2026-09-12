@@ -27,6 +27,15 @@ from scripts.dev.run_engine_integration import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 RUNNER = REPO_ROOT / "scripts" / "dev" / "run_engine_integration.py"
 
+#: As suites cuja unica coordenada e' um fixture PRIVADO do ROOT: desselecionadas pelo
+#: `tests/integration/conftest.py` e por isso com ZERO nodeids na coleta normal. A mesma lista e'
+#: cercada, do lado do marcador, por `tests/unit/ci/test_root_fixture_deselection.py`.
+ROOT_FIXTURE_SUITES = [
+    "tests/integration/gateway/test_decision_binding_live_pg.py",
+    "tests/integration/gateway/test_human_relay_live_cib.py",
+    "tests/integration/portal/test_phi_decision_custody.py",
+]
+
 
 def _run(
     *args: str,
@@ -369,6 +378,9 @@ def test_discovery_covers_every_current_integration_test_and_required_families(t
     assert discovery["required_families"]["lgpd"]
     assert discovery["required_families"]["escalation"]
     assert discovery["missing_test_files"] == []
+    # Um ficheiro cujos casos foram TODOS desselecionados por um mecanismo declarado nao e' um
+    # ficheiro sem nodeid: sai por uma chave propria, que nao e' erro (ver o teste dedicado).
+    assert discovery["deselected_root_fixture_files"] == ROOT_FIXTURE_SUITES
     assert discovery["suite_dependencies"]["db-unit"]["engine_required"]
     assert (
         "tests/unit/gateway/test_audit_dmn_versions.py"
@@ -676,3 +688,75 @@ def test_real_pytest_skip_is_rejected_while_strict_xfail_is_reported(tmp_path: P
     assert canonical.returncode == 0
     assert statuses == ["passed", "xfailed", "mutation_skipped"]
     assert (accepted, accepted_reason) == (0, None)
+
+
+def test_discovery_separates_declared_deselections_from_files_without_nodeids(tmp_path: Path) -> None:
+    """Uma suite desselecionada por mecanismo DECLARADO nao e' um ficheiro de teste partido.
+
+    `tests/integration/conftest.py` desseleciona as suites `root_fixture` (fixture PRIVADO do
+    ROOT) — os seus ficheiros existem e coletam ZERO nodeids. A descoberta derivava
+    `missing_test_files` de um walk do sistema de ficheiros menos os ficheiros coletados, logo
+    reportava-as como ausentes e abortava. As duas condicoes sao agora chaves distintas, e so'
+    `missing_test_files` e' erro.
+    """
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
+    result = _run(
+        "discover",
+        "--checkout",
+        str(REPO_ROOT),
+        "--sha",
+        sha,
+        "--results-dir",
+        str(tmp_path),
+        timeout=180,
+    )
+
+    assert result.returncode == 0, result.stderr
+    discovery = json.loads((tmp_path / "discovery.json").read_text())
+    assert discovery["validation_errors"] == []
+    assert discovery["deselected_root_fixture_files"] == ROOT_FIXTURE_SUITES
+    assert discovery["missing_test_files"] == []
+    # As duas chaves sao disjuntas por construcao, e a nova nunca inventa um caminho.
+    assert not set(discovery["deselected_root_fixture_files"]) & set(discovery["missing_test_files"])
+    for relative in discovery["deselected_root_fixture_files"]:
+        assert relative in discovery["test_files"]
+        assert (REPO_ROOT / relative).is_file()
+        # Desselecionada de facto: nenhum nodeid seu entrou na coleta canonica.
+        assert not [n for n in discovery["integration_nodeids"] if n.startswith(f"{relative}::")]
+
+
+def test_discovery_still_aborts_on_a_file_that_yields_nothing_under_the_opt_in_too(
+    tmp_path: Path,
+) -> None:
+    """Fail-closed preservado: a nova chave so' absolve quem VOLTA a coletar sob o opt-in.
+
+    Um ficheiro `test_*.py` sob `tests/integration/` sem nenhum caso continua a popular
+    `missing_test_files` e a abortar a descoberta — a distincao e' MEDIDA (recoleta com o opt-in
+    ligado), nao concedida a qualquer ficheiro vazio.
+    """
+    injected = REPO_ROOT / "tests" / "integration" / "test_runner_empty_probe.py"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
+    try:
+        injected.write_text("# nenhum teste aqui — sonda do fail-closed da descoberta\n")
+        result = _run(
+            "discover",
+            "--checkout",
+            str(REPO_ROOT),
+            "--sha",
+            sha,
+            "--results-dir",
+            str(tmp_path),
+            timeout=180,
+        )
+        assert result.returncode != 0
+    finally:
+        injected.unlink(missing_ok=True)
+
+
+def test_the_runner_and_the_conftest_agree_on_the_root_fixture_opt_in_name() -> None:
+    """Se os dois nomes divergirem, a recoleta do `discover` nao liga nada e as suites voltam a
+    ser reportadas como ficheiros sem nodeid — falha silenciosa que esta assercao torna ruidosa."""
+    conftest = (REPO_ROOT / "tests" / "integration" / "conftest.py").read_text(encoding="utf-8")
+    assert f'ROOT_FIXTURE_OPT_IN_ENV = "{runner.ROOT_FIXTURE_OPT_IN_ENV}"' in conftest
+    # E o nome tem de atravessar a allowlist hermetica de env do proprio runner.
+    assert runner.ROOT_FIXTURE_OPT_IN_ENV in runner.RUNTIME_ENV_KEYS

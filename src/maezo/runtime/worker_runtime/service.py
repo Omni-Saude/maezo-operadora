@@ -874,7 +874,9 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
         # docstring), so a bad/unreachable KAFKA_BOOTSTRAP_SERVERS never blocks bring-up; the first
         # actual `.publish()` call connects lazily and is itself best-effort for the topics that
         # matter (`events_kafka_producer.py`).
-        state.kafka_publisher = AioKafkaEventsProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
+        state.kafka_publisher = AioKafkaEventsProducer(
+            connection_settings=settings.kafka_connection_settings()
+        )
     except Exception:  # construction failure: workers fall back to kafka=None.
         logger.error("kafka_publisher_build_failed", exc_info=True)
 

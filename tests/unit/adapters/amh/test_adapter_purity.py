@@ -71,6 +71,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "contract",  # fail-closed runtime loader for the immutable pin
         "mapping",  # decoded wire event <-> canonical port value types
         "settings",  # env-driven configuration, declared not wired
+        "subject_context",  # E02: pinned factual read consumer, no client or credentials
         "wire_framing",  # MZO-050b: pluggable wire-framing codec seam, fails closed on an undeclared pin
     }
 )
@@ -190,12 +191,15 @@ def _phase_a_offenders(tree: ast.AST) -> set[str]:
     return _imported_roots(tree) & _FORBIDDEN_PHASE_A_ROOTS
 
 
-def _non_stdlib_offenders(tree: ast.AST) -> set[str]:
+def _non_stdlib_offenders(tree: ast.AST, *, module: str = "") -> set[str]:
     """The POSITIVE form — the failure mode a blocklist alone always has: an unlisted third party."""
+    allowed = _ALLOWED_NON_STDLIB_ROOTS
+    if module == "subject_context":
+        # E02 parses the immutable upstream artifact with existing libraries.
+        # This does not admit HTTP, broker, cloud or SQL clients.
+        allowed = allowed | {"yaml", "jsonschema"}
     return {
-        root
-        for root in _imported_roots(tree)
-        if root not in sys.stdlib_module_names and root not in _ALLOWED_NON_STDLIB_ROOTS
+        root for root in _imported_roots(tree) if root not in sys.stdlib_module_names and root not in allowed
     }
 
 
@@ -221,7 +225,7 @@ def test_adapter_modules_discovered() -> None:
         f"{sorted(_EXPECTED_MODULES)}. Adding a module changes the adapter's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 5, f"expected exactly 5 modules (phase A + the MZO-050b seam), found {sorted(mods)}"
+    assert len(mods) == 6, f"expected exactly 6 modules (phase A + MZO-050b + E02), found {sorted(mods)}"
     assert "consumer" not in mods, (
         "consumer.py exists — phase A must NOT ship a consumer: WorkItemSource.ack may only report "
         "success on DURABLE settlement (ADR-0037 XRD-10: Kafka offsets never represent business "
@@ -421,7 +425,7 @@ def test_modules_import_only_allowed_non_stdlib_roots() -> None:
     offenders = {
         name: bad
         for name, path in _adapter_modules().items()
-        if (bad := _non_stdlib_offenders(_parsed(path)))
+        if (bad := _non_stdlib_offenders(_parsed(path), module=name))
     }
     assert not offenders, (
         f"unexpected non-stdlib import root(s) in maezo.adapters.amh: {offenders}. Phase A adds NO "
@@ -462,3 +466,10 @@ def test_ports_are_actually_used_so_the_fence_is_about_a_real_dependency() -> No
         all_targets |= _absolute_import_targets(_parsed(path))
     ports_imports = {t for t in all_targets if t.startswith("maezo.ports")}
     assert ports_imports, "no maezo.ports import found — this adapter does not serve any port"
+
+
+def test_subject_context_schema_libraries_do_not_open_client_or_other_modules() -> None:
+    tree = ast.parse("import yaml\nimport jsonschema\nimport httpx\n")
+    assert _non_stdlib_offenders(tree, module="subject_context") == {"httpx"}
+    assert _non_stdlib_offenders(tree, module="mapping") == {"yaml", "jsonschema", "httpx"}
+    assert _phase_a_offenders(tree) == {"httpx"}

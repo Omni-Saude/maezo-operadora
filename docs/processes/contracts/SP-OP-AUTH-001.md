@@ -26,6 +26,171 @@ AUTH-{tenant_id}-{numero_guia_tiss}
 
 Uma instancia por guia TISS; reenvio retorna a instancia ativa.
 
+### Portal AUTH — fronteira de construção E01 (2026-09-10)
+
+Extensão de interface autorizada pelo ADR-0049 e pelo plano product-first; **DRAFT de
+engenharia, revisão independente e aceitação operacional pendentes**. Não ratifica regras
+clínicas/regulatórias, não altera o BPMN executável e não declara APIs já disponíveis.
+Prestador solicita; beneficiário acompanha e responde a pedidos documentais autorizados;
+colaborador assume/revisa a mesma instância `SP-OP-AUTH-001`. Não criar processos por público.
+O escalonamento de SLA já é `UT_CoordenacaoAssume`, e junta já é
+`UT_RegistrarParecerJunta`; nenhum deles inicia ESCALATION ou PAGTO automaticamente.
+
+**Identidade e chave.** O BFF resolve tenant, pessoa, vínculo atual com beneficiário/prestador
+e referências de caso no servidor (ADR-0049 D4). A chave legada acima é interna: nunca
+exibi-la em URL/erro/recibo externo nem derivar acesso de sua posse. ADR-0038 continua
+Proposed; não autoriza renomear chaves implantadas nem ignorar opacidade/colisões da
+fronteira ADR-0037. O adaptador de intake deve provar isolamento e deduplicação concorrente
+na admissão durável; o `NON_STRICT` do start legado, sozinho, não prova essa garantia
+(DL-0046). Retentar o mesmo comando recupera seu resultado; payload diferente com o mesmo
+comando conflita. A política para uma guia já encerrada exige resolução explícita no
+adaptador/contrato antes de ativar; não presumir uma nova autorização.
+
+#### Interface tipada para E02–E05
+
+Paths relativos a `/api/v1/portal`; identificadores de recurso são opacos. Estes campos
+definem a fronteira semântica; a implementação publica sua forma exata em OpenAPI e gera
+o cliente TypeScript, sem um segundo schema manual. Campos desconhecidos são recusados.
+
+| Ação / API | Entrada permitida | Autoridade / efeito e resposta |
+|---|---|---|
+| Prestador envia `POST /intakes/auth` | `command_id`, referências de beneficiário e prestador selecionadas de vínculos autorizados, guia TISS protegida, `codigo_procedimento_tuss`, `categoria_procedimento`, `carater_atendimento`, valor em centavos como string decimal inteira, referências de anexos finalizados; CID opcional somente por custódia PHI | Servidor verifica vínculo/escopo/revisão/validade/revogação, resolve pseudônimo e fatos de admissibilidade; seleciona exclusivamente `SP-OP-AUTH-001`. Responde com referência de intake e estado técnico do comando após admissão durável; caso só é afirmado após prova do start. Nenhum `tenant_id`, actor, process key, mapa de variáveis ou fato de aprovação fornecido pelo browser se torna autoridade |
+| Todos os públicos autorizados consultam `GET /cases`, `/cases/{case_ref}`, `/history` | Referência opaca e cursor emitido pelo servidor | Projeção mínima por público, vínculo e tenant atuais; responsável, fase, freshness, prazo do engine, ações permitidas e histórico. Beneficiário/prestador não obtêm formulário interno nem dossiê clínico por compartilhar o caso |
+| Upload em `POST /intakes/{intake_ref}/document-uploads` ou `/cases/{case_ref}/document-uploads`; finalização `POST /document-uploads/{upload_ref}/complete` | Metadados mínimos previstos na política documental e referência de upload; bytes somente na zona/canal protegido | Custódia liga upload a tenant, intake/caso, principal e finalidade. Finalização verifica bytes/digest, tipo/tamanho conforme política aplicável e screening. Quarentena/falha nunca produz anexo utilizável; reentrega é idempotente |
+| `GET /cases/{case_ref}/document-requests`; `POST /cases/{case_ref}/document-requests/{request_ref}/responses` | `command_id`, revisão esperada do pedido e referências de documentos finalizados | Autoridade atual permite ao prestador e, quando o vínculo/escopo autoriza, ao beneficiário responder à MESMA pendência. Recibo técnico da resposta distingue admissão, correlação executada e conflito; não afirma aprovação nem completude por mero upload |
+| `GET /cases/{case_ref}/documents`, `GET /documents/{document_ref}/content` | Referências opacas | Revalidação de acesso/custódia em cada leitura; nenhuma URL durável pública nem cache persistente no browser |
+| Colaborador usa `/tasks/{task_id}/assignments`, `/assignment-candidates`, decision-context e decisões existentes | Claim/release/reassign discriminados, command ID, revisões; alvo opaco entre candidatos autorizados; decisão/formulário tipados | Claim/release reutilizam autoridade existente; reassign depende de suporte nativo novo. Revisão, membership, atribuição, evidência e binding exato são rechecados na execução. `auditor_id` é ligado à identidade humana autenticada, não escolhido pelo browser |
+| Comunicações em `GET /cases/{case_ref}/communications` e recibos/estado em `/commands/{command_id}` e `/receipt` | Referência opaca; cursor quando aplicável | Inbox/histórico durável por destinatário autorizado, conteúdo separado por público e PHI. Registro de publicação Kafka não é entrega de comunicação; `202` não é execução. Rechecagem de vínculo também após tarefa/caso encerrado |
+
+**Mensagem documental.** Reutilizar `msg.auth.docs_received` em `ICE_DocsRecebidos`,
+sem aceitar nome de mensagem ou business key do browser. `request_ref` identifica uma
+ocorrência durável de `ST_SolicitarDocumentos`, ligada a tenant/caso/instância e à espera
+exata, com revisão. Não basta correlacionar pela guia: a mesma instância pode voltar à
+pendência. A execução precisa consumir uma única ocorrência aberta, revalidar anexos e
+autoridade e atualizar `documentos_refs` + `documentacao_completa` a partir da verificação
+documental, antes do retorno a `BRT_Admissibilidade`. Completude é fato produzido pela
+política documental, nunca `true` enviado pelo solicitante. Mesmo comando repetido retorna
+o mesmo recibo; mensagem atrasada, espera expirada/substituída ou corrida com timer não
+consome uma espera posterior. Se a espera ainda não estiver criada, conservar o comando
+admitido pendente de despacho/reconciliação, sem correlação ampla ou sucesso fabricado.
+
+**Comunicados reais.** `ST_SolicitarDocumentos` hoje retorna metadados; seu worker não
+entrega uma inbox. E04 deve persistir pedido/destinatários e entregar conteúdo autorizado,
+com recuperação por ocorrência para não duplicar pendências em retry. `ST_PublishAuthPended`
+continua dono do evento de domínio. `send_denial_notice` compõe o registro, não comprova
+envio; E04 deve ligar sua evidência humana e conteúdo protegido à comunicação durável.
+Não converter `auth.completed` em "negativa entregue" sem evidência de entrega. Reusar
+publicador/bridge e gateway existentes; nenhum MCP novo ou credencial de agente é
+necessário para dar autoridade a um humano. Falha de canal/autoridade é estado técnico
+visível e recuperável, nunca decisão clínica adversa (ADR-0030/0049).
+
+#### Matriz única de impacto da jornada AUTH
+
+Versão de implantação numérica não existe no XML fonte: congelar definição/versão/digest
+BPMN + DMN/formulário/worker/adaptador compatíveis no catálogo de deployment (ADR-0049 D2),
+sem usar `latest` como binding de tarefa viva. DMNs abaixo são as referências existentes;
+`auth_auto_approval` permanece v0.2.0 DRAFT; as demais conservam seus próprios artefatos e
+estado de ratificação. Não criar versões fictícias para esta extensão documental.
+
+| Requisito | Processo/elemento → decisão | Produtor/tipo → consumidor; worker/erro | Evento/correlação; gateway/tool/política | API/form → estado por público → recibo / evidência exigida |
+|---|---|---|---|---|
+| Entrada única autorizada | AUTH `Start_SolicitacaoRecebida` → `BRT_Admissibilidade` / `auth_admissibility` | Adaptador resolve strings/referências e booleanos verificados → engine; `operadora.events.publish` | `agents.events.auth.received`; start tipado via gateway, política de start/dedup existente com admissão concorrente E04 | `/intakes/auth` → prestador: envio em processamento; beneficiário: caso apenas após start; staff: caso roteado → comando/recibo nativo; provar reenvio, conflito e isolamento |
+| Instrução e completude documental | AUTH `ST_SolicitarDocumentos`, `GW_AguardarDocs`, `ICE_DocsRecebidos` → `auth_admissibility` | Custódia/política produz refs JSON e booleano de completude → reavaliação; `operadora.auth.request_documents` | `auth.pended`, `msg.auth.docs_received`; gateway humano de correlação, ocorrência/revisão exatas | uploads/requests/responses → públicos autorizados veem pedido, envio e processamento; staff vê evidência → recibo de correlação; provar caso errado, quarentena, reentrega, espera repetida e timer concorrente |
+| Expiração sem negativa automática | AUTH `ICE_PrazoPendencia` → `UT_DecidirPendenciaExpirada` | Engine produz prazo P5D DRAFT; humano produz `decisao_pendencia` → `GW_PendenciaExpirada` | Timer BPMN; `auth.completed` somente no cancelamento humano; gateway de decisão, L0 | Formulário da tarefa exata → staff decide; externos veem estado permitido → recibo da decisão + resultado executado; provar timeout não nega |
+| Avaliação técnica/financeira/regulatória/contratual | AUTH `BRT_SlaAnalise` / `auth_sla` → `ST_ValidateAutoApprovalCriteria` → `BRT_AutoApproval` / `auth_auto_approval` | `validate_auto_criteria` computa booleanos, tokens e prova de execução; DUT/ROL, carência, teto e critério contratual → gateway de rota | Sem comando browser para semear critérios; DMN e matriz de autonomia existentes | Read-only no dossier staff; externos só fase permitida → evidência por critério; provar fonte não ratificada/ausente leva à análise humana |
+| Análise humana e posse | AUTH `ST_PrepararDossie` → `UT_AnaliseMedicoAuditor`, `UT_CoordenacaoAssume`, `UT_RegistrarParecerJunta` | `analyze_request`/Rafael produz dossiê instrutivo; humano produz decisão e proveniência → emissão/negativa; `convene_junta` | A2A existente só instrui; timers `BT_AlertaSla`/`BT_SlaAnalise`, `auth.sla_breached`; HumanGateway enforcing | assignments + formulários existentes → staff: responsável/revisão e ação; externos: em análise/junta quando autorizado → recibo exato; provar claim simultâneo, revogação e takeover versus decisão |
+| Resultado e entrega protegida | AUTH `ST_EmitirAutorizacaoAuto`/`ST_EmitirAutorizacaoAuditor`, `ST_EnviarNegativaFormal` | `issue_authorization`, `send_denial_notice`; `ERR_AUTH_DENIAL_INCOMPLETE` captura em `BE_NegativaIncompleta`; guard `ERR_DENIAL_NOT_HUMAN` não ganha boundary por esta emenda | `auth.completed` com desfechos existentes; sem AUTH→PAGTO; outbox/bridge + custódia PHI | Caso/comunicações/recibo → cada público vê apenas resultado e documento autorizado; distinguir decisão executada de comunicado entregue → prova real de emissão/registro e inbox; guard bloqueado não vira negativa entregue |
+
+#### Fatos AUTH e dependências de publicação
+
+Nomes de processo abaixo não são novos campos AMH. E02 deve casar cada fato com a publicação
+canônica atual e seu pin imutável (ADR-0037), registrar provenance/revisão/freshness e
+qualificar a fonte antes de habilitar o consumidor. Ausência não vira booleano favorável.
+
+| Fato / tipo | Finalidade e autoridade | Fronteira atual e trabalho necessário |
+|---|---|---|
+| Pessoa autenticada + vínculo sujeito/prestador (referências, escopo, validade, revisão/revogação) | OIDC humano Maezo autentica; vínculo autoritativo publicado autoriza operação | Nenhuma afiliação clínica/CNPJ/e-mail comprova representação. E02 qualifica contrato produtor e consumidor; falta de fonte implica acesso externo indisponível |
+| `beneficiario_pseudo_id`, `prestador_id`, tenant (strings internas) | Adaptador resolve referências autorizadas preservando limite tenant/legal entity; AMH reconcilia Tasy payer/hospital | Usar APIs/eventos canônicos pinados; não copiar schemas, consultar Tasy/Oracle ou derivar identidade de linha analítica |
+| `numero_guia_tiss`, procedimento/categoria/caráter, valor, CID protegido | Solicitação do prestador é alegação, com provenance; valor depende de tabela/faturamento qualificados | E04 valida forma/custódia; E02 qualifica fatos. Valor do browser não comprova critério financeiro; conversão de centavos à variável legada `valor_estimado_brl` exige ponte exata e validada, sem float/Number silencioso |
+| `documentos_refs: json`, `documentacao_completa: boolean` | Custódia + política documental do procedimento/tenant | Upload finalizado não prova todos os documentos presentes; produtor de política/lista faltante deve ser qualificado. `missing_docs` lido pelo worker hoje não possui produtor contratual completo; E04 não inventa uma lista universal |
+| `requer_autorizacao`, `beneficiario_ativo`, `carencia_cumprida: boolean` | Catálogo de cobertura do payer, cadastro e carência autoritativos → admissibilidade | Seeds legados permanecem gap; E02 mapeia publicação/proveniência atual e E04 impede escrita desses fatos pelo browser |
+| `tipo_procedimento: string`, `dias_desde_adesao: integer`, `cpt_declarada: boolean` | Regra ratificada de mapeamento + cadastro/DPS do payer → `carencia_check` | Mapeamento regulatório SME e publicação AMH ainda devem ser qualificados; não derivar categoria por semelhança textual |
+| DUT/ROL e parâmetros clínicos; teto monetário; regra contratual | Fontes existentes do validador e respectivos ratificadores | E02 entrega fatos clínicos read-only autorizados; não ratifica tabelas, cria DUT nem muda teto. `rede_credenciada` continua fato sem consumidor de critério definido |
+| Decisão, `auditor_id`, justificativa e evidências | Tarefa humana exata + principal autenticado + snapshot PHI | E03 mantém binding/revisão/assinatura; E05 apresenta formulário e confirmação; não promover dossiê Rafael a decisão |
+
+**Lacunas comportamentais que esta emenda não resolve por inferência.** No BPMN atual,
+`conceder_prazo_extra` sai de `GW_PendenciaExpirada` para `BRT_SlaAnalise`, assim como
+`seguir_analise`: não rearma a espera documental. O portal não deve prometer novo prazo
+por esse literal; corrigir a semântica exige decisão do dono do contrato/SME e pacote
+BPMN/DMN/form/worker compatível. Também não existe caminho contratado para o prestador/
+beneficiário retirar livremente o pedido em AUTH: não expor botão que force `cancelada_pendencia` nem
+reutilizar SP-OP-CANCEL (cancelamento de contrato). O cancelamento existente é decisão
+humana da pendência expirada. Nenhum prazo regulatório foi criado ou ratificado aqui.
+
+**Compatibilidade e aceitação.** A extensão E01 não muda IDs, mensagens, timers, decisões,
+binding nem semântica executável. Novos produtores E02–E04 precisam ser revistos com seus
+consumidores E05 e aceitos em CIB/PG real + browser sintético antes de habilitar o slice.
+Inventariar instâncias/esperas/bindings ativos antes de implantação; migração/rollback de
+instância exige pacote separado. Testes estáticos não provam entrega nem autorização viva.
+
+### Emenda E01-b (WP-BPMN-J1) — entradas das jornadas no MESMO processo
+
+Ao contrário de E01, **esta emenda altera o XML executável** do BPMN. O que ela acrescenta,
+e só isso: (1) uma mensagem `msg.auth.start` e um start alternativo `Start_IntakePortal` que
+converge em `ST_PublishReceived`; (2) documentação de processo/elemento; (3) o
+`camunda:formData` de `UT_DecidirPendenciaExpirada` (WP-J1-05). Nenhuma aresta de negócio
+nova, nenhum ID/mensagem/timer/decisão existente alterado, nenhum elemento removido — o
+diff do modelo executável (DI removido) é estritamente aditivo. **Sem AUTH→PAGTO e sem
+CONTAS→RECURSO automático.**
+
+| Entrada | Elemento BPMN | Mensagem | Operação nativa do portal | Público |
+|---|---|---|---|---|
+| Intake | `Start_IntakePortal` (message start) | `msg.auth.start` | `auth.start` | prestador |
+| Intake (agente) | `Start_SolicitacaoRecebida` (none start, inalterado) | — | — | canal de agente |
+| Resposta documental | `ICE_DocsRecebidos` (espera existente em `GW_AguardarDocs`) | `msg.auth.docs_received` (**reutilizada**, nada novo) | `auth.documents.respond` | prestador e beneficiário autorizado |
+
+As três entram na MESMA instância de `SP-OP-AUTH-001`: não há processo, evento nem fluxo
+por público. A business key permanece a contratual `AUTH-{tenant_id}-{numero_guia_tiss}`
+(decisão do dono #16, opção (a)) — o objetivo declarado do start de mensagem é que portal e
+canal de agente compartilhem UM domínio de idempotência, e não criar um segundo.
+
+**Estado: caminho de intake INERTE nesta entrega.** O BPMN passa a admitir o start por
+mensagem, mas nenhum chamador o utiliza: o despachante ainda inicia por id/key com a chave
+legada, e `AUTH` está hoje classificado `NON_STRICT` em `_START_DEDUP_POLICY` (`transport.py:1211`) —
+habilitar o start por mensagem exige promovê-lo à postura mais estrita adequada
+(`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar). Habilitar exige os dois
+juntos (WP-J1-01 / WP-J1-11) mais o teste "dois canais, uma guia → uma instância"; enquanto
+isso, **somente guias sintéticas**. A resposta documental não depende desta emenda: já
+correlacionava em `ICE_DocsRecebidos` por ocorrência/subscrição exata.
+
+**Sem `camunda:formKey`, por decisão.** O repositório não usa `camunda:formKey` em nenhum
+artefato; formulário é ligado à tarefa pelo catálogo fechado do portal
+(`portal/contracts/models.py`) e verificado contra o `camunda:formData` implantado. Declarar
+um start form da Tasklist abriria o caminho de variáveis semeadas pelo browser que o
+ADR-0049 D4 proíbe, sem nenhum consumidor que o leia. Se um dia um consumidor existir, é
+mudança com dono, não decoração.
+
+**Política de versão/instância (ADR-0049 D2).** Delta comportamental ⇒ nova definição de
+processo no engine; o XML fonte não carrega `versionTag` e nenhum foi inventado aqui. O
+catálogo de deployment congela definição/versão/digest BPMN + DMN/formulário/worker/adaptador
+compatíveis; `latest` continua proibido como binding de tarefa viva. Instâncias ATIVAS na
+definição anterior **não migram**: seguem na sua versão, onde `UT_DecidirPendenciaExpirada`
+não tem `formData` e o binding daquela tarefa permanece indisponível — o binding é checado
+contra o BPMN *daquela* instância (`gateway.human.decision_binding`), então uma instância
+antiga não passa a aceitar decisão por efeito desta emenda. Inventariar instâncias, esperas
+e bindings ativos antes de implantar; migração/rollback de instância é pacote separado.
+
+**O que a emenda NÃO resolve.** `conceder_prazo_extra` continua sem rearmar a espera
+documental (ver "Lacunas comportamentais" acima): `Flow_GWPend_PrazoExtra` aponta para
+`BRT_SlaAnalise`, como `seguir_analise`. O `formData` apenas passa a enunciar o domínio
+fechado dos três literais no modelo implantado; o rótulo do valor diz explicitamente que não
+há prazo novo, e nenhuma superfície pode prometê-lo. Corrigir a semântica exige decisão do
+dono do contrato/SME e pacote BPMN/DMN/form/worker compatível. Também permanece fora desta
+emenda o delta de payload de `ST_PublishAuthPended` que a decisão do dono #18
+(prestador + beneficiário com `resource_authority` ativa) implica: `beneficiario_pseudo_id`
+segue deliberadamente EXCLUÍDO do payload, e a mudança pertence ao WP-J1-03 com sua própria
+análise de minimização.
+
 ## Variaveis de entrada
 
 | Variavel | Tipo | Obrigatoria | Descricao |

@@ -167,6 +167,14 @@ variable "phi_model_id" {
     é `ON_DEMAND` em sa-east-1 (servido na região, sem perfil `global.*`) e produziu o
     texto mais bem estruturado entre os quatro testados com prompt de dossiê real — os
     outros foram `deepseek.v3.2`, `zai.glm-5` e `qwen.qwen3-next-80b-a3b`, todos viáveis.
+
+    RE-MEDIDO EM 11/09/2026, e o inventário completo está em
+    `docs/design/zona-phi-modelos-sa-east-1.md`: sa-east-1 serve 37 modelos de texto
+    `ON_DEMAND` in-region e outros 17 SÓ por perfil `global.*`. Os 17 incluem todo Claude
+    atual, GPT-6 e Grok — nenhum tem perfil regional, e é por isso que os modelos que
+    alguém preferiria são justamente os que NÃO podem servir a zona PHI. Trocar de modelo
+    aqui é trocar qualidade, nunca residência: esta variável já alimenta o ARN regional do
+    IAM em `secrets.tf`.
   EOT
   type        = string
   default     = "mistral.mistral-large-3-675b-instruct"
@@ -214,7 +222,7 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "c745fd94" # igual a image_tag desde a promocao de 09/09 — a separacao cumpriu o papel e pode ser unificada num proximo PR
+  default     = "5cdb09a5" # 11/09/2026: intent "greeting" (classify-v3). O RECEPTOR e quem executa turno, entao a correcao vale aqui; agent-helena segue em c745fd94 ate a proxima promocao
 }
 
 variable "webhook_receiver_desired_count" {
@@ -231,11 +239,24 @@ variable "bridge_desired_count" {
 
 variable "helena_zona_phi" {
   description = <<-EOT
-    Decisao do dono (09/09/2026, ainda NAO tomada): a inferencia da Helena vai para o provedor da
+    Decisao do dono (09/09/2026): a inferencia da Helena vai para o provedor da
     zona de saude (`phi_zone_provider`, hoje bedrock_br/Mistral em sa-east-1)? O grafo dela marca
     toda chamada como PHI; com `false` (default) e o `bedrock` comum, TODO turno cai em
     `falha_tecnica` -> humano (seguro, nao o desejado). `true` so' tem efeito com
     `phi_vendor_dpa_ref` preenchido — a atestacao continua sendo a outra metade.
+
+    A PRE-CONDICAO QUE A DIRECAO LEVANTOU ("existe alternativa BR-resident ao Mistral?") FOI
+    RESPONDIDA EM 11/09/2026 e nao bloqueia mais: sim, 36 alternativas in-region, e nenhuma e'
+    mais BR-resident, porque residencia vem da regiao do endpoint e do ARN regional, nao do
+    fornecedor do modelo. Provas no mesmo documento (`docs/design/zona-phi-modelos-sa-east-1.md`):
+    o boot constroi `BrResidentInferenceProvider` com `phi_capable=True` / `br-sao-paulo` /
+    `zero-retention`; a chamada real respondeu com `served_region=br-sao-paulo`; e o prompt
+    `classify-v2` da propria Helena devolveu JSON valido no vocabulario do DMN em tres mensagens
+    sinteticas. `rafael` e `marina` usam este mesmo provedor, modelo e instrumento desde 20/08 —
+    ligar a Helena nao admite fornecedor novo.
+
+    O DEFAULT SEGUE `false` DE PROPOSITO. O que falta nao e' evidencia, e' a autorizacao: ligar
+    continua sendo `-var helena_zona_phi=true` num apply, para que o ato tenha autor.
   EOT
   type        = bool
   default     = false

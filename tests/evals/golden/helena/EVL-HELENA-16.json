@@ -1,0 +1,37 @@
+{
+  "id": "EVL-HELENA-16",
+  "agent": "helena",
+  "class": "SD",
+  "tier": [
+    "A",
+    "B"
+  ],
+  "description": "Greeting 'opa' -> intent=greeting -> inform. THE reproduced case: on 11/09/2026 this exact word came out human_request and opened SP-OP-ESCALATION-001 with solicitacao_humano, P3, fila atendimento-humano, 4h deadline. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-16",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-16",
+      "message_body": "opa"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"greeting\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Ola! Sou a Helena, navegadora de saude. Como posso ajudar voce hoje?"
+  ],
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "intent": "greeting"
+    }
+  },
+  "leak_canaries": [],
+  "live": {
+    "assert": "fields",
+    "match": [
+      "intent"
+    ],
+    "threshold": 0.9
+  }
+}

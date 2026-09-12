@@ -223,7 +223,7 @@ class TestNonVacuity:
             for ref in live_sweep.refs
             if ref.name == "cid10" and ref.path.name.startswith("SP-OP-AUTH-001")
         ]
-        assert [(ref.line, ref.surface) for ref in auth] == [(59, "bpmn_declared_input")]
+        assert [(ref.line, ref.surface) for ref in auth] == [(77, "bpmn_declared_input")]
 
 
 # ---------------------------------------------------------------------------
@@ -878,6 +878,24 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "over this and the four entries above."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-12",
+        pr="#379",
+        name="decisao_pendencia",
+        name_delta=0,
+        occurrence_delta=1,
+        reason=(
+            "WP-BPMN-J1 / WP-J1-05 gave AUTH `UT_DecidirPendenciaExpirada` the `camunda:formData` the portal "
+            "binding catalog now claims (`BPMN_FORMDATA` in `portal/contracts/models.py`), so the "
+            "human choice is stated by the deployed definition instead of prose task "
+            "documentation. `decisao_pendencia` was ALREADY a corpus name via REEMBOLSO-001's "
+            "identically-named task, hence no name movement; one new `bpmn_form_field` occurrence "
+            "in AUTH. CLEAN bucket and not a shape suspect: it is an `enum` with a closed "
+            "`camunda:value` domain (`cancelar_guia|conceder_prazo_extra|seguir_analise`), not an "
+            "unbounded box a human types into, and it carries no clinical content. Corpus "
+            "1645 -> 1646 occurrences."
+        ),
+    ),
 )
 
 
@@ -918,7 +936,7 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
         assert len(live_sweep.names) == expected_names == 334
-        assert len(live_sweep.refs) == expected_refs == 1645
+        assert len(live_sweep.refs) == expected_refs == 1646
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -986,12 +1004,12 @@ class TestBuckets:
         }
         assert actual == {
             "auditor_id": [
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:324 (bpmn_form_field)",
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:409 (bpmn_form_field)",
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:547 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:384 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:469 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:607 (bpmn_form_field)",
             ],
             "cid10": [
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59 (bpmn_declared_input)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77 (bpmn_declared_input)",
                 "SP-OP-RECURSO-001_Recurso_Glosa.bpmn:86 (bpmn_declared_input)",
                 "SP-OP-REEMBOLSO-001_Reembolso_Beneficiario.bpmn:67 (bpmn_declared_input)",
             ],
@@ -1042,7 +1060,7 @@ class TestBuckets:
         assert (
             f"## {CLEAN} (319)" in rendered
         )  # see CORPUS_DELTA_LOG — #339's two names and #345's `lastro_decisor_id` entered
-        assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:59" in rendered
+        assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
         # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
@@ -1138,9 +1156,9 @@ class TestZonaAnnotationRule:
 
     def test_the_live_spec_annotations_are_found_and_all_listed(self, live_sweep: Sweep) -> None:
         assert [(ref.path.name, ref.line, ref.name) for ref in live_sweep.annotated] == [
-            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 305, "justificativa_clinica"),
-            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 390, "justificativa_clinica"),
-            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 528, "justificativa_clinica"),
+            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 365, "justificativa_clinica"),
+            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 450, "justificativa_clinica"),
+            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 588, "justificativa_clinica"),
             ("SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn", 159, "notas_resolucao"),
             ("SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn", 272, "notas_resolucao"),
         ]
@@ -1331,7 +1349,12 @@ class TestDispositionTable:
         """It must not be laundered into the DPO's directory before ratification."""
         privacy = _REPO_ROOT / "spec" / "policies" / "privacy"
         assert not (privacy / "phi-process-vars-disposition.yaml").exists()
-        assert sorted(p.name for p in privacy.glob("*.yaml")) == ["phi-business-key-remediation.yaml"]
+        # R117 / ADR-0019 has a separate unratified policy vehicle. Its blank
+        # human fields and fail-closed loader are fenced in test_population_policy.
+        assert sorted(p.name for p in privacy.glob("*.yaml")) == [
+            "phi-business-key-remediation.yaml",
+            "population-egress-v1.yaml",
+        ]
 
     def test_the_review_queue_records_the_migration_and_the_questions(self) -> None:
         queue = (_REPO_ROOT / "docs" / "review-queue.md").read_text(encoding="utf-8")
@@ -2013,4 +2036,5 @@ class TestNotWiredYet:
             assert not re.search(r"<camunda:(in|out)\s", source), path.name
             for element in re.findall(r"<bpmn:message\s[^>]*>", source):
                 assert set(re.findall(r"([\w:]+)=", element)) <= {"id", "name"}, element
-        assert messages == 21
+        # WP-BPMN-J1 added `msg.auth.start` (AUTH intake message start). Still id/name only.
+        assert messages == 22

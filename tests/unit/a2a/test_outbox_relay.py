@@ -324,9 +324,9 @@ async def test_a_publish_failure_stops_the_batch_and_preserves_order() -> None:
     report = await drain_once(outbox, publisher, claimed_by="w1")
 
     assert (report.claimed, report.delivered, report.sealed, report.released) == (3, 1, 1, 2)
-    assert report.publish_error is not None and "ConnectionError" in report.publish_error
+    assert report.publish_error == "broker_publish_failed"
     assert outbox.statuses() == ["delivered", "pending", "pending"]
-    assert outbox.rows[1].last_error is not None and "ConnectionError" in outbox.rows[1].last_error
+    assert outbox.rows[1].last_error == "broker_publish_failed"
     assert len(publisher.sent) == 1
 
 

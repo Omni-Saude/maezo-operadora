@@ -533,6 +533,23 @@ pela User Task humana propria de CANCEL-001 (anti-dupla-rescisao). MANTER => vin
       <bpmndi:BPMNShape id="Shape_ST_RegisterSuspension" bpmnElement="ST_RegisterSuspension">
         <dc:Bounds x="2166" y="304" width="100" height="80"/>
       </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_BE_SuspensaoNaoHumano" bpmnElement="BE_SuspensaoNaoHumano">
+        <dc:Bounds x="2248" y="286" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2070" y="95" width="170" height="110"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_End_SuspensaoBloqueadaNaoHumano" bpmnElement="End_SuspensaoBloqueadaNaoHumano">
+        <dc:Bounds x="2378" y="194" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2428" y="166" width="240" height="90"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_Flow_SuspensaoNaoHumano_End" bpmnElement="Flow_SuspensaoNaoHumano_End">
+        <di:waypoint x="2266" y="286"/>
+        <di:waypoint x="2266" y="212"/>
+        <di:waypoint x="2378" y="212"/>
+      </bpmndi:BPMNEdge>
       <bpmndi:BPMNShape id="Shape_ST_PublishSuspenso" bpmnElement="ST_PublishSuspenso">
         <dc:Bounds x="2346" y="304" width="100" height="80"/>
       </bpmndi:BPMNShape>

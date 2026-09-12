@@ -397,5 +397,8 @@ class WhatsAppServer:
                     "expires, and the send is NOT failed over it",
                 )
 
-        logger.info("whatsapp_message_sent", message_id=(data.get("messages") or [{}])[0].get("id"))
+        # R19 / ADR-0006: a provider wamid may embed the counterpart phone. This
+        # client has no tenant-scoped pseudonymizer, so omit the identifier from
+        # telemetry; the untouched provider response remains available to the caller.
+        logger.info("whatsapp_message_sent")
         return data
