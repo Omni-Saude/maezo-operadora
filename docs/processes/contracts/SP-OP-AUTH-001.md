@@ -156,7 +156,9 @@ canal de agente compartilhem UM domínio de idempotência, e não criar um segun
 
 **Estado: caminho de intake INERTE nesta entrega.** O BPMN passa a admitir o start por
 mensagem, mas nenhum chamador o utiliza: o despachante ainda inicia por id/key com a chave
-legada, e `AUTH` continua não classificado em `_START_DEDUP_POLICY`. Habilitar exige os dois
+legada, e `AUTH` está hoje classificado `NON_STRICT` em `_START_DEDUP_POLICY` (`transport.py:1211`) —
+habilitar o start por mensagem exige promovê-lo à postura mais estrita adequada
+(`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar). Habilitar exige os dois
 juntos (WP-J1-01 / WP-J1-11) mais o teste "dois canais, uma guia → uma instância"; enquanto
 isso, **somente guias sintéticas**. A resposta documental não depende desta emenda: já
 correlacionava em `ICE_DocsRecebidos` por ocorrência/subscrição exata.
