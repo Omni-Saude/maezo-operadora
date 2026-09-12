@@ -60,17 +60,18 @@ like `RATIFICADO`/`PASSED`/`FAILED`, which happen to be valid `UPPER_SNAKE_CASE`
 declaring `- name: PASSED` would pass GREEN with nothing actually reading it):
 
   1. `extract_literal_env_names`: a name is "read" only when it is the KEY argument of a real
-     env-read call — `os.environ.get(KEY, ...)`, `os.getenv(KEY, ...)`, or `os.environ[KEY]` —
-     either as a literal directly (`os.environ.get("MAEZO_TENANT_ID", "public")`) OR as a
-     module-level `NAME: Final[str] = "MAEZO_TENANT_ID"` (or a plain `NAME = "..."`) constant whose
-     literal value is resolved by matching the constant's NAME against every KEY argument that is a
-     bare `ast.Name` reference, repo-wide (`ENV_PHI_ENDPOINT_URL: Final[str] =
-     "MAEZO_PHI_ENDPOINT_URL"` in `br_regional.py`, later read as
-     `os.environ.get(ENV_PHI_ENDPOINT_URL, "")` in `br_resident_provider.py`, a different file). This
-     is a same-name heuristic, not true data-flow: two unrelated constants that happen to share a
-     Python variable name (but hold different literal values) would cross-pollinate — accepted as
-     the deliberate recall/precision trade this repo's own naming convention makes safe in practice,
-     and narrower by construction than the prior bare sweep.
+     env-read call — `os.environ.get/pop/setdefault(KEY, ...)`, `os.getenv(KEY, ...)`,
+     `os.environ[KEY]`, or `KEY in os.environ`/`KEY not in os.environ` — either as a literal
+     directly (`os.environ.get("MAEZO_TENANT_ID", "public")`) OR as a module-level `NAME:
+     Final[str] = "MAEZO_TENANT_ID"` (or a plain `NAME = "..."`) constant whose literal value is
+     resolved by matching the constant's NAME against every KEY argument that is a bare `ast.Name`
+     reference, repo-wide (`ENV_PHI_ENDPOINT_URL: Final[str] = "MAEZO_PHI_ENDPOINT_URL"` in
+     `br_regional.py`, later read as `os.environ.get(ENV_PHI_ENDPOINT_URL, "")` in
+     `br_resident_provider.py`, a different file). This is a same-name heuristic, not true
+     data-flow: two unrelated constants that happen to share a Python variable name (but hold
+     different literal values) would cross-pollinate — accepted as the deliberate recall/precision
+     trade this repo's own naming convention makes safe in practice, and narrower by construction
+     than the prior bare sweep.
   2. `extract_settings_env_names`: every name a `BaseSettings` subclass implies via
      `env_prefix + FIELD_NAME.upper()` when the field carries no explicit `alias`/`validation_alias`,
      or the literal value of an explicit `alias=`/`AliasChoices(...)` — already context-scoped
@@ -80,6 +81,21 @@ A name reached only through a helper function that BUILDS the string at runtime 
 is the one documented blind spot (see `extract_settings_env_names`'s docstring) — same as before
 G3; what changed is that a literal reached ONLY through prose, a docstring, an unrelated enum/status
 string, or any other non-env-read context is now correctly invisible to this scan.
+
+`.pop`/`.setdefault`/`in` (B6/V9 finding, 2026-09): `os.environ.get`/`os.getenv`/`os.environ[...]`
+were the only three shapes this scan recognized until `src/maezo/gateway/staff_cases/
+materialize.py::os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE")` (PR-C, `service-portal.tf:254`
+declaring it via a `secrets = [...]` block) went undetected as a read and reported a false
+`DECLARED BUT NEVER READ`. `.pop`/`.setdefault` (key-yielding, same species as `.get`) and
+`KEY in os.environ`/`KEY not in os.environ` (a membership read) are now recognized. Beyond that,
+ANY `os.environ.<method>(...)` call whose `<method>` is neither one of these key-yielding forms
+nor a known whole-mapping operation (`.copy`/`.items`/`.keys`/`.values`/`.clear`/`.update`) fails
+this gate CLOSED as an `UnrecognizedEnvironAccess` finding — see `_KEY_YIELDING_ENVIRON_METHODS`/
+`_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS` — instead of being silently ignored the way `.pop` was
+before this fix. A bare `os.environ` reference passed to another callable or assigned to a variable
+(e.g. `self._environ = os.environ`, `src/maezo/a2a/keyset.py`) is out of scope for both the
+key-extraction and the unrecognized-access check: tracking reads through an aliased reference is
+full data-flow analysis, not an AST pattern match, and is not attempted here.
 
 Design
 ------
@@ -290,29 +306,31 @@ class ReconciliationResult:
     required_undeclared: list[EnvNameRef] = field(default_factory=list)
     allowlisted: list[EnvNameRef] = field(default_factory=list)
     deferred: list[EnvNameRef] = field(default_factory=list)
+    unrecognized_environ: list[UnrecognizedEnvironAccess] = field(default_factory=list)
     declared_total: int = 0
     read_total: int = 0
     required_total: int = 0
 
     @property
     def ok(self) -> bool:
-        return not self.declared_unread and not self.required_undeclared
+        return not self.declared_unread and not self.required_undeclared and not self.unrecognized_environ
 
     def render(self) -> str:
         lines = [
             f"check_chart_env_reconciliation: {self.declared_total} declared name(s), "
             f"{self.read_total} read name(s) known to src/, {self.required_total} required "
             f"name(s), {len(self.allowlisted)} allowlisted (infra-owned, non-Python), "
-            f"{len(self.deferred)} deferred (tracked follow-up gap, not yet reconciled)."
+            f"{len(self.deferred)} deferred (tracked follow-up gap, not yet reconciled), "
+            f"{len(self.unrecognized_environ)} unrecognized os.environ access(es)."
         ]
         for ref in self.declared_unread:
             lines.append(
                 f"  DECLARED BUT NEVER READ: `{ref.name}` ({ref.source}) — not the key argument "
-                f"of any `os.environ.get(...)`/`os.getenv(...)`/`os.environ[...]` in src/ "
-                f"(directly, or via a module-level constant resolved by name), and no "
-                f"`BaseSettings` field aliases it either. Typo, a rename that missed one side, or "
-                f"a name genuinely unread — rename to match the real reader, add it to "
-                f"INFRA_OWNED_DECLARED with a reason if a third party consumes it, or to "
+                f"of any `os.environ.get/pop/setdefault(...)`, `os.getenv(...)`, `os.environ[...]`, "
+                f"or `... in os.environ` in src/ (directly, or via a module-level constant resolved "
+                f"by name), and no `BaseSettings` field aliases it either. Typo, a rename that "
+                f"missed one side, or a name genuinely unread — rename to match the real reader, "
+                f"add it to INFRA_OWNED_DECLARED with a reason if a third party consumes it, or to "
                 f"DEFERRED_UNRECONCILED_DECLARED with a tracked follow-up gap if it is neither."
             )
         for ref in self.required_undeclared:
@@ -322,6 +340,8 @@ class ReconciliationResult:
             # closed at CALL time instead). `ref.source` now carries the full, name-specific
             # explanation (see `_required_env_refs` below) instead of a one-size-fits-all suffix.
             lines.append(f"  REQUIRED BUT NEVER DECLARED: `{ref.name}` ({ref.source})")
+        for finding in self.unrecognized_environ:
+            lines.append(finding.render())
         if self.ok:
             lines.append("  Every declared name is read; every required name is declared. OK.")
         return "\n".join(lines)
@@ -423,22 +443,104 @@ def _is_os_environ(node: ast.expr) -> bool:
     return isinstance(node, ast.Attribute) and node.attr == "environ" and _is_os_name(node.value)
 
 
+#: `os.environ.<method>(KEY, ...)` shapes whose FIRST positional argument this gate resolves to a
+#: specific env name. `.pop`/`.setdefault` were added 2026-09 after `.pop("MAEZO_PORTAL_STAFF_
+#: SECRET_BUNDLE")` (`src/maezo/gateway/staff_cases/materialize.py`, PR-C) went undetected —
+#: `service-portal.tf` declared the name via a `secrets = [...]` block, `src/` genuinely read it via
+#: `.pop(...)`, and this gate reported a false `DECLARED BUT NEVER READ` because `.pop` was not one
+#: of the two recognized call shapes (B6/V9 finding). `.setdefault` has no current caller in
+#: `src/maezo` but is the same species of mutating single-key read and is added defensively so the
+#: next one does not repeat this history.
+_KEY_YIELDING_ENVIRON_METHODS = frozenset({"get", "pop", "setdefault"})
+
+#: `os.environ.<method>()` operations on the WHOLE mapping — legitimate, but they never name a
+#: single key, so there is nothing for this gate to add to the read-set. Any `os.environ.<attr>(...)`
+#: call whose `attr` is in NEITHER this set NOR `_KEY_YIELDING_ENVIRON_METHODS` is an UNRECOGNIZED
+#: access form (see `UnrecognizedEnvironAccess`) — this gate fails closed on it rather than silently
+#: ignoring it the way it silently ignored `.pop` before this fix.
+_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS = frozenset({"copy", "items", "keys", "values", "clear", "update"})
+
+
+@dataclass(frozen=True)
+class UnrecognizedEnvironAccess:
+    """One `os.environ.<method>(...)` call this gate's AST scan does not know how to classify.
+
+    Surfaced as a hard finding (never silently dropped) so a NEW `os.environ` access shape added
+    anywhere in `<src_dir>` is caught the same PR it lands, instead of being discovered later the
+    way `.pop()` was (B6/V9, PR-C `service-portal.tf:254`, 2026-09) — the whole point of a
+    fail-closed gate is that "this gate has never seen this shape before" is itself the finding,
+    not a reason to pass silently.
+    """
+
+    path: str
+    lineno: int
+    method: str
+
+    def render(self) -> str:
+        return (
+            f"  UNRECOGNIZED os.environ ACCESS: `os.environ.{self.method}(...)` at {self.path}:"
+            f"{self.lineno} — neither a key-yielding form ({sorted(_KEY_YIELDING_ENVIRON_METHODS)}) "
+            f"nor a known whole-mapping operation ({sorted(_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS)}). "
+            "Add it to whichever set actually describes it (scripts/ci/"
+            "check_chart_env_reconciliation.py, CODEOWNED) — a form this gate cannot classify must "
+            "not be assumed harmless."
+        )
+
+
+def _compare_environ_membership_key(node: ast.Compare) -> ast.expr | None:
+    """`KEY in os.environ` / `KEY not in os.environ` -> `KEY`, else `None`.
+
+    Only the direct two-term shape is resolved (`ast.Compare(left=KEY, ops=[In|NotIn],
+    comparators=[os.environ])`) — a chained comparison (`a in os.environ in b`) is vanishingly rare
+    and, if it ever appears, falls through unrecognized rather than being guessed at.
+    """
+    if (
+        len(node.ops) == 1
+        and isinstance(node.ops[0], (ast.In, ast.NotIn))
+        and len(node.comparators) == 1
+        and _is_os_environ(node.comparators[0])
+    ):
+        return node.left
+    return None
+
+
 def _env_read_key_exprs(tree: ast.AST) -> Iterator[ast.expr]:
-    """Yield the KEY expression of every `os.environ.get(KEY, ...)`, `os.getenv(KEY, ...)`, or
-    `os.environ[KEY]` call/subscript in `tree` — the three env-read shapes this repo's `src/`
-    actually uses (verified: every `os.environ`/`os.getenv` call site in `src/maezo` matches one of
-    these three; see G3's module-docstring paragraph)."""
+    """Yield the KEY expression of every recognized `os.environ`/`os.getenv` read in `tree`:
+    `os.environ.get/pop/setdefault(KEY, ...)`, `os.getenv(KEY, ...)`, `os.environ[KEY]`, and
+    `KEY in os.environ` / `KEY not in os.environ`. See `_KEY_YIELDING_ENVIRON_METHODS` and
+    `_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS` for how a call that names none of these is classified
+    instead (as opaque-but-known, or as an `UnrecognizedEnvironAccess` finding)."""
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args:
-            is_environ_get = node.func.attr == "get" and _is_os_environ(node.func.value)
+            is_environ_key_method = node.func.attr in _KEY_YIELDING_ENVIRON_METHODS and _is_os_environ(
+                node.func.value
+            )
             is_os_getenv = node.func.attr == "getenv" and _is_os_name(node.func.value)
-            if is_environ_get or is_os_getenv:
+            if is_environ_key_method or is_os_getenv:
                 yield node.args[0]
         elif isinstance(node, ast.Subscript) and _is_os_environ(node.value):
             # `node.slice` is already the plain expression on this repo's Python (3.12,
             # pyproject.toml) — the `ast.Index` wrapper it would have needed unwrapping from was
             # removed in 3.9. No compatibility shim for a Python this repo does not run.
             yield node.slice
+        elif isinstance(node, ast.Compare):
+            key = _compare_environ_membership_key(node)
+            if key is not None:
+                yield key
+
+
+def _unrecognized_environ_accesses(tree: ast.AST, rel_path: str) -> Iterator[UnrecognizedEnvironAccess]:
+    """Yield one finding per `os.environ.<method>(...)` call whose `<method>` is neither a
+    key-yielding form nor a known whole-mapping operation — see `UnrecognizedEnvironAccess`."""
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if not _is_os_environ(node.func.value):
+            continue
+        attr = node.func.attr
+        if attr in _KEY_YIELDING_ENVIRON_METHODS or attr in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS:
+            continue
+        yield UnrecognizedEnvironAccess(path=rel_path, lineno=node.lineno, method=attr)
 
 
 def _module_level_string_constants(src_dir: Path) -> dict[str, set[str]]:
@@ -475,9 +577,10 @@ def _module_level_string_constants(src_dir: Path) -> dict[str, set[str]]:
 
 def extract_literal_env_names(src_dir: Path) -> set[str]:
     """Every env name genuinely READ in `<src_dir>/**/*.py` — a literal is only counted when it is
-    the KEY argument of a real env-read call (`os.environ.get`/`os.getenv`/`os.environ[...]`),
-    either directly or via a module-level constant resolved by name (see the module docstring's G3
-    paragraph for the exact two-pass design and its accepted same-name-heuristic limitation).
+    the KEY argument of a real env-read call (`os.environ.get/pop/setdefault`, `os.getenv`,
+    `os.environ[...]`, or `... in os.environ`), either directly or via a module-level constant
+    resolved by name (see the module docstring's G3 paragraph for the exact two-pass design and its
+    accepted same-name-heuristic limitation).
 
     NOT counted: a literal reached only through prose, a docstring, a class attribute unrelated to
     env access, or any other non-env-read context — closing the false-green surface where a
@@ -502,6 +605,26 @@ def extract_literal_env_names(src_dir: Path) -> set[str]:
             elif isinstance(key_expr, ast.Name):
                 names.update(constants.get(key_expr.id, ()))
     return names
+
+
+def extract_unrecognized_environ_accesses(src_dir: Path) -> list[UnrecognizedEnvironAccess]:
+    """Every `os.environ.<method>(...)` call in `<src_dir>/**/*.py` this gate cannot classify as
+    either a key-yielding read or a known whole-mapping operation — see `UnrecognizedEnvironAccess`.
+    A non-empty result fails this gate closed: a call shape this scan has never seen before might be
+    silently reading (or silently NOT reading) a declared name, and the gate must not guess either
+    way."""
+    findings: list[UnrecognizedEnvironAccess] = []
+    for path in sorted(src_dir.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError:
+            continue
+        try:
+            rel = path.relative_to(REPO_ROOT)
+        except ValueError:
+            rel = path
+        findings.extend(_unrecognized_environ_accesses(tree, str(rel)))
+    return findings
 
 
 def _base_class_names(node: ast.ClassDef) -> list[str]:
@@ -716,12 +839,16 @@ def reconcile(
     declared: Sequence[EnvNameRef],
     read_names: set[str],
     required: Sequence[EnvNameRef],
+    unrecognized_environ: Sequence[UnrecognizedEnvironAccess] = (),
 ) -> ReconciliationResult:
-    """Pure: the two directions, given already-extracted declared/read/required sets."""
+    """Pure: the two directions, given already-extracted declared/read/required sets, plus any
+    `os.environ` access forms the AST scan could not classify (see `UnrecognizedEnvironAccess`) —
+    passed straight through into the result so `.ok` fails closed on them too."""
     result = ReconciliationResult(
         declared_total=len({r.name for r in declared}),
         read_total=len(read_names),
         required_total=len({r.name for r in required}),
+        unrecognized_environ=list(unrecognized_environ),
     )
     seen_declared: set[str] = set()
     for ref in declared:
@@ -806,8 +933,9 @@ def main(argv: list[str] | None = None) -> int:
     settings_all, settings_required, marker_required, no_default = extract_settings_env_names(src_dir)
     read_names = literal_names | settings_all
     required_refs = _required_env_refs(settings_required, marker_required, no_default)
+    unrecognized_environ = extract_unrecognized_environ_accesses(src_dir)
 
-    result = reconcile(declared, read_names, required_refs)
+    result = reconcile(declared, read_names, required_refs, unrecognized_environ)
     print(result.render())
     return 0 if result.ok else 1
 

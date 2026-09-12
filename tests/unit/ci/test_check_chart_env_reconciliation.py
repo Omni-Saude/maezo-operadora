@@ -40,11 +40,14 @@ from pathlib import Path
 
 import pytest
 from scripts.ci.check_chart_env_reconciliation import (
+    _KEY_YIELDING_ENVIRON_METHODS,
     _MARKER_REASON,
     _NO_DEFAULT_REASON,
+    _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS,
     DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
     EnvNameRef,
+    UnrecognizedEnvironAccess,
     _has_chart_required_marker,
     _module_level_string_constants,
     _require_reasons,
@@ -53,6 +56,7 @@ from scripts.ci.check_chart_env_reconciliation import (
     extract_declared_from_terraform,
     extract_literal_env_names,
     extract_settings_env_names,
+    extract_unrecognized_environ_accesses,
     reconcile,
     render_chart,
 )
@@ -666,3 +670,179 @@ def test_removing_whatsapp_verify_token_from_the_deployment_states_the_boot_reas
     assert "has no default" in token_line
     assert "fails closed at boot" in token_line
     assert "CALL time" not in token_line
+
+
+# ---------------------------------------------------------------------------
+# 8. `.pop`/`.setdefault`/`in` recognized as reads (B6/V9, PR-C `service-portal.tf:254`)
+# ---------------------------------------------------------------------------
+#
+# `os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE")` in PR-C's
+# `src/maezo/gateway/staff_cases/materialize.py` went undetected as a read of the name
+# `service-portal.tf:254` declares via a `secrets = [...]` block — the checker only recognized
+# `.get`/`os.getenv`/subscript, so it reported a false `DECLARED BUT NEVER READ`. Each test below
+# reproduces the exact shape and is a genuine RED-before/GREEN-after proof: run it against
+# `git show 371ba6a5:scripts/ci/check_chart_env_reconciliation.py` (the last revision before this
+# fix) and it fails; against this file, it passes.
+
+
+def test_extract_literal_env_names_covers_pop_form(tmp_path: Path) -> None:
+    """The exact PR-C shape: `os.environ.pop(KEY)` with no default argument."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE")\n', encoding="utf-8"
+    )
+    assert "MAEZO_PORTAL_STAFF_SECRET_BUNDLE" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_pop_form_with_default(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = os.environ.pop("MAEZO_POP_WITH_DEFAULT_TEST", None)\n', encoding="utf-8"
+    )
+    assert "MAEZO_POP_WITH_DEFAULT_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_setdefault_form(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nos.environ.setdefault("MAEZO_SETDEFAULT_TEST", "x")\n', encoding="utf-8"
+    )
+    assert "MAEZO_SETDEFAULT_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_membership_in_form(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nif "MAEZO_MEMBERSHIP_IN_TEST" in os.environ:\n    pass\n', encoding="utf-8"
+    )
+    assert "MAEZO_MEMBERSHIP_IN_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_membership_not_in_form(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nif "MAEZO_MEMBERSHIP_NOT_IN_TEST" not in os.environ:\n    pass\n', encoding="utf-8"
+    )
+    assert "MAEZO_MEMBERSHIP_NOT_IN_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_pop_via_module_level_constant(tmp_path: Path) -> None:
+    """`.pop` reached through the same-name constant-resolution heuristic, not only a direct
+    literal — the same two-pass design `.get` already gets, extended to `.pop`."""
+    (tmp_path / "mod.py").write_text(
+        "import os\n"
+        'BUNDLE_ENV: str = "MAEZO_PORTAL_STAFF_SECRET_BUNDLE_VIA_CONST"\n'
+        "raw = os.environ.pop(BUNDLE_ENV)\n",
+        encoding="utf-8",
+    )
+    assert "MAEZO_PORTAL_STAFF_SECRET_BUNDLE_VIA_CONST" in extract_literal_env_names(tmp_path)
+
+
+def test_reconciliation_pipeline_recognizes_pop_end_to_end() -> None:
+    """End-to-end (not just the extraction helper): a name declared via TF and read only via
+    `.pop(...)` must reconcile clean — the exact PR-C shape, run through the real `reconcile`."""
+    declared = [EnvNameRef(name="MAEZO_PORTAL_STAFF_SECRET_BUNDLE", source="service-portal.tf:254")]
+    read_names = {"MAEZO_PORTAL_STAFF_SECRET_BUNDLE"}
+    result = reconcile(declared, read_names, required=[])
+    assert result.ok, result.render()
+
+
+# ---------------------------------------------------------------------------
+# 9. Fail-closed on an unrecognized `os.environ.<method>()` form
+# ---------------------------------------------------------------------------
+
+
+def test_unrecognized_environ_call_is_flagged(tmp_path: Path) -> None:
+    """A method call this gate has never been taught (`.foobar(...)`) must surface as a hard
+    finding, never be silently treated as either a read or a non-read — the fail-closed contract
+    the brief asked for, generalizing past `.pop` specifically."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nos.environ.foobar("MAEZO_UNRECOGNIZED_TEST")\n', encoding="utf-8"
+    )
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "foobar"
+    assert findings[0].lineno == 2
+
+
+def test_unrecognized_environ_access_fails_the_reconciliation_result() -> None:
+    finding = UnrecognizedEnvironAccess(path="pkg/mod.py", lineno=3, method="foobar")
+    result = reconcile(declared=[], read_names=set(), required=[], unrecognized_environ=[finding])
+    assert not result.ok
+    assert "UNRECOGNIZED os.environ ACCESS" in result.render()
+    assert "os.environ.foobar(...)" in result.render()
+    assert "pkg/mod.py:3" in result.render()
+
+
+@pytest.mark.parametrize("method", sorted(_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS))
+def test_known_whole_mapping_methods_are_not_flagged_as_unrecognized(tmp_path: Path, method: str) -> None:
+    (tmp_path / "mod.py").write_text(f"import os\nos.environ.{method}()\n", encoding="utf-8")
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+@pytest.mark.parametrize("method", sorted(_KEY_YIELDING_ENVIRON_METHODS))
+def test_key_yielding_methods_are_not_flagged_as_unrecognized(tmp_path: Path, method: str) -> None:
+    (tmp_path / "mod.py").write_text(
+        f'import os\nos.environ.{method}("MAEZO_ANY_TEST", "x")\n', encoding="utf-8"
+    )
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_key_yielding_and_opaque_method_sets_are_disjoint() -> None:
+    """Non-vacuity of the classification itself: a method cannot be both key-yielding and
+    whole-mapping-opaque, or the two `elif`-style branches in `_unrecognized_environ_accesses`
+    would depend on evaluation order instead of the sets being a true partition."""
+    assert _KEY_YIELDING_ENVIRON_METHODS.isdisjoint(_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS)
+
+
+def test_bare_environ_reference_is_not_flagged_as_unrecognized(tmp_path: Path) -> None:
+    """`self._environ = os.environ` (`src/maezo/a2a/keyset.py`'s real shape) is a bare attribute
+    reference, never an `os.environ.<method>(...)` call — out of scope by design (see the module
+    docstring): tracking reads through an aliased reference is full data-flow, not attempted here.
+    Must NOT be misclassified as unrecognized."""
+    (tmp_path / "mod.py").write_text(
+        "import os\nclass X:\n    def __init__(self):\n        self._environ = os.environ\n",
+        encoding="utf-8",
+    )
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_real_src_tree_has_zero_unrecognized_environ_accesses() -> None:
+    """Non-vacuity against the real tree: every `os.environ.<method>()` call in `src/maezo` today
+    is one this gate now classifies (all `.get`, verified exhaustively via `rg` during this fix)."""
+    assert extract_unrecognized_environ_accesses(_SRC_DIR) == []
+
+
+# ---------------------------------------------------------------------------
+# 10. PR-C merged-tree proof (throwaway, never pushed) — see R6c-Q6-REPORT.md for the full
+#     `git fetch origin/build/pr-c-infra` + `git merge --no-commit` procedure run in a separate
+#     scratch worktree. This test proves the SAME shape locally without needing that fetch.
+# ---------------------------------------------------------------------------
+
+
+def test_pr_c_staff_secret_bundle_shape_reconciles_end_to_end(tmp_path: Path) -> None:
+    """Reproduces PR-C's exact three-line defect shape end-to-end: `service-portal.tf` declares
+    `MAEZO_PORTAL_STAFF_SECRET_BUNDLE` via a `secrets = [...]` block (matched by the same
+    `_TF_ENV_NAME_RE` regex as an `environment = [...]` block — verified here, not assumed), and a
+    synthetic `src/` module reads it via `.pop(...)`, mirroring `materialize.py`."""
+    tf_root = tmp_path / "deploy"
+    tf_root.mkdir()
+    (tf_root / "service-portal.tf").write_text(
+        'resource "aws_ecs_task_definition" "portal_staff" {\n'
+        "  container_definitions = jsonencode([{\n"
+        '    secrets = [{ name = "MAEZO_PORTAL_STAFF_SECRET_BUNDLE", valueFrom = "arn:aws:..." }]\n'
+        "  }])\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    src_dir = tmp_path / "src" / "maezo"
+    src_dir.mkdir(parents=True)
+    (src_dir / "materialize.py").write_text(
+        "import os\n\n\ndef load_bundle() -> bytes:\n"
+        '    return os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE").encode("utf-8")\n',
+        encoding="utf-8",
+    )
+
+    declared = extract_declared_from_terraform(tf_root)
+    assert any(ref.name == "MAEZO_PORTAL_STAFF_SECRET_BUNDLE" for ref in declared), (
+        "the synthetic secrets={} block was not matched — _TF_ENV_NAME_RE shape drifted"
+    )
+    literal_names = extract_literal_env_names(src_dir)
+    unrecognized = extract_unrecognized_environ_accesses(src_dir)
+    result = reconcile(declared, literal_names, required=[], unrecognized_environ=unrecognized)
+    assert result.ok, result.render()
