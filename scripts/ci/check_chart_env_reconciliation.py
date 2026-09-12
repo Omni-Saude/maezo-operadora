@@ -87,15 +87,42 @@ were the only three shapes this scan recognized until `src/maezo/gateway/staff_c
 materialize.py::os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE")` (PR-C, `service-portal.tf:254`
 declaring it via a `secrets = [...]` block) went undetected as a read and reported a false
 `DECLARED BUT NEVER READ`. `.pop`/`.setdefault` (key-yielding, same species as `.get`) and
-`KEY in os.environ`/`KEY not in os.environ` (a membership read) are now recognized. Beyond that,
-ANY `os.environ.<method>(...)` call whose `<method>` is neither one of these key-yielding forms
-nor a known whole-mapping operation (`.copy`/`.items`/`.keys`/`.values`/`.clear`/`.update`) fails
-this gate CLOSED as an `UnrecognizedEnvironAccess` finding — see `_KEY_YIELDING_ENVIRON_METHODS`/
-`_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS` — instead of being silently ignored the way `.pop` was
-before this fix. A bare `os.environ` reference passed to another callable or assigned to a variable
-(e.g. `self._environ = os.environ`, `src/maezo/a2a/keyset.py`) is out of scope for both the
-key-extraction and the unrecognized-access check: tracking reads through an aliased reference is
-full data-flow analysis, not an AST pattern match, and is not attempted here.
+`KEY in os.environ`/`KEY not in os.environ` (a membership read) are now recognized.
+
+**§Delta-5 (V9, 2026-09): four more shapes that still SILENTLY PASSED** — resolved a key when one
+was statically visible, but did not resolve OR flag when it was not, which is exactly the
+silent-pass failure mode this gate exists to close:
+
+  - `os.environ.copy()[KEY]` — resolved: a snapshot copy still names exactly one live key, exactly
+    like `os.environ[KEY]`. A bare `.copy()` NOT immediately subscripted (e.g. `env =
+    os.environ.copy()`) now fails closed as `UnrecognizedEnvironAccess` instead of being silently
+    treated as a harmless whole-mapping op — it might be indexed by something this gate cannot see.
+  - `os.environ.update({KEY: ...})` — resolved: every literal-string key of a dict-LITERAL
+    argument. `os.environ.update(some_variable)` (the keys are not visible to static analysis)
+    fails closed instead.
+  - `getattr(os.environ, "get")(KEY)` — resolved when the method-name argument is itself a string
+    literal naming a key-yielding method; a non-literal method name, or a literal naming an
+    unrecognized method, fails closed.
+  - A SIMPLE alias — `e = os.environ` (module- or function-level, any scope, same file-wide
+    heuristic as `_module_level_string_constants`) or `from os import environ` (verified empty
+    repo-wide as of this writing) — is now tracked (`_file_environ_aliases`), and every
+    `alias.get/pop/setdefault(...)`, `alias[...]`, `... in alias`, `alias.copy()[...]`, and
+    `alias.update({...})` resolves exactly like the same shape on `os.environ` directly. **Before
+    this fix the module docstring called aliasing "out of scope" while the checker neither resolved
+    it NOR flagged it as unrecognized — a claim/behaviour mismatch, not a documented limitation**;
+    this paragraph is the correction.
+
+Genuinely still out of scope, and now correctly EITHER resolved-elsewhere or simply invisible
+(never silently claimed to be handled): an alias reached through an ATTRIBUTE target or a
+conditional/parameterized origin — the real shape in `src/maezo/a2a/keyset.py`, `self._environ =
+os.environ if environ is None else environ` — is not tracked (full data-flow, not an AST pattern),
+and correctly produces neither a resolved key nor an `UnrecognizedEnvironAccess` finding, because
+the assignment itself is not an `os.environ.<method>(...)` call this scan inspects at all; a
+`getattr` call whose method-NAME argument is not a string literal; and any `os.environ.<method>()`
+call whose `<method>` is in neither `_KEY_YIELDING_ENVIRON_METHODS` nor
+`_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS` (`.items`/`.keys`/`.values`/`.clear` only, now that
+`.copy`/`.update` are individually classified instead of blanket-opaque) — see
+`_environ_access_events` for the single classifying pass all of the above goes through.
 
 Design
 ------
@@ -438,9 +465,45 @@ def _is_os_name(node: ast.expr) -> bool:
 
 
 def _is_os_environ(node: ast.expr) -> bool:
-    """`os.environ` as an attribute access (never a bare `environ` — this repo never does
-    `from os import environ`, verified: `grep -rn 'from os import' src/maezo/` is empty)."""
+    """`os.environ` as a direct attribute access — never an ALIAS (see `_file_environ_aliases` for
+    that; every call site below goes through `_is_environ_like`, which checks both)."""
     return isinstance(node, ast.Attribute) and node.attr == "environ" and _is_os_name(node.value)
+
+
+def _file_environ_aliases(tree: ast.AST) -> set[str]:
+    """Names that are provably `os.environ` itself, within THIS file only (a per-file, whole-file
+    heuristic — same recall/precision trade as `_module_level_string_constants`, not true scoped
+    data-flow): every `NAME = os.environ` assignment (`e = os.environ; e.pop(k)`, V9 §Delta-5
+    finding 4 — the docstring previously called this out-of-scope and never actually resolved it,
+    a claim/behaviour mismatch), and the bare name `environ` if `from os import environ` appears
+    anywhere in the file (verified empty repo-wide as of this writing:
+    `rg -n 'from os import environ' src scripts`; tracked defensively so the day it appears this
+    gate already understands it, rather than silently missing it the way `.pop` was missed).
+
+    Reassigning an alias name to something else later in the same file is not modeled — the SAME
+    accepted heuristic limitation `_module_level_string_constants` already documents.
+    """
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "os":
+            for alias in node.names:
+                if alias.name == "environ":
+                    aliases.add(alias.asname or "environ")
+        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and _is_os_environ(node.value):
+                aliases.add(target.id)
+    return aliases
+
+
+def _is_environ_like(node: ast.expr, aliases: set[str]) -> bool:
+    """`os.environ` itself, or a name `_file_environ_aliases` proved is provably `os.environ` in
+    this same file (a simple `NAME = os.environ`/`from os import environ` alias). Deliberately does
+    NOT follow an attribute-target assignment (`self._environ = os.environ`,
+    `src/maezo/a2a/keyset.py`, real) or a conditional/parameterized origin
+    (`os.environ if x is None else x`) — tracking reads through those is full data-flow analysis,
+    not an AST pattern match, and stays out of scope (see the module docstring)."""
+    return _is_os_environ(node) or (isinstance(node, ast.Name) and node.id in aliases)
 
 
 #: `os.environ.<method>(KEY, ...)` shapes whose FIRST positional argument this gate resolves to a
@@ -453,17 +516,21 @@ def _is_os_environ(node: ast.expr) -> bool:
 #: next one does not repeat this history.
 _KEY_YIELDING_ENVIRON_METHODS = frozenset({"get", "pop", "setdefault"})
 
-#: `os.environ.<method>()` operations on the WHOLE mapping — legitimate, but they never name a
-#: single key, so there is nothing for this gate to add to the read-set. Any `os.environ.<attr>(...)`
-#: call whose `attr` is in NEITHER this set NOR `_KEY_YIELDING_ENVIRON_METHODS` is an UNRECOGNIZED
-#: access form (see `UnrecognizedEnvironAccess`) — this gate fails closed on it rather than silently
-#: ignoring it the way it silently ignored `.pop` before this fix.
-_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS = frozenset({"copy", "items", "keys", "values", "clear", "update"})
+#: `os.environ.<method>()` operations on the WHOLE mapping that name no single key AND are never
+#: themselves further indexed/filtered by a key this gate could resolve — `.items`/`.keys`/
+#: `.values`/`.clear` are genuinely always this shape. `.copy`/`.update` are DELIBERATELY ABSENT
+#: from this set (V9 §Delta-5 finding 1/2): `os.environ.copy()[KEY]` reads exactly one name (the
+#: same as `os.environ[KEY]`, just through a snapshot) and `os.environ.update({KEY: v})` names its
+#: keys as literally as a dict literal can — treating either as unconditionally opaque was the
+#: silent-pass V9 found. See `_environ_access_events` for how `.copy`/`.update` are actually
+#: classified: resolved when the key/keys are literal, an `UnrecognizedEnvironAccess` finding
+#: otherwise (never a silent pass either way).
+_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS = frozenset({"items", "keys", "values", "clear"})
 
 
 @dataclass(frozen=True)
 class UnrecognizedEnvironAccess:
-    """One `os.environ.<method>(...)` call this gate's AST scan does not know how to classify.
+    """One `os.environ`/alias access this gate's AST scan cannot attribute to a concrete key.
 
     Surfaced as a hard finding (never silently dropped) so a NEW `os.environ` access shape added
     anywhere in `<src_dir>` is caught the same PR it lands, instead of being discovered later the
@@ -475,20 +542,25 @@ class UnrecognizedEnvironAccess:
     path: str
     lineno: int
     method: str
+    #: A fuller, shape-specific description for `render()` — empty for the simple
+    #: `os.environ.<method>(...)` case, where `method` alone already renders unambiguously.
+    detail: str = ""
 
     def render(self) -> str:
+        shape = self.detail or f"os.environ.{self.method}(...)"
         return (
-            f"  UNRECOGNIZED os.environ ACCESS: `os.environ.{self.method}(...)` at {self.path}:"
-            f"{self.lineno} — neither a key-yielding form ({sorted(_KEY_YIELDING_ENVIRON_METHODS)}) "
-            f"nor a known whole-mapping operation ({sorted(_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS)}). "
-            "Add it to whichever set actually describes it (scripts/ci/"
-            "check_chart_env_reconciliation.py, CODEOWNED) — a form this gate cannot classify must "
-            "not be assumed harmless."
+            f"  UNRECOGNIZED os.environ ACCESS: `{shape}` at {self.path}:{self.lineno} — neither a "
+            f"key-yielding form ({sorted(_KEY_YIELDING_ENVIRON_METHODS)}) nor a known whole-mapping "
+            f"operation ({sorted(_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS)}), and no concrete key could "
+            "be resolved from it either. Add it to whichever set actually describes it, or make the "
+            "key resolvable, in scripts/ci/check_chart_env_reconciliation.py (CODEOWNED) — a form "
+            "this gate cannot classify must not be assumed harmless."
         )
 
 
-def _compare_environ_membership_key(node: ast.Compare) -> ast.expr | None:
-    """`KEY in os.environ` / `KEY not in os.environ` -> `KEY`, else `None`.
+def _compare_environ_membership_key(node: ast.Compare, aliases: set[str]) -> ast.expr | None:
+    """`KEY in os.environ` / `KEY not in os.environ` (or the same against a tracked alias) -> `KEY`,
+    else `None`.
 
     Only the direct two-term shape is resolved (`ast.Compare(left=KEY, ops=[In|NotIn],
     comparators=[os.environ])`) — a chained comparison (`a in os.environ in b`) is vanishingly rare
@@ -498,49 +570,137 @@ def _compare_environ_membership_key(node: ast.Compare) -> ast.expr | None:
         len(node.ops) == 1
         and isinstance(node.ops[0], (ast.In, ast.NotIn))
         and len(node.comparators) == 1
-        and _is_os_environ(node.comparators[0])
+        and _is_environ_like(node.comparators[0], aliases)
     ):
         return node.left
     return None
 
 
-def _env_read_key_exprs(tree: ast.AST) -> Iterator[ast.expr]:
-    """Yield the KEY expression of every recognized `os.environ`/`os.getenv` read in `tree`:
-    `os.environ.get/pop/setdefault(KEY, ...)`, `os.getenv(KEY, ...)`, `os.environ[KEY]`, and
-    `KEY in os.environ` / `KEY not in os.environ`. See `_KEY_YIELDING_ENVIRON_METHODS` and
-    `_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS` for how a call that names none of these is classified
-    instead (as opaque-but-known, or as an `UnrecognizedEnvironAccess` finding)."""
+def _environ_access_events(
+    tree: ast.AST, aliases: set[str]
+) -> Iterator[tuple[str, ast.expr] | tuple[str, tuple[int, str, str]]]:
+    """Single classifying walk over every `os.environ`/alias access in `tree`, yielding
+    `("key", key_expr)` for everything this gate can attribute to a concrete key expression, or
+    `("unrecognized", (lineno, method, detail))` for everything it cannot — never both for the same
+    node, and never neither (silently doing nothing is exactly the failure mode this exists to
+    close). One pass so a compound shape like `os.environ.copy()[KEY]` is resolved exactly once, at
+    the outer `Subscript`, instead of the inner `.copy()` call ALSO being independently flagged as
+    unrecognized.
+
+    Recognized shapes -> `"key"`: `os.environ.get/pop/setdefault(KEY, ...)`, `os.getenv(KEY, ...)`,
+    `os.environ[KEY]`, `KEY in os.environ`/`KEY not in os.environ`, `os.environ.copy()[KEY]` (same
+    resolution as a direct subscript — a copy of the mapping still names exactly one live key),
+    `os.environ.update({KEY: ...})` (every literal-string key of a dict-literal argument),
+    `getattr(os.environ, "get")(KEY)` (a known key-yielding method reached via `getattr`, its own
+    method-name argument a literal).
+
+    Falls through to `"unrecognized"` (V9 §Delta-5, findings 1-4) rather than silently doing
+    nothing: a bare `.copy()`/`.update()` not resolvable as above, `getattr(os.environ, X)` where
+    `X` is not a literal string or names an unrecognized method, and any `os.environ.<method>()`
+    whose `<method>` is in neither `_KEY_YIELDING_ENVIRON_METHODS` nor
+    `_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS`.
+    """
+    consumed_copy_call_ids: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.args:
-            is_environ_key_method = node.func.attr in _KEY_YIELDING_ENVIRON_METHODS and _is_os_environ(
-                node.func.value
-            )
-            is_os_getenv = node.func.attr == "getenv" and _is_os_name(node.func.value)
-            if is_environ_key_method or is_os_getenv:
-                yield node.args[0]
-        elif isinstance(node, ast.Subscript) and _is_os_environ(node.value):
-            # `node.slice` is already the plain expression on this repo's Python (3.12,
-            # pyproject.toml) — the `ast.Index` wrapper it would have needed unwrapping from was
-            # removed in 3.9. No compatibility shim for a Python this repo does not run.
-            yield node.slice
+        if isinstance(node, ast.Subscript):
+            if _is_environ_like(node.value, aliases):
+                yield ("key", node.slice)
+                continue
+            call = node.value
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "copy"
+                and _is_environ_like(call.func.value, aliases)
+            ):
+                consumed_copy_call_ids.add(id(call))
+                yield ("key", node.slice)
+                continue
         elif isinstance(node, ast.Compare):
-            key = _compare_environ_membership_key(node)
+            key = _compare_environ_membership_key(node, aliases)
             if key is not None:
-                yield key
+                yield ("key", key)
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if (
+                isinstance(func, ast.Call)
+                and isinstance(func.func, ast.Name)
+                and func.func.id == "getattr"
+                and len(func.args) >= 2
+                and _is_environ_like(func.args[0], aliases)
+            ):
+                method_arg = func.args[1]
+                if isinstance(method_arg, ast.Constant) and isinstance(method_arg.value, str):
+                    method = method_arg.value
+                    if method in _KEY_YIELDING_ENVIRON_METHODS and node.args:
+                        yield ("key", node.args[0])
+                        continue
+                    if method in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS:
+                        continue
+                    yield (
+                        "unrecognized",
+                        (node.lineno, "getattr", f"getattr(os.environ, {method!r})(...)"),
+                    )
+                    continue
+                yield (
+                    "unrecognized",
+                    (node.lineno, "getattr", "getattr(os.environ, <non-literal method name>)(...)"),
+                )
+                continue
+            if isinstance(func, ast.Attribute) and _is_environ_like(func.value, aliases):
+                attr = func.attr
+                if attr in _KEY_YIELDING_ENVIRON_METHODS and node.args:
+                    yield ("key", node.args[0])
+                    continue
+                if attr == "update":
+                    if node.args and isinstance(node.args[0], ast.Dict):
+                        for key_node in node.args[0].keys:
+                            if key_node is not None:
+                                yield ("key", key_node)
+                        continue
+                    yield (
+                        "unrecognized",
+                        (node.lineno, "update", "os.environ.update(<non-dict-literal argument>)"),
+                    )
+                    continue
+                if attr == "copy":
+                    if id(node) in consumed_copy_call_ids:
+                        continue  # already resolved via its enclosing Subscript, above
+                    yield (
+                        "unrecognized",
+                        (node.lineno, "copy", "os.environ.copy() (not subscripted with a key)"),
+                    )
+                    continue
+                if attr in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS:
+                    continue
+                yield ("unrecognized", (node.lineno, attr, ""))
+                continue
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr == "getenv"
+                and _is_os_name(func.value)
+                and node.args
+            ):
+                yield ("key", node.args[0])
 
 
-def _unrecognized_environ_accesses(tree: ast.AST, rel_path: str) -> Iterator[UnrecognizedEnvironAccess]:
-    """Yield one finding per `os.environ.<method>(...)` call whose `<method>` is neither a
-    key-yielding form nor a known whole-mapping operation — see `UnrecognizedEnvironAccess`."""
-    for node in ast.walk(tree):
-        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-            continue
-        if not _is_os_environ(node.func.value):
-            continue
-        attr = node.func.attr
-        if attr in _KEY_YIELDING_ENVIRON_METHODS or attr in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS:
-            continue
-        yield UnrecognizedEnvironAccess(path=rel_path, lineno=node.lineno, method=attr)
+def _env_read_key_exprs(tree: ast.AST, aliases: set[str]) -> Iterator[ast.expr]:
+    """Yield the KEY expression of every recognized `os.environ`/alias/`os.getenv` read in `tree` —
+    see `_environ_access_events` for the full list of recognized shapes."""
+    for kind, payload in _environ_access_events(tree, aliases):
+        if kind == "key":
+            yield payload  # type: ignore[misc]
+
+
+def _unrecognized_environ_accesses(
+    tree: ast.AST, rel_path: str, aliases: set[str]
+) -> Iterator[UnrecognizedEnvironAccess]:
+    """Yield one finding per `os.environ`/alias access `_environ_access_events` could not attribute
+    to a concrete key — see `UnrecognizedEnvironAccess`."""
+    for kind, payload in _environ_access_events(tree, aliases):
+        if kind == "unrecognized":
+            lineno, method, detail = payload  # type: ignore[misc]
+            yield UnrecognizedEnvironAccess(path=rel_path, lineno=lineno, method=method, detail=detail)
 
 
 def _module_level_string_constants(src_dir: Path) -> dict[str, set[str]]:
@@ -578,9 +738,11 @@ def _module_level_string_constants(src_dir: Path) -> dict[str, set[str]]:
 def extract_literal_env_names(src_dir: Path) -> set[str]:
     """Every env name genuinely READ in `<src_dir>/**/*.py` — a literal is only counted when it is
     the KEY argument of a real env-read call (`os.environ.get/pop/setdefault`, `os.getenv`,
-    `os.environ[...]`, or `... in os.environ`), either directly or via a module-level constant
-    resolved by name (see the module docstring's G3 paragraph for the exact two-pass design and its
-    accepted same-name-heuristic limitation).
+    `os.environ[...]`, `... in os.environ`, `os.environ.copy()[...]`,
+    `os.environ.update({...})`'s literal keys, `getattr(os.environ, "get")(...)`, or any of these
+    through a tracked simple alias — see the module docstring's §Delta-5 paragraph), either
+    directly or via a module-level constant resolved by name (see the module docstring's G3
+    paragraph for the exact two-pass design and its accepted same-name-heuristic limitation).
 
     NOT counted: a literal reached only through prose, a docstring, a class attribute unrelated to
     env access, or any other non-env-read context — closing the false-green surface where a
@@ -598,7 +760,8 @@ def extract_literal_env_names(src_dir: Path) -> set[str]:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except SyntaxError:
             continue
-        for key_expr in _env_read_key_exprs(tree):
+        aliases = _file_environ_aliases(tree)
+        for key_expr in _env_read_key_exprs(tree, aliases):
             if isinstance(key_expr, ast.Constant) and isinstance(key_expr.value, str):
                 if _NAME_PATTERN.fullmatch(key_expr.value):
                     names.add(key_expr.value)
@@ -623,7 +786,8 @@ def extract_unrecognized_environ_accesses(src_dir: Path) -> list[UnrecognizedEnv
             rel = path.relative_to(REPO_ROOT)
         except ValueError:
             rel = path
-        findings.extend(_unrecognized_environ_accesses(tree, str(rel)))
+        aliases = _file_environ_aliases(tree)
+        findings.extend(_unrecognized_environ_accesses(tree, str(rel), aliases))
     return findings
 
 

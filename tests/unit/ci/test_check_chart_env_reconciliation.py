@@ -846,3 +846,166 @@ def test_pr_c_staff_secret_bundle_shape_reconciles_end_to_end(tmp_path: Path) ->
     unrecognized = extract_unrecognized_environ_accesses(src_dir)
     result = reconcile(declared, literal_names, required=[], unrecognized_environ=unrecognized)
     assert result.ok, result.render()
+
+
+# ---------------------------------------------------------------------------
+# 11. V9 §Delta-5 — four forms that still SILENTLY PASSED after the pop/setdefault/in fix
+# ---------------------------------------------------------------------------
+#
+# Each form below is a genuine RED-before/GREEN-after proof: a single, isolated one-line mutation
+# of scripts/ci/check_chart_env_reconciliation.py that removes ONLY that form's handling makes the
+# corresponding fixture's key silently disappear from extract_literal_env_names (empty set) —
+# reproduced live this session for all four (see R6d-Q6 report); the tests below pin the FIXED
+# (GREEN) behaviour permanently.
+
+
+def test_copy_then_subscript_resolves_the_key(tmp_path: Path) -> None:
+    """`os.environ.copy()[KEY]` reads exactly the same one name a direct `os.environ[KEY]` would —
+    a snapshot copy does not change which key is being read."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = os.environ.copy()["MAEZO_COPY_SUBSCRIPT_TEST"]\n', encoding="utf-8"
+    )
+    assert "MAEZO_COPY_SUBSCRIPT_TEST" in extract_literal_env_names(tmp_path)
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_bare_copy_not_subscripted_is_unrecognized(tmp_path: Path) -> None:
+    """A `.copy()` call NOT immediately used to look up a key names no key at all — this gate
+    cannot tell whether the copy is later indexed by something it could resolve, so it fails
+    closed instead of silently assuming the copy is harmless."""
+    (tmp_path / "mod.py").write_text("import os\nsnapshot = os.environ.copy()\n", encoding="utf-8")
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "copy"
+    assert "not subscripted" in findings[0].detail
+
+
+def test_update_with_dict_literal_resolves_every_key(tmp_path: Path) -> None:
+    """`os.environ.update({K1: v1, K2: v2})` names its keys as literally as a dict literal can —
+    both must resolve, not just the first."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nos.environ.update({"MAEZO_UPDATE_DICT_TEST_1": "a", "MAEZO_UPDATE_DICT_TEST_2": "b"})\n',
+        encoding="utf-8",
+    )
+    names = extract_literal_env_names(tmp_path)
+    assert "MAEZO_UPDATE_DICT_TEST_1" in names
+    assert "MAEZO_UPDATE_DICT_TEST_2" in names
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_update_with_non_literal_argument_is_unrecognized(tmp_path: Path) -> None:
+    """`os.environ.update(some_variable)` — the keys are not visible to static analysis at all;
+    must fail closed, never be silently treated as a harmless whole-mapping op."""
+    (tmp_path / "mod.py").write_text(
+        "import os\npayload = {}\nos.environ.update(payload)\n", encoding="utf-8"
+    )
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "update"
+    assert "non-dict-literal" in findings[0].detail
+
+
+def test_getattr_indirected_get_resolves_the_key(tmp_path: Path) -> None:
+    """`getattr(os.environ, "get")(KEY)` reaches the same `.get` this gate already trusts, just
+    through `getattr` instead of a direct attribute — the method name is a literal, so it resolves
+    exactly like `os.environ.get(KEY)` would."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = getattr(os.environ, "get")("MAEZO_GETATTR_GET_TEST")\n', encoding="utf-8"
+    )
+    assert "MAEZO_GETATTR_GET_TEST" in extract_literal_env_names(tmp_path)
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_getattr_indirected_unknown_method_is_unrecognized(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text('import os\ngetattr(os.environ, "foobar")("X")\n', encoding="utf-8")
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "getattr"
+
+
+def test_getattr_indirected_non_literal_method_name_is_unrecognized(tmp_path: Path) -> None:
+    """The method name itself is not statically known (`method_name` is a variable) — cannot be
+    classified as key-yielding, opaque, or anything else; must fail closed."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nmethod_name = pick_a_method()\ngetattr(os.environ, method_name)("X")\n',
+        encoding="utf-8",
+    )
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "getattr"
+    assert "non-literal method name" in findings[0].detail
+
+
+def test_simple_module_level_alias_resolves_pop(tmp_path: Path) -> None:
+    """`e = os.environ; e.pop(K)` — the exact PR358-shaped alias form V9 named. The module
+    docstring previously called aliasing 'out of scope' while ALSO not turning it into a finding —
+    a claim/behaviour mismatch the docstring rewrite (this commit) corrects: a SIMPLE alias like
+    this one is now resolved, and only more complex origins (attribute targets, conditionals)
+    remain genuinely out of scope."""
+    (tmp_path / "mod.py").write_text(
+        'import os\ne = os.environ\nraw = e.pop("MAEZO_ALIAS_POP_TEST")\n', encoding="utf-8"
+    )
+    assert "MAEZO_ALIAS_POP_TEST" in extract_literal_env_names(tmp_path)
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_simple_function_level_alias_resolves_get(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        "import os\n\n\ndef read() -> str:\n"
+        "    e = os.environ\n"
+        '    return e.get("MAEZO_FUNC_ALIAS_GET_TEST", "")\n',
+        encoding="utf-8",
+    )
+    assert "MAEZO_FUNC_ALIAS_GET_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_from_os_import_environ_alias_is_tracked(tmp_path: Path) -> None:
+    """`from os import environ` (verified empty repo-wide today, tracked defensively) — the bare
+    `environ` name must resolve exactly like `os.environ` would."""
+    (tmp_path / "mod.py").write_text(
+        'from os import environ\nraw = environ.get("MAEZO_FROM_IMPORT_ENVIRON_TEST")\n',
+        encoding="utf-8",
+    )
+    assert "MAEZO_FROM_IMPORT_ENVIRON_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_aliased_membership_and_subscript_also_resolve(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        "import os\n"
+        "e = os.environ\n"
+        'if "MAEZO_ALIAS_IN_TEST" in e:\n'
+        "    pass\n"
+        'raw = e["MAEZO_ALIAS_SUBSCRIPT_TEST"]\n',
+        encoding="utf-8",
+    )
+    names = extract_literal_env_names(tmp_path)
+    assert "MAEZO_ALIAS_IN_TEST" in names
+    assert "MAEZO_ALIAS_SUBSCRIPT_TEST" in names
+
+
+def test_attribute_target_alias_remains_out_of_scope_and_unflagged(tmp_path: Path) -> None:
+    """The REAL shape in `src/maezo/a2a/keyset.py`: `self._environ = os.environ if environ is None
+    else environ` — an attribute target (not a simple Name) with a conditional RHS. Deliberately
+    NOT tracked (full data-flow, not an AST pattern) — must not be misclassified as unrecognized
+    either, since the assignment itself is not an `os.environ.<method>()` call."""
+    (tmp_path / "mod.py").write_text(
+        "import os\n\n\nclass X:\n"
+        "    def __init__(self, environ=None):\n"
+        "        self._environ = os.environ if environ is None else environ\n",
+        encoding="utf-8",
+    )
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_real_src_tree_still_has_zero_unrecognized_environ_accesses_after_delta5() -> None:
+    """Non-vacuity against the real tree, re-run after widening the classifier: still zero — no
+    `.copy`/`.update`/`getattr`/alias shape in `src/maezo` today needed any of this to go green."""
+    assert extract_unrecognized_environ_accesses(_SRC_DIR) == []
+
+
+def test_opaque_whole_mapping_set_no_longer_includes_copy_or_update() -> None:
+    """Pin the V9 §Delta-5 fix at the constant level: `.copy`/`.update` used to be blanket-safe
+    (never even inspected); they are now individually classified instead."""
+    assert "copy" not in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
+    assert "update" not in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
+    assert {"items", "keys", "values", "clear"} == _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
