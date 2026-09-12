@@ -640,6 +640,38 @@ async def test_acknowledgement_identity_is_exact(field, value):
         await submit(g)
 
 
+def _assert_pool_construction_only(source: str) -> None:
+    """WP-J1-00: the composition root may build the application-owned pool, nothing else.
+
+    It constructs `httpx.AsyncHTTPTransport` (the pool) and annotates it as
+    `httpx.AsyncBaseTransport`. Any client construction or request call here would
+    escape the fenced transport modules, so both are refused.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    imports = [
+        node
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Import) and any(alias.name.split(".")[0] == "httpx" for alias in node.names))
+        or (isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "httpx")
+    ]
+    assert len(imports) == 1
+    imported = imports[0]
+    assert imported in tree.body
+    assert isinstance(imported, ast.Import)
+    assert len(imported.names) == 1
+    assert imported.names[0].name == "httpx" and imported.names[0].asname is None
+    attributes = sorted(
+        parent.attr
+        for parent in ast.walk(tree)
+        if isinstance(parent, ast.Attribute)
+        and isinstance(parent.value, ast.Name)
+        and parent.value.id == "httpx"
+    )
+    assert attributes == ["AsyncBaseTransport", "AsyncHTTPTransport"], attributes
+
+
 def _assert_engine_read_pool_type_only(source: str) -> None:
     import ast
 
@@ -753,13 +785,20 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     # also own httpx; both constructor scopes are pinned byte-exactly in
     # scripts/ci/check_effect_chokepoint_fence.py::_HTTPX_SCOPED_SEAMS (AssignmentPrivateTransport,
     # AuthNativeClient). The train shipped them without updating this owner set.
+    # WP-J1-00: the production composition root owns the Q2 connection pool, which
+    # `EngineReadComposition` documents as having application lifespan and requires
+    # to be application-owned (`_owns_transport` must be False on the per-request
+    # client). Constructing it is the ONLY httpx use in production.py: it builds no
+    # client and issues no request — both remain fenced in the transport modules.
     assert http_owners == {
         "transport.py",
         "read_transport.py",
         "engine_reads.py",
         "assignment_transport.py",
         "auth_transport.py",
+        "production.py",
     }
+    _assert_pool_construction_only((Path(module.__file__).parent / "production.py").read_text())
     # Q2 composition only annotates its borrowed application-owned pool here.
     # It gets no constructor/request exemption from the two transport owners.
     _assert_engine_read_pool_type_only((Path(module.__file__).parent / "engine_reads.py").read_text())
