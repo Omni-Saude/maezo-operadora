@@ -133,7 +133,7 @@ async def test_case_outcome_projects_engine_desfecho_without_the_tiss_number():
     raw = await (CaseService(Resolver(), lease, native)).read("synthetic", case_ref=REF)
     assert lease.finalized
     assert b'"desfecho":"aprovada_auditor"' in raw and b'"phase":"decisao_executada"' in raw
-    # `numero_autorizacao = AUTH-{tenant}-{guia}-{uuid8}` (`tools/workers/auth.py:1329`)
+    # `numero_autorizacao = AUTH-{tenant}-{guia}-{uuid8}` (`tools/workers/auth.py:1336`)
     # nao cruza a fronteira externa: o grant de divulgacao de recibo esta diferido.
     assert b"AUTH-" not in raw and ("b" * 64).encode() in raw
 
@@ -150,9 +150,9 @@ async def test_case_outcome_projects_engine_desfecho_without_the_tiss_number():
         ("active", None, True, False),
         # Nenhum campo alem de phase/desfecho/authorization_ref atravessa.
         ("ended", APROVADA, False, True),
-        # BPMN :486 nao declara `numero_autorizacao` para a negativa.
+        # BPMN :546 nao declara `numero_autorizacao` para a negativa.
         ("ended", {**APROVADA, "desfecho": "negada_auditor"}, False, False),
-        # BPMN :444 declara `numero_autorizacao` para a aprovacao do auditor.
+        # BPMN :505 declara `numero_autorizacao` para a aprovacao do auditor.
         ("ended", {**APROVADA, "authorization_ref": None}, False, False),
         # Vocabulario fechado: so os cinco `event_desfecho` do BPMN.
         ("ended", {**APROVADA, "desfecho": "aprovada_por_omissao"}, False, False),

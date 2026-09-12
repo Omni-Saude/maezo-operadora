@@ -508,7 +508,7 @@ def test_staff_detail_projects_the_engine_outcome_of_an_ended_case():
         ("active", _STAFF_APROVADA),
         # Vocabulario fechado: so os cinco `event_desfecho` do BPMN SP-OP-AUTH-001.
         ("ended", {**_STAFF_APROVADA, "desfecho": "aprovada_por_omissao"}),
-        # BPMN :486 nao declara `numero_autorizacao` para a negativa.
+        # BPMN :546 nao declara `numero_autorizacao` para a negativa.
         ("ended", {**_STAFF_APROVADA, "desfecho": "negada_auditor"}),
         # Referencia opaca: o composto TISS nao satisfaz o formato hexadecimal.
         ("ended", {**_STAFF_APROVADA, "authorization_ref": "AUTH-tenant-12345-abcdef12"}),

@@ -184,7 +184,7 @@ async def test_staff_detail_exposes_the_closed_outcome_of_an_ended_case(h: Harne
     assert response.status_code == 200
     body = response.json()
     assert body["case"]["state"] == "ended" and body["outcome"] == outcome
-    # O composto `AUTH-{tenant}-{numero_guia_tiss}-{uuid8}` (`tools/workers/auth.py:1329`)
+    # O composto `AUTH-{tenant}-{numero_guia_tiss}-{uuid8}` (`tools/workers/auth.py:1336`)
     # fica no recibo de comando: o bloco de desfecho so carrega a referencia opaca.
     assert "AUTH-" not in json.dumps(body["outcome"])
     assert len(body["outcome"]["authorization_ref"]) == 64

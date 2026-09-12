@@ -24,7 +24,7 @@ Kind = Literal["authorization", "reimbursement", "account"]
 Audience = Literal["beneficiary", "provider"]
 FIELDS = frozenset({"case_ref", "kind", "state", "record_revision", "state_observed_at"})
 # BPMN SP-OP-AUTH-001: apenas estes dois desfechos declaram `numero_autorizacao` em
-# `event_payload_vars` (:244 ST_PublishAprovadaAuto, :444 ST_PublishAprovadaAuditor).
+# `event_payload_vars` (:305 ST_PublishAprovadaAuto, :505 ST_PublishAprovadaAuditor).
 ISSUING_DESFECHOS = frozenset({"aprovada_automatica", "aprovada_auditor"})
 KINDS = {
     "beneficiary": frozenset({"authorization", "reimbursement"}),
@@ -453,21 +453,21 @@ class CasePage(Closed):
 #
 # * `desfecho` — os cinco valores que o proprio BPMN declara em
 #   `camunda:inputParameter name="event_desfecho"` das service tasks `ST_Publish*`
-#   (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn` :103, :179, :244,
-#   :444, :486), reproduzidos no contrato como o payload de
-#   `agents.events.auth.completed` (`docs/processes/contracts/SP-OP-AUTH-001.md:268`).
+#   (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn` :132, :239, :304,
+#   :504, :546), reproduzidos no contrato como o payload de
+#   `agents.events.auth.completed` (`docs/processes/contracts/SP-OP-AUTH-001.md:383`).
 #   O publicador copia a variavel do motor sem interpretar
-#   (`src/maezo/tools/workers/events.py:277-279`). A origem no motor e
+#   (`src/maezo/tools/workers/events.py:302-304`). A origem no motor e
 #   `ACT_HI_PROCINST_.END_ACT_ID_` / a projecao fechada equivalente.
 # * `phase` — fatia fina: um unico valor fechado, `decisao_executada`. O contrato exige
 #   distinguir "decisao executada" de "comunicado entregue"
-#   (`docs/processes/contracts/SP-OP-AUTH-001.md:102`); a comunicacao de sistema em
+#   (`docs/processes/contracts/SP-OP-AUTH-001.md:159`); a comunicacao de sistema em
 #   `auth.completed` esta DIFERIDA para o WP-J1-07 completo, entao o unico valor que
 #   esta fatia consegue provar a partir do motor e o primeiro. Literal de um membro e o
 #   padrao ja usado na fronteira para cadencia fechada
 #   (`StaffFreshness.refresh_after_seconds`) e obriga ampliacao deliberada.
 # * `authorization_ref` — referencia OPACA de 64 hexadecimais. O `numero_autorizacao`
-#   real (`AUTH-{tenant_id}-{numero_guia_tiss}-{uuid8}`, `src/maezo/tools/workers/auth.py:1329`)
+#   real (`AUTH-{tenant_id}-{numero_guia_tiss}-{uuid8}`, `src/maezo/tools/workers/auth.py:1336`)
 #   carrega o numero de guia e NAO cruza esta fronteira: divulgar o recibo externo
 #   depende do grant explicito que esta fatia difere. O formato hexadecimal torna
 #   estruturalmente impossivel ecoar o composto.
@@ -504,8 +504,8 @@ class CaseDetail(Closed):
 
         A chave `outcome` e obrigatoria no fio (sem default), entao um produtor que a
         omita e recusado por `parse` antes deste validador. Instancia encerrada em um
-        fim que nao publica desfecho (`End_FundamentacaoIncompletaBloqueada` :476,
-        `End_ErrDecisaoInvalida` :565) nao tem desfecho projetavel e o caso fica
+        fim que nao publica desfecho (`End_FundamentacaoIncompletaBloqueada` :536,
+        `End_ErrDecisaoInvalida` :625) nao tem desfecho projetavel e o caso fica
         indisponivel ao publico externo — nunca "encerrado" sem motivo.
         """
         if (self.outcome is None) != (self.case.state == "active"):
