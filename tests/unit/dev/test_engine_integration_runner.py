@@ -697,7 +697,13 @@ def test_discovery_separates_declared_deselections_from_files_without_nodeids(tm
     """
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
     result = _run(
-        "discover", "--checkout", str(REPO_ROOT), "--sha", sha, "--results-dir", str(tmp_path),
+        "discover",
+        "--checkout",
+        str(REPO_ROOT),
+        "--sha",
+        sha,
+        "--results-dir",
+        str(tmp_path),
         timeout=180,
     )
 
@@ -729,7 +735,13 @@ def test_discovery_still_aborts_on_a_file_that_yields_nothing_under_the_opt_in_t
     try:
         injected.write_text("# nenhum teste aqui — sonda do fail-closed da descoberta\n")
         result = _run(
-            "discover", "--checkout", str(REPO_ROOT), "--sha", sha, "--results-dir", str(tmp_path),
+            "discover",
+            "--checkout",
+            str(REPO_ROOT),
+            "--sha",
+            sha,
+            "--results-dir",
+            str(tmp_path),
             timeout=180,
         )
         assert result.returncode != 0

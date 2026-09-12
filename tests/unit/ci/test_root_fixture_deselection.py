@@ -27,9 +27,18 @@ What this fence pins, so the mechanism can neither grow silently nor go inert:
   1. `root_fixture` is a REGISTERED marker (an unregistered one is a typo away from selecting).
   2. The set of suites carrying it is exactly `_ROOT_FIXTURE_SUITES` below — each with the ROOT
      coordinate it needs. A new suite must be added HERE, in review, or the fence reports it.
-  3. Every such suite lives under `tests/integration/`, where the conftest that implements the
-     deselection is loaded. A `root_fixture` marker anywhere else is INERT — it would be selected
-     by the lane and fail exactly as these three did.
+     This exact-match allowlist is the mechanism's ONLY containment (see 3). The scan covers
+     `conftest.py` as well as `test_*.py`, so a marker attached from a conftest cannot slip it.
+  3. Every such suite lives under `tests/integration/`. NOTE what this does and does not buy
+     (corrected after V8-Q3 disproved the original claim empirically): the hook's REACH is
+     repo-wide, not tree-scoped — `pytest_collection_modifyitems` in a sub-conftest receives the
+     WHOLE session's item list, so once collection descends into `tests/integration/` (as the
+     lane's own `pytest tests` does) a marked module anywhere under `tests/` is deselected too.
+     Containment therefore comes from the exact-match allowlist in (2), NEVER from location. What
+     the location requirement does buy is the converse: an invocation that never collects
+     `tests/integration/` (say `pytest tests/unit`) never loads that conftest, so a marked module
+     outside this tree would be INERT there — selected and failing for want of its fixture. Living
+     inside the tree is what makes the marker effective in every invocation that can collect it.
   4. The deselection actually happens, and the opt-in actually opts in — proved by running
      `--collect-only` in a subprocess both ways, not by reading the conftest.
 """
@@ -75,9 +84,19 @@ _ROOT_FIXTURE_SUITES: Final[dict[str, str]] = {
 
 
 def _iter_marked_modules() -> dict[Path, list[str]]:
-    """Every test module whose `pytestmark` names `root_fixture`, by AST (never by import)."""
+    """Every module under `tests/` that names `root_fixture`, by AST (never by import).
+
+    `conftest.py` is scanned alongside `test_*.py` (V8-Q3 F-2): a marker can also be attached from
+    a conftest (`item.add_marker("root_fixture")`) or re-exported through a non-test helper, and a
+    scan limited to `test_*.py` would let the allowlist assertion miss it. The sibling
+    `tests/integration/conftest.py` mentions the marker only as the string constant
+    `ROOT_FIXTURE_MARKER`, never as `pytest.mark.root_fixture`, so it is not matched by the
+    `pytest.mark.<name>` attribute shape below — the mechanism's own implementation does not
+    register as one of its own subjects.
+    """
     found: dict[Path, list[str]] = {}
-    for path in sorted(_TESTS_ROOT.rglob("test_*.py")):
+    candidates = sorted({*_TESTS_ROOT.rglob("test_*.py"), *_TESTS_ROOT.rglob("conftest.py")})
+    for path in candidates:
         try:
             tree = ast.parse(path.read_bytes())
         except SyntaxError:  # pragma: no cover - a broken module is another fence's subject
@@ -116,9 +135,15 @@ def test_the_marked_suites_are_exactly_the_reviewed_allowlist() -> None:
 
 @pytest.mark.parametrize("relative", sorted(_ROOT_FIXTURE_SUITES))
 def test_every_marked_suite_lives_where_the_deselection_hook_is_loaded(relative: str) -> None:
-    """`pytest_collection_modifyitems` lives in `tests/integration/conftest.py`. A `root_fixture`
-    marker outside that tree is INERT: nothing deselects it, the lane selects it, and it fails
-    exactly the way the 20 cases of PR #375's lane did."""
+    """`pytest_collection_modifyitems` lives in `tests/integration/conftest.py`, so it is loaded
+    only by an invocation that collects that tree. A marked module OUTSIDE the tree is therefore
+    inert in any run that does not reach `tests/integration/` (e.g. `pytest tests/unit`): nothing
+    deselects it, it is selected, and it fails for want of its private fixture — the way the 20
+    cases of PR #375's lane did.
+
+    This is NOT a containment claim. Once the conftest IS loaded, the hook receives the whole
+    session's item list and its reach is repo-wide; containment is
+    `test_the_marked_suites_are_exactly_the_reviewed_allowlist` above, never location."""
     assert relative.startswith("tests/integration/"), relative
     assert (_REPO_ROOT / relative).is_file(), relative
 

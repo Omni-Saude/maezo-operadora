@@ -754,6 +754,16 @@ def test_scan_is_not_vacuous() -> None:
         )
 
 
+def test_the_selection_only_module_marks_are_pinned() -> None:
+    """`_SELECTION_ONLY_MODULE_MARKS` widens a grammar that is CLOSED on purpose, so the widening
+    itself needs a fence (V8-Q3 F-3) — otherwise a future entry broadens what an explicit-fixture
+    suite may carry with nothing firing. Adding a mark here is a review decision: it must be
+    unable to touch the `live` fixture's lifecycle, its parametrization, or which tests request
+    it. `integration`/`asyncio` stay independently REQUIRED by `required_module_marks`, so no
+    entry here can let a suite drop either."""
+    assert _SELECTION_ONLY_MODULE_MARKS == ("root_fixture",)
+
+
 def test_name_only_entries_are_actually_discovered() -> None:
     """A `_NAME_ONLY` entry only means something if `_iter_live_suites()` actually yields that
     path — otherwise `test_every_live_suite_exposes_a_resolver_or_is_explicitly_excluded`'s guard
