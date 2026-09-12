@@ -277,3 +277,68 @@ class PostgresIntakeStore:
         if result is None:
             raise IntakeError("resource_unavailable")
         return result
+
+    async def admitted_submission(self, principal_ref: str, command_id: str) -> AuthIntakeSubmission:
+        """The committed submission itself, decrypted under the SAME binding `admit` sealed it with.
+
+        The dispatcher (`runtime/intake_dispatch`) starts a process from an admission committed
+        minutes earlier by a browser that is long gone; `build_start_command`
+        (`gateway/human/auth_projection.py:102`) re-derives the admitted digest from the ORIGINAL
+        submission, so the submission has to be readable again. `read` above deliberately returns
+        only the `IntakeReceipt`, and until now nothing could recover the request.
+
+        The unsealer belongs with the sealer: the AAD (`admit`, this file, `:141`) is the row's own
+        identifying columns, and reconstructing it in a second module would let the two drift into
+        a decryption that no longer proves which row the plaintext came from. Every column of that
+        AAD is read back from the row, so a request moved to another tenant, principal, command,
+        intake or guide does not decrypt at all — AES-GCM fails closed, and the `request_digest`
+        re-check below is a second, independent fence over the same bytes.
+        """
+        if not principal_ref or not command_id:
+            raise IntakeError("invalid_request")
+        try:
+            async with transaction(self.engine, self.seconds) as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT * FROM portal_intake.intake WHERE tenant=:tenant "
+                                "AND principal_ref=:principal AND command_id=:command"
+                            ),
+                            {"tenant": self.tenant, "principal": principal_ref, "command": command_id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+            if row["key_id"] != self.key_id:
+                # A row sealed under a different key is not "unreadable for now": this store
+                # cannot prove anything about it. Key rotation is an owner procedure, never an
+                # inference here.
+                raise IntakeError("dependency_unavailable")
+            aad = canonicalize(
+                {
+                    "tenant": self.tenant,
+                    "principal": row["principal_ref"],
+                    "command": row["command_id"],
+                    "intake": row["intake_ref"],
+                    "guide": row["guide_identity_ref"],
+                    "digest": row["request_digest"],
+                    "authority_ref": row["authority_receipt_ref"],
+                    "authority_digest": row["authority_digest"],
+                    "key_id": row["key_id"],
+                }
+            )
+            raw = self._cipher.decrypt(bytes(row["nonce"]), bytes(row["ciphertext"]), aad)
+            if hashlib.sha256(raw).hexdigest() != row["request_digest"]:
+                raise ExternalCaseError("conflict")
+            request = AuthIntakeSubmission.model_validate(strict_loads(raw), strict=True)
+            if request_bytes(request) != raw or request.command_id != command_id:
+                # Re-serialisation must reproduce the sealed bytes exactly; anything else means
+                # the stored plaintext is not the admitted representation the digest attests.
+                raise ExternalCaseError("conflict")
+            return request
+        except IntakeError:
+            raise
+        except Exception:
+            raise IntakeError("dependency_unavailable") from None
