@@ -160,17 +160,26 @@ async def test_post_webhook_valid_signature_message_no_dispatcher_returns_501(ap
 
 
 class _FakeDispatcher:
-    def __init__(self, *, fail: bool = False, fail_ack: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        fail_ack: bool = False,
+        resultado: dict[str, Any] | None = None,
+    ) -> None:
         self.dispatched: list[InboundMessage] = []
         self.acknowledged: list[InboundNonTextMessage] = []
         self._fail = fail
         self._fail_ack = fail_ack
+        #: Estado final que `dispatch` devolve — o real carrega o grafo inteiro; aqui so' o que
+        #: o corpo do ack pode ler (`response_text`, `conversation_id`).
+        self.resultado = resultado if resultado is not None else {"ok": True}
 
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         if self._fail:
             raise RuntimeError("dispatch boom")
         self.dispatched.append(message)
-        return {"ok": True}
+        return dict(self.resultado)
 
     async def acknowledge_non_text(self, message: InboundNonTextMessage) -> dict[str, Any]:
         if self._fail_ack:
@@ -395,3 +404,61 @@ async def test_get_webhook_non_ascii_token_is_403_not_an_unhandled_500(app: Fast
         )
     assert response.status_code == 403
     assert VERIFY_TOKEN not in response.text
+
+
+# ---------------------------------------------------------------------------------------------
+# `devolve_turno` (12/09/2026): o corpo do ack carrega o turno, e SO' sob o portao.
+# ---------------------------------------------------------------------------------------------
+# O texto que a Helena redige nunca foi lido por ninguem: ele vai para o envio do WhatsApp e morre
+# num 401 de credencial de preenchimento em dev. Sem ver o texto nao ha' como avaliar se ele presta
+# nem conferir se vaza orientacao clinica. Estes testes fixam as DUAS metades: com o portao o corpo
+# ganha os campos; sem ele fica exatamente como a Meta sempre recebeu.
+
+
+_TURNO = {
+    "ok": True,
+    "response_text": "Ola! Sou a Helena, navegadora de saude. Como posso ajudar?",
+    "conversation_id": "wa:amh:hk1_0123456789abcdef",
+}
+
+
+async def test_ack_carrega_o_turno_quando_o_portao_esta_ligado() -> None:
+    dispatcher = _FakeDispatcher(resultado=_TURNO)
+    app = create_app(_settings(devolve_turno=True), dispatcher=dispatcher)
+    payload = _text_message_payload(body="oi")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    corpo = resp.json()
+    assert resp.status_code == 200
+    assert corpo["dispatched"] == 1
+    assert corpo["resposta"] == _TURNO["response_text"]
+    assert corpo["conversation_id"] == _TURNO["conversation_id"]
+
+
+async def test_ack_fica_intacto_quando_o_portao_esta_desligado() -> None:
+    """O default. O corpo e' o que a Meta recebe em producao — nenhum campo novo aparece nele."""
+    dispatcher = _FakeDispatcher(resultado=_TURNO)
+    app = create_app(_settings(), dispatcher=dispatcher)
+    payload = _text_message_payload(body="oi")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    corpo = resp.json()
+    assert corpo == {"status": "ok", "dispatched": 1, "failed": 0}
+    assert "resposta" not in corpo
+    assert "conversation_id" not in corpo
+
+
+async def test_turno_sem_texto_devolve_string_vazia_e_nao_inventa_nada() -> None:
+    """Um turno cujo `response_text` veio vazio (HEL-07) nao vira texto fabricado no corpo."""
+    dispatcher = _FakeDispatcher(resultado={"response_text": "", "conversation_id": "wa:amh:hk1_x"})
+    app = create_app(_settings(devolve_turno=True), dispatcher=dispatcher)
+    payload = _text_message_payload(body="oi")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    assert resp.json()["resposta"] == ""

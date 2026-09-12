@@ -200,3 +200,53 @@ def test_corpo_nao_json_nao_derruba_a_rota(canal: Any) -> None:
 
     assert chamada.status == 400
     assert canal._enviados == []
+
+
+# ---------------------------------------------------------------------------------------------
+# Os dois campos do turno, elevados ao topo (12/09/2026).
+# ---------------------------------------------------------------------------------------------
+
+
+def _corpo(servidor: Any, bruto: bytes) -> dict[str, object]:
+    return servidor._corpo_do_receptor(bruto)
+
+
+def test_eleva_resposta_e_conversation_id_ao_topo(canal: Any) -> None:
+    bruto = json.dumps(
+        {
+            "status": "ok",
+            "dispatched": 1,
+            "resposta": "Ola! Sou a Helena.",
+            "conversation_id": "wa:amh:hk1_abc",
+        }
+    ).encode()
+
+    corpo = _corpo(canal, bruto)
+
+    assert corpo["resposta"] == "Ola! Sou a Helena."
+    assert corpo["conversation_id"] == "wa:amh:hk1_abc"
+    # O eco cru continua inteiro: e' a evidencia do que a outra ponta respondeu.
+    assert json.loads(str(corpo["receptor"]))["dispatched"] == 1
+
+
+def test_sem_os_campos_nada_e_inventado(canal: Any) -> None:
+    """O receptor sem o portao devolve o corpo antigo — a pagina precisa DETECTAR a falta."""
+    corpo = _corpo(canal, b'{"status":"ok","dispatched":1,"failed":0}')
+
+    assert "resposta" not in corpo
+    assert "conversation_id" not in corpo
+    assert corpo["receptor"] == '{"status":"ok","dispatched":1,"failed":0}'
+
+
+def test_campo_vazio_nao_sobe(canal: Any) -> None:
+    """`resposta: ""` e' ausencia de texto, nao texto vazio para a tela exibir."""
+    corpo = _corpo(canal, b'{"status":"ok","resposta":"","conversation_id":"wa:amh:hk1_a"}')
+
+    assert "resposta" not in corpo
+    assert corpo["conversation_id"] == "wa:amh:hk1_a"
+
+
+def test_corpo_nao_json_do_receptor_nao_derruba_o_canal(canal: Any) -> None:
+    corpo = _corpo(canal, b"<html>502 bad gateway</html>")
+
+    assert corpo == {"receptor": "<html>502 bad gateway</html>"}
