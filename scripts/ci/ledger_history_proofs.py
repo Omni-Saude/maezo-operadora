@@ -123,7 +123,7 @@ D7_TOOL_SOURCES = {
         "241e0c9a9f636abe50f6765f148d0668c78ea3f26ab90f91725368434f83d4af"
     ),
     "scripts/dev/run_historical_catalog_recipe.py": (
-        "a814ab8dacce1e6e5541af01e601aaa183d6e6917da014145a46d47ab54c9be4"
+        "8255a79bcccb62aa1cf3f8257d35f5c1bc370dcde6b0664274e98a30d59aeedc"
     ),
     "scripts/dev/historical_tool_sources.py": (
         "ba40c7ac860fb85016ede71e94cbb9014258130a4b56d882654ea239620df63f"
