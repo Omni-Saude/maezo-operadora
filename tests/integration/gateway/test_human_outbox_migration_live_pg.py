@@ -57,7 +57,7 @@ async def test_actual_head_0013_preserves_populated_0012_and_bounded_downgrade()
         )
         before = await _snapshot(admin, tables)
         await _migrate(raw, tenant, "upgrade", "head")
-        await _assert_version(admin, tenant, "0013")
+        await _assert_version(admin, tenant, "0014")
         assert await _snapshot(admin, tables) == before
         for name in ("human_command_outbox", "human_command_delivery"):
             assert await admin.fetchval(f"SELECT count(*) FROM {name}") == 0
@@ -80,7 +80,7 @@ async def test_actual_head_0013_preserves_populated_0012_and_bounded_downgrade()
         assert await admin.fetchval("SELECT to_regclass('human_command_delivery')") is None
         assert (await verify_chain(raw, tenant)).valid
         await _migrate(raw, tenant, "upgrade", "head")
-        await _assert_version(admin, tenant, "0013")
+        await _assert_version(admin, tenant, "0014")
         assert await _snapshot(admin, tables) == retained
         assert await admin.fetchval("SELECT count(*) FROM human_command_outbox") == 0
     finally:
