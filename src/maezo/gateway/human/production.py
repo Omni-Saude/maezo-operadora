@@ -308,9 +308,7 @@ async def human_runtime(
     lifetime = MaterialLifetime()
     try:
         material = load_human_materials(MATERIAL_DIRECTORY, pin)
-        decision = (
-            None if decision_directory is None else load_decision_materials(decision_directory)
-        )
+        decision = None if decision_directory is None else load_decision_materials(decision_directory)
         async with AsyncExitStack() as resources:
             pool = await asyncpg.create_pool(
                 dsn=material.outbox_url.render_as_string(hide_password=False).replace(
