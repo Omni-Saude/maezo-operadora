@@ -1,0 +1,37 @@
+{
+  "id": "EVL-HELENA-14",
+  "agent": "helena",
+  "class": "SD",
+  "tier": [
+    "A",
+    "B"
+  ],
+  "description": "Bare greeting 'oi' -> intent=greeting -> inform, and NOTHING is opened. Regression guard for the 11/09/2026 defect where a greeting had no slot in the intent vocabulary and the model reached for the nearest neighbour. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-14",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-14",
+      "message_body": "oi"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"greeting\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
+    "Ola! Sou a Helena, navegadora de saude. Como posso ajudar voce hoje?"
+  ],
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "intent": "greeting"
+    }
+  },
+  "leak_canaries": [],
+  "live": {
+    "assert": "fields",
+    "match": [
+      "intent"
+    ],
+    "threshold": 0.9
+  }
+}
