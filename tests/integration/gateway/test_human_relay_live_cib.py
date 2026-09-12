@@ -424,6 +424,13 @@ async def test_production_composition_relay_reconciles_lost_response_with_same_p
             "command_endpoint": origin,
             "command_surface": {"origin": origin, "server_spki_sha256": _server_spki(origin)},
             "read_surface": {"origin": origin, "server_spki_sha256": _server_spki(origin)},
+            # Poll fast, but do NOT retry on the relay's own initiative: the loss has
+            # to stay observable long enough to assert the pending state. The retry is
+            # released deliberately by `allow_retry()`, exactly as the sibling test
+            # does. These are manifest facts, so the production relay reads them from
+            # the bundle — nothing is reached into and mutated.
+            "relay_retry_seconds": "300",
+            "relay_poll_seconds": "1",
         },
     )
     material = verify_materials(
@@ -474,6 +481,15 @@ async def test_production_composition_relay_reconciles_lost_response_with_same_p
         await live.persist(command)
 
         await _until(lambda: "response.dropped.after.actual.commit" in observer.events)
+        # Wait for `retry_later` to commit, so the relay is parked on its own 300s
+        # backoff and the pending state below is observed, not raced.
+        await _until(
+            lambda: live.admin.fetchval(
+                f'SELECT next_attempt_at > clock_timestamp() FROM "{live.scope.tenant}".'
+                "human_command_delivery WHERE command_id=$1",
+                command.command_id,
+            )
+        )
         await live.assert_pending(command, engine_committed=True)
         winner = dict(await live.task())
         assert winner["assignee_"] == command.principal_ref
@@ -530,8 +546,13 @@ def _server_spki(origin: str) -> str:
 
 async def _until(condition, *, seconds: float = 60.0) -> None:
     """Wait for the production relay's own polling loop; never drive it by hand."""
+    import inspect
+
     for _ in range(int(seconds / 0.1)):
-        if condition():
+        result = condition()
+        if inspect.isawaitable(result):
+            result = await result
+        if result:
             return
         await asyncio.sleep(0.1)
     raise AssertionError("the production relay did not reach the expected state in time")
