@@ -24,14 +24,64 @@ evidência de entrega para que o portal afirme notificação. Reusar o fallback 
 Claim/ACK de interface não cancela timer nem resolve tarefa por inferência. O engine
 continua dono dos timers e o caso exibe o estado real após takeover/timeout.
 
-**AUTH não chama ESCALATION automaticamente.** A coordenação da auditoria e junta já
-existem dentro de AUTH. Iniciar ESCALATION requer gatilho deste contrato, conversa de
-origem, produtor autorizado e correlação de retorno; não inventar `source_agent_id`
-para uma pessoa do portal. Um futuro start exclusivamente humano exige extensão tipada
-e revisão dos campos obrigatórios, não contornar o contrato de proveniência do agente.
-`devolvido_agente` continua o único desfecho de retomada; não converte resolução de
-escalonamento em aprovação de AUTH. Reusar as APIs de caso/comunicações/recibos e os
-critérios de autorização/replay descritos no complemento portal de SP-OP-AUTH-001.
+**AUTH não chama ESCALATION automaticamente — EMENDADO em 2026-09-12 (WP-J1-09).** A
+regra original permanece o caso geral e está preservada abaixo; o que a emenda abre é
+UMA exceção nominada, ratificada pelo dono do contrato (decisão #17) e registrada em
+`docs/adr/0050-handoff-auth-escalation-risco-de-sla.md`.
+
+*Caso geral (inalterado).* A coordenação da auditoria e junta já existem dentro de AUTH.
+Iniciar ESCALATION requer gatilho deste contrato, conversa de origem, produtor autorizado
+e correlação de retorno; não inventar `source_agent_id` para uma pessoa do portal. Um
+futuro start exclusivamente humano exige extensão tipada e revisão dos campos
+obrigatórios, não contornar o contrato de proveniência do agente. `devolvido_agente`
+continua o único desfecho de retomada; não converte resolução de escalonamento em
+aprovação de AUTH. Reusar as APIs de caso/comunicações/recibos e os critérios de
+autorização/replay descritos no complemento portal de SP-OP-AUTH-001.
+
+*Exceção ratificada — alerta de RISCO DE SLA de AUTH.* O boundary NÃO-interruptivo
+`BT_AlertaSla` de SP-OP-AUTH-001 (em `${sla.sla_alerta}`, valor da DMN `auth_sla`) pode
+levantar UM escalonamento, sob a chave de negócio
+
+```
+ESC-{tenant_id}-sla-auth-{numero_guia_tiss}
+```
+
+O caminho é o MESMO das outras três origens de alerta de SLA já previstas
+(`recurso`/`programa`/`lgpd`): o worker publica `auth.notify_sla_risk` em
+`operadora.notifications.internal` e o `notification_bridge` inicia este processo pela
+cerca `start_process_idempotent` (ADR-0007/T-C2). Não há BPMN novo, chave de processo
+nova nem chamada crua ao engine.
+
+As quatro condições que o caso geral exige continuam satisfeitas, e não por exceção:
+
+- **Gatilho deste contrato** — a origem é um timer BPMN modelado, não uma decisão de
+  agente. `source_agent_id`/`source_agent_version` são `notification_bridge` /
+  `notification_bridge@v1`: a identidade do daemon que relatou o fato, declarada como
+  tal. NADA é inventado para uma pessoa, que é exatamente o que o caso geral proíbe.
+- **Correlação de retorno** — `conversation_id` é DERIVADO do caso cujo relógio corre
+  (`sla-auth-{numero_guia_tiss}`), no espaço de nomes `sla-`, portanto nunca colide com
+  uma conversa real. Determinístico: a reentrega do mesmo alerta converge na MESMA
+  instância aberta em vez de inundar a fila.
+- **`motivo_categoria` = `outro`** — o vocabulário fechado não tem membro para risco de
+  SLA e inventar um seria mudança de spec que nenhum agente ratifica. `outro` cai na
+  regra fail-safe `r7` da DMN `escalation_routing` (P2 / `atendimento-humano`), que é o
+  destino correto para um relógio ADMINISTRATIVO — nunca uma fila clínica.
+- **`canal` = `bridge_sla`** — origem não-conversacional declarada, em vez de tomar
+  emprestado um dos três canais de beneficiário (o que seria fato fabricado).
+
+Limites da exceção, explícitos: o escalonamento é **informativo e jamais adverso**
+(`SP-OP-AUTH-001.md`, `notify_sla_risk`). A análise NÃO é interrompida — o boundary é
+não-interruptivo e `UT_AnaliseMedicoAuditor` segue aberta —, nenhuma negativa nasce
+daqui (ADR-0008, L0 hard), e a RETOMADA por coordenação continua sendo o ramo
+interruptivo `BT_SlaAnalise` → `UT_CoordenacaoAssume`, **dentro do próprio AUTH**. Não
+há dupla titularidade: o escalonamento pede visibilidade humana; a titularidade do caso
+não se move. `devolvido_agente` segue sem converter resolução em aprovação de AUTH.
+
+Postura de idempotência: `SP-OP-ESCALATION-001` permanece `NON_STRICT` em
+`_START_DEDUP_POLICY` — reexaminada, não herdada. Um portão recusaria start depois de
+instância finalizada, e um alerta que reincide num ciclo posterior de análise seria
+engolido: escalonamento perdido é a direção adversa; tarefa duplicada é ruído que um
+humano fecha.
 
 ### Chave legada interna
 
