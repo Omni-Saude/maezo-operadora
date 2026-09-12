@@ -46,6 +46,7 @@ from .outbox import PostgresHumanAdmission, PostgresHumanOutbox
 from .production_materials import (
     MATERIAL_DIRECTORY,
     HumanMaterialError,
+    HumanMaterialPin,
     HumanMaterials,
     PrivateSurface,
     load_human_materials,
@@ -201,16 +202,22 @@ def compose_human_plane(
 
 
 @asynccontextmanager
-async def human_runtime(materials: HumanMaterials | None = None) -> AsyncIterator[HumanRuntime]:
+async def human_runtime(pin: HumanMaterialPin) -> AsyncIterator[HumanRuntime]:
     """Compose the human plane; every resource opened here is closed here.
 
-    Ordering is the contract: the relay starts before any gateway is built, and on
-    the way out the in-flight delivery is awaited before the pools it uses close.
-    Pools owned by other packages (identity, staff, intake) are never touched.
+    Ordering is the contract, and it begins with trust: `load_human_materials` refuses
+    an unpinned, wrong-tenant, expired or withdrawn bundle *before* the exit stack is
+    entered, so no pool is opened, no query runs and no relay starts on material this
+    deployment has not anchored out of band. There is no seam that supplies materials
+    directly — that would skip both the filesystem custody and the pin.
+
+    After that: the relay starts before any gateway is built, and on the way out the
+    in-flight delivery is awaited before the pools it uses close. Pools owned by other
+    packages (identity, staff, intake) are never touched.
     """
     lifetime = MaterialLifetime()
     try:
-        material = materials if materials is not None else load_human_materials(MATERIAL_DIRECTORY)
+        material = load_human_materials(MATERIAL_DIRECTORY, pin)
         async with AsyncExitStack() as resources:
             pool = await asyncpg.create_pool(
                 dsn=material.outbox_url.render_as_string(hide_password=False).replace(
