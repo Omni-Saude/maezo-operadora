@@ -327,3 +327,211 @@ async def test_stale_claim_cannot_finish_or_release_a_successor_after_actual_rec
         len(await live.engine_receipts()) == 1
         and (await live.task())["rev_"] == int(command.task_revision) + 1
     )
+
+
+async def test_production_composition_relay_reconciles_lost_response_with_same_pending_identity(live):
+    """T00-11 — the PRODUCTION composition root against the live engine, not a fixture.
+
+    Every other test in this file drives `tests.support.human_relay_live.relay()`, a
+    fixture-composed relay. That proves the outbox and the engine, and proves nothing
+    about `maezo.gateway.human.production`. This one builds a deployment material
+    bundle whose command and read surfaces, signing key and windows are the live
+    secured CIB Seven's, verifies it through the real `verify_materials` against a
+    real out-of-band pin, and composes the plane through
+    `compose_human_plane(material, pool=, source_engine=, lifetime=)` — the same
+    function `human_runtime` calls in production, with the same four arguments.
+
+    Then it proves D6 reconciliation THROUGH that composition: the engine commits, the
+    response is lost, and the production runtime's own relay — not a test relay — finds
+    the committed receipt on its next attempt and finishes the SAME pending command
+    identity, with exactly one engine effect.
+
+    Only two things are substituted, both of them deployment plumbing that cannot exist
+    in a test: the filesystem custody of `load_human_materials` (it demands a
+    root-owned, read-only, uid-1000 mount) and the connection pools, which
+    `compose_human_plane` receives as arguments in production too. `ObservedTransport`
+    wraps the composed `MTLSHumanEngineTransport` as an observer — it never composes
+    one, and the assertion below fails if it ever does.
+    """
+    import hashlib
+    import importlib
+    from datetime import UTC, datetime
+
+    from alembic.operations import Operations
+    from alembic.runtime.migration import MigrationContext
+    from cryptography.hazmat.primitives import serialization
+    from sqlalchemy.engine import URL
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from tests.support.human_relay_live import ObservedTransport, private_file
+    from tests.support.materials_builder import build_bundle, pin_for
+
+    from maezo.gateway.human.production import compose_human_plane
+    from maezo.gateway.human.production_materials import verify_materials
+    from maezo.gateway.human.read_materials import MaterialLifetime
+    from maezo.gateway.human.transport import MTLSHumanEngineTransport
+
+    config = live.config
+    designation = config.key
+    origin = config.data["human_url"]
+    ca = private_file(config.directory / "ca.crt").read_bytes()
+    certificate = private_file(config.directory / "command.crt").read_bytes()
+    private_key = private_file(config.directory / "command.key").read_bytes()
+    signing_pem = config.signing_key("command").private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+    # The engine pins the envelope to the fixture's own key window; the material window
+    # must sit inside it or every signature the plane mints is already out of scope.
+    not_before = datetime.fromtimestamp(int(designation["not_before"]), UTC)
+    not_after = datetime.fromtimestamp(int(designation["not_after"]), UTC)
+    assert not_before <= datetime.now(UTC) < not_after, "fixture command key must be current"
+    envelope_seconds = min(int(config.trust["max_lifetime_seconds"]), 600)
+
+    directory = live.artifacts / "materials"
+    manifest, files = build_bundle(
+        directory=directory,
+        scope={
+            "tenant": live.scope.tenant,
+            "environment": live.scope.environment,
+            "workload_ref": live.scope.workload_ref,
+        },
+        assignment_workload=live.scope.workload_ref + "-assignment",
+        engine={
+            "engine_name": config.data["tenant"],
+            "database_incarnation": config.data["source_sha"],
+        },
+        window=(not_before, not_after),
+        key_designations={
+            "human-command": {
+                "key_id": designation["id"],
+                "audience": config.trust["audience"],
+                "max_envelope_seconds": str(envelope_seconds),
+            }
+        },
+        replacements={
+            "command-ca.pem": ca,
+            "command-client-certificate.pem": certificate,
+            "command-client-key.pem": private_key,
+            "command-signing-key.pem": signing_pem,
+            "read-ca.pem": ca,
+            "read-client-certificate.pem": certificate,
+            "read-client-key.pem": private_key,
+        },
+        overrides={
+            # The engine is mounted at the origin root and the transport appends its
+            # own `/v1/...` paths, so the base IS the origin.
+            "command_endpoint": origin,
+            "command_surface": {"origin": origin, "server_spki_sha256": _server_spki(origin)},
+            "read_surface": {"origin": origin, "server_spki_sha256": _server_spki(origin)},
+        },
+    )
+    material = verify_materials(
+        pin_for(manifest), manifest, files, now=datetime.now(UTC), directory=str(directory)
+    )
+    assert material.manifest.scope == live.scope
+
+    # `_active()` reads the E03 source of truth on startup; the fixture migrates only
+    # what its own tests need, so this test brings its own table and marks it active.
+    parameters = config.db_parameters()
+    parameters["username"] = parameters.pop("user")
+    source_engine = create_async_engine(
+        URL.create("postgresql+asyncpg", **parameters),
+        echo=False,
+        hide_parameters=True,
+        connect_args={"server_settings": {"search_path": live.scope.tenant}},
+    )
+    async with source_engine.begin() as connection:
+
+        def migrate(sync):  # type: ignore[no-untyped-def]
+            with Operations.context(MigrationContext.configure(sync)):
+                importlib.import_module(
+                    "maezo.platform.migrations.versions.0014_staff_assignment_authority"
+                ).upgrade()
+
+        await connection.run_sync(migrate)
+    await live.admin.execute(
+        f'INSERT INTO "{live.scope.tenant}".portal_assignment_source '
+        "(tenant,source_revision,state,active_generation_digest,native_revision,designation_bytes) "
+        "VALUES ($1,1,'active',$2,1,''::bytea)",
+        live.scope.tenant,
+        hashlib.sha256(b"synthetic-generation").hexdigest(),
+    )
+
+    lifetime = MaterialLifetime()
+    runtime = compose_human_plane(material, pool=live.pool, source_engine=source_engine, lifetime=lifetime)
+    try:
+        # The relay's transport is the production one, composed from the bundle.
+        composed = runtime.assignment._relay._transport
+        assert isinstance(composed, MTLSHumanEngineTransport)
+        assert type(composed).__module__ == "maezo.gateway.human.transport"
+        observer = ObservedTransport(composed)
+        observer.drop_response = True
+        runtime.assignment._relay._transport = observer
+
+        await runtime.assignment.start()
+        command = await live.command()
+        await live.persist(command)
+
+        await _until(lambda: "response.dropped.after.actual.commit" in observer.events)
+        await live.assert_pending(command, engine_committed=True)
+        winner = dict(await live.task())
+        assert winner["assignee_"] == command.principal_ref
+        assert winner["rev_"] == int(command.task_revision) + 1
+        original = (await live.engine_receipts())[0]["receipt_"].encode()
+        assert observer.receipts == [original]
+        pending = dict(await live.delivery(command))
+
+        # The response comes back and the SAME production relay reconciles.
+        observer.drop_response = False
+        await live.allow_retry()
+        await _until(lambda: observer.events[-2:] == ["GET.begin", "GET.committed"])
+        await live.assert_result(command)
+    finally:
+        await runtime.assignment.close()
+        lifetime.close()
+        await source_engine.dispose()
+
+    reconciled = dict(await live.delivery(command))
+    assert reconciled["command_id"] == pending["command_id"] == command.command_id
+    assert bytes(reconciled["engine_receipt"]) == original
+    assert len(await live.engine_receipts()) == 1
+    assert dict(await live.task()) == winner
+    # The receipt was reconciled, never re-dispatched: exactly one POST happened.
+    assert observer.events.count("POST.begin") == 1
+
+
+def _server_spki(origin: str) -> str:
+    """The live engine's TLS server key, read from the socket it is actually serving."""
+    import hashlib
+    import socket
+    import ssl
+    from urllib.parse import urlsplit
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    url = urlsplit(origin)
+    assert url.hostname and url.port
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    with (
+        socket.create_connection((url.hostname, url.port), timeout=10) as raw,
+        context.wrap_socket(raw, server_hostname=url.hostname) as tls,
+    ):
+        peer = tls.getpeercert(binary_form=True)
+    assert peer is not None
+    certificate = x509.load_der_x509_certificate(peer)
+    return hashlib.sha256(
+        certificate.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    ).hexdigest()
+
+
+async def _until(condition, *, seconds: float = 60.0) -> None:
+    """Wait for the production relay's own polling loop; never drive it by hand."""
+    for _ in range(int(seconds / 0.1)):
+        if condition():
+            return
+        await asyncio.sleep(0.1)
+    raise AssertionError("the production relay did not reach the expected state in time")

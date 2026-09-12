@@ -88,13 +88,26 @@ def build_bundle(
     directory: Path,
     overrides: dict | None = None,
     replacements: dict[str, bytes] | None = None,
+    scope: dict | None = None,
+    assignment_workload: str | None = None,
+    engine: dict | None = None,
+    window: tuple[datetime, datetime] | None = None,
+    key_designations: dict[str, dict] | None = None,
 ) -> tuple[HumanPublicManifest, dict]:
     """Write the material files under `directory` and return (manifest, file bytes).
 
     `replacements` substitutes real deployment bytes (a live CA, client certificate,
     client key, signing key or DSN) BEFORE the manifest digests are computed, so the
-    manifest still attests exactly what is on disk. `overrides` patches manifest
-    fields afterwards, which is how a test builds a deliberately invalid manifest.
+    manifest still attests exactly what is on disk.
+
+    `scope`, `assignment_workload`, `engine`, `window` and `key_designations` describe
+    a real deployment. They are separate from `overrides` because they are also signed
+    into the read admission or recomputed into a fingerprint, so patching the finished
+    payload would leave the bundle internally inconsistent.
+
+    `overrides` patches the finished manifest payload (dict values are merged one level
+    deep, so a surface can be repointed without discarding its recomputed digests).
+    That is how a test builds a deliberately invalid manifest.
     """
     root = Ed25519PrivateKey.generate()
     read_key = Ed25519PrivateKey.generate()
@@ -104,19 +117,25 @@ def build_bundle(
     read_certificate, read_private, read_client_spki = _certificate("portal-read-client")
     command_certificate, command_private, command_client_spki = _certificate("portal-command-client")
 
+    scope = dict(scope or {"tenant": TENANT, "environment": ENVIRONMENT, "workload_ref": WORKLOAD})
+    assignment_workload = assignment_workload or ASSIGNMENT_WORKLOAD
+    engine = dict(engine or {"engine_name": ENGINE_NAME, "database_incarnation": INCARNATION})
+
     cursor_material = bytes(range(32, 64))
     cursor_previous = bytes(range(64, 96))
     cursor_keys = {
         "cursor-current": base64.b64encode(cursor_material).decode("ascii"),
         "cursor-previous": base64.b64encode(cursor_previous).decode("ascii"),
     }
-    issued_at = datetime.now(UTC) - timedelta(minutes=5)
-    valid_until = datetime.now(UTC) + timedelta(hours=6)
+    issued_at, valid_until = window or (
+        datetime.now(UTC) - timedelta(minutes=5),
+        datetime.now(UTC) + timedelta(hours=6),
+    )
 
     admission_record = {
-        "scope": {"tenant": TENANT, "environment": ENVIRONMENT, "workload_ref": WORKLOAD},
-        "engine_name": ENGINE_NAME,
-        "database_incarnation": INCARNATION,
+        "scope": scope,
+        "engine_name": engine["engine_name"],
+        "database_incarnation": engine["database_incarnation"],
         "read_deployment_ref": "read-deployment-1",
         "read_deployment_digest": "b" * 64,
         "runtime_admission_generation": "3",
@@ -174,14 +193,14 @@ def build_bundle(
     payload: dict = {
         "schema": "portal-human-material.v1",
         "material_version_id": VERSION_ID,
-        "scope": {"tenant": TENANT, "environment": ENVIRONMENT, "workload_ref": WORKLOAD},
+        "scope": scope,
         "issuer": "https://identity.invalid",
         "issued_at": _iso(issued_at),
         "valid_until": _iso(valid_until),
         "root_key_fingerprint": hashlib.sha256(_spki(root)).hexdigest(),
-        "engine_name": ENGINE_NAME,
-        "database_incarnation": INCARNATION,
-        "assignment_workload_ref": ASSIGNMENT_WORKLOAD,
+        "engine_name": engine["engine_name"],
+        "database_incarnation": engine["database_incarnation"],
+        "assignment_workload_ref": assignment_workload,
         # The engine BASE url: the transport appends `/v1/commands` and
         # `/v1/receipts/...` itself, and the deployed surface is mounted at the root.
         "command_endpoint": COMMAND_ORIGIN,
@@ -191,7 +210,7 @@ def build_bundle(
             {
                 "purpose": "portal-task-read",
                 "key_id": "kms-human-read-1",
-                "workload_ref": WORKLOAD,
+                "workload_ref": scope["workload_ref"],
                 "audience": "engine-read",
                 "fingerprint": fingerprint_of(read_key),
                 "max_envelope_seconds": "5",
@@ -199,7 +218,7 @@ def build_bundle(
             {
                 "purpose": "human-assignment-read",
                 "key_id": "kms-human-assignment-1",
-                "workload_ref": ASSIGNMENT_WORKLOAD,
+                "workload_ref": assignment_workload,
                 "audience": "engine-assignment",
                 "fingerprint": fingerprint_of(assignment_key),
                 "max_envelope_seconds": "5",
@@ -207,7 +226,7 @@ def build_bundle(
             {
                 "purpose": "human-command",
                 "key_id": "kms-human-command-1",
-                "workload_ref": WORKLOAD,
+                "workload_ref": scope["workload_ref"],
                 "audience": "engine-command",
                 "fingerprint": fingerprint_of(command_key),
                 "max_envelope_seconds": "5",
@@ -263,7 +282,7 @@ def build_bundle(
         "relay_retry_seconds": "1",
         "relay_poll_seconds": "1",
         "revocation_snapshot": {
-            "scope": {"tenant": TENANT, "environment": ENVIRONMENT, "workload_ref": WORKLOAD},
+            "scope": scope,
             "source_ref": "revocation-observer-1",
             "revision": "4",
             "observed_at": _iso(issued_at),
@@ -275,8 +294,13 @@ def build_bundle(
             **{name: None for name in FILES - PUBLIC_FILES},
         },
     }
+    for designation in payload["keys"]:
+        designation.update((key_designations or {}).get(designation["purpose"], {}))
     for key, value in (overrides or {}).items():
-        payload[key] = value
+        current = payload.get(key)
+        payload[key] = (
+            {**current, **value} if isinstance(current, dict) and isinstance(value, dict) else value
+        )
 
     directory.mkdir(parents=True, exist_ok=True)
     for name, raw in files.items():
@@ -293,14 +317,8 @@ def pin_for(manifest: HumanPublicManifest) -> HumanMaterialPin:
     )
 
 
-def build_materials(
-    directory: Path,
-    *,
-    overrides: dict | None = None,
-    replacements: dict[str, bytes] | None = None,
-    pin: HumanMaterialPin | None = None,
-) -> HumanMaterials:
-    manifest, files = build_bundle(directory=directory, overrides=overrides, replacements=replacements)
+def build_materials(directory: Path, *, pin: HumanMaterialPin | None = None, **kwargs) -> HumanMaterials:
+    manifest, files = build_bundle(directory=directory, **kwargs)
     return verify_materials(
         pin or pin_for(manifest), manifest, files, now=datetime.now(UTC), directory=str(directory)
     )
