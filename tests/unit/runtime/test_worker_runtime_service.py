@@ -397,6 +397,7 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         tenant_id: str = "",
         kafka: Any = None,
         dossier_dispatcher: Any = None,
+        document_request_host_installed: bool = False,
     ) -> None:
         captured["engine"] = engine
         captured["dmn"] = dmn
@@ -404,13 +405,17 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         captured["tenant_id"] = tenant_id
         captured["kafka"] = kafka
         captured["dossier_dispatcher"] = dossier_dispatcher
+        captured["document_request_host_installed"] = document_request_host_installed
 
     async def _probe_ok(_sink: Any, _timeout: float) -> bool:
         return True
 
     monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
     monkeypatch.setattr(svc, "register_default_workers", _spy_register)
-    monkeypatch.setattr(svc, "_expected_worker_topics", lambda: frozenset({"t"}))
+    # WP-J1-03: the probe now takes the document-request exclusivity seam, exactly as the
+    # live registration does — a stub with the old arity would let the readiness
+    # expectation and the real registration silently disagree about the topic set.
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
     monkeypatch.setattr(svc, "_probe_audit_sink", _probe_ok)
 
     settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")
@@ -425,6 +430,9 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         assert state.harness.audit_sink is state.audit_sink
         # GAP-INAD-1 engine seam threaded into the bootstrap.
         assert captured["engine"] is state.engine_transport
+        # WP-J1-03: the exclusivity seam reaches the bootstrap, defaulting to the
+        # historical posture (generic `RequestDocumentsWorker` registered) when unset.
+        assert captured["document_request_host_installed"] is False
         # T1.10 wave: the worker-side audit seam is a loop-safe per-call emitter (handoff_rescisao
         # emits on its own asyncio.run loop — the pooled sink must never cross loops).
         assert isinstance(captured["audit_sink"], FreshSinkAuditEmitter)
@@ -457,7 +465,10 @@ async def test_bring_up_does_not_spawn_when_sink_probe_red(monkeypatch: Any) -> 
 
     monkeypatch.setattr(svc, "WorkerHarness", _SpyHarness)
     monkeypatch.setattr(svc, "register_default_workers", lambda *a, **k: None)
-    monkeypatch.setattr(svc, "_expected_worker_topics", lambda: frozenset({"t"}))
+    # WP-J1-03: the probe now takes the document-request exclusivity seam, exactly as the
+    # live registration does — a stub with the old arity would let the readiness
+    # expectation and the real registration silently disagree about the topic set.
+    monkeypatch.setattr(svc, "_expected_worker_topics", lambda installed=False: frozenset({"t"}))
     monkeypatch.setattr(svc, "_probe_audit_sink", _probe_red)
 
     settings = WorkerRuntimeSettings(DATABASE_URL="postgresql://maezo@localhost:5432/maezo")

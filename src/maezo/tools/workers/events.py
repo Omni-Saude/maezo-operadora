@@ -265,6 +265,31 @@ def make_publish_event_handler(
             # identical outcome, and clean under the gate.
             raise ValueError("operadora.events.publish: `event_topic` ausente nas variaveis")
 
+        if not task.business_key or not task.business_key.strip():
+            # WP-J1-11. `_business_key` NAO e' decoracao do payload: o BPMN de AUTH o declara
+            # como O payload_ref pelo qual um consumidor da Zona PHI resolve o conteudo clinico
+            # no engine/store, JUSTAMENTE porque o fato nunca carrega PHI (GAP-AUTH-1, ADR-0006,
+            # `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`). Um fato publicado
+            # com payload_ref vazio e' um fato irresolvivel: o consumidor nao tem como chegar ao
+            # caso, e nada no caminho reclama — a perda e' SILENCIOSA.
+            #
+            # A string vazia e' alcancavel, nao teorica: o harness mapeia
+            # `item.get("businessKey", "") or ""` (`tools/workers/harness.py`), entao QUALQUER
+            # instancia aberta sem business key produz `""` aqui. Isso ficou load-bearing quando
+            # #16 tornou a chave o UNICO dominio de idempotencia compartilhado entre o canal de
+            # agente e o canal do portal: um canal que abrisse instancia sem chave passaria a
+            # emitir fatos que ninguem consegue correlacionar com a guia.
+            #
+            # `ValueError` pelo mesmo motivo do `event_topic` ausente logo acima: entrada ma',
+            # nao desfecho de negocio modelado — nao existe `bpmn:error` para isto em `spec/**`,
+            # e o ladder do harness ja' roteia `ValueError` para o MESMO incidente fail-closed
+            # (`failure(retries=0)`) sem inventar um `bpmnError` nao catalogado.
+            raise ValueError(
+                "operadora.events.publish: `business_key` ausente/vazia na instancia — o fato "
+                "seria publicado com `_business_key` vazio, isto e', sem o payload_ref que o "
+                "consumidor usa para resolver o caso (o fato NUNCA carrega PHI)"
+            )
+
         payload_vars = _parse_payload_vars(task.variables.get("event_payload_vars"))
         payload: dict[str, Any] = {
             "_business_key": task.business_key,

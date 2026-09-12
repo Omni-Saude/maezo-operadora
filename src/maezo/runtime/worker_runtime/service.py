@@ -262,6 +262,7 @@ def register_default_workers(
     tenant_id: str = "",
     kafka: AioKafkaEventsProducer | None = None,
     dossier_dispatcher: DelegationDispatcher | None = None,
+    document_request_host_installed: bool = False,
 ) -> None:
     """Register every worker this build serves. The daemon's ONE bootstrap call (STEP B).
 
@@ -325,18 +326,26 @@ def register_default_workers(
         tenant_id=tenant_id,
         kafka=kafka,
         dossier_dispatcher=dossier_dispatcher,
+        document_request_host_installed=document_request_host_installed,
     )
 
 
-def _expected_worker_topics() -> frozenset[str]:
+def _expected_worker_topics(document_request_host_installed: bool = False) -> frozenset[str]:
     """The canonical topic set this daemon MUST serve — the readiness check compares the live
     harness against this. Derived from `register_default_workers` itself (never a hand-maintained
     constant that would silently drift when a worker is added/removed) by registering into a
     disposable, transport-less harness — `register_worker` is pure (only populates a dict; the
     transport is untouched until `run()`), so this is a zero-network probe.
+
+    WP-J1-03: the probe takes the SAME exclusivity seam as the live registration, so the two
+    can never disagree. When the dedicated document-request bridge is installed this daemon no
+    longer serves `operadora.auth.request_documents`, and readiness must expect its absence —
+    computing the expected set without the seam would hold `/readyz` permanently unhealthy on a
+    correctly configured pod, which is the kind of pressure that gets a fail-closed readiness
+    check loosened to `> 0`.
     """
     probe = WorkerHarness(_NullTransport(), worker_id="topic-probe")
-    register_default_workers(probe)
+    register_default_workers(probe, document_request_host_installed=document_request_host_installed)
     return frozenset(probe.registered_topics)
 
 
@@ -1009,9 +1018,12 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 # Dossier-A2A seam (DL-0033/DL-0037): None when degraded — the raw dossier
                 # handlers then gap-mark instead of delegating; every topic still registers.
                 dossier_dispatcher=state.dossier_dispatcher,
+                # WP-J1-03 exclusivity seam: when the dedicated PHI document-request bridge is
+                # installed, the generic harness must not also serve its topic.
+                document_request_host_installed=settings.document_request_host_installed,
             )
             state.harness = harness
-            state.expected_topics = _expected_worker_topics()
+            state.expected_topics = _expected_worker_topics(settings.document_request_host_installed)
     except Exception:  # registration failure leaves workers_registered unhealthy.
         logger.error("worker_harness_build_failed", exc_info=True)
 

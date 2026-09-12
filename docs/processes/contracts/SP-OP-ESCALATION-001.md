@@ -27,7 +27,7 @@ continua dono dos timers e o caso exibe o estado real após takeover/timeout.
 **AUTH não chama ESCALATION automaticamente — EMENDADO em 2026-09-12 (WP-J1-09).** A
 regra original permanece o caso geral e está preservada abaixo; o que a emenda abre é
 UMA exceção nominada, ratificada pelo dono do contrato (decisão #17) e registrada em
-`docs/adr/0050-handoff-auth-escalation-risco-de-sla.md`.
+`docs/adr/0051-handoff-auth-escalation-risco-de-sla.md`.
 
 *Caso geral (inalterado).* A coordenação da auditoria e junta já existem dentro de AUTH.
 Iniciar ESCALATION requer gatilho deste contrato, conversa de origem, produtor autorizado

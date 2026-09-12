@@ -596,7 +596,7 @@ class _SlaAlertSpec:
     handler that actually publishes, and the spec below is the consumer half. The ratification was
     REQUIRED, not an engineering call: the ESCALATION contract used to state, in so many words,
     that AUTH does not call ESCALATION automatically; that line is amended by this same work
-    package (`docs/processes/contracts/SP-OP-ESCALATION-001.md`, and ADR-0050).
+    package (`docs/processes/contracts/SP-OP-ESCALATION-001.md`, and ADR-0051).
     """
 
     #: The `type` literal the publisher stamps on the notification.

@@ -1,4 +1,4 @@
-# ADR-0050: Handoff AUTH -> ESCALATION para risco de SLA (`ESC-{tenant}-sla-auth-{guia}`)
+# ADR-0051: Handoff AUTH -> ESCALATION para risco de SLA (`ESC-{tenant}-sla-auth-{guia}`)
 
 **Status:** Accepted — decisao do DONO DO CONTRATO #17 (2026-09-12), RATIFICADA em sessao
 **Data:** 2026-09-12

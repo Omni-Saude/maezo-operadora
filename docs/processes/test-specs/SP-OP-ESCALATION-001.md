@@ -78,7 +78,7 @@ Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`).
 - **When** cada um e percorrido
 - **Then** ha evento Kafka correspondente publicado ANTES do end event (sem fim silencioso)
 
-## Inbox duravel de `notify_team` (WP-J1-09 — ADR-0050, ADR-0037 XRD-10)
+## Inbox duravel de `notify_team` (WP-J1-09 — ADR-0051, ADR-0037 XRD-10)
 
 ### test_notify_team_grava_linha_de_inbox_antes_do_offset
 - **Given** uma instancia de `SP-OP-ESCALATION-001` cujo `ST_NotificarTime` completou, com o

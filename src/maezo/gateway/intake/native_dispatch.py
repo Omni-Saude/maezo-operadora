@@ -32,9 +32,50 @@ from maezo.gateway.human.auth_transport import (
     bind_receipt,
 )
 from maezo.gateway.human.read_profile import digest, parse_model, wire
+from maezo.tools.process_business_keys import (
+    AUTH_BUSINESS_KEY_PREFIX,
+    refuse_legacy_auth_intake_business_key,
+)
 
 from .native_source_lifecycle import AuthCallerBinding
 from .native_store import PostgresAuthDispatchStore
+
+
+class AuthIntakeGuideNumberUnavailableError(AuthUnavailableError):
+    """A fonte `guide` publicada nao traz `numero_guia_tiss`, entao o portal nao pode montar a
+    business key CONTRATUAL — e recusa iniciar (WP-J1-11, decisao do dono #16, opcao (a)).
+
+    POR QUE RECUSAR E NAO CAIR NA CHAVE ANTIGA. O que o despachante tinha a mao era
+    `guide_identity_ref`, uma referencia OPACA do portal, e era dela que saia a chave
+    `AUTHI-{guide_identity_ref}`. Essa chave e' bem-formada e o engine a aceita — por isso o
+    defeito sobreviveu: ela abre uma instancia PERFEITAMENTE FUNCIONAL num SEGUNDO dominio de
+    idempotencia, invisivel ao canal de agente. Uma "migracao" seria inventar o numero da guia
+    TISS a partir de um opaco que nao o determina. Recusar alto e' a unica resposta que nao
+    fabrica identidade clinica, e deixa o caminho do portal INERTE exatamente como ja' esta'
+    (`dispatch_prepared_start` nao tem chamador em `src/`).
+
+    O QUE FECHA ISSO (nao e' deste pacote): a fonte `guide` precisa publicar `numero_guia_tiss`
+    — um campo novo no DTO fechado `GuideIdentity`/`StartFacts`, com o dono da fonte, a analise
+    de minimizacao do numero na fronteira do portal e o publicador correspondente (WP-J1-02) —
+    e so' entao WP-J1-01 liga o daemon. `_published_guide_number` ja' le o campo: no dia em que
+    ele existir, esta recusa deixa de ocorrer sem mais nenhuma edicao aqui.
+    """
+
+    def __init__(self) -> None:
+        RuntimeError.__init__(self, "human_auth_guide_number_unavailable")
+
+
+def assert_auth_business_key_of_tenant(business_key: object, *, tenant_id: str) -> None:
+    """Recusa qualquer business key de AUTH que nao seja `AUTH-{tenant_id}-{guia nao vazia}`.
+
+    Estrutural de proposito: este ponto NAO conhece o `numero_guia_tiss` (quem o conhece e'
+    `dispatch_prepared_start`, que o le da fonte publicada), entao ele prova o que pode provar
+    sem duplicar a fonte — prefixo contratual, tenant DESTA proveniencia e sufixo de guia nao
+    vazio. Sem isso a guarda aceitaria uma chave de outro tenant vinda de um chamador errado.
+    """
+    prefix = f"{AUTH_BUSINESS_KEY_PREFIX}{tenant_id}-"
+    if type(business_key) is not str or not business_key.startswith(prefix) or business_key == prefix:
+        raise AuthUnavailableError()
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -288,12 +329,16 @@ async def start_human(
 ) -> ProcessInstance:
     from maezo.tools.mcp_cibseven.transport import ProcessInstance, StartOutcome
 
-    if (
-        type(transport) is not HumanIntakeStartTransport
-        or process_key != "SP-OP-AUTH-001"
-        or business_key != "AUTHI-" + provenance.guide_identity_ref
-    ):
+    if type(transport) is not HumanIntakeStartTransport or process_key != "SP-OP-AUTH-001":
         raise AuthUnavailableError()
+    # WP-J1-11 (decisao do dono #16, opcao (a)). Ate aqui esta guarda exigia
+    # `business_key == "AUTHI-" + provenance.guide_identity_ref`, isto e', ela EXIGIA a chave do
+    # segundo dominio de idempotencia — o canal do portal nunca podia coincidir com o canal de
+    # agente, que usa a chave contratual `AUTH-{tenant_id}-{numero_guia_tiss}`. A guarda agora
+    # exige a forma contratual, escopada no tenant DESTA proveniencia, e recusa a legada por
+    # nome (nunca a converte: ver `refuse_legacy_auth_intake_business_key`).
+    refuse_legacy_auth_intake_business_key(business_key)
+    assert_auth_business_key_of_tenant(business_key, tenant_id=provenance.scope.tenant)
     transport.match_projection(variables, provenance.projected_variables_digest)
     authorized = await transport.authorize_human_start(provenance)
     receipt = await transport.execute_human_start(authorized)

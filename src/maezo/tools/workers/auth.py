@@ -1879,13 +1879,32 @@ def register_auth_workers(
     handler); it is now CALLED BY the handler, so its pure step and its three unit tests are
     unchanged. `kafka` therefore stops being unused in this bootstrap.
     """
-    for worker_cls in (
+    # WP-J1-03's conditional list, kept verbatim. The `del kafka` that used to sit here is GONE:
+    # WP-J1-09's raw `notify_sla_risk` handler consumes the seam, so discarding it would silently
+    # put the alert back on the no-producer path — the exact defect this WP closed.
+    workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
-        RequestDocumentsWorker,
         IssueAuthorizationWorker,
         SendDenialNoticeWorker,
         ConveneJuntaWorker,
-    ):
+    ]
+    # WP-J1-03 — EXCLUSIVIDADE DE TOPICO. `operadora.auth.request_documents` tem dois
+    # consumidores possiveis e EXATAMENTE UM pode estar registrado:
+    #   (a) este `RequestDocumentsWorker`, que apenas registra em log e NAO entrega nada
+    #       (nenhuma linha de caixa de entrada, nenhum corpo sob custodia PHI); e
+    #   (b) a ponte dedicada `DocumentRequestHost` (gateway/document_requests), que entrega
+    #       de verdade ao prestador E ao beneficiario (decisao #18 do dono).
+    # Se os dois estiverem registrados, os dois fazem fetch-and-lock da MESMA tarefa externa
+    # e quem ganhar a corrida decide se o pedido foi entregue ou apenas logado — o pior
+    # resultado possivel, porque o processo segue para GW_AguardarDocs nos dois casos e a
+    # falta de entrega so aparece quando o prazo P5D expira. Por isso a escolha e' explicita
+    # (`MAEZO_AUTH_DOCUMENT_REQUEST_HOST`), nunca inferida, e a ponte se recusa a instalar
+    # enquanto este topico ainda estiver no conjunto do harness generico
+    # (`DocumentRequestHost.assert_exclusive`). A ausencia do seam mantem o comportamento
+    # historico byte-a-byte: o worker generico registra.
+    if not seams.get("document_request_host_installed", False):
+        workers.insert(1, RequestDocumentsWorker)
+    for worker_cls in workers:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
     harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
