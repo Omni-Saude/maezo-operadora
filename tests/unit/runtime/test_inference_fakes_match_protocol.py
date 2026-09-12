@@ -1821,13 +1821,24 @@ def test_close_secundario_continua_sendo_ofensa_num_falso_ancorado_de_dmntranspo
     o laco de secundarios usa `_achado_de_metodo_para_familia` com o gate de forma DESLIGADO
     (mesmo regime do caminho resolvido por CONTEXTO), nunca a exclusao silenciosa do
     `_achado_de_metodo` original."""
-    base = "class _FakeDmn:\n    async def evaluate(self, decision_key, variables, *, tenant=None):\n        return ([], None)\n"
-    achados = _achados_estruturais_em_fonte(base + "    def close(self):\n        return None\n", "sintetico.py")
+    base = (
+        "class _FakeDmn:\n"
+        "    async def evaluate(self, decision_key, variables, *, tenant=None):\n"
+        "        return ([], None)\n"
+    )
+    achados = _achados_estruturais_em_fonte(
+        base + "    def close(self):\n        return None\n", "sintetico.py"
+    )
     assert len(achados) == 1
     assert "`_FakeDmn`.close" in achados[0] and "DmnTransport.close" in achados[0]
     assert "`async def`" in achados[0] and "sincrono" in achados[0]
     # e o mesmo falso com `close` CORRETO nao gera achado nenhum
-    assert _achados_estruturais_em_fonte(base + "    async def close(self):\n        return None\n", "sintetico.py") == []
+    assert (
+        _achados_estruturais_em_fonte(
+            base + "    async def close(self):\n        return None\n", "sintetico.py"
+        )
+        == []
+    )
 
 
 def test_achados_estruturais_recusa_ancora_unica_com_sync_async_trocado() -> None:
