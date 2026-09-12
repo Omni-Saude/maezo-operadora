@@ -35,6 +35,7 @@ import pytest
 
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome
 from maezo.gateway.audit_postgres import (
+    _ADVISORY_LOCK_SQL,
     _COLUMNS,
     _DEDUP_CLAIM_SQL,
     _DEDUP_LOOKUP_SQL,
@@ -1112,3 +1113,180 @@ def test_fresh_sink_emitter_cross_loop_sequential_asyncio_run(pg_dsn: str) -> No
         assert result.verified_records == 2
     finally:
         asyncio.run(_drop_tenant_schema(pg_dsn, tenant_id))
+
+
+# ---------------------------------------------------------------------------
+# Regression PR-A-AUDIT-ENLIST-001 — the enlistment precondition is enlistment-ONLY.
+#
+# The refactor that extracted `emit_once_on` out of `emit_once_status` (train slice SA) routed the
+# STANDALONE path through the new ENLISTED entry point, and so imposed `record.tenant_id ==
+# self._tenant_id` on every standalone emit. `main` never imposed it, the sibling `emit()` still
+# does not, and `emit_once_on`'s own docstring promises the standalone path is unchanged. The lane
+# proof: 25 `start_process_idempotent` starts died with `invalid enlisted audit transaction`
+# because `tests/integration/conftest.py` binds the sink to a per-run SCHEMA tenant (`it_<RUN_ID>`)
+# while the flows audit the BUSINESS tenant.
+#
+# These are pure unit tests (a fake asyncpg pool — the sink accepts `pool=`), so they run in the
+# unit lane rather than waiting on a Postgres. They pin BOTH halves: the guard still fires for
+# enlisted callers, and it never fires for standalone ones.
+# ---------------------------------------------------------------------------
+
+
+class _FakeAcquire:
+    def __init__(self, conn: _FakeConn) -> None:
+        self._conn = conn
+
+    async def __aenter__(self) -> _FakeConn:
+        return self._conn
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+
+class _FakeTransaction:
+    def __init__(self, conn: _FakeConn) -> None:
+        self._conn = conn
+
+    async def __aenter__(self) -> _FakeTransaction:
+        self._conn.in_transaction = True
+        return self
+
+    async def __aexit__(self, *exc: object) -> bool:
+        self._conn.in_transaction = False
+        return False
+
+
+class _FakeConn:
+    """Records the SQL the sink issues; answers the four reads the claim+chain body performs."""
+
+    def __init__(self, *, schema: str, in_transaction: bool = False) -> None:
+        self.schema = schema
+        self.in_transaction = in_transaction
+        self.executed: list[tuple[object, ...]] = []
+
+    def transaction(self) -> _FakeTransaction:
+        return _FakeTransaction(self)
+
+    def is_in_transaction(self) -> bool:
+        return self.in_transaction
+
+    async def execute(self, sql: str, *args: object) -> str:
+        self.executed.append((sql, *args))
+        return "OK"
+
+    async def fetchval(self, sql: str, *args: object) -> object:
+        if sql == "SELECT current_schema()":
+            return self.schema
+        if sql == _DEDUP_LOOKUP_SQL:
+            return None  # never audited before -> first emit
+        if sql == _DEDUP_CLAIM_SQL:
+            return args[2]  # claim succeeds, echoing the record_hash
+        raise AssertionError(f"unexpected fetchval: {sql!r}")
+
+    async def fetch(self, sql: str, *args: object) -> list[object]:
+        return []  # empty chain -> tail is GENESIS_PREV_HASH
+
+
+class _FakePool:
+    def __init__(self, conn: _FakeConn) -> None:
+        self.conn = conn
+
+    def acquire(self) -> _FakeAcquire:
+        return _FakeAcquire(self.conn)
+
+
+def _sink_with_fake_conn(tenant_id: str, conn: _FakeConn) -> PostgresAuditSink:
+    return PostgresAuditSink(
+        "postgresql://u:p@localhost:5432/db",
+        tenant_id,
+        pool=_FakePool(conn),  # type: ignore[arg-type]
+    )
+
+
+def _record(tenant_id: str) -> AuditRecord:
+    return AuditRecord(
+        agent_id="marina",
+        tenant_id=tenant_id,
+        agent_version="marina@v0",
+        action="start_process:SP-OP-CONTAS-001",
+        decision="ALLOW",
+        details={},
+    )
+
+
+async def test_emit_once_status_accepts_a_record_whose_tenant_differs_from_the_schema_tenant() -> None:
+    """THE REGRESSION. Isolation is the SCHEMA (the pool's `setup=` pins `search_path`);
+    `record.tenant_id` is a data column. A standalone emit must therefore persist a record for a
+    business tenant that is not the sink's schema tenant — exactly what every integration suite
+    does, and what `main` and `emit()` have always allowed."""
+    conn = _FakeConn(schema="it_9a3eac90")
+    sink = _sink_with_fake_conn("it_9a3eac90", conn)
+
+    outcome = await sink.emit_once_status(_record("amh"), dedup_key="amh:start:SP-OP-CONTAS-001:bk")
+
+    assert outcome.deduped is False
+    assert outcome.record_hash
+    # The chain row carries the RECORD's tenant verbatim, while the advisory lock and the dedup
+    # claim are keyed on the SINK's tenant — the split the guard would have collapsed.
+    inserts = [row for row in conn.executed if row[0] == INSERT_SQL]
+    assert len(inserts) == 1
+    assert inserts[0][2] == "amh"
+    assert (_ADVISORY_LOCK_SQL, "it_9a3eac90") in conn.executed
+
+
+async def test_emit_once_status_does_not_probe_current_schema() -> None:
+    """The standalone path owns its own connection, so the enlistment probes are not merely
+    tolerated — they are not issued at all (they would be a per-emit round trip `main` never paid).
+    `_FakeConn.fetchval` answers `SELECT current_schema()`, so this fails loudly if it regresses."""
+    conn = _FakeConn(schema="wrong_schema_entirely")
+    sink = _sink_with_fake_conn("it_9a3eac90", conn)
+
+    outcome = await sink.emit_once_status(_record("amh"), dedup_key="amh:start:x:bk")
+
+    assert outcome.deduped is False
+
+
+async def test_emit_once_on_still_refuses_a_foreign_tenant_record() -> None:
+    """The ENLISTED guard is untouched: the caller owns the connection, so a record for another
+    tenant would commit into a foreign schema's chain. Fail closed."""
+    conn = _FakeConn(schema="it_9a3eac90", in_transaction=True)
+    sink = _sink_with_fake_conn("it_9a3eac90", conn)
+
+    with pytest.raises(AuditPersistenceError, match="invalid enlisted audit transaction"):
+        await sink.emit_once_on(conn, _record("amh"), dedup_key="amh:start:x:bk")  # type: ignore[arg-type]
+
+    assert conn.executed == []  # refused before any SQL
+
+
+async def test_emit_once_on_still_refuses_a_connection_outside_a_transaction() -> None:
+    conn = _FakeConn(schema="it_9a3eac90", in_transaction=False)
+    sink = _sink_with_fake_conn("it_9a3eac90", conn)
+
+    with pytest.raises(AuditPersistenceError, match="invalid enlisted audit transaction"):
+        await sink.emit_once_on(conn, _record("it_9a3eac90"), dedup_key="k")  # type: ignore[arg-type]
+
+    assert conn.executed == []
+
+
+async def test_emit_once_on_still_refuses_a_foreign_search_path() -> None:
+    conn = _FakeConn(schema="some_other_tenant", in_transaction=True)
+    sink = _sink_with_fake_conn("it_9a3eac90", conn)
+
+    with pytest.raises(AuditPersistenceError, match="enlisted audit schema mismatch"):
+        await sink.emit_once_on(conn, _record("it_9a3eac90"), dedup_key="k")  # type: ignore[arg-type]
+
+    assert conn.executed == []
+
+
+async def test_both_entry_points_issue_the_same_claim_and_chain_sequence() -> None:
+    """`_emit_once_chained` is the single body: the enlisted and standalone paths must not drift on
+    the ordering the EFFECT-GATE guarantee rests on (lock -> lookup -> tail -> claim -> insert)."""
+    standalone_conn = _FakeConn(schema="amh")
+    standalone = _sink_with_fake_conn("amh", standalone_conn)
+    await standalone.emit_once_status(_record("amh"), dedup_key="amh:k")
+
+    enlisted_conn = _FakeConn(schema="amh", in_transaction=True)
+    enlisted = _sink_with_fake_conn("amh", enlisted_conn)
+    await enlisted.emit_once_on(enlisted_conn, _record("amh"), dedup_key="amh:k")  # type: ignore[arg-type]
+
+    assert [row[0] for row in standalone_conn.executed] == [row[0] for row in enlisted_conn.executed]
