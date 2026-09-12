@@ -11,12 +11,19 @@ from fastapi.routing import APIRoute
 from pydantic import TypeAdapter
 from starlette.routing import Match
 
+from maezo.gateway.intake.links import IntakeLinkService, IntakeLinkSource
 from maezo.gateway.intake.models import IntakeError
 from maezo.gateway.intake.service import IntakeService
 from maezo.portal.api.auth import AuthenticationError
 from maezo.portal.api.decisions import _body, _nonfinite, _pairs
 from maezo.portal.api.session import HumanSessionResolver
-from maezo.portal.contracts.intake import AuthIntakeSubmission, IntakeReceipt, PortalIntakeError, ResourceRef
+from maezo.portal.contracts.intake import (
+    AuthIntakeSubmission,
+    IntakeLinks,
+    IntakeReceipt,
+    PortalIntakeError,
+    ResourceRef,
+)
 
 IntakeServiceFactory = Callable[[HumanSessionResolver], IntakeService]
 PREFIX = "/api/v1/portal"
@@ -118,6 +125,30 @@ async def submit_intake(request: Request, body: AuthIntakeSubmission) -> Respons
         freeze=lambda result: Response(
             content=result.model_dump_json(), status_code=202, media_type="application/json"
         ),
+    )
+
+
+def link_service(request: Request) -> IntakeLinkService:
+    """Links come from the same installed authority that admits intakes — never a new slot.
+
+    An authority that cannot read published vínculos is a missing dependency (503); it is
+    never treated as "this principal has no links", which would be indistinguishable from
+    a real empty result.
+    """
+    intake = service(request)
+    source = intake.authority
+    if not isinstance(source, IntakeLinkSource):
+        raise IntakeError()
+    return IntakeLinkService(intake.resolver, source)
+
+
+@intake_router.get(PREFIX + "/intakes/auth/links", response_model=IntakeLinks, responses=ERRORS)
+async def read_intake_links(request: Request) -> Response:
+    if request.scope.get("query_string", b""):
+        raise IntakeError("invalid_request")
+    return await link_service(request).read_frozen(
+        secret(request),
+        freeze=lambda result: Response(content=result.model_dump_json(), media_type="application/json"),
     )
 
 
