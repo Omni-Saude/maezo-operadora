@@ -48,7 +48,7 @@ DEFAULT_BATCH_SIZE: Final[int] = 16
 DEFAULT_HEARTBEAT_PATH: Final[str] = "/tmp/maezo-intake-dispatch.heartbeat"
 
 
-class IntakeDispatchRefusal(RuntimeError):
+class IntakeDispatchRefusalError(RuntimeError):
     """The daemon refused to compose. Nothing was read, claimed or dispatched."""
 
 
@@ -82,38 +82,36 @@ class IntakeDispatchSettings(BaseSettings):
         default=DEFAULT_POLL_INTERVAL_S, alias="MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S"
     )
     batch_size: int = Field(default=DEFAULT_BATCH_SIZE, alias="MAEZO_INTAKE_DISPATCH_BATCH_SIZE")
-    heartbeat_path: str = Field(
-        default=DEFAULT_HEARTBEAT_PATH, alias="MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH"
-    )
+    heartbeat_path: str = Field(default=DEFAULT_HEARTBEAT_PATH, alias="MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH")
 
     def materials(self) -> IntakeDispatchMaterials:
         """Validate everything an effect depends on, or refuse by name. Never partially."""
         if not self.tenant:
-            raise IntakeDispatchRefusal(
+            raise IntakeDispatchRefusalError(
                 "intake dispatch: MAEZO_INTAKE_DISPATCH_TENANT is required — the outbox, the "
                 "protected store and the native installation are all tenant-scoped and none of "
                 "them may be inferred."
             )
         if not self.lifecycle_path:
-            raise IntakeDispatchRefusal(
+            raise IntakeDispatchRefusalError(
                 "intake dispatch: MAEZO_INTAKE_DISPATCH_LIFECYCLE_PATH is required — without the "
                 "AUTH lifecycle installation there is no protected store to drain and no native "
                 "installation to dispatch to."
             )
         if self.identity_writer_url is None or not self.identity_writer_url.get_secret_value():
-            raise IntakeDispatchRefusal(
+            raise IntakeDispatchRefusalError(
                 "intake dispatch: MAEZO_INTAKE_DISPATCH_IDENTITY_WRITER_URL is required — the "
                 "identity source lifecycle is composed with every one of its role-bound engines "
                 "or with none."
             )
         if not self.definition_path or not self.definition_digest:
-            raise IntakeDispatchRefusal(
+            raise IntakeDispatchRefusalError(
                 "intake dispatch: MAEZO_INTAKE_DISPATCH_DEFINITION_PATH and "
                 "MAEZO_INTAKE_DISPATCH_DEFINITION_DIGEST are both required — the deployed "
                 "SP-OP-AUTH-001 definition is pinned material, and an unpinned pin is not a pin."
             )
         if self.batch_size < 1 or self.poll_interval_s <= 0:
-            raise IntakeDispatchRefusal(
+            raise IntakeDispatchRefusalError(
                 "intake dispatch: batch size must be >= 1 and the poll interval > 0 — a daemon "
                 "that never sweeps lets every admitted row expire unnoticed."
             )
