@@ -415,7 +415,15 @@ def test_expired_fixture_publishes_nothing(seeded) -> None:
 
 def test_dry_run_publishes_nothing_and_labels_every_line(seeded, capsys) -> None:
     _marker_path, fixture_path, env = seeded
-    assert SEEDER.main(["--tenant", TENANT, "--fixture", str(fixture_path), "--dry-run"], env) == 0
+    # `main` must check the fixture window against the SAME instant the fixture was built
+    # against, not the real wall clock: the fixture's `valid_until` is `NOW + 6h`, and the
+    # real clock would eventually run past it regardless of the actual calendar date,
+    # making this test non-deterministic. Freezing the injected clock at `NOW` is what
+    # keeps it deterministic on any date, without ever widening the fixture's window.
+    assert (
+        SEEDER.main(["--tenant", TENANT, "--fixture", str(fixture_path), "--dry-run"], env, clock=lambda: NOW)
+        == 0
+    )
     lines = capsys.readouterr().out.strip().splitlines()
     assert len(lines) == 5 and all(line.endswith("SYNTHETIC") for line in lines)
 
