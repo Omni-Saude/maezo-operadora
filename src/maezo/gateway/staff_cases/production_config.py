@@ -67,9 +67,13 @@ def fixed_origin(value: str) -> str:
 class PortalProductionSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="MAEZO_PORTAL_", frozen=True, extra="forbid")
 
-    capabilities: Literal["identity", "identity,staff_cases"]
+    capabilities: Literal["identity", "identity,staff_cases", "identity,staff_cases,human"]
     tenant: Ref
     issuer: str
+    #: WP-J1-00. The human plane is dark unless this single fixed path is configured
+    #: AND the capabilities literal names it; the material bundle itself carries the
+    #: keys, pins and connection strings (see `gateway/human/production_materials.py`).
+    human_material_directory: Literal["/run/maezo-human-materials/current"] | None = None
     staff_material_directory: Literal["/run/maezo-staff-materials/current"] | None = None
     staff_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
     staff_public_manifest_sha256: Digest | None = None
@@ -86,6 +90,10 @@ class PortalProductionSettings(BaseSettings):
     @model_validator(mode="after")
     def complete_profile(self) -> Self:
         values = [getattr(self, n) for n in type(self).model_fields if n.startswith("staff_")]
+        # The human profile is complete-or-absent exactly like the staff one: a
+        # half-configured plane must not start (WP-J1-00).
+        if (self.human_material_directory is not None) != (self.capabilities == "identity,staff_cases,human"):
+            raise PortalStaffBootstrapError()
         if self.capabilities == "identity":
             if any(v is not None for v in values):
                 raise PortalStaffBootstrapError()
