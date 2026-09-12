@@ -6,7 +6,7 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
-from maezo.gateway.external_cases.models import CaseRef, Closed, Identity, Ref
+from maezo.gateway.external_cases.models import CaseOutcome, CaseRef, Closed, Identity, Ref
 from maezo.gateway.staff_cases.models import N, T
 
 
@@ -45,6 +45,13 @@ class StaffDetailShape[FreshnessT: ObservationTimes](Closed):
     next_task_cursor: Ref | None
     tasks_complete: bool
     freshness: FreshnessT
+    outcome: CaseOutcome | None
+    """Mesmo vocabulario fechado do publico externo (`CaseOutcome`); um so contrato de desfecho.
+
+    O colaborador nao ganha campo adicional aqui: o `numero_autorizacao` real e o
+    conteudo da decisao continuam no recibo de comando
+    (`GET /commands/{command_id}/receipt`), nao nesta projecao de leitura.
+    """
 
     @model_validator(mode="after")
     def consistent_identity_and_page(self) -> Self:
@@ -57,6 +64,8 @@ class StaffDetailShape[FreshnessT: ObservationTimes](Closed):
             raise ValueError("inconsistent staff task ordering")
         if self.case.state == "ended" and self.active_tasks:
             raise ValueError("inconsistent ended staff case")
+        if (self.outcome is None) != (self.case.state == "active"):
+            raise ValueError("inconsistent staff case outcome")
         return self
 
 

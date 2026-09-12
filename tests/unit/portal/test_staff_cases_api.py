@@ -26,14 +26,14 @@ __all__ = ["h"]
 CASE_REF = "case_staff_abcdefghijklmnop"
 
 
-def projection() -> bytes:
+def projection(outcome: dict[str, object] | None = None) -> bytes:
     return json.dumps(
         {
             "schema": "portal-staff-case-detail.v1",
             "case": {
                 "case_ref": CASE_REF,
                 "kind": "authorization",
-                "state": "active",
+                "state": "active" if outcome is None else "ended",
                 "record_revision": "7",
                 "state_observed_at": "2099-09-10T12:00:00.000000Z",
             },
@@ -56,6 +56,7 @@ def projection() -> bytes:
                 "valid_until": "2099-09-10T12:00:10.000000Z",
                 "refresh_after_seconds": 10,
             },
+            "outcome": outcome,
         },
         separators=(",", ":"),
         sort_keys=True,
@@ -169,6 +170,24 @@ async def test_staff_detail_uses_only_staff_service_and_closed_query(h: Harness)
         }
     ]
     assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_staff_detail_exposes_the_closed_outcome_of_an_ended_case(h: Harness):
+    await h.login()
+    outcome = {"phase": "decisao_executada", "desfecho": "aprovada_auditor", "authorization_ref": "d" * 64}
+    h.app.state.staff_case_service_factory = lambda resolver: StubStaffService(
+        resolver, result=projection(outcome)
+    )
+    h.app.state.case_service_factory = lambda resolver: pytest.fail("external service selected")
+    response = await h.client.get(PREFIX + "/cases/" + CASE_REF + "?task_limit=25")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["case"]["state"] == "ended" and body["outcome"] == outcome
+    # O composto `AUTH-{tenant}-{numero_guia_tiss}-{uuid8}` (`tools/workers/auth.py:1329`)
+    # fica no recibo de comando: o bloco de desfecho so carrega a referencia opaca.
+    assert "AUTH-" not in json.dumps(body["outcome"])
+    assert len(body["outcome"]["authorization_ref"]) == 64
 
 
 @pytest.mark.asyncio

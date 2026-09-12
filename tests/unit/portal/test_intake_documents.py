@@ -212,6 +212,35 @@ async def test_openapi_exports_exact_closed_fields(h: Harness) -> None:
         "record_revision",
         "state_observed_at",
     }
+    # WP-J1-07 (fino): o desfecho entra no detalhe, nunca no resumo listado.
+    assert set(schemas["CaseDetail"]["properties"]) == {
+        "schema",
+        "case",
+        "freshness",
+        "allowed_actions",
+        "outcome",
+    }
+    assert set(schemas["CaseOutcome"]["properties"]) == {"phase", "desfecho", "authorization_ref"}
+    assert schemas["CaseOutcome"]["additionalProperties"] is False
+    assert schemas["CaseOutcome"]["properties"]["phase"]["const"] == "decisao_executada"
+    assert schemas["CaseOutcome"]["properties"]["desfecho"]["enum"] == [
+        "aprovada_automatica",
+        "aprovada_auditor",
+        "negada_auditor",
+        "nao_requer_autorizacao",
+        "cancelada_pendencia",
+    ]
+    assert set(schemas["StaffDetail"]["properties"]) == {
+        "schema",
+        "case",
+        "identity",
+        "active_tasks",
+        "next_task_cursor",
+        "tasks_complete",
+        "freshness",
+        "outcome",
+    }
+    assert set(schemas["StaffSummary"]["properties"]) == set(schemas["CaseSummary"]["properties"])
     intake = schemas["AuthIntakeSubmission"]
     assert intake["additionalProperties"] is False
     assert set(intake["properties"]) == set(submission()) | {"schema_version"}
