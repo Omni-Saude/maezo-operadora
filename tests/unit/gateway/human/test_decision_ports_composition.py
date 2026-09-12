@@ -29,7 +29,7 @@ from tests.support.decision_materials_builder import (
     build_decision_materials,
     decision_pin_for,
 )
-from tests.support.materials_builder import TENANT, build_materials
+from tests.support.materials_builder import ENVIRONMENT, TENANT, WORKLOAD, build_materials
 
 from maezo.gateway.human.decision import BoundDecisionPorts
 from maezo.gateway.human.decision_binding import PostgresDecisionBindingSource
@@ -43,6 +43,7 @@ from maezo.gateway.human.decision_materials import (
     load_decision_materials,
     verify_decision_materials,
 )
+from maezo.gateway.human.errors import GatewayRefusalError
 from maezo.gateway.human.models import Scope
 from maezo.gateway.human.outbox import PostgresDecisionAdmission
 from maezo.gateway.human.phi_decision_authorization import EngineBackedPhiDecisionAuthorization
@@ -338,3 +339,90 @@ def test_revoked_vault_material_and_a_stale_observation_are_refused(tmp_path):
     )
     assert materials.not_after < materials.manifest.valid_until
     assert abs((materials.not_after - soon).total_seconds()) < 1
+
+
+@pytest.mark.asyncio
+async def test_a_wrong_tenant_decision_bundle_is_refused_before_any_pool_opens(tmp_path, monkeypatch):
+    """V14 MINOR-4 — the decision plane's cross-check precedes every side effect.
+
+    Both bundles were already in hand before the `AsyncExitStack`, but the scope
+    comparison lived inside `compose_decision_ports`, reached only after
+    `asyncpg.create_pool` had opened a live connection and `create_async_engine` had
+    run. The existing scope test could not see it because its helper calls
+    `asyncpg.create_pool()` without `await` — lazy, no socket — unlike production.
+
+    Both bundles here are fully valid and correctly pinned, so the pin is NOT what
+    refuses: the refusal under test is the cross-plane scope disagreement. Only the
+    filesystem custody is substituted (a `tmp_path` bundle cannot be a root-owned
+    read-only mount); the resources are spies. The control case proves non-vacuity.
+    """
+    from tests.support.materials_builder import build_bundle as build_human_bundle
+    from tests.support.materials_builder import pin_for
+
+    from maezo.gateway.human import production as production_module
+    from maezo.gateway.human.production_materials import verify_materials
+
+    human_manifest, human_files = build_human_bundle(directory=tmp_path / "human")
+    effects: list[str] = []
+
+    def human_loader(directory_setting, pin):  # type: ignore[no-untyped-def]
+        effects.append("verify")
+        return verify_materials(
+            pin, human_manifest, human_files, now=datetime.now(UTC), directory=str(tmp_path / "human")
+        )
+
+    async def opened_pool(*args, **kwargs):  # type: ignore[no-untyped-def]
+        effects.append("pool")
+        raise AssertionError("a pool was opened before the cross-plane scope check")
+
+    def opened_engine(*args, **kwargs):  # type: ignore[no-untyped-def]
+        effects.append("source_engine")
+        raise AssertionError("an engine was created before the cross-plane scope check")
+
+    monkeypatch.setattr(production_module, "load_human_materials", human_loader)
+    monkeypatch.setattr(production_module.asyncpg, "create_pool", opened_pool)
+    monkeypatch.setattr(production_module, "create_async_engine", opened_engine)
+
+    async def run(scope_value, directory):  # type: ignore[no-untyped-def]
+        manifest, files = build_bundle(
+            directory=tmp_path / directory,
+            database=binding_database(scope=scope_value),
+            scope=scope_value,
+        )
+        anchor = decision_pin_for(manifest)
+
+        def decision_loader(directory_setting, pin):  # type: ignore[no-untyped-def]
+            effects.append("decision")
+            return verify_decision_materials(
+                pin, manifest, files, now=datetime.now(UTC), directory=str(tmp_path / directory)
+            )
+
+        monkeypatch.setattr(production_module, "load_decision_materials", decision_loader)
+        with pytest.raises(GatewayRefusalError):
+            async with production_module.human_runtime(
+                pin_for(human_manifest),
+                decision_directory=DECISION_MATERIAL_DIRECTORY,
+                decision_pin=anchor,
+            ):
+                raise AssertionError("no runtime may be yielded in this test")
+
+    # A decision plane whose scope names another tenant entirely.
+    await run({"tenant": "tenant_outro", "environment": ENVIRONMENT, "workload_ref": WORKLOAD}, "wrong")
+    effects.append("refused")
+    assert effects == ["verify", "decision", "refused"]
+
+    # Control: with an agreeing scope the very next effect IS the pool.
+    effects.clear()
+    await run({"tenant": TENANT, "environment": ENVIRONMENT, "workload_ref": WORKLOAD}, "right")
+    assert effects == ["verify", "decision", "pool"]
+
+
+def test_naming_the_decision_directory_without_its_pin_refuses(tmp_path):
+    """The plane cannot start pinned to nothing: no pin, no composition."""
+    import inspect
+
+    from maezo.gateway.human import production as production_module
+
+    source = inspect.getsource(production_module.human_runtime)
+    assert "load_decision_materials(decision_directory, decision_pin)" in source
+    assert "if decision_pin is None:" in source
