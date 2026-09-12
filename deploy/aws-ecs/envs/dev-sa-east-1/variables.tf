@@ -222,7 +222,7 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "5cdb09a5" # 11/09/2026: intent "greeting" (classify-v3). O RECEPTOR e quem executa turno, entao a correcao vale aqui; agent-helena segue em c745fd94 ate a proxima promocao
+  default     = "beb14460" # 12/09/2026: greeting (classify-v3) + o ack devolvendo `resposta`/`conversation_id`. O RECEPTOR e quem executa turno; agent-helena segue em c745fd94 ate a proxima promocao
 }
 
 variable "webhook_receiver_desired_count" {
@@ -443,7 +443,7 @@ variable "canal_teste_image_tag" {
     de funcionar.
   EOT
   type        = string
-  default     = "e4edbef6" # pagina: data no formato do motor, numero sorteado, leitura de "nenhum processo novo" (11/09/2026)
+  default     = "beb14460" # 12/09/2026: pagina reescrita como conversa + o canal elevando os dois campos do turno
 }
 
 variable "canal_teste_desired_count" {
