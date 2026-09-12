@@ -1768,5 +1768,18 @@ def register_auth_workers(
     if host is not None:
         # Re-assert exclusivity AFTER registration: the seam's own installation check
         # cannot see workers registered later on the same harness.
-        host.assert_exclusive(harness.registered_topics)
-        harness.register_worker(host.worker())
+        owner = host.worker()
+        # Re-installing the SAME owner is a no-op, not a conflict: `register_all_workers`
+        # is documented idempotent, and `assert_exclusive` only sees topic NAMES, so on a
+        # second pass it would otherwise refuse the owner its own topic. A topic held by
+        # anyone else still goes through the exclusivity check below and is refused.
+        if type(harness.registry.get(owner.topic)) is not type(owner):
+            host.assert_exclusive(harness.registered_topics)
+            harness.register_worker(owner)
+            # And make it durable (V14 MINOR-5): re-asserting at one moment in time let
+            # a LATER `register_all_workers(harness)` without the seam silently hand the
+            # topic back to the generic worker, because the registry warns and overwrites
+            # on a duplicate topic. The seal keeps this idempotent for the same owner and
+            # refuses anything else. Sealed from the host's own worker, so the seal can
+            # never name a type the host does not actually install.
+            harness.seal_topic(owner.topic, type(owner))
