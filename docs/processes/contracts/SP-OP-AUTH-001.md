@@ -67,8 +67,11 @@ duas analises medicas concorrentes da mesma autorizacao.
 registra corretamente o estado do seu momento: "`AUTH` esta hoje classificado `NON_STRICT` em
 `_START_DEDUP_POLICY` (`transport.py:1211`) — habilitar o start por mensagem exige promove-lo a
 postura mais estrita adequada (`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar)". **ESTA
-emenda E' essa promocao.** Onde as duas convivem no mesmo arquivo, a frase de E01-b passa a ser
-HISTORICA: a classificacao corrente e' `EXCLUSIVE`, declarada acima. O que E01-b chama de
+emenda E' essa promocao.** (Correcao de ancora, achado V12: em `f954e8b0` a linha `:1211` e'
+`SP-OP-RECURSO-001`; a entrada de `SP-OP-AUTH-001` estava em `:1212` e, apos esta entrega,
+esta' em `transport.py:1259`. A citacao de E01-b erra por uma linha.)
+
+Onde as duas convivem no mesmo arquivo, a frase de E01-b passa a ser HISTORICA: a classificacao corrente e' `EXCLUSIVE`, declarada acima. O que E01-b chama de
 "postura-alvo a ratificar" continua ABERTO e e' exatamente o quadro desta secao — `PERMANENT`
 mediante ratificacao medico-auditor / ANS-regulatorio, com os dois pre-requisitos listados.
 O mesmo vale para a documentacao de `Start_IntakePortal` no BPMN (`bpmn:90` naquela entrega).
