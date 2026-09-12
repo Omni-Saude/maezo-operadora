@@ -70,7 +70,7 @@ def snapshot(task: str, form: str) -> dict[str, object]:
         data.pop(key)
     data.update(
         snapshot_at=datetime(2026, 9, 9, tzinfo=UTC),
-        form_source_status="BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        form_source_status="BPMN_FORMDATA",
         task_revision=3,
         assignee_ref=None,
         eligible_candidate_groups=("server-resolved",),
@@ -112,16 +112,22 @@ def test_no_browser_authority(task: str, form: str, field: str) -> None:
 
 
 @pytest.mark.parametrize("task,form", BINDINGS)
-def test_snapshot_exact_draft_input_set(task: str, form: str) -> None:
+def test_snapshot_exact_formdata_input_set(task: str, form: str) -> None:
+    """WP-J1-05: the task now carries camunda:formData, so the binding is BPMN-sourced.
+
+    The catalog binding is closed in both directions: the DRAFT/verify status this task
+    carried while the BPMN had no formData must now be REFUSED, exactly as the formData
+    status was refused before the BPMN gained the block.
+    """
     data = snapshot(task, form)
     parsed = TaskSnapshot.model_validate(data)
     assert parsed.allowed_inputs == INPUTS[form]
-    assert parsed.form_source_status == "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"
+    assert parsed.form_source_status == "BPMN_FORMDATA"
     for altered in ((), (*INPUTS[form], INPUTS[form][0]), (*INPUTS[form], "decisao_auditor")):
         with pytest.raises(ValidationError):
             TaskSnapshot.model_validate({**data, "allowed_inputs": altered})
     with pytest.raises(ValidationError):
-        TaskSnapshot.model_validate({**data, "form_source_status": "BPMN_FORMDATA"})
+        TaskSnapshot.model_validate({**data, "form_source_status": "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY"})
 
 
 @pytest.mark.parametrize("task,form", BINDINGS)
@@ -182,10 +188,22 @@ def test_each_decision_discriminator_refuses_unknown_or_coerced_choices(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("task,form", BINDINGS)
-@pytest.mark.parametrize("failure", ["draft", "stale_task", "stale_evidence", "failed_source"])
-async def test_real_gateway_refuses_draft_stale_or_failed_source_without_admission(
+@pytest.mark.parametrize(
+    "failure", ["unqualified_composition", "stale_task", "stale_evidence", "failed_source"]
+)
+async def test_real_gateway_refuses_unqualified_stale_or_failed_source_without_admission(
     task: str, form: str, failure: str
 ) -> None:
+    """Fail-closed on every axis, with no admission — the reason is allowed to be the real one.
+
+    Before WP-J1-05 the first axis was `draft`: the DRAFT/verify form status alone made
+    `_operation` refuse with `form_contract_unavailable`. The BPMN now carries this task's
+    `camunda:formData`, so that refusal is no longer reachable HERE and asserting it would
+    assert a fiction. The unqualified composition (`_decision_ports is None`) remains a real,
+    unmocked refusal on the same call, and the DRAFT axis keeps its coverage on the tasks that
+    are still DRAFT/verify (test_payment_approval / test_fraud / test_ans_submit form contracts
+    and tests/unit/gateway/human/test_gateway.py).
+    """
     # Reuse the existing UNIT ports, never a mocked engine integration test.
     from tests.unit.gateway.human import test_gateway as existing
 
@@ -208,7 +226,7 @@ async def test_real_gateway_refuses_draft_stale_or_failed_source_without_admissi
         transport.fail = True
     decision = TaskDecision.model_validate_json(json.dumps(values))
     reason = {
-        "draft": "form_contract_unavailable",
+        "unqualified_composition": "form_projection_unavailable",
         "stale_task": "revision_conflict",
         "stale_evidence": "revision_conflict",
         "failed_source": "task_unavailable",

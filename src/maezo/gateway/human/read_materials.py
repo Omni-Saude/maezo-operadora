@@ -79,7 +79,12 @@ class MaterialReadAdmission(ReadDeploymentAdmission):
             or record.engine_name != engine_name
         ):
             raise unavailable()
-        return ReadAdmissionLease(record=record, live=self._lifetime.bounded(record.valid_until))
+        # Clamped by the bundle's own revocation observation, never only by the
+        # admission window: a stale withdrawal snapshot shortens the lease.
+        return ReadAdmissionLease(
+            record=record,
+            live=self._lifetime.bounded(min(record.valid_until, self._materials.not_after)),
+        )
 
 
 class MaterialReadCredentials(ReadCredentialProvider):
@@ -104,7 +109,7 @@ class MaterialReadCredentials(ReadCredentialProvider):
             peer_spki_sha256=manifest.read_surface.server_spki_sha256,
         )
         self._not_before = manifest.issued_at
-        self._not_after = manifest.valid_until
+        self._not_after = materials.not_after
 
     async def acquire(self, scope: Scope, purpose: str, key_id: str) -> ReadSigningLease:
         self._lifetime.check()
