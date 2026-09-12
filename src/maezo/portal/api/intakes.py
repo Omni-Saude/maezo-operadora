@@ -134,10 +134,17 @@ def link_service(request: Request) -> IntakeLinkService:
     An authority that cannot read published vínculos is a missing dependency (503); it is
     never treated as "this principal has no links", which would be indistinguishable from
     a real empty result.
+
+    `isinstance` against the `runtime_checkable` `IntakeLinkSource` only proves the
+    attribute named `links` EXISTS — not that it is callable, let alone an async method
+    with the right arity: a plain non-callable `links` attribute satisfies `isinstance`
+    on this interpreter. `callable()` closes that specific gap, so a badly-shaped
+    composition is refused explicitly, HERE, rather than surfacing as an unguarded
+    `TypeError` from inside the route the first time a request reaches it.
     """
     intake = service(request)
     source = intake.authority
-    if not isinstance(source, IntakeLinkSource):
+    if not isinstance(source, IntakeLinkSource) or not callable(getattr(source, "links", None)):
         raise IntakeError()
     return IntakeLinkService(intake.resolver, source)
 

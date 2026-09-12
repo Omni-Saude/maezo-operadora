@@ -366,3 +366,30 @@ async def test_unauthenticated_and_revoked_sessions_are_refused(h: Harness) -> N
 async def test_the_protocol_is_not_satisfied_by_a_plain_intake_authority() -> None:
     assert not isinstance(BlindAuthority(), IntakeLinkSource)
     assert isinstance(HeadSource(), IntakeLinkSource)
+
+
+class NonCallableLinksSource:
+    """`links` exists but is not callable: satisfies `isinstance(..., IntakeLinkSource)`
+    on this interpreter regardless, because `runtime_checkable` only checks presence."""
+
+    links = "not-a-method"
+
+    async def admit(self, principal: Any, request: Any) -> Any:  # pragma: no cover - unused here
+        raise IntakeError("operation_forbidden")
+
+    async def read(self, principal: Any, intake_ref: Any) -> Any:  # pragma: no cover - unused here
+        raise IntakeError("operation_forbidden")
+
+
+async def test_a_links_attribute_that_is_not_callable_is_refused_at_composition(h: Harness) -> None:
+    from fastapi import Request
+
+    from maezo.portal.api.intakes import link_service
+
+    fake = NonCallableLinksSource()
+    # The structural gap this guard exists to close: isinstance alone says yes.
+    assert isinstance(fake, IntakeLinkSource)
+    install(h, fake)
+    request = Request({"type": "http", "app": h.app, "headers": []})
+    with pytest.raises(IntakeError):
+        link_service(request)
