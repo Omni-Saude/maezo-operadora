@@ -294,3 +294,401 @@ def test_a_declaracao_nao_importa_nada_do_projeto() -> None:
         for alias in node.names
     }
     assert importados <= {"__future__"}, importados
+
+
+# R-173 applies before pre-shaped passthrough too. These are representation checks,
+# not financial limits: signed zero/negative Long values are valid on this wire.
+# Semantics are main's `declared_long_variable` (#364): a non-int / non-int64 value or a
+# CONFLICTING wire type is refused; an Integer/untyped envelope is UPGRADED to Long
+# (see `_UPGRADED_DECLARED_LONG` below and `test_preshaped_financial_engine_vars.py`).
+_BAD_DECLARED_LONG = [
+    True,
+    False,
+    1.0,
+    "1",
+    None,
+    2**63,
+    -(2**63) - 1,
+    {"value": True, "type": "Long"},
+    {"value": 1.5, "type": "Long"},
+    {"value": "1000", "type": "Long"},
+    {"value": 100, "type": "Double"},
+    {"value": 100, "type": "String"},
+    {"value": 2**63, "type": "Long"},
+    {"value": -(2**63) - 1, "type": "Long"},
+]
+
+# An Integer or untyped envelope carrying exact int64 centavos is not a defect: the value is
+# preserved and the wire type becomes Long (R-173 upgrade, never a magnitude-typed Integer).
+_UPGRADED_DECLARED_LONG = [
+    {"value": 100, "type": "Integer"},
+    {"value": 100},
+]
+
+
+def _production_maps(value):
+    return (
+        lambda: _to_camunda_var(value, name=_VARIAVEL),
+        lambda: _dmn_vars({_VARIAVEL: value})[_VARIAVEL],
+        lambda: _process_vars({_VARIAVEL: value})[_VARIAVEL],
+    )
+
+
+@pytest.mark.parametrize("value", _BAD_DECLARED_LONG)
+@pytest.mark.parametrize("mapper", range(3))
+def test_declared_long_cannot_bypass_representation_policy(value, mapper):
+    with pytest.raises(ValueError, match="integer centavos within int64"):
+        _production_maps(value)[mapper]()
+
+
+@pytest.mark.parametrize("value", _UPGRADED_DECLARED_LONG)
+@pytest.mark.parametrize("mapper", range(3))
+def test_declared_long_upgrades_integer_or_untyped_envelope_to_long(value, mapper):
+    assert _production_maps(value)[mapper]() == {"value": 100, "type": "Long"}
+
+
+@pytest.mark.parametrize("value", [-(2**63), -1, 0, 100, 2**31, 2**63 - 1])
+@pytest.mark.parametrize("mapper", range(3))
+def test_declared_long_preserves_exact_signed_values_and_valid_shape(value, mapper):
+    assert _production_maps(value)[mapper]() == {"value": value, "type": "Long"}
+    shaped = {"value": value, "type": "Long", "valueInfo": {}}
+    # main's mapper returns an equal, detached envelope (the caller's dict is never mutated).
+    assert _production_maps(shaped)[mapper]() == shaped
+
+
+@pytest.mark.parametrize(
+    "shaped",
+    [
+        {"value": True, "type": "Boolean"},
+        {"value": 1.25, "type": "Double"},
+        {"value": "100", "type": "String", "valueInfo": {}},
+        {"value": '[{"ref":"synthetic"}]', "type": "Json"},
+    ],
+)
+def test_non_declared_variables_keep_shaped_passthrough(shaped):
+    assert _to_camunda_var(shaped, name="unrelated_variable") is shaped
+    assert _dmn_vars({"unrelated_variable": shaped})["unrelated_variable"] is shaped
+    assert _process_vars({"unrelated_variable": shaped})["unrelated_variable"] is shaped
+
+
+async def _exercise_declared_long_transport(path, value, posts, *, name=_VARIAVEL):
+    """Only HTTP is replaced. Invoke real public APIs and sanctioned process-start producer."""
+    import json
+
+    from maezo.tools.mcp_cibseven.transport import (
+        AgentDecisionProvenance,
+        CibSevenHttpTransport,
+        start_process_idempotent,
+    )
+    from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+    from tests.support.audit_fakes import FakeStartAuditSink
+
+    def capture(request):
+        if request.method == "POST":
+            posts.append(json.loads(request.content))
+            return httpx.Response(200, json=[] if path == "dmn" else {"id": "synthetic-instance"})
+        if path == "dmn":
+            return httpx.Response(
+                200, json={"id": "synthetic-dmn", "version": 1, "deploymentId": "synthetic"}
+            )
+        return httpx.Response(200, json=[])
+
+    async with httpx.AsyncClient(
+        base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+    ) as client:
+        variables = {name: value}
+        if path == "dmn":
+            transport = CibSevenDmnTransport("https://engine.invalid")
+            transport._new_client = lambda: httpx.AsyncClient(
+                base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+            )
+            await transport.evaluate("synthetic-definition", variables)
+        elif path in ("complete", "bpmn_error"):
+            transport = CibSevenWorkerTransport("https://engine.invalid")
+            await transport._client.aclose()
+            transport._client = client
+            if path == "complete":
+                await transport.complete("synthetic-task", "synthetic-worker", variables)
+            else:
+                await transport.handle_bpmn_error(
+                    "synthetic-task", "synthetic-worker", error_code="ERR_SYNTHETIC", variables=variables
+                )
+        else:
+            transport = CibSevenHttpTransport("https://engine.invalid")
+            await transport._client.aclose()
+            transport._client = client
+            if path == "start":
+                # R173 fact is computed, not a legitimate start input for CONTAS.
+                # This tests a generic serializer boundary, never domain authorization.
+                await start_process_idempotent(
+                    transport,
+                    process_key="SP-OP-ESCALATION-001",
+                    business_key="synthetic-business",
+                    variables=variables,
+                    audit_sink=FakeStartAuditSink(),
+                    provenance=AgentDecisionProvenance(
+                        agent_id="synthetic", agent_version="v1", tenant_id="amh", decision_basis={}
+                    ),
+                )
+            elif path == "correlation_keys":
+                await transport.correlate_message("synthetic", "", {}, correlation_keys=variables)
+            else:
+                await transport.correlate_message("synthetic", "synthetic-business", variables)
+
+
+@pytest.mark.parametrize(
+    "path", ["complete", "bpmn_error", "dmn", "start", "correlation", "correlation_keys"]
+)
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"value": True, "type": "Long"},
+        {"value": 100, "type": "Double"},
+        {"value": 2**63, "type": "Long"},
+    ],
+)
+async def test_public_transports_refuse_declared_long_before_effect_post(path, value):
+    posts = []
+    with pytest.raises(ValueError, match="integer centavos within int64"):
+        await _exercise_declared_long_transport(path, value, posts)
+    assert posts == []
+
+
+@pytest.mark.parametrize(
+    "path", ["complete", "bpmn_error", "dmn", "start", "correlation", "correlation_keys"]
+)
+@pytest.mark.parametrize("value", _UPGRADED_DECLARED_LONG)
+async def test_public_transports_upgrade_integer_envelope_to_long_before_effect_post(path, value):
+    posts = []
+    await _exercise_declared_long_transport(path, value, posts)
+    assert len(posts) == 1
+    field = (
+        "correlationKeys"
+        if path == "correlation_keys"
+        else "processVariables"
+        if path == "correlation"
+        else "variables"
+    )
+    assert posts[0][field][_VARIAVEL] == {"value": 100, "type": "Long"}
+
+
+@pytest.mark.parametrize(
+    "path", ["complete", "bpmn_error", "dmn", "start", "correlation", "correlation_keys"]
+)
+async def test_public_transports_keep_exact_valid_shaped_long(path):
+    posts = []
+    value = {"value": 2**63 - 1, "type": "Long", "valueInfo": {}}
+    await _exercise_declared_long_transport(path, value, posts)
+    assert len(posts) == 1
+    field = (
+        "correlationKeys"
+        if path == "correlation_keys"
+        else "processVariables"
+        if path == "correlation"
+        else "variables"
+    )
+    assert posts[0][field][_VARIAVEL] == value
+
+
+def test_engine_rest_keeps_explicit_name_blind_exemption():
+    from tests.integration.processes.engine_rest import EngineRest
+
+    # Test-only start helper is not a producer of CONTAS's computed R173 fact.
+    # Its independent name-blind behavior remains explicit; production fencing is above.
+    assert EngineRest._to_camunda_vars({_VARIAVEL: 100})[_VARIAVEL]["type"] == "Integer"
+
+
+@pytest.mark.parametrize("wire", ["Long", "Integer", None, "float"])
+async def test_computed_worker_output_is_typed_long_before_harness_effect(wire):
+    """A worker's pre-shaped R-173 envelope reaches `/complete` as Long whether it was shaped
+    Long, Integer or untyped (upgrade, value untouched); a non-integer value never reaches the
+    engine — the harness reports a non-retryable failure without variables."""
+    import json
+
+    from maezo.tools.workers.harness import ExternalTask, FakeAuditSink, WorkerHarness
+
+    posts = []
+
+    def capture(request):
+        posts.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(204)
+
+    transport = CibSevenWorkerTransport("https://engine.invalid")
+    await transport._client.aclose()
+    transport._client = httpx.AsyncClient(
+        base_url="https://engine.invalid", transport=httpx.MockTransport(capture)
+    )
+    harness = WorkerHarness(transport, worker_id="synthetic-worker", audit_sink=FakeAuditSink())
+
+    async def producer(task):
+        result = identify_glosa_entry(_lote_com_uma_glosa())
+        if wire == "float":
+            result[_VARIAVEL] = {"value": float(result[_VARIAVEL]), "type": "Long"}
+        elif wire is None:
+            result[_VARIAVEL] = {"value": result[_VARIAVEL]}
+        else:
+            result[_VARIAVEL] = {"value": result[_VARIAVEL], "type": wire}
+        return result
+
+    harness.register("operadora.synthetic.topic", producer)
+    task = ExternalTask(
+        task_id="synthetic-task",
+        topic="operadora.synthetic.topic",
+        process_instance_id="synthetic-process",
+        business_key="synthetic-business",
+        worker_id="synthetic-worker",
+        variables={},
+    )
+    try:
+        await harness._handle(task)
+    finally:
+        await transport.close()
+    assert len(posts) == 1
+    path, payload = posts[0]
+    if wire != "float":
+        assert path.endswith("/complete")
+        assert payload["variables"][_VARIAVEL] == {"value": _LOTE_PEQUENO_CENTAVOS, "type": "Long"}
+    else:
+        assert path.endswith("/failure") and payload["retries"] == 0
+        assert "variables" not in payload
+
+
+@pytest.mark.parametrize("mapper", range(3))
+def test_declared_long_rejects_integer_subclass_without_coercion(mapper):
+    class DerivedInt(int):
+        def __int__(self):
+            pytest.fail("transport must not coerce")
+
+    for value in (DerivedInt(100), {"value": DerivedInt(100), "type": "Long"}):
+        with pytest.raises(ValueError, match="integer centavos within int64"):
+            _production_maps(value)[mapper]()
+
+
+_FINITE_MONEY_NAMES = (
+    "valor_pagamento_cents",
+    "valor_aprovado_cents",
+    "valor_solicitado_cents",
+    "valor_calculado_tabela_cents",
+    "valor_reembolso_aprovado_cents",
+)
+
+
+class _MoneyIntSubclass(int):
+    pass
+
+
+@pytest.mark.parametrize("name", _FINITE_MONEY_NAMES)
+@pytest.mark.parametrize(
+    "value",
+    [
+        True,
+        False,
+        1.0,
+        1.5,
+        "12",
+        None,
+        _MoneyIntSubclass(12),
+        2**63,
+        -(2**63) - 1,
+        {"value": True, "type": "Long"},
+        {"value": 1.0, "type": "Integer"},
+        {"value": "12", "type": "Long"},
+        {"value": _MoneyIntSubclass(12), "type": "Long"},
+        {"value": 12, "type": "Double"},
+        {"value": 12},
+        {"value": 2**31, "type": "Integer"},
+        {"value": -(2**31) - 1, "type": "Integer"},
+        {"value": 2**63, "type": "Long"},
+    ],
+)
+@pytest.mark.parametrize("mapper", range(3))
+def test_finite_money_raw_and_shaped_representation_rejects(name, value, mapper):
+    maps = (
+        lambda: _to_camunda_var(value, name=name),
+        lambda: _dmn_vars({name: value}),
+        lambda: _process_vars({name: value}),
+    )
+    with pytest.raises(ValueError, match="invalid integer-centavos engine variable"):
+        maps[mapper]()
+
+
+@pytest.mark.parametrize("name", _FINITE_MONEY_NAMES)
+@pytest.mark.parametrize("value", [-(2**63), -(2**31) - 1, -(2**31), -1, 0, 12, 2**31 - 1, 2**31, 2**63 - 1])
+def test_finite_money_exact_signed_values_keep_magnitude_and_shaped_metadata(name, value):
+    expected = "Integer" if -(2**31) <= value <= 2**31 - 1 else "Long"
+    assert _to_camunda_var(value, name=name) == {"value": value, "type": expected}
+    assert _dmn_vars({name: value})[name] == {"value": value, "type": expected}
+    assert _process_vars({name: value})[name] == {"value": value, "type": expected}
+    shaped = {"value": value, "type": "Long", "valueInfo": {"synthetic": "preserved"}}
+    assert _to_camunda_var(shaped, name=name) is shaped
+    assert _dmn_vars({name: shaped})[name] is shaped
+    assert _process_vars({name: shaped})[name] is shaped
+    if expected == "Integer":
+        shaped["type"] = "Integer"
+        assert _to_camunda_var(shaped, name=name) is shaped
+        assert _dmn_vars({name: shaped})[name] is shaped
+        assert _process_vars({name: shaped})[name] is shaped
+
+
+@pytest.mark.parametrize("name", _FINITE_MONEY_NAMES)
+@pytest.mark.parametrize(
+    "path", ["complete", "bpmn_error", "dmn", "start", "correlation", "correlation_keys"]
+)
+@pytest.mark.parametrize(
+    "value", [{"value": True, "type": "Long"}, {"value": 2**31, "type": "Integer"}, 2**63]
+)
+async def test_finite_money_public_transports_reject_before_effect_post(name, path, value):
+    posts = []
+    with pytest.raises(ValueError, match="invalid integer-centavos engine variable"):
+        await _exercise_declared_long_transport(path, value, posts, name=name)
+    assert posts == []
+
+
+@pytest.mark.parametrize("name", _FINITE_MONEY_NAMES)
+@pytest.mark.parametrize(
+    "path", ["complete", "bpmn_error", "dmn", "start", "correlation", "correlation_keys"]
+)
+async def test_finite_money_public_transports_preserve_zero_sentinel(name, path):
+    posts = []
+    await _exercise_declared_long_transport(path, {"value": 0, "type": "Long"}, posts, name=name)
+    field = (
+        "correlationKeys"
+        if path == "correlation_keys"
+        else ("processVariables" if path == "correlation" else "variables")
+    )
+    assert posts[-1][field][name] == {"value": 0, "type": "Long"}
+
+
+def test_finite_money_does_not_enroll_suffixes_or_name_blind_engine_rest():
+    from tests.integration.processes.engine_rest import EngineRest
+
+    shaped = {"value": 1.25, "type": "Double"}
+    for name in ("unrelated_cents", "valor_apresentado_brl", "valor_cents"):
+        assert _to_camunda_var(shaped, name=name) is shaped
+        assert _dmn_vars({name: shaped})[name] is shaped
+        assert _process_vars({name: shaped})[name] is shaped
+    assert EngineRest._to_camunda_vars({"valor_pagamento_cents": shaped})["valor_pagamento_cents"] is shaped
+
+
+@pytest.mark.parametrize("raw", [None, True, 1.0, "12", -1, 0, 2**63])
+def test_finite_money_actual_pagto_producer_keeps_conservative_zero_before_wire(raw):
+    from maezo.tools.workers.dmn_transport import FakeDmnTransport
+    from maezo.tools.workers.pagto import route_aprovacao
+
+    class NoCeiling:
+        def within_l2_ceiling(self, **kwargs):
+            pytest.fail("invalid payment reached ceiling")
+
+    dmn = FakeDmnTransport()
+    dmn.register(
+        "pagto_alcada",
+        [{"faixa_valor": "ANALISE_HUMANA", "grupo_aprovador": "comite-financeiro", "tier_minimo": 4}],
+    )
+    variables = {"tenant_id": "synthetic", "valor_pagamento_cents": raw}
+    result = route_aprovacao(variables, resolver=NoCeiling(), dmn=dmn)
+    produced = dmn.calls[-1][1]
+    assert produced["valor_pagamento_cents"] == 0
+    assert produced["dentro_teto_l2"] is False
+    assert _dmn_vars(produced)["valor_pagamento_cents"] == {"value": 0, "type": "Integer"}
+    assert variables["valor_pagamento_cents"] is raw
+    assert "valor_pagamento_cents" not in result

@@ -710,6 +710,10 @@ mapeamento_acoes:
   agente.fhir.read_patient_summary: leitura_phi_clinica
   agente.fhir.read_coverage: leitura_phi_clinica
   agente.fhir.search_coverage: leitura_phi_clinica
+  agente.amh.get_subject_context: leitura_phi_clinica
+  agente.amh.list_subject_encounters: leitura_phi_clinica
+  agente.amh.list_subject_conditions: leitura_phi_clinica
+  agente.amh.get_subject_coverage: leitura_phi_clinica
 
   agente.whatsapp.send_message: comunicacao_beneficiario
 

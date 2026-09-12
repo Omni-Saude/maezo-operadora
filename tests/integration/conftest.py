@@ -15,6 +15,7 @@ artifacts; a temp BPMN string here is explicitly NOT a spec/ artifact, per desig
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -28,6 +29,68 @@ from maezo.platform.deploy.engine_deploy import resolve_engine_rest_url
 #: suffixed with this so repeated local runs against a persistent dev-stack volume never collide
 #: with engine-side duplicate-filtering or a stale process definition from a previous run.
 RUN_ID = uuid.uuid4().hex[:8]
+
+#: PR-A landing repair (real-engine lane, PR #375). Suites marked `root_fixture` need a PRIVATE,
+#: ROOT-supplied fixture (`MAEZO_HUMAN_RELAY_PRIVATE_DIR`, `MAEZO_DECISION_BINDING_TEST_CONFIG`,
+#: the dedicated PHI PostgreSQL/mTLS custody) that the global `-m integration` lane never has.
+#: They must neither skip (scripts/ci/run_live_pytest.py admits no undeclared skip: "corpo nao
+#: verificado") nor fake the fixture. They are DESELECTED unless ROOT opts in with
+#: `MAEZO_ROOT_FIXTURES=1` — the same shape as pytest's own `-m` deselection, and the same posture
+#: `tests/unit/runtime/test_inference_live.py` takes with `llm_live`. Pinned by
+#: `tests/unit/ci/test_root_fixture_deselection.py` (registered marker, reviewed allowlist, the
+#: hook proved to fire). Visible THREE ways, the first two of which survive the lane's `-q`: the
+#: count lands in pytest's own `deselected` summary, `_announce` names every deselected module,
+#: and `pytest_report_header` states the posture on a non-quiet run.
+ROOT_FIXTURE_OPT_IN_ENV = "MAEZO_ROOT_FIXTURES"
+ROOT_FIXTURE_MARKER = "root_fixture"
+
+
+def _root_fixtures_opted_in() -> bool:
+    return os.environ.get(ROOT_FIXTURE_OPT_IN_ENV) == "1"
+
+
+def _announce(config: Any, message: str) -> None:
+    """Write through the terminal reporter, which `-q` does not suppress (the report header is).
+
+    The CI lane runs `-q`; an announcement only a verbose run can see would leave the deselection
+    exactly as invisible as the skip it replaces.
+    """
+    reporter = config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is not None:
+        reporter.write_line(message)
+
+
+def pytest_collection_modifyitems(config: Any, items: list[Any]) -> None:
+    """Deselect `root_fixture` suites unless ROOT opted in; never a skip, never silent."""
+    if _root_fixtures_opted_in():
+        return
+    kept: list[Any] = []
+    dropped: list[Any] = []
+    for item in items:
+        (dropped if item.get_closest_marker(ROOT_FIXTURE_MARKER) else kept).append(item)
+    if not dropped:
+        return
+    config.hook.pytest_deselected(items=dropped)
+    items[:] = kept
+    modules = sorted({str(item.path) for item in dropped})
+    _announce(
+        config,
+        f"[{ROOT_FIXTURE_MARKER}] DESELECTED {len(dropped)} test(s) in {len(modules)} module(s) — "
+        f"they need PRIVATE ROOT-supplied fixtures; set {ROOT_FIXTURE_OPT_IN_ENV}=1 with those "
+        f"fixtures present to run them: {', '.join(modules)}",
+    )
+
+
+def pytest_report_header(config: Any) -> str:
+    if _root_fixtures_opted_in():
+        return (
+            f"{ROOT_FIXTURE_MARKER} suites: SELECTED ({ROOT_FIXTURE_OPT_IN_ENV}=1; "
+            "ROOT fixtures must be present)"
+        )
+    return (
+        f"{ROOT_FIXTURE_MARKER} suites: DESELECTED — set {ROOT_FIXTURE_OPT_IN_ENV}=1 together with the "
+        "private ROOT fixtures to run them (tests/integration/conftest.py)"
+    )
 
 
 def _engine_reachable(base_url: str) -> bool:

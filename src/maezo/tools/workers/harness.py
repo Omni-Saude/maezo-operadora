@@ -81,7 +81,11 @@ from maezo.gateway.action_execution import evaluate_worker_task
 from maezo.gateway.audit import AuditRecord, EmitOnceOutcome, hash_input
 from maezo.tools.workers._audit_ctx import collect_dmn_versions
 from maezo.tools.workers.base import WorkerBase, WorkerRegistry
-from maezo.tools.workers.engine_var_types import camunda_int_type, declared_long_variable
+from maezo.tools.workers.engine_var_types import (
+    camunda_int_type,
+    declared_long_variable,
+    validate_centavos_engine_var,
+)
 from maezo.tools.workers.phi_vars import redact_error_message
 
 logger = structlog.get_logger(__name__)
@@ -492,6 +496,10 @@ class ExternalTask:
     worker_id: str
     variables: dict[str, Any] = field(default_factory=dict)
     retries: int | None = None
+    # CIB Seven LockedExternalTaskDto top-level engine metadata. Never reconstruct
+    # from businessKey or variables: publication uses this immutable source identity.
+    process_definition_key: str | None = None
+    activity_id: str | None = None
 
 
 class TopicSubscription(NamedTuple):
@@ -608,7 +616,8 @@ def _to_camunda_var(value: Any, *, name: str | None = None) -> dict[str, Any]:
     variable (JSON string + implied structure), never as Python `repr()` — only then does the
     engine store/deserialize them as a structured process variable. A value already in variable
     format (`{"value": ...}`) passes through unchanged, except declared Long centavos
-    are validated and typed Long before that passthrough (R-173).
+    are validated and typed Long before that passthrough (R-173) and the five declared
+    integer-centavos names are validated for exact wire representability first.
 
     **Load-bearing**: money (BRL cents) and dossier round-trips depend on the `Long`/`Json`
     typing below — v1 fixtures assert it; preserved verbatim (design §5/§16.1).
@@ -618,6 +627,7 @@ def _to_camunda_var(value: Any, *, name: str | None = None) -> dict[str, Any]:
     decision R-173) instead of typing them by magnitude; callers that hold no name (a bare value
     conversion) pass none and get the magnitude rule.
     """
+    validate_centavos_engine_var(name, value)
     if (declared := declared_long_variable(name, value)) is not None:
         return declared
     if isinstance(value, dict) and "value" in value:
@@ -666,6 +676,10 @@ def _from_camunda_var(entry: Mapping[str, Any]) -> Any:
     with `value: null` (unset) decodes to `None`, never attempted through `json.loads` (which
     would raise `TypeError` on a non-str/bytes argument).
     """
+    if entry.get("type") == "maezo-auth-exact-decimal.v1":
+        # This exact type belongs to the qualified native AUTH acquisition adapter.
+        # Generic legacy hydration must never erase its type and route it through float.
+        raise ValueError("AUTH exact amount requires native profile hydration")
     value = entry.get("value")
     if entry.get("type") == "Json" and isinstance(value, str):
         return json.loads(value)
@@ -850,6 +864,8 @@ class CibSevenWorkerTransport:
                     worker_id=item.get("workerId", worker_id),
                     variables=variables,
                     retries=item.get("retries"),
+                    process_definition_key=item.get("processDefinitionKey"),
+                    activity_id=item.get("activityId"),
                 )
             )
         return tasks

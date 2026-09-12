@@ -324,8 +324,26 @@ zero DMN, zero processo) — nenhuma decisao nova nasce aqui (C3); so' o rotulo 
   organizacional da operadora.
 - Politica de retencao/cessacao de PHI apos revogacao (interacao com retencao legal de prontuario —
   Lei 13.787/2018/CFM, espelha LGPD-DSR) — **DRAFT/verify DPO/juridico**.
-- Parametros de k-anonimato / small-cell-suppression para qualquer agregado populacional do
-  programa exposto a Zona Geral (WP3.5).
+<!-- R-228-WP3.5-FECHAMENTO-INICIO -->
+- ~~Parametros de k-anonimato / small-cell-suppression para qualquer agregado populacional do
+  programa exposto a Zona Geral (WP3.5).~~ **FECHADA como 'sem sujeito hoje' (R-228, 2026-09-06).**
+  Decisao aprovada do dono (`OWNER-DECISIONS-REGISTER` R-228): retirar a pergunta do pacote do DPO
+  e fechar WP3.5, substituindo-a por um gate que falhe se qualquer publicacao de agregado
+  populacional aparecer no processo antes de o parametro existir; o DPO e acionado quando o
+  primeiro consumidor for proposto, nao antes. **Fato de engenharia:** este processo nao expoe
+  agregado populacional algum a Zona Geral — `programa_routing` roda in-zone e so emite
+  banda/roteamento POR INSTANCIA (ver a `<description>` da propria
+  `spec/processes/dmn/programa_routing.dmn`), e as service tasks `operadora.events.publish` deste
+  BPMN publicam so identificadores por instancia. Sem consumidor, um parametro de k-anonimato
+  seria um numero sem sujeito.
+  **Este fechamento NAO ratifica piso de k algum** e nao vale como aprovacao da classe de efeito
+  `leitura_populacional` (que segue `enforcement: shadow`, sem aprovacao nos tres dominios). O
+  gate substituto e `tests/unit/spec/test_programa_population_aggregate_fence.py`
+  (`test_programa_population_aggregate_fence`), e ele e a **condicao de retorno ao DPO**: no
+  primeiro consumidor de agregado proposto, o piso k ratificado (**R-117** / ADR-0019 clausula 4)
+  volta a ser pre-condicao. O gate VIRA DE SENTIDO em vez de desligar — declarado o piso, ele
+  passa a exigir que todo consumidor de agregado o referencie.
+<!-- R-228-WP3.5-FECHAMENTO-FIM -->
 - Definir se enrollment exige captura de consentimento (User Task de consentimento) **antes** da
   decisao do coordenador (OQ do phase3-plan: "Enrollment exige captura de consentimento (UT) antes
   da decisao do coordenador?").
@@ -363,3 +381,40 @@ zero DMN, zero processo) — nenhuma decisao nova nasce aqui (C3); so' o rotulo 
   (`FERNANDO-DELEGATION-CALL-SITE`), nao de engenharia. Ao ligar: a variavel de lacuna deixa de ser
   emitida (ausencia = montagem real) e a linha de topico de `build_care_plan` volta a descrever so
   o ALVO.
+
+
+## R117/R228 — correção de enforcement (2026-09-09; ratificação continua pendente)
+
+A descrição histórica da cerca acima é preservada, mas a autorização por substring foi
+supersedida. `tests/unit/spec/test_programa_population_aggregate_fence.py` é apenas inventário
+lexical finito de propostas; documentação e comentários nunca autorizam publicação.
+
+O manifesto canônico `spec/policies/privacy/population-egress-v1.yaml` tem identidade
+`maezo.population-egress.v1`, versão 1, **k, allowlist e campos humanos vazios**. O carregador
+`platform/privacy/population_policy.py` recusa YAML ausente/inválido/duplicado, identidade
+errada, ratificação incompleta e ausência de verificação independente do ato humano.
+Não lê arquivos arbitrários, variáveis de ambiente nem piso escolhido pelo chamador.
+
+**Fronteira de confiança explicitamente não provisionada:** campos `revisor`, data e referência
+não autenticam ninguém. `RatificationVerifier` deve verificar um ato real de DPO/jurídico
+com vínculo à identidade e SHA-256 dos bytes completos do manifesto. Não existe adapter
+implementado/provisionado neste pacote; `load_population_policy()` recusa por padrão mesmo
+se alguém apenas preencher os campos. Fixtures sintéticas provam o consumidor, não a
+identidade de um humano. A integração desse verificador exige contrato e revisão própria;
+CODEOWNERS e dispensa de revisão humana de PR não substituem ratificação de privacidade.
+
+O wrapper `GatedPopulationFeatureClient` permanece não ligado e exige a política antes de
+chamar o provider; só serve retorno que satisfaça piso, contagem e métricas permitidas.
+O port ADR-0037, grants LF-Tag, consentimento upstream, erasure e composição de André
+continuam nas respectivas dependências, sem adapter novo nem ativação de infraestrutura.
+
+No PROGRAMA não há contrato de agregado a publicar, mesmo quando existir política.
+`program_publication.validate_program_publication` guarda o sink real das cinco tasks
+BPMN de evento e dos quatro builders de notificação de `programa.py`. A allowlist corresponde
+às variáveis estruturais atuais do BPMN/contrato: identificadores e tokens por instância.
+Extensão por campo novo (inclusive `resultados`), tópico novo ou objeto aninhado recusa antes
+da chamada Kafka. Uma política assinada não autoriza automaticamente um novo payload de
+programa: primeiro consumidor exige contrato de saída e chamada de validação efetiva.
+Strings por instância conservam o comportamento atual; isto não é detector universal do
+conteúdo semântico de qualquer string. Consentimento, revogação e decisão clínica humana
+permanecem inalterados. Evidência offline não substitui CI/engine do head integrado.

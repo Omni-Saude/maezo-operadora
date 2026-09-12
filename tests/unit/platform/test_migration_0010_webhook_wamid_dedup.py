@@ -8,12 +8,9 @@ against a real database and then exercises the claim protocol against the column
 
 Four invariants:
 
-1.  **Chain integrity.** 0010 is the sole head of a linear chain (0007->0008->0009->0010) and no
-    revision id is claimed twice. This assertion travels WITH the head: it moved from
-    `test_migration_0008_a2a_fact_outbox.py` to `test_migration_0009_drop_pgvector.py` when 0009
-    landed and to here when 0010 landed, exactly as the 0008 suite's own docstring prescribes. It
-    is also the test that would have caught the fork this branch briefly carried, when 0010 still
-    revised 0008 while `0009_drop_pgvector` was open in another PR.
+1.  **Chain integrity.** 0010 retains its historical predecessor and exactly one child.
+    The sole-head/unique-revision/linear-chain fence moved with the new head to
+    `tests/unit/portal/test_identity_migration.py`, as this suite previously prescribed.
 2.  **The repurpose is DECLARED, not merely implied.** The migration names the gap, the owner
     decision and the new writers in SQL `COMMENT ON` statements — the only form of declaration a
     DBA inspecting the database can ever see.
@@ -113,27 +110,32 @@ def test_the_docstring_header_agrees_with_down_revision() -> None:
     )
 
 
-def test_0010_is_the_unique_head_of_a_linear_chain() -> None:
-    """No fork: every revision claimed once, exactly one revision unreferenced as a parent.
-
-    A forked chain is the failure mode where `alembic upgrade head` applies one branch while an
-    operator believes it applied the other. Inherited from 0009's suite when 0010 landed (and by
-    0009 from 0008's before that); the next migration moves it again — ONE file changes.
-    """
-    revisions: dict[str, str | None] = {}
+def test_0010_has_exactly_one_child() -> None:
+    """0011 follows 0010; the 0014 head suite owns the preserved global chain fence."""
+    children = []
     for path in sorted(_VERSIONS_DIR.glob("[0-9]*.py")):
-        text = path.read_text(encoding="utf-8")
-        rev = re.search(r'^revision: str = "([^"]+)"', text, re.MULTILINE)
-        down = re.search(r'^down_revision: str \| None = (?:"([^"]+)"|None)', text, re.MULTILINE)
-        assert rev is not None, f"{path.name} declares no revision"
-        assert down is not None, f"{path.name} declares no down_revision"
-        assert rev.group(1) not in revisions, f"duplicate revision id {rev.group(1)}"
-        revisions[rev.group(1)] = down.group(1)
+        source = path.read_text(encoding="utf-8")
+        down = re.search(r'^down_revision: str \| None = "([^\"]+)"', source, re.MULTILINE)
+        if down is not None and down.group(1) == DEDUP_MIGRATION_REVISION:
+            children.append(path.name)
+    assert children == ["0011_a2a_requested_enqueued.py"], (
+        f"0010 must have exactly the A2A admission child, got {children}"
+    )
 
-    parents = {down for down in revisions.values() if down is not None}
-    heads = set(revisions) - parents
-    assert heads == {DEDUP_MIGRATION_REVISION}, f"expected 0010 to be the sole head, got {heads}"
-    assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
+
+def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config()
+    config.set_main_option("script_location", str(_VERSIONS_DIR.parent))
+    script = ScriptDirectory.from_config(config)
+    assert script.get_heads() == ["0014"]
+    assert script.get_revision("0014").down_revision == "0013"
+    assert script.get_revision("0013").down_revision == "0012"
+    assert script.get_revision("0012").down_revision == "0011"
+    assert script.get_revision("0011").down_revision == "0010"
+    assert script.get_revision("0010").down_revision == "0009"
 
 
 # ---------------------------------------------------------------------------

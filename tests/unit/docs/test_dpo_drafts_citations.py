@@ -31,11 +31,13 @@ Same shape as `tests/unit/docs/test_contract_bpmn_dmn_citations.py` and
 
 from __future__ import annotations
 
+import copy
 import re
 import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
 import yaml
 
 from maezo.platform.lifecycle.erasure_plan import PERSISTENCE_LAYERS, IdentityResolution
@@ -519,6 +521,11 @@ def test_the_candidate_scope_b_enumerates_every_persistence_layer() -> None:
     therefore enumerates ALL of `PERSISTENCE_LAYERS`, and this is a plain set equality with no
     exceptions to maintain."""
     escopo = _candidate_matrix_block()["escopo_b"]
+    _assert_candidate_scope_complete(escopo)
+
+
+def _assert_candidate_scope_complete(escopo: object) -> None:
+    assert isinstance(escopo, dict)
     named = {
         (entry["camada"], tabela)
         for group in ("camadas_cobertas", "nao_cobertas")
@@ -535,6 +542,66 @@ def test_the_candidate_scope_b_enumerates_every_persistence_layer() -> None:
         "marked `retirada: true` (draft §8.2/§8.3)"
     )
     assert named == real, f"escopo_b names relations the enumeration does not: {sorted(named - real)}"
+
+
+def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_uncovered() -> None:
+    escopo = _candidate_matrix_block()["escopo_b"]
+    assert isinstance(escopo, dict)
+
+    def keys(group: str) -> set[tuple[str, str]]:
+        return {(entry["camada"], tabela) for entry in escopo[group] for tabela in entry["tabelas"]}
+
+    expected = {
+        ("identidade_portal", "portal_login_transactions"),
+        ("identidade_portal", "portal_code_claims"),
+        ("identidade_portal", "portal_sessions"),
+        ("identidade_portal", "portal_memberships"),
+        ("comando_humano", "human_command_delivery"),
+        ("comando_humano", "human_command_outbox"),
+        ("autoridade_atribuicao", "portal_assignment_source"),
+        ("autoridade_atribuicao", "portal_assignment_publications"),
+        ("autoridade_atribuicao", "portal_assignment_receipt_source"),
+    }
+    uncovered = keys("nao_cobertas")
+    covered = keys("camadas_cobertas")
+    retired = {
+        (entry["camada"], tabela)
+        for group in ("camadas_cobertas", "nao_cobertas")
+        for entry in escopo[group]
+        if entry.get("retirada") is True
+        for tabela in entry["tabelas"]
+    }
+    assert expected <= uncovered
+    assert expected.isdisjoint(covered)
+    assert expected.isdisjoint(retired)
+    assert len(covered | uncovered) == 25
+    assert len(uncovered) == 14
+    by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
+    assert all(by_key[key].count_statement is None for key in expected)
+    assert {key: by_key[key].resolucao for key in expected} == {
+        ("identidade_portal", "portal_login_transactions"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("identidade_portal", "portal_code_claims"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("identidade_portal", "portal_sessions"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("identidade_portal", "portal_memberships"): IdentityResolution.PONTE_AUSENTE,
+        ("comando_humano", "human_command_delivery"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("comando_humano", "human_command_outbox"): IdentityResolution.PONTE_AUSENTE,
+        ("autoridade_atribuicao", "portal_assignment_source"): IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ("autoridade_atribuicao", "portal_assignment_publications"): (
+            IdentityResolution.SEM_COLUNA_DE_TITULAR
+        ),
+        ("autoridade_atribuicao", "portal_assignment_receipt_source"): (
+            IdentityResolution.SEM_COLUNA_DE_TITULAR
+        ),
+    }
+
+
+def test_candidate_scope_completeness_fence_rejects_a_missing_live_relation() -> None:
+    escopo = copy.deepcopy(_candidate_matrix_block()["escopo_b"])
+    assert isinstance(escopo, dict)
+    command_group = next(entry for entry in escopo["nao_cobertas"] if entry["camada"] == "comando_humano")
+    command_group["tabelas"].remove("human_command_outbox")
+    with pytest.raises(AssertionError, match="does NOT enumerate every relation"):
+        _assert_candidate_scope_complete(escopo)
 
 
 def test_the_retention_matrix_template_is_still_the_unratified_placeholder() -> None:

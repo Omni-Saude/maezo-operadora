@@ -41,6 +41,7 @@ The runtime wires real handlers (agent graphs) in W3; here the handler is an inj
 from __future__ import annotations
 
 import asyncio
+import copy
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -55,7 +56,9 @@ from maezo.tools.workers.phi_vars import redact_error_message
 
 from .delegation import DelegationEnvelope, DelegationError
 from .facts import DelegationFact, DelegationFactKind, build_fact
+from .idempotency import _row_to_stored
 from .registry import A2ARegistry, RegistryError
+from .transaction import AtomicSession, PostgresDelegationTransactions
 
 logger = structlog.get_logger(__name__)
 
@@ -309,6 +312,7 @@ class _InflightEntry:
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     result: DelegationResult | None = None
+    requested_emitted: bool = False
 
 
 def _as_replay(prev: DelegationResult) -> DelegationResult:
@@ -375,9 +379,11 @@ class DelegationDispatcher:
 
       - `idempotency=None` (default): IN-MEMORY backing store (`_inflight`). Correct for a single
         process/test; the landmine is that it does NOT survive replica restarts (re-delegation).
-      - `idempotency` set (`IdempotencyStore`): DURABLE cross-replica backing store (R9). The
-        atomic per-`task_id` claim guarantees single execution even across replicas/restarts; a
-        replay returns the persisted terminal result (`idempotent_replay=True`).
+      - `idempotency` set: durable result replay; bounded polling is best-effort,
+        not exclusive handler execution across replicas.
+      - `transactions` set (required by production roots): atomic admission and
+        terminal persistence. Handler/engine execution remains outside both
+        transactions, and transport remains at-least-once.
     """
 
     def __init__(
@@ -388,6 +394,7 @@ class DelegationDispatcher:
         audit: AuditEmitter,
         facts: FactProducer,
         idempotency: IdempotencyStore | None = None,
+        transactions: PostgresDelegationTransactions | None = None,
         envelope_verifier: EnvelopeVerifier | None = None,
         origin_envelope_signer: EnvelopeSigner | None = None,
     ) -> None:
@@ -396,6 +403,7 @@ class DelegationDispatcher:
         self._audit = audit
         self._facts = facts
         self._idempotency = idempotency
+        self._transactions = transactions
         self._inflight: dict[str, _InflightEntry] = {}
         self._guard = asyncio.Lock()  # protects the in-flight dict (entry creation)
         # ADR-0039 §4.4 envelope-signature verification. `None` (default / dev) -> verification is
@@ -437,9 +445,65 @@ class DelegationDispatcher:
         rejected = self._verify_or_reject(envelope)
         if rejected is not None:
             return rejected
+        if self._transactions is not None:
+            return await self._delegate_atomic(envelope)
         if self._idempotency is not None:
             return await self._delegate_durable(self._idempotency, envelope)
         return await self._delegate_inflight(envelope)
+
+    def _bound_writer(self, session: AtomicSession) -> DelegationDispatcher:
+        writer = copy.copy(self)
+        writer._audit = session
+        writer._facts = FactProducer(session)
+        return writer
+
+    async def _delegate_atomic(self, envelope: DelegationEnvelope) -> DelegationResult:
+        transactions = self._transactions
+        assert transactions is not None
+        validation = self._validate(envelope)
+        async with transactions.transaction(envelope.tenant) as session:
+            fresh, row = await session.claim(envelope.task_id)
+            # Even a done legacy row may lack requested. Only a valid replay can
+            # reconstruct it. Rejections never manufacture requested.
+            done = _row_to_stored(envelope.task_id, row) if row["status"] == "done" else None
+            writer = self._bound_writer(session)
+            if validation is None and (
+                done is None
+                or done.success
+                or done.rejection_reason in {RejectionReason.HANDLER_ERROR, RejectionReason.ANTI_LOOP}
+            ):
+                await writer._audit_delegation(envelope, decision=_DECISION_ALLOW, basis="A2A:delegate:allow")
+                if not await session.requested_exists(envelope.task_id, row):
+                    await writer._emit(envelope, DelegationFactKind.REQUESTED)
+                await session.mark_requested(envelope.task_id)
+            elif done is None:
+                assert validation is not None
+                await writer._audit_delegation(
+                    envelope, decision=_DECISION_DENY, basis=f"A2A:reject:{validation.rejection_reason}"
+                )
+                await writer._emit(
+                    envelope,
+                    DelegationFactKind.REJECTED,
+                    reason=validation.detail or str(validation.rejection_reason),
+                )
+                await session.complete(validation)
+        if done is not None:
+            return _stored_to_result(done)
+        if validation is not None:
+            return validation
+        if not fresh:
+            stored = await transactions.poll(envelope.task_id)
+            if stored is not None:
+                return _stored_to_result(stored)
+        outcome = await self._invoke_handler(envelope)
+        async with transactions.transaction(envelope.tenant) as session:
+            stored = await session.stored(envelope.task_id)
+            if stored is not None:
+                result = _stored_to_result(stored)
+            else:
+                result = await self._bound_writer(session)._finish_handler(envelope, outcome)
+                await session.complete(result)
+        return result
 
     async def _delegate_inflight(self, envelope: DelegationEnvelope) -> DelegationResult:
         """IN-MEMORY path (idempotency=None): Guard 4 via `_inflight` + a per-task_id lock."""
@@ -449,7 +513,13 @@ class DelegationDispatcher:
                 # Guard 4 — re-delivery of the same task_id: return the prior result, without
                 # re-executing the handler.
                 return _as_replay(entry.result)
-            result = await self._execute(envelope)
+
+            def mark_requested() -> None:
+                entry.requested_emitted = True
+
+            result = await self._execute(
+                envelope, skip_requested_fact=entry.requested_emitted, on_requested_emitted=mark_requested
+            )
             entry.result = result
             return result
 
@@ -489,7 +559,13 @@ class DelegationDispatcher:
                 self._inflight[task_id] = entry
             return entry
 
-    async def _execute(self, envelope: DelegationEnvelope) -> DelegationResult:
+    async def _execute(
+        self,
+        envelope: DelegationEnvelope,
+        *,
+        skip_requested_fact: bool = False,
+        on_requested_emitted: Callable[[], None] | None = None,
+    ) -> DelegationResult:
         # --- Contract validation (chain/hops/budget already guaranteed at construction) ---
         validation = self._validate(envelope)
         if validation is not None:
@@ -507,13 +583,32 @@ class DelegationDispatcher:
 
         # --- Audit BEFORE the effect (delegation is an auditable external effect, ADR-0007) ---
         await self._audit_delegation(envelope, decision=_DECISION_ALLOW, basis="A2A:delegate:allow")
-        await self._emit(envelope, DelegationFactKind.REQUESTED)
+        if not skip_requested_fact:
+            await self._emit(envelope, DelegationFactKind.REQUESTED)
+            if on_requested_emitted is not None:
+                on_requested_emitted()
+        outcome = await self._invoke_handler(envelope)
+        return await self._finish_handler(envelope, outcome)
 
-        # --- Route to the target's handler ---
+    async def _invoke_handler(self, envelope: DelegationEnvelope) -> HandlerOutput | Exception:
+        """Run external work with no admission/finalization connection or lock."""
         handler = self._handlers[envelope.target]
         try:
-            output = await handler(envelope)
+            return await handler(envelope)
         except DelegationError as exc:
+            return exc
+        except Exception as exc:
+            if not isinstance(exc, _TERMINAL_HANDLER_ERROR_CLASSES):
+                await self._trace_propagated_handler_error(envelope, exc)
+                raise
+            return exc
+
+    async def _finish_handler(
+        self, envelope: DelegationEnvelope, outcome: HandlerOutput | Exception
+    ) -> DelegationResult:
+
+        if isinstance(outcome, DelegationError):
+            exc = outcome
             # Structural failure raised by the handler (e.g. a cyclic sub-delegation): rejection.
             reason = RejectionReason.ANTI_LOOP
             # TERMINAL-outcome audit (T-F follow-up): the pre-exec ALLOW row above already fired —
@@ -527,26 +622,9 @@ class DelegationDispatcher:
             )
             await self._emit(envelope, DelegationFactKind.REJECTED, reason=str(exc))
             return DelegationResult.rejected(envelope.task_id, reason, detail=str(exc))
-        except Exception as exc:
-            # NEW-B1 — o RAMO LARGO COMPANHEIRO. `except DelegationError` sozinho era o defeito: os
-            # oito `agents/*/delegation.py` chamam `state_from_envelope(envelope)` FORA do `try` do
-            # proprio handler e sete deles levantam `ValueError` num bug de produtor, entao essa
-            # excecao atravessava `_execute`, `_delegate_inflight`/`_delegate_durable` e `delegate`
-            # inteiros e chegava CRUA ao chamador — deixando um fato `requested` orfao, nenhuma
-            # linha de audit terminal, nenhum contador e (no caminho duravel) uma linha
-            # `processing` que ninguem sela.
-            #
-            # `Exception`, JAMAIS `BaseException`: uma delegacao drenada por `asyncio.CancelledError`
-            # nao e uma falha de handler (a mesma regra que os `except` dos handlers seguem).
-            if not isinstance(exc, _TERMINAL_HANDLER_ERROR_CLASSES):
-                # Classe RETENTAVEL: propaga, SEM selo, SEM linha terminal e SEM fato novo — a
-                # semantica de retentativa de sempre, preservada de proposito (ver
-                # `_TERMINAL_HANDLER_ERROR_CLASSES`, canal RAF-02). O que ela NAO e' mais e
-                # INVISIVEL: o traco (linha de desfecho NAO-terminal + contador) e escrito ANTES
-                # do `raise`.
-                await self._trace_propagated_handler_error(envelope, exc)
-                raise
-            return await self._reject_handler_error(envelope, exc)
+        if isinstance(outcome, Exception):
+            return await self._reject_handler_error(envelope, outcome)
+        output = outcome
 
         # TERMINAL-outcome audit (T-F completeness fix, LOW-1): the SUCCESS path is symmetric to the
         # handler-error branch above — the pre-exec ALLOW row is not itself terminal, so a durable

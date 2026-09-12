@@ -60,6 +60,7 @@ class _FakeConn:
     """Fake asyncpg connection: captures every statement + args; programmable replies."""
 
     def __init__(self, *, fetchval_result: Any = 1, fetch_result: Any = None) -> None:
+        self.in_transaction = False
         self.executed: list[tuple[str, tuple[Any, ...]]] = []
         self._fetchval_result = fetchval_result
         self._fetch_result = fetch_result if fetch_result is not None else []
@@ -70,18 +71,25 @@ class _FakeConn:
 
     async def fetchval(self, sql: str, *args: Any) -> Any:
         self.executed.append((sql, args))
-        return self._fetchval_result
+        return "amh" if sql == "SELECT current_schema()" else self._fetchval_result
 
     async def fetch(self, sql: str, *args: Any) -> Any:
         self.executed.append((sql, args))
         return self._fetch_result
+
+    def is_in_transaction(self) -> bool:
+        return self.in_transaction
 
     def transaction(self) -> Any:
         conn = self
 
         @asynccontextmanager
         async def _tx() -> AsyncIterator[_FakeConn]:
-            yield conn
+            self.in_transaction = True
+            try:
+                yield conn
+            finally:
+                self.in_transaction = False
 
         return _tx()
 
@@ -302,11 +310,11 @@ async def test_enlisted_connection_receives_the_insert_and_the_pool_is_never_tou
     outbox, pool = _outbox(pool_conn)
     caller_conn = _FakeConn(fetchval_result=7)
 
-    async with outbox_transaction(caller_conn):
+    async with caller_conn.transaction(), outbox_transaction(caller_conn):
         row_id = await outbox.enqueue("t", _fact_bytes())
 
     assert row_id == 7
-    assert [sql for sql, _ in caller_conn.executed] == [ENQUEUE_SQL]
+    assert [sql for sql, _ in caller_conn.executed] == ["SELECT current_schema()", ENQUEUE_SQL]
     assert pool_conn.executed == []
     assert pool.acquires == 0
 

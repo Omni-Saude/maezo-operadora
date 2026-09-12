@@ -658,12 +658,14 @@ def test_the_new_reason_round_trips_through_the_durable_store_shape() -> None:
 
 
 def _execute_try_block() -> ast.Try:
-    """O `try` de `DelegationDispatcher._execute` que envolve `await handler(envelope)`."""
+    """O `try` de `DelegationDispatcher._invoke_handler` que envolve `await handler(envelope)`."""
     import maezo.a2a.dispatcher as dispatcher_module
 
     tree = ast.parse(Path(inspect.getfile(dispatcher_module)).read_text(encoding="utf-8"))
     execute = next(
-        node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef) and node.name == "_execute"
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_invoke_handler"
     )
     blocks = [
         node
@@ -699,7 +701,17 @@ def _branch_source_including_the_methods_it_delegates_to(branch: ast.ExceptHandl
     methods = {
         node.name: node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
     }
-    pieces = [ast.unparse(branch)]
+    # PLAN-W3-A2A separates external invocation from terminal DB writes. Pin
+    # BOTH caller paths to the finisher and the terminal exception dispatch,
+    # then retain every existing audit/fact/privacy/metric assertion below.
+    for caller in ("_execute", "_delegate_atomic"):
+        text = ast.unparse(methods[caller])
+        assert "_invoke_handler(envelope)" in text
+        assert "_finish_handler(envelope, outcome)" in text
+    terminal = ast.unparse(methods["_finish_handler"])
+    assert "isinstance(outcome, Exception)" in terminal
+    assert "_reject_handler_error(envelope, outcome)" in terminal
+    pieces = [ast.unparse(branch), terminal, ast.unparse(methods["_reject_handler_error"])]
     for node in ast.walk(branch):
         if (
             isinstance(node, ast.Call)
