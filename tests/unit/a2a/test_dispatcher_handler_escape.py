@@ -113,6 +113,8 @@ class _CountingStore:
         self.claims: list[str] = []
         self.completes: list[str] = []
         self._done: dict[str, StoredResult] = {}
+        #: Marcador `requested_enqueued_at` (migracao 0011), escrito SO' apos `_emit` retornar.
+        self._requested: set[str] = set()
 
     async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | None:
         self.claims.append(task_id)
@@ -121,6 +123,12 @@ class _CountingStore:
     async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
         self.completes.append(task_id)
         self._done[task_id] = StoredResult.from_result(result)
+
+    async def requested_emitted(self, *, tenant: str, task_id: str) -> bool:
+        return task_id in self._requested
+
+    async def mark_requested(self, *, tenant: str, task_id: str) -> None:
+        self._requested.add(task_id)
 
 
 class _FakeInference:
@@ -383,8 +391,16 @@ async def test_start_process_failure_still_propagates_and_is_never_sealed(
     assert len(executions) == 2, "a reentrega NAO reexecutou — a falha transitoria foi selada"
     assert store.completes == [], "uma falha transitoria foi SELADA como terminal (RAF-02)"
     assert TOPIC_REJECTED not in producer.topics()
-    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_REQUESTED], (
-        "o canal retentavel emitiu um fato NOVO: o pino RAF-02 exige `topics() == [REQUESTED]` por entrega"
+    # A2A-RETRY-REEMITS-REQUESTED-FACT: ate' esta correcao a linha acima esperava
+    # `[REQUESTED, REQUESTED]` — um `requested` POR ENTREGA. Esse nunca foi um invariante de
+    # RAF-02: RAF-02 exige que a falha transitoria REEXECUTE e NAO SELE (as tres asserts acima), e
+    # o segundo `requested` era so' o defeito visivel por outro angulo — duas delegacoes anunciadas
+    # onde ha' uma. O marcador duravel `requested_enqueued_at` separa a reivindicacao inedita da
+    # reentrega, entao agora sai UM `requested` para as DUAS entregas, com a retentabilidade
+    # inteira.
+    assert producer.topics() == [TOPIC_REQUESTED], (
+        "o canal retentavel reemitiu `requested`: uma delegacao logica anunciada duas vezes "
+        f"(topics={producer.topics()!r})"
     )
 
     # ...E O TRACO EXISTE MESMO ASSIM (F1). Nada foi selado, nada virou terminal, mas a entrega
