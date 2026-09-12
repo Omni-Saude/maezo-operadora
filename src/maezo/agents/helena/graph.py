@@ -948,7 +948,7 @@ class HelenaGraph:
         # sintoma em falha tecnica e' desperdicar a classificacao que ja' foi feita.
         if intent == "greeting" and extraction.get("sintoma_codigo"):
             logger.info("helena_saudacao_com_sintoma", node="classify")
-            intent = cast(Intent, "symptom")
+            intent = "symptom"
             update["intent"] = intent
 
         # Gatilho 5 (always evaluated, highest priority): psychosocial risk in ANY message.
