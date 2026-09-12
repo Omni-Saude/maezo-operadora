@@ -32,12 +32,37 @@ from maezo.a2a.facts import TOPIC_REQUESTED, DelegationFactKind, build_fact
 from maezo.a2a.idempotency import CLAIM_SQL
 from maezo.a2a.outbox import PostgresFactOutbox
 from maezo.gateway.audit import AuditRecord
-from maezo.gateway.audit_postgres import PostgresAuditSink, verify_chain
+from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, verify_chain
 from maezo.portal.api.postgres import PostgresIdentityStore
 
 pytestmark = pytest.mark.integration
 _ROOT = Path(__file__).resolve().parents[3]
 _OLD_TABLES = ("a2a_idempotency", "audit_chain", "audit_emit_dedup", "a2a_fact_outbox", "driver_idempotency")
+
+
+async def _postgres_reachable(dsn: str) -> bool:
+    try:
+        conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=2.0)
+    except Exception:  # any connection failure means "skip", not "error"
+        return False
+    await conn.close()
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _skip_if_postgres_unreachable() -> None:
+    """Root-cause R3-Q3 (release-capability-floor §5): this suite was written on the train,
+    where CI always had the compose stack up, so it never gained the loud-skip guard every
+    other `*_live_pg.py` suite under `tests/unit/**` carries (see `test_outbox_live_pg.py`).
+    Unreachable Postgres must SKIP loudly here too, never raise a raw `OSError` mid-test."""
+    dsn = _default_test_dsn()
+    if not asyncio.run(_postgres_reachable(dsn)):
+        pytest.skip(
+            f"Postgres not reachable at {dsn!r} (override with MAEZO_TEST_DATABASE_URL / "
+            "MAEZO_PG_HOST_PORT) — foundation migrations live tests SKIPPED (visible, not "
+            "silent). Start it with `docker compose --profile core up -d postgres` and re-run "
+            "this file."
+        )
 _PORTAL_TABLES = ("portal_login_transactions", "portal_code_claims", "portal_sessions", "portal_memberships")
 
 

@@ -2,11 +2,20 @@
 
 Uses the production outbox/relay and ACK adapter. The handler is an explicit
 non-engine test action. These tests make no claims about remote effect replay.
+Unreachable Postgres or Kafka SKIPS loudly (root-cause R3-Q3, release-capability-floor §5:
+this suite was written on the train, where CI always had the compose stack up, so it never
+gained the loud-skip guard every other `*_live_pg.py`/`*_live_broker.py` suite under
+`tests/unit/**` carries — see `test_outbox_live_pg.py` and
+`tests/integration/platform/test_events_kafka_producer_live.py::_kafka_reachable`). The
+imported `database` fixture (from `.test_atomic_admission_live_pg`) now skips loudly on its
+own for tests collected in ITS home module, but a fixture imported across modules does not
+inherit the other module's `autouse` guard, so this file probes both services itself.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import socket
@@ -14,11 +23,13 @@ import sys
 import time
 import uuid
 
+import asyncpg
 import pytest
 from aiokafka import AIOKafkaConsumer
 
 from maezo.a2a.outbox import PostgresFactOutbox
 from maezo.a2a.outbox_relay import AioKafkaFactPublisher, drain_once
+from maezo.gateway.audit_postgres import normalize_dsn
 
 from .test_atomic_admission_live_pg import database as database
 from .test_atomic_admission_live_pg import dispatcher_for, envelope_for
@@ -29,6 +40,54 @@ pytestmark = pytest.mark.integration
 
 def broker_address():
     return os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+
+
+async def _postgres_reachable(dsn: str) -> bool:
+    try:
+        conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=2.0)
+    except Exception:  # any connection failure means "skip", not "error"
+        return False
+    await conn.close()
+    return True
+
+
+def _kafka_reachable(bootstrap_servers: str) -> bool:
+    async def _probe() -> bool:
+        from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
+
+        producer = AIOKafkaProducer(bootstrap_servers=bootstrap_servers)
+        try:
+            await asyncio.wait_for(producer.start(), timeout=2.0)
+        except Exception:  # any failure means "skip loudly", never an error here
+            with contextlib.suppress(Exception):
+                await producer.stop()
+            return False
+        with contextlib.suppress(Exception):
+            await producer.stop()
+        return True
+
+    try:
+        return asyncio.run(_probe())
+    except Exception:  # defensive: a probe-internal crash is still "unreachable"
+        return False
+
+
+@pytest.fixture(autouse=True)
+def _skip_if_dependencies_unreachable() -> None:
+    dsn = _default_test_dsn()
+    if not asyncio.run(_postgres_reachable(dsn)):
+        pytest.skip(
+            f"Postgres not reachable at {dsn!r} (override with MAEZO_TEST_DATABASE_URL / "
+            "MAEZO_PG_HOST_PORT) — atomic recovery live tests SKIPPED (visible, not silent). "
+            "Start it with `docker compose --profile core up -d postgres` and re-run this file."
+        )
+    servers = broker_address()
+    if not _kafka_reachable(servers):
+        pytest.skip(
+            f"Kafka not reachable at {servers!r} (override with KAFKA_BOOTSTRAP_SERVERS) — "
+            "atomic recovery live tests SKIPPED (visible, not silent). Start it with "
+            "`docker compose --profile core up -d` and re-run this file."
+        )
 
 
 async def crash_worker(mode, tenant):

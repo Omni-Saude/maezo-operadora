@@ -1,8 +1,16 @@
 """Real PostgreSQL-only integration; run explicitly with -m integration and a test database.
 
-No mock engine, SQLite stand-in, skip or live Cognito claim. A disposable unique schema is
+No mock engine, SQLite stand-in or live Cognito claim. A disposable unique schema is
 created, migration 0012 is actually applied and downgraded, and independent engines race.
 The root orchestrator owns execution; author writes but does not run this lane concurrently.
+Unreachable (or unconfigured) Postgres SKIPS loudly (root-cause R3-Q3, release-capability-floor
+§5: this suite was written on the train, where CI always had the compose stack up, so it never
+gained the loud-skip guard every other `*_live_pg.py` suite under `tests/unit/**` carries — see
+`test_outbox_live_pg.py`). `MAEZO_TEST_DATABASE_URL` still wins when set (unchanged); the
+fallback is now the same compose default every sibling `*_live_pg.py` suite uses
+(`postgresql://maezo:maezo@localhost:${MAEZO_PG_HOST_PORT:-5433}/maezo`) instead of a hard
+`pytest.fail` — a bare CI runner with no service and no env override (e.g. the
+`release-capability-floor` job, which sets neither) must SKIP, not error.
 """
 
 from __future__ import annotations
@@ -13,6 +21,7 @@ import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import asyncpg
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -21,6 +30,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from tests.unit.portal.test_human_session import ISSUER, SUBJECT, config, membership
 
+from maezo.gateway.audit_postgres import normalize_dsn
 from maezo.portal.api.auth import AuthenticationError, digest
 from maezo.portal.api.postgres import PostgresIdentityStore
 from maezo.portal.api.records import LoginTransaction, SessionRecord
@@ -29,11 +39,39 @@ from maezo.portal.api.session import HumanSessionResolver
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
+def _default_test_dsn() -> str:
+    """`MAEZO_TEST_DATABASE_URL` wins; otherwise the compose Postgres.
+
+    Mirrors `tests/unit/a2a/test_outbox_live_pg.py::_default_test_dsn` exactly, so the default
+    names a server that actually exists in both environments that run tests: the local compose
+    stack (`${MAEZO_PG_HOST_PORT:-5433}`) and a CI job that pins `MAEZO_PG_HOST_PORT=5432`.
+    """
+    explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", "5433")
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
+
+
+async def _postgres_reachable(dsn: str) -> bool:
+    try:
+        conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=2.0)
+    except Exception:  # any connection failure means "skip", not "error"
+        return False
+    await conn.close()
+    return True
+
+
 @pytest.fixture
 async def stores():
-    raw_dsn = os.environ.get("MAEZO_TEST_DATABASE_URL")
-    if not raw_dsn:
-        pytest.fail("MAEZO_TEST_DATABASE_URL required for real portal identity storage integration")
+    raw_dsn = _default_test_dsn()
+    if not await _postgres_reachable(raw_dsn):
+        pytest.skip(
+            f"Postgres not reachable at {raw_dsn!r} (override with MAEZO_TEST_DATABASE_URL / "
+            "MAEZO_PG_HOST_PORT) — portal identity session live tests SKIPPED (visible, not "
+            "silent). Start it with `docker compose --profile core up -d postgres` and re-run "
+            "this file."
+        )
     url = make_url(raw_dsn).set(drivername="postgresql+asyncpg")
     schema = "portal_identity_test_" + uuid.uuid4().hex
     admin = create_async_engine(url, echo=False, hide_parameters=True)

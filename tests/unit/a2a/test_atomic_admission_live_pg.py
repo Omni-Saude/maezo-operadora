@@ -1,6 +1,9 @@
 """PLAN-W3-A2A R3/R4/R8-R12: real PostgreSQL, controlled non-engine handler.
 
-No skip fallback: unavailable services fail this integration lane. Migrations
+Unreachable Postgres SKIPS loudly (root-cause R3-Q3, release-capability-floor §5: this suite
+was written on the train, where CI always had the compose stack up, so it never gained the
+loud-skip guard every other `*_live_pg.py` suite under `tests/unit/**` carries — see
+`test_outbox_live_pg.py`). Never a silent pass, never a fake, never an `xfail`. Migrations
 run to the real head; each test owns and drops only its random tenant schema.
 """
 
@@ -19,7 +22,7 @@ from maezo.a2a.facts import TOPIC_REQUESTED
 from maezo.a2a.idempotency import CLAIM_SQL, PostgresIdempotencyStore
 from maezo.a2a.outbox import PostgresFactOutbox, PostgresOutboxFactProducer
 from maezo.a2a.registry import A2ARegistry
-from maezo.gateway.audit_postgres import PostgresAuditSink, verify_chain
+from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn, verify_chain
 from maezo.runtime.agent_runtime.a2a_composition import _require_transactions_or_fail_closed
 
 from .fakes import make_card
@@ -28,6 +31,26 @@ from .test_idempotency import _envelope
 from .test_outbox_live_pg import _default_test_dsn
 
 pytestmark = pytest.mark.integration
+
+
+async def _postgres_reachable(dsn: str) -> bool:
+    try:
+        conn = await asyncio.wait_for(asyncpg.connect(normalize_dsn(dsn)), timeout=2.0)
+    except Exception:  # any connection failure means "skip", not "error"
+        return False
+    await conn.close()
+    return True
+
+
+@pytest.fixture(autouse=True)
+def _skip_if_postgres_unreachable() -> None:
+    dsn = _default_test_dsn()
+    if not asyncio.run(_postgres_reachable(dsn)):
+        pytest.skip(
+            f"Postgres not reachable at {dsn!r} (override with MAEZO_TEST_DATABASE_URL / "
+            "MAEZO_PG_HOST_PORT) — atomic admission live tests SKIPPED (visible, not silent). "
+            "Start it with `docker compose --profile core up -d postgres` and re-run this file."
+        )
 
 
 def _quoted_identifier(value: str) -> str:
