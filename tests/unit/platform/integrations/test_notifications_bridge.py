@@ -20,6 +20,7 @@ from maezo.platform.integrations.notifications_bridge import (
     DEFAULT_CONSUMER_GROUP_ID,
     NOTIFICATIONS_TOPIC,
     REASON_INVALID_JSON,
+    REASON_MISSING_ESCALATION_ANCHOR,
     REASON_MISSING_TYPE,
     REASON_NOT_A_JSON_OBJECT,
     SLA_ALERT_OUTCOME_ESCALATED,
@@ -1097,4 +1098,13 @@ def test_malformed_error_codes_are_all_in_the_closed_vocabulary() -> None:
     with pytest.raises(MalformedBridgeMessageError) as bad_json:
         _deserialize_json_value(b"{nope")
     assert bad_json.value.code == REASON_INVALID_JSON
-    assert {REASON_INVALID_JSON, REASON_NOT_A_JSON_OBJECT, REASON_MISSING_TYPE} == BRIDGE_DLQ_REASONS
+    # WP-J1-09 added `missing_escalation_anchor`, raised by the SIBLING daemon
+    # (`notifications_inbox.parse_team_notice`) which quarantines through this same shunt. It
+    # lives in this closed set for exactly the reason the set exists: it is a bounded code, and
+    # this set is what bounds the `reason` label for BOTH consumers of the shared topic.
+    assert {
+        REASON_INVALID_JSON,
+        REASON_NOT_A_JSON_OBJECT,
+        REASON_MISSING_TYPE,
+        REASON_MISSING_ESCALATION_ANCHOR,
+    } == BRIDGE_DLQ_REASONS
