@@ -77,6 +77,56 @@ Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquiv
 - **When** job do timer `ICE_PrazoPendencia` (P5D) executado
 - **Then** `UT_DecidirPendenciaExpirada` criada para `medico-auditor`; com `decisao_pendencia=cancelar_guia` -> `auth.completed` `desfecho=cancelada_pendencia`; com `conceder_prazo_extra`/`seguir_analise` -> volta ao fluxo de analise
 
+### test_form_pendencia_expirada_enum_fechado (WP-J1-05)
+- **Given** `UT_DecidirPendenciaExpirada` criada na definicao implantada por esta emenda
+- **When** a definicao e lida do engine (`ACT_RE_PROCDEF` -> bytes do recurso BPMN)
+- **Then** a tarefa declara `camunda:formData` com EXATAMENTE um `formField` `decisao_pendencia`
+  (`type=enum`, `required`, valores `cancelar_guia|conceder_prazo_extra|seguir_analise`) — o
+  conjunto exato que `gateway.human.decision_binding` exige contra `allowed_inputs` do formulario
+  `auth_pendencia`; NENHUM `auditor_id` (nao nasce negativa nesta tarefa)
+- **And** `ClassifiedDecisionEngineIT.qualifiedCompletionAndExactRetryShareOneReceipt` passa com
+  esta task key: conclusao qualificada e retry exato compartilham UM recibo
+- **And** instancia ainda ATIVA na definicao ANTERIOR (sem `formData`) continua com binding
+  indisponivel — a emenda nao migra instancia
+
+### test_prazo_extra_nao_rearma_espera (lacuna registrada, nao corrigida)
+- **Given** `UT_DecidirPendenciaExpirada` aberta
+- **When** completada com `decisao_pendencia=conceder_prazo_extra`
+- **Then** a instancia segue para `BRT_SlaAnalise` (identico a `seguir_analise`) e **NAO** retorna
+  a `GW_AguardarDocs`; nenhuma nova espera documental e criada. O teste PROVA a lacuna do
+  contrato — ele falha se alguem "consertar" a semantica sem o pacote BPMN/DMN/form/worker e a
+  decisao do dono do contrato/SME
+
+## Entradas das jornadas (WP-BPMN-J1)
+
+### test_intake_portal_inicia_por_mensagem_no_mesmo_processo
+- **Given** definicao implantada com `Start_IntakePortal` (`msg.auth.start`)
+- **When** start por mensagem com business key `AUTH-amh-GUIA-TESTE-0001` e as VARIAVEIS DE ENTRADA
+- **Then** UMA instancia de `SP-OP-AUTH-001` ativa; passa por `ST_PublishReceived` (`auth.received`
+  publicado) e chega a `BRT_Admissibilidade` — o MESMO caminho do none start, sem processo,
+  evento ou fluxo por publico
+- **And** o none start `Start_SolicitacaoRecebida` continua funcional: start por key/id do canal de
+  agente nao regride (a definicao tem dois start events)
+
+### test_intake_dois_canais_uma_guia_uma_instancia (BLOQUEADO ate #16 implementado)
+- **Given** instancia ativa iniciada pelo canal de agente com `AUTH-amh-GUIA-TESTE-0001`
+- **When** o portal inicia por `msg.auth.start` com a MESMA business key
+- **Then** nenhuma segunda instancia ativa
+- **Nota:** este caso so e executavel quando o despachante passar a usar a chave contratual e
+  `AUTH` estiver classificado em `_START_DEDUP_POLICY` (WP-J1-01/WP-J1-11). Ate la o caminho de
+  mensagem esta INERTE e somente guias sinteticas circulam
+
+### test_resposta_documental_correlaciona_na_espera_existente
+- **Given** instancia aguardando em `GW_AguardarDocs` com um pedido documental aberto
+- **When** a operacao nativa `auth.documents.respond` correlaciona `msg.auth.docs_received` pela
+  subscricao/ocorrencia exata (nao pela business key)
+- **Then** `documentos_refs`/`documentacao_completa` sao reescritos a partir da verificacao da
+  politica documental e `BRT_Admissibilidade` e reavaliada
+- **And** mensagem atrasada, espera expirada/substituida ou corrida com `ICE_PrazoPendencia` NAO
+  consome uma espera posterior; comando repetido retorna o MESMO recibo
+- **And** nenhuma mensagem nova foi criada para o publico beneficiario: prestador e beneficiario
+  autorizado usam a MESMA `msg.auth.docs_received` no MESMO `ICE_DocsRecebidos`
+
 ## Timers de SLA
 
 ### test_timer_alerta_sla_nao_interruptivo

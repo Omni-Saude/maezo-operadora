@@ -45,6 +45,13 @@ SP-OP-ESCALATION-001):
 6. psychosocial risk in ANY message        -> risco_psicossocial (always evaluated, highest
                                                priority — never gated behind `intent`)
 
+NOT a trigger, and deliberately so: `intent = greeting` (11/09/2026) ends in `inform` and opens
+NOTHING. A "oi"/"bom dia" with no request attached is not work for anybody. Before this intent
+existed the model had no slot for a greeting and reached for the nearest neighbour — "Opa" came
+out `human_request` and opened a P3 human-queue item with a 4h deadline, while "Ola, bom dia"
+came out `information` and resolved itself. A greeting carrying any request is NOT a greeting
+(normalized in `classify`, never trusted to the prompt alone).
+
 L0 HARD INVARIANT: Helena NEVER resolves a clinical concern herself. Every path ends in either
 a human task (`escalate`/`schedule` -> SP-OP-ESCALATION-001's `UT_TratarEscalonamento`) or an
 explicit, non-clinical response (`inform`) drafted by an LLM that is instructed to never give
@@ -172,7 +179,7 @@ logger = structlog.get_logger(__name__)
 
 # --- Domain enums (mirror the SP-OP-ESCALATION-001 contract + DMN schema) -------------------
 
-Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question"]
+Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question", "greeting"]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 #: `collect` (COLETA, 09/09/2026): o turno termina numa PERGUNTA ao beneficiario, nao numa
 #: resposta — a mensagem descreveu um sintoma, a tabela de red flag NAO acusou bandeira, e a
@@ -248,7 +255,7 @@ def _rodadas_de_coleta(valor: object) -> int:
 # frozensets (not `typing.get_args` derivations) so the validation surface is self-contained
 # and greppable next to the Literal types it mirrors.
 _VALID_INTENTS: frozenset[str] = frozenset(
-    {"symptom", "scheduling", "information", "human_request", "clinical_question"}
+    {"symptom", "scheduling", "information", "human_request", "clinical_question", "greeting"}
 )
 _VALID_POPULATIONS: frozenset[str] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _VALID_INTENSIDADES: frozenset[str] = frozenset({"leve", "moderada", "grave", "desconhecida"})
@@ -598,7 +605,13 @@ def _severidade_de_intensidade(intensidade: object) -> Severidade:
 #: HEL-03: os UNICOS `intent` que podem terminar em `inform`. Allowlist FECHADA: um `intent` novo
 #: (ou nenhum) e' recusado por omissao, em vez de cair na rota informativa por ser o `else` do
 #: encadeamento de gatilhos.
-_INTENTS_ADMISSIVEIS_INFORM: frozenset[str] = frozenset({"information", "symptom"})
+#:
+#: `greeting` entrou em 11/09/2026 e a admissao e' DELIBERADA, nao um efeito colateral de o
+#: intent existir: uma saudacao sem pedido nao tem sintoma, entao a precondicao da DMN abaixo
+#: nao se aplica a ela, e responder "bom dia" nao e' resolver preocupacao clinica nenhuma. Era
+#: justamente esta allowlist que fazia um `greeting` recem-criado cair em `falha_tecnica` — o
+#: comportamento correto ate' alguem decidir, que e' o que esta linha registra.
+_INTENTS_ADMISSIVEIS_INFORM: frozenset[str] = frozenset({"information", "symptom", "greeting"})
 
 
 def _inform_recusado(estado: Mapping[str, Any]) -> str | None:
@@ -927,6 +940,17 @@ class HelenaGraph:
             "intensidade": extraction.get("intensidade", "desconhecida"),
         }
 
+        # SAUDACAO COM PEDIDO NAO E' SAUDACAO (11/09/2026). A regra do prompt ja' diz isso, mas a
+        # rota nao pode depender da obediencia do modelo: se vier `greeting` junto de um codigo de
+        # sintoma, vale o SINTOMA, que e' o caminho que passa pela DMN. Sem esta linha, "bom dia,
+        # dor no peito" classificado como saudacao terminaria em resposta automatica sem veredito
+        # — o `_inform_recusado` ainda barraria (viraria `falha_tecnica`), mas transformar um
+        # sintoma em falha tecnica e' desperdicar a classificacao que ja' foi feita.
+        if intent == "greeting" and extraction.get("sintoma_codigo"):
+            logger.info("helena_saudacao_com_sintoma", node="classify")
+            intent = "symptom"
+            update["intent"] = intent
+
         # Gatilho 5 (always evaluated, highest priority): psychosocial risk in ANY message.
         if psychosocial:
             dmn_out = await self._evaluate_dmn(extraction, force_population="mental_health")
@@ -949,6 +973,19 @@ class HelenaGraph:
             update["escalation_motivo"] = "solicitacao_humano"
             update["escalation_severidade"] = "leve"
             return update
+
+        # SAUDACAO: responde e encerra, SEM abrir processo. NAO e' um gatilho de escalonamento —
+        # e' a ausencia de um.
+        #
+        # O DEFEITO QUE ISTO CORRIGE, medido em 11/09/2026: "Opa" foi classificado
+        # `human_request` e abriu SP-OP-ESCALATION-001 com `solicitacao_humano`, P3, fila
+        # `atendimento-humano`, prazo de 4h — enquanto "Ola, bom dia" saiu `information` e
+        # resolveu sozinha. Duas saudacoes, dois desfechos. A causa nao era o modelo desobedecer:
+        # nenhuma das cinco intencoes do prompt cabia numa saudacao, e a instrucao de
+        # `human_request` exige pedido EXPLICITO. Sem lugar para por, o modelo escolheu o vizinho
+        # mais proximo. Em operacao, todo "oi" podia virar trabalho numa fila humana.
+        if intent == "greeting":
+            return _rota_informativa(update)
 
         # Symptom: ALWAYS goes through the DMN — the DMN decides red flag, never the LLM.
         if intent == "symptom":
