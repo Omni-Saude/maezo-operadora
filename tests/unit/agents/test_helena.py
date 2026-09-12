@@ -325,6 +325,56 @@ async def test_classify_human_request_escalates_solicitacao_humano() -> None:
     assert result["escalation_motivo"] == "solicitacao_humano"
 
 
+async def test_classify_greeting_informs_and_opens_nothing() -> None:
+    """11/09/2026: uma saudacao sem pedido nao e' trabalho para ninguem.
+
+    Antes de `classify-v3` nao havia intencao para saudacao, e o modelo pegava a vizinha mais
+    proxima: "Opa" saiu `human_request` e abriu SP-OP-ESCALATION-001 com P3 e prazo de 4h,
+    enquanto "Ola, bom dia" saiu `information` e resolveu sozinha. Duas saudacoes, dois desfechos.
+    """
+    inference = _FakeInference([_classify_json(intent="greeting")])
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="opa"))
+
+    assert result["next_kind"] == "inform"
+    assert result["intent"] == "greeting"
+    # Nada de escalonamento: nem motivo, nem severidade.
+    assert not result.get("escalation_motivo")
+    assert not result.get("escalation_severidade")
+
+
+async def test_classify_greeting_with_symptom_goes_through_the_dmn_instead() -> None:
+    """Saudacao COM sintoma nao e' saudacao — e a rota nao confia no prompt para isso.
+
+    O prompt manda o modelo usar a outra intencao quando ha pedido junto, mas se ele desobedecer
+    e devolver `greeting` com um codigo de sintoma, o turno tem de passar pela DMN em vez de
+    terminar em resposta automatica.
+    """
+    dmn = FakeDmnTransport()
+    dmn.register(
+        "triage_redflag_adult",
+        [{"red_flag": True, "conduta": "ESCALATE_URGENTE", "prioridade": "P1", "motivo": "sintetico"}],
+    )
+    inference = _FakeInference(
+        [
+            _classify_json(
+                intent="greeting",
+                sintoma_codigo="dor_toracica",
+                intensidade="grave",
+                population="adult",
+            )
+        ]
+    )
+    graph = _graph(inference=inference, dmn=dmn)
+
+    result = await graph.classify(_base_state(message_body="bom dia, dor no peito"))
+
+    assert result["intent"] == "symptom", "a saudacao com sintoma tem de ser reclassificada"
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "red_flag_clinico"
+
+
 async def test_classify_scheduling_routes_schedule() -> None:
     inference = _FakeInference([_classify_json(intent="scheduling")])
     graph = _graph(inference=inference)
