@@ -19,9 +19,9 @@ from typing import Any
 import pytest
 
 from maezo.platform.notification_bridge import (
+    _SLA_ALERT_SPECS,
     PROCESS_KEY_ESCALATION,
     SLA_ALERT_DOMAINS,
-    _SLA_ALERT_SPECS,
     _sla_alert_predicate,
     _sla_alert_variables,
 )

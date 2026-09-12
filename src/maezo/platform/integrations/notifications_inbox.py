@@ -71,7 +71,7 @@ import signal
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
+from typing import Any, Final, Protocol, runtime_checkable
 
 import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import structlog
@@ -88,9 +88,6 @@ from maezo.platform.integrations.notifications_bridge import (
     MalformedBridgeMessageError,
 )
 from maezo.tools.workers.escalation import NOTIFY_TEAM_NOTIFICATION_TYPE
-
-if TYPE_CHECKING:
-    from maezo.platform.integrations.notifications_bridge import BridgeMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -417,9 +414,7 @@ class PostgresEscalationTeamNoticeInbox:
         )
 
 
-async def handle_inbox_message(
-    inbox: EscalationTeamNoticeInbox, value: Any
-) -> TeamNoticeReceipt | None:
+async def handle_inbox_message(inbox: EscalationTeamNoticeInbox, value: Any) -> TeamNoticeReceipt | None:
     """Parse ONE message and, when it is ours, record it. `None` means the message was not ours.
 
     The whole unit of "delivery" lives here: this coroutine returns only after `record` has
@@ -518,9 +513,7 @@ def build_inbox(settings: NotificationsInboxSettings) -> PostgresEscalationTeamN
             "notifications_inbox: DATABASE_URL is required — this daemon's only effect is a "
             "durable inbox row, and without a database it could only pretend to deliver"
         )
-    return PostgresEscalationTeamNoticeInbox(
-        dsn=settings.database_url, tenant=settings.tenant_id
-    )
+    return PostgresEscalationTeamNoticeInbox(dsn=settings.database_url, tenant=settings.tenant_id)
 
 
 async def main() -> None:  # pragma: no cover - composition root, exercised by its parts

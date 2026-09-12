@@ -72,9 +72,7 @@ class _SpyInbox:
         if self.fail_with is not None:
             raise self.fail_with
         self.recorded.append(notice)
-        return TeamNoticeReceipt(
-            notice_ref=notice.notice_ref, outcome=self.outcome, recorded_at=_RECORDED_AT
-        )
+        return TeamNoticeReceipt(notice_ref=notice.notice_ref, outcome=self.outcome, recorded_at=_RECORDED_AT)
 
 
 # ---------------------------------------------------------------------------
@@ -175,7 +173,7 @@ def test_a_mesma_notificacao_reentregue_tem_a_mesma_identidade() -> None:
     assert len(first.notice_ref) == 64
 
 
-def test_uma_notificacao_NOVA_sobre_o_mesmo_escalonamento_e_outra_linha() -> None:
+def test_uma_notificacao_nova_sobre_o_mesmo_escalonamento_e_outra_linha() -> None:
     """A re-notify after the channel fallback, or a later SLA cycle, must NOT be swallowed.
 
     This is the reason `notice_ref` is not just the business key: keying on the escalation alone
