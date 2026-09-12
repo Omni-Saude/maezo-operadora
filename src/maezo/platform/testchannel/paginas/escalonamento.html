@@ -25,9 +25,11 @@
      sempre ha casos abertos, a tela nunca mais dava leitura firme — uma resolucao automatica
      correta aparecia como ambigua. Agora ela diz o que de fato mediu.
 
-  4. DEGRADA COM HONESTIDADE. A rota ainda nao devolve `conversation_id` nem o texto da resposta
-     (pedido em ROTA_SIMULAR_CONVERSA.md). Enquanto nao devolver, a pagina DIZ que nao recebeu,
-     em vez de fingir. Quando passar a devolver, os dois campos acendem sozinhos.
+  4. DEGRADA COM HONESTIDADE. A rota DEVOLVE `resposta` e `conversation_id` quando o receptor
+     roda com `WHATSAPP_WEBHOOK_DEVOLVE_TURNO=1` — o caso em `dev-sa-east-1`, e so' la': e'
+     texto voltado ao beneficiario, e a cerca de CI reprova o portao ligado em outro ambiente.
+     Sem o portao os dois campos simplesmente nao vem, e ai' a pagina DIZ que nao recebeu, em
+     vez de fingir. Nunca inventa um texto nem finge silencio da Helena.
 -->
 <title>Conversa com a Helena — Canal de Teste</title>
 <style>
@@ -308,10 +310,11 @@ function enviar(){
     .then(function(){ $("btEnviar").disabled = false; });
 }
 
-/* A rota devolve hoje apenas o eco do receptor (`{"status":"ok","dispatched":N}`). O texto que a
-   Helena redigiu NAO volta: ele vai direto para o envio do WhatsApp, que da 401 em dev. Enquanto
-   a rota nao devolver `resposta` e `conversation_id` (pedido em ROTA_SIMULAR_CONVERSA.md), a tela
-   DIZ que nao recebeu — nunca inventa um texto nem finge silencio da Helena. */
+/* Sob `WHATSAPP_WEBHOOK_DEVOLVE_TURNO=1` o receptor devolve `resposta` e `conversation_id` no
+   corpo do ack, e o canal ELEVA os dois ao topo da sua resposta (`server.py::_corpo_do_receptor`)
+   mantendo o eco cru em `receptor` — por isso a busca abaixo olha os dois niveis. Sem o portao os
+   campos nao existem, e a tela DIZ que nao recebeu: nunca inventa um texto nem finge silencio da
+   Helena. */
 function mostrarResposta(bolhaPensando, resp){
   var texto = null, conv = null;
   try {
@@ -394,11 +397,12 @@ function procurar(tentativa){
 }
 
 /* NENHUM PROCESSO NOVO NESTE TURNO — e a tela nao pode escolher a leitura otimista.
-   LIMITE CONHECIDO, dito em vez de escondido: a contagem abaixo e' de TODOS os escalonamentos
-   abertos no motor, nao os deste numero. A chave do processo vem do `conversation_id`, que o
-   receptor calcula com chave secreta — a pagina nao tem como derivar do telefone. Quando a rota
-   devolver o `conversation_id` (ROTA_SIMULAR_CONVERSA.md), esta funcao passa a consultar pela
-   chave exata e a ambiguidade some. */
+   COM o `conversation_id` em maos (portao `WHATSAPP_WEBHOOK_DEVOLVE_TURNO`, ver o cabecalho), a
+   consulta e' pela chave EXATA `ESC-amh-<conversation_id>` e nao ha' ambiguidade nenhuma — e' o
+   primeiro ramo abaixo. SEM ele cai-se no segundo ramo, e ai' vale o LIMITE CONHECIDO, dito em
+   vez de escondido: a contagem e' de TODOS os escalonamentos abertos no motor, nao os deste
+   numero, porque a chave vem de um `conversation_id` que o receptor calcula com chave secreta e
+   a pagina nao tem como derivar do telefone. */
 function semProcessoNovo(){
   var antes = S.evid.abertosAntes;
 

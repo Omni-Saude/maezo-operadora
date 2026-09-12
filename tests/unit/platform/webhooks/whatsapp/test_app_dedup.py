@@ -319,3 +319,45 @@ async def test_both_flag_states_stay_wired(flag: bool) -> None:
 
     assert response.status_code == 200
     assert ("queued" in response.json()) is flag
+
+
+# ---------------------------------------------------------------------------
+# RV-371 §Δ2/D4 — o unico caminho onde o coletor do `devolve_turno` poderia correr
+# ---------------------------------------------------------------------------
+
+
+class _DispatcherComTurno(_FakeDispatcher):
+    """Devolve um turno COM texto: se o coletor rodasse no modo fila, o ack o mostraria."""
+
+    async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
+        await super().dispatch(message)
+        return {
+            "ok": True,
+            "response_text": "Ola! Sou a Helena, navegadora de saude.",
+            "conversation_id": "wa:amh:hk1_0123456789abcdef",
+        }
+
+
+async def test_ack_then_queue_com_devolve_turno_nao_devolve_turno_nenhum() -> None:
+    """Portao do turno LIGADO + ack-then-queue: o ack sai sem os campos, nunca meio preenchido.
+
+    E' o unico caminho onde o coletor poderia ter corrido: `app.py` dispara o turno de fundo e
+    faz `continue`, e `_run_background_turn` chama `_run_one_message` SEM o coletor, entao o
+    dicionario do lote continua vazio e a guarda do corpo e' falsa. Isso vale por causa de um
+    `continue` e de um argumento default — e ate' aqui nao havia teste nenhum segurando.
+    """
+    registry = FakeDedupRegistry()
+    dispatcher = _DispatcherComTurno()
+    app = create_app(  # type: ignore[arg-type]
+        _settings(ack_then_queue=True, devolve_turno=True),
+        dispatcher=dispatcher,
+        dedup=_guard(registry),
+    )
+
+    response = await _post(app, _envelope(_text()))
+
+    corpo = response.json()
+    assert response.status_code == 200
+    assert corpo == {"status": "queued", "queued": 1}
+    assert "resposta" not in corpo
+    assert "conversation_id" not in corpo

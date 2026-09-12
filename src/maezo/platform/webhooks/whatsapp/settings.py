@@ -190,7 +190,10 @@ class WhatsAppWebhookSettings(BaseSettings):
     # exatamente a cerca `leak_canaries` dos conjuntos golden.
     #
     # POR QUE E' UM PORTAO E NAO O PADRAO. Em producao quem recebe esta resposta e' a Meta, e o
-    # contrato do ack e' o CODIGO de status, nao o corpo (`docs/runbooks/whatsapp-webhook.md` §6).
+    # contrato do ack com ela e' o CODIGO de status: a Meta re-entrega o que nao recebeu 200 e nao
+    # le' o corpo. (O runbook §6 "Local testing" documenta o corpo VISIVEL em dev — inclusive os
+    # campos deste portao — e nao e' a fonte do contrato da Meta; a citacao anterior apontava para
+    # la' como se fosse.)
     # Ampliar o corpo por padrao mudaria o que sai do processo em producao para ganhar uma
     # conveniencia de teste — entao o default e' `False` e uma implantacao que nao o nomeia nao
     # muda em nada. O `conversation_id` e' keyed-irreversivel e ja' aparece em log e no Cockpit; o

@@ -462,3 +462,42 @@ async def test_turno_sem_texto_devolve_string_vazia_e_nao_inventa_nada() -> None
         resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
 
     assert resp.json()["resposta"] == ""
+
+
+# Duas das tres invariantes que RV-371 §Δ2/D4 apontou como corretas-por-leitura e nao-testadas.
+# Valem hoje por causa do ramo `dispatched` do coletor — exatamente a especie de invariante que
+# um refactor inverte em silencio. A terceira (ack-then-queue) mora em `test_app_dedup.py`,
+# onde o registro durable que aquele modo exige ja' esta' montado.
+
+
+async def test_turno_que_falhou_com_o_portao_ligado_nao_devolve_texto() -> None:
+    """Gate ON + turno que falhou: nada de texto honesto a mostrar, entao nada e' mostrado.
+
+    O coletor so' e' escrito no ramo `dispatched`; um turno que levantou nao passa por ele.
+    """
+    dispatcher = _FakeDispatcher(fail=True)
+    app = create_app(_settings(devolve_turno=True), dispatcher=dispatcher)
+    payload = _text_message_payload(body="oi")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    corpo = resp.json()
+    assert resp.status_code == 500
+    assert "resposta" not in corpo
+    assert "conversation_id" not in corpo
+
+
+async def test_ack_de_nao_texto_com_o_portao_ligado_nao_devolve_turno() -> None:
+    """Gate ON + mensagem sem texto: um ack NAO e' um turno da Helena, e o corpo nao finge que e'."""
+    dispatcher = _FakeDispatcher(resultado=_TURNO)
+    app = create_app(_settings(devolve_turno=True), dispatcher=dispatcher)
+    payload = _non_text_payload(message_type="audio")
+
+    async with await _client(app) as client:
+        resp = await client.post("/webhook", content=payload, headers={"X-Hub-Signature-256": _sign(payload)})
+
+    corpo = resp.json()
+    assert resp.status_code == 200
+    assert corpo == {"status": "ok", "dispatched": 0, "failed": 0, "acked": 1}
+    assert dispatcher.dispatched == []
