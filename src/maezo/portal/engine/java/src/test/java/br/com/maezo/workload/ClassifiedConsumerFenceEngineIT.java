@@ -10,7 +10,9 @@ import org.junit.jupiter.api.io.TempDir;
 @Tag("integration")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ClassifiedConsumerFenceEngineIT {
-  @TempDir Path directory;
+  // static: injected by the TempDirectory BeforeAllCallback, which is ordered before this
+  // class's own @BeforeAll. An instance @TempDir was null at start() (V3-Q3 report §3.3).
+  @TempDir static Path directory;
   final WorkloadEngineIT f=new WorkloadEngineIT();
   @BeforeAll void start()throws Exception{WorkloadEngineIT.temp=directory;f.setup();}
   @AfterAll void stop()throws Exception{f.cleanup();}

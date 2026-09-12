@@ -40,6 +40,7 @@ class WorkloadEngineIT {
     escalation=deploy("SP-OP-ESCALATION-001","operadora.escalation.notify_team",true);
     pagto=deploy("SP-OP-PAGTO-001","synthetic-only-pagto",false);
     sourceContas=deploySourceHuman();
+    if(temp==null)throw new IllegalStateException("explicit real integration setting missing: WorkloadEngineIT.temp");
     var manifest=Fixtures.manifest(temp);var original=Json.object(Json.list(manifest.get("peers")).get(0));
     List<Object> peers=new ArrayList<>();
     var agent=new HashMap<>(original);agent.put("capabilities",bindings("helena",List.of("helena.escalation.start.v1","helena.escalation.start.v1.read_active","helena.escalation.start.v1.read_history")));peers.add(agent);

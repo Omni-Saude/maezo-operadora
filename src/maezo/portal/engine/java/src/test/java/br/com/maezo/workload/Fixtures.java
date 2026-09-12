@@ -52,6 +52,8 @@ final class Fixtures {
     }
   }
   static Map<String,Object> manifest(Path directory)throws Exception {
+    if(directory==null)throw new IllegalStateException(
+        "explicit real integration setting missing: fixture directory (@TempDir not injected before @BeforeAll)");
     directory=directory.toRealPath();
     Path ca=directory.resolve("ca.pem");Files.write(ca,Fixtures.class.getResourceAsStream("/d7/ca.pem").readAllBytes());
     var leaf=certificate("client");long now=Instant.now().getEpochSecond();
