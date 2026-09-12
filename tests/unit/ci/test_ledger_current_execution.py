@@ -485,59 +485,12 @@ def test_actual_operational_failed_fresh_history_retains_failure(
     assert not (packet / "operational.json").exists()
 
 
-@pytest.fixture(scope="module")
-def async_history_producer() -> Any:
-    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
-
-    yield from fixtures.adapter.__wrapped__()
-
-
-@pytest.fixture(scope="module")
-def async_adapter_history(tmp_path_factory: pytest.TempPathFactory, async_history_producer: Any) -> Any:
-    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
-
-    return fixtures.history.__wrapped__(tmp_path_factory, async_history_producer)
-
-
-def test_actual_finite_async_operational_adapter_fixture_scope(
-    tmp_path: Path, async_adapter_history: Any, async_history_producer: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from contextlib import contextmanager
-
-    from scripts.ci import ledger_current_relations as relations
-    from scripts.ci import ledger_history_proofs as proof
-
-    from tests.unit.ci import test_ledger_d7_async_consumer as fixtures
-
-    candidate = fixtures.candidate.__wrapped__(
-        tmp_path, async_adapter_history, async_history_producer, monkeypatch
-    )
-    capsule = proof.async_producer_capsule
-
-    @contextmanager
-    def synthetic_catalogue_capsule(repository: Path) -> Any:
-        # Carry the existing synthetic source catalogue into the fresh actual
-        # capsule. Its pinned source bytes and both real captures are unchanged.
-        with capsule(repository) as selected:
-            selected.async_catalogue.SOURCE_CATALOG_V1 = (candidate[-1],)
-            yield selected
-
-    monkeypatch.setattr(proof, "async_producer_capsule", synthetic_catalogue_capsule)
-    root, reviewed = candidate[:2]
-    runner = current.HistoryRunner(root, tmp_path / "async-adapter", base=reviewed.source)
-    edge = relations.plan_current_relations(root, reviewed.source).relations[0]
-    packet = tmp_path / "synthetic-async-operational"
-    packet.mkdir(mode=0o700)
-    data = runner._operational(edge, packet)
-    assert data["status"] == "CORRECTED_WITH_INVALID_HISTORY"
-    assert data["historical_claim_verified"] is False
-    assert data["execution_count"] == 2
-    assert (packet / "producer-before.json").read_bytes() == (packet / "producer-after.json").read_bytes()
-    result = json.loads((packet / "operational.json").read_text())
-    assert result["archive_validation"] == "D7_ASYNC_ARCHIVED_PRODUCER_IDENTITY_BOUND"
-    assert result["historical"]["coverage"]["selected_count"] == 1
-    assert result["current"]["coverage"]["selected_count"] == 2
-    # Synthetic archive/catalogue fixtures still cannot mint production handles.
-    refused = runner.run(edge.identity)
-    assert refused.status == "REFUSED"
-    assert not runner.consume(refused, edge.identity)
+# async_history_producer / async_adapter_history / test_actual_finite_async_operational_adapter_fixture_scope
+# removed 2026-09-12 (owner decision, V6-Q6 D7 catalogue exclusion, cascade discovered by R6-Q6
+# re-sweep). These reused tests.unit.ci.test_ledger_d7_async_consumer's adapter/history/candidate
+# fixtures, which built real captures anchored to the now-removed D7unit802 entry's source_commit.
+# The generic mechanism this test exercised (HistoryRunner._operational via async_producer_capsule)
+# remains covered by test_actual_finite_operational_adapter_fixture_scope above, which exercises the
+# same runner through the sync path with a synthetic VALID_CATALOG/INVALID_CATALOG entry — not
+# dependent on any real historical commit. See scripts/ci/ledger_history_proofs.py::D7_CATALOG
+# comment and V6-Q6-D7-OPTIONS.md for the full rationale.

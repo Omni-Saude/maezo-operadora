@@ -100,22 +100,26 @@ VALID_CATALOG: tuple[ReviewedHistory, ...] = (
 
 # Separately qualified explicit-async successor. The original two catalogues,
 # their receipt schemas, and their own-lock rules are unchanged.
-D7_CATALOG: tuple[ReviewedHistory, ...] = (
-    ReviewedHistory(
-        "D7unit802",
-        "80206e29ab4bb4f71556b6f119ba9dd777370fe0",
-        "tests/unit/gateway/test_engine_capability_contracts.py",
-        "PLAN-PORTAL-D7-A-CAPABILITY-CONTRACTS",
-        "2026-09-08",
-        "4a8d780b958cf653d61e226f1ab0aa6cfeec4fe863545f8b8ce617a402c96e36",
-        "ddee1f4089012b7605b822b10e8ed0adf94607c84ba59971483e4780f7c0c933",
-        "1b40d6d8f30ead07b089417e02b0ff08a52fb3c3e9ad6540a7dad5fb5ec68b75",
-        159,
-        "c3be627ffa9ec3e7448343dbcfda4e7734077a4a8d87a392f222026a2acd7272",
-        prefix_commit="315af58a496eac608a32ad66eca18783ed209d50",
-        report_sha256="cb967991a03fe053fce982c75e917ec7697a3fde1aba688bd4a54204f8783f93",
-    ),
-)
+#
+# DECISAO DO DONO (2026-09-12, achado V6-Q6 §Delta D7): a unica entrada deste
+# catalogo, "D7unit802", provava-se contra source_commit=80206e29ab4b... e
+# prefix_commit=315af58a496e..., ambos exclusivos da linhagem do train
+# (origin/completion/product-c27-auth-lifecycle) e estruturalmente
+# insatisfazveis em main sob a regra de transplante-apenas-conteudo desta
+# frota (identico em especie ao achado F2/IC_ORPHAN_EVIDENCE). Reescrever a
+# entrada para apontar outro commit forjaria uma prova de proveniencia;
+# mante-la faz o job `quality` (tests/unit/dev/test_historical_async_recipe.py
+# ::test_explicit_cli_preflight_reads_only_closed_d7_source) e um teste
+# independente de linhagem de ledger (test_ledger_invalid_declarations.py
+# ::test_exact_test_bodies_and_ledger_history_unchanged) ficarem
+# permanentemente vermelhos em main. A entrada e os dois testes foram
+# removidos como residuo declarado; permanecem no tip `e8bbccfb` (issue
+# #369). Um catalogo D7 derivado da propria historia de main e um WP novo,
+# nao uma correcao deste PR. D7_TOOL_SOURCES abaixo NAO faz parte desta
+# exclusao — pina o conteudo ATUAL (nao historico) dos scripts
+# historical_async_recipe.py/run_historical_catalog_recipe.py/
+# historical_tool_sources.py, que continuam no repositorio.
+D7_CATALOG: tuple[ReviewedHistory, ...] = ()
 D7_SOURCE_COMMIT = "63f1f1ca33e3887a545fc85ec27673feb44210d0"
 D7_SOURCE_TREE = "1ccc563fef4fdd102d968ee7c4ba49a7f3447579"
 D7_TOOL_SOURCES = {
