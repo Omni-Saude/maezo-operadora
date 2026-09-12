@@ -58,6 +58,7 @@ from .phi_decision_authorization import EngineBackedPhiDecisionAuthorization
 from .production_materials import (
     MATERIAL_DIRECTORY,
     HumanMaterialError,
+    HumanMaterialPin,
     HumanMaterials,
     PrivateSurface,
     load_human_materials,
@@ -283,29 +284,33 @@ def compose_human_plane(
 
 @asynccontextmanager
 async def human_runtime(
-    materials: HumanMaterials | None = None,
-    *,
-    decision_directory: str | None = None,
-    decision: DecisionMaterials | None = None,
+    pin: HumanMaterialPin, *, decision_directory: str | None = None
 ) -> AsyncIterator[HumanRuntime]:
     """Compose the human plane; every resource opened here is closed here.
 
-    Ordering is the contract: the relay starts before any gateway is built, and on
-    the way out the in-flight delivery is awaited before the pools it uses close.
-    Pools owned by other packages (identity, staff, intake) are never touched.
+    Ordering is the contract, and it begins with trust: `load_human_materials` refuses
+    an unpinned, wrong-tenant, expired or withdrawn bundle *before* the exit stack is
+    entered, so no pool is opened, no query runs and no relay starts on material this
+    deployment has not anchored out of band. There is no seam that supplies materials
+    directly — that would skip both the filesystem custody and the pin.
+
+    After that: the relay starts before any gateway is built, and on the way out the
+    in-flight delivery is awaited before the pools it uses close. Pools owned by other
+    packages (identity, staff, intake) are never touched.
 
     `decision_directory` names the decision material plane (WP-J1-06 Phase 0). Naming
     it is the whole activation: absent, the decision ports stay unbound and the gateway
     refuses decisions exactly as it does on `main`; present, it must be the one fixed
-    path and the bundle must verify, or the plane fails to start.
+    path and the bundle must verify, or the plane fails to start. It is loaded only
+    AFTER the human bundle has been pinned and verified — a decision plane is an
+    addition to a trusted human plane, never a way to reach one.
     """
     lifetime = MaterialLifetime()
     try:
-        material = materials if materials is not None else load_human_materials(MATERIAL_DIRECTORY)
-        if decision_directory is not None:
-            if decision is not None:
-                raise DecisionMaterialError()
-            decision = load_decision_materials(decision_directory)
+        material = load_human_materials(MATERIAL_DIRECTORY, pin)
+        decision = (
+            None if decision_directory is None else load_decision_materials(decision_directory)
+        )
         async with AsyncExitStack() as resources:
             pool = await asyncpg.create_pool(
                 dsn=material.outbox_url.render_as_string(hide_password=False).replace(

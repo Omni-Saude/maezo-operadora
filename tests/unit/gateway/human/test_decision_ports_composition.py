@@ -18,14 +18,14 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
-from tests.unit.gateway.human.decision_materials_builder import (
+from tests.support.decision_materials_builder import (
     ACTIVE_KEY,
     RETIRED_KEY,
     binding_database,
     build_bundle,
     build_decision_materials,
 )
-from tests.unit.gateway.human.materials_builder import build_materials
+from tests.support.materials_builder import build_materials
 
 from maezo.gateway.human.decision import BoundDecisionPorts
 from maezo.gateway.human.decision_binding import PostgresDecisionBindingSource

@@ -1,6 +1,7 @@
 """Builder for a COMPLETE, valid decision material bundle used by the WP-J1-06 tests.
 
-The sibling of `materials_builder.py`, for the second material plane: an installation
+The sibling of `materials_builder.py` (same package, moved here by #384's convention
+for shared builders), for the second material plane: an installation
 root pin, a pinned `BindingDatabase`, a PHI deployment designation and the AES-GCM
 vault keys. It builds deployment material only — no provider and no port; the tests
 exercise the production providers in `src/`, never a stand-in for one.

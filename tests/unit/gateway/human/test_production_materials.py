@@ -11,11 +11,12 @@ import hashlib
 from datetime import UTC, datetime
 
 import pytest
-from tests.unit.gateway.human.materials_builder import (
+from tests.support.materials_builder import (
     ASSIGNMENT_WORKLOAD,
     WORKLOAD,
     build_bundle,
     build_materials,
+    pin_for,
 )
 
 from maezo.gateway.human.command_materials import (
@@ -32,11 +33,14 @@ from maezo.gateway.human.production_materials import (
     PRIVATE_FILES,
     PUBLIC_FILES,
     HumanMaterialError,
+    HumanMaterialPin,
+    HumanPublicManifest,
     load_human_materials,
     verify_materials,
 )
 from maezo.gateway.human.queue import ReadRefusalError
 from maezo.gateway.human.read_materials import MaterialLifetime, read_providers
+from maezo.gateway.human.read_profile import parse_model, wire
 
 
 def test_read_command_and_assignment_keys_are_distinct_and_purpose_bound(tmp_path):
@@ -163,13 +167,21 @@ def test_assignment_lease_is_guarded_on_every_signature(tmp_path):
 def test_material_bundle_is_complete_or_refused(tmp_path):
     """A half-provisioned bundle never starts the plane."""
     manifest, files = build_bundle(directory=tmp_path / "current")
-    assert verify_materials(manifest, files, now=datetime.now(UTC), directory=str(tmp_path / "current"))
+    assert verify_materials(
+        pin_for(manifest), manifest, files, now=datetime.now(UTC), directory=str(tmp_path / "current")
+    )
 
     for name in sorted(FILES):
         broken = dict(files)
         del broken[name]
         with pytest.raises(HumanMaterialError):
-            verify_materials(manifest, broken, now=datetime.now(UTC), directory=str(tmp_path / "current"))
+            verify_materials(
+                pin_for(manifest),
+                manifest,
+                broken,
+                now=datetime.now(UTC),
+                directory=str(tmp_path / "current"),
+            )
 
 
 def test_public_file_tampering_is_detected_and_secrets_are_never_hashed_publicly(tmp_path):
@@ -184,7 +196,9 @@ def test_public_file_tampering_is_detected_and_secrets_are_never_hashed_publicly
     tampered = dict(files)
     tampered["read-admission.json"] = files["read-admission.json"] + b" "
     with pytest.raises(HumanMaterialError):
-        verify_materials(manifest, tampered, now=datetime.now(UTC), directory=str(tmp_path / "current"))
+        verify_materials(
+            pin_for(manifest), manifest, tampered, now=datetime.now(UTC), directory=str(tmp_path / "current")
+        )
 
 
 def test_read_admission_must_carry_the_installation_root_signature(tmp_path):
@@ -206,8 +220,14 @@ def test_read_admission_must_carry_the_installation_root_signature(tmp_path):
         }
     )
     with pytest.raises(HumanMaterialError):
+        # Pinned to the TAMPERED manifest on purpose: the refusal under test is the
+        # forged admission signature, not the out-of-band digest mismatch.
         verify_materials(
-            tampered_manifest, tampered, now=datetime.now(UTC), directory=str(tmp_path / "current")
+            pin_for(tampered_manifest),
+            tampered_manifest,
+            tampered,
+            now=datetime.now(UTC),
+            directory=str(tmp_path / "current"),
         )
 
 
@@ -217,6 +237,7 @@ def test_expired_material_refuses(tmp_path):
     manifest, files = build_bundle(directory=tmp_path / "current")
     with pytest.raises(HumanMaterialError):
         verify_materials(
+            pin_for(manifest),
             manifest,
             files,
             now=datetime.now(UTC) + timedelta(days=2),
@@ -226,9 +247,159 @@ def test_expired_material_refuses(tmp_path):
 
 def test_loader_accepts_exactly_one_fixed_path():
     """No search path and no configurable directory: one path or nothing."""
+    pin = HumanMaterialPin(
+        tenant="tenant_j1", material_version_id="j1material" + "0" * 26, public_manifest_sha256="a" * 64
+    )
     with pytest.raises(HumanMaterialError):
-        load_human_materials(None)
+        load_human_materials(None, pin)
     with pytest.raises(HumanMaterialError):
-        load_human_materials("/tmp")
+        load_human_materials("/tmp", pin)
     with pytest.raises(HumanMaterialError):
-        load_human_materials("/run/maezo-human-materials/current/..")
+        load_human_materials("/run/maezo-human-materials/current/..", pin)
+
+
+def test_a_wholly_substituted_bundle_is_refused_only_by_the_out_of_band_pin(tmp_path):
+    """MAJOR-2 — the bundle does not attest itself; configuration says which bundle.
+
+    Every other check in `verify_materials` compares the directory to itself, so an
+    adversary who can write it supplies their own root key, their own manifest and
+    their own root-signed admission and passes all of them. The second bundle below
+    is exactly that: internally perfect, and refused because the deployment is pinned
+    to the first one.
+    """
+    first, first_files = build_bundle(directory=tmp_path / "first")
+    second, second_files = build_bundle(directory=tmp_path / "second")
+    assert first.root_key_fingerprint != second.root_key_fingerprint
+
+    # The substituted bundle is internally coherent: pinned to itself it verifies.
+    assert verify_materials(
+        pin_for(second), second, second_files, now=datetime.now(UTC), directory=str(tmp_path / "second")
+    )
+    # Pinned to the bundle the deployment actually approved, it is refused.
+    with pytest.raises(HumanMaterialError):
+        verify_materials(
+            pin_for(first), second, second_files, now=datetime.now(UTC), directory=str(tmp_path / "second")
+        )
+
+    # Each of the three pinned facts is load-bearing on its own.
+    anchor = pin_for(first)
+    for wrong in (
+        HumanMaterialPin("tenant_outro", anchor.material_version_id, anchor.public_manifest_sha256),
+        HumanMaterialPin(anchor.tenant, "outro" + "0" * 27, anchor.public_manifest_sha256),
+        HumanMaterialPin(anchor.tenant, anchor.material_version_id, "f" * 64),
+    ):
+        with pytest.raises(HumanMaterialError):
+            verify_materials(
+                wrong, first, first_files, now=datetime.now(UTC), directory=str(tmp_path / "first")
+            )
+
+
+def test_manifest_digest_pin_covers_every_manifest_field(tmp_path):
+    """A single altered manifest fact changes the pinned digest, so nothing is unpinned."""
+    manifest, files = build_bundle(directory=tmp_path / "current")
+    anchor = pin_for(manifest)
+    for update in (
+        {"engine_name": "engine-substituted"},
+        {"catalog_ref": "catalog-substituted"},
+        {"relay_poll_seconds": 2},
+        {"issuer": "https://substituted.invalid"},
+    ):
+        altered = manifest.model_copy(update=update)
+        assert hashlib.sha256(altered.canonical()).hexdigest() != anchor.public_manifest_sha256
+        with pytest.raises(HumanMaterialError):
+            verify_materials(
+                anchor, altered, files, now=datetime.now(UTC), directory=str(tmp_path / "current")
+            )
+
+
+def test_revocation_snapshot_refuses_withdrawn_material_and_bounds_every_lease(tmp_path):
+    """MAJOR-2 — a withdrawn or unobserved bundle is refused, and leases are clamped."""
+    from datetime import timedelta
+
+    # 1. A manifest that attests material its own snapshot declares revoked is not a
+    #    manifest at all: it is refused while parsing, for every attested digest.
+    live, _ = build_bundle(directory=tmp_path / "probe")
+    assert len(live.attested_digests()) >= 7
+    for revoked in sorted(live.attested_digests()):
+        payload = wire(live)
+        payload["revocation_snapshot"] = _snapshot(live, revoked=[revoked])
+        with pytest.raises(HumanMaterialError):
+            parse_model(HumanPublicManifest, payload)
+    # An unrelated withdrawn fingerprint is not this bundle's problem.
+    payload = wire(live)
+    payload["revocation_snapshot"] = _snapshot(live, revoked=["9" * 64])
+    assert parse_model(HumanPublicManifest, payload).revocation_snapshot.revoked_fingerprints
+
+    # 2. A stale observation is refused even while the issue window is open.
+    past = datetime.now(UTC) - timedelta(hours=2)
+    stale = build_bundle(
+        directory=tmp_path / "stale",
+        overrides={
+            "revocation_snapshot": _snapshot(live, observed_at=past, valid_until=past + timedelta(minutes=1))
+        },
+    )
+    manifest, files = stale
+    assert manifest.issued_at <= datetime.now(UTC) < manifest.valid_until
+    with pytest.raises(HumanMaterialError):
+        verify_materials(
+            pin_for(manifest), manifest, files, now=datetime.now(UTC), directory=str(tmp_path / "stale")
+        )
+
+    # 3. A snapshot that ends before the manifest shortens every lease minted here.
+    soon = datetime.now(UTC) + timedelta(minutes=3)
+    materials = build_materials(
+        tmp_path / "short",
+        overrides={
+            "revocation_snapshot": _snapshot(
+                live, observed_at=datetime.now(UTC) - timedelta(minutes=1), valid_until=soon
+            )
+        },
+    )
+    assert materials.not_after < materials.manifest.valid_until
+    assert abs((materials.not_after - soon).total_seconds()) < 1
+    lifetime = MaterialLifetime()
+    admission, credentials, _ = read_providers(materials, lifetime)
+    assert credentials._not_after == materials.not_after
+    assert assignment_signing_lease(materials, lifetime).not_after == materials.not_after
+    assert install_command_credential(materials, lifetime).signer._until == materials.not_after
+
+
+def _snapshot(manifest, *, revoked=(), observed_at=None, valid_until=None):
+    from datetime import timedelta
+
+    observed_at = observed_at or (datetime.now(UTC) - timedelta(minutes=5))
+    valid_until = valid_until or (datetime.now(UTC) + timedelta(hours=6))
+    return {
+        "scope": {
+            "tenant": manifest.scope.tenant,
+            "environment": manifest.scope.environment,
+            "workload_ref": manifest.scope.workload_ref,
+        },
+        "source_ref": "revocation-observer-1",
+        "revision": "5",
+        "observed_at": observed_at.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        "valid_until": valid_until.astimezone(UTC).isoformat().replace("+00:00", "Z"),
+        "revoked_fingerprints": sorted(set(revoked)),
+    }
+
+
+def test_command_endpoint_is_the_engine_base_never_the_transport_path(tmp_path):
+    """The transport appends `/v1/commands` itself; a base inside `/v1` would double it."""
+    manifest, _ = build_bundle(directory=tmp_path / "current")
+    assert manifest.command_endpoint == manifest.command_surface.origin
+    for endpoint in (
+        manifest.command_surface.origin + "/v1/commands",
+        manifest.command_surface.origin + "/v1",
+        manifest.command_surface.origin + "/",
+        manifest.command_surface.origin + "/engine/",
+        "https://other.engine.invalid/engine",
+        manifest.command_surface.origin + "/engine?x=1",
+    ):
+        with pytest.raises(HumanMaterialError):
+            build_bundle(directory=tmp_path / "bad", overrides={"command_endpoint": endpoint})
+    # A path-mounted engine is still expressible.
+    mounted, _ = build_bundle(
+        directory=tmp_path / "mounted",
+        overrides={"command_endpoint": manifest.command_surface.origin + "/engine"},
+    )
+    assert mounted.command_endpoint.endswith("/engine")

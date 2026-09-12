@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
-from tests.unit.gateway.human.materials_builder import build_materials
+from tests.support.materials_builder import build_bundle, build_materials, pin_for
 
 from maezo.gateway.human import production as production_module
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
@@ -33,7 +33,11 @@ from maezo.gateway.human.errors import GatewayRefusalError
 from maezo.gateway.human.gateway import create_production_gateway
 from maezo.gateway.human.outbox import PostgresHumanAdmission, PostgresHumanOutbox
 from maezo.gateway.human.production import compose_human_plane
-from maezo.gateway.human.production_materials import HumanMaterialError
+from maezo.gateway.human.production_materials import (
+    HumanMaterialError,
+    HumanMaterialPin,
+    verify_materials,
+)
 from maezo.gateway.human.queue_cursor import AeadQueueCursorCustody
 from maezo.gateway.human.read_credentials import ReadCredentialPartition
 from maezo.gateway.human.read_materials import (
@@ -174,9 +178,14 @@ async def test_synthetic_or_in_memory_provider_is_refused(tmp_path):
     for forbidden in ("tests.", "Refusing", "Noop", "NoOp", "InMemory", "Fake", "Synthetic"):
         assert forbidden not in source, forbidden
 
-    # And material is the only way in: no bundle, no plane.
+    # And material is the only way in: no bundle, no plane. The loader now also
+    # demands the out-of-band pin, so there is no argument shape that reaches a
+    # composition from an unanchored directory.
+    pin = production_module.HumanMaterialPin(
+        tenant="tenant_j1", material_version_id="j1material" + "0" * 26, public_manifest_sha256="a" * 64
+    )
     with pytest.raises(HumanMaterialError):
-        production_module.load_human_materials("/does/not/exist")
+        production_module.load_human_materials("/does/not/exist", pin)
 
 
 def test_production_factory_still_refuses_and_is_untouched():
@@ -562,14 +571,31 @@ def test_human_plane_is_dark_without_the_new_capability_literal():
         PortalProductionSettings(
             capabilities="identity,staff_cases",
             human_material_directory="/run/maezo-human-materials/current",
+            human_material_version_id="humanmaterial" + "0" * 23,
+            human_public_manifest_sha256="8" * 64,
             **staff,
         )
-    complete = PortalProductionSettings(
-        capabilities=HUMAN_CAPABILITIES,
+    human = dict(
         human_material_directory="/run/maezo-human-materials/current",
-        **staff,
+        human_material_version_id="humanmaterial" + "0" * 23,
+        human_public_manifest_sha256="8" * 64,
     )
+    # ...and the directory alone is not a profile: the out-of-band anchor is part of
+    # "complete", so no deployment can start the plane pinned to nothing (MAJOR-2).
+    for missing in sorted(human):
+        partial = {k: v for k, v in human.items() if k != missing}
+        with pytest.raises(PortalStaffBootstrapError):
+            PortalProductionSettings(capabilities=HUMAN_CAPABILITIES, **partial, **staff)
+    # The two planes never share a material version id or a manifest digest.
+    for collision in (
+        {"human_material_version_id": staff["staff_material_version_id"]},
+        {"human_public_manifest_sha256": staff["staff_public_manifest_sha256"]},
+    ):
+        with pytest.raises(PortalStaffBootstrapError):
+            PortalProductionSettings(capabilities=HUMAN_CAPABILITIES, **{**human, **collision}, **staff)
+    complete = PortalProductionSettings(capabilities=HUMAN_CAPABILITIES, **human, **staff)
     assert complete.capabilities == HUMAN_CAPABILITIES
+    assert complete.human_public_manifest_sha256 == "8" * 64
 
 
 def test_document_and_communication_slots_are_left_unbound():
@@ -586,3 +612,92 @@ def test_document_and_communication_slots_are_left_unbound():
     # They are read only to refuse an ambiguous composition.
     assert "application.state.document_service_factory is not None" in source
     assert "application.state.communication_service_factory is not None" in source
+
+
+@pytest.mark.asyncio
+async def test_tenant_cross_check_precedes_every_pool_query_and_relay(tmp_path, monkeypatch):
+    """MAJOR-1 — the one out-of-band check runs BEFORE any side effect, not after.
+
+    `human_runtime` used to enter its `AsyncExitStack` first, so a bundle for another
+    tenant obtained real connections, ran a live query and started the command relay
+    before the caller compared tenants. The cross-check now travels inside the pin and
+    is evaluated while the manifest is parsed.
+
+    Only the filesystem custody is substituted here (a `tmp_path` bundle cannot be a
+    root-owned read-only mount). The real `verify_materials`, the real pin and the real
+    manifest all run unchanged, and the control case below proves the assertion is not
+    vacuous: with a matching pin the very next thing that happens IS the pool.
+    """
+    manifest, files = build_bundle(directory=tmp_path / "current")
+    anchor = pin_for(manifest)
+    effects: list[str] = []
+
+    def loader(directory_setting, pin):  # type: ignore[no-untyped-def]
+        effects.append("verify")
+        return verify_materials(
+            pin, manifest, files, now=datetime.now(UTC), directory=str(tmp_path / "current")
+        )
+
+    async def opened_pool(*args, **kwargs):  # type: ignore[no-untyped-def]
+        effects.append("pool")
+        raise AssertionError("pool opened")
+
+    def opened_engine(*args, **kwargs):  # type: ignore[no-untyped-def]
+        effects.append("source_engine")
+        raise AssertionError("source engine created")
+
+    async def started_relay(self):  # type: ignore[no-untyped-def]
+        effects.append("relay")
+        raise AssertionError("relay started")
+
+    monkeypatch.setattr(production_module, "load_human_materials", loader)
+    monkeypatch.setattr(production_module.asyncpg, "create_pool", opened_pool)
+    monkeypatch.setattr(production_module, "create_async_engine", opened_engine)
+    monkeypatch.setattr(AssignmentRuntime, "start", started_relay)
+
+    wrong = HumanMaterialPin(
+        tenant="tenant_outro",
+        material_version_id=anchor.material_version_id,
+        public_manifest_sha256=anchor.public_manifest_sha256,
+    )
+    with pytest.raises(HumanMaterialError):
+        async with production_module.human_runtime(wrong):
+            raise AssertionError("a wrong-tenant plane was composed")
+    # Nothing was acquired, nothing was queried, nothing was delivered.
+    assert effects == ["verify"]
+
+    effects.clear()
+    with pytest.raises(GatewayRefusalError):
+        async with production_module.human_runtime(anchor):
+            raise AssertionError("the stub pool cannot yield a runtime")
+    assert effects == ["verify", "pool"]
+
+
+def test_human_runtime_has_no_seam_that_skips_the_loader():
+    """MINOR-5 — materials reach the runtime through the pinned loader or not at all.
+
+    WP-J1-06 added `decision_directory`, and it is NOT such a seam: it is a directory
+    NAME, not material, and `load_decision_materials` accepts exactly one literal path
+    (asserted below and in `test_decision_ports_composition.py`). The rule this test
+    defends — no object may arrive already "verified" — still admits no exception.
+    """
+    signature = inspect.signature(production_module.human_runtime)
+    assert list(signature.parameters) == ["pin", "decision_directory"]
+    assert signature.parameters["pin"].default is inspect.Parameter.empty
+    assert signature.parameters["pin"].annotation == "HumanMaterialPin"
+    decision = signature.parameters["decision_directory"]
+    assert decision.kind is inspect.Parameter.KEYWORD_ONLY
+    assert decision.default is None
+    assert decision.annotation == "str | None"
+    source = inspect.getsource(production_module.human_runtime)
+    assert "load_human_materials(MATERIAL_DIRECTORY, pin)" in source
+    assert "materials if materials is not None" not in source
+    # The decision plane goes through its own loader, and only by name.
+    assert "load_decision_materials(decision_directory)" in source
+    assert "decision is not None" not in source
+
+    from maezo.gateway.human.decision_materials import DecisionMaterialError, load_decision_materials
+
+    for rejected in (None, "", "/tmp/decision", "/run/maezo-decision-materials"):
+        with pytest.raises(DecisionMaterialError):
+            load_decision_materials(rejected)

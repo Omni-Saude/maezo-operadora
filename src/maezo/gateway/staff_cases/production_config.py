@@ -72,8 +72,17 @@ class PortalProductionSettings(BaseSettings):
     issuer: str
     #: WP-J1-00. The human plane is dark unless this single fixed path is configured
     #: AND the capabilities literal names it; the material bundle itself carries the
-    #: keys, pins and connection strings (see `gateway/human/production_materials.py`).
+    #: keys, connection strings and surface pins (`gateway/human/production_materials.py`).
     human_material_directory: Literal["/run/maezo-human-materials/current"] | None = None
+    #: The out-of-band anchor for that bundle, the human counterpart of
+    #: `staff_material_version_id` / `staff_public_manifest_sha256`. A bundle attests
+    #: itself; these two facts, plus `tenant`, are the second channel that says WHICH
+    #: bundle this deployment accepts, and they are compared before any key material is
+    #: read (`gateway/human/production_materials.py` `manifest_matches`). Every
+    #: revocation-snapshot refresh republishes the manifest and therefore changes the
+    #: digest — exactly as it does for staff.
+    human_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
+    human_public_manifest_sha256: Digest | None = None
     #: WP-J1-06 Phase 0. The decision ports (#22 binding / #23 PHI custody / #25
     #: admission) bind only when this second fixed path is configured; without it the
     #: human plane still serves reads and assignments and `submit_decision` refuses,
@@ -95,9 +104,19 @@ class PortalProductionSettings(BaseSettings):
     @model_validator(mode="after")
     def complete_profile(self) -> Self:
         values = [getattr(self, n) for n in type(self).model_fields if n.startswith("staff_")]
+        human = [getattr(self, n) for n in type(self).model_fields if n.startswith("human_")]
         # The human profile is complete-or-absent exactly like the staff one: a
-        # half-configured plane must not start (WP-J1-00).
-        if (self.human_material_directory is not None) != (self.capabilities == "identity,staff_cases,human"):
+        # half-configured plane must not start (WP-J1-00). "Complete" now includes the
+        # out-of-band anchor, so the plane cannot start pinned to nothing; and the two
+        # planes never share a material version or a manifest digest.
+        if all(v is not None for v in human) != (self.capabilities == "identity,staff_cases,human"):
+            raise PortalStaffBootstrapError()
+        if any(v is not None for v in human) and any(v is None for v in human):
+            raise PortalStaffBootstrapError()
+        if any(v is not None for v in human) and (
+            self.human_material_version_id == self.staff_material_version_id
+            or self.human_public_manifest_sha256 == self.staff_public_manifest_sha256
+        ):
             raise PortalStaffBootstrapError()
         # The decision plane is an addition to the human plane, never a substitute for
         # it: there is no deployment in which decisions bind while reads do not.
