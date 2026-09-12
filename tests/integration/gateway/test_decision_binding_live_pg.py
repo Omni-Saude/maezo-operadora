@@ -45,7 +45,9 @@ from maezo.gateway.human.decision_binding_qualification import (
 from maezo.gateway.human.transport import HumanTLSIdentity
 from maezo.portal.engine.decision import _LEGACY_BINDINGS as _BINDINGS
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+# `root_fixture`: needs MAEZO_DECISION_BINDING_TEST_CONFIG from ROOT; deselected by the global lane unless
+# MAEZO_ROOT_FIXTURES=1 (tests/integration/conftest.py) — never skipped, never faked.
+pytestmark = [pytest.mark.integration, pytest.mark.root_fixture, pytest.mark.asyncio]
 CONFIG = {
     "disposable_test_database",
     "host",

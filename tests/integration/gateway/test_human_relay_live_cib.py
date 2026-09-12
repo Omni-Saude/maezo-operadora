@@ -21,7 +21,9 @@ from tests.support.human_relay_live import LiveRelayFixture, RelayConfig, relay
 from maezo.gateway.human.outbox import CommandConflictError, LeaseLostError, PostgresHumanOutbox
 from maezo.gateway.human.transport import EngineConflictError, EngineUnavailableError
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+# `root_fixture`: needs MAEZO_HUMAN_RELAY_PRIVATE_DIR from ROOT; deselected by the global lane unless
+# MAEZO_ROOT_FIXTURES=1 (tests/integration/conftest.py) — never skipped, never faked.
+pytestmark = [pytest.mark.integration, pytest.mark.root_fixture, pytest.mark.asyncio]
 
 
 def artifact_directory(config, node_name):

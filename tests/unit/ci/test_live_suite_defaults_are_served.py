@@ -226,8 +226,21 @@ def _supported_test_decorator(node: ast.expr, fixture_name: str) -> bool:
     return isinstance(node, ast.Call) and not _parametrization_may_override(node, fixture_name)
 
 
+#: Module-level marks this grammar tolerates on an explicit-fixture suite. The set stays CLOSED
+#: (an unknown mark means the suite's shape drifted and the fence must re-read it), but a mark that
+#: can only change SELECTION — never the `live` fixture's lifecycle, its parametrization, or which
+#: tests request it — is safe to admit. `root_fixture` is exactly that: it removes the suite from
+#: the global `-m integration` lane, which cannot hold its private ROOT fixture, and it is itself
+#: fenced by `tests/unit/ci/test_root_fixture_deselection.py` (registered marker, reviewed
+#: allowlist, deselection proved to fire). `integration`/`asyncio` remain REQUIRED separately by
+#: `required_module_marks`, so admitting this one cannot let a suite drop either of them.
+_SELECTION_ONLY_MODULE_MARKS: Final[tuple[str, ...]] = ("root_fixture",)
+
+
 def _supported_module_mark(node: ast.expr, fixture_name: str) -> bool:
     if _is_pytest_mark(node, "integration") or _is_pytest_mark(node, "asyncio"):
+        return True
+    if any(_is_pytest_mark(node, name) for name in _SELECTION_ONLY_MODULE_MARKS):
         return True
     return (
         isinstance(node, ast.Call)
@@ -792,6 +805,34 @@ def test_explicit_fixture_category_rejects_an_unused_loader(tmp_path: Path, body
     assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
 
 
+def _actual_relay_source() -> str:
+    return (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(encoding="utf-8")
+
+
+def _actual_pytestmark_elements(source: str) -> str:
+    """The real suite's module marks, as source text — DERIVED, never hardcoded.
+
+    The mutation tests below rewrite the suite's `pytestmark` to prove the grammar rejects the
+    mutation. A hardcoded needle makes them VACUOUS the moment the real mark list legitimately
+    changes: `str.replace` no-ops, the "mutated" file is the pristine one, and `assert not
+    _suite_loads_explicit_fixture(...)` fails (which is how PR-A's `root_fixture` mark surfaced
+    this) — or, worse, would silently pass for any assertion written the other way round.
+    """
+    lines = [line for line in source.splitlines() if line.startswith("pytestmark = ")]
+    assert len(lines) == 1, f"expected exactly one module-level pytestmark; got {lines}"
+    inner = lines[0].split("=", 1)[1].strip()
+    assert inner.startswith("[") and inner.endswith("]"), inner
+    return inner[1:-1].strip()
+
+
+def _mutate_pytestmark(source: str, replacement: str) -> str:
+    lines = [line for line in source.splitlines() if line.startswith("pytestmark = ")]
+    assert len(lines) == 1, lines
+    mutated = source.replace(lines[0], replacement, 1)
+    assert mutated != source, "pytestmark mutation did not apply — the test would be vacuous"
+    return mutated
+
+
 def _relay_suite_source(fixture_body: str, *, marker: str = "pytestmark") -> str:
     return (
         "import pytest\n"
@@ -952,9 +993,7 @@ def test_explicit_fixture_category_rejects_noncanonical_lifecycle(
 def test_actual_relay_suite_rejects_fixture_resolution_bypasses(
     tmp_path: Path, name: str, mutate: Callable[[str], str]
 ) -> None:
-    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
-        encoding="utf-8"
-    )
+    source = _actual_relay_source()
     candidate = tmp_path / f"test_{name}.py"
     candidate.write_text(mutate(source), encoding="utf-8")
     assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
@@ -970,9 +1009,7 @@ def test_actual_relay_suite_rejects_fixture_resolution_bypasses(
     ],
 )
 def test_actual_relay_suite_rejects_direct_live_parametrization(tmp_path: Path, decorator: str) -> None:
-    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
-        encoding="utf-8"
-    )
+    source = _actual_relay_source()
     first_test = next(
         node
         for node in ast.parse(source).body
@@ -986,19 +1023,14 @@ def test_actual_relay_suite_rejects_direct_live_parametrization(tmp_path: Path, 
 
 @pytest.mark.parametrize("container", ["list", "tuple"])
 def test_actual_relay_suite_rejects_module_live_parametrization(tmp_path: Path, container: str) -> None:
-    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
-        encoding="utf-8"
-    )
+    source = _actual_relay_source()
     opening, closing = ("[", "]") if container == "list" else ("(", ")")
     replacement = (
-        f"pytestmark = {opening}pytest.mark.integration, pytest.mark.asyncio, "
+        f"pytestmark = {opening}{_actual_pytestmark_elements(source)}, "
         f'pytest.mark.parametrize("live", [object()]){closing}'
     )
     candidate = tmp_path / "test_module_live_parameter.py"
-    candidate.write_text(
-        source.replace("pytestmark = [pytest.mark.integration, pytest.mark.asyncio]", replacement, 1),
-        encoding="utf-8",
-    )
+    candidate.write_text(_mutate_pytestmark(source, replacement), encoding="utf-8")
     assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
 
 
@@ -1017,9 +1049,7 @@ def test_actual_relay_suite_keeps_other_name_parametrization(tmp_path: Path) -> 
 def test_actual_relay_suite_rejects_unknown_fixture_selection_decorators(
     tmp_path: Path, boundary: str
 ) -> None:
-    source = (_REPO_ROOT / "tests/integration/gateway/test_human_relay_live_cib.py").read_text(
-        encoding="utf-8"
-    )
+    source = _actual_relay_source()
     first_test = next(
         node
         for node in ast.parse(source).body
@@ -1044,15 +1074,16 @@ def test_actual_relay_suite_rejects_unknown_fixture_selection_decorators(
             f"def wrapper(function):\n    return function\n\n@wrapper\nasync def {first_test.name}(",
             1,
         ),
-        "module_wrapper": lambda value: value.replace(
-            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio]",
+        "module_wrapper": lambda value: _mutate_pytestmark(
+            value,
             "def wrapper(function):\n    return function\n\n"
-            "pytestmark = [pytest.mark.integration, pytest.mark.asyncio, wrapper]",
-            1,
+            f"pytestmark = [{_actual_pytestmark_elements(value)}, wrapper]",
         ),
     }
+    mutated = mutations[boundary](source)
+    assert mutated != source, f"mutation {boundary!r} did not apply — the test would be vacuous"
     candidate = tmp_path / f"test_{boundary}.py"
-    candidate.write_text(mutations[boundary](source), encoding="utf-8")
+    candidate.write_text(mutated, encoding="utf-8")
     assert not _suite_loads_explicit_fixture(candidate, _relay_contract())
 
 

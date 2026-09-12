@@ -35,7 +35,10 @@ from maezo.gateway.human.decision_custody_connection import (
 )
 from maezo.gateway.human.transport import HumanTLSIdentity
 
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
+# `root_fixture`: needs the dedicated PHI PostgreSQL/mTLS custody fixture from ROOT; deselected
+# by the global lane unless MAEZO_ROOT_FIXTURES=1 (tests/integration/conftest.py) — never
+# skipped, never faked. Fenced by tests/unit/ci/test_root_fixture_deselection.py.
+pytestmark = [pytest.mark.integration, pytest.mark.root_fixture, pytest.mark.asyncio]
 
 
 @pytest.fixture
