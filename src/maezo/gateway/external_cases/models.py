@@ -448,38 +448,31 @@ class CasePage(Closed):
         return self
 
 
+# WP-J1-07 (fino) — proveniencia de cada valor de `CaseOutcome`. Fica fora da docstring
+# porque a docstring vira `description` no OpenAPI publico; a evidencia e interna.
+#
+# * `desfecho` — os cinco valores que o proprio BPMN declara em
+#   `camunda:inputParameter name="event_desfecho"` das service tasks `ST_Publish*`
+#   (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn` :103, :179, :244,
+#   :444, :486), reproduzidos no contrato como o payload de
+#   `agents.events.auth.completed` (`docs/processes/contracts/SP-OP-AUTH-001.md:268`).
+#   O publicador copia a variavel do motor sem interpretar
+#   (`src/maezo/tools/workers/events.py:277-279`). A origem no motor e
+#   `ACT_HI_PROCINST_.END_ACT_ID_` / a projecao fechada equivalente.
+# * `phase` — fatia fina: um unico valor fechado, `decisao_executada`. O contrato exige
+#   distinguir "decisao executada" de "comunicado entregue"
+#   (`docs/processes/contracts/SP-OP-AUTH-001.md:102`); a comunicacao de sistema em
+#   `auth.completed` esta DIFERIDA para o WP-J1-07 completo, entao o unico valor que
+#   esta fatia consegue provar a partir do motor e o primeiro. Literal de um membro e o
+#   padrao ja usado na fronteira para cadencia fechada
+#   (`StaffFreshness.refresh_after_seconds`) e obriga ampliacao deliberada.
+# * `authorization_ref` — referencia OPACA de 64 hexadecimais. O `numero_autorizacao`
+#   real (`AUTH-{tenant_id}-{numero_guia_tiss}-{uuid8}`, `src/maezo/tools/workers/auth.py:1329`)
+#   carrega o numero de guia e NAO cruza esta fronteira: divulgar o recibo externo
+#   depende do grant explicito que esta fatia difere. O formato hexadecimal torna
+#   estruturalmente impossivel ecoar o composto.
 class CaseOutcome(Closed):
-    """Projecao fechada do estado terminal do motor. Nenhuma regra de negocio em Python.
-
-    Vocabulario, integralmente derivado dos artefatos e nunca inferido aqui:
-
-    * `desfecho` — os cinco valores que o proprio BPMN declara em
-      `camunda:inputParameter name="event_desfecho"` das service tasks
-      `ST_Publish*` (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`
-      :103, :179, :244, :444, :486), reproduzidos no contrato como o payload de
-      `agents.events.auth.completed` (`docs/processes/contracts/SP-OP-AUTH-001.md:268`).
-      O publicador copia a variavel do motor sem interpretar
-      (`src/maezo/tools/workers/events.py:277-279`). A origem no motor e
-      `ACT_HI_PROCINST_.END_ACT_ID_` / a projecao fechada equivalente.
-    * `phase` — fatia fina: um unico valor fechado, `decisao_executada`. O contrato
-      exige distinguir "decisao executada" de "comunicado entregue"
-      (`docs/processes/contracts/SP-OP-AUTH-001.md:102`); a comunicacao de sistema em
-      `auth.completed` esta DIFERIDA para o WP-J1-07 completo, entao o unico valor
-      que esta fatia consegue provar a partir do motor e o primeiro. Literal de um
-      membro e o padrao ja usado na fronteira para cadencia fechada
-      (`StaffFreshness.refresh_after_seconds`), e obriga ampliacao deliberada.
-    * `authorization_ref` — referencia OPACA de 64 hexadecimais. O
-      `numero_autorizacao` real (`AUTH-{tenant_id}-{numero_guia_tiss}-{uuid8}`,
-      `src/maezo/tools/workers/auth.py:1329`) carrega o numero de guia e NAO cruza
-      esta fronteira: divulgar o recibo externo depende do grant explicito que esta
-      fatia difere. O formato hexadecimal torna estruturalmente impossivel ecoar o
-      composto.
-
-    Fecha-se por ausencia: `authorization_ref` existe exatamente quando o desfecho e
-    um dos dois que o BPMN declara carregando `numero_autorizacao` em
-    `event_payload_vars` (:244 automatica, :444 auditor). Projecao que contradiga o
-    proprio BPMN e recusada, nao corrigida.
-    """
+    """Desfecho fechado projetado do estado terminal do motor; nada e inferido aqui."""
 
     phase: Literal["decisao_executada"]
     desfecho: Literal[
