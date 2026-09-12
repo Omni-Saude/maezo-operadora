@@ -47,10 +47,32 @@ Two independent fences, both BEFORE any send:
    NOT dispatched (`unavailable`), because an item outside every key domain cannot be deduplicated
    against its siblings.
 
-This engine derives no business-key TEXT. The key is built inside the sanctioned start path
-(`native_composition.py:81`) and is WP-J1-11's to change; re-deriving it here would duplicate a
-business rule in two places and let them disagree. The engine serialises on the key's sole
-variable — the guide identity — and records the key the engine actually reported.
+This engine derives no business-key TEXT. The one composer is `auth_business_key`
+(`tools/process_business_keys.py:92`), called inside the sanctioned start path
+(`native_composition.py:108`); re-deriving the key here would duplicate a business rule in two
+places and let them disagree. The engine serialises on the key's sole variable — the guide
+identity — and records, then sanity-checks, the key the engine actually reported.
+
+=================================================================================================
+Two upstream fences this daemon runs INTO, deliberately, rather than around
+=================================================================================================
+* **The portal start is inert until the facts source publishes `numero_guia_tiss`.**
+  `dispatch_prepared_start` reads it off the published start facts and refuses with
+  `AuthIntakeGuideNumberUnavailableError` when it is absent (`native_composition.py:43-61`), which
+  is every case today: `StartFacts` is a closed model that does not declare the field. So this
+  daemon's start path fails closed BEFORE any engine effect, and reports the refusal under its own
+  name (`guide_number_unpublished`) so "nothing is draining" can never be a mystery. Publishing
+  the number belongs to the facts source (WP-J1-02 / the AMH facts contract), not here — deriving
+  a TISS guia number from the opaque `guide_identity_ref` would fabricate clinical identity.
+* **The portal door still bypasses the dedup posture** (V15 L0 finding on #388):
+  `start_process_idempotent` short-circuits `HumanIntakeProvenance` straight into `start_human`
+  (`tools/mcp_cibseven/transport.py:1637-1646`) BEFORE `start_dedup_posture`,
+  `_require_strict_gate_seams`, the durable dedup claim and `find_active_instance`; `start_human`
+  itself performs no existence check (`gateway/intake/native_dispatch.py:322`). `SP-OP-AUTH-001`
+  is `EXCLUSIVE` (`transport.py:1259`), so once the guide number IS published, the portal channel
+  would take no claim and read none — two live instances per guia. This daemon does not reach that
+  door (the fence above refuses first) and does not patch the security core it does not own; the
+  requirement is recorded in the PR body with the two-starts-one-instance engine test it needs.
 
 =================================================================================================
 Fail-closed, everywhere
@@ -81,8 +103,14 @@ from maezo.gateway.human.auth_profile import (
     NativeEffectReceipt,
     StartFacts,
 )
+from maezo.gateway.intake.native_dispatch import AuthIntakeGuideNumberUnavailableError
 from maezo.gateway.intake.native_source_lifecycle import AuthCallerBinding
 from maezo.tools.mcp_cibseven.transport import ProcessInstance
+from maezo.tools.process_business_keys import (
+    AUTH_BUSINESS_KEY_PREFIX,
+    LegacyAuthIntakeBusinessKeyError,
+    refuse_legacy_auth_intake_business_key,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -173,6 +201,29 @@ class PreparedDispatch:
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"PreparedDispatch(command_id={self.command.command_id!r})"
+
+
+class CommandUnassembledError(RuntimeError):
+    """A `PreparedCommandSource` refused. `token` is the bounded reason a report may carry.
+
+    The vocabulary is the port's, not the adapter's, so a report can name WHY a row did not drain
+    (`start_facts_unpublished`, `document_command_source_absent`, ...) without this engine learning
+    anything about Postgres or published heads.
+    """
+
+    def __init__(self, token: str) -> None:
+        super().__init__(token)
+        self.token = token
+
+
+@dataclass(frozen=True, slots=True)
+class SeamResult:
+    """What the sanctioned seam said. Evidence, not a verdict — the receipt is the verdict."""
+
+    #: The business key the engine reported for a start (`ProcessInstance.business_key`).
+    business_key: str | None = None
+    #: A bounded token when the seam refused before returning. Never an exception message.
+    refusal: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,12 +392,12 @@ class IntakeDispatchService:
             business_key=business_key,
         )
 
-    async def _send(self, item: PendingDispatch, prepared: PreparedDispatch) -> str | None:
-        """Hand the command to the sanctioned seam. Returns the reported business key, if any.
+    async def _send(self, item: PendingDispatch, prepared: PreparedDispatch) -> SeamResult:
+        """Hand the command to the sanctioned seam; report what it said, decide nothing.
 
-        Swallows nothing silently: a refusal is logged with a bounded token and the caller then
-        asks the RECEIPT what actually happened. That order is the whole point — see the module
-        docstring. The returned key is evidence only; it is never used to decide anything.
+        Swallows nothing silently: a refusal becomes a bounded token and the caller then asks the
+        RECEIPT what actually happened. That order is the whole point — see the module docstring.
+        The returned key is evidence only; it is never used to decide anything.
         """
         command = prepared.command
         try:
@@ -354,16 +405,30 @@ class IntakeDispatchService:
                 if prepared.facts is None:
                     raise ValueError("start command assembled without its facts")
                 instance = await self.target.dispatch_prepared_start(command, prepared.facts)
-                return instance.business_key
+                return SeamResult(business_key=instance.business_key)
             if isinstance(command, HumanDocumentCommand):
                 await self.target.dispatch_prepared_documents(command)
-                return None
+                return SeamResult()
             raise ValueError("unsupported command type")
+        except AuthIntakeGuideNumberUnavailableError:
+            # The one refusal an operator must be able to read off a log line without a debugger:
+            # the published facts carry no `numero_guia_tiss`, so the contractual business key
+            # `AUTH-{tenant}-{numero_guia_tiss}` cannot be composed and the portal start refuses
+            # BEFORE any engine effect (`native_composition.py:58-60`, WP-J1-11 / owner decision
+            # #16(a)). It is not a fault of this daemon and it is not retryable by it: the facts
+            # source must publish the number. Reported as its own token so a silent "nothing
+            # drains" is impossible.
+            logger.warning(
+                "intake_dispatch_guide_number_unpublished",
+                command_id=item.command_id,
+                intake_ref=item.resource_ref,
+            )
+            return SeamResult(refusal="guide_number_unpublished")
         except Exception as exc:
-            # Deliberately broad: EVERY failure mode here — refused authority, a closed window, a
-            # transport error, and (on the happy path) the head-less disclosure read — must lead to
-            # the same next step, which is reading the durable receipt. Only the exception TYPE is
-            # logged; messages can carry query text.
+            # Deliberately broad: EVERY remaining failure mode — refused authority, a closed
+            # window, a transport error, and (on the happy path) the head-less disclosure read —
+            # leads to the same next step, which is reading the durable receipt. Only the
+            # exception TYPE is logged; messages can carry query text.
             logger.info(
                 "intake_dispatch_seam_refused",
                 command_id=item.command_id,
@@ -371,7 +436,27 @@ class IntakeDispatchService:
                 state=item.state,
                 error=type(exc).__name__,
             )
+            return SeamResult(refusal="seam_refused")
+
+    @staticmethod
+    def _business_key_anomaly(business_key: str | None) -> str | None:
+        """Evidence check on the key the ENGINE reported. Composes nothing.
+
+        `auth_business_key` (`tools/process_business_keys.py:92`) is the one composer, and it is
+        not called here: this engine has no `numero_guia_tiss` of its own and inventing one to
+        "verify" a key would be exactly the second idempotency domain #16(a) closed. So the check
+        is the honest one available to an observer — the key must be in the contractual family and
+        must not be the legacy `AUTHI-{guide_identity_ref}` form
+        (`refuse_legacy_auth_intake_business_key`, same module). An anomaly is RECORDED, never used
+        to hide an effect that already happened.
+        """
+        if business_key is None:
             return None
+        try:
+            refuse_legacy_auth_intake_business_key(business_key)
+        except LegacyAuthIntakeBusinessKeyError:
+            return "legacy_business_key"
+        return None if business_key.startswith(AUTH_BUSINESS_KEY_PREFIX) else "foreign_business_key"
 
     async def _handle(self, item: PendingDispatch) -> ItemOutcome:
         refusal = self._drainable(item)
@@ -379,6 +464,14 @@ class IntakeDispatchService:
             return refusal
         try:
             prepared = await self.commands.prepared(item)
+        except CommandUnassembledError as unassembled:
+            logger.info(
+                "intake_dispatch_assembly_refused",
+                command_id=item.command_id,
+                operation=item.operation,
+                token=unassembled.token,
+            )
+            return self._refuse(item, "unavailable", unassembled.token)
         except Exception as exc:
             logger.info(
                 "intake_dispatch_assembly_refused",
@@ -401,7 +494,7 @@ class IntakeDispatchService:
             # receipt is the only thing that may ever say so.
             return self._from_receipt(item, settled, disposition="already_executed")
 
-        business_key = await self._send(item, prepared)
+        seam = await self._send(item, prepared)
 
         try:
             receipt = await self.receipts.completed(prepared.command)
@@ -413,11 +506,12 @@ class IntakeDispatchService:
             )
             return self._refuse(item, "awaiting_receipt", "receipt_unreadable")
         if receipt is None:
-            # No durable receipt: the effect is NOT proven. A row that had reached `sending`
-            # carries the head-less-recovery limitation, and says which one it is.
-            reason = (
-                DISCLOSURE_FINDING if item.state in RECOVERY_STATES else "no_receipt_after_dispatch"
-            )
+            # No durable receipt: the effect is NOT proven. A refusal that happened BEFORE any
+            # effect is reported as itself (`unavailable`, retryable next sweep); only a send that
+            # may already be on the wire is `awaiting_receipt`.
+            if seam.refusal == "guide_number_unpublished":
+                return self._refuse(item, "unavailable", seam.refusal)
+            reason = DISCLOSURE_FINDING if item.state in RECOVERY_STATES else "no_receipt_after_dispatch"
             return self._refuse(item, "awaiting_receipt", reason)
         # The receipt's own `outcome` decides, and its model already forbids the wrong pairing
         # (`auth_profile.py:530-543`): a start receipt is `started|existing`, a document receipt is
@@ -429,7 +523,26 @@ class IntakeDispatchService:
             disposition = "correlated"
         else:  # pragma: no cover - forbidden by NativeEffectReceipt.complete
             return self._refuse(item, "unavailable", "receipt_shape_unrecognised")
-        outcome = self._from_receipt(item, receipt, disposition=disposition, business_key=business_key)
+        anomaly = self._business_key_anomaly(seam.business_key)
+        outcome = ItemOutcome(
+            command_id=item.command_id,
+            operation=item.operation,
+            disposition=disposition,
+            receipt_ref=receipt.receipt_ref,
+            case_ref=receipt.case_ref,
+            process_instance_id=receipt.process_instance_id,
+            business_key=seam.business_key,
+            reason=anomaly,
+        )
+        if anomaly is not None:
+            # The effect is real and is reported as such; the key it was filed under is not the
+            # contractual one, which is a two-domain defect an operator must see immediately.
+            logger.error(
+                "intake_dispatch_business_key_anomaly",
+                command_id=item.command_id,
+                anomaly=anomaly,
+                process_instance_id=receipt.process_instance_id,
+            )
         logger.info(
             "intake_dispatch_executed",
             command_id=item.command_id,
