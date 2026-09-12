@@ -45,9 +45,7 @@ def test_the_task_definition_file_exists() -> None:
 
 def _code(tf_path: Path) -> str:
     return "\n".join(
-        line
-        for line in tf_path.read_text(encoding="utf-8").splitlines()
-        if not line.strip().startswith("#")
+        line for line in tf_path.read_text(encoding="utf-8").splitlines() if not line.strip().startswith("#")
     )
 
 
