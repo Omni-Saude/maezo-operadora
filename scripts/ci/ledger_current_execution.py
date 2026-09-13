@@ -81,6 +81,23 @@ def strict_json(data: bytes) -> Any:
     return json.loads(data, object_pairs_hook=pairs)
 
 
+#: Explicit allowlist: the exact two ambient names this fixture's OWN nested `uv` subprocess
+#: needs to resolve `--offline` against the cache CI actually populated in "Install dependencies"
+#: — never a blanket `os.environ` passthrough (R6f/FLOOR-AN-389: that would defeat the
+#: "reject unmanaged Python and uv configuration" ambient-config guard `ci.yml` adds, which strips
+#: `UV_CACHE_DIR`/`UV_PYTHON_INSTALL_DIR` from the calling pytest process's OWN environment on
+#: purpose). CI mirrors each value under a `MAEZO_CI_`-prefixed name specifically so this fixture
+#: can read it: the guard's own check is `key.startswith(("PYTHON", "PYTEST_", "UV_"))`, which a
+#: `MAEZO_CI_UV_...` name never matches, so it survives into the pytest process untouched while
+#: `UV_CACHE_DIR` itself stays absent there. Locally (no CI, no `MAEZO_CI_UV_CACHE_DIR` set) both
+#: `.get(...)` calls return `None` and the subprocess falls back to `uv`'s own default cache —
+#: exactly today's behaviour, unaffected.
+_UV_ENV_FORWARD_ALLOWLIST: tuple[tuple[str, str], ...] = (
+    ("MAEZO_CI_UV_CACHE_DIR", "UV_CACHE_DIR"),
+    ("MAEZO_CI_UV_PYTHON_INSTALL_DIR", "UV_PYTHON_INSTALL_DIR"),
+)
+
+
 def minimal_environment(home: Path) -> dict[str, str]:
     env = {
         "PATH": str(Path(sys.executable).parent) + ":/usr/bin:/bin",
@@ -88,6 +105,10 @@ def minimal_environment(home: Path) -> dict[str, str]:
         "LC_ALL": "C",
         "TZ": "UTC",
     }
+    for source_name, target_name in _UV_ENV_FORWARD_ALLOWLIST:
+        value = os.environ.get(source_name)
+        if value:
+            env[target_name] = value
     if sys.platform == "darwin":
         # macOS otherwise synthesizes this key at exec, defeating exact equality.
         env["__CF_USER_TEXT_ENCODING"] = f"0x{os.getuid():X}:0x0:0x0"

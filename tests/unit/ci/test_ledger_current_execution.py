@@ -541,3 +541,139 @@ def test_actual_finite_async_operational_adapter_fixture_scope(
     refused = runner.run(edge.identity)
     assert refused.status == "REFUSED"
     assert not runner.consume(refused, edge.identity)
+
+
+# ---------------------------------------------------------------------------
+# minimal_environment() forwards the ambient uv cache/install-dir (R6f, FLOOR-AN-389)
+# ---------------------------------------------------------------------------
+#
+# PR #389 CI (two independent runs, byte-identical: 49 failed, 247 errors) — ci.yml's own
+# "reject unmanaged Python and uv configuration" guard strips UV_CACHE_DIR/UV_PYTHON_INSTALL_DIR
+# from the pytest process before it starts, but `uv sync` populated the ACTUAL cache at that
+# non-default path. minimal_environment()'s subprocess env was built from scratch with no
+# knowledge of it, so its own nested `uv lock --offline` fell back to uv's compiled-in default
+# cache location — unpopulated in CI, and `--offline` forbids fetching anything to fill it.
+
+
+def test_minimal_environment_forwards_uv_cache_dir_when_the_ci_mirror_is_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("MAEZO_CI_UV_CACHE_DIR", "/some/ci/cache")
+    env = current.minimal_environment(tmp_path)
+    assert env["UV_CACHE_DIR"] == "/some/ci/cache"
+
+
+def test_minimal_environment_forwards_uv_python_install_dir_when_the_ci_mirror_is_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("MAEZO_CI_UV_PYTHON_INSTALL_DIR", "/some/ci/python-dir")
+    env = current.minimal_environment(tmp_path)
+    assert env["UV_PYTHON_INSTALL_DIR"] == "/some/ci/python-dir"
+
+
+def test_minimal_environment_omits_uv_vars_when_the_ci_mirrors_are_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Local/dev baseline, unchanged by this fix: no `MAEZO_CI_UV_*` mirror set (the ordinary
+    case outside CI) -> no `UV_CACHE_DIR`/`UV_PYTHON_INSTALL_DIR` key at all, exactly as before —
+    this is an explicit allowlist forward, never a blanket `os.environ` passthrough that would
+    defeat the "reject unmanaged config" guard PR-D itself introduced (S10b)."""
+    monkeypatch.delenv("MAEZO_CI_UV_CACHE_DIR", raising=False)
+    monkeypatch.delenv("MAEZO_CI_UV_PYTHON_INSTALL_DIR", raising=False)
+    env = current.minimal_environment(tmp_path)
+    assert "UV_CACHE_DIR" not in env
+    assert "UV_PYTHON_INSTALL_DIR" not in env
+
+
+def test_minimal_environment_never_forwards_the_bare_uv_names_themselves(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Setting the REAL `UV_CACHE_DIR` (not the `MAEZO_CI_` mirror) in the ambient environment
+    must NOT leak into the subprocess env — only the two named `MAEZO_CI_UV_*` sources are ever
+    read. A blanket `os.environ.get("UV_CACHE_DIR")` fallback would silently reintroduce exactly
+    the ambient-config leak the guard exists to catch."""
+    monkeypatch.setenv("UV_CACHE_DIR", "/leaked/ambient/cache")
+    monkeypatch.delenv("MAEZO_CI_UV_CACHE_DIR", raising=False)
+    env = current.minimal_environment(tmp_path)
+    assert "UV_CACHE_DIR" not in env
+
+
+def _real_uv_cache_dir() -> str:
+    result = subprocess.run([str(current._UV), "cache", "dir"], capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+def _real_uv_python_install_dir() -> str:
+    result = subprocess.run([str(current._UV), "python", "dir"], capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+def _write_tiny_lockable_project(root: Path) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname="tiny-uv-cache-repro"\nversion="0.0.0"\n'
+        'requires-python=">=3.12,<3.13"\n'
+        '[project.optional-dependencies]\ndev=["pytest==9.1.1"]\n'
+        "[tool.uv]\npackage=false\n"
+    )
+    (root / ".python-version").write_text("3.12\n")
+
+
+def test_actual_offline_lock_fails_with_a_fresh_home_and_no_forwarded_cache(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """RED reproduction of the actual PR #389 CI failure mode, locally, with a fresh HOME (per
+    FLOOR-AN-389's own suggestion) — `uv lock --offline --no-config` cannot find `pytest==9.1.1`
+    under a HOME whose default uv cache was never populated, and `--offline` forbids fetching it."""
+    monkeypatch.delenv("MAEZO_CI_UV_CACHE_DIR", raising=False)
+    monkeypatch.delenv("MAEZO_CI_UV_PYTHON_INSTALL_DIR", raising=False)
+    fresh_home = tmp_path / "fresh-home"
+    fresh_home.mkdir()
+    project = tmp_path / "project"
+    _write_tiny_lockable_project(project)
+    with pytest.raises(subprocess.CalledProcessError):
+        subprocess.run(
+            [str(current._UV), "lock", "--offline", "--no-config"],
+            cwd=project,
+            env=current.minimal_environment(fresh_home),
+            check=True,
+            capture_output=True,
+        )
+
+
+def test_actual_offline_lock_succeeds_with_a_fresh_home_once_the_real_cache_is_forwarded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """GREEN counterpart: the IDENTICAL fresh-HOME setup as the RED test above, but with BOTH
+    `MAEZO_CI_UV_CACHE_DIR` and `MAEZO_CI_UV_PYTHON_INSTALL_DIR` set to this machine's real
+    (already-populated) uv cache/python-install dirs — the exact mechanism `ci.yml`'s job-level
+    `env:` now provides. `uv lock --offline` needs BOTH: the cache to resolve `pytest==9.1.1`
+    from, and the managed-Python dir to find an interpreter matching `.python-version` without
+    a network search (`--offline` forbids one) — confirmed empirically this session: forwarding
+    only the cache still fails with `No interpreter found ... uv is set to offline mode`. The
+    fresh HOME's own default cache/python dirs stay untouched (never populated, never needed)."""
+    real_cache = _real_uv_cache_dir()
+    real_python_dir = _real_uv_python_install_dir()
+    assert Path(real_cache).is_dir(), f"this machine's uv cache is missing: {real_cache!r}"
+    assert Path(real_python_dir).is_dir(), f"this machine's uv python dir is missing: {real_python_dir!r}"
+    monkeypatch.setenv("MAEZO_CI_UV_CACHE_DIR", real_cache)
+    monkeypatch.setenv("MAEZO_CI_UV_PYTHON_INSTALL_DIR", real_python_dir)
+    fresh_home = tmp_path / "fresh-home"
+    fresh_home.mkdir()
+    project = tmp_path / "project"
+    _write_tiny_lockable_project(project)
+    env = current.minimal_environment(fresh_home)
+    assert env["UV_CACHE_DIR"] == real_cache
+    assert env["UV_PYTHON_INSTALL_DIR"] == real_python_dir
+    subprocess.run(
+        [str(current._UV), "lock", "--offline", "--no-config"],
+        cwd=project,
+        env=env,
+        check=True,
+        capture_output=True,
+    )
+    assert (project / "uv.lock").is_file()
+    assert not (fresh_home / ".cache" / "uv").exists(), (
+        "the fresh HOME's own default cache must stay untouched — only the forwarded "
+        "MAEZO_CI_UV_CACHE_DIR path may be read"
+    )

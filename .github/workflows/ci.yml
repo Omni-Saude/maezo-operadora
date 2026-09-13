@@ -23,6 +23,14 @@ jobs:
   quality:
     name: lint / type / unit
     runs-on: ubuntu-latest
+    env:
+      # R6f/FLOOR-AN-389: mirrors of setup-uv's own UV_CACHE_DIR/UV_PYTHON_INSTALL_DIR under a
+      # name the "reject unmanaged config" guard's PYTHON*/PYTEST_*/UV_* prefix check never
+      # matches — scripts/ci/ledger_current_execution.py::minimal_environment() reads these to
+      # give its OWN nested `uv lock --offline` subprocess the cache CI actually populated,
+      # without reintroducing UV_CACHE_DIR into pytest's own (deliberately stripped) environment.
+      MAEZO_CI_UV_CACHE_DIR: ${{ runner.temp }}/setup-uv-cache
+      MAEZO_CI_UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -391,6 +399,13 @@ jobs:
   release-floor:
     name: release-capability-floor (audit §5)
     runs-on: ubuntu-latest
+    env:
+      # R6f/FLOOR-AN-389: see the identical block on the `quality` job above for the full
+      # rationale — this job runs the same `tests/unit/ci/test_ledger_*.py`/
+      # `tests/unit/dev/test_historical_*.py` fixtures and hit the identical byte-for-byte
+      # failure (49 failed, 247 errors) before this fix.
+      MAEZO_CI_UV_CACHE_DIR: ${{ runner.temp }}/setup-uv-cache
+      MAEZO_CI_UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
