@@ -148,7 +148,7 @@ class ModelIdempotencyStore:
         key = self._key_fn(tenant, task_id)
         row = self.rows.get(key)
         if row is None:
-            self.rows[key] = {"status": "processing", "result": None}
+            self.rows[key] = {"status": "processing", "result": None, "requested_enqueued_at": None}
             return None  # claim won — the caller executes
         if row["status"] == "done":
             return row["result"]  # type: ignore[return-value]  # replay — handler does NOT run
@@ -161,9 +161,29 @@ class ModelIdempotencyStore:
             row["status"] = "done"
             row["result"] = StoredResult.from_result(result)
 
+    async def requested_emitted(self, *, tenant: str, task_id: str) -> bool:
+        """The `requested_enqueued_at` marker (migration 0011), per row — same PK as everything else."""
+        row = self.rows.get(self._key_fn(tenant, task_id))
+        return row is not None and row.get("requested_enqueued_at") is not None
+
+    async def mark_requested(self, *, tenant: str, task_id: str) -> None:
+        row = self.rows.get(self._key_fn(tenant, task_id))
+        if row is not None and row.get("requested_enqueued_at") is None:
+            row["requested_enqueued_at"] = "marked"  # COALESCE: keeps the FIRST observed emission
+
     def preseed_processing(self, *, tenant: str, task_id: str) -> None:
-        """Crash-before-complete: a row claimed by the (now-dead) first execution, never sealed."""
-        self.rows[self._key_fn(tenant, task_id)] = {"status": "processing", "result": None}
+        """Crash-before-complete: a row claimed by the (now-dead) first execution, never sealed.
+
+        The marker stays NULL on purpose: migration 0011 forbids backfilling it ("a legacy claim
+        cannot establish that a requested fact existed"), so a preseeded crash row models the
+        worst case the redelivery must survive — it re-emits `requested` (a duplicate the consumer
+        collapses on `fact_dedup_key`) rather than assuming the dead attempt got the fact out.
+        """
+        self.rows[self._key_fn(tenant, task_id)] = {
+            "status": "processing",
+            "result": None,
+            "requested_enqueued_at": None,
+        }
 
 
 class NeuteredClaimStore:
@@ -178,6 +198,16 @@ class NeuteredClaimStore:
 
     async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
         _ = (tenant, task_id, result)
+        return None
+
+    async def requested_emitted(self, *, tenant: str, task_id: str) -> bool:
+        # Neutered like the rest of this control: no durable marker, so the seam degrades to the
+        # pre-fix posture (every redelivery re-emits `requested`). Never to a LOSS.
+        _ = (tenant, task_id)
+        return False
+
+    async def mark_requested(self, *, tenant: str, task_id: str) -> None:
+        _ = (tenant, task_id)
         return None
 
 
