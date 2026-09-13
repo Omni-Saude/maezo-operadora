@@ -72,6 +72,62 @@ VAR_PORTAO = "CANAL_SIMULAR_RECEPTOR"
 VAR_SEGREDO = "WHATSAPP_APP_SECRET"
 VAR_RECEPTOR = "RECEPTOR_URL"
 
+#: ESCOPO de um portao de capacidade.
+SOMENTE_DEV = "somente-dev"
+QUALQUER_AMBIENTE = "qualquer-ambiente"
+
+#: Familias de variaveis cujos portoes esta cerca governa. Um nome que casa um destes prefixos
+#: e NAO esta em `POLITICAS_DE_PORTAO` e' REPROVADO: a decisao de onde um portao novo pode ser
+#: ligado tem de ser declarada por quem o cria, nao descoberta por quem o revisar depois.
+PREFIXOS_VIGIADOS = ("WHATSAPP_WEBHOOK_",)
+
+#: Valores que o receptor le' como "ligado" (pydantic-settings converte todos para `True`).
+#: `value = "0"` ou ausencia sao os unicos jeitos de estar desligado.
+VALORES_LIGADOS = frozenset({"1", "true", "t", "yes", "y", "on"})
+
+
+@dataclass(frozen=True)
+class PoliticaPortao:
+    """Onde um portao de capacidade pode estar ligado, e POR QUE.
+
+    A justificativa nao e' decoracao: ela e' o que um revisor le' quando a cerca reprova, e o
+    que obriga quem acrescenta um portao a dizer que capacidade esta' abrindo.
+    """
+
+    escopo: str
+    justificativa: str
+
+
+#: Os portoes que esta cerca conhece. Acrescentar um portao da familia vigiada SEM acrescentar
+#: uma linha aqui reprova o CI — e' a diferenca entre uma cerca que enumera variaveis (e fica
+#: para tras a cada porteira nova) e uma que governa a familia.
+POLITICAS_DE_PORTAO: dict[str, PoliticaPortao] = {
+    VAR_PORTAO: PoliticaPortao(
+        SOMENTE_DEV,
+        "liga `/receptor/simular`, que assina um envelope INDISTINGUIVEL do da Meta: quem "
+        "alcanca o canal fabrica mensagem de beneficiario.",
+    ),
+    "WHATSAPP_WEBHOOK_DEVOLVE_TURNO": PoliticaPortao(
+        SOMENTE_DEV,
+        "faz o ack de `/webhook` devolver `resposta` (texto voltado ao beneficiario, redigido "
+        "pela Helena) e `conversation_id` — egresso de conteudo conversacional no corpo da "
+        "resposta HTTP. Em producao quem recebe o ack e' a Meta.",
+    ),
+    "WHATSAPP_WEBHOOK_ACK_THEN_QUEUE": PoliticaPortao(
+        QUALQUER_AMBIENTE,
+        "modo ack-then-queue (decisao do dono R-072): muda QUANDO o turno roda, nao O QUE sai "
+        "do processo. Nao abre egresso, entao e' legitimo em qualquer ambiente.",
+    ),
+}
+
+#: Casa qualquer nome governado explicitamente ou por familia, para a regra de precaucao.
+_NOME_VIGIADO = re.compile(
+    "|".join(
+        [re.escape(n) for n in POLITICAS_DE_PORTAO]
+        + [re.escape(p) + "[A-Z0-9_]+" for p in PREFIXOS_VIGIADOS]
+    )
+)
+
 NOMES_EXIGIDOS = ("SIMULAR_LIGADO", "FAIXA_TESTE")
 
 #: A faixa SINTETICA de teste. A cerca antiga so' exigia `^`...`$`; isso deixava passar
@@ -454,72 +510,114 @@ def _inventario(raiz: Path) -> tuple[list[Container], list[Entrada], dict[Path, 
     return containers, entradas, textos
 
 
+def _politica_de(nome: str) -> PoliticaPortao | None:
+    return POLITICAS_DE_PORTAO.get(nome)
+
+
+def _da_familia_vigiada(nome: str) -> bool:
+    return any(nome.startswith(prefixo) for prefixo in PREFIXOS_VIGIADOS)
+
+
+def _ligado(valor: str) -> bool:
+    return valor.strip().lower() in VALORES_LIGADOS
+
+
 # ---------------------------------------------------------------------------------------
 # Cerca 1 — o portao.
 # ---------------------------------------------------------------------------------------
 def checar_ligacao_fora_de_dev(raiz: Path = REPO_ROOT) -> list[str]:
-    """Cerca 1: a capacidade de assinar so' pode estar LIGADA em `dev-sa-east-1`.
+    """Cerca 1: os portoes de CAPACIDADE so' podem estar ligados onde a politica permite.
 
-    Avalia o valor EFETIVO de `CANAL_SIMULAR_RECEPTOR`, resolvendo `local.`/`var.`. Reprova
-    tres coisas: ligado fora de dev, valor que a cerca nao consegue resolver (em qualquer
-    ambiente — um portao invisivel nao e' um portao), e o portao declarado fora do Terraform
-    que esta cerca analisa.
+    Nao e' mais uma checagem de UMA variavel. `POLITICAS_DE_PORTAO` declara, por portao, o
+    escopo e a razao; `PREFIXOS_VIGIADOS` declara as FAMILIAS cujos membros novos precisam de
+    uma linha la'. A revisao RV-371 §Δ2 mostrou por que: tres commits depois de esta cerca ser
+    reescrita por deixar um portao sem cerca, um segundo portao (`WHATSAPP_WEBHOOK_DEVOLVE_TURNO`,
+    que faz o ack devolver o texto da Helena) nasceu igualmente sem cerca. Uma cerca que enumera
+    variaveis fica para tras a cada porteira nova; esta governa a familia.
+
+    Reprova: portao de escopo `somente-dev` ligado fora de `dev-sa-east-1`; valor que a cerca
+    nao consegue resolver (em qualquer ambiente — um portao invisivel nao e' um portao); portao
+    entregue por `valueFrom`; membro novo da familia sem politica declarada; mencao que o parser
+    nao conseguiu avaliar; e portao `somente-dev` declarado fora do Terraform analisado.
     """
     achados: list[str] = []
     _, entradas, textos = _inventario(raiz)
 
-    vistas_por_arquivo: dict[Path, int] = {}
+    vistas: dict[tuple[Path, str], int] = {}
     for entrada in entradas:
-        se_refere = entrada.nome == VAR_PORTAO or VAR_PORTAO in entrada.nome_cru
-        if se_refere:
-            vistas_por_arquivo[entrada.arquivo] = vistas_por_arquivo.get(entrada.arquivo, 0) + 1
-        if entrada.nome != VAR_PORTAO:
+        for token in _NOME_VIGIADO.findall(entrada.nome_cru) + (
+            [entrada.nome] if entrada.nome and _NOME_VIGIADO.fullmatch(entrada.nome) else []
+        ):
+            chave = (entrada.arquivo, token)
+            vistas[chave] = vistas.get(chave, 0) + 1
+
+        nome = entrada.nome
+        if nome is None:
             continue
+        politica = _politica_de(nome)
+        if politica is None:
+            if _da_familia_vigiada(nome):
+                achados.append(
+                    f"{entrada.onde(raiz)}: {nome} e' da familia vigiada "
+                    f"{PREFIXOS_VIGIADOS} mas nao tem politica declarada em "
+                    f"POLITICAS_DE_PORTAO — quem acrescenta um portao declara que capacidade "
+                    f"ele abre e onde pode estar ligado; a cerca nao adivinha."
+                )
+            continue
+        if politica.escopo != SOMENTE_DEV:
+            continue
+
         onde = entrada.onde(raiz)
         if entrada.de_segredo:
             achados.append(
-                f"{onde}: {VAR_PORTAO} entregue por `valueFrom` — o portao existe para ser "
-                f"VISIVEL na task definition; vindo de segredo, nem a cerca nem o review o veem."
+                f"{onde}: {nome} entregue por `valueFrom` — o portao existe para ser VISIVEL "
+                f"na task definition; vindo de segredo, nem a cerca nem o review o veem. "
+                f"({politica.justificativa})"
             )
             continue
         if entrada.valor is None:
             achados.append(
-                f"{onde}: {VAR_PORTAO} = {entrada.valor_cru!r} nao e' um literal que a cerca "
-                f"consiga resolver — indireção nao resolvivel e' REPROVACAO, nao silencio: sem "
-                f"resolve-la nao ha como provar que a rota que assina esta desligada."
+                f"{onde}: {nome} = {entrada.valor_cru!r} nao e' um literal que a cerca consiga "
+                f"resolver — indireção nao resolvivel e' REPROVACAO, nao silencio: sem resolve-la "
+                f"nao ha como provar que o portao esta desligado. ({politica.justificativa})"
             )
             continue
-        if entrada.valor == "1" and entrada.ambiente != AMBIENTE_PERMITIDO:
+        if _ligado(entrada.valor) and entrada.ambiente != AMBIENTE_PERMITIDO:
             achados.append(
-                f"{onde}: {VAR_PORTAO}=\"1\" no ambiente "
-                f"{entrada.ambiente or '<fora de envs/>'} — a rota que assina mensagem "
-                f"sintetica so' pode ser ligada em {AMBIENTE_PERMITIDO}."
+                f"{onde}: {nome}={entrada.valor!r} no ambiente "
+                f"{entrada.ambiente or '<fora de envs/>'} — portao de escopo {SOMENTE_DEV}, so' "
+                f"pode ser ligado em {AMBIENTE_PERMITIDO}. ({politica.justificativa})"
             )
 
     # Declaracao que a cerca NAO conseguiu ler como entrada de ambiente: reprova em vez de
     # ignorar. Comentarios ja sairam do texto mascarado, entao mencao aqui e' codigo.
     for arquivo, texto in textos.items():
-        ocorrencias = texto.count(VAR_PORTAO)
-        if ocorrencias > vistas_por_arquivo.get(arquivo, 0):
-            achados.append(
-                f"{arquivo.relative_to(raiz)}: {VAR_PORTAO} aparece em forma que esta cerca nao "
-                f"consegue avaliar como entrada de `environment` ({ocorrencias} mencao(oes), "
-                f"{vistas_por_arquivo.get(arquivo, 0)} avaliada(s)) — reprovado por precaucao."
-            )
+        for token in sorted(set(_NOME_VIGIADO.findall(texto))):
+            ocorrencias = texto.count(token)
+            avaliadas = vistas.get((arquivo, token), 0)
+            if ocorrencias > avaliadas:
+                achados.append(
+                    f"{arquivo.relative_to(raiz)}: {token} aparece em forma que esta cerca nao "
+                    f"consegue avaliar como entrada de `environment` ({ocorrencias} mencao(oes), "
+                    f"{avaliadas} avaliada(s)) — reprovado por precaucao."
+                )
 
     achados.extend(_portao_fora_do_terraform(raiz))
     return achados
 
 
 def _portao_fora_do_terraform(raiz: Path) -> list[str]:
-    """O portao declarado num manifesto que esta cerca nao analisa (Helm, k8s, compose).
+    """Portao `somente-dev` declarado num manifesto que esta cerca nao analisa (Helm, k8s...).
 
-    Nao ha como provar o ambiente de um template, entao qualquer ocorrencia reprova.
+    Nao ha como provar o ambiente de um template, entao qualquer ocorrencia reprova. Portoes de
+    escopo `qualquer-ambiente` (ack-then-queue) nao caem aqui: eles podem estar em qualquer
+    lugar por definicao.
     """
     achados: list[str] = []
     deploy = raiz / "deploy"
     if not deploy.is_dir():
         return achados
+    somente_dev = sorted(n for n, p in POLITICAS_DE_PORTAO.items() if p.escopo == SOMENTE_DEV)
     for caminho in sorted(deploy.rglob("*")):
         if not caminho.is_file() or caminho.suffix == ".tf":
             continue
@@ -527,12 +625,19 @@ def _portao_fora_do_terraform(raiz: Path) -> list[str]:
             texto = caminho.read_text(encoding="utf-8", errors="strict")
         except (UnicodeDecodeError, OSError):
             continue
-        if VAR_PORTAO in texto:
-            achados.append(
-                f"{caminho.relative_to(raiz)}: {VAR_PORTAO} declarado fora do Terraform que esta "
-                f"cerca analisa — um template nao tem ambiente provavel, entao a rota que assina "
-                f"nao pode ser ligada por ele."
-            )
+        for nome in somente_dev:
+            if nome in texto:
+                achados.append(
+                    f"{caminho.relative_to(raiz)}: {nome} declarado fora do Terraform que esta "
+                    f"cerca analisa — um template nao tem ambiente provavel, entao um portao "
+                    f"{SOMENTE_DEV} nao pode ser ligado por ele."
+                )
+        for nome in sorted(set(_NOME_VIGIADO.findall(texto))):
+            if nome not in POLITICAS_DE_PORTAO:
+                achados.append(
+                    f"{caminho.relative_to(raiz)}: {nome} e' da familia vigiada e nao tem "
+                    f"politica declarada — reprovado por precaucao, fora do Terraform analisado."
+                )
     return achados
 
 

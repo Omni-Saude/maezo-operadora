@@ -48,6 +48,8 @@ _BLOCO_SEGREDO = (
 )
 _FAIXA = 'FAIXA_TESTE = re.compile(r"^55119000000\\d{2}$")'
 _GATE_NA_ROTA = "        if not SIMULAR_LIGADO:"
+_RECEPTOR_TF = "service-webhook-receiver.tf"
+_PORTAO_TURNO = '{ name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },'
 
 
 def _trocar(texto: str, alvo: str, novo: str, *, contagem: int = 1) -> str:
@@ -78,6 +80,24 @@ def _clonar_prod(raiz: Path, *, locais: str = "") -> Path:
 
 def _reescrever(caminho: Path, transformar) -> None:  # type: ignore[no-untyped-def]
     caminho.write_text(transformar(caminho.read_text(encoding="utf-8")), encoding="utf-8")
+
+
+def _prod_sem_canal(raiz: Path) -> Path:
+    """Clona prod e DESLIGA a capacidade de assinar do canal.
+
+    Isola o portão sob teste: sem isto, a cerca 1 reprovaria pelo `CANAL_SIMULAR_RECEPTOR` e a
+    sonda não provaria nada sobre o portão novo.
+    """
+    canal = _clonar_prod(raiz)
+    _reescrever(
+        canal,
+        lambda t: _trocar(
+            _trocar(t, _BLOCO_SEGREDO, ""),
+            _PORTAO_LIGADO,
+            '{ name = "CANAL_SIMULAR_RECEPTOR", value = "0" },',
+        ),
+    )
+    return raiz / _ENV_PROD / _RECEPTOR_TF
 
 
 # ---------------------------------------------------------------------------------------
@@ -259,3 +279,109 @@ def test_destino_diferente_do_webhook_reprova(tmp_path: Path) -> None:
     )
     achados = checar_cercas_no_codigo(raiz)
     assert any("destino" in a or "envia o envelope assinado" in a for a in achados), achados
+
+
+# ---------------------------------------------------------------------------------------
+# RV-371 §Δ2 / D1 — a FAMÍLIA de portões, não mais uma variável enumerada.
+#
+# Três commits depois de esta cerca ser reescrita por deixar um portão sem cerca, nasceu um
+# segundo portão sem cerca: `WHATSAPP_WEBHOOK_DEVOLVE_TURNO`, que faz o ack de `/webhook`
+# devolver o texto que a Helena redigiu. Os testes abaixo fixam o portão novo E a regra
+# genérica que impede o terceiro.
+# ---------------------------------------------------------------------------------------
+def _sonda_j1(raiz: Path) -> None:
+    """J1 — o portão do turno ligado num `webhook-receiver` em prod (reprodução de D1)."""
+    _prod_sem_canal(raiz)  # o clone já traz o portão do turno ligado
+
+
+def _sonda_j2(raiz: Path) -> None:
+    """J2 — o mesmo portão em `dev-sa-east-1`: legítimo, árvore intocada."""
+
+
+def _sonda_j3(raiz: Path) -> None:
+    """J3 — portão ausente: nada a cobrar, inclusive em prod."""
+    _reescrever(_prod_sem_canal(raiz), lambda t: _trocar(t, _PORTAO_TURNO, ""))
+
+
+def _sonda_j4(raiz: Path) -> None:
+    """J4 — membro NOVO da família, sem política declarada, mesmo em dev."""
+    _reescrever(
+        raiz / _ENV_DEV / _RECEPTOR_TF,
+        lambda t: _trocar(
+            t,
+            _PORTAO_TURNO,
+            _PORTAO_TURNO + '\n      { name = "WHATSAPP_WEBHOOK_ECOA_TRANSCRICAO", value = "1" },',
+        ),
+    )
+
+
+def _sonda_j5(raiz: Path) -> None:
+    """J5 — indireção não resolvível no portão novo."""
+    _reescrever(
+        _prod_sem_canal(raiz),
+        lambda t: _trocar(
+            t, _PORTAO_TURNO, '{ name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = local.devolve },'
+        ),
+    )
+
+
+def _sonda_j6(raiz: Path) -> None:
+    """J6 — portão de escopo `qualquer-ambiente` em prod: legítimo."""
+    _reescrever(
+        _prod_sem_canal(raiz),
+        lambda t: _trocar(t, _PORTAO_TURNO, '{ name = "WHATSAPP_WEBHOOK_ACK_THEN_QUEUE", value = "true" },'),
+    )
+
+
+#: sonda -> (construtor, tem de reprovar?). O harness de antes/depois consome este mapa.
+_SONDAS_D1 = {
+    "J1 turno ligado em prod": (_sonda_j1, True),
+    "J2 turno ligado em dev": (_sonda_j2, False),
+    "J3 turno ausente": (_sonda_j3, False),
+    "J4 portao novo sem politica": (_sonda_j4, True),
+    "J5 valor nao resolvivel": (_sonda_j5, True),
+    "J6 qualquer-ambiente em prod": (_sonda_j6, False),
+}
+
+
+@pytest.mark.parametrize("sonda", list(_SONDAS_D1))
+def test_familia_de_portoes_do_webhook(tmp_path: Path, sonda: str) -> None:
+    """D1: a cerca governa a FAMÍLIA `WHATSAPP_WEBHOOK_*`, não uma variável enumerada.
+
+    Três commits depois de esta cerca ser reescrita por deixar um portão sem cerca, nasceu um
+    segundo portão sem cerca — `WHATSAPP_WEBHOOK_DEVOLVE_TURNO`, que faz o ack de `/webhook`
+    devolver o texto que a Helena redigiu. J1 é a reprodução de D1; J4 é a regra que impede o
+    terceiro; J2/J3/J6 são as não-vacuidades que provam que a cerca reprova o AMBIENTE e a
+    CAPACIDADE, não o nome.
+    """
+    construir, tem_de_reprovar = _SONDAS_D1[sonda]
+    raiz = _montar(tmp_path)
+    construir(raiz)
+    achados = executar(raiz)
+    assert bool(achados) is tem_de_reprovar, achados
+
+
+def test_d1_reprova_pelo_portao_certo_e_com_a_justificativa(tmp_path: Path) -> None:
+    """J1 detalhado: o achado nomeia o portão, o escopo e POR QUE ele é `somente-dev` — é o que
+    um revisor lê quando o CI fica vermelho."""
+    raiz = _montar(tmp_path)
+    _sonda_j1(raiz)
+    achados = checar_ligacao_fora_de_dev(raiz)
+    assert any(
+        "WHATSAPP_WEBHOOK_DEVOLVE_TURNO" in a and "somente-dev" in a and "Helena" in a for a in achados
+    ), achados
+
+
+def test_d1_portao_do_turno_em_dev_esta_de_fato_ligado(tmp_path: Path) -> None:
+    """Não-vacuidade de J2: a árvore de dev realmente traz o portão LIGADO — sem isto, J2
+    passaria por ausência e não por permissão."""
+    raiz = _montar(tmp_path)
+    assert _PORTAO_TURNO in (raiz / _ENV_DEV / _RECEPTOR_TF).read_text(encoding="utf-8")
+
+
+def test_portao_novo_da_familia_nomeia_o_que_falta(tmp_path: Path) -> None:
+    """J4 detalhado: o achado diz o que fazer — declarar a política — em vez de só reprovar."""
+    raiz = _montar(tmp_path)
+    _sonda_j4(raiz)
+    achados = checar_ligacao_fora_de_dev(raiz)
+    assert any("ECOA_TRANSCRICAO" in a and "politica declarada" in a for a in achados), achados
