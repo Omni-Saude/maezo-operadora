@@ -23,14 +23,6 @@ jobs:
   quality:
     name: lint / type / unit
     runs-on: ubuntu-latest
-    env:
-      # R6f/FLOOR-AN-389: mirrors of setup-uv's own UV_CACHE_DIR/UV_PYTHON_INSTALL_DIR under a
-      # name the "reject unmanaged config" guard's PYTHON*/PYTEST_*/UV_* prefix check never
-      # matches — scripts/ci/ledger_current_execution.py::minimal_environment() reads these to
-      # give its OWN nested `uv lock --offline` subprocess the cache CI actually populated,
-      # without reintroducing UV_CACHE_DIR into pytest's own (deliberately stripped) environment.
-      MAEZO_CI_UV_CACHE_DIR: ${{ runner.temp }}/setup-uv-cache
-      MAEZO_CI_UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -60,6 +52,19 @@ jobs:
           enable-cache: true
           cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
+
+      - name: Espelha caches do uv para os fixtures (R6f)
+        # runner.temp NAO existe no contexto de env de job (so em steps) — por isso o
+        # espelhamento acontece aqui, num passo, logo apos o setup-uv real ter definido
+        # UV_CACHE_DIR/UV_PYTHON_INSTALL_DIR no ambiente do job. O fallback com
+        # ${{ runner.temp }} cobre o caso (nao esperado) de o setup-uv nao os exportar.
+        # scripts/ci/ledger_current_execution.py::minimal_environment() le os nomes
+        # MAEZO_CI_UV_* (prefixo que o guard "reject unmanaged config" abaixo nunca
+        # reconhece) para dar ao seu proprio `uv lock --offline` aninhado o cache que o
+        # CI de fato populou, sem reintroduzir UV_CACHE_DIR no ambiente do pytest.
+        run: |
+          echo "MAEZO_CI_UV_CACHE_DIR=${UV_CACHE_DIR:-${{ runner.temp }}/setup-uv-cache}" >> "$GITHUB_ENV"
+          echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=${UV_PYTHON_INSTALL_DIR:-${{ runner.temp }}/uv-python-dir}" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: uv sync --locked --extra dev
@@ -399,13 +404,6 @@ jobs:
   release-floor:
     name: release-capability-floor (audit §5)
     runs-on: ubuntu-latest
-    env:
-      # R6f/FLOOR-AN-389: see the identical block on the `quality` job above for the full
-      # rationale — this job runs the same `tests/unit/ci/test_ledger_*.py`/
-      # `tests/unit/dev/test_historical_*.py` fixtures and hit the identical byte-for-byte
-      # failure (49 failed, 247 errors) before this fix.
-      MAEZO_CI_UV_CACHE_DIR: ${{ runner.temp }}/setup-uv-cache
-      MAEZO_CI_UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -435,6 +433,19 @@ jobs:
           enable-cache: true
           cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
+
+      - name: Espelha caches do uv para os fixtures (R6f)
+        # runner.temp NAO existe no contexto de env de job (so em steps) — por isso o
+        # espelhamento acontece aqui, num passo, logo apos o setup-uv real ter definido
+        # UV_CACHE_DIR/UV_PYTHON_INSTALL_DIR no ambiente do job. O fallback com
+        # ${{ runner.temp }} cobre o caso (nao esperado) de o setup-uv nao os exportar.
+        # scripts/ci/ledger_current_execution.py::minimal_environment() le os nomes
+        # MAEZO_CI_UV_* (prefixo que o guard "reject unmanaged config" abaixo nunca
+        # reconhece) para dar ao seu proprio `uv lock --offline` aninhado o cache que o
+        # CI de fato populou, sem reintroduzir UV_CACHE_DIR no ambiente do pytest.
+        run: |
+          echo "MAEZO_CI_UV_CACHE_DIR=${UV_CACHE_DIR:-${{ runner.temp }}/setup-uv-cache}" >> "$GITHUB_ENV"
+          echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=${UV_PYTHON_INSTALL_DIR:-${{ runner.temp }}/uv-python-dir}" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: uv sync --locked --extra dev
