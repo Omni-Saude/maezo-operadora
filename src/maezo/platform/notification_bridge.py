@@ -573,20 +573,30 @@ class _SlaAlertSpec:
     """One SLA-risk alert `type` that really publishes to `operadora.notifications.internal`, and
     how its payload maps onto SP-OP-ESCALATION-001's input variables.
 
-    THE THREE SPECS BELOW ARE THE WHOLE PUBLISHER SET, measured not assumed
-    (`grep -rln "_NOTIFY_SLA_RISK_NOTIFICATION_TYPE" src/maezo/tools/workers/`, 2026-09-04 ->
-    `lgpd.py`, `programa.py`, `recurso.py`). Nine OTHER modules carry an SLA-risk alert step
-    (`adequacao`, `auth` — the class-based `NotifySlaRiskWorker` — `cancel`, `contas`,
-    `credenciamento`, `fraude`, `inadimplencia`, `pagto`, `reembolso`), and NONE of them publishes
-    an SLA `type` anywhere: the only other `"<dominio>.notify_sla_risk"` string literals in `src/`
-    (`cancel.py:450`, `contas.py:606`, `reembolso.py:686`) are STRUCTLOG EVENT NAMES inside
+    THE FOUR SPECS BELOW ARE THE WHOLE PUBLISHER SET, measured not assumed
+    (`grep -rln "_NOTIFY_SLA_RISK_NOTIFICATION_TYPE" src/maezo/tools/workers/` ->
+    `auth.py`, `lgpd.py`, `programa.py`, `recurso.py`). EIGHT other modules carry an SLA-risk
+    alert step (`adequacao`, `cancel`, `contas`, `credenciamento`, `fraude`, `inadimplencia`,
+    `pagto`, `reembolso`), and NONE of them publishes an SLA `type` anywhere: the only other
+    `"<dominio>.notify_sla_risk"` string literals in `src/` (`cancel.py`, `contas.py`,
+    `reembolso.py` — cited by symbol, the lines drift) are STRUCTLOG EVENT NAMES inside
     `logger.info(...)`, not Kafka `type` fields — measured, not assumed
     (`grep -rn '"[a-z_]*[.]notify_sla_risk"' src/`). So no message with their `type` can reach this
     bridge at all. (`adequacao.py` does define `_NOTIFICATIONS_TOPIC`, but for its
-    `update_monitoring_plan` notification — its `notify_sla_risk` publishes nothing.) Giving those nine a
-    producer is a worker-level change, deliberately out of R-104's scope; the consumer side notices
-    the day one appears, because `SLA_ALERT_TYPE_SUFFIX` makes an unknown `<dominio>.notify_sla_risk`
-    a WARNING + a counted `unrecognised_shape`, never a silent pass-through.
+    `update_monitoring_plan` notification — its `notify_sla_risk` publishes nothing.) Giving those
+    eight a producer is a worker-level change, deliberately out of scope here; the consumer side
+    notices the day one appears, because `SLA_ALERT_TYPE_SUFFIX` makes an unknown
+    `<dominio>.notify_sla_risk` a WARNING + a counted `unrecognised_shape`, never a silent
+    pass-through.
+
+    WHY `auth` JOINED THE SET (WP-J1-09, owner decision #17, 2026-09-12 — RATIFIED). It was the
+    named exception in the sentence above: `auth.NotifySlaRiskWorker` was the class-based,
+    Kafka-less step whose alert reached nobody. Decision #17 ratifies the AUTH->ESCALATION handoff
+    — AUTH may raise `ESC-{tenant}-sla-auth-{numero_guia_tiss}` — so `auth.py` grew the raw async
+    handler that actually publishes, and the spec below is the consumer half. The ratification was
+    REQUIRED, not an engineering call: the ESCALATION contract used to state, in so many words,
+    that AUTH does not call ESCALATION automatically; that line is amended by this same work
+    package (`docs/processes/contracts/SP-OP-ESCALATION-001.md`, and ADR-0051).
     """
 
     #: The `type` literal the publisher stamps on the notification.
@@ -606,6 +616,7 @@ class _SlaAlertSpec:
 
 
 #: Fail-closed anchors, per domain, read off the REAL published payloads:
+#: `auth.py::make_notify_sla_risk_handler` -> {tenant_id, numero_guia_tiss, beneficiario_pseudo_id};
 #: `recurso.py::make_notify_sla_risk_handler` -> {tenant_id, numero_guia_tiss, glosa_id, glosa_type};
 #: `programa.py::make_notify_sla_risk_handler` -> {tenant_id, programa_id, beneficiario_pseudo_id};
 #: `lgpd.py::make_notify_sla_risk_handler` -> {tenant_id, titular_pseudo_id, tipo_requisicao,
@@ -621,6 +632,34 @@ class _SlaAlertSpec:
 #: `beneficiario_pseudo_id` goes out EMPTY rather than fabricated — a divergence from the contract,
 #: which marks the field obligatory; filed for ratification in `docs/review-queue.md` (§Delta D2).
 _SLA_ALERT_SPECS: Final[tuple[_SlaAlertSpec, ...]] = (
+    _SlaAlertSpec(
+        event_type="auth.notify_sla_risk",
+        domain="auth",
+        # ONE anchor, and it is the SAME idempotency unit as the originating process. The AUTH
+        # contract's own business key is `AUTH-{tenant_id}-{numero_guia_tiss}` (one instance per
+        # guia TISS), so `numero_guia_tiss` alone IS unique per case — unlike `recurso`, whose key
+        # is per (guia, glosa) and therefore needs two (§Delta D1 below). Adding a second anchor
+        # here would be strictly WORSE: it would split one guia's SLA risk across several
+        # escalations, and `sla_percent`/`sla_analise` (the other variables in scope) are CLOCK
+        # readings, so keying on them would defeat convergence on redelivery outright.
+        anchor_fields=("numero_guia_tiss",),
+        # AUTH really does carry the pseudonymised beneficiary (a declared start variable,
+        # `SP-OP-AUTH-001_Autorizacao_Previa.bpmn` "VARIAVEIS DE ENTRADA"), so — unlike `recurso`,
+        # whose glosa appeal is prestador-side and has none — the contract's obligatory
+        # `beneficiario_pseudo_id` is satisfied from a real field instead of going out empty.
+        # It is NOT an anchor: the business key must stay the guia, and a beneficiary with two
+        # guias at risk must open two escalations.
+        pseudo_id_field="beneficiario_pseudo_id",
+        resumo_contexto=(
+            "Alerta de risco de SLA em SP-OP-AUTH-001 (BT_AlertaSla, boundary nao-interruptivo "
+            "sobre UT_AnaliseMedicoAuditor, em ${sla.sla_alerta} da DMN auth_sla). O relogio de "
+            "analise da guia esta correndo e nenhuma decisao foi tomada. A analise NAO foi "
+            "interrompida e nenhuma negativa nasce daqui (o desfecho adverso so nasce de decisao "
+            "humana, ADR-0008): este escalonamento e informativo e so pede acao humana no caso "
+            "correlacionado pelo conversation_id. A retomada por coordenacao continua sendo o "
+            "ramo interruptivo BT_SlaAnalise -> UT_CoordenacaoAssume, dentro do proprio AUTH."
+        ),
+    ),
     _SlaAlertSpec(
         event_type="recurso.notify_sla_risk",
         domain="recurso",

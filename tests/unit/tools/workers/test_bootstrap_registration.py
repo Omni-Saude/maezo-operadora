@@ -119,7 +119,13 @@ def test_class_module_bootstraps_register_workerbase_instances_not_function_work
       (#55 R-F, T2.8), `operadora.lgpd.notify_sla_risk` (#55 R-G, T2.8);
     - `operadora.escalation.notify_team` / `operadora.escalation.notify_supervisor` (DL-0034,
       built in t5 — escalation's notify workers converted from `WorkerBase` to raw async handlers;
-      notifying IS the business effect and needed the async Kafka seam the old classes lacked).
+      notifying IS the business effect and needed the async Kafka seam the old classes lacked);
+    - `operadora.auth.notify_sla_risk` (WP-J1-09, owner decision #17 — AUTH's SLA-risk alert is
+      now PUBLISHED on `operadora.notifications.internal` so the bridge can raise
+      `ESC-{tenant}-sla-auth-{guia}`; the same `WorkerBase`->raw conversion, and for the same
+      reason: `WorkerBase.execute` is synchronous and reaches no Kafka seam. `NotifySlaRiskWorker`
+      still EXISTS and is called by that handler — it is simply no longer registered itself, so
+      the topic keeps exactly one handler).
     """
     harness = _fresh_harness()
     register_auth_workers(harness)
@@ -127,6 +133,7 @@ def test_class_module_bootstraps_register_workerbase_instances_not_function_work
     register_lgpd_workers(harness)
 
     raw_handler_topics = {
+        "operadora.auth.notify_sla_risk",
         "operadora.lgpd.request_additional_proof",
         "operadora.lgpd.send_response",
         "operadora.lgpd.notify_sla_risk",

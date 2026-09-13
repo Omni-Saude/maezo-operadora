@@ -85,7 +85,7 @@ rows:
   nome_real: ''
 - grupo_declarado: coordenacao-auditoria-medica
   arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
-  linha: 432
+  linha: 433
   processo: SP-OP-AUTH-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_CoordenacaoAssume
@@ -95,7 +95,7 @@ rows:
   nome_real: ''
 - grupo_declarado: junta-medica
   arquivo: spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn
-  linha: 572
+  linha: 573
   processo: SP-OP-AUTH-001
   em_escopo: true
   tarefa_ou_regra_dmn: UT_RegistrarParecerJunta

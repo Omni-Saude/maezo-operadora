@@ -77,3 +77,27 @@ Dados sempre sinteticos (`Beneficiario Teste 001`, tenant `amh`).
 - **Given** os tres caminhos de fim (resolvido, devolvido, supervisor alertado)
 - **When** cada um e percorrido
 - **Then** ha evento Kafka correspondente publicado ANTES do end event (sem fim silencioso)
+
+## Inbox duravel de `notify_team` (WP-J1-09 — ADR-0051, ADR-0037 XRD-10)
+
+### test_notify_team_grava_linha_de_inbox_antes_do_offset
+- **Given** uma instancia de `SP-OP-ESCALATION-001` cujo `ST_NotificarTime` completou, com o
+  daemon `maezo.platform.integrations.notifications_inbox` consumindo
+  `operadora.notifications.internal` no seu PROPRIO grupo de consumo
+- **When** a notificacao `type=escalation.notify_team` e entregue
+- **Then** existe UMA linha em `escalation_team_notice` com o `grupo_atendimento` que a DMN
+  escolheu (o MESMO valor do `candidateGroups` de `UT_TratarEscalonamento`), `audience='staff'` e
+  o `business_key` da instancia
+- **And** o offset do consumidor so avanca DEPOIS dessa linha — entrega e a linha commitada mais
+  o recibo, nunca o offset (ADR-0037 XRD-10)
+
+### test_notify_team_reentregue_nao_duplica_a_linha
+- **Given** a mesma notificacao entregue duas vezes (redelivery do broker)
+- **Then** UMA unica linha (PK `(tenant, notice_ref)`, com `notice_ref` derivado do conteudo) e o
+  segundo recibo relata `duplicate`, nunca `recorded`
+
+### test_notify_team_sem_banco_nao_acka
+- **Given** o banco indisponivel quando a notificacao chega
+- **Then** o consumidor NAO commita o offset e a mensagem e reentregue — um aviso de
+  escalonamento nunca e perdido por um ack sem linha durável
+
