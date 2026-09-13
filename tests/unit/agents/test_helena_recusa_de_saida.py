@@ -266,3 +266,49 @@ async def test_boleto_recusado_no_grafo_vira_escalonamento() -> None:
     assert saida["response_kind"] == "escalate"
     assert saida["escalation_started"] is True
     assert saida["error"] == ERRO_RESPOSTA_RECUSADA
+
+
+# ---------------------------------------------------------------------------------------------
+# Duas formas que escaparam quando a propria bateria do diretor foi rodada CONTRA a cerca nova.
+# ---------------------------------------------------------------------------------------------
+# Perguntada sobre agendamento, a Helena respondeu: "vou registrar sua solicitacao para que um
+# profissional da nossa equipe ENTRE em contato". O turno foi pela rota `schedule`, que ABRE
+# processo — entao a frase era verdadeira ali. Na rota `inform` a mesma frase seria falsa, e as
+# duas formas escapavam: o subjuntivo "entre em contato" (a lista tinha o futuro "entrara") e
+# "vou registrar" (a lista tinha a primeira pessoa do presente "eu registro").
+#
+# AS DUAS SAO ROTA-CONDICIONAIS, nao capacidade: registrar a solicitacao E' algo que a Helena faz
+# nas rotas que abrem processo. Por isso entraram na lista de promessa de HUMANO.
+
+AGENDAMENTO_REAL = (
+    "Olá! Entendi que você gostaria de agendar uma consulta com cardiologista. *Por aqui ainda "
+    "não conseguimos fazer o agendamento direto*, mas vou registrar sua solicitação para que um "
+    "profissional da nossa equipe entre em contato e ajude com os próximos passos."
+)
+#: Orientar o beneficiario a procurar a central e' LEGITIMO na rota informativa, e casar apenas
+#: "entre em contato" reprovaria isto junto.
+CONSELHO_LEGITIMO = (
+    "Olá! Para atualizar seu endereço, você pode acessar o aplicativo ou o portal do "
+    "beneficiário. Se preferir, também pode entrar em contato com a central de atendimento."
+)
+
+
+def test_a_promessa_do_agendamento_e_recusada_na_rota_informativa() -> None:
+    achado = motivo_de_recusa(AGENDAMENTO_REAL, "inform")
+
+    assert achado is not None, "a promessa escapou na rota em que seria falsa"
+    assert achado[0] == "promessa_de_humano"
+
+
+def test_a_mesma_promessa_passa_nas_rotas_que_abrem_processo() -> None:
+    """Medido: este turno foi por `schedule`, com `escalado_humano` / `solicitacao_humano`. Um
+    processo foi aberto e um humano vem — a frase e' verdadeira, e reprova-la quebraria o
+    caminho certo."""
+    assert motivo_de_recusa(AGENDAMENTO_REAL, "schedule") is None
+    assert motivo_de_recusa(AGENDAMENTO_REAL, "escalate") is None
+
+
+def test_orientar_a_procurar_a_central_continua_passando() -> None:
+    """O sujeito e' parte do padrao: "a equipe entre em contato" e' promessa, "voce pode entrar em
+    contato com a central" e' orientacao — e a segunda aparece nas respostas administrativas boas."""
+    assert motivo_de_recusa(CONSELHO_LEGITIMO, "inform") is None

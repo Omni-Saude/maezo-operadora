@@ -226,7 +226,7 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v2"  # 13/09/2026: + promessa de capacidade
+RECUSA_DE_SAIDA_VERSION = "recusa-v3"  # 13/09/2026: + formas que escaparam na bateria
 
 #: Afirmar a AUSENCIA de alerta. Proibido em TODA rota: "a tabela nao casou nenhuma regra" e
 #: "voce nao tem sinais de alerta" nao sao a mesma frase, e a segunda e' parecer clinico sobre uma
@@ -264,6 +264,23 @@ PROMESSA_DE_HUMANO_PROIBIDA: tuple[str, ...] = (
     "o caso foi encaminhado",
     "encaminhei seu caso",
     "ja encaminhamos",
+    # 13/09/2026, achados ao rodar a propria bateria do diretor CONTRA a cerca nova. Duas formas
+    # escaparam, e as duas sao ROTA-CONDICIONAIS, nao capacidade: em `escalate`/`schedule` um
+    # processo E' aberto e um humano VEM, entao as frases sao verdadeiras la'.
+    #
+    # O SUJEITO E' PARTE DO PADRAO, e e' o que separa promessa de conselho: "a equipe entre em
+    # contato" e' promessa; "voce pode entrar em contato com a central" e' orientacao legitima e
+    # aparece nas respostas administrativas boas. Casar so' "entre em contato" reprovaria as duas.
+    "equipe entre em contato",
+    "profissional entre em contato",
+    "atendente entre em contato",
+    "alguem entre em contato",
+    "equipe entrara em contato",
+    # "registrar a solicitacao" E' capacidade que a Helena tem — nas rotas que abrem processo.
+    # Por isso mora aqui, condicionada a rota, e nao na lista de capacidade.
+    "vou registrar sua solicitacao",
+    "vou registrar seu pedido",
+    "registrarei sua solicitacao",
 )
 
 
