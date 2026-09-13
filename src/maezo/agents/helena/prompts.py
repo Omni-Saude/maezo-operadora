@@ -27,11 +27,13 @@ validator can never drift apart.
 
 from __future__ import annotations
 
+import unicodedata
+
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
 CLASSIFY_PROMPT_VERSION = "classify-v3"  # 11/09/2026: intent "greeting"
-RESPONSE_PROMPT_VERSION = "response-v3"  # 12/09/2026: proibida a negativa clinica + WhatsApp
+RESPONSE_PROMPT_VERSION = "response-v4"  # 13/09/2026: so `escalate` promete humano
 COLETA_PROMPT_VERSION = "coleta-v1"  # passo 4 (09/09/2026): a pergunta pelo dado que falta
 
 SYSTEM_PROMPT = """Voce e Helena, uma navegadora de saude (health navigator) que atende
@@ -185,6 +187,12 @@ que ela nao contou. Quando nao houver bandeira, diga o que este canal PODE fazer
 encaminhar, agendar) e convide-a a descrever melhor o sintoma — UMA frase de abertura, nunca uma
 sequencia de perguntas. Nao emita juizo sobre a gravidade em nenhuma direcao.
 
+SOMENTE response_kind="escalate" PODE PROMETER CONTATO HUMANO. Em response_kind="inform" e
+PROIBIDO dizer que alguem entrara em contato, que a equipe vai retornar, que o caso foi
+encaminhado ou que basta aguardar: nessa rota NENHUM humano foi acionado, nenhuma fila existe e
+ninguem vai ligar. Diga o que este canal PODE fazer e como a pessoa pode pedir atendimento,
+nunca que ele ja esta a caminho.
+
 O canal e WhatsApp: para enfase use UM asterisco (*assim*), nunca dois. Nunca use markdown
 (titulos com #, negrito com **, listas com - ou *) nem HTML — os caracteres chegam crus ao
 beneficiario. Se response_kind="escalate",
@@ -193,3 +201,107 @@ oriente a procurar emergencia caso os sintomas piorem antes do contato humano. S
 response_kind="schedule", explique que o agendamento direto ainda nao esta disponivel neste
 canal e que um humano vai retornar. {UNTRUSTED_INSTRUCAO_DE_PROMPT} Responda APENAS com o texto da
 mensagem, sem JSON."""
+
+
+# ---------------------------------------------------------------------------------------------
+# RECUSA DE SAIDA (13/09/2026) — o que o texto NAO pode conter, cobrado no codigo.
+# ---------------------------------------------------------------------------------------------
+# POR QUE ESTA LISTA EXISTE, E NAO BASTA O PROMPT ACIMA. O `response-v3` proibiu a negativa
+# clinica em maiusculas e com o raciocinio inteiro, e o modelo passou por cima DUAS VEZES na mesma
+# conversa — medido em 13/09/2026 com a imagem que carregava o v3. Toda a arquitetura desta agente
+# e' feita de travas (a DMN decide em vez do modelo; a negativa so' nasce de User Task; o provedor
+# recusa construir sem atestacao) e a unica coisa que chega ao beneficiario, que e' o texto, nao
+# tinha trava nenhuma. Pedir ao modelo e' instrucao; isto aqui e' cerca.
+#
+# MORAM AQUI, ao lado do prompt, de proposito: sao a contraparte executavel de cada proibicao
+# escrita nele. Editar um sem o outro e' o descompasso que esta lista existe para tornar visivel.
+#
+# SEM ACENTO E EM MINUSCULA: a comparacao normaliza o texto antes (`_normalizar`), porque a
+# resposta do modelo varia em acentuacao e caixa e uma lista so' acentuada deixaria passar metade.
+
+#: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
+#: cerca estava valendo quando um texto foi recusado (ou deixado passar).
+RECUSA_DE_SAIDA_VERSION = "recusa-v1"
+
+#: Afirmar a AUSENCIA de alerta. Proibido em TODA rota: "a tabela nao casou nenhuma regra" e
+#: "voce nao tem sinais de alerta" nao sao a mesma frase, e a segunda e' parecer clinico sobre uma
+#: pessoa de quem a Helena so' sabe o que a mensagem trouxe.
+NEGATIVA_CLINICA_PROIBIDA: tuple[str, ...] = (
+    "nao ha sinais de alerta",
+    "nao identificamos sinais",
+    "nao ha sinais de",
+    "sem sinais de alerta",
+    "nao existem sinais",
+    "nao e grave",
+    "nao e nada grave",
+    "nao e preocupante",
+    "nao precisa procurar",
+    "nao e necessario procurar",
+    "nao ha necessidade de atendimento",
+)
+
+#: Prometer que um humano vem. Proibido SO' fora da rota `escalate`, e a condicao e' o ponto:
+#: em `escalate` a promessa e' OBRIGATORIA (um humano foi mesmo acionado) e uma cerca incondicional
+#: quebraria justamente o caminho certo.
+PROMESSA_DE_HUMANO_PROIBIDA: tuple[str, ...] = (
+    "entrara em contato",
+    "entraremos em contato",
+    "entrara em breve",
+    "vai entrar em contato",
+    "ira entrar em contato",
+    "alguem da equipe entrara",
+    "um profissional humano entrara",
+    "vamos retornar",
+    "retornaremos",
+    "aguarde nosso contato",
+    "aguarde o contato",
+    "aguarde, pois logo alguem",
+    "o caso foi encaminhado",
+    "encaminhei seu caso",
+    "ja encaminhamos",
+)
+
+
+#: Rotulos dos dois grupos. Fechados, porque viram rotulo de metrica: o padrao exato vai para o
+#: log (onde alguem depura) e o GRUPO vai para o contador (onde alguem conta), de modo que a
+#: cardinalidade nao cresce quando a lista cresce.
+RECUSA_NEGATIVA_CLINICA: str = "negativa_clinica"
+RECUSA_PROMESSA_DE_HUMANO: str = "promessa_de_humano"
+
+
+def _normalizar(texto: str) -> str:
+    """Minuscula e sem acento — a forma em que os padroes acima estao escritos."""
+    decomposto = unicodedata.normalize("NFKD", texto)
+    return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+
+
+def motivo_de_recusa(texto: str, response_kind: str) -> tuple[str, str] | None:
+    """`(grupo, padrao)` do primeiro padrao proibido encontrado em `texto`, ou `None`.
+
+    PURA e sem efeito: decide olhando o texto e o `response_kind`, nada mais. E' o que permite
+    testa-la com os textos REAIS que vazaram, sem subir grafo nenhum.
+
+    A NEGATIVA CLINICA e' proibida em toda rota. A PROMESSA DE HUMANO so' fora de `escalate` —
+    e essa condicao e' o ponto delicado desta funcao: em `escalate` um humano foi mesmo acionado
+    e prometer e' OBRIGATORIO (`response_prompt` manda), entao uma cerca incondicional reprovaria
+    justamente o caminho certo. `collect` e `schedule` contam como "nao escalate" para a negativa,
+    e `schedule` passa a promessa porque ele TAMBEM abre escalonamento (ver `HelenaGraph.schedule`,
+    que delega a `_start_escalation`).
+
+    Ordem: negativa primeiro. Quando um texto viola os dois, o achado reportado e' o clinico,
+    que e' o mais grave dos dois.
+    """
+    plano = _normalizar(texto)
+    for padrao in NEGATIVA_CLINICA_PROIBIDA:
+        if padrao in plano:
+            return (RECUSA_NEGATIVA_CLINICA, padrao)
+    if response_kind not in _ROTAS_QUE_PODEM_PROMETER_HUMANO:
+        for padrao in PROMESSA_DE_HUMANO_PROIBIDA:
+            if padrao in plano:
+                return (RECUSA_PROMESSA_DE_HUMANO, padrao)
+    return None
+
+
+#: As rotas em que um humano FOI acionado e a promessa e' obrigatoria. `schedule` esta aqui porque
+#: ele delega a `_start_escalation` — a promessa dele e' verdadeira.
+_ROTAS_QUE_PODEM_PROMETER_HUMANO: frozenset[str] = frozenset({"escalate", "schedule"})
