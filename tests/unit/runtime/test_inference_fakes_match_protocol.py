@@ -413,8 +413,20 @@ _AGENTES_CONHECIDOS: frozenset[str] = frozenset(
 #: `test_harness_audit_emit.py`). So' sao checados quando a classe JA foi classificada em UMA
 #: familia por outra via (`send` para `FactBrokerPublisher`; `claim_or_get` para
 #: `IdempotencyStore`) -- ver `_SECUNDARIOS_POR_FAMILIA` abaixo.
+#:
+#: `mark_requested` entrou nesta lista com WP-C094 (A2A-RETRY-REEMITS-REQUESTED-FACT) pela MESMA
+#: razao que `complete`: o nome passou a existir em DOIS contratos diferentes de proposito --
+#: `IdempotencyStore.mark_requested(*, tenant, task_id)` (o seam, que precisa dizer de qual tenant
+#: fala) e `AtomicSession.mark_requested(task_id)` (`a2a/transaction.py`, ja' vinculada ao tenant
+#: pela sessao, logo posicional). Como ANCORA INDEPENDENTE ele classificaria
+#: `_AtomicRetryTransactions` (`tests/unit/a2a/test_idempotency.py`, um duble de
+#: `PostgresDelegationTransactions`, nao de `IdempotencyStore`) na familia errada e cobraria dela
+#: a assinatura do Protocol errado. Como SECUNDARIO a cobertura dos falsos reais fica intacta:
+#: todo falso de `IdempotencyStore` declara `claim_or_get`, entao continua classificado e tem o
+#: `mark_requested` conferido. `requested_emitted` NAO entra aqui -- nenhum outro Protocol usa
+#: esse nome, entao ele segue como ancora independente.
 _SECUNDARIOS_POR_FAMILIA: dict[str, tuple[str, ...]] = {
-    "IdempotencyStore": ("complete",),
+    "IdempotencyStore": ("complete", "mark_requested"),
     "FactBrokerPublisher": ("start", "stop"),
 }
 _NOMES_SOMENTE_SECUNDARIOS = frozenset(nome for nomes in _SECUNDARIOS_POR_FAMILIA.values() for nome in nomes)
