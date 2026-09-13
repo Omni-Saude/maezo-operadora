@@ -33,7 +33,7 @@ from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
 CLASSIFY_PROMPT_VERSION = "classify-v3"  # 11/09/2026: intent "greeting"
-RESPONSE_PROMPT_VERSION = "response-v4"  # 13/09/2026: so `escalate` promete humano
+RESPONSE_PROMPT_VERSION = "response-v5"  # 13/09/2026: nao promete capacidade que nao tem
 COLETA_PROMPT_VERSION = "coleta-v1"  # passo 4 (09/09/2026): a pergunta pelo dado que falta
 
 SYSTEM_PROMPT = """Voce e Helena, uma navegadora de saude (health navigator) que atende
@@ -193,6 +193,11 @@ encaminhado ou que basta aguardar: nessa rota NENHUM humano foi acionado, nenhum
 ninguem vai ligar. Diga o que este canal PODE fazer e como a pessoa pode pedir atendimento,
 nunca que ele ja esta a caminho.
 
+Este canal NAO emite boleto, NAO atualiza cadastro, NAO consulta status de guia em tempo real
+e NAO agenda diretamente. NUNCA diga que voce vai encaminhar, registrar, emitir, gerar, atualizar
+ou agendar algo — voce nao tem como. Diga por onde a pessoa consegue (aplicativo, portal, central
+de atendimento) ou encaminhe para um humano pela rota propria.
+
 O canal e WhatsApp: para enfase use UM asterisco (*assim*), nunca dois. Nunca use markdown
 (titulos com #, negrito com **, listas com - ou *) nem HTML — os caracteres chegam crus ao
 beneficiario. Se response_kind="escalate",
@@ -221,7 +226,7 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v1"
+RECUSA_DE_SAIDA_VERSION = "recusa-v2"  # 13/09/2026: + promessa de capacidade
 
 #: Afirmar a AUSENCIA de alerta. Proibido em TODA rota: "a tabela nao casou nenhuma regra" e
 #: "voce nao tem sinais de alerta" nao sao a mesma frase, e a segunda e' parecer clinico sobre uma
@@ -262,11 +267,53 @@ PROMESSA_DE_HUMANO_PROIBIDA: tuple[str, ...] = (
 )
 
 
-#: Rotulos dos dois grupos. Fechados, porque viram rotulo de metrica: o padrao exato vai para o
+#: PROMETER CAPACIDADE QUE O CANAL NAO TEM (13/09/2026). Terceira categoria, descoberta na
+#: bateria do diretor: perguntada sobre segunda via de boleto, a Helena respondeu *"aqui neste
+#: canal voce pode pedir pelo WhatsApp mesmo, e EU ENCAMINHO sua solicitacao"*. Ela nao encaminha:
+#: nao ha ferramenta, nao ha processo, e segunda via exige escrever no Tasy — o que o TASY write
+#: DROP (ADR-0013) PROIBE por decisao de arquitetura. Nao e' falta de construir, e' vedado.
+#:
+#: POR QUE A CERCA ANTERIOR NAO PEGOU: os padroes de promessa de humano sao todos terceira pessoa
+#: ou passado ("alguem entrara em contato"). "Eu encaminho" e' primeira pessoa no futuro e escapa
+#: pela gramatica. O buraco nao era um padrao faltando, era uma CATEGORIA que ninguem nomeou.
+#:
+#: PROIBIDA EM TODA ROTA, e aqui esta' a diferenca para a promessa de humano: nao existe rota em
+#: que ela seja legitima. Em `escalate` a Helena encaminha para um HUMANO — e dizer isso continua
+#: valendo —, mas nem la' ela emite boleto, agenda consulta ou atualiza cadastro.
+#:
+#: SAO VERBO + OBJETO, nunca o verbo sozinho: "vou encaminhar" aparece legitimamente na rota
+#: `escalate` ("vou encaminhar seu relato para nossa equipe"), e proibir o verbo isolado reprovaria
+#: o caminho certo. "posso agendar" e' recusado ATE em `schedule`, porque la' a Helena escala para
+#: um humano agendar — ela nao agenda.
+PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
+    "eu encaminho",
+    "encaminho sua solicitacao",
+    "encaminho seu pedido",
+    "posso encaminhar sua solicitacao",
+    "vou encaminhar sua solicitacao",
+    "eu registro sua solicitacao",
+    "registro seu pedido",
+    "posso solicitar para voce",
+    "solicito para voce",
+    "eu emito",
+    "posso emitir",
+    "eu gero",
+    "posso gerar",
+    "eu atualizo",
+    "posso atualizar seu cadastro",
+    "eu agendo",
+    "posso agendar para voce",
+    "ja agendei",
+    "pode pedir por aqui",
+    "pode solicitar por aqui",
+)
+
+#: Rotulos dos tres grupos. Fechados, porque viram rotulo de metrica: o padrao exato vai para o
 #: log (onde alguem depura) e o GRUPO vai para o contador (onde alguem conta), de modo que a
 #: cardinalidade nao cresce quando a lista cresce.
 RECUSA_NEGATIVA_CLINICA: str = "negativa_clinica"
 RECUSA_PROMESSA_DE_HUMANO: str = "promessa_de_humano"
+RECUSA_PROMESSA_DE_CAPACIDADE: str = "promessa_de_capacidade"
 
 
 def _normalizar(texto: str) -> str:
@@ -281,20 +328,23 @@ def motivo_de_recusa(texto: str, response_kind: str) -> tuple[str, str] | None:
     PURA e sem efeito: decide olhando o texto e o `response_kind`, nada mais. E' o que permite
     testa-la com os textos REAIS que vazaram, sem subir grafo nenhum.
 
-    A NEGATIVA CLINICA e' proibida em toda rota. A PROMESSA DE HUMANO so' fora de `escalate` —
-    e essa condicao e' o ponto delicado desta funcao: em `escalate` um humano foi mesmo acionado
-    e prometer e' OBRIGATORIO (`response_prompt` manda), entao uma cerca incondicional reprovaria
-    justamente o caminho certo. `collect` e `schedule` contam como "nao escalate" para a negativa,
-    e `schedule` passa a promessa porque ele TAMBEM abre escalonamento (ver `HelenaGraph.schedule`,
-    que delega a `_start_escalation`).
+    A NEGATIVA CLINICA e a PROMESSA DE CAPACIDADE sao proibidas em TODA rota. A PROMESSA DE
+    HUMANO so' fora de `escalate`/`schedule` — e essa condicao e' o ponto delicado desta funcao:
+    nessas duas um humano foi mesmo acionado e prometer e' OBRIGATORIO (`response_prompt` manda),
+    entao uma cerca incondicional reprovaria justamente o caminho certo. `schedule` esta' entre as
+    permitidas porque ele TAMBEM abre escalonamento (ver `HelenaGraph.schedule`, que delega a
+    `_start_escalation`).
 
-    Ordem: negativa primeiro. Quando um texto viola os dois, o achado reportado e' o clinico,
-    que e' o mais grave dos dois.
+    Ordem: negativa, capacidade, promessa de humano. Quando um texto viola mais de uma, o achado
+    reportado e' o mais grave — e a negativa clinica e' a unica que fala sobre o CORPO de alguem.
     """
     plano = _normalizar(texto)
     for padrao in NEGATIVA_CLINICA_PROIBIDA:
         if padrao in plano:
             return (RECUSA_NEGATIVA_CLINICA, padrao)
+    for padrao in PROMESSA_DE_CAPACIDADE_PROIBIDA:
+        if padrao in plano:
+            return (RECUSA_PROMESSA_DE_CAPACIDADE, padrao)
     if response_kind not in _ROTAS_QUE_PODEM_PROMETER_HUMANO:
         for padrao in PROMESSA_DE_HUMANO_PROIBIDA:
             if padrao in plano:
