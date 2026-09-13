@@ -380,7 +380,8 @@ class DelegationDispatcher:
       - `idempotency=None` (default): IN-MEMORY backing store (`_inflight`). Correct for a single
         process/test; the landmine is that it does NOT survive replica restarts (re-delegation).
       - `idempotency` set: durable result replay; bounded polling is best-effort,
-        not exclusive handler execution across replicas.
+        not exclusive handler execution across replicas. The `requested` fact is gated by the
+        durable `requested_enqueued_at` marker (at-least-once — see `_delegate_durable`).
       - `transactions` set (required by production roots): atomic admission and
         terminal persistence. Handler/engine execution remains outside both
         transactions, and transport remains at-least-once.
@@ -514,7 +515,7 @@ class DelegationDispatcher:
                 # re-executing the handler.
                 return _as_replay(entry.result)
 
-            def mark_requested() -> None:
+            async def mark_requested() -> None:
                 entry.requested_emitted = True
 
             result = await self._execute(
@@ -543,11 +544,45 @@ class DelegationDispatcher:
         Uma falha RETENTAVEL continua saltando por cima desta chamada, e e assim que RAF-02 mantem a
         entrega retentavel — a mesma linha `processing`, o mesmo poll, mas agora e uma escolha
         registrada em vez de um efeito colateral.
+
+        A2A-RETRY-REEMITS-REQUESTED-FACT. `claim_or_get` devolve `None` em DOIS casos que exigem
+        numeros DIFERENTES de fatos: a reivindicacao INEDITA e a REENTREGA de uma linha ja
+        reivindicada que ninguem selou (falha retentavel ou crash; o poll limitado expira e
+        devolve `None` na mesma). Sem distingui-los este seam reemitia
+        `agents.events.delegation.requested` uma vez POR ENTREGA, e um `requested` duplicado por
+        delegacao e' uma linha a mais na outbox (ENQUEUE_SQL nao tem `ON CONFLICT`), deduplicavel
+        so' no consumidor.
+
+        A distincao NAO vem da existencia da linha — a linha nasce na reivindicacao, ANTES da
+        emissao, logo "existe" nunca implica "emitiu". Vem do marcador duravel
+        `requested_enqueued_at` (migracao 0011), lido por `store.requested_emitted` e escrito por
+        `store.mark_requested` SOMENTE pelo callback `on_requested_emitted`, que `_execute` so'
+        chama depois de `_emit(REQUESTED)` retornar. Consequencia das duas direcoes de falha:
+
+          - `_emit` falha -> marcador continua NULL -> a reentrega REEMITE (nada se perde);
+          - `_emit` passa e o handler falha de forma retentavel -> marcador gravado -> a reentrega
+            reexecuta SEM reemitir (o canal retentavel de RAF-02, preservado).
+
+        JANELA DECLARADA (at-least-once, direcao segura). Neste seam o enfileiramento e a marca
+        sao DUAS escritas: um crash entre elas deixa o marcador NULL e a reentrega reemite —
+        DUPLICATA, que o consumidor colapsa pela `fact_dedup_key`, nunca PERDA. Fechar tambem essa
+        janela exige as duas escritas na MESMA transacao, que e' exatamente o que
+        `PostgresDelegationTransactions` faz: as raizes de producao usam `_delegate_atomic`
+        (`AtomicSession.requested_exists`/`mark_requested` enlistados junto do `INSERT` na outbox),
+        e este seam permanece o caminho de compatibilidade, com a garantia mais fraca DECLARADA em
+        vez de silenciada.
         """
         stored = await store.claim_or_get(tenant=envelope.tenant, task_id=envelope.task_id)
         if stored is not None:
             return _stored_to_result(stored)
-        result = await self._execute(envelope)
+        already_emitted = await store.requested_emitted(tenant=envelope.tenant, task_id=envelope.task_id)
+
+        async def mark_requested() -> None:
+            await store.mark_requested(tenant=envelope.tenant, task_id=envelope.task_id)
+
+        result = await self._execute(
+            envelope, skip_requested_fact=already_emitted, on_requested_emitted=mark_requested
+        )
         await store.complete(tenant=envelope.tenant, task_id=envelope.task_id, result=result)
         return result
 
@@ -564,7 +599,7 @@ class DelegationDispatcher:
         envelope: DelegationEnvelope,
         *,
         skip_requested_fact: bool = False,
-        on_requested_emitted: Callable[[], None] | None = None,
+        on_requested_emitted: Callable[[], Awaitable[None]] | None = None,
     ) -> DelegationResult:
         # --- Contract validation (chain/hops/budget already guaranteed at construction) ---
         validation = self._validate(envelope)
@@ -585,8 +620,12 @@ class DelegationDispatcher:
         await self._audit_delegation(envelope, decision=_DECISION_ALLOW, basis="A2A:delegate:allow")
         if not skip_requested_fact:
             await self._emit(envelope, DelegationFactKind.REQUESTED)
+            # PONTO DE EMISSAO. So aqui — depois de `_emit` TER RETORNADO — o chamador pode
+            # registrar "requested emitido". Se `_emit` levantar, a excecao passa por cima desta
+            # linha, a marca nao acontece e a reentrega REEMITE (at-least-once) em vez de perder o
+            # fato. Marcar antes transformaria uma emissao falha em perda permanente.
             if on_requested_emitted is not None:
-                on_requested_emitted()
+                await on_requested_emitted()
         outcome = await self._invoke_handler(envelope)
         return await self._finish_handler(envelope, outcome)
 

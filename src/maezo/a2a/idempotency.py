@@ -59,6 +59,17 @@ schema, not a new migration — is:
     within budget, returns `None` (best-effort; the caller falls back to the normal path — the PK
     still prevents double-persisting the terminal result via `complete`).
 
+`requested_emitted` / `mark_requested` (A2A-RETRY-REEMITS-REQUESTED-FACT): the `requested_enqueued_at`
+marker read and written on its own, for the `_delegate_durable` SEAM (an `IdempotencyStore` injected
+WITHOUT `PostgresDelegationTransactions`). `claim_or_get` alone cannot gate the
+`agents.events.delegation.requested` fact: it returns `None` both for a first-ever claim and for the
+REDELIVERY of a row an earlier attempt claimed and never sealed, so the seam re-emitted `requested`
+once per delivery. The marker separates the two, and — this is the whole point — it records an
+OBSERVED emission, never an inferred one: the caller writes it only after `_emit` RETURNS. A claim
+that died before emitting leaves the marker NULL, so the redelivery re-emits rather than losing the
+fact forever (migration 0011's own words: "a legacy claim cannot establish that a requested fact
+existed"; hence no backfill).
+
 `complete(*, tenant, task_id, result)`: seals the row as 'done' (UPDATE), writing the packed
 `result` jsonb. Idempotent: only updates rows still 'processing'.
 
@@ -111,6 +122,17 @@ COMPLETE_SQL = (
     "UPDATE a2a_idempotency "
     "SET status = 'done', result = $3::jsonb, completed_at = now() "
     "WHERE task_id = $1 AND tenant = $2 AND status = 'processing'"
+)
+
+# A2A-RETRY-REEMITS-REQUESTED-FACT — the `requested_enqueued_at` marker (migration 0011). Read and
+# write are SEPARATE statements here, unlike `transaction.AtomicSession`, which runs the same write
+# inside the admission transaction; `MARK_REQUESTED_SQL` is shared by both so the two writers of
+# this column can never drift. `COALESCE` keeps the FIRST observed emission time (re-marking an
+# already-marked row is a no-op, so the call is safe to repeat).
+REQUESTED_MARKER_SQL = "SELECT requested_enqueued_at FROM a2a_idempotency WHERE task_id = $1 AND tenant = $2"
+MARK_REQUESTED_SQL = (
+    "UPDATE a2a_idempotency SET requested_enqueued_at = COALESCE(requested_enqueued_at, now()) "
+    "WHERE task_id = $1 AND tenant = $2"
 )
 
 # Per-task_id (xact) lock: serializes the concurrent claim of the SAME task_id across replicas.
@@ -168,6 +190,47 @@ class IdempotencyStore(Protocol):
 
     async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
         """Seal the terminal result (success OR rejection) of the delegation."""
+        ...
+
+    async def requested_emitted(self, *, tenant: str, task_id: str) -> bool:
+        """`True` iff a `requested` fact for `task_id` was OBSERVED emitted.
+
+        A2A-RETRY-REEMITS-REQUESTED-FACT.
+
+        The gate `_delegate_durable` needs and `claim_or_get` cannot provide. `claim_or_get`
+        returns `None` for a fresh claim AND for the redelivery of a claimed-but-unsealed row —
+        identical answers for two situations that must emit a different number of facts. This
+        method answers the question that actually matters, off the durable `requested_enqueued_at`
+        marker (migration 0011).
+
+        WHY NOT A CLAIM SENTINEL. An earlier draft of this fix had `claim_or_get` return a third
+        value meaning "the row already existed" and gated the emission on THAT. It cannot be
+        correct: the row is born at the CLAIM, which happens BEFORE the caller emits, so "row
+        exists" never implies "fact emitted". A claim that died between the two writes would make
+        every later redelivery skip the emission, and the `requested` would be lost forever — a
+        `completed` with no `requested` before it. This contract inverts that: the marker is
+        written only after `_emit` RETURNS, so the surviving failure mode is a DUPLICATE (which a
+        consumer collapses on `fact_dedup_key`), never a LOSS. Same invariant migration 0011
+        states for its own column, and the same one `AtomicSession.requested_exists` honours.
+
+        Implementations with no durable marker may return `False` always: the seam degrades to
+        the pre-fix at-least-once behaviour (a redelivery re-emits), never to a loss.
+        """
+        ...
+
+    async def mark_requested(self, *, tenant: str, task_id: str) -> None:
+        """Record that `requested` was emitted for `task_id`. Idempotent; call only AFTER `_emit` returns.
+
+        Calling this BEFORE the emission is the defect described in `requested_emitted` — it turns
+        a failed emission into permanent loss. `_delegate_durable` therefore invokes it from
+        `_execute`'s `on_requested_emitted` callback, which the emission's own `await` gates.
+
+        NOT transactional with the emission: on this seam the enqueue and this write are two
+        statements, so a crash between them leaves the marker unset and the redelivery re-emits
+        (at-least-once, the safe direction). Production roots that need the two writes to commit
+        together use `PostgresDelegationTransactions` and `_delegate_atomic` instead, where
+        `AtomicSession.mark_requested` runs in the SAME transaction as the outbox insert.
+        """
         ...
 
 
@@ -341,6 +404,23 @@ class PostgresIdempotencyStore:
             if row is not None and row["status"] == STATUS_DONE:
                 return _row_to_stored(task_id, row)
         return None
+
+    async def requested_emitted(self, *, tenant: str, task_id: str) -> bool:
+        """Read the durable `requested_enqueued_at` marker (see `IdempotencyStore.requested_emitted`)."""
+        if tenant != self._tenant:
+            raise ValueError("idempotency tenant mismatch")
+        pool = await self._ensure_pool()
+        async with pool.acquire() as conn:
+            marker = await conn.fetchval(REQUESTED_MARKER_SQL, task_id, self._tenant)
+        return marker is not None
+
+    async def mark_requested(self, *, tenant: str, task_id: str) -> None:
+        """Set the marker (see `IdempotencyStore.mark_requested`). Only AFTER the emission returned."""
+        if tenant != self._tenant:
+            raise ValueError("idempotency tenant mismatch")
+        pool = await self._ensure_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(MARK_REQUESTED_SQL, task_id, self._tenant)
 
     async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
         """Seal the terminal result (success OR rejection). Idempotent: only updates 'processing'."""
