@@ -14,6 +14,7 @@ Two layers:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from scripts.ci.check_plans_counts import (
@@ -358,3 +359,33 @@ class TestAgainstTheRealShippedTree:
     def test_main_against_the_real_repo_root_passes(self) -> None:
         exit_code = main([], repo_root=_REPO_ROOT)
         assert exit_code == 0
+
+    def test_no_milestone_table_row_swallowed_another_onto_its_line(self) -> None:
+        """WP-J1-09 (V18 finding): a merge resolution ATE the newline between §0.3's `M1` and `M2`
+        rows, so `M2 BPMN/DMN Regeneration` stopped being a table row at all — it became trailing
+        text inside M1's last cell, invisible in every rendered view of the milestone table.
+
+        WHY THIS TEST LIVES HERE AND NOT IN `check_plans_counts.py`. The gate SCRIPT is a
+        claim-vs-tree COUNT reconciler: it walks PLANS.md line by line applying numeric claim
+        regexes, and its `Finding` carries `claimed: int` / `real: int`. A markdown-structure
+        defect has no `claimed`/`real` pair, so teaching the script about it would mean widening a
+        shared count dataclass into a second concern. The defect is nevertheless in this gate's
+        blast radius — it landed ON a claim-bearing line (`M1 ... 51 ADRs`), which is why the count
+        check passed green over damaged markdown — so the check belongs in this suite, which
+        already reads the SHIPPED PLANS.md against the shipped tree. No new gate, no new Makefile
+        target, no new file.
+
+        The property: in the milestone table, a line that starts a `| M<n> ` row contains exactly
+        ONE such row start. Deliberately narrow — it asserts nothing about cell contents, column
+        counts or ordering, so it cannot rot as the table is edited; it fails only on the specific
+        structural corruption a lost newline produces."""
+        row_start = re.compile(r"\|\s*M\d+\s+\S")
+        offenders = [
+            (line_no, line[:120])
+            for line_no, line in enumerate(_SHIPPED_PLANS.read_text(encoding="utf-8").splitlines(), start=1)
+            if len(row_start.findall(line)) > 1
+        ]
+        assert not offenders, (
+            "a milestone row swallowed another onto its own line (a lost newline) — the swallowed "
+            f"row stops rendering as a table row: {offenders}"
+        )
