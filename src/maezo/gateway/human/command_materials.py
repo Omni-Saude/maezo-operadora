@@ -74,7 +74,7 @@ def install_command_credential(materials: HumanMaterials, lifetime: MaterialLife
         context=context,
         private_key=key,
         valid_from=manifest.issued_at,
-        valid_until=manifest.valid_until,
+        valid_until=materials.not_after,
         envelope_seconds=designation.max_envelope_seconds,
     )
     return CommandCredentials(
@@ -110,7 +110,7 @@ def assignment_signing_lease(materials: HumanMaterials, lifetime: MaterialLifeti
     scope = assignment_scope(materials)
     if designation.workload_ref != scope.workload_ref:
         raise unavailable()
-    not_after: datetime = manifest.valid_until
+    not_after: datetime = materials.not_after
     return AssignmentSigningLease(
         scope=scope,
         key_id=designation.key_id,
