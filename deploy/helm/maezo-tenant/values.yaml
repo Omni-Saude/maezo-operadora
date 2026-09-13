@@ -927,6 +927,10 @@ lifecycle:
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
 #     do modulo; ainda 19 apos o merge de `main` de 2026-09-05 (nenhum importer novo).
+#     Recontado por AST em 21 no WP-J1-06: `runtime/worker_runtime/denial_notices.py` passa a
+#     importar `WorkerBpmnError` do harness — o dono nativo da negativa do portal e' um
+#     `WorkerBase` servido pelo mesmo harness, e levanta o MESMO bpmnError modelado que o worker
+#     generico; os 20 importadores anteriores permanecem.
 #
 # Os dois valores sao injetados como env informativo (MAEZO_TRANSPORT_FAN_IN_CEILING /
 # MAEZO_HARNESS_FAN_IN_CEILING) nos deployments que de fato tocam estes chokepoints — worker-daemon
@@ -938,4 +942,4 @@ lifecycle:
 # ---------------------------------------------------------------------------
 throughputCeilings:
   transportFanIn: 36
-  harnessFanIn: 20
+  harnessFanIn: 21
