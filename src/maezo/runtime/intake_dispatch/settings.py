@@ -98,7 +98,12 @@ class IntakeDispatchSettings(BaseSettings):
                 "AUTH lifecycle installation there is no protected store to drain and no native "
                 "installation to dispatch to."
             )
-        if self.identity_writer_url is None or not self.identity_writer_url.get_secret_value():
+        # `len()` on a `SecretStr` never extracts the secret — the effect-chokepoint fence
+        # (§8.3) reserves `get_secret_value()` for the gateway identity composition seam, and an
+        # emptiness check has no business reading a DSN anyway. The DSN's SHAPE is validated where
+        # the engine is built (`native_authority._engine`), which refuses any non-asyncpg or
+        # query-bearing URL.
+        if self.identity_writer_url is None or len(self.identity_writer_url) == 0:
             raise IntakeDispatchRefusalError(
                 "intake dispatch: MAEZO_INTAKE_DISPATCH_IDENTITY_WRITER_URL is required — the "
                 "identity source lifecycle is composed with every one of its role-bound engines "

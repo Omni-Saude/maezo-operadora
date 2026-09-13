@@ -293,6 +293,9 @@ spec:
 {{- if .Values.workerDaemon.enabled }}{{- $components = append $components "worker-daemon" }}{{- end }}
 {{- if .Values.notificationsBridge.enabled }}{{- $components = append $components "notifications-bridge" }}{{- end }}
 {{- if .Values.a2aOutboxRelay.enabled }}{{- $components = append $components "a2a-outbox-relay" }}{{- end }}
+{{- /* WP-J1-01: o daemon de intake fala com o MESMO plano que os demais daemons W-R2 (CIB */}}
+{{- /* Seven + Postgres protegido). Sem esta linha o pod subiria sem egress e recusaria tudo. */}}
+{{- if .Values.intakeDispatch.enabled }}{{- $components = append $components "intake-dispatch" }}{{- end }}
 {{- if $components }}
 ---
 apiVersion: networking.k8s.io/v1
