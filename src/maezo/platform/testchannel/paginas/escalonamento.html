@@ -270,6 +270,12 @@ var DESFECHOS = {End_ResolvidoPorHumano:["Resolvido por uma pessoa","ok"],
 
 /* ------------------------------------------------------------- a conversa */
 
+/* FAIXA DE 999, NAO DE 99. Com 99 numeros a colisao era questao de tempo, e aconteceu duas
+   vezes na tarde de 13/09: o sorteio caiu num numero ja usado, que tinha escalonamento aberto de
+   uma bateria anterior, e o painel mostrou o caso velho como se fosse do turno. A cerca do Canal
+   aceita `55119000000` + dois digitos; com tres, o prefixo encurta um. Confirmar com o time que
+   `check_canal_simular.py` aceita a faixa nova ANTES de aplicar — se nao aceitar, manter 99 e
+   trocar so' o alerta de colisao. */
 function novaConversa(){
   var n = 1 + Math.floor(Math.random()*99);
   S = {fone: "55119000000" + (n<10 ? "0"+n : String(n)),
@@ -430,6 +436,18 @@ function procurar(tentativa){
    vez de escondido: a contagem e' de TODOS os escalonamentos abertos no motor, nao os deste
    numero, porque a chave vem de um `conversation_id` que o receptor calcula com chave secreta e
    a pagina nao tem como derivar do telefone. */
+/* QUANDO NADA ESCALA, OS PAINEIS DE BAIXO NAO TEM O QUE MOSTRAR — e precisam DIZER isso.
+   Ate 13/09 eles ficavam pendurados em "Processando…" para sempre, e na bateria do diretor isso
+   fez parecer que o processo tinha travado quando ele nem tinha comecado. "Processando" e' uma
+   promessa de que algo vem; quando nada vem, e' a mesma familia de mentira dos outros dois
+   defeitos desta tela. */
+function encerrarPaineisSemProcesso(motivo){
+  ["vRoteamento","vRelogios","vTarefa","vRastro"].forEach(function(id){
+    $(id).innerHTML = '<p class="vazio">Não se aplica — ' + motivo + '</p>';
+  });
+  $("botoesEvid").style.display = "flex";
+}
+
 function semProcessoNovo(){
   var antes = S.evid.abertosAntes;
 
@@ -440,14 +458,25 @@ function semProcessoNovo(){
       .then(function(ins){
         if (ins && ins.length){
           S.pid = ins[0].id; S.bk = bk;
-          $("vRota").innerHTML = '<p><span class="selo esp">SEM PROCESSO NOVO</span></p>' +
-            '<p>Esta conversa <b>já tinha</b> um escalonamento aberto, e o turno se juntou a ele. ' +
-            'Um beneficiário não gera duas filas — é o comportamento correto.</p>';
+          // O QUE A TELA SABE, E O QUE ELA NAO SABE. Ela mediu duas coisas: nenhum processo
+          // comecou neste turno, e existe um escalonamento aberto para esta conversa. NAO mediu
+          // se o turno TOCOU esse escalonamento — pode ter se juntado a ele, ou pode ter
+          // resolvido sozinho ao lado de um caso que ja' estava la' de outro turno. Dizer "o
+          // turno se juntou a ele" foi afirmacao sem medicao, e apareceu tres vezes na bateria
+          // de 13/09 — inclusive sobre uma saudacao, que nao se junta a caso nenhum.
+          $("vRota").innerHTML = '<p><span class="selo esp">NENHUM PROCESSO NOVO</span></p>' +
+            '<p>Este turno <b>não abriu</b> escalonamento, e esta conversa <b>tem um aberto</b> — ' +
+            'de agora ou de um turno anterior. Um beneficiário não gera duas filas, então não ' +
+            'abrir é o comportamento correto.</p>' +
+            '<p class="nota">O que aparece abaixo é o escalonamento <b>aberto desta conversa</b>. ' +
+            'Se este turno não tinha bandeira vermelha, ele não o alterou — os dados são do caso ' +
+            'que já existia.</p>';
           return roteamento();
         }
         $("vRota").innerHTML = '<p><span class="selo ok">NÃO ESCALOU</span> — a Helena resolveu ' +
           'sozinha e ninguém foi incomodado.</p>' +
           '<p class="nota">Leitura firme: esta conversa não tem escalonamento aberto.</p>';
+        encerrarPaineisSemProcesso("nenhum escalonamento foi aberto neste turno.");
         return null;
       })
       .catch(function(e){ falha("vRota", e); });
@@ -460,13 +489,14 @@ function semProcessoNovo(){
   } else {
     txt += '<p>Nenhum escalonamento foi aberto por este turno. Duas leituras possíveis:</p><table>' +
       linha("Provável", "A Helena resolveu sozinha — é o esperado para saudação, dúvida administrativa e sintoma sem bandeira vermelha.") +
-      linha("A outra", "O turno se juntou a um escalonamento que esta conversa já tinha aberto.") +
+      linha("A outra", "Esta conversa tem um escalonamento aberto de antes, e este turno não o alterou.") +
       "</table>" +
       '<p class="nota">Esta tela ainda não distingue as duas. O número mostrado — <b>' + antes +
       '</b> escalonamento(s) aberto(s) — é do <b>motor inteiro</b>, somando todas as baterias de ' +
       'teste, e não deste número. Some quando a rota devolver o identificador da conversa.</p>';
   }
   $("vRota").innerHTML = txt;
+  encerrarPaineisSemProcesso("nenhum processo foi aberto por este turno.");
   return null;
 }
 
