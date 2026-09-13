@@ -220,6 +220,35 @@ function linha(r,v){ return "<tr><th>"+r+"</th><td>"+v+"</td></tr>"; }
    e a tela morre na PRIMEIRA consulta depois do envio, parecendo que nada aconteceu. */
 function dataParaMotor(d){ return d.toISOString().replace("Z","+0000"); }
 
+/* INDEXA AS ENTRADAS DE UMA DECISAO POR TODO NOME QUE ELAS PODEM TER.
+   O defeito de 12/09: eu lia `i.clauseName`, que e' o ROTULO HUMANO da coluna — em
+   `triage_redflag_adult` ele e' "Sintoma normalizado (sintoma_codigo)", nao "sintoma_codigo".
+   A chave nunca casava, e o painel escrevia "nao reconhecido" sobre um sintoma que a tabela
+   tinha reconhecido: o diretor viu bandeira vermelha SIM ao lado de "sintoma nao reconhecido",
+   e Motivo/Gravidade do roteamento saiam vazios pelo mesmo motivo (rotulos "Motivo
+   (motivo_categoria)" e "Severidade (severidade)").
+   Agora indexa por rotulo, por id da coluna E pelo nome entre parenteses — a convencao das
+   tabelas desta repo. */
+function entradasDe(decisao){
+  var m = {};
+  ((decisao && decisao.inputs) || []).forEach(function(i){
+    if (i.clauseName) m[i.clauseName] = i.value;
+    if (i.clauseId)   m[i.clauseId]   = i.value;
+    var p = /\(([^)]+)\)\s*$/.exec(i.clauseName || "");
+    if (p) m[p[1].trim()] = i.value;
+  });
+  return m;
+}
+
+function saidasDe(decisao){
+  var m = {};
+  ((decisao && decisao.outputs) || []).forEach(function(o){
+    if (o.variableName) m[o.variableName] = o.value;
+    if (o.clauseName)   m[o.clauseName]   = o.value;
+  });
+  return m;
+}
+
 function prazoHumano(iso){
   if (!iso) return "—";
   var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso);
@@ -357,9 +386,7 @@ function mostrarTriagem(){
           'a mensagem não foi lida como sintoma.</p>';
         return rota();
       }
-      var d = tri[0], ent = {}, sai = {};
-      (d.inputs||[]).forEach(function(i){ ent[i.clauseName || i.clauseId] = i.value; });
-      (d.outputs||[]).forEach(function(o){ sai[o.variableName] = o.value; });
+      var d = tri[0], ent = entradasDe(d), sai = saidasDe(d);
       var pop = d.decisionDefinitionKey.replace("triage_redflag_","")
         .replace("adult","adulto").replace("pediatric","pediátrica").replace("mental_health","saúde mental");
       var bandeira = (sai["red_flag"] === true || sai["red_flag"] === "true");
@@ -451,9 +478,7 @@ function roteamento(){
       S.evid.roteamento = r || null;
       if (!r){ $("vRoteamento").innerHTML = '<p class="vazio">Roteamento ainda não registrado.</p>'; }
       else {
-        var ent = {}, sai = {};
-        (r.inputs||[]).forEach(function(i){ ent[i.clauseName || i.clauseId] = i.value; });
-        (r.outputs||[]).forEach(function(o){ sai[o.variableName] = o.value; });
+        var ent = entradasDe(r), sai = saidasDe(r);
         $("vRoteamento").innerHTML = "<table>" +
           linha("Motivo", MOTIVOS[ent["motivo_categoria"]] || ent["motivo_categoria"] || "—") +
           linha("Gravidade", ent["severidade"] || "<i>não se aplica</i>") +
