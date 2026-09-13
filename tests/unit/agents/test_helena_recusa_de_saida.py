@@ -195,3 +195,74 @@ async def test_rascunho_conforme_segue_pela_rota_informativa_sem_abrir_nada() ->
     assert saida["response_kind"] == "inform"
     assert saida["response_text"] == CONFORME
     assert "escalation_started" not in saida
+
+
+# ---------------------------------------------------------------------------------------------
+# Terceira categoria: PROMESSA DE CAPACIDADE (bateria do diretor, 13/09/2026).
+# ---------------------------------------------------------------------------------------------
+# Perguntada sobre segunda via de boleto, a Helena respondeu que encaminharia a solicitacao. Ela
+# nao encaminha: nao ha ferramenta, nao ha processo, e segunda via exige escrever no Tasy — o que
+# o TASY write DROP (ADR-0013) PROIBE por decisao de arquitetura. Nao e' falta de construir.
+#
+# A cerca anterior nao pegou porque os padroes de promessa de humano sao terceira pessoa ou
+# passado; "eu encaminho" e' primeira pessoa no futuro e escapa pela gramatica. O buraco era uma
+# CATEGORIA, nao um padrao.
+
+#: O texto REAL da bateria.
+BOLETO = (
+    "Olá! Para segunda via do boleto, aqui neste canal você pode pedir pelo WhatsApp mesmo, "
+    "e eu encaminho sua solicitação."
+)
+#: O texto REAL de um `escalate` desta semana — encaminhar para HUMANO continua legitimo.
+ESCALATE_LEGITIMO = (
+    "Olá! Recebi sua mensagem e *vou encaminhar seu relato para nossa equipe de saúde*. "
+    "Um profissional entrará em contato com você o mais rápido possível."
+)
+#: Orientar por onde a pessoa consegue e' o que substitui a promessa.
+ORIENTA_SEM_PROMETER = (
+    "Olá! A segunda via do boleto fica disponível no aplicativo e no portal do beneficiário. "
+    "Se preferir, a central de atendimento também emite para você."
+)
+
+
+def test_o_texto_do_boleto_e_recusado() -> None:
+    achado = motivo_de_recusa(BOLETO, "inform")
+
+    assert achado is not None, "a promessa de capacidade passou pela cerca"
+    assert achado[0] == "promessa_de_capacidade"
+
+
+def test_encaminhar_para_humano_continua_passando_na_rota_que_escala() -> None:
+    """O falso positivo que o proprio documento avisou: proibir o verbo sozinho reprovaria o
+    caminho certo. Os padroes sao verbo + OBJETO por isso."""
+    assert motivo_de_recusa(ESCALATE_LEGITIMO, "escalate") is None
+
+
+def test_agendar_e_recusado_ate_na_rota_schedule() -> None:
+    """Em `schedule` a Helena escala para um humano agendar — ela NAO agenda. E' a diferenca
+    entre esta categoria e a promessa de humano, que ali e' legitima."""
+    achado = motivo_de_recusa("Posso agendar para você a consulta de retorno.", "schedule")
+
+    assert achado is not None
+    assert achado[0] == "promessa_de_capacidade"
+
+
+def test_orientar_por_onde_conseguir_passa() -> None:
+    """A substituicao valida: dizer ONDE a pessoa resolve, em vez de prometer resolver."""
+    assert motivo_de_recusa(ORIENTA_SEM_PROMETER, "inform") is None
+
+
+def test_a_promessa_de_capacidade_nao_tem_rota_permitida() -> None:
+    for rota in ("inform", "escalate", "schedule", "collect"):
+        assert motivo_de_recusa(BOLETO, rota) is not None, f"passou em {rota}"
+
+
+async def test_boleto_recusado_no_grafo_vira_escalonamento() -> None:
+    """Mesmo caminho da negativa clinica: sem resposta que possa dar, quem responde e' um humano."""
+    graph = _graph(BOLETO)
+
+    saida = await graph.inform(_estado(message_body="quero a segunda via do meu boleto"))
+
+    assert saida["response_kind"] == "escalate"
+    assert saida["escalation_started"] is True
+    assert saida["error"] == ERRO_RESPOSTA_RECUSADA
