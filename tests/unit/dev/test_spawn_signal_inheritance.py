@@ -516,3 +516,28 @@ def test_body_cleanup_refusal_precedes_restoration_handler_exception(
         assert signal.getsignal(signal.SIGTERM) is handler
     finally:
         original_signal(signal.SIGTERM, old)
+
+
+def test_active_outer_handler_receives_signal_after_inner_owned_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    groups = []
+    record = runner._record_pending
+    before = signal.getsignal(signal.SIGTERM)
+
+    def interrupt(pgid):
+        groups.append(pgid)
+        record(pgid)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    monkeypatch.setattr(runner, "_record_pending", interrupt)
+    with (
+        pytest.raises(runner.RunnerInterrupted),
+        runner._spawn_signal_guard(handlers={signal.SIGTERM: runner._signal_handler}) as activate,
+    ):
+        activate()
+        _run_probe("engine", tmp_path, "import time; time.sleep(30)")
+    assert len(groups) == 1
+    assert not runner._group_exists(groups[0])
+    assert groups[0] not in runner._pending_groups
+    assert signal.getsignal(signal.SIGTERM) == before
