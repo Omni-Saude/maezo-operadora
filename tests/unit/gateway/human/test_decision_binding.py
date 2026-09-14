@@ -141,7 +141,8 @@ class Connection:
             return dict(
                 oid=pin.oid,
                 owner=pin.owner,
-                relkind="r",
+                # asyncpg decodes PostgreSQL internal "char" as bytes; text is str.
+                relkind="r" if "c.relkind::text AS relkind" in sql else b"r",
                 can_select=True,
                 writes=self.state.bad_acl == "reader-write",
             )

@@ -340,7 +340,7 @@ class BindingConnection:
                 raise BindingUnavailableError()
         for pin in (*d.relations, *(self.native_cohort_read.relations if self.native_cohort_read else ())):
             r = await connection.fetchrow(
-                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind,c.relrowsecurity,
+                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind::text AS relkind,c.relrowsecurity,
               has_table_privilege($3,c.oid,'SELECT') AS can_select,
               (has_table_privilege($3,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
               OR has_any_column_privilege($3,c.oid,'INSERT,UPDATE,REFERENCES')) AS writes
@@ -377,7 +377,7 @@ class BindingConnection:
                     raise BindingUnavailableError()
                 if pin.name != "mzo_human_consumer_head":
                     trigger = await connection.fetchrow(
-                        """SELECT t.tgenabled,t.tgtype,p.prosrc,p.prosecdef,
+                        """SELECT t.tgenabled::text AS tgenabled,t.tgtype,p.prosrc,p.prosecdef,
                       count(*) OVER () AS trigger_count
                       FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
                       JOIN pg_namespace n ON n.oid=p.pronamespace
