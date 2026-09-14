@@ -49,6 +49,16 @@ class ConsumerContinuationTest {
     assertThrows(IllegalStateException.class,this::seed);
     assertThrows(IllegalStateException.class,()->ConsumerContinuation.consume(execution));
   }
+  @Test void closedWitnessLeavesUnrelatedObservationsInertButNeverAuthorizesReuse() {
+    seed();end();take();start();ConsumerContinuation.consume(execution);ConsumerContinuation.linked(execution);
+    witness().onCommandContextClose(context);
+    assertDoesNotThrow(()->ConsumerContinuation.ended(execution));
+    assertDoesNotThrow(()->ConsumerContinuation.taken(execution));
+    assertDoesNotThrow(()->ConsumerContinuation.started(execution));
+    assertThrows(IllegalStateException.class,()->ConsumerContinuation.consume(execution));
+    assertThrows(IllegalStateException.class,()->ConsumerContinuation.linked(execution));
+    assertThrows(IllegalStateException.class,this::seed);
+  }
   @Test void incompleteInsertCannotPassPrecommit() {
     seed();end();take();start();ConsumerContinuation.consume(execution);
     assertThrows(IllegalStateException.class,()->witness().onCommandContextClose(context));

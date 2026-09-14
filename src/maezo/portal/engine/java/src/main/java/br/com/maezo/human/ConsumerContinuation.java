@@ -61,7 +61,9 @@ final class ConsumerContinuation implements Session, CommandContextListener {
   private static ConsumerContinuation current() {
     var context=Context.getCommandContext();need(context!=null);
     var value=(ConsumerContinuation)context.getSessions().get(ConsumerContinuation.class);
-    if(value!=null)need(value.owner==context && value.phase!=Phase.CLOSED);
+    // Closed scopes remain tombstones for seed(), but unrelated late native observations are inert.
+    if(value!=null && value.phase==Phase.CLOSED)return null;
+    if(value!=null)need(value.owner==context);
     return value;
   }
   private void actual(ExecutionEntity execution) {
