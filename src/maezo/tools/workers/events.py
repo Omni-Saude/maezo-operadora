@@ -153,6 +153,19 @@ EVENTS_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_EVENT_PUBLISH_FAIL
 _ANS_CRON_DUE_EVENT_TYPE = "ans.cron_due"
 _ANS_CRON_REFERENCE_DATE_KEY = "ans_cron_reference_date_iso"
 
+# SP-OP-ANS-CRON-001 contract: TimerStartEvent has no case/business key. Only these
+# fetched engine process/activity pairs publish its calendar fact (BPMN topology).
+# Match exact source identities, never a prefix or caller-controlled event fields alone.
+_ANS_TIMER_PUBLICATION_SOURCES = frozenset(
+    {
+        ("SP-OP-ANS-CRON-001-RN124SIP", "ST_PublishCronDueRn124Sip"),
+        ("SP-OP-ANS-CRON-001-RN209", "ST_PublishCronDueRn209"),
+        ("SP-OP-ANS-CRON-001-RN388", "ST_PublishCronDueRn388"),
+        ("SP-OP-ANS-CRON-001-RN424TISS", "ST_PublishCronDueRn424Tiss"),
+        ("SP-OP-ANS-CRON-001-DIOPS", "ST_PublishCronDueDiops"),
+    }
+)
+
 #: t2-notify-integrity item 2 (NIP→ANS one-shot handoff durability): event TYPES whose publish is
 #: FAIL-CLOSED — the handler passes `best_effort=False`, overriding the producer's topic-default
 #: best-effort posture for `operadora.notifications.internal`. Criticality is a property of the
@@ -265,31 +278,6 @@ def make_publish_event_handler(
             # identical outcome, and clean under the gate.
             raise ValueError("operadora.events.publish: `event_topic` ausente nas variaveis")
 
-        if not task.business_key or not task.business_key.strip():
-            # WP-J1-11. `_business_key` NAO e' decoracao do payload: o BPMN de AUTH o declara
-            # como O payload_ref pelo qual um consumidor da Zona PHI resolve o conteudo clinico
-            # no engine/store, JUSTAMENTE porque o fato nunca carrega PHI (GAP-AUTH-1, ADR-0006,
-            # `spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn`). Um fato publicado
-            # com payload_ref vazio e' um fato irresolvivel: o consumidor nao tem como chegar ao
-            # caso, e nada no caminho reclama — a perda e' SILENCIOSA.
-            #
-            # A string vazia e' alcancavel, nao teorica: o harness mapeia
-            # `item.get("businessKey", "") or ""` (`tools/workers/harness.py`), entao QUALQUER
-            # instancia aberta sem business key produz `""` aqui. Isso ficou load-bearing quando
-            # #16 tornou a chave o UNICO dominio de idempotencia compartilhado entre o canal de
-            # agente e o canal do portal: um canal que abrisse instancia sem chave passaria a
-            # emitir fatos que ninguem consegue correlacionar com a guia.
-            #
-            # `ValueError` pelo mesmo motivo do `event_topic` ausente logo acima: entrada ma',
-            # nao desfecho de negocio modelado — nao existe `bpmn:error` para isto em `spec/**`,
-            # e o ladder do harness ja' roteia `ValueError` para o MESMO incidente fail-closed
-            # (`failure(retries=0)`) sem inventar um `bpmnError` nao catalogado.
-            raise ValueError(
-                "operadora.events.publish: `business_key` ausente/vazia na instancia — o fato "
-                "seria publicado com `_business_key` vazio, isto e', sem o payload_ref que o "
-                "consumidor usa para resolver o caso (o fato NUNCA carrega PHI)"
-            )
-
         payload_vars = _parse_payload_vars(task.variables.get("event_payload_vars"))
         payload: dict[str, Any] = {
             "_business_key": task.business_key,
@@ -311,6 +299,26 @@ def make_publish_event_handler(
         for var_name in payload_vars:
             if var_name in task.variables:
                 payload[var_name] = task.variables[var_name]
+
+        is_ans_timer_fact = (
+            (task.process_definition_key, task.activity_id) in _ANS_TIMER_PUBLICATION_SOURCES
+            and task.topic == "operadora.events.publish"
+            and event_topic == "operadora.notifications.internal"
+            and event_type == _ANS_CRON_DUE_EVENT_TYPE
+            and payload.get("type") == _ANS_CRON_DUE_EVENT_TYPE
+        )
+        if (not task.business_key or not task.business_key.strip()) and not is_ans_timer_fact:
+            # AUTH's _business_key is the clinical payload_ref (GAP-AUTH-1, ADR-0006,
+            # ADR-0050). Keep its fail-closed identity requirement, even when event inputs
+            # are missing/forged, and preserve the existing requirement for other families.
+            # Contracted ANS timer facts have no case identity: their existing partition
+            # composer derives tenant/report_type/competencia below. Do not fabricate a key.
+            # Bad input remains a harness incident, not an unmodeled BPMN business error.
+            raise ValueError(
+                "operadora.events.publish: `business_key` ausente/vazia na instancia — o fato "
+                "seria publicado com `_business_key` vazio, isto e', sem o payload_ref que o "
+                "consumidor usa para resolver o caso (o fato NUNCA carrega PHI)"
+            )
 
         # Deployment-tenant stamp (t2-notify-integrity item 3 follow-up — see the
         # `deployment_tenant_id` docstring): setdefault semantics, so a process-var-supplied
