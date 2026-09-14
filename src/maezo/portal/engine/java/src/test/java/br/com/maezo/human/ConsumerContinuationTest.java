@@ -42,7 +42,7 @@ class ConsumerContinuationTest {
   ConsumerContinuation witness(){return (ConsumerContinuation)context.getSessions().get(ConsumerContinuation.class);}
   void end(){execution.setTransitionsToTake(List.of(flow));ConsumerContinuation.ended(execution);}
   void take(){execution.setTransition(flow);ConsumerContinuation.taken(execution);}
-  void start(){execution.setActivity(destination);ConsumerContinuation.started(execution);}
+  void start(){execution.setActivity(destination);execution.setTransition(null);ConsumerContinuation.started(execution);}
   @Test void ordinaryNativeObjectsConsumeOnceAndCloseBeforeCommit() {
     seed();end();take();start();assertEquals(pointer,ConsumerContinuation.consume(execution));
     ConsumerContinuation.linked(execution);witness().onCommandContextClose(context);
@@ -170,4 +170,83 @@ class ConsumerContinuationTest {
     assertThrows(IllegalStateException.class,this::seed);
     assertDoesNotThrow(()->witness().onCommandFailed(context,failure));
   }
+  ExecutionEntity scopedArrival() {
+    destination.setScope(true);seed();end();take();
+    var manager=new org.cibseven.bpm.engine.impl.db.entitymanager.DbEntityManager(null,null);
+    manager.setDbEntityCache(new org.cibseven.bpm.engine.impl.db.entitymanager.cache.DbEntityCache());
+    context.getSessions().put(org.cibseven.bpm.engine.impl.db.entitymanager.DbEntityManager.class,manager);
+    var child=entity("child");child.setProcessInstance(execution);child.setParent(execution);
+    child.setActivity(destination);child.setScope(true);child.setTransition(flow);
+    execution.setActive(false);execution.setTransition(null);manager.getDbEntityCache().putTransient(child);
+    return child;
+  }
+  @Test void exactPreclearScopedArrivalThenSameObjectStartConsumes() {
+    var child=scopedArrival();ConsumerContinuation.arriving(child);child.setTransition(null);
+    ConsumerContinuation.started(child);assertEquals(pointer,ConsumerContinuation.consume(child));
+    ConsumerContinuation.linked(child);assertDoesNotThrow(()->witness().onCommandContextClose(context));
+  }
+  @ParameterizedTest @ValueSource(strings={"missing","duplicate","wrong-flow","same-id-object","changed-parent","before-start","not-cleared"})
+  void scopedHandoffCannotBeInferredOrReplayed(String mode) {
+    var child=scopedArrival();
+    if(mode.equals("wrong-flow")) {
+      var wrong=source.createOutgoingTransition(flow.getId());wrong.setDestination(destination);child.setTransition(wrong);
+      assertThrows(IllegalStateException.class,()->ConsumerContinuation.arriving(child));return;
+    }
+    if(!mode.equals("missing"))ConsumerContinuation.arriving(child);
+    if(mode.equals("duplicate")){assertThrows(IllegalStateException.class,()->ConsumerContinuation.arriving(child));return;}
+    if(mode.equals("before-start")){assertThrows(IllegalStateException.class,()->ConsumerContinuation.consume(child));return;}
+    if(!mode.equals("not-cleared"))child.setTransition(null);
+    if(mode.equals("same-id-object")) {
+      var other=entity(child.getId());other.setProcessInstance(execution);other.setParent(execution);
+      other.setActivity(destination);other.setScope(true);
+      assertThrows(IllegalStateException.class,()->ConsumerContinuation.started(other));return;
+    }
+    if(mode.equals("changed-parent")){var other=entity("other-parent");other.setProcessInstance(execution);child.setParent(other);}
+    assertThrows(IllegalStateException.class,()->ConsumerContinuation.started(child));
+  }
+  @Test void nonscopeSameIdsCannotSubstituteForFinalTakeObject() {
+    seed();end();take();var other=entity(execution.getId());other.setProcessInstance(execution);
+    other.setActivity(destination);other.setScope(false);
+    assertThrows(IllegalStateException.class,()->ConsumerContinuation.started(other));
+  }
+  @Test void closedArrivalObservationIsInertAndCannotReseed() {
+    var child=scopedArrival();witness().onCommandFailed(context,new IllegalArgumentException());
+    assertDoesNotThrow(()->ConsumerContinuation.arriving(child));assertThrows(IllegalStateException.class,this::seed);
+  }
+  @Test void mappingDecoratorPreservesNativeDelegationMetadataAndOriginalFailure() {
+    var calls=new ArrayList<String>();
+    var original=new org.cibseven.bpm.engine.impl.core.variable.mapping.IoMapping(){
+      @Override public void executeInputParameters(org.cibseven.bpm.engine.impl.core.variable.scope.AbstractVariableScope scope){assertSame(execution,scope);calls.add("input");}
+      @Override public void executeOutputParameters(org.cibseven.bpm.engine.impl.core.variable.scope.AbstractVariableScope scope){assertSame(execution,scope);calls.add("output");}
+    };
+    var decorated=new ConsumerTaskListener.ArrivalMapping(original);
+    decorated.executeInputParameters(execution);decorated.executeOutputParameters(execution);assertEquals(List.of("input","output"),calls);
+    var inputs=new ArrayList<org.cibseven.bpm.engine.impl.core.variable.mapping.InputParameter>();
+    var outputs=new ArrayList<org.cibseven.bpm.engine.impl.core.variable.mapping.OutputParameter>();
+    decorated.setInputParameters(inputs);decorated.setOuputParameters(outputs);
+    var input=new org.cibseven.bpm.engine.impl.core.variable.mapping.InputParameter("input",new org.cibseven.bpm.engine.impl.core.variable.mapping.value.ConstantValueProvider("value"));
+    var output=new org.cibseven.bpm.engine.impl.core.variable.mapping.OutputParameter("output",new org.cibseven.bpm.engine.impl.core.variable.mapping.value.ConstantValueProvider("value"));
+    decorated.addInputParameter(input);decorated.addOutputParameter(output);
+    assertSame(inputs,decorated.getInputParameters());assertSame(outputs,decorated.getOutputParameters());
+    assertSame(inputs,original.getInputParameters());assertSame(outputs,original.getOutputParameters());
+    assertEquals(List.of(input),inputs);assertEquals(List.of(output),outputs);
+    var failure=new IllegalArgumentException("native-input-failure");
+    var throwing=new ConsumerTaskListener.ArrivalMapping(new org.cibseven.bpm.engine.impl.core.variable.mapping.IoMapping(){
+      @Override public void executeInputParameters(org.cibseven.bpm.engine.impl.core.variable.scope.AbstractVariableScope scope){throw failure;}
+    });
+    seed();assertSame(failure,assertThrows(IllegalArgumentException.class,()->throwing.executeInputParameters(execution)));
+  }
+  @Test void postParseDecorationPreservesScopesAndTraversesNestedActivities() {
+    var nested=definition.createActivity("nested");nested.setScope(true);
+    var external=nested.createActivity("external");external.setScope(true);
+    external.setActivityBehavior(new org.cibseven.bpm.engine.impl.bpmn.behavior.ExternalTaskActivityBehavior(null,null));
+    destination.setScope(false);destination.setActivityBehavior(new org.cibseven.bpm.engine.impl.bpmn.behavior.ExternalTaskActivityBehavior(null,null));
+    new ConsumerTaskListener().parseProcess(null,definition);
+    assertTrue(nested.isScope());assertTrue(external.isScope());assertFalse(destination.isScope());
+    assertNull(destination.getIoMapping());assertInstanceOf(ConsumerTaskListener.ArrivalMapping.class,external.getIoMapping());
+    assertTrue(external.getIoMapping().getInputParameters().isEmpty());assertTrue(external.getIoMapping().getOutputParameters().isEmpty());
+    assertDoesNotThrow(()->external.getIoMapping().executeInputParameters(execution));
+    assertDoesNotThrow(()->external.getIoMapping().executeOutputParameters(execution));
+  }
+
 }

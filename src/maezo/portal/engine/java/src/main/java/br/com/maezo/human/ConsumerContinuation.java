@@ -9,7 +9,7 @@ import org.cibseven.bpm.engine.impl.pvm.process.*;
 
 /** ADR0049D5: proof of one native synchronous continuation, never an authority or parent HEAD. */
 final class ConsumerContinuation implements Session, CommandContextListener {
-  enum Phase { SEEDED, ENDED, TAKEN, STARTED, CONSUMED, LINKED, CLOSED }
+  enum Phase { SEEDED, ENDED, TAKEN, ARRIVED, STARTED, CONSUMED, LINKED, CLOSED }
   private CommandContext owner;
   private ExecutionEntity original, token, consumer, instance;
   private ProcessDefinitionImpl definition;
@@ -101,19 +101,37 @@ final class ConsumerContinuation implements Session, CommandContextListener {
           && witness.original.getParent()==execution && witness.original.getReplacedBy()==null);
     witness.next++;witness.phase=Phase.TAKEN;
   }
-  static void started(ExecutionEntity execution) {
-    var witness=current();if(witness==null)return;
-    if(execution.getActivity()!=witness.destination)return;
+  /** Native input mapping runs before CIB clears the copied transition for START listeners. */
+  static void arriving(ExecutionEntity execution) {
+    var witness=current();if(witness==null || execution.getActivity()!=witness.destination)return;
     witness.actual(execution);
-    need(witness.phase==Phase.TAKEN && witness.next==witness.path.size()
+    need(witness.destination.isScope() && witness.phase==Phase.TAKEN
+        && witness.next==witness.path.size()
         && execution.getTransition()==witness.path.get(witness.path.size()-1));
+    witness.scopedChild(execution);
+    witness.consumer=execution;witness.phase=Phase.ARRIVED;
+  }
+  private void scopedChild(ExecutionEntity execution) {
+    var cache=owner.getDbEntityManager().getDbEntityCache();
+    need(execution!=token && execution.getParent()==token && execution.isScope()
+        && !execution.isConcurrent() && !execution.isRemoved() && !execution.isEnded()
+        && cache.isTransient(execution) && !token.isActive() && token.getTransition()==null);
+    actual(token);
+  }
+  static void started(ExecutionEntity execution) {
+    var witness=current();if(witness==null || execution.getActivity()!=witness.destination)return;
+    witness.actual(execution);
+    need(witness.next==witness.path.size() && execution.getTransition()==null);
     if(witness.destination.isScope()) {
-      var cache=witness.owner.getDbEntityManager().getDbEntityCache();
-      need(execution!=witness.token && execution.getParent()==witness.token && execution.isScope()
-          && !execution.isConcurrent() && cache.isTransient(execution)
-          && !witness.token.isActive() && witness.token.getTransition()==null);
-    } else need(execution==witness.token);
-    witness.consumer=execution;witness.phase=Phase.STARTED;
+      need(witness.phase==Phase.ARRIVED && execution==witness.consumer);
+      witness.scopedChild(execution);
+    } else {
+      // No identity transfer: this exact object delivered the final selected TAKE callback.
+      need(witness.phase==Phase.TAKEN && execution==witness.token
+          && !execution.isConcurrent() && !execution.isRemoved() && !execution.isEnded());
+      witness.consumer=execution;
+    }
+    witness.phase=Phase.STARTED;
   }
   static Map<String,Object> consume(ExecutionEntity execution) {
     var witness=current();need(witness!=null);witness.actual(execution);

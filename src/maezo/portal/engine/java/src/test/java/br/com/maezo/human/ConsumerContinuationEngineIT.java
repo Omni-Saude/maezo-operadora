@@ -14,6 +14,8 @@ import org.cibseven.bpm.engine.delegate.ExecutionListener;
 import org.cibseven.bpm.engine.impl.context.Context;
 import org.cibseven.bpm.engine.impl.persistence.entity.ExecutionEntity;
 import org.cibseven.bpm.engine.impl.pvm.process.ActivityImpl;
+import org.cibseven.bpm.engine.impl.core.variable.mapping.IoMapping;
+import org.cibseven.bpm.engine.impl.core.variable.scope.AbstractVariableScope;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -90,8 +92,17 @@ class ConsumerContinuationEngineIT {
   @Test void destroyedOriginalScopeRemainsImmutableAndNewNativeScopeOwnsLink()throws Exception{
     var c=qualified();var source=nativeExecution(c);String sourceId=source.getId(),parent=source.getParentId();
     assertTrue(source.isScope());AtomicReference<Map<String,String>> observed=new AtomicReference<>();
-    atStart(activity(c,DEST),e->{assertTrue(e.isScope());assertNotNull(e.getTransition());
-      observed.set(Map.of("execution",e.getId(),"parent",e.getParentId(),"flow",e.getTransition().getId()));});
+    var target=activity(c,DEST);var mapping=target.getIoMapping();
+    AtomicReference<ExecutionEntity> arriving=new AtomicReference<>();AtomicReference<String> flow=new AtomicReference<>();
+    target.setIoMapping(new IoMapping(){
+      @Override public void executeInputParameters(AbstractVariableScope scope){
+        var e=(ExecutionEntity)scope;assertTrue(e.isScope());assertNotNull(e.getTransition());
+        arriving.set(e);flow.set(e.getTransition().getId());mapping.executeInputParameters(scope);
+      }
+      @Override public void executeOutputParameters(AbstractVariableScope scope){mapping.executeOutputParameters(scope);}
+    });
+    atStart(target,e->{assertTrue(e.isScope());assertNull(e.getTransition());assertSame(arriving.get(),e);
+      observed.set(Map.of("execution",e.getId(),"parent",e.getParentId(),"flow",flow.get()));});
     byte[] receipt=f.send(c);assertArrayEquals(receipt,f.send(c));
     assertNotEquals(sourceId,observed.get().get("execution"));assertEquals(parent,observed.get().get("parent"));
     assertEquals("Flow_GWDec_Negar",observed.get().get("flow"));
@@ -171,4 +182,36 @@ class ConsumerContinuationEngineIT {
     assertEquals(0,f.engine.getManagementService().createJobQuery().messages().count(),"No async continuation authority may survive rollback");
     f.config.getCommandExecutorTxRequired().execute(ctx->{assertFalse(ctx.getSessions().containsKey(ConsumerContinuation.class));return null;});
   }
+  @Test void nativeExistingInputAndOutputMappingArePreserved()throws Exception {
+    authVariant(doc->{
+      var target=node(doc,DEST);var extensions=doc.createElementNS(BPMN,"bpmn:extensionElements");
+      var mapping=doc.createElementNS(CAMUNDA,"camunda:inputOutput");
+      var input=doc.createElementNS(CAMUNDA,"camunda:inputParameter");input.setAttribute("name","preclear_input");input.setTextContent("synthetic-preserved");
+      var output=doc.createElementNS(CAMUNDA,"camunda:outputParameter");output.setAttribute("name","preclear_output");output.setTextContent("${preclear_input}");
+      mapping.appendChild(input);mapping.appendChild(output);extensions.appendChild(mapping);target.appendChild(extensions);
+    });
+    var c=qualified();var target=activity(c,DEST);assertTrue(target.isScope());
+    assertEquals(1,target.getIoMapping().getInputParameters().size());assertEquals(1,target.getIoMapping().getOutputParameters().size());
+    AtomicReference<Object> input=new AtomicReference<>();atStart(target,e->input.set(e.getVariableLocal("preclear_input")));
+    f.send(c);assertEquals("synthetic-preserved",input.get());assertEquals(1,f.count("LINK"));
+    var task=f.engine.getExternalTaskService().createExternalTaskQuery().activityId(DEST).singleResult();assertNotNull(task);
+    f.engine.getExternalTaskService().lock(task.getId(),"mapping-fixture",60000);
+    f.engine.getExternalTaskService().complete(task.getId(),"mapping-fixture");
+    assertEquals("synthetic-preserved",f.engine.getRuntimeService().getVariable(task.getProcessInstanceId(),"preclear_output"));
+  }
+  @Test void nativeSkippedInputMappingCannotSupplyScopedArrival()throws Exception {
+    var c=qualified();var target=activity(c,DEST);var mapping=target.getIoMapping();
+    AtomicBoolean entered=new AtomicBoolean(),skipped=new AtomicBoolean();
+    target.setIoMapping(new IoMapping(){
+      @Override public void executeInputParameters(AbstractVariableScope scope){entered.set(true);mapping.executeInputParameters(scope);}
+      @Override public void executeOutputParameters(AbstractVariableScope scope){mapping.executeOutputParameters(scope);}
+    });
+    activity(c,SOURCE).addListener("end",(ExecutionListener)value->{
+      var originalExecution=(ExecutionEntity)value;var token=originalExecution.isScope()?originalExecution.getParent():originalExecution;
+      token.setSkipIoMappings(true);
+    });
+    atStart(target,e->skipped.set(e.isSkipIoMappings()));
+    provenanceRefused(()->f.send(c));assertTrue(skipped.get());assertFalse(entered.get());unchangedAfterRefusal(c);
+  }
+
 }
