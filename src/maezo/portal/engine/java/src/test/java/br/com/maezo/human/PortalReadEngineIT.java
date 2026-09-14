@@ -94,12 +94,15 @@ class PortalReadEngineIT {
   @Test
   void missingProjectionCannotBecomeEmptyAndDynamicDmnUsesRealLinks() throws Exception {
     String id = h.task(true);
-    assertEquals(503, assertThrows(Rejected.class, () -> {
+    Rejected rejection = assertThrows(Rejected.class, () -> {
       var e = obj(obj(h.read("catalog", record("anchor", h.anchor)), "value"), "expectation");
       h.read("discover",
           record("principal", h.principal, "expectation", e, "queue", "team", "limit", "25",
               "after_task_id", null));
-    }).status);
+    });
+    if (rejection.status != 503)
+      throw new AssertionError("Missing projection expected 503, got " + rejection.status, rejection);
+    assertEquals(503, rejection.status);
     h.resource(id);
     var t = obj(obj(h.read("task", record("anchor", h.anchor, "task_id", id)), "value"), "task");
     assertEquals(
