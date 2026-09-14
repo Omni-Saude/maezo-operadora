@@ -48,7 +48,8 @@ final class ConsumerContinuation implements Session, CommandContextListener {
       need(seen.add(cursor) && (cursor==original.getActivity()
           || cursor.getActivityBehavior() instanceof ExclusiveGatewayActivityBehavior));
       var matches=cursor.getOutgoingTransitions().stream().filter(t->id.equals(t.getId())).toList();
-      need(matches.size()==1);var flow=matches.get(0);path.add(flow);cursor=(ActivityImpl)flow.getDestination();
+      need(matches.size()==1 && matches.get(0) instanceof TransitionImpl);
+      var flow=(TransitionImpl)matches.get(0);path.add(flow);cursor=(ActivityImpl)flow.getDestination();
     }
     need(cursor==destination);
     var witness=new ConsumerContinuation(context,original,pointer,destination,path);
