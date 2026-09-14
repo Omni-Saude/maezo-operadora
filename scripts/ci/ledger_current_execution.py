@@ -569,6 +569,12 @@ class CurrentRunner:
                 "--extra",
                 "dev",
                 "--no-install-project",
+                # Runtime custody binds ctime as well as bytes. A second uv
+                # hardlink install changes the first runtime's shared inodes.
+                # Copies keep independently prepared current/history runtimes
+                # isolated without weakening their metadata drift checks.
+                "--link-mode",
+                "copy",
                 "--python",
                 str(Path(sys.executable).resolve()),
                 "--project",
