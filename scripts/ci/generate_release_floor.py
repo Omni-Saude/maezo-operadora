@@ -82,11 +82,14 @@ Usage
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import re
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -290,20 +293,139 @@ def _run_unit_measurement(repo_root: Path, python_exe: str) -> subprocess.Comple
                 close_spawned_group()
 
 
-def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int], int, str]:
-    """Runs the SAME invocation `make test` runs (`pytest tests/ -q`) and returns
-    (parsed_counts, returncode, raw_summary_line). Thin I/O wrapper — the fail-closed decision logic
-    lives in the pure `evaluate_unit_tests` above so it can be unit-tested without a nested pytest
-    subprocess. `stdin=DEVNULL` is deliberate: this subprocess must never be able to block waiting
-    on a stdin that was never meant for it."""
+class UnitEvidenceError(RuntimeError):
+    """Requested diagnostic retention failed; this is not a unit-suite verdict."""
+
+
+def _create_unit_evidence(repo_root: Path, destination: Path) -> Path:
+    try:
+        if not destination.is_absolute() or any(
+            path.is_symlink() for path in (destination, *destination.parents)
+        ):
+            raise ValueError("absolute non-symlink evidence destination required")
+        destination = destination.resolve()
+        if destination.is_relative_to(repo_root.resolve()):
+            raise ValueError("unit evidence must be outside checkout")
+        destination.mkdir(mode=0o700, exist_ok=False)
+        destination.chmod(0o700)
+        return destination
+    except (OSError, ValueError) as exc:
+        raise UnitEvidenceError("unit evidence destination refused") from exc
+
+
+def _unit_source_identity(repo_root: Path) -> dict[str, Any]:
+    # Record actual executing wrapper bytes even if a local checkout is dirty.
+    # HEAD/tree never claim custody of uncommitted test or application changes.
+    source: dict[str, Any] = {
+        "files": {
+            str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in (Path(__file__).resolve(), Path(process_groups.__file__).resolve())
+        }
+    }
+    command = ["git", "--no-replace-objects", "-c", "core.fsmonitor=false"]
+    try:
+        identity = subprocess.run(
+            [*command, "rev-parse", "HEAD", "HEAD^{tree}"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        ).stdout.splitlines()
+        if len(identity) != 2 or any(not re.fullmatch(r"[0-9a-f]{40,64}", item) for item in identity):
+            raise ValueError("invalid source identity")
+        clean = subprocess.run(
+            [*command, "diff", "--quiet", "HEAD", "--"],
+            cwd=repo_root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        ).returncode
+        if clean not in (0, 1):
+            raise ValueError("source status unavailable")
+        source.update(head=identity[0], tree=identity[1], tracked_checkout_clean=clean == 0)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        source["git_identity_available"] = False
+    return source
+
+
+def _write_unit_evidence(
+    destination: Path,
+    metadata: dict[str, Any],
+    stdout: str | bytes | None,
+    stderr: str | bytes | None,
+) -> None:
+    def encoded(value: str | bytes | None) -> bytes:
+        return value if isinstance(value, bytes) else (value or "").encode("utf-8")
+
+    streams = {"stdout.txt": encoded(stdout), "stderr.txt": encoded(stderr)}
+    metadata["streams"] = {
+        name: {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()} for name, raw in streams.items()
+    }
+    # Metadata is last: a partial write cannot masquerade as a complete packet.
+    streams["measurement.json"] = (json.dumps(metadata, sort_keys=True, indent=2) + "\n").encode()
+    for name, raw in streams.items():
+        fd = os.open(destination / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "wb") as output:
+            output.write(raw)
+
+
+def measure_unit_tests(
+    repo_root: Path, python_exe: str, *, evidence_dir: Path | None = None
+) -> tuple[dict[str, int], int, str]:
+    """Measure the unchanged make-test invocation; optionally retain private diagnostics."""
+    destination = _create_unit_evidence(repo_root, evidence_dir) if evidence_dir is not None else None
+    metadata: dict[str, Any] = {}
+    if destination is not None:
+        metadata = {
+            "argv": [python_exe, "-m", "pytest", "tests/", "-q"],
+            "cwd": str(repo_root.resolve()),
+            "source_before": _unit_source_identity(repo_root),
+            "timeout_seconds": _UNIT_TESTS_TIMEOUT_SECONDS,
+        }
+    started = time.monotonic()
+
+    def retain(stdout: str | bytes | None, stderr: str | bytes | None, **outcome: Any) -> None:
+        if destination is not None:
+            metadata.update(
+                outcome,
+                elapsed_seconds=time.monotonic() - started,
+                source_after=_unit_source_identity(repo_root),
+                pending_groups=sorted(process_groups._pending_groups),
+            )
+            _write_unit_evidence(destination, metadata, stdout, stderr)
+
     try:
         proc = _run_unit_measurement(repo_root, python_exe)
-    except subprocess.TimeoutExpired as exc:
-        raw_line = f"TIMEOUT after {_UNIT_TESTS_TIMEOUT_SECONDS}s running pytest tests/ -q: {exc}"
-        return {}, -1, raw_line
+    except BaseException as exc:
+        try:
+            retain(
+                getattr(exc, "stdout", None),
+                getattr(exc, "stderr", None),
+                returncode=None,
+                timed_out=isinstance(exc, subprocess.TimeoutExpired),
+                capture_complete=False,
+                exception_type=type(exc).__name__,
+            )
+        except Exception:
+            print("[release-floor] unit diagnostic retention failed", file=sys.stderr)
+        if isinstance(exc, subprocess.TimeoutExpired):
+            raw_line = f"TIMEOUT after {_UNIT_TESTS_TIMEOUT_SECONDS}s running pytest tests/ -q: {exc}"
+            return {}, -1, raw_line
+        raise
     output_lines = [ln for ln in (proc.stdout + proc.stderr).splitlines() if ln.strip()]
     raw_line = output_lines[-1] if output_lines else ""
-    return parse_pytest_summary_line(raw_line), proc.returncode, raw_line
+    counts = parse_pytest_summary_line(raw_line)
+    try:
+        retain(proc.stdout, proc.stderr, returncode=proc.returncode, timed_out=False, capture_complete=True)
+    except Exception as exc:
+        _, violations = evaluate_unit_tests(counts, proc.returncode, raw_line)
+        if not violations:
+            raise UnitEvidenceError("unit diagnostic retention failed after successful measurement") from exc
+        print(
+            "[release-floor] unit diagnostic retention failed; original red result preserved", file=sys.stderr
+        )
+    return counts, proc.returncode, raw_line
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +645,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=sys.executable,
         help="Interpreter used for the fence + pytest subprocess measurements (default: sys.executable).",
     )
+    parser.add_argument(
+        "--unit-evidence-dir",
+        type=Path,
+        help="New private directory outside checkout for captured unit diagnostics (no environment dump).",
+    )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="Verify only (default if neither flag given).")
     mode.add_argument("--write", action="store_true", help="Regenerate and overwrite the committed floor.")
@@ -568,7 +695,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     census = json.loads(census_path.read_text(encoding="utf-8"))
 
-    unit_counts, unit_rc, unit_raw = measure_unit_tests(repo_root, args.python)
+    try:
+        if args.unit_evidence_dir is None:
+            unit_counts, unit_rc, unit_raw = measure_unit_tests(repo_root, args.python)
+        else:
+            unit_counts, unit_rc, unit_raw = measure_unit_tests(
+                repo_root, args.python, evidence_dir=args.unit_evidence_dir
+            )
+    except UnitEvidenceError:
+        print("[release-floor] FAIL — requested unit diagnostics could not be retained", file=sys.stderr)
+        return 1
     print(f"[release-floor] unit tests: {unit_raw!r} (exit {unit_rc})")
     unit_passed, unit_violations = evaluate_unit_tests(unit_counts, unit_rc, unit_raw)
     if unit_violations:
