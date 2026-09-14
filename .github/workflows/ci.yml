@@ -105,6 +105,8 @@ jobs:
       # never generated an htmlcov/ directory, so that half of the artifact was
       # cargo-cult (silently empty every run, upload-artifact just warns and moves on).
       # --cov-report=html here makes htmlcov/ real.
+      # pytest-cov passes this source to subprocesses. Keep it absolute so a
+      # shallow-clone test cannot add a second unexecuted tree to the denominator.
       - name: Unit tests + coverage gate (>=85%)
         run: |
           set -e
@@ -118,7 +120,7 @@ jobs:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest tests/ -q -m "not integration" -ra --junitxml=unit-junit.xml \
-            --cov=src/maezo --cov-report=term --cov-report=html --cov-fail-under=85
+            --cov="$GITHUB_WORKSPACE/src/maezo" --cov-report=term --cov-report=html --cov-fail-under=85
 
       - name: Upload unit test results
         if: always()
