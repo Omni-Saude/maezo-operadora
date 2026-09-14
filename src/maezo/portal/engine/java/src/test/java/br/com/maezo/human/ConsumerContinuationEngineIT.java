@@ -29,7 +29,12 @@ class ConsumerContinuationEngineIT {
   @BeforeEach void start()throws Exception{original.start();f=original.f;}
   @AfterEach void stop()throws Exception{original.stop();}
   String taskId(Map<String,Object> c){return Jcs.ref(Jcs.object(c.get("target")),"task_id");}
-  ExecutionEntity nativeExecution(Map<String,Object> c){return f.config.getCommandExecutorTxRequired().execute(ctx->ctx.getTaskManager().findTaskById(taskId(c)).getExecution());}
+  ExecutionEntity nativeExecution(Map<String,Object> c){return f.config.getCommandExecutorTxRequired().execute(ctx->{
+    var execution=ctx.getTaskManager().findTaskById(taskId(c)).getExecution();
+    // These native references are lazy and require the actual active engine context to resolve.
+    // Later test observations read already-loaded model metadata and scalar IDs only.
+    execution.getProcessDefinition();execution.getActivity();return execution;
+  });}
   ActivityImpl activity(Map<String,Object> c,String id){return nativeExecution(c).getProcessDefinition().findActivity(id);}
   void atStart(ActivityImpl activity,Consumer<ExecutionEntity> observer){
     // Observation only, before production START: no authority, pointer or native-state mutation.
