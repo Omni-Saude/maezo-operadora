@@ -12,6 +12,8 @@ import javax.crypto.spec.SecretKeySpec;
 import org.cibseven.bpm.engine.*;
 import org.cibseven.bpm.engine.impl.cfg.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * ROOT-only real CIB2.1/PostgreSQL. Missing configuration FAILS; never a mock or skipped PASS.
@@ -33,8 +35,10 @@ class PortalReadEngineIT {
     if (h != null)
       h.close();
   }
-  @Test
-  void realMineTeamAndOriginalSnapshotContinuity() throws Exception {
+  @ParameterizedTest
+  @ValueSource(ints = {0, 248, 252})
+  void realMineTeamAndOriginalSnapshotContinuity(int firstByte) throws Exception {
+    h.requestFirstByte = firstByte;
     String first = h.task(false), second = h.task(false), third = h.task(false);
     h.engine.getTaskService().setAssignee(first, "human-1");
     h.engine.getTaskService().setAssignee(second, "human-2");
@@ -91,15 +95,20 @@ class PortalReadEngineIT {
                         "task_continuity", receipt)))
             .status);
   }
-  @Test
-  void missingProjectionCannotBecomeEmptyAndDynamicDmnUsesRealLinks() throws Exception {
+  @ParameterizedTest
+  @ValueSource(ints = {0, 248, 252})
+  void missingProjectionCannotBecomeEmptyAndDynamicDmnUsesRealLinks(int firstByte) throws Exception {
+    h.requestFirstByte = firstByte;
     String id = h.task(true);
-    assertEquals(503, assertThrows(Rejected.class, () -> {
+    Rejected rejection = assertThrows(Rejected.class, () -> {
       var e = obj(obj(h.read("catalog", record("anchor", h.anchor)), "value"), "expectation");
       h.read("discover",
           record("principal", h.principal, "expectation", e, "queue", "team", "limit", "25",
               "after_task_id", null));
-    }).status);
+    });
+    if (rejection.status != 503)
+      throw new AssertionError("Missing projection expected 503, got " + rejection.status, rejection);
+    assertEquals(503, rejection.status);
     h.resource(id);
     var t = obj(obj(h.read("task", record("anchor", h.anchor, "task_id", id)), "value"), "task");
     assertEquals(
@@ -224,6 +233,7 @@ class PortalReadEngineIT {
     Instant before, until;
     long sourceRevision = 0;
     boolean invalidate = false;
+    Integer requestFirstByte;
     Runnable finalHook = () -> {};
     static String required(String key) {
       String value = System.getenv(key);
@@ -461,8 +471,11 @@ class PortalReadEngineIT {
     }
     Map<String, Object> read(String operation, Map<String, Object> extras) throws Exception {
       var r = common();
+      byte[] nonce = SecureRandom.getSeed(32);
+      if (requestFirstByte != null)
+        nonce[0] = requestFirstByte.byteValue();
       r.putAll(record("schema", "portal-engine-read.v1", "operation", operation, "request_id",
-          Base64.getUrlEncoder().withoutPadding().encodeToString(SecureRandom.getSeed(32)),
+          Base64.getUrlEncoder().withoutPadding().encodeToString(nonce),
           "read_context_id", context));
       r.putAll(extras);
       return map(Jcs.parse(plugin.execute(signed(r, false), readPeer, operation)));

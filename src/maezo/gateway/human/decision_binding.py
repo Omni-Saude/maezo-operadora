@@ -12,7 +12,7 @@ import math
 import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib.resources import files
 from typing import Any, Literal
 
@@ -340,7 +340,7 @@ class BindingConnection:
                 raise BindingUnavailableError()
         for pin in (*d.relations, *(self.native_cohort_read.relations if self.native_cohort_read else ())):
             r = await connection.fetchrow(
-                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind,c.relrowsecurity,
+                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind::text AS relkind,c.relrowsecurity,
               has_table_privilege($3,c.oid,'SELECT') AS can_select,
               (has_table_privilege($3,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
               OR has_any_column_privilege($3,c.oid,'INSERT,UPDATE,REFERENCES')) AS writes
@@ -377,7 +377,7 @@ class BindingConnection:
                     raise BindingUnavailableError()
                 if pin.name != "mzo_human_consumer_head":
                     trigger = await connection.fetchrow(
-                        """SELECT t.tgenabled,t.tgtype,p.prosrc,p.prosecdef,
+                        """SELECT t.tgenabled::text AS tgenabled,t.tgtype,p.prosrc,p.prosecdef,
                       count(*) OVER () AS trigger_count
                       FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
                       JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -824,7 +824,8 @@ def binding_columns(q: VerifiedQualification, scope: Scope) -> dict[str, Any]:
         workload_=scope.workload_ref,
         authority_rev_=q.expected_tenant_revision + 1,
         active_=True,
-        valid_until_=int(q.valid_until.timestamp() * 1000),
+        # Native MZO_HUMAN_* deadlines are epoch seconds; floor without float rounding.
+        valid_until_=(q.valid_until - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(seconds=1),
     )
 
 
@@ -1443,8 +1444,8 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
             source.valid_until,
             resource.classification.valid_until,
             grants[0].valid_until,
-            datetime.fromtimestamp(native["principal_until"] / 1000, UTC),
-            datetime.fromtimestamp(native["evidence_until"] / 1000, UTC),
+            datetime.fromtimestamp(native["principal_until"], UTC),
+            datetime.fromtimestamp(native["evidence_until"], UTC),
         )
         if db.clock() >= until:
             raise BindingUnavailableError()

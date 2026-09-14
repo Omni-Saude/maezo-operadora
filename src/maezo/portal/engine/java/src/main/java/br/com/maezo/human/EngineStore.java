@@ -107,7 +107,10 @@ final class EngineStore {
 
   Map<String, Object> decisionBinding(HumanCommand c, List<?> groups, long now) {
     var d = c.classified();
-    var rs = rows("SELECT * FROM MZO_HUMAN_DECISION_BINDING WHERE TENANT_=? AND ENVIRONMENT_=? AND PROCESS_=? AND TASK_KEY_=? AND AUTHORITY_REV_=? FOR SHARE",
+    // AtomicHumanCommand holds the enlisted tenant FOR UPDATE lock through commit.
+    // Qualified installers append immutable binding rows and revoke by revision CAS
+    // under that same lock (human-schema-postgres.sql). Runtime is SELECT-only.
+    var rs = rows("SELECT * FROM MZO_HUMAN_DECISION_BINDING WHERE TENANT_=? AND ENVIRONMENT_=? AND PROCESS_=? AND TASK_KEY_=? AND AUTHORITY_REV_=?",
         tenant, d.environment(), c.processId(), c.taskKey(), Long.parseLong(c.authorityRevision()));
     if (rs.size() != 1) throw new Rejected(409, "FORM_NOT_ACTIVATED");
     var b = rs.get(0);

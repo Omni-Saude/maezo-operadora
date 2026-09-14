@@ -196,12 +196,12 @@ final class PortalReadStore {
     SELECT c.ID_ FROM candidates c CROSS JOIN p WHERE (?='team' OR ASSIGNEE_=p.principal->>'principal_ref')
       AND (?::text IS NULL OR ID_ COLLATE "C">?::text COLLATE "C")
       AND EXISTS (SELECT 1 FROM jsonb_array_elements(p.principal->'memberships') mb
-         WHERE mb->'roles' @> entry->'required_roles' AND EXISTS
+         WHERE (mb->'roles') @> (entry->'required_roles') AND EXISTS
           (SELECT 1 FROM ACT_RU_IDENTITYLINK l WHERE l.TASK_ID_=c.ID_ AND l.TYPE_='candidate' AND l.TENANT_ID_=c.TENANT_ID_ AND jsonb_exists(mb->'groups',l.GROUP_ID_)))
-      AND p.principal->'subject_bindings' @> resource->'required_subject_bindings'
+      AND (p.principal->'subject_bindings') @> (resource->'required_subject_bindings')
       AND EXISTS (SELECT 1 FROM jsonb_array_elements(resource->'positive_grants') g
          WHERE g->>'issuer'=p.principal->>'issuer' AND g->>'subject'=p.principal->>'subject' AND g->>'principal_ref'=p.principal->>'principal_ref'
-          AND g->>'membership_revision'=p.principal->>'membership_revision' AND g->'consent_scopes' @> resource->'required_consent_scopes' AND (g->>'valid_until')::timestamptz>p.now)
+          AND g->>'membership_revision'=p.principal->>'membership_revision' AND (g->'consent_scopes') @> (resource->'required_consent_scopes') AND (g->>'valid_until')::timestamptz>p.now)
       ORDER BY ID_ COLLATE "C" ASC LIMIT ?
     """;
   List<String> discover(Map<String, Object> principal, Map<String, Object> artifact, String queue,

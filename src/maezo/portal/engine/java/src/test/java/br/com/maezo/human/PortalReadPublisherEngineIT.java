@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 /** Actual enlisted publisher commit/rollback controls, ROOT-only PostgreSQL fixture. */
 @Tag("integration")
 class PortalReadPublisherEngineIT {
@@ -111,8 +113,10 @@ class PortalReadPublisherEngineIT {
         h.artifact.get("deployment_receipt_digest"), "valid_until", time(h.until));
     assertEquals(409, assertThrows(Rejected.class, () -> h.publish("catalog-designate", p)).status);
   }
-  @Test
-  void readSignerCannotPublishAndRevokedReaderCannotRead() throws Exception {
+  @ParameterizedTest
+  @ValueSource(ints = {0, 248, 252})
+  void readSignerCannotPublishAndRevokedReaderCannotRead(int firstByte) throws Exception {
+    h.requestFirstByte = firstByte;
     var request = h.publication(
         "revoke-key", record("key_fingerprint", Jcs.digest(h.readKey.getPublic().getEncoded())));
     assertEquals(403,
@@ -120,7 +124,10 @@ class PortalReadPublisherEngineIT {
             () -> h.plugin.execute(h.signed(request, false), h.readPeer, "publications"))
             .status);
     h.plugin.execute(h.signed(request, true), h.publisherPeer, "publications");
-    assertEquals(403,
-        assertThrows(Rejected.class, () -> h.read("catalog", record("anchor", h.anchor))).status);
+    Rejected rejection =
+        assertThrows(Rejected.class, () -> h.read("catalog", record("anchor", h.anchor)));
+    if (rejection.status != 403)
+      throw new AssertionError("Revoked reader expected 403, got " + rejection.status, rejection);
+    assertEquals(403, rejection.status);
   }
 }
