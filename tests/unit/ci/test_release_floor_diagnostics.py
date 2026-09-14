@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -174,14 +175,69 @@ def test_workflow_requests_only_diagnostics_and_uploads_with_short_retention():
     root = Path(__file__).resolve().parents[3]
     job = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]["release-floor"]
     step = next(step for step in job["steps"] if "Release-capability floor gate" in step.get("name", ""))
-    assert "scripts/ci/generate_release_floor.py --check" in step["run"]
-    assert '--unit-evidence-dir "$RUNNER_TEMP/release-floor-unit-evidence"' in step["run"]
+    assert "env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make release-floor-check" in step["run"]
+    assert step["env"] == {
+        "MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR": "${{ runner.temp }}/release-floor-unit-evidence"
+    }
     assert "PYTEST_ADDOPTS" not in step["run"]
     upload = next(
         step for step in job["steps"] if step.get("name") == "Upload release-floor unit diagnostics"
     )
     assert upload["if"] == "always()" and upload["with"]["retention-days"] == 7
     assert upload["with"]["if-no-files-found"] == "error"
+
+
+@pytest.mark.parametrize("requested", [False, True])
+def test_make_preserves_entrypoint_environment_and_quotes_optional_path(tmp_path, requested):
+    root = Path(__file__).resolve().parents[3]
+    candidate = (root / "Makefile").read_text()
+    conditional = candidate.split("ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR\n", 1)[1].split("endif\n", 1)[
+        0
+    ]
+    original = "\t.venv/bin/python scripts/ci/generate_release_floor.py --check\n"
+    assert conditional.split("else\n", 1)[1] == original
+    baseline = candidate.replace(
+        "ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR\n" + conditional + "endif\n", original
+    )
+    (tmp_path / ".venv/bin").mkdir(parents=True)
+    (tmp_path / ".venv/bin/python").symlink_to(sys.executable)
+    (tmp_path / "scripts/ci").mkdir(parents=True)
+    (tmp_path / "scripts/ci/generate_release_floor.py").write_text(
+        "import json, os, pathlib, sys\n"
+        "keys = ('MAKELEVEL', 'MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES', "
+        "'MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR')\n"
+        "pathlib.Path('observed.json').write_text(json.dumps("
+        "{'argv': sys.argv, 'make_env': {k: os.environ.get(k) for k in keys}}))\n"
+    )
+    environment = dict(os.environ)
+    environment.pop("MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR", None)
+    # Shell metacharacters are data; neither make nor the shell may reparse them.
+    evidence_path = str(tmp_path / "evidence 'quoted' $(touch INJECTED) `touch INJECTED` $HOME")
+    observed = []
+    outputs = []
+    for source in (baseline, candidate):
+        (tmp_path / "Makefile").write_text(source)
+        if source == candidate and requested:
+            environment["MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR"] = evidence_path
+        result = subprocess.run(
+            ["make", "release-floor-check"],
+            cwd=tmp_path,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+        outputs.append(result.stdout)
+        observed.append(json.loads((tmp_path / "observed.json").read_text()))
+    assert observed[0]["make_env"] == observed[1]["make_env"]
+    assert observed[1]["make_env"]["MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR"] is None
+    expected = ["scripts/ci/generate_release_floor.py", "--check"]
+    assert observed[0]["argv"] == expected
+    assert observed[1]["argv"] == expected + (["--unit-evidence-dir", evidence_path] if requested else [])
+    if not requested:
+        assert outputs[0] == outputs[1]
+    assert not (tmp_path / "INJECTED").exists()
 
 
 def test_real_stdlib_child_capture_keeps_selector_and_owned_cleanup(repository, tmp_path):

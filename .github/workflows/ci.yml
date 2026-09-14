@@ -550,6 +550,8 @@ jobs:
             --output "$RUNNER_TEMP/offline-fixture-cache-proof"
 
       - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
+        env:
+          MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR: ${{ runner.temp }}/release-floor-unit-evidence
         run: |
           set -e
           python -I - <<'PY'
@@ -561,9 +563,7 @@ jobs:
           if actual != expected:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
-          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python \
-            scripts/ci/generate_release_floor.py --check \
-            --unit-evidence-dir "$RUNNER_TEMP/release-floor-unit-evidence"
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make release-floor-check
 
       - name: Upload release-floor unit diagnostics
         if: always()

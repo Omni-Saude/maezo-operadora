@@ -228,7 +228,11 @@ release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO d
 	# antes de confiar em qualquer medicao real. `--write` (release-floor-write) refaz o floor
 	# comitado a partir da arvore atual — recusa escrever se algum fence estiver falhando ou a suite
 	# unitaria estiver vermelha.
+ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR
+	env -u MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR .venv/bin/python scripts/ci/generate_release_floor.py --check --unit-evidence-dir "$$MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR"
+else
 	.venv/bin/python scripts/ci/generate_release_floor.py --check
+endif
 
 release-floor-write: ## Audit §5 (W-fillers): regenera docs/release-capability-floor.json a partir da arvore atual
 	.venv/bin/python scripts/ci/generate_release_floor.py --write
