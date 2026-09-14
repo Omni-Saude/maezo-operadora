@@ -204,6 +204,12 @@ class ConsumerContinuationTest {
     if(mode.equals("changed-parent")){var other=entity("other-parent");other.setProcessInstance(execution);child.setParent(other);}
     assertThrows(IllegalStateException.class,()->ConsumerContinuation.started(child));
   }
+  @Test void transientCacheIdCannotSubstituteAnotherObjectAtArrival() {
+    var child=scopedArrival();var other=entity(child.getId());other.setProcessInstance(execution);
+    other.setParent(execution);other.setActivity(destination);other.setScope(true);other.setTransition(flow);
+    assertTrue(context.getDbEntityManager().getDbEntityCache().isTransient(other));
+    assertThrows(IllegalStateException.class,()->ConsumerContinuation.arriving(other));
+  }
   @Test void nonscopeSameIdsCannotSubstituteForFinalTakeObject() {
     seed();end();take();var other=entity(execution.getId());other.setProcessInstance(execution);
     other.setActivity(destination);other.setScope(false);

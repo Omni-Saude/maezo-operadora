@@ -115,6 +115,7 @@ final class ConsumerContinuation implements Session, CommandContextListener {
     var cache=owner.getDbEntityManager().getDbEntityCache();
     need(execution!=token && execution.getParent()==token && execution.isScope()
         && !execution.isConcurrent() && !execution.isRemoved() && !execution.isEnded()
+        && cache.get(ExecutionEntity.class,execution.getId())==execution
         && cache.isTransient(execution) && !token.isActive() && token.getTransition()==null);
     actual(token);
   }
