@@ -249,8 +249,9 @@ def _spawn_signal_guard(
     restore only after that cleanup, never while a normally owned child remains live.
     Caught handlers reset on exec; ignored dispositions and preexisting masks stay
     unchanged. Optional handler overrides restore the caller's original dispositions
-    inside this same scope. A nonraising custom handler still cancels the owned child;
-    the caller receives its resulting exit status. Cleanup refusal takes precedence
+    inside this same scope. For an owned child, a nonraising custom handler is
+    invoked and then RunnerInterrupted is raised: cancellation must not resume a
+    communicate() whose pipes cleanup already closed. Cleanup refusal takes precedence
     over fatal default delivery. Like CLI signal setup, this requires the main thread.
     """
     previous_handlers: dict[int, Any] = {}
@@ -263,6 +264,7 @@ def _spawn_signal_guard(
     def deliver(*, restoring: bool = False) -> None:
         nonlocal active, delivering, cleanup_failure
         failure = cleanup_failure
+        first_signal = min(deferred, default=None)
         delivering = True
         try:
             if on_interrupt is not None:
@@ -293,6 +295,8 @@ def _spawn_signal_guard(
                 except BaseException as exc:
                     if failure is None:
                         failure = exc
+            if failure is None and on_interrupt is not None and first_signal is not None:
+                failure = RunnerInterrupted(first_signal)
         finally:
             # Once interruption starts unwinding, late signals must remain deferred
             # until the caller's finally has closed its group and restored its mask.
