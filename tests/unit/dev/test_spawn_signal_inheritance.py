@@ -332,3 +332,116 @@ def test_running_and_cleanup_signals_cancel_promptly(
                 os.killpg(pgid, signal.SIGKILL)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+
+
+def test_restoration_burst_drains_both_handlers_and_preserves_mask(monkeypatch: pytest.MonkeyPatch) -> None:
+    delivered = []
+    armed = False
+    original_signal = signal.signal
+
+    def handler(signum, frame):
+        delivered.append(signum)
+        raise runner.RunnerInterrupted(signum)
+
+    before = {s: original_signal(s, handler) for s in (signal.SIGINT, signal.SIGTERM)}
+    before_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+
+    def install(signum, target):
+        result = original_signal(signum, target)
+        if armed and signum == signal.SIGTERM and target is handler:
+            try:
+                os.kill(os.getpid(), signal.SIGINT)
+            finally:
+                os.kill(os.getpid(), signal.SIGTERM)
+        return result
+
+    monkeypatch.setattr(signal, "signal", install)
+    try:
+        with pytest.raises(runner.RunnerInterrupted), runner._spawn_signal_guard():
+            armed = True
+        assert delivered == [signal.SIGINT, signal.SIGTERM]
+        assert all(signal.getsignal(s) is handler for s in before)
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == before_mask
+    finally:
+        for sig, handler_before in before.items():
+            original_signal(sig, handler_before)
+
+
+def test_floor_restores_custom_term_handler_after_interruption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = []
+
+    def custom(signum, frame):
+        seen.append(signum)
+
+    old = signal.signal(signal.SIGTERM, custom)
+    record = runner._record_pending
+
+    def interrupt(pgid):
+        record(pgid)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    monkeypatch.setattr(runner, "_record_pending", interrupt)
+    try:
+        with pytest.raises(runner.RunnerInterrupted):
+            _run_probe("floor", tmp_path, "import time; time.sleep(30)")
+        assert signal.getsignal(signal.SIGTERM) is custom
+        assert seen == []
+    finally:
+        signal.signal(signal.SIGTERM, old)
+
+
+def test_cleanup_failure_precedes_fatal_default_disposition(tmp_path: Path) -> None:
+    # A failing implementation kills only this probe parent, never the pytest runner.
+    import subprocess
+
+    code = """import os,signal
+from scripts.dev import run_engine_integration as runner
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
+def refuse():
+    raise runner.ProcessGroupCleanupError('owned cleanup refused')
+try:
+    with runner._spawn_signal_guard(refuse) as activate:
+        os.kill(os.getpid(), signal.SIGTERM)
+        activate()
+except runner.ProcessGroupCleanupError:
+    assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+    print('cleanup failure preserved')
+else:
+    raise AssertionError('cleanup failure was hidden')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+        timeout=5,
+    )
+    assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+    assert result.stdout.strip() == "cleanup failure preserved"
+
+
+def test_nonraising_custom_handler_cancels_child_and_returns_its_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen = []
+    groups = []
+    old = signal.signal(signal.SIGTERM, lambda signum, frame: seen.append(signum))
+    record = runner._record_pending
+
+    def interrupt(pgid):
+        groups.append(pgid)
+        record(pgid)
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    monkeypatch.setattr(runner, "_record_pending", interrupt)
+    try:
+        result = _run_probe("engine", tmp_path, "import time; time.sleep(30)")
+        assert result.returncode == -signal.SIGTERM
+        assert seen == [signal.SIGTERM]
+        assert len(groups) == 1
+        assert not runner._group_exists(groups[0])
+        assert groups[0] not in runner._pending_groups
+    finally:
+        signal.signal(signal.SIGTERM, old)
