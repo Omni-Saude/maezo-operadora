@@ -422,7 +422,7 @@ else:
     assert result.stdout.strip() == "cleanup failure preserved"
 
 
-def test_nonraising_custom_handler_cancels_child_and_returns_its_status(
+def test_nonraising_custom_handler_cancels_child_and_raises_interruption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen = []
@@ -437,8 +437,8 @@ def test_nonraising_custom_handler_cancels_child_and_returns_its_status(
 
     monkeypatch.setattr(runner, "_record_pending", interrupt)
     try:
-        result = _run_probe("engine", tmp_path, "import time; time.sleep(30)")
-        assert result.returncode == -signal.SIGTERM
+        with pytest.raises(runner.RunnerInterrupted):
+            _run_probe("engine", tmp_path, "import time; time.sleep(30)")
         assert seen == [signal.SIGTERM]
         assert len(groups) == 1
         assert not runner._group_exists(groups[0])
@@ -541,3 +541,36 @@ def test_active_outer_handler_receives_signal_after_inner_owned_cleanup(
     assert not runner._group_exists(groups[0])
     assert groups[0] not in runner._pending_groups
     assert signal.getsignal(signal.SIGTERM) == before
+
+
+def test_nonraising_handler_during_communicate_does_not_resume_closed_pipes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    seen = []
+    groups = []
+    sender = None
+    old = signal.signal(signal.SIGTERM, lambda signum, frame: seen.append(signum))
+    original = runner.subprocess.Popen.communicate
+
+    def communicate(process, *args, **kwargs):
+        nonlocal sender
+        if process.pid in runner._pending_groups and sender is None:
+            groups.append(process.pid)
+            sender = threading.Timer(0.05, lambda: os.kill(os.getpid(), signal.SIGTERM))
+            sender.start()
+        return original(process, *args, **kwargs)
+
+    monkeypatch.setattr(runner.subprocess.Popen, "communicate", communicate)
+    try:
+        with pytest.raises(runner.RunnerInterrupted):
+            _run_probe("engine", tmp_path, "import time; time.sleep(30)")
+        assert seen == [signal.SIGTERM]
+        assert len(groups) == 1
+        assert not runner._group_exists(groups[0])
+        assert groups[0] not in runner._pending_groups
+    finally:
+        if sender is not None:
+            sender.join(timeout=1)
+        signal.signal(signal.SIGTERM, old)
