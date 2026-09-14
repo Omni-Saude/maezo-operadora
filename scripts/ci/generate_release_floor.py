@@ -265,9 +265,9 @@ def _run_unit_measurement(repo_root: Path, python_exe: str) -> subprocess.Comple
     process: subprocess.Popen[str] | None = None
     previous_sigterm = signal.signal(signal.SIGTERM, process_groups._signal_handler)
     try:
-        # Protect creation AND registration: restoring the mask can deliver a pending
-        # interrupt before communicate starts, and owner registration can itself fail.
-        with process_groups._cleanup_signal_mask():
+        # Protect creation AND registration without adding blocked signals to the
+        # child's inherited mask. Deferred parent interruption is delivered on exit.
+        with process_groups._spawn_signal_guard():
             process = subprocess.Popen(
                 command,
                 cwd=repo_root,

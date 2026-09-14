@@ -22,7 +22,7 @@ def test_measurement_reaps_spawned_group_on_early_interrupt(
     (tmp_path / "pytest.py").write_text("import time; time.sleep(30)\n")
     groups: list[int] = []
     original_record = floor.process_groups._record_pending
-    original_mask = floor.process_groups._cleanup_signal_mask
+    original_guard = floor.process_groups._spawn_signal_guard
     previous_handler = signal.getsignal(signal.SIGTERM)
 
     def record(pgid: int) -> None:
@@ -38,13 +38,13 @@ def test_measurement_reaps_spawned_group_on_early_interrupt(
         nonlocal entered
         entered += 1
         first = entered == 1
-        with original_mask():
+        with original_guard():
             yield
         if first and boundary == "mask-restoration":
             raise KeyboardInterrupt
 
     monkeypatch.setattr(floor.process_groups, "_record_pending", record)
-    monkeypatch.setattr(floor.process_groups, "_cleanup_signal_mask", mask)
+    monkeypatch.setattr(floor.process_groups, "_spawn_signal_guard", mask)
     with pytest.raises(RuntimeError if boundary == "registration" else KeyboardInterrupt):
         floor._run_unit_measurement(tmp_path, sys.executable)
     assert len(groups) == 1

@@ -231,6 +231,45 @@ def _cleanup_signal_mask() -> Iterator[None]:
         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
+@contextmanager
+def _spawn_signal_guard() -> Iterator[None]:
+    """Defer parent interruption through Popen assignment and PGID registration.
+
+    Unlike cleanup, spawn must retain the caller's mask: Popen's child inherits it
+    across exec. Blocking INT/TERM here would disable the child's own cancellation.
+    Temporarily defer Python handlers instead, then restore and re-deliver under the
+    cleanup mask. Exec resets caught handlers normally; ignored dispositions stay
+    ignored. No preexec_fn, argv wrapper or modification of the child's environment.
+
+    Like the CLI signal setup, this guard requires the main Python thread. Nested
+    guards deliver to the enclosing deferrer; existing blocked signals stay blocked.
+    """
+    previous_handlers: dict[int, Any] = {}
+    deferred: set[int] = set()
+
+    def defer(signum: int, _frame: object) -> None:
+        deferred.add(signum)
+
+    try:
+        with _cleanup_signal_mask():
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous = signal.getsignal(signum)
+                if previous is None:
+                    raise RunnerError("spawn signal handler cannot be restored")
+                if previous != signal.SIG_IGN:
+                    signal.signal(signum, defer)
+                    previous_handlers[signum] = previous
+        yield
+    finally:
+        with _cleanup_signal_mask():
+            for signum, previous in previous_handlers.items():
+                signal.signal(signum, previous)
+            # Queue only after ALL original handlers are restored. A signal received
+            # during restoration stays pending until the enclosing mask is restored.
+            for signum in sorted(deferred):
+                signal.raise_signal(signum)
+
+
 def _record_pending(group_id: int) -> None:
     _pending_groups.add(group_id)
     if _process_owner is not None and not _process_owner.update(
@@ -292,7 +331,7 @@ def _run(
         stdout: str | None = None
         stderr: str | None = None
         try:
-            with _cleanup_signal_mask():
+            with _spawn_signal_guard():
                 if _process_owner is not None and not _process_owner.update(
                     "subprocess_spawning", subprocess_quiescent=False
                 ):
