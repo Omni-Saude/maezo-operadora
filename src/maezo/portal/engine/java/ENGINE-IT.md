@@ -1,4 +1,4 @@
-# Rodando os 14 `*EngineIT` do plugin humano
+# Rodando os 15 `*EngineIT` do plugin humano
 
 `mvn -B -f src/maezo/portal/engine/java/pom.xml verify` **nunca** roda estas classes: o surefire
 exclui `**/*EngineIT.java` (`pom.xml:19`) e não há plugin failsafe. O job `java-plugin` do
@@ -10,17 +10,19 @@ Este documento é a receita de fixture que o runner precisa. Ele não afrouxa ne
 classes continuam falhando de forma explícita quando um pré-requisito falta
 (`AtomicEngineIT.java:29-33` `explicit integration setting missing: <NOME>`).
 
-## 1. As 14 classes e o que cada grupo exige
+## 1. As 15 classes e o que cada grupo exige
 
 | Grupo | Classes | Pré-requisito além do Postgres comum |
 |---|---|---|
 | A (5) | `AtomicEngineIT`, `EnlistmentEngineIT`, `FreshnessEngineIT`, `ReviewerEngineIT`, `WorkloadEngineIT` | nenhum — só §2 |
 | B (3) | `PortalReadEngineIT`, `PortalReadPublisherEngineIT`, `StaffCaseReadEngineIT` | §2 + `maezo.repo.root` / `MAEZO_PORTAL_READ_IT_REPO` |
-| C (2) | `ClassifiedDecisionEngineIT`, `ConsumerLineageEngineIT` | §3 **Postgres com TLS ligado** + papel de runtime dedicado + perfil `phi-consumer-engine-it` |
+| C (3) | `ClassifiedDecisionEngineIT`, `ConsumerLineageEngineIT`, `ConsumerContinuationEngineIT` | §3 **Postgres com TLS ligado** + papel de runtime dedicado + perfil `phi-consumer-engine-it` |
 | D (1) | `ClassifiedConsumerFenceEngineIT` | §3 + perfil `phi-consumer-engine-it` |
 | E (3) | `NativeV2AcquisitionEngineIT`, `NativeV2AdmissionEngineIT`, `NativeV2ReceiptEngineIT` | §4 `MAEZO_NATIVE_V2_IT_FIXTURE` (diretório privado do dono) |
 
-Grupos C+D+E = as 6 classes que o V3-Q3 deixou UNVERIFIED. A + B foram executadas (134 testes
+O V3-Q3 deixou as 6 classes originais de C+D+E UNVERIFIED; agora esse conjunto também inclui
+`ConsumerContinuationEngineIT`, com 13 casos de regressão. As 14 classes originais continuam
+obrigatórias em V11, junto com essa nova classe. A + B foram executadas (134 testes
 Java passaram em A; B falhava pelo cap de leitura, reparado neste PR — ver §6).
 
 ## 2. Postgres comum (grupos A e B)
@@ -145,8 +147,8 @@ export MAEZO_CONSUMER_IT_RUNTIME_USER='consumer_runtime'
 export MAEZO_CONSUMER_IT_RUNTIME_PASSWORD='…'      # fora do shell history
 mvn -B -o -f src/maezo/portal/engine/java/pom.xml verify -Pphi-consumer-engine-it \
     -Dmaezo.repo.root="$PWD" \
-    -Dtest='ClassifiedDecisionEngineIT,ConsumerLineageEngineIT,ClassifiedConsumerFenceEngineIT' \
-    -DfailIfNoSpecifiedTests=false
+    -Dtest='ClassifiedDecisionEngineIT,ConsumerLineageEngineIT,ClassifiedConsumerFenceEngineIT,ConsumerContinuationEngineIT' \
+    -DfailIfNoSpecifiedTests=true
 ```
 
 `-Pphi-consumer-engine-it` é obrigatório: o perfil roda o surefire contra o JAR empacotado e

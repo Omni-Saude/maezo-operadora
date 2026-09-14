@@ -652,7 +652,7 @@ jobs:
 
   # Ate aqui nenhum job de "CI" compilava ou testava o plugin humano em Java: um PR podia ficar
   # verde com o plugin quebrado. Surefire exclui `**/*EngineIT.java` (pom.xml:19) e nao ha
-  # failsafe, entao este job cobre compilacao + os testes finitos; os 14 `*EngineIT` rodam
+  # failsafe, entao este job cobre compilacao + os testes finitos; os `*EngineIT` rodam
   # explicitamente no runner do motor, com a receita de fixture em
   # src/maezo/portal/engine/java/ENGINE-IT.md.
   java-plugin:
