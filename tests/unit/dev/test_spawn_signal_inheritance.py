@@ -11,12 +11,13 @@ from pathlib import Path
 import pytest
 from scripts.ci import generate_release_floor as floor
 from scripts.dev import run_engine_integration as runner
+from tests.support.measurement_python import measurement_python
 
 
 def _run_probe(kind: str, directory: Path, code: str):
     if kind == "floor":
         (directory / "pytest.py").write_text(code)
-        return floor._run_unit_measurement(directory, sys.executable)
+        return floor._run_unit_measurement(directory, measurement_python(directory))
     return runner._run([sys.executable, "-c", code], cwd=directory, timeout=5)
 
 
@@ -180,7 +181,7 @@ def test_floor_argv_environment_and_stdin_are_unchanged(
 print(json.dumps([sys.argv[1:], os.environ['MAEZO_SIGNAL_INHERITANCE_PROBE'], sys.stdin.read()]))
 """,
     )
-    assert result.args == [sys.executable, "-m", "pytest", "tests/", "-q"]
+    assert result.args == [str(tmp_path / "measurement-python/bin/python"), "-m", "pytest", "tests/", "-q"]
     assert json.loads(result.stdout) == [["tests/", "-q"], "preserved", ""]
     assert floor._UNIT_TESTS_TIMEOUT_SECONDS == 7200
 
