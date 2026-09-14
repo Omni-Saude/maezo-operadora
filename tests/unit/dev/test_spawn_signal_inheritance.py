@@ -203,3 +203,72 @@ def test_engine_thread_caller_refuses_before_spawn_and_restores_thread_mask(
 
     with ThreadPoolExecutor(max_workers=1) as executor:
         executor.submit(attempt).result(timeout=5)
+
+
+@pytest.mark.parametrize("kind", ["floor", "engine"])
+@pytest.mark.parametrize("registration_error", [False, True])
+def test_both_deferred_signals_reap_before_unwinding_and_restore_mask(
+    kind: str, registration_error: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    groups = []
+    original = runner._record_pending
+    previous = {s: signal.signal(s, runner._signal_handler) for s in (signal.SIGINT, signal.SIGTERM)}
+    before_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+
+    def record(pgid: int) -> None:
+        groups.append(pgid)
+        os.kill(os.getpid(), signal.SIGINT)
+        os.kill(os.getpid(), signal.SIGTERM)
+        original(pgid)
+        if registration_error:
+            raise RuntimeError("registration failed after both signals")
+
+    monkeypatch.setattr(runner, "_record_pending", record)
+    try:
+        with pytest.raises(runner.RunnerInterrupted):
+            _run_probe(kind, tmp_path, "import time; time.sleep(30)")
+        assert len(groups) == 1
+        assert not runner._group_exists(groups[0])
+        assert groups[0] not in runner._pending_groups
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == before_mask
+        assert all(signal.getsignal(s) is runner._signal_handler for s in previous)
+    finally:
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
+        signal.pthread_sigmask(signal.SIG_SETMASK, before_mask)
+        for pgid in groups:
+            if runner._group_exists(pgid):
+                os.killpg(pgid, signal.SIGKILL)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def test_cleanup_failure_retains_priority_and_delivers_cleanup_time_signals() -> None:
+    delivered = []
+    closed = []
+
+    def handler(signum, frame):
+        delivered.append(signum)
+        raise runner.RunnerInterrupted(signum)
+
+    previous = {s: signal.signal(s, handler) for s in (signal.SIGINT, signal.SIGTERM)}
+    before_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+
+    def close() -> None:
+        closed.append(True)
+        os.kill(os.getpid(), signal.SIGTERM)
+        raise runner.ProcessGroupCleanupError("owned cleanup failed")
+
+    try:
+        with (
+            pytest.raises(runner.ProcessGroupCleanupError, match="owned cleanup failed"),
+            runner._spawn_signal_guard(close),
+        ):
+            os.kill(os.getpid(), signal.SIGINT)
+        assert closed == [True]
+        assert sorted(delivered) == [signal.SIGINT, signal.SIGTERM]
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == before_mask
+        assert all(signal.getsignal(s) is handler for s in previous)
+    finally:
+        for sig, previous_handler in previous.items():
+            signal.signal(sig, previous_handler)

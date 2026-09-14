@@ -232,13 +232,15 @@ def _cleanup_signal_mask() -> Iterator[None]:
 
 
 @contextmanager
-def _spawn_signal_guard() -> Iterator[None]:
+def _spawn_signal_guard(on_interrupt: Callable[[], None] | None = None) -> Iterator[None]:
     """Defer parent interruption through Popen assignment and PGID registration.
 
     Unlike cleanup, spawn must retain the caller's mask: Popen's child inherits it
     across exec. Blocking INT/TERM here would disable the child's own cancellation.
-    Temporarily defer Python handlers instead, then restore and re-deliver under the
-    cleanup mask. Exec resets caught handlers normally; ignored dispositions stay
+    Temporarily defer Python handlers instead, then restore and re-deliver each
+    signal AFTER closing owned children if interruption is pending. Replaying
+    multiple raising handlers first can interrupt the outer cleanup while it enters
+    its mask. Exec resets caught handlers normally; ignored dispositions stay
     ignored. No preexec_fn, argv wrapper or modification of the child's environment.
 
     Like the CLI signal setup, this guard requires the main Python thread. Nested
@@ -261,13 +263,40 @@ def _spawn_signal_guard() -> Iterator[None]:
                     previous_handlers[signum] = previous
         yield
     finally:
-        with _cleanup_signal_mask():
-            for signum, previous in previous_handlers.items():
-                signal.signal(signum, previous)
-            # Queue only after ALL original handlers are restored. A signal received
-            # during restoration stays pending until the enclosing mask is restored.
-            for signum in sorted(deferred):
-                signal.raise_signal(signum)
+        failure: BaseException | None = None
+        closed = False
+
+        def attempt(action: Callable[[], object]) -> None:
+            nonlocal failure
+            try:
+                action()
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+
+        def close_owned() -> None:
+            nonlocal closed
+            if on_interrupt is not None and not closed:
+                closed = True
+                # A restoration-time signal may have already restored one original
+                # handler. Keep any further signal deferred until cleanup finishes.
+                with _spawn_signal_guard():
+                    on_interrupt()
+
+        if deferred or sys.exc_info()[0] is not None:
+            attempt(close_owned)
+        for signum, previous in previous_handlers.items():
+            attempt(lambda signum=signum, previous=previous: signal.signal(signum, previous))
+        if deferred or failure is not None:
+            attempt(close_owned)
+        # Do not queue all signals behind a mask: CPython can raise the second
+        # handler while the first exception is entering the caller's finally.
+        # Synchronous delivery drains each deferred handler, retaining the first
+        # exception until every handler is restored and every signal is delivered.
+        for signum in sorted(deferred):
+            attempt(lambda signum=signum: signal.raise_signal(signum))
+        if failure is not None:
+            raise failure
 
 
 def _record_pending(group_id: int) -> None:
@@ -330,8 +359,14 @@ def _run(
         process: subprocess.Popen[str] | None = None
         stdout: str | None = None
         stderr: str | None = None
+
+        def close_spawned_group() -> None:
+            nonlocal stdout, stderr
+            if process is not None and process.pid in _pending_groups:
+                stdout, stderr = _quiesce_group(process, process.pid)
+
         try:
-            with _spawn_signal_guard():
+            with _spawn_signal_guard(close_spawned_group):
                 if _process_owner is not None and not _process_owner.update(
                     "subprocess_spawning", subprocess_quiescent=False
                 ):

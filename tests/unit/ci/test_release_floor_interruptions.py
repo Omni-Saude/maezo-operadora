@@ -34,11 +34,11 @@ def test_measurement_reaps_spawned_group_on_early_interrupt(
     entered = 0
 
     @contextmanager
-    def mask() -> Iterator[None]:
+    def mask(*args, **kwargs) -> Iterator[None]:
         nonlocal entered
         entered += 1
         first = entered == 1
-        with original_guard():
+        with original_guard(*args, **kwargs):
             yield
         if first and boundary == "mask-restoration":
             raise KeyboardInterrupt

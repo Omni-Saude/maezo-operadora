@@ -264,10 +264,15 @@ def _run_unit_measurement(repo_root: Path, python_exe: str) -> subprocess.Comple
     command = [python_exe, "-m", "pytest", "tests/", "-q"]
     process: subprocess.Popen[str] | None = None
     previous_sigterm = signal.signal(signal.SIGTERM, process_groups._signal_handler)
+
+    def close_spawned_group() -> None:
+        if process is not None and process.pid in process_groups._pending_groups:
+            process_groups._quiesce_group(process, process.pid)
+
     try:
         # Protect creation AND registration without adding blocked signals to the
         # child's inherited mask. Deferred parent interruption is delivered on exit.
-        with process_groups._spawn_signal_guard():
+        with process_groups._spawn_signal_guard(close_spawned_group):
             process = subprocess.Popen(
                 command,
                 cwd=repo_root,
