@@ -232,25 +232,72 @@ def _cleanup_signal_mask() -> Iterator[None]:
 
 
 @contextmanager
-def _spawn_signal_guard(on_interrupt: Callable[[], None] | None = None) -> Iterator[None]:
-    """Defer parent interruption through Popen assignment and PGID registration.
+def _spawn_signal_guard(on_interrupt: Callable[[], None] | None = None) -> Iterator[Callable[[], None]]:
+    """Protect the complete owned-child lifetime without changing its signal mask.
 
-    Unlike cleanup, spawn must retain the caller's mask: Popen's child inherits it
-    across exec. Blocking INT/TERM here would disable the child's own cancellation.
-    Temporarily defer Python handlers instead, then restore and re-deliver each
-    signal AFTER closing owned children if interruption is pending. Replaying
-    multiple raising handlers first can interrupt the outer cleanup while it enters
-    its mask. Exec resets caught handlers normally; ignored dispositions stay
-    ignored. No preexec_fn, argv wrapper or modification of the child's environment.
+    Call the yielded activation function after Popen assignment and registration.
+    Before activation parent signals defer; afterwards they close the owned child
+    and dispatch the original handlers promptly, including during communicate().
+    Reentrant signals defer through cleanup, then dispatch individually so a second
+    raising handler cannot interrupt entry into the first handler's cleanup.
 
-    Like the CLI signal setup, this guard requires the main Python thread. Nested
-    guards deliver to the enclosing deferrer; existing blocked signals stay blocked.
+    The caller's finally must quiesce its child INSIDE this scope. Original handlers
+    restore only after that cleanup, never while a normally owned child remains live.
+    Caught handlers reset on exec; ignored dispositions and preexisting masks stay
+    unchanged. Like CLI signal setup, this guard requires the main Python thread.
     """
     previous_handlers: dict[int, Any] = {}
-    deferred: set[int] = set()
+    deferred: dict[int, Any] = {}
+    active = False
+    delivering = False
 
-    def defer(signum: int, _frame: object) -> None:
-        deferred.add(signum)
+    def deliver() -> None:
+        nonlocal active, delivering
+        failure: BaseException | None = None
+        delivering = True
+        try:
+            if on_interrupt is not None:
+                try:
+                    on_interrupt()
+                except BaseException as exc:
+                    failure = exc
+            while deferred:
+                signum = min(deferred)
+                frame = deferred.pop(signum)
+                previous = previous_handlers[signum]
+                try:
+                    if callable(previous):
+                        previous(signum, frame)
+                    else:
+                        # A default disposition must retain its OS semantics. The
+                        # owned child is already closed before restoring it here.
+                        signal.signal(signum, previous)
+                        try:
+                            signal.raise_signal(signum)
+                        finally:
+                            signal.signal(signum, defer)
+                except BaseException as exc:
+                    if failure is None:
+                        failure = exc
+        finally:
+            # Once interruption starts unwinding, late signals must remain deferred
+            # until the caller's finally has closed its group and restored its mask.
+            if failure is not None:
+                active = False
+            delivering = False
+        if failure is not None:
+            raise failure
+
+    def defer(signum: int, frame: object) -> None:
+        deferred[signum] = frame
+        if active and not delivering:
+            deliver()
+
+    def activate() -> None:
+        nonlocal active
+        active = True
+        if deferred:
+            deliver()
 
     try:
         with _cleanup_signal_mask():
@@ -261,42 +308,16 @@ def _spawn_signal_guard(on_interrupt: Callable[[], None] | None = None) -> Itera
                 if previous != signal.SIG_IGN:
                     signal.signal(signum, defer)
                     previous_handlers[signum] = previous
-        yield
+        yield activate
     finally:
-        failure: BaseException | None = None
-        closed = False
-
-        def attempt(action: Callable[[], object]) -> None:
-            nonlocal failure
-            try:
-                action()
-            except BaseException as exc:
-                if failure is None:
-                    failure = exc
-
-        def close_owned() -> None:
-            nonlocal closed
-            if on_interrupt is not None and not closed:
-                closed = True
-                # A restoration-time signal may have already restored one original
-                # handler. Keep any further signal deferred until cleanup finishes.
-                with _spawn_signal_guard():
-                    on_interrupt()
-
-        if deferred or sys.exc_info()[0] is not None:
-            attempt(close_owned)
-        for signum, previous in previous_handlers.items():
-            attempt(lambda signum=signum, previous=previous: signal.signal(signum, previous))
-        if deferred or failure is not None:
-            attempt(close_owned)
-        # Do not queue all signals behind a mask: CPython can raise the second
-        # handler while the first exception is entering the caller's finally.
-        # Synchronous delivery drains each deferred handler, retaining the first
-        # exception until every handler is restored and every signal is delivered.
-        for signum in sorted(deferred):
-            attempt(lambda signum=signum: signal.raise_signal(signum))
-        if failure is not None:
-            raise failure
+        active = False
+        try:
+            if deferred:
+                deliver()
+        finally:
+            with _cleanup_signal_mask():
+                for signum, previous in previous_handlers.items():
+                    signal.signal(signum, previous)
 
 
 def _record_pending(group_id: int) -> None:
@@ -365,8 +386,8 @@ def _run(
             if process is not None and process.pid in _pending_groups:
                 stdout, stderr = _quiesce_group(process, process.pid)
 
-        try:
-            with _spawn_signal_guard(close_spawned_group):
+        with _spawn_signal_guard(close_spawned_group) as activate:
+            try:
                 if _process_owner is not None and not _process_owner.update(
                     "subprocess_spawning", subprocess_quiescent=False
                 ):
@@ -381,21 +402,22 @@ def _run(
                     start_new_session=True,
                 )
                 _record_pending(process.pid)
-            try:
-                stdout, stderr = process.communicate(timeout=timeout)
-                return_code = int(process.returncode)
-            except subprocess.TimeoutExpired:
-                return_code = 124
-        finally:
-            with _cleanup_signal_mask():
+                activate()
                 try:
-                    if process is not None and process.pid in _pending_groups:
-                        stdout, stderr = _quiesce_group(process, process.pid)
-                finally:
-                    if log_path is not None:
-                        raw.flush()
-                        raw.seek(0)
-                        log_path.write_text(_redact_text(raw.read()))
+                    stdout, stderr = process.communicate(timeout=timeout)
+                    return_code = int(process.returncode)
+                except subprocess.TimeoutExpired:
+                    return_code = 124
+            finally:
+                with _cleanup_signal_mask():
+                    try:
+                        if process is not None and process.pid in _pending_groups:
+                            stdout, stderr = _quiesce_group(process, process.pid)
+                    finally:
+                        if log_path is not None:
+                            raw.flush()
+                            raw.seek(0)
+                            log_path.write_text(_redact_text(raw.read()))
         if log_path is not None:
             stdout, stderr = log_path.read_text(errors="replace"), ""
         return subprocess.CompletedProcess(

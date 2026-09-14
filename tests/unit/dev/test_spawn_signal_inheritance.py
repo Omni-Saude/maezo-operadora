@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from scripts.ci import generate_release_floor as floor
 from scripts.dev import run_engine_integration as runner
+
 from tests.support.measurement_python import measurement_python
 
 
@@ -273,3 +274,61 @@ def test_cleanup_failure_retains_priority_and_delivers_cleanup_time_signals() ->
     finally:
         for sig, previous_handler in previous.items():
             signal.signal(sig, previous_handler)
+
+
+@pytest.mark.parametrize("kind", ["floor", "engine"])
+@pytest.mark.parametrize("during_cleanup", [False, True])
+def test_running_and_cleanup_signals_cancel_promptly(
+    kind: str, during_cleanup: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+    import time
+
+    original_communicate = runner.subprocess.Popen.communicate
+    original_quiesce = runner._quiesce_group
+    groups = []
+    sender = None
+    previous = {s: signal.signal(s, runner._signal_handler) for s in (signal.SIGINT, signal.SIGTERM)}
+    before_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+
+    def send() -> None:
+        os.kill(os.getpid(), signal.SIGINT)
+        if not during_cleanup:
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    def communicate(process, *args, **kwargs):
+        nonlocal sender
+        if process.pid in runner._pending_groups and sender is None:
+            groups.append(process.pid)
+            sender = threading.Timer(0.05, send)
+            sender.start()
+        return original_communicate(process, *args, **kwargs)
+
+    def quiesce(process, pgid):
+        if during_cleanup:
+            os.kill(os.getpid(), signal.SIGTERM)
+        return original_quiesce(process, pgid)
+
+    monkeypatch.setattr(runner.subprocess.Popen, "communicate", communicate)
+    monkeypatch.setattr(runner, "_quiesce_group", quiesce)
+    start = time.monotonic()
+    try:
+        with pytest.raises(runner.RunnerInterrupted):
+            _run_probe(kind, tmp_path, "import time; time.sleep(30)")
+        assert time.monotonic() - start < 5
+        assert len(groups) == 1
+        assert not runner._group_exists(groups[0])
+        assert groups[0] not in runner._pending_groups
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == before_mask
+        assert all(signal.getsignal(s) is runner._signal_handler for s in previous)
+    finally:
+        if sender is not None:
+            sender.join(timeout=1)
+        for sig in previous:
+            signal.signal(sig, signal.SIG_IGN)
+        signal.pthread_sigmask(signal.SIG_SETMASK, before_mask)
+        for pgid in groups:
+            if runner._group_exists(pgid):
+                os.killpg(pgid, signal.SIGKILL)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)

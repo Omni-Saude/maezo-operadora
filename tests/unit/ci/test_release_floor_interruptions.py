@@ -40,8 +40,8 @@ def test_measurement_reaps_spawned_group_on_early_interrupt(
         nonlocal entered
         entered += 1
         first = entered == 1
-        with original_guard(*args, **kwargs):
-            yield
+        with original_guard(*args, **kwargs) as activate:
+            yield activate
         if first and boundary == "mask-restoration":
             raise KeyboardInterrupt
 
