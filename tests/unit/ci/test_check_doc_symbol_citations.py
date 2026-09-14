@@ -1028,7 +1028,18 @@ def test_each_exact_historical_exclusion_is_load_bearing(
 def test_real_corpus_reports_nonvacuity_and_all_boundary_counts() -> None:
     result = gate.run_gate(_REPO_ROOT, _REPO_ROOT / "docs" / "adr")
     assert result.ok, result.render()
-    assert result.document_count == 51
+    tracked = (
+        subprocess.check_output(["git", "ls-files", "-z", "--", "docs/adr/"], cwd=_REPO_ROOT)
+        .decode()
+        .split("\0")
+    )
+    canonical_documents = {
+        path
+        for entry in tracked
+        if entry and (path := Path(entry)).parent == Path("docs/adr") and path.suffix == ".md"
+    }
+    assert canonical_documents, "the canonical tracked ADR corpus must not be empty"
+    assert result.document_count == len(canonical_documents)
     assert result.eligible_citation_count > 0
     assert len(result.disclosed) == 7
     assert len(result.ignored) == 2
