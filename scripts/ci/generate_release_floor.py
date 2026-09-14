@@ -84,6 +84,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import signal
 import subprocess
 import sys
 from collections.abc import Sequence
@@ -261,23 +262,31 @@ def _run_unit_measurement(repo_root: Path, python_exe: str) -> subprocess.Comple
     # Reuse the existing owned process-group cleanup, but preserve this lane's exact
     # environment/argv/stdin. The engine runner's _run deliberately changes those.
     command = [python_exe, "-m", "pytest", "tests/", "-q"]
-    with process_groups._cleanup_signal_mask():
-        process = subprocess.Popen(
-            command,
-            cwd=repo_root,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        process_groups._record_pending(process.pid)
+    process: subprocess.Popen[str] | None = None
+    previous_sigterm = signal.signal(signal.SIGTERM, process_groups._signal_handler)
     try:
+        # Protect creation AND registration: restoring the mask can deliver a pending
+        # interrupt before communicate starts, and owner registration can itself fail.
+        with process_groups._cleanup_signal_mask():
+            process = subprocess.Popen(
+                command,
+                cwd=repo_root,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            process_groups._record_pending(process.pid)
         stdout, stderr = process.communicate(timeout=_UNIT_TESTS_TIMEOUT_SECONDS)
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     finally:
-        # Also refuse to leave a child behind when pytest exits before its descendants.
-        process_groups._quiesce_group(process, process.pid)
+        try:
+            with process_groups._cleanup_signal_mask():
+                if process is not None and process.pid in process_groups._pending_groups:
+                    process_groups._quiesce_group(process, process.pid)
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int], int, str]:
