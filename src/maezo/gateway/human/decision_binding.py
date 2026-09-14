@@ -12,7 +12,7 @@ import math
 import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib.resources import files
 from typing import Any, Literal
 
@@ -824,7 +824,8 @@ def binding_columns(q: VerifiedQualification, scope: Scope) -> dict[str, Any]:
         workload_=scope.workload_ref,
         authority_rev_=q.expected_tenant_revision + 1,
         active_=True,
-        valid_until_=int(q.valid_until.timestamp() * 1000),
+        # Native MZO_HUMAN_* deadlines are epoch seconds; floor without float rounding.
+        valid_until_=(q.valid_until - datetime(1970, 1, 1, tzinfo=UTC)) // timedelta(seconds=1),
     )
 
 
@@ -1443,8 +1444,8 @@ class PostgresDecisionBindingSource(DecisionBindingSource):
             source.valid_until,
             resource.classification.valid_until,
             grants[0].valid_until,
-            datetime.fromtimestamp(native["principal_until"] / 1000, UTC),
-            datetime.fromtimestamp(native["evidence_until"] / 1000, UTC),
+            datetime.fromtimestamp(native["principal_until"], UTC),
+            datetime.fromtimestamp(native["evidence_until"], UTC),
         )
         if db.clock() >= until:
             raise BindingUnavailableError()

@@ -2,6 +2,7 @@
 
 import copy
 import ssl
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -535,12 +536,12 @@ def native_context(state, packet):
         subject_=principal.subject,
         membership_revision=4,
         active_=True,
-        principal_until=int(END.timestamp() * 1000),
+        principal_until=int(END.timestamp()),
         groups_='["' + state.required_group + '"]',
         ref_="evidence-1",
         evidence_revision=6,
         digest_="b" * 64,
-        evidence_until=int(END.timestamp() * 1000),
+        evidence_until=int(END.timestamp()),
         process_=e.process_definition_id,
     )
     resource = ResourceProjection(
@@ -623,6 +624,34 @@ async def prepared_source(monkeypatch):
         clock=lambda: state.at,
     )
     return PostgresDecisionBindingSource(reader), state, context, installer, auth, packet, keys
+
+
+@pytest.mark.parametrize("microsecond", [0, 1, 999999])
+async def test_native_binding_deadline_floors_to_seconds_without_extension(microsecond):
+    verifier, authority, packet, _ = fixture()
+    qualified = verifier.verify(packet, authority, NOW)
+    deadline = END.replace(microsecond=microsecond)
+    qualified = qualified.model_copy(update={"valid_until": deadline})
+    row = module.binding_columns(qualified, SCOPE)
+    assert row["valid_until_"] == int(END.timestamp())
+    assert type(row["valid_until_"]) is int
+
+
+@pytest.mark.parametrize(
+    "fields", [("principal_until",), ("evidence_until",), ("principal_until", "evidence_until")]
+)
+@pytest.mark.parametrize("remaining", [-1, 0, 10])
+async def test_native_principal_and_evidence_seconds_bound_current_read(monkeypatch, fields, remaining):
+    source, state, context, *_ = await prepared_source(monkeypatch)
+    deadline = NOW + timedelta(seconds=remaining)
+    for field in fields:
+        state.native[field] = int(deadline.timestamp())
+    if remaining <= 0:
+        with pytest.raises(BindingUnavailableError):
+            await source.qualify(*context)
+    else:
+        value = await source.qualify(*context)
+        assert value.valid_until == deadline
 
 
 async def test_read_source_checks_actual_native_rows_and_returns_existing_reference(monkeypatch):
