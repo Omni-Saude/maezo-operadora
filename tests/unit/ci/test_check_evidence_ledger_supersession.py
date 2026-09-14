@@ -24,6 +24,8 @@ from scripts.ci.check_evidence_ledger_hashes import (
     run_recipe,
 )
 
+from tests.support.measurement_python import measurement_python
+
 HEADER = (
     "# Evidence Ledger\n\n"
     "| Task ID | Date | Author | Verifier | Commit | Evidence | Test hash | Status |\n"
@@ -525,7 +527,10 @@ def test_release_floor_timeout_reaps_the_pytest_descendant_group(
         "time.sleep(30)\n"
     )
     monkeypatch.setattr(generate_release_floor, "_UNIT_TESTS_TIMEOUT_SECONDS", 0.5)
-    counts, returncode, raw = generate_release_floor.measure_unit_tests(tmp_path, sys.executable)
+    counts, returncode, raw = generate_release_floor.measure_unit_tests(
+        tmp_path, measurement_python(tmp_path)
+    )
+    assert (tmp_path / "owned-pgid").exists(), (counts, returncode, raw)
     pgid = int((tmp_path / "owned-pgid").read_text())
     assert not generate_release_floor.process_groups._group_exists(pgid)
     assert pgid not in generate_release_floor.process_groups._pending_groups
@@ -544,7 +549,10 @@ def test_release_floor_measurement_keeps_exact_selector_and_rejects_red_suite(
         "print('1 failed, 25 passed in 0.01s')\n"
         "raise SystemExit(1)\n"
     )
-    counts, returncode, raw = generate_release_floor.measure_unit_tests(tmp_path, sys.executable)
+    counts, returncode, raw = generate_release_floor.measure_unit_tests(
+        tmp_path, measurement_python(tmp_path)
+    )
+    assert (tmp_path / "argv.json").exists(), (counts, returncode, raw)
     assert json.loads((tmp_path / "argv.json").read_text()) == ["tests/", "-q"]
     assert counts == {"failed": 1, "passed": 25} and returncode == 1
     passed, violations = generate_release_floor.evaluate_unit_tests(counts, returncode, raw)

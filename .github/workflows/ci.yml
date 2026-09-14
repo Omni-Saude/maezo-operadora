@@ -155,18 +155,31 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
 
       - name: Install uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
-          version: ${{ env.UV_VERSION }}
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
           cache-dependency-glob: "uv.lock"
 
       - name: Install Python dependencies
         working-directory: .
-        run: uv sync --all-groups --all-extras
+        run: uv sync --locked --all-groups --all-extras
 
       - name: npm ci
         run: npm ci

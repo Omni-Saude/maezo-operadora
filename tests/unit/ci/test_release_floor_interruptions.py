@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 from scripts.ci import generate_release_floor as floor
 
+from tests.support.measurement_python import measurement_python
+
 
 @pytest.mark.parametrize("boundary", ["registration", "mask-restoration"])
 def test_measurement_reaps_spawned_group_on_early_interrupt(
@@ -22,7 +24,7 @@ def test_measurement_reaps_spawned_group_on_early_interrupt(
     (tmp_path / "pytest.py").write_text("import time; time.sleep(30)\n")
     groups: list[int] = []
     original_record = floor.process_groups._record_pending
-    original_mask = floor.process_groups._cleanup_signal_mask
+    original_guard = floor.process_groups._spawn_signal_guard
     previous_handler = signal.getsignal(signal.SIGTERM)
 
     def record(pgid: int) -> None:
@@ -34,17 +36,17 @@ def test_measurement_reaps_spawned_group_on_early_interrupt(
     entered = 0
 
     @contextmanager
-    def mask() -> Iterator[None]:
+    def mask(*args, **kwargs) -> Iterator[None]:
         nonlocal entered
         entered += 1
         first = entered == 1
-        with original_mask():
-            yield
+        with original_guard(*args, **kwargs) as activate:
+            yield activate
         if first and boundary == "mask-restoration":
             raise KeyboardInterrupt
 
     monkeypatch.setattr(floor.process_groups, "_record_pending", record)
-    monkeypatch.setattr(floor.process_groups, "_cleanup_signal_mask", mask)
+    monkeypatch.setattr(floor.process_groups, "_spawn_signal_guard", mask)
     with pytest.raises(RuntimeError if boundary == "registration" else KeyboardInterrupt):
         floor._run_unit_measurement(tmp_path, sys.executable)
     assert len(groups) == 1
@@ -60,10 +62,10 @@ def test_real_sigterm_reaps_measurement_group(tmp_path: Path) -> None:
     code = (
         "import pathlib,sys\n"
         "from scripts.ci.generate_release_floor import _run_unit_measurement\n"
-        "_run_unit_measurement(pathlib.Path(sys.argv[1]), sys.executable)\n"
+        "_run_unit_measurement(pathlib.Path(sys.argv[1]), sys.argv[2])\n"
     )
     parent = subprocess.Popen(
-        [sys.executable, "-c", code, str(tmp_path)],
+        [sys.executable, "-c", code, str(tmp_path), measurement_python(tmp_path)],
         cwd=Path(__file__).resolve().parents[3],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

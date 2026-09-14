@@ -264,29 +264,32 @@ def _run_unit_measurement(repo_root: Path, python_exe: str) -> subprocess.Comple
     command = [python_exe, "-m", "pytest", "tests/", "-q"]
     process: subprocess.Popen[str] | None = None
     previous_sigterm = signal.signal(signal.SIGTERM, process_groups._signal_handler)
+
+    def close_spawned_group() -> None:
+        if process is not None and process.pid in process_groups._pending_groups:
+            process_groups._quiesce_group(process, process.pid)
+
     try:
-        # Protect creation AND registration: restoring the mask can deliver a pending
-        # interrupt before communicate starts, and owner registration can itself fail.
-        with process_groups._cleanup_signal_mask():
-            process = subprocess.Popen(
-                command,
-                cwd=repo_root,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                stdin=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            process_groups._record_pending(process.pid)
-        stdout, stderr = process.communicate(timeout=_UNIT_TESTS_TIMEOUT_SECONDS)
-        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+        with process_groups._spawn_signal_guard(close_spawned_group) as activate:
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=repo_root,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                process_groups._record_pending(process.pid)
+                activate()
+                stdout, stderr = process.communicate(timeout=_UNIT_TESTS_TIMEOUT_SECONDS)
+                return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+            finally:
+                with process_groups._cleanup_signal_mask():
+                    close_spawned_group()
     finally:
-        try:
-            with process_groups._cleanup_signal_mask():
-                if process is not None and process.pid in process_groups._pending_groups:
-                    process_groups._quiesce_group(process, process.pid)
-        finally:
-            signal.signal(signal.SIGTERM, previous_sigterm)
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int], int, str]:
