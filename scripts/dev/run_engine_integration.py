@@ -232,7 +232,11 @@ def _cleanup_signal_mask() -> Iterator[None]:
 
 
 @contextmanager
-def _spawn_signal_guard(on_interrupt: Callable[[], None] | None = None) -> Iterator[Callable[[], None]]:
+def _spawn_signal_guard(
+    on_interrupt: Callable[[], None] | None = None,
+    *,
+    handlers: Mapping[int, Any] | None = None,
+) -> Iterator[Callable[[], None]]:
     """Protect the complete owned-child lifetime without changing its signal mask.
 
     Call the yielded activation function after Popen assignment and registration.
@@ -244,38 +248,48 @@ def _spawn_signal_guard(on_interrupt: Callable[[], None] | None = None) -> Itera
     The caller's finally must quiesce its child INSIDE this scope. Original handlers
     restore only after that cleanup, never while a normally owned child remains live.
     Caught handlers reset on exec; ignored dispositions and preexisting masks stay
-    unchanged. Like CLI signal setup, this guard requires the main Python thread.
+    unchanged. Optional handler overrides restore the caller's original dispositions
+    inside this same scope. A nonraising custom handler still cancels the owned child;
+    the caller receives its resulting exit status. Cleanup refusal takes precedence
+    over fatal default delivery. Like CLI signal setup, this requires the main thread.
     """
     previous_handlers: dict[int, Any] = {}
+    dispatch_handlers: dict[int, Any] = {}
     deferred: dict[int, Any] = {}
     active = False
     delivering = False
+    cleanup_failure: BaseException | None = None
 
-    def deliver() -> None:
-        nonlocal active, delivering
-        failure: BaseException | None = None
+    def deliver(*, restoring: bool = False) -> None:
+        nonlocal active, delivering, cleanup_failure
+        failure = cleanup_failure
         delivering = True
         try:
             if on_interrupt is not None:
                 try:
                     on_interrupt()
                 except BaseException as exc:
-                    failure = exc
+                    if cleanup_failure is None:
+                        cleanup_failure = exc
+                    failure = cleanup_failure
             while deferred:
                 signum = min(deferred)
                 frame = deferred.pop(signum)
-                previous = previous_handlers[signum]
+                previous = (previous_handlers if restoring else dispatch_handlers)[signum]
                 try:
                     if callable(previous):
                         previous(signum, frame)
-                    else:
-                        # A default disposition must retain its OS semantics. The
-                        # owned child is already closed before restoring it here.
+                    elif failure is None:
+                        # Cleanup refusal takes precedence over a fatal default:
+                        # otherwise the parent would die and hide the owned PGID.
+                        # A default disposition retains its OS semantics only once
+                        # the owned child has been closed successfully.
                         signal.signal(signum, previous)
                         try:
                             signal.raise_signal(signum)
                         finally:
-                            signal.signal(signum, defer)
+                            if not restoring:
+                                signal.signal(signum, defer)
                 except BaseException as exc:
                     if failure is None:
                         failure = exc
@@ -305,19 +319,43 @@ def _spawn_signal_guard(on_interrupt: Callable[[], None] | None = None) -> Itera
                 previous = signal.getsignal(signum)
                 if previous is None:
                     raise RunnerError("spawn signal handler cannot be restored")
-                if previous != signal.SIG_IGN:
+                dispatch = handlers.get(signum, previous) if handlers is not None else previous
+                if dispatch != signal.SIG_IGN:
                     signal.signal(signum, defer)
                     previous_handlers[signum] = previous
+                    dispatch_handlers[signum] = dispatch
         yield activate
     finally:
         active = False
+        body_error = sys.exc_info()[1]
+        if cleanup_failure is None and isinstance(body_error, ProcessGroupCleanupError):
+            cleanup_failure = body_error
+        failure = cleanup_failure
         try:
             if deferred:
                 deliver()
+        except BaseException as exc:
+            if failure is None:
+                failure = exc
         finally:
-            with _cleanup_signal_mask():
-                for signum, previous in previous_handlers.items():
+            # Keep deferrers through the caller's cleanup-mask restoration. Do NOT
+            # block signals while restoring original handlers: that creates a batch
+            # of raising Python handlers when the mask is lifted. Each restoration
+            # and each captured delivery completes before its exception propagates.
+            for signum, previous in previous_handlers.items():
+                try:
                     signal.signal(signum, previous)
+                except BaseException as exc:
+                    if failure is None:
+                        failure = exc
+            if deferred:
+                try:
+                    deliver(restoring=True)
+                except BaseException as exc:
+                    if failure is None:
+                        failure = exc
+        if failure is not None:
+            raise failure
 
 
 def _record_pending(group_id: int) -> None:
