@@ -6,16 +6,56 @@ import org.cibseven.bpm.engine.impl.bpmn.parser.AbstractBpmnParseListener;
 import org.cibseven.bpm.engine.impl.migration.instance.MigratingActivityInstance;
 import org.cibseven.bpm.engine.impl.migration.instance.parser.MigratingInstanceParseContext;
 import org.cibseven.bpm.engine.impl.persistence.entity.ExecutionEntity;
+import org.cibseven.bpm.engine.impl.persistence.entity.ProcessDefinitionEntity;
+import org.cibseven.bpm.engine.impl.core.variable.mapping.*;
+import org.cibseven.bpm.engine.impl.core.variable.scope.AbstractVariableScope;
 import org.cibseven.bpm.engine.impl.pvm.delegate.ActivityExecution;
 import org.cibseven.bpm.engine.impl.pvm.process.ActivityImpl;
 import org.cibseven.bpm.engine.impl.pvm.process.ScopeImpl;
+import org.cibseven.bpm.engine.impl.pvm.process.TransitionImpl;
+import org.cibseven.bpm.engine.delegate.ExecutionListener;
 import org.cibseven.bpm.engine.impl.util.xml.Element;
 
 /** CIB2.1 post-parse behavior wrapper: capture after actual native external-task insertion. */
 final class ConsumerTaskListener extends AbstractBpmnParseListener {
+  @Override public void parseUserTask(Element element,ScopeImpl scope,ActivityImpl activity){
+    activity.addListener("end",(ExecutionListener)value->ConsumerContinuation.ended((ExecutionEntity)value));
+  }
+  @Override public void parseSequenceFlow(Element element,ScopeImpl scope,TransitionImpl transition){
+    transition.addListener("take",(ExecutionListener)value->ConsumerContinuation.taken((ExecutionEntity)value));
+  }
   @Override public void parseServiceTask(Element element,ScopeImpl scope,ActivityImpl activity){
-    if(activity.getActivityBehavior() instanceof ExternalTaskActivityBehavior original)
+    if(activity.getActivityBehavior() instanceof ExternalTaskActivityBehavior original){
+      activity.addListener("start",(ExecutionListener)value->ConsumerContinuation.started((ExecutionEntity)value));
       activity.setActivityBehavior(new LinkedBehavior(original));
+    }
+  }
+  @Override public void parseProcess(Element element,ProcessDefinitionEntity definition){
+    decorateMappings(definition);
+  }
+  private static void decorateMappings(ScopeImpl scope){
+    // Native parseScope (including IO and boundary scope flags) has already finished.
+    for(var activity:scope.getActivities()) {
+      if(activity.isScope() && activity.getActivityBehavior() instanceof ExternalTaskActivityBehavior)
+        activity.setIoMapping(new ArrivalMapping(activity.getIoMapping()));
+      decorateMappings(activity);
+    }
+  }
+  static final class ArrivalMapping extends IoMapping {
+    private final IoMapping original;
+    ArrivalMapping(IoMapping original){this.original=original==null?new IoMapping():original;}
+    @Override public void executeInputParameters(AbstractVariableScope scope){
+      original.executeInputParameters(scope);
+      ConsumerLineage.require(scope instanceof ExecutionEntity);
+      ConsumerContinuation.arriving((ExecutionEntity)scope);
+    }
+    @Override public void executeOutputParameters(AbstractVariableScope scope){original.executeOutputParameters(scope);}
+    @Override public List<InputParameter> getInputParameters(){return original.getInputParameters();}
+    @Override public List<OutputParameter> getOutputParameters(){return original.getOutputParameters();}
+    @Override public void addInputParameter(InputParameter value){original.addInputParameter(value);}
+    @Override public void addOutputParameter(OutputParameter value){original.addOutputParameter(value);}
+    @Override public void setInputParameters(List<InputParameter> values){original.setInputParameters(values);}
+    @Override public void setOuputParameters(List<OutputParameter> values){original.setOuputParameters(values);}
   }
   private static final class LinkedBehavior extends ExternalTaskActivityBehavior {
     private final ExternalTaskActivityBehavior original;

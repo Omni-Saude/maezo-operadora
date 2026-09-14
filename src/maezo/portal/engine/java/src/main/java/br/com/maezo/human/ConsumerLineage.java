@@ -101,39 +101,36 @@ public final class ConsumerLineage {
         command.tenant(),scopeHash(s),execution.getId(),command.taskId(),command.commandId())==1);
     context.getTransactionContext().addTransactionListener(org.cibseven.bpm.engine.impl.cfg.TransactionState.COMMITTING,
         ignored->qualified.requireCurrent(context));
+    ConsumerContinuation.seed(context,execution,pointer,target,qualified.continuationPath(context,target,command.classified().outcome()));
     return qualified;
   }
 
-  /** Actual native execution ancestry only. Called after the delegated CIB creation behavior. */
+  /** Exact witnessed native continuation. Called after delegated CIB creation in the same command. */
   static void created(ExecutionEntity execution,ExternalTaskEntity task) {
     var context=Context.getCommandContext();require(context!=null);
     String tenant=task.getTenantId();
     if(!expectedEdge(task.getProcessDefinitionKey(),task.getTopicName()))return;
     var qualified=ConsumerEdgeInstallation.current(context,tenant);
     var db=new EngineStore(context,tenant);String scope=scopeHash(qualified.scope());
-    List<Map<String,Object>> ancestors=new ArrayList<>();Set<String> seen=new HashSet<>();
-    for(ExecutionEntity current=execution;current!=null;current=current.getParent()) {
-      require(seen.add(current.getId()) && seen.size()<=32);
-      require(task.getProcessInstanceId().equals(current.getProcessInstanceId()));
-      var found=db.rows("SELECT P.* FROM MZO_HUMAN_CONSUMER_POINTER_HEAD H JOIN MZO_HUMAN_CONSUMER_POINTER P ON P.TENANT_=H.TENANT_ AND P.TASK_=H.TASK_ AND P.COMMAND_=H.COMMAND_ WHERE H.TENANT_=? AND H.SCOPE_DIGEST_=? AND H.EXECUTION_=?",
-          tenant,scope,current.getId());
-      ancestors.addAll(found);
-    }
+    var witnessed=ConsumerContinuation.consume(execution);
+    var ancestors=db.rows("SELECT * FROM MZO_HUMAN_CONSUMER_POINTER WHERE TENANT_=? AND SCOPE_DIGEST_=? AND TASK_=? AND COMMAND_=? AND EXECUTION_=?",
+        tenant,scope,witnessed.get("original_task_id"),witnessed.get("command_ref"),witnessed.get("execution_id"));
     require(ancestors.size()==1);
     var row=ancestors.get(0);require(((Number)row.get("generation_")).longValue()==qualified.generation());
     var pointer=object(((String)row.get("pointer_")).getBytes(StandardCharsets.UTF_8));
-    require(task.getProcessDefinitionId().equals(pointer.get("process_definition_id"))
+    require(pointer.equals(witnessed) && task.getProcessDefinitionId().equals(pointer.get("process_definition_id"))
         && task.getProcessInstanceId().equals(pointer.get("process_instance_id"))
         && scope.equals(pointer.get("scope_digest")));
     var target=qualified.target(task.getProcessDefinitionId(),ref(pointer,"original_task_key"));
     var edge=qualified.edge(target,ref(pointer,"outcome"),task.getActivityId(),task.getTopicName());
     Map<String,Object> link=new TreeMap<>(pointer);link.remove("outcome");
-    // Link execution is the actual descendant execution, not a copied original execution.
+    // Link execution is the actual consumer; the immutable pointer retains the original scope.
     link.put("execution_id",task.getExecutionId());link.put("external_task_id",task.getId());link.put("activity_id",task.getActivityId());
     var value=link(link);
     require(db.update("INSERT INTO MZO_HUMAN_CONSUMER_LINK(TENANT_,SCOPE_DIGEST_,EXTERNAL_TASK_,TASK_,COMMAND_,GENERATION_,LINK_,LINK_DIGEST_,CONSUMER_KIND_,CONSUMER_DIGEST_,OUTCOME_) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         tenant,scope,task.getId(),pointer.get("original_task_id"),pointer.get("command_ref"),qualified.generation(),
         text(Jcs.canonical(value)),linkHash(value),edge.get("consumer_kind"),target.get("consumer_digest"),pointer.get("outcome"))==1);
+    ConsumerContinuation.linked(execution);
     context.getTransactionContext().addTransactionListener(org.cibseven.bpm.engine.impl.cfg.TransactionState.COMMITTING,
         ignored->qualified.requireCurrent(context));
   }
