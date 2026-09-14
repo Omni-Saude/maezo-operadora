@@ -3,9 +3,11 @@
         verify-amh-contract-pin \
         check-alert-runbook-urls \
         check-plans-counts \
+        check-doc-symbol-citations \
         xfail-census-check xfail-census-write \
         deviation-expiry-check \
         check-lifecycle-expected-fail-expiry \
+        check-d7-xfail-expiry \
         check-ledger-hashes check-ledger-row-cell-count \
         check-phi-scrub-prereqs \
         release-floor-check release-floor-write \
@@ -19,19 +21,19 @@ setup:            ## instala deps de dev
 	uv sync --extra dev
 
 lint:
-	uv run ruff check src tests && uv run ruff format --check src tests
+	.venv/bin/ruff check src tests && .venv/bin/ruff format --check src tests
 
 type:
-	uv run mypy
+	.venv/bin/mypy
 
 test:             ## unit + invariantes de arquitetura (rapido, sem engine)
-	uv run python -m pytest tests/ -q
+	.venv/bin/python -m pytest tests/ -q -m "not integration"
 
 test-integration: ## contra engine real (docker compose up antes)
-	uv run python -m pytest tests/integration -q -m integration
+	.venv/bin/python -m pytest tests/ -q -m "integration and not chaos"
 
 evals:            ## golden datasets por agente (gate de promocao de prompt/modelo)
-	uv run python -m pytest tests/evals -q -m eval || [ $$? -eq 5 ]  # exit 5 = nenhum eval coletado ainda (scaffold); vira erro quando o 1o golden dataset entrar
+	.venv/bin/python -m pytest tests/evals -q -m eval || [ $$? -eq 5 ]  # exit 5 = nenhum eval coletado ainda (scaffold); vira erro quando o 1o golden dataset entrar
 
 validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
 	# T2.1: validate_artifacts() is now a real, fail-closed gate (XML/YAML parsing,
@@ -49,24 +51,24 @@ validate-artifacts: ## BPMN/DMN/policies/agent-definitions (blocker de CI)
 # src/maezo/processes and src/maezo/policies paths never existed (T0.4). Pointer
 # repair only. Real fail-closed validation since T2.1; orphans governed by
 # spec/processes/dmn/orphans-allowlist.yaml.
-	uv run python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents
+	.venv/bin/python -m maezo.platform.validation.cli validate spec/processes spec/policies spec/agents
 
 validate-signoff: ## gate de promocao de conteudo: artefato promovivel exige sign-off humano (Track C2)
-	uv run python -m maezo.platform.validation.cli signoff
+	.venv/bin/python -m maezo.platform.validation.cli signoff
 
 check-bpmn-error-allowlist: ## ADR-0030 §2: prova que todo WorkerBpmnError raised e um boundary code consumption-covered no spec (gate boundary-proof)
 	# Computa de spec/** o conjunto de (topic, errorCode) em external tasks e verifica cada
 	# `raise WorkerBpmnError(code)` dos workers contra o criterio consumption-covered (b1/b2).
 	# FALHA em raise nao-coberto/nao-catalogado; clausula (c) dead-model e warn-only no Tier-0..2
 	# (F5) — `--strict-dead-models` endurece para FALHA no fecho do Tier-3.
-	uv run python scripts/ci/check_bpmn_error_allowlist.py
+	.venv/bin/python scripts/ci/check_bpmn_error_allowlist.py
 
 check-alert-runbook-urls: ## D12-01-b / R-007: toda regra alert: de alert-rules.yml carrega annotations.runbook_url resolvivel no repo
 	# Falha se uma regra `alert:` nao tem `runbook_url`, se o caminho apontado nao existe no
 	# repositorio, ou se a ancora `#anchor` (quando presente) nao bate com nenhum titulo real do
 	# arquivo-alvo. Regras `record:` (ex.: maezo_dead_letter_derived, ALERTS-WITHOUT-METRICS-b)
 	# nao paginam ninguem e sao ignoradas por design.
-	uv run python scripts/ci/check_alert_runbook_urls.py
+	.venv/bin/python scripts/ci/check_alert_runbook_urls.py
 
 check-plans-counts: ## AF-06: contagens declaradas em PLANS.md (ADRs numerados / ADRs (nao ...) / arquivos incl. README+template / linhas de tool_registry.py) reconciliam com a arvore real
 	# PLANS.md declara em prosa quantas contagens o repo tem, em quatro formas (paragrafo "fonte de
@@ -78,7 +80,16 @@ check-plans-counts: ## AF-06: contagens declaradas em PLANS.md (ADRs numerados /
 	# historica preservada de §3, deliberadamente fora de escopo) e falha se qualquer uma delas
 	# divergir; zero alegacoes encontradas -> PASSA mas sempre imprime a contagem explicita (nunca
 	# verde silencioso).
-	uv run python scripts/ci/check_plans_counts.py
+	.venv/bin/python scripts/ci/check_plans_counts.py
+
+check-doc-symbol-citations: ## R-089: path::symbol / ImportFrom quotado / path:line em docs/adr/*.md vinculam-se a arvore rastreada
+	# Paths qualificados nao caem para basenames; modulos Python vinculam exatamente a .py ou
+	# package __init__.py; ImportFrom usa AST (parenteses/multilinha/aliases); nomes Python respeitam
+	# escopo lexico e IDs BPMN/DMN vem de XML parseado. `path:line` sempre verifica a existencia do
+	# arquivo, inclusive com anchor; o numero continua informativo. Elipses e docs locais ignorados
+	# aparecem em contagens/razoes separadas. Corpus vazio/sem citacao elegivel falha. As 7 excecoes
+	# exatas (1 tool-wiring + 4 inbound + 2 cross-repo) continuam finitas e auto-verificadas.
+	.venv/bin/python scripts/ci/check_doc_symbol_citations.py
 
 check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_instance fora do allowlist da fence (ADR-0007/T-C2)
 	# AST-scan repo-wide de src/maezo: `start_process_idempotent` (mcp_cibseven/transport.py:1052)
@@ -86,7 +97,7 @@ check-start-process-fence: ## T3.4 F1: nenhuma chamada direta a start_process_in
 	# business_key). Uma chamada direta a `transport.start_process_instance(...)` (ou um POST
 	# hand-rolled a /process-definition/key/{key}/start) fora do allowlist pinado (a propria
 	# transport.py + o decorator cibseven_engine.py) falha o gate, apontando para a fence.
-	uv run python scripts/ci/check_start_process_fence.py
+	.venv/bin/python scripts/ci/check_start_process_fence.py
 
 effect-chokepoint-fence: ## Onda 1 design §8: chokepoint de efeitos INEVITAVEL — construcao crua/import de politica/duplo de teste fora do registry falha o gate
 	# AST-scan repo-wide de src/maezo (design §8.1-8.4) + completude contra o catalogo/manifesto
@@ -101,7 +112,7 @@ effect-chokepoint-fence: ## Onda 1 design §8: chokepoint de efeitos INEVITAVEL 
 	# disclosed mcp-memory.read_write), catalogo<->manifesto batem, e as 15 classes tem forma de
 	# recusa declarada + teste de mutacao (ladder do design §6.1). O fence de start-process
 	# (T3.4 F1) permanece separado e inalterado — protege um invariante diferente.
-	uv run python scripts/ci/check_effect_chokepoint_fence.py
+	.venv/bin/python scripts/ci/check_effect_chokepoint_fence.py
 
 verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do contrato AMH intacto, completo e nao-regressivo
 	# XRD-04 verbatim: "Digest divergente, schema ausente, topico errado ou versao rebaixada falham
@@ -112,7 +123,7 @@ verify-amh-contract-pin: ## ADR-0037 XRD-04 (MZO-010/XRG-3): pin imutavel do con
 	# 3 version-IDs Glue, envelope de 28 campos na ordem congelada, vocabulario source_product fechado).
 	# stdlib-only e SEM rede — verifica bytes que ja estao na arvore. Modos de steward (--candidate,
 	# --manifest) em `python scripts/ci/verify_amh_contract_pin.py --help`.
-	uv run python scripts/ci/verify_amh_contract_pin.py
+	.venv/bin/python scripts/ci/verify_amh_contract_pin.py
 
 xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/xfail-census.json + PLANS.md (gate de drift)
 	# Re-deriva do AST de tests/integration/processes/ todo marcador `@pytest.mark.xfail(reason=_*_REASON,
@@ -122,10 +133,10 @@ xfail-census-check: ## Onda 0 §0.8: censo de strict-xfail GERADO bate com docs/
 	# PLANS.md (§0.5.3, entre marcadores <!-- xfail-census:*:begin/end -->). Drift em qualquer um -> FALHA
 	# com diff preciso. Corrige o achado W5 do §0.8 (censo real 22 != PLANS 24 != handoff.yaml na mesma
 	# semana) tornando o numero um artefato gerado, nunca mais recontado a mao.
-	uv run python scripts/ci/generate_xfail_census.py --check
+	.venv/bin/python scripts/ci/generate_xfail_census.py --check
 
 xfail-census-write: ## Onda 0 §0.8: regenera docs/xfail-census.json + a regiao gerenciada de PLANS.md
-	uv run python scripts/ci/generate_xfail_census.py --write
+	.venv/bin/python scripts/ci/generate_xfail_census.py --write
 
 deviation-expiry-check: ## PLANS §0.8 (2a leva Q-2/Q-10): desvio de sombra ratificado nao pode passar do prazo dele
 	# O dono ratificou em 2026-08-13 que os dois `shadow` sobreviventes seguem em sombra COM owner
@@ -138,7 +149,7 @@ deviation-expiry-check: ## PLANS §0.8 (2a leva Q-2/Q-10): desvio de sombra rati
 	# SEM RENOVACAO SILENCIOSA: sair do vermelho e ou virar o valor, ou o dono re-ratificar um desvio
 	# NOVO E DATADO em PR de dados sob CODEOWNERS (disciplina Q-1) — e esse PR e verde por construcao,
 	# porque o gate le as datas da arvore em teste. `--today YYYY-MM-DD` simula qualquer data.
-	uv run python scripts/ci/check_deviation_expiry.py
+	.venv/bin/python scripts/ci/check_deviation_expiry.py
 
 check-lifecycle-expected-fail-expiry: ## R-040/SC-07: marcador expected-fail-until dos CronJobs de ciclo de vida nao pode vencer em silencio
 	# O dono ratificou (2026-09-04) a anotacao `maezo.io/expected-fail-until` nos 3 CronJobs de
@@ -153,7 +164,19 @@ check-lifecycle-expected-fail-expiry: ## R-040/SC-07: marcador expected-fail-unt
 	# no template deixava values.yaml, o `unless` do alerta e `helm lint --strict` todos verdes.
 	# EXIGE `helm` no PATH (>=3.15, o mesmo binario de `make helm-lint`): a ausencia e' FALHA
 	# explicita, nunca skip.
-	uv run python scripts/ci/check_lifecycle_expected_fail_expiry.py
+	.venv/bin/python scripts/ci/check_lifecycle_expected_fail_expiry.py
+
+check-d7-xfail-expiry: ## DONO 2026-09-12 (override V6-Q6): os 2 xfail estritos do catalogo D7 nao podem vencer em silencio
+	# O dono manteve o catalogo D7 (D7unit802 em D7_CATALOG) em vez de excluir a entrada, com a
+	# MESMA disciplina de check_deviation_expiry.py/check_lifecycle_expected_fail_expiry.py: os 2
+	# testes que provam a entrada insatisfazivel em main (R1 test_historical_async_recipe.py,
+	# R2 test_ledger_invalid_declarations.py) viram xfail(strict=True) datado ate 2026-11-11, e
+	# este gate le o marcador de CADA teste rastreado via AST (nunca YAML/prosa) e reprova a build
+	# a partir do dia seguinte ao prazo, ou se o marcador sumir, perder o strict=True, ou a data no
+	# reason= divergir da rastreada em TRACKED_XFAILS. `--today YYYY-MM-DD` simula qualquer data.
+	# SEM RENOVACAO SILENCIOSA: sair do vermelho exige um catalogo D7 derivado de main (WP novo) ou
+	# re-ratificacao do dono em PR revisado que atualize a data em AMBOS os lugares.
+	.venv/bin/python scripts/ci/check_d7_xfail_expiry.py
 
 check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das linhas NOVAS de docs/evidence-ledger.md que declaram caminho
 	# Uma linha nova opta em ser verificavel por maquina declarando, dentro da propria celula de
@@ -171,7 +194,7 @@ check-ledger-hashes: ## LEDGER-HASH-RECOMPUTE-CHECK: recomputa o Test-hash das l
 	# verificar -> PASSA, mas sempre imprime a contagem explicita (nunca verde silencioso).
 	# `--all` (uso local apenas) verifica toda linha declarada do ledger atual, ignorando o
 	# intervalo base..HEAD.
-	uv run python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md
+	.venv/bin/python scripts/ci/check_evidence_ledger_hashes.py --ledger-path docs/evidence-ledger.md
 
 check-ledger-row-cell-count: ## LEDGER-ROW-CELL-COUNT: toda linha NOVA de docs/evidence-ledger.md bate a contagem de celulas do cabecalho da tabela
 	# Uma linha com `|` nao escapado dentro de uma celula (a convencao e' `\|` — ja documentada no
@@ -183,13 +206,13 @@ check-ledger-row-cell-count: ## LEDGER-ROW-CELL-COUNT: toda linha NOVA de docs/e
 	# gatekeeper de reembolso); o gate falha so numa linha NOVA malformada, nunca nas antigas.
 	# `--all` (uso local apenas) verifica toda linha do ledger atual com numero de linha real —
 	# usado para gerar o inventario de review-queue das 30 linhas legadas, nunca para gate de CI.
-	uv run python scripts/ci/check_ledger_row_cell_count.py --ledger-path docs/evidence-ledger.md
+	.venv/bin/python scripts/ci/check_ledger_row_cell_count.py --ledger-path docs/evidence-ledger.md
 
 check-phi-scrub-prereqs: ## R-009: valida manifesto, promocao e referencias dos pre-requisitos
 	# Build estrito antes do loader canonico; referencia nao prova segredo provisionado.
-	uv run ruff check scripts/ci/check_phi_scrub_prereqs.py
-	uv run ruff format --check scripts/ci/check_phi_scrub_prereqs.py
-	uv run python scripts/ci/check_phi_scrub_prereqs.py
+	.venv/bin/ruff check scripts/ci/check_phi_scrub_prereqs.py
+	.venv/bin/ruff format --check scripts/ci/check_phi_scrub_prereqs.py
+	.venv/bin/python scripts/ci/check_phi_scrub_prereqs.py
 
 release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
 	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de
@@ -205,10 +228,14 @@ release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO d
 	# antes de confiar em qualquer medicao real. `--write` (release-floor-write) refaz o floor
 	# comitado a partir da arvore atual — recusa escrever se algum fence estiver falhando ou a suite
 	# unitaria estiver vermelha.
-	uv run python scripts/ci/generate_release_floor.py --check
+ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR
+	env -u MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR .venv/bin/python scripts/ci/generate_release_floor.py --check --unit-evidence-dir "$$MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR"
+else
+	.venv/bin/python scripts/ci/generate_release_floor.py --check
+endif
 
 release-floor-write: ## Audit §5 (W-fillers): regenera docs/release-capability-floor.json a partir da arvore atual
-	uv run python scripts/ci/generate_release_floor.py --write
+	.venv/bin/python scripts/ci/generate_release_floor.py --write
 
 deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idempotente; requer `make dev-stack` de pe)
 	# T1.3: POST /deployment/create multipart (enable-duplicate-filtering + deploy-changed-only)
@@ -216,7 +243,7 @@ deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idemp
 	# spec/ e a fonte unica de verdade — deploya DIRETO de spec/processes/, nunca copia artefato
 	# para outro lugar. Fail-closed: qualquer rejeicao do engine (BPMN/DMN invalido, HTTP nao-2xx)
 	# sai non-zero com o corpo de erro do engine verbatim — ver src/maezo/platform/deploy/engine_deploy.py.
-	uv run python -m maezo.platform.deploy
+	.venv/bin/python -m maezo.platform.deploy
 
 dev-stack:
 	docker compose --profile core up -d
@@ -270,7 +297,7 @@ check-helm-entrypoints: ## AF-01/R-001: todo `python -m maezo.<modulo>` que o ch
 	# subprocess) e tests/unit/ci/test_check_helm_entrypoints.py para a prova de mutacao (chart real
 	# com os dois bridges forcados de volta a `enabled: true` via --set -> vermelho nomeando os dois
 	# modulos fantasma).
-	uv run python scripts/ci/check_helm_entrypoints.py
+	.venv/bin/python scripts/ci/check_helm_entrypoints.py
 
 check-chart-env-reconciliation: ## DU-02/R-002: toda env declarada no chart/TF (prefixos MAEZO_/WHATSAPP_/CIBSEVEN_/KAFKA_) e' lida em src/, e vice-versa para o que os entrypoints EXIGEM
 	# Reconcilia (1) nome de env declarado em deploy/helm/** (renderizado) + deploy/**/*.tf contra
@@ -281,4 +308,4 @@ check-chart-env-reconciliation: ## DU-02/R-002: toda env declarada no chart/TF (
 	# de processo de TERCEIROS que o proprio deploy declara mas nenhum modulo Python le (o broker
 	# Kafka em service-kafka.tf, o Spring datasource do CIB Seven em statefulset-cibseven.yaml) — ver
 	# scripts/ci/check_chart_env_reconciliation.py para o desenho + a lista exata.
-	uv run python scripts/ci/check_chart_env_reconciliation.py
+	.venv/bin/python scripts/ci/check_chart_env_reconciliation.py
