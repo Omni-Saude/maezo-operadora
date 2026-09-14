@@ -793,7 +793,6 @@ jobs:
     # to be waved through by raising the number.
     timeout-minutes: 150
     # Sem "test coverage illusion": testes de integracao rodam contra engine REAL.
-    needs: [quality]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     # `pull-requests: read` is for dorny/paths-filter's listFiles fallback — same reason and
     # same minimum as the `evals` job below; `contents: read` restates the workflow default.
