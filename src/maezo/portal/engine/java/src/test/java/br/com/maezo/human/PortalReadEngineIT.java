@@ -35,8 +35,10 @@ class PortalReadEngineIT {
     if (h != null)
       h.close();
   }
-  @Test
-  void realMineTeamAndOriginalSnapshotContinuity() throws Exception {
+  @ParameterizedTest
+  @ValueSource(ints = {0, 248, 252})
+  void realMineTeamAndOriginalSnapshotContinuity(int firstByte) throws Exception {
+    h.requestFirstByte = firstByte;
     String first = h.task(false), second = h.task(false), third = h.task(false);
     h.engine.getTaskService().setAssignee(first, "human-1");
     h.engine.getTaskService().setAssignee(second, "human-2");
