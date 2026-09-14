@@ -35,7 +35,9 @@ class ConsumerContinuationTest {
   }
   ExecutionEntity entity(String id) {
     var value=new ExecutionEntity();value.setId(id);value.setTenantId("tenant");
-    value.setProcessDefinition(definition);return value;
+    value.setProcessDefinition(definition);
+    // Finite native-object vectors own their child lists; no lazy database tree is present.
+    value.setExecutions(new ArrayList<>());return value;
   }
   @AfterEach void stop(){Context.removeCommandContext();Context.removeProcessEngineConfiguration();}
   void seed(){ConsumerContinuation.seed(context,execution,pointer,target,selectedIds);}
