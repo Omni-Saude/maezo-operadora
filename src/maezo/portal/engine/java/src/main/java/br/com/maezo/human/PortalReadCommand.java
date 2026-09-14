@@ -148,7 +148,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
         admission.capabilityDigest(), admission.observedAt(), admission.validUntil());
     ceiling("requester_key", envelope.key().id(), "0", envelope.key().fingerprint(),
         envelope.key().notBefore(), envelope.key().notAfter());
-    ceiling("request_envelope", str(envelope.request(), "request_id"), "0", envelope.digest(),
+    ceiling("request_envelope", "request:" + str(envelope.request(), "request_id"), "0", envelope.digest(),
         envelope.issued(), envelope.expires());
     ceiling("native_key", key.id, key.generation, key.digest, key.notBefore, key.notAfter);
   }
