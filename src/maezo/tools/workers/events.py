@@ -301,7 +301,9 @@ def make_publish_event_handler(
                 payload[var_name] = task.variables[var_name]
 
         is_ans_timer_fact = (
-            (task.process_definition_key, task.activity_id) in _ANS_TIMER_PUBLICATION_SOURCES
+            type(task.process_definition_key) is str
+            and type(task.activity_id) is str
+            and (task.process_definition_key, task.activity_id) in _ANS_TIMER_PUBLICATION_SOURCES
             and task.topic == "operadora.events.publish"
             and event_topic == "operadora.notifications.internal"
             and event_type == _ANS_CRON_DUE_EVENT_TYPE
