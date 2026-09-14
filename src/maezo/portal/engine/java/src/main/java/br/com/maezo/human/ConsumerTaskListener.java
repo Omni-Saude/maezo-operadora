@@ -9,13 +9,23 @@ import org.cibseven.bpm.engine.impl.persistence.entity.ExecutionEntity;
 import org.cibseven.bpm.engine.impl.pvm.delegate.ActivityExecution;
 import org.cibseven.bpm.engine.impl.pvm.process.ActivityImpl;
 import org.cibseven.bpm.engine.impl.pvm.process.ScopeImpl;
+import org.cibseven.bpm.engine.impl.pvm.process.TransitionImpl;
+import org.cibseven.bpm.engine.delegate.ExecutionListener;
 import org.cibseven.bpm.engine.impl.util.xml.Element;
 
 /** CIB2.1 post-parse behavior wrapper: capture after actual native external-task insertion. */
 final class ConsumerTaskListener extends AbstractBpmnParseListener {
+  @Override public void parseUserTask(Element element,ScopeImpl scope,ActivityImpl activity){
+    activity.addListener("end",(ExecutionListener)value->ConsumerContinuation.ended((ExecutionEntity)value));
+  }
+  @Override public void parseSequenceFlow(Element element,ScopeImpl scope,TransitionImpl transition){
+    transition.addListener("take",(ExecutionListener)value->ConsumerContinuation.taken((ExecutionEntity)value));
+  }
   @Override public void parseServiceTask(Element element,ScopeImpl scope,ActivityImpl activity){
-    if(activity.getActivityBehavior() instanceof ExternalTaskActivityBehavior original)
+    if(activity.getActivityBehavior() instanceof ExternalTaskActivityBehavior original){
+      activity.addListener("start",(ExecutionListener)value->ConsumerContinuation.started((ExecutionEntity)value));
       activity.setActivityBehavior(new LinkedBehavior(original));
+    }
   }
   private static final class LinkedBehavior extends ExternalTaskActivityBehavior {
     private final ExternalTaskActivityBehavior original;
