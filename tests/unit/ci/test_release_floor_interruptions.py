@@ -14,6 +14,8 @@ from pathlib import Path
 import pytest
 from scripts.ci import generate_release_floor as floor
 
+from tests.support.measurement_python import measurement_python
+
 
 @pytest.mark.parametrize("boundary", ["registration", "mask-restoration"])
 def test_measurement_reaps_spawned_group_on_early_interrupt(
@@ -60,10 +62,10 @@ def test_real_sigterm_reaps_measurement_group(tmp_path: Path) -> None:
     code = (
         "import pathlib,sys\n"
         "from scripts.ci.generate_release_floor import _run_unit_measurement\n"
-        "_run_unit_measurement(pathlib.Path(sys.argv[1]), sys.executable)\n"
+        "_run_unit_measurement(pathlib.Path(sys.argv[1]), sys.argv[2])\n"
     )
     parent = subprocess.Popen(
-        [sys.executable, "-c", code, str(tmp_path)],
+        [sys.executable, "-c", code, str(tmp_path), measurement_python(tmp_path)],
         cwd=Path(__file__).resolve().parents[3],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
