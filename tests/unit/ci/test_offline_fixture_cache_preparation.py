@@ -179,10 +179,15 @@ def test_both_ci_consumers_bind_cache_to_preparer_and_run_it_before_pytest():
         steps = workflow["jobs"][job_name]["steps"]
         install = next(step for step in steps if step.get("name") == "Install uv")
         assert install["with"]["cache-suffix"] == (
-            "offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py', "
+            "offline-fixture-${{ hashFiles('.github/workflows/ci.yml', "
+            "'scripts/ci/prepare_offline_fixture_cache.py', "
             "'scripts/dev/run_engine_integration.py') }}"
         )
         assert install["with"]["cache-dependency-glob"] == "uv.lock"
+        dependency_install = next(step for step in steps if step.get("name") == "Install dependencies")
+        assert dependency_install["run"] == (
+            'uv sync --locked --extra dev --cache-dir "$RUNNER_TEMP/maezo-project-build-cache"'
+        )
         preparation = next(
             step for step in steps if step.get("name") == "Prepare default offline fixture cache"
         )
