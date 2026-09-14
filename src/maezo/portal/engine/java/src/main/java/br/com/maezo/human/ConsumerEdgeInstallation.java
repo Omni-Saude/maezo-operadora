@@ -243,6 +243,17 @@ public final class ConsumerEdgeInstallation {
     Map<String,Object> edge(Map<String,Object> target,String outcome,String activity,String topic){
       List<?> edges=(List<?>)target.get("edges");var matches=edges.stream().map(Jcs::object).filter(e->outcome.equals(e.get("outcome"))&&activity.equals(e.get("activity_id"))&&topic.equals(e.get("topic"))).toList();need(matches.size()==1);return matches.get(0);
     }
+    List<String> continuationPath(CommandContext context,Map<String,Object> target,String outcome){
+      var matching=((List<?>)target.get("edges")).stream().map(Jcs::object)
+          .filter(e->outcome.equals(e.get("outcome"))).toList();
+      if(matching.isEmpty())return List.of();
+      need(matching.size()==1);
+      Connection connection=new EngineStore(context,str(scope,"tenant")).connection;
+      var binding=one(connection,"SELECT REQUIRED_GROUP_ FROM MZO_HUMAN_DECISION_BINDING WHERE TENANT_=? AND ENVIRONMENT_=? AND PROCESS_=? AND TASK_KEY_=? AND AUTHORITY_REV_=?",
+          scope.get("tenant"),scope.get("environment"),target.get("process_definition_id"),target.get("task_key"),authorityRevision);
+      var paths=topology(deploymentBytes(connection,target,str(scope,"tenant")),target,(String)binding.get("required_group_"));
+      need(paths.containsKey(outcome));return paths.get(outcome);
+    }
     void requireCurrent(CommandContext context){
       var current=ConsumerEdgeInstallation.current(context,str(scope,"tenant"));
       need(generation==current.generation && authorityRevision==current.authorityRevision && scope.equals(current.scope)
@@ -327,11 +338,14 @@ public final class ConsumerEdgeInstallation {
   }
 
   static void validateDeployment(Connection c,Map<String,Object> target,String tenant,String requiredGroup){
+    topology(deploymentBytes(c,target,tenant),target,requiredGroup);
+  }
+  private static byte[] deploymentBytes(Connection c,Map<String,Object> target,String tenant){
     var row=one(c,"SELECT P.KEY_ AS key,P.TENANT_ID_ AS tenant,B.BYTES_ AS bytes FROM ACT_RE_PROCDEF P JOIN ACT_GE_BYTEARRAY B ON B.DEPLOYMENT_ID_=P.DEPLOYMENT_ID_ AND B.NAME_=P.RESOURCE_NAME_ WHERE P.ID_=?",target.get("process_definition_id"));
     need(tenant.equals(row.get("tenant")) && target.get("process_key").equals(row.get("key")));
-    byte[] bytes=(byte[])row.get("bytes");need(Jcs.digest(bytes).equals(target.get("process_digest")));topology(bytes,target,requiredGroup);
+    byte[] bytes=(byte[])row.get("bytes");need(Jcs.digest(bytes).equals(target.get("process_digest")));return bytes;
   }
-  static void topology(byte[] bytes,Map<String,Object> target,String requiredGroup){
+  static Map<String,List<String>> topology(byte[] bytes,Map<String,Object> target,String requiredGroup){
     try {
       var factory=DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
       factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);factory.setFeature("http://xml.org/sax/features/external-general-entities",false);factory.setFeature("http://xml.org/sax/features/external-parameter-entities",false);
@@ -346,7 +360,9 @@ public final class ConsumerEdgeInstallation {
       boolean resolvedEsc="SP-OP-ESCALATION-001".equals(target.get("process_key")) && "UT_TratarEscalonamento".equals(target.get("task_key")) && "${roteamento.grupo_atendimento}".equals(candidates);
       // Only this canonical ESC expression is admitted; the actual native candidate is checked by AtomicHumanCommand.
       need(!requiredGroup.isBlank() && (resolvedEsc || candidates.equals(requiredGroup)));
+      Map<String,List<String>> selectedPaths=new HashMap<>();
       for(Object value:(List<?>)target.get("edges")){
+        List<String> selected=new ArrayList<>();
         var edge=Jcs.object(value);String cursor=str(target,"task_key"),outcome=str(edge,"outcome");Set<String> seen=new HashSet<>();
         while(!cursor.equals(edge.get("activity_id"))){
           need(seen.add(cursor)&&seen.size()<=32);Element node=nodes.get(cursor);need(node!=null);
@@ -360,10 +376,13 @@ public final class ConsumerEdgeInstallation {
               var pattern=java.util.regex.Pattern.compile("\\$\\{\\s*(decisao_auditor|decisao_admissibilidade)\\s*==\\s*'([^']+)'\\s*}").matcher(expression);need(pattern.matches());
               String field=target.get("process_key").equals("SP-OP-PAGTO-001")?"decisao_admissibilidade":"decisao_auditor";need(pattern.group(1).equals(field));if(pattern.group(2).equals(outcome))chosen.add(flow);
             }
-          }if(chosen.isEmpty()&&fallback!=null)chosen.add(fallback);need(chosen.size()==1);cursor=chosen.get(0).getAttribute("targetRef");
+          }if(chosen.isEmpty()&&fallback!=null)chosen.add(fallback);need(chosen.size()==1);
+          selected.add(chosen.get(0).getAttribute("id"));cursor=chosen.get(0).getAttribute("targetRef");
         }
         Element activity=nodes.get(cursor);need(activity!=null&&activity.getLocalName().equals("serviceTask")&&"external".equals(activity.getAttributeNS(camunda,"type"))&&edge.get("topic").equals(activity.getAttributeNS(camunda,"topic")));
+        need(selectedPaths.put(outcome,List.copyOf(selected))==null);
       }
+      return Map.copyOf(selectedPaths);
     }catch(IllegalStateException e){throw e;}catch(Exception e){throw EngineStore.unavailable();}
   }
 }

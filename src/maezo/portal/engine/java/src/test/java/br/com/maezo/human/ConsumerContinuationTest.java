@@ -20,6 +20,7 @@ class ConsumerContinuationTest {
   TransitionImpl flow;
   ExecutionEntity execution;
   Map<String,Object> pointer,target;
+  List<String> selectedIds=List.of("flow");
   @BeforeEach void setup() {
     var config=new StandaloneProcessEngineConfiguration();
     context=new CommandContext(config,new StandaloneTransactionContextFactory());
@@ -37,7 +38,7 @@ class ConsumerContinuationTest {
     value.setProcessDefinition(definition);return value;
   }
   @AfterEach void stop(){Context.removeCommandContext();Context.removeProcessEngineConfiguration();}
-  void seed(){ConsumerContinuation.seed(context,execution,pointer,target);}
+  void seed(){ConsumerContinuation.seed(context,execution,pointer,target,selectedIds);}
   ConsumerContinuation witness(){return (ConsumerContinuation)context.getSessions().get(ConsumerContinuation.class);}
   void end(){execution.setTransitionsToTake(List.of(flow));ConsumerContinuation.ended(execution);}
   void take(){execution.setTransition(flow);ConsumerContinuation.taken(execution);}
@@ -55,7 +56,7 @@ class ConsumerContinuationTest {
   }
   @Test void nonadverseOutcomeHasNoArmedWitness() {
     var approved=new HashMap<>(pointer);approved.put("outcome","APROVAR");
-    ConsumerContinuation.seed(context,execution,approved,target);assertFalse(context.getSessions().containsKey(ConsumerContinuation.class));
+    ConsumerContinuation.seed(context,execution,approved,target,List.of());assertFalse(context.getSessions().containsKey(ConsumerContinuation.class));
   }
   @ParameterizedTest @ValueSource(strings={"end","take","start","consume","linked"})
   void eachNativeStageRejectsDuplicate(String stage) {
@@ -98,20 +99,44 @@ class ConsumerContinuationTest {
     seed();end();var wrong=source.createOutgoingTransition("wrong");wrong.setDestination(destination);execution.setTransition(wrong);
     assertThrows(IllegalStateException.class,()->ConsumerContinuation.taken(execution));
   }
-  @Test void cyclicOrAmbiguousNativePathsCannotSeed() {
-    var duplicate=source.createOutgoingTransition("duplicate");duplicate.setDestination(destination);
-    assertThrows(IllegalStateException.class,this::seed);
+  @Test void unselectedAlternativeDoesNotOverrideQualifiedPath() {
+    var duplicate=source.createOutgoingTransition("unselected");duplicate.setDestination(destination);
+    assertDoesNotThrow(this::seed);end();take();start();ConsumerContinuation.consume(execution);ConsumerContinuation.linked(execution);
+    assertDoesNotThrow(()->witness().onCommandContextClose(context));
+  }
+  @Test void duplicateSelectedNativeTransitionIsUnavailable() {
+    source.getOutgoingTransitions().add(flow);assertThrows(IllegalStateException.class,this::seed);
+  }
+  @ParameterizedTest @ValueSource(strings={"reconverging","unselected-cycle","default"})
+  void qualificationReturnsOnlyItsExistingOutcomeSelectedPath(String mode) {
+    String route=mode.equals("unselected-cycle")?"other":"consumer";
+    String condition=mode.equals("default")?"APROVAR":"NEGAR";
+    String defaultFlow=mode.equals("default")?"deny":"alternate";
+    String conditioned=mode.equals("default")?"alternate":"deny";
+    String xml="<definitions xmlns='http://www.omg.org/spec/BPMN/20100524/MODEL' xmlns:camunda='http://camunda.org/schema/1.0/bpmn'>"
+        +"<process id='SP-OP-AUTH-001'><userTask id='original' camunda:candidateGroups='group'/>"
+        +"<exclusiveGateway id='gateway' default='"+defaultFlow+"'/><exclusiveGateway id='other'/>"
+        +"<serviceTask id='consumer' camunda:type='external' camunda:topic='operadora.auth.send_denial_notice'/>"
+        +"<sequenceFlow id='first' sourceRef='original' targetRef='gateway'/>"
+        +"<sequenceFlow id='"+conditioned+"' sourceRef='gateway' targetRef='"+(mode.equals("default")?"other":"consumer")+"'>"
+        +"<conditionExpression>${decisao_auditor == '"+condition+"'}</conditionExpression></sequenceFlow>"
+        +"<sequenceFlow id='"+defaultFlow+"' sourceRef='gateway' targetRef='"+(mode.equals("default")?"consumer":"other")+"'/>"
+        +"<sequenceFlow id='irrelevant' sourceRef='other' targetRef='"+route+"'/></process></definitions>";
+    var admitted=Map.<String,Object>of("process_key","SP-OP-AUTH-001","task_key","original","edges",List.of(
+        Map.of("outcome","NEGAR","activity_id","consumer","topic","operadora.auth.send_denial_notice")));
+    var result=ConsumerEdgeInstallation.topology(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8),admitted,"group");
+    assertEquals(Map.of("NEGAR",List.of("first","deny")),result);
   }
   @Test void nativePathBoundIsEnforcedBeforeArming() {
-    var previous=source;
+    var previous=source;var ids=new ArrayList<String>();ids.add("flow");
     for(int i=0;i<33;i++) {
       var gateway=definition.createActivity("gateway-"+i);
       gateway.setActivityBehavior(new org.cibseven.bpm.engine.impl.bpmn.behavior.ExclusiveGatewayActivityBehavior());
       if(i==0)flow.setDestination(gateway);
-      else {var next=previous.createOutgoingTransition("next-"+i);next.setDestination(gateway);}
+      else {var next=previous.createOutgoingTransition("next-"+i);next.setDestination(gateway);ids.add(next.getId());}
       previous=gateway;
     }
-    previous.createOutgoingTransition("last").setDestination(destination);
+    previous.createOutgoingTransition("last").setDestination(destination);ids.add("last");selectedIds=ids;
     assertThrows(IllegalStateException.class,this::seed);
     assertFalse(context.getSessions().containsKey(ConsumerContinuation.class));
   }

@@ -29,37 +29,33 @@ final class ConsumerContinuation implements Session, CommandContextListener {
   }
 
   static void seed(CommandContext context,ExecutionEntity original,Map<String,Object> pointer,
-      Map<String,Object> target) {
+      Map<String,Object> target,List<String> selectedIds) {
     need(context==Context.getCommandContext() && !context.getSessions().containsKey(ConsumerContinuation.class));
     var edges=((List<?>)target.get("edges")).stream().map(Jcs::object)
         .filter(e->pointer.get("outcome").equals(e.get("outcome"))).toList();
     // A nonadverse decision has no classified consumer to create.
-    if(edges.isEmpty())return;
+    if(edges.isEmpty()){need(selectedIds.isEmpty());return;}
     need(edges.size()==1 && original.getId().equals(pointer.get("execution_id"))
         && original.getProcessDefinitionId().equals(pointer.get("process_definition_id"))
         && original.getProcessInstanceId().equals(pointer.get("process_instance_id"))
         && original.getActivityId().equals(pointer.get("original_task_key")));
     ActivityImpl destination=original.getProcessDefinition().findActivity(Jcs.ref(edges.get(0),"activity_id"));
     need(destination!=null);
-    var paths=new ArrayList<List<TransitionImpl>>();
-    paths(original.getActivity(),destination,new ArrayList<>(),new HashSet<>(),paths);
-    need(paths.size()==1 && !paths.get(0).isEmpty());
-    var witness=new ConsumerContinuation(context,original,pointer,destination,paths.get(0));
+    need(!selectedIds.isEmpty() && selectedIds.size()<=32);
+    var path=new ArrayList<TransitionImpl>();var seen=new HashSet<ActivityImpl>();
+    ActivityImpl cursor=original.getActivity();
+    for(String id:selectedIds) {
+      need(seen.add(cursor) && (cursor==original.getActivity()
+          || cursor.getActivityBehavior() instanceof ExclusiveGatewayActivityBehavior));
+      var matches=cursor.getOutgoingTransitions().stream().filter(t->id.equals(t.getId())).toList();
+      need(matches.size()==1);var flow=matches.get(0);path.add(flow);cursor=(ActivityImpl)flow.getDestination();
+    }
+    need(cursor==destination);
+    var witness=new ConsumerContinuation(context,original,pointer,destination,path);
     // Direct map insertion intentionally has no resource/sessionList lifecycle: explicit hooks below
     // validate BEFORE native flush/commit and erase references on close AND failure.
     context.getSessions().put(ConsumerContinuation.class,witness);
     context.registerCommandContextListener(witness);
-  }
-
-  private static void paths(ActivityImpl cursor,ActivityImpl destination,List<TransitionImpl> prefix,
-      Set<ActivityImpl> seen,List<List<TransitionImpl>> found) {
-    if(cursor==destination){found.add(List.copyOf(prefix));need(found.size()<=1);return;}
-    if(!prefix.isEmpty() && !(cursor.getActivityBehavior() instanceof ExclusiveGatewayActivityBehavior))return;
-    need(seen.add(cursor) && seen.size()<=32);
-    for(var flow:cursor.getOutgoingTransitions()) {
-      prefix.add(flow);paths((ActivityImpl)flow.getDestination(),destination,prefix,new HashSet<>(seen),found);
-      prefix.remove(prefix.size()-1);
-    }
   }
 
   private static ConsumerContinuation current() {

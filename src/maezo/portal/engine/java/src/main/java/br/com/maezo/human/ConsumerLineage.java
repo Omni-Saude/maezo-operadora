@@ -101,7 +101,7 @@ public final class ConsumerLineage {
         command.tenant(),scopeHash(s),execution.getId(),command.taskId(),command.commandId())==1);
     context.getTransactionContext().addTransactionListener(org.cibseven.bpm.engine.impl.cfg.TransactionState.COMMITTING,
         ignored->qualified.requireCurrent(context));
-    ConsumerContinuation.seed(context,execution,pointer,target);
+    ConsumerContinuation.seed(context,execution,pointer,target,qualified.continuationPath(context,target,command.classified().outcome()));
     return qualified;
   }
 
