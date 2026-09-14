@@ -191,7 +191,7 @@ class ConsumerContinuationTest {
   void scopedHandoffCannotBeInferredOrReplayed(String mode) {
     var child=scopedArrival();
     if(mode.equals("wrong-flow")) {
-      var wrong=source.createOutgoingTransition(flow.getId());wrong.setDestination(destination);child.setTransition(wrong);
+      var wrong=new TransitionImpl(flow.getId(),definition);wrong.setDestination(destination);child.setTransition(wrong);
       assertThrows(IllegalStateException.class,()->ConsumerContinuation.arriving(child));return;
     }
     if(!mode.equals("missing"))ConsumerContinuation.arriving(child);
