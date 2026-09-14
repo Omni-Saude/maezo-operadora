@@ -188,7 +188,8 @@ class ConsumerContinuationEngineIT {
       var mapping=doc.createElementNS(CAMUNDA,"camunda:inputOutput");
       var input=doc.createElementNS(CAMUNDA,"camunda:inputParameter");input.setAttribute("name","preclear_input");input.setTextContent("synthetic-preserved");
       var output=doc.createElementNS(CAMUNDA,"camunda:outputParameter");output.setAttribute("name","preclear_output");output.setTextContent("${preclear_input}");
-      mapping.appendChild(input);mapping.appendChild(output);extensions.appendChild(mapping);target.appendChild(extensions);
+      mapping.appendChild(input);mapping.appendChild(output);extensions.appendChild(mapping);
+      target.insertBefore(extensions,target.getElementsByTagNameNS(BPMN,"incoming").item(0));
     });
     var c=qualified();var target=activity(c,DEST);assertTrue(target.isScope());
     assertEquals(1,target.getIoMapping().getInputParameters().size());assertEquals(1,target.getIoMapping().getOutputParameters().size());
