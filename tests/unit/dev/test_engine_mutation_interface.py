@@ -251,6 +251,7 @@ nodeid=next(iter(r.MUTATIONS)); suite,file,_=r._mutation_selection(nodeid)
 r.LOCK_DIR=out/'engine.lock'
 r.validate_checkout=lambda *_:(root,str(root/'src/maezo/__init__.py'))
 r.execution_checkout=lambda *_:contextlib.nullcontext((root,str(root/'src/maezo/__init__.py')))
+r._bind_execution_source=lambda *_:None
 r._assert_execution_source=lambda *_:None
 r.discover=lambda *_a,**_kw:{'execution_manifest':[{'suite':suite,'test_file':file,
  'expected_count':8,'items':[],'dependencies':{'engine_required':False}}]}

@@ -140,7 +140,8 @@ async def configured(form="auth_decisao", outcome="NEGAR"):
         changes.update(
             task_definition_key="UT_DecidirPendenciaExpirada",
             form_key=form,
-            form_source_status="BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+            # WP-J1-05: UT_DecidirPendenciaExpirada now carries camunda:formData.
+            form_source_status="BPMN_FORMDATA",
             allowed_inputs=("decisao_pendencia",),
         )
         inputs = dict(kind=form, decisao_pendencia=outcome)

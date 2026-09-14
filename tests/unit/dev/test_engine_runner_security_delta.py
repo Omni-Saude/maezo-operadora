@@ -24,6 +24,7 @@ signal.signal(signal.SIGTERM,r._signal_handler)
 r.LOCK_DIR=out/'engine.lock'
 r.validate_checkout=lambda *_:(root,str(root/'src/maezo/__init__.py'))
 r.execution_checkout=lambda *_:contextlib.nullcontext((root,str(root/'src/maezo/__init__.py')))
+r._bind_execution_source=lambda *_:None
 r.discover=lambda *_args,**_kw:{'execution_manifest':[{'suite':'core',
  'test_file':'synthetic.py','expected_count':1,'dependencies':{'engine_required':False}}]}
 real_killpg=os.killpg
