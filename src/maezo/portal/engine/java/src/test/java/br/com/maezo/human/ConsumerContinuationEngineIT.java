@@ -75,7 +75,7 @@ class ConsumerContinuationEngineIT {
     for(int i=0;i<nodes.getLength();i++){var e=(Element)nodes.item(i);if(id.equals(e.getAttribute("id")))return e;}
     throw new AssertionError(id);
   }
-  void nonscope()throws Exception{
+  void removeDecisionBoundaries()throws Exception{
     authVariant(doc->{
       Set<String> remove=new HashSet<>();var nodes=doc.getElementsByTagNameNS(BPMN,"boundaryEvent");
       for(int i=0;i<nodes.getLength();i++){var e=(Element)nodes.item(i);if(Set.of(SOURCE,DEST).contains(e.getAttribute("attachedToRef")))remove.add(e.getAttribute("id"));}
@@ -113,11 +113,17 @@ class ConsumerContinuationEngineIT {
     }
     assertEquals(1,f.countReceipts());assertEquals(1,f.count("POINTER"));assertEquals(1,f.count("LINK"));
   }
-  @Test void ordinarySameExecutionCompletesButOldHeadCannotAuthorizeAnotherConsumer()throws Exception{
-    nonscope();var c=qualified();var source=nativeExecution(c);assertFalse(source.getActivity().isScope());
-    String execution=source.getId(),instance=source.getProcessInstanceId();var target=activity(c,DEST);assertFalse(target.isScope());
-    AtomicReference<String> started=new AtomicReference<>();atStart(target,e->started.set(e.getId()));
-    f.send(c);assertEquals(execution,started.get());assertEquals(1,f.count("LINK"));
+  @Test void nonscopeOriginalCreatesNativeScopedConsumerButOldHeadCannotAuthorizeAnother()throws Exception{
+    removeDecisionBoundaries();var c=qualified();var source=nativeExecution(c);assertFalse(source.getActivity().isScope());
+    String execution=source.getId(),instance=source.getProcessInstanceId();var target=activity(c,DEST);assertTrue(target.isScope());
+    // CIB parseExternalServiceTask always creates a scope, even without a boundary event.
+    AtomicReference<String> started=new AtomicReference<>();atStart(target,e->{
+      assertTrue(e.isScope());assertEquals(execution,e.getParentId());started.set(e.getId());
+    });
+    f.send(c);assertNotNull(started.get());assertNotEquals(execution,started.get());assertEquals(1,f.count("LINK"));
+    try(var db=f.connection();var statement=db.createStatement();var rows=statement.executeQuery("SELECT EXECUTION_ FROM MZO_HUMAN_CONSUMER_POINTER")){
+      assertTrue(rows.next());assertEquals(execution,rows.getString(1));assertFalse(rows.next());
+    }
     var originalTask=f.engine.getExternalTaskService().createExternalTaskQuery().processInstanceId(instance).singleResult();
     provenanceRefused(()->f.engine.getRuntimeService().createProcessInstanceModification(instance)
         .cancelAllForActivity(DEST).startBeforeActivity(DEST).execute());
