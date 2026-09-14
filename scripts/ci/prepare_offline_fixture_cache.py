@@ -391,20 +391,20 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    previous_term = signal.getsignal(signal.SIGTERM)
-    signal.signal(signal.SIGTERM, process_groups._signal_handler)
     try:
-        try:
+        with process_groups._spawn_signal_guard(
+            handlers={signal.SIGTERM: process_groups._signal_handler}
+        ) as activate:
+            activate()
             Preparation(args.root, args.output).run()
-        except (KeyboardInterrupt, process_groups.RunnerInterrupted):
-            print("offline fixture cache preparation interrupted", file=sys.stderr)
-            return 130
-        except (ValueError, OSError, subprocess.SubprocessError, process_groups.RunnerError):
-            print("offline fixture cache preparation refused", file=sys.stderr)
-            return 1
-        return 0
-    finally:
-        signal.signal(signal.SIGTERM, previous_term)
+    except (KeyboardInterrupt, process_groups.RunnerInterrupted):
+        print("offline fixture cache preparation interrupted", file=sys.stderr)
+        return 130
+    except (ValueError, OSError, subprocess.SubprocessError, process_groups.RunnerError):
+        print("offline fixture cache preparation refused", file=sys.stderr)
+        return 1
+    return 0
+
 
 
 if __name__ == "__main__":
