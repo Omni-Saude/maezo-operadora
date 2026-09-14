@@ -12,6 +12,8 @@ import javax.crypto.spec.SecretKeySpec;
 import org.cibseven.bpm.engine.*;
 import org.cibseven.bpm.engine.impl.cfg.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * ROOT-only real CIB2.1/PostgreSQL. Missing configuration FAILS; never a mock or skipped PASS.
@@ -91,8 +93,10 @@ class PortalReadEngineIT {
                         "task_continuity", receipt)))
             .status);
   }
-  @Test
-  void missingProjectionCannotBecomeEmptyAndDynamicDmnUsesRealLinks() throws Exception {
+  @ParameterizedTest
+  @ValueSource(ints = {0, 248, 252})
+  void missingProjectionCannotBecomeEmptyAndDynamicDmnUsesRealLinks(int firstByte) throws Exception {
+    h.requestFirstByte = firstByte;
     String id = h.task(true);
     Rejected rejection = assertThrows(Rejected.class, () -> {
       var e = obj(obj(h.read("catalog", record("anchor", h.anchor)), "value"), "expectation");
@@ -227,6 +231,7 @@ class PortalReadEngineIT {
     Instant before, until;
     long sourceRevision = 0;
     boolean invalidate = false;
+    Integer requestFirstByte;
     Runnable finalHook = () -> {};
     static String required(String key) {
       String value = System.getenv(key);
@@ -464,8 +469,11 @@ class PortalReadEngineIT {
     }
     Map<String, Object> read(String operation, Map<String, Object> extras) throws Exception {
       var r = common();
+      byte[] nonce = SecureRandom.getSeed(32);
+      if (requestFirstByte != null)
+        nonce[0] = requestFirstByte.byteValue();
       r.putAll(record("schema", "portal-engine-read.v1", "operation", operation, "request_id",
-          Base64.getUrlEncoder().withoutPadding().encodeToString(SecureRandom.getSeed(32)),
+          Base64.getUrlEncoder().withoutPadding().encodeToString(nonce),
           "read_context_id", context));
       r.putAll(extras);
       return map(Jcs.parse(plugin.execute(signed(r, false), readPeer, operation)));
