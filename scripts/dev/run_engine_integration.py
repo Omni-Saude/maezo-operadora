@@ -258,17 +258,20 @@ def _spawn_signal_guard(
     deferred: dict[int, Any] = {}
     active = False
     delivering = False
+    cleanup_failure: BaseException | None = None
 
     def deliver(*, restoring: bool = False) -> None:
-        nonlocal active, delivering
-        failure: BaseException | None = None
+        nonlocal active, delivering, cleanup_failure
+        failure = cleanup_failure
         delivering = True
         try:
             if on_interrupt is not None:
                 try:
                     on_interrupt()
                 except BaseException as exc:
-                    failure = exc
+                    if cleanup_failure is None:
+                        cleanup_failure = exc
+                    failure = cleanup_failure
             while deferred:
                 signum = min(deferred)
                 frame = deferred.pop(signum)
@@ -324,12 +327,16 @@ def _spawn_signal_guard(
         yield activate
     finally:
         active = False
-        failure: BaseException | None = None
+        body_error = sys.exc_info()[1]
+        if cleanup_failure is None and isinstance(body_error, ProcessGroupCleanupError):
+            cleanup_failure = body_error
+        failure = cleanup_failure
         try:
             if deferred:
                 deliver()
         except BaseException as exc:
-            failure = exc
+            if failure is None:
+                failure = exc
         finally:
             # Keep deferrers through the caller's cleanup-mask restoration. Do NOT
             # block signals while restoring original handlers: that creates a batch
