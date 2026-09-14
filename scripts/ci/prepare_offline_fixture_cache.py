@@ -21,12 +21,19 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.dev import run_engine_integration as process_groups  # noqa: E402
+
 INPUTS = (
     "uv.lock",
     "pyproject.toml",
     ".python-version",
     ".github/workflows/ci.yml",
     "scripts/ci/prepare_offline_fixture_cache.py",
+    "scripts/dev/run_engine_integration.py",
     "tests/unit/dev/test_historical_unit_recipe.py",
     "tests/unit/dev/test_historical_async_recipe.py",
 )
@@ -203,35 +210,54 @@ class Preparation:
         argv = [str(self.uv), *args]
         start = time.monotonic()
         timed_out = False
+        process: subprocess.Popen[str] | None = None
+        code: int | None = None
+
+        def cleanup() -> None:
+            if process is not None and process.pid in process_groups._pending_groups:
+                process_groups._quiesce_group(process, process.pid)
+
         with (
             (self.output / (label + ".stdout")).open("xb") as out,
             (self.output / (label + ".stderr")).open("xb") as err,
+            process_groups._spawn_signal_guard(cleanup) as activate,
         ):
-            process = subprocess.Popen(
-                argv,
-                cwd=cwd,
-                env=self.environment,
-                stdin=subprocess.DEVNULL,
-                stdout=out,
-                stderr=err,
-                start_new_session=True,
-            )
             try:
-                code = process.wait(timeout=min(120, self.deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                os.killpg(process.pid, signal.SIGKILL)
-                code = process.wait(timeout=10)
-        self.record(
-            label + ".json",
-            {
-                "argv": argv,
-                "cwd": str(cwd),
-                "returncode": code,
-                "timed_out": timed_out,
-                "seconds": time.monotonic() - start,
-            },
-        )
+                process = subprocess.Popen(
+                    argv,
+                    cwd=cwd,
+                    env=self.environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=err,
+                    start_new_session=True,
+                    text=True,
+                )
+                process_groups._record_pending(process.pid)
+                activate()
+                try:
+                    code = process.wait(timeout=min(120, self.deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    code = 124
+            finally:
+                try:
+                    cleanup()
+                finally:
+                    self.record(
+                        label + ".json",
+                        {
+                            "argv": argv,
+                            "cwd": str(cwd),
+                            "returncode": code,
+                            "timed_out": timed_out,
+                            "seconds": time.monotonic() - start,
+                            "pgid": process.pid if process is not None else None,
+                            "quiescent": (
+                                process is None or process.pid not in process_groups._pending_groups
+                            ),
+                        },
+                    )
         self.current()
         require(not timed_out and code == 0, "cache preparation command refused")
         return (self.output / (label + ".stdout")).read_bytes()
@@ -365,12 +391,20 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    previous_term = signal.getsignal(signal.SIGTERM)
+    signal.signal(signal.SIGTERM, process_groups._signal_handler)
     try:
-        Preparation(args.root, args.output).run()
-    except (ValueError, OSError, subprocess.SubprocessError):
-        print("offline fixture cache preparation refused", file=sys.stderr)
-        return 1
-    return 0
+        try:
+            Preparation(args.root, args.output).run()
+        except (KeyboardInterrupt, process_groups.RunnerInterrupted):
+            print("offline fixture cache preparation interrupted", file=sys.stderr)
+            return 130
+        except (ValueError, OSError, subprocess.SubprocessError, process_groups.RunnerError):
+            print("offline fixture cache preparation refused", file=sys.stderr)
+            return 1
+        return 0
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
 
 
 if __name__ == "__main__":

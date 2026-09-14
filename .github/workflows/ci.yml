@@ -59,7 +59,7 @@ jobs:
           enable-cache: true
           cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
           # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
-          cache-suffix: offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py') }}
+          cache-suffix: offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
           cache-dependency-glob: "uv.lock"
 
       - name: Verify uv defaults and populate the qualified interpreter
@@ -504,7 +504,7 @@ jobs:
           enable-cache: true
           cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
           # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
-          cache-suffix: offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py') }}
+          cache-suffix: offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py', 'scripts/dev/run_engine_integration.py') }}
           cache-dependency-glob: "uv.lock"
 
       - name: Verify uv defaults and populate the qualified interpreter

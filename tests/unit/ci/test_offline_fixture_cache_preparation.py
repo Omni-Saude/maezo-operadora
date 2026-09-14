@@ -179,7 +179,8 @@ def test_both_ci_consumers_bind_cache_to_preparer_and_run_it_before_pytest():
         steps = workflow["jobs"][job_name]["steps"]
         install = next(step for step in steps if step.get("name") == "Install uv")
         assert install["with"]["cache-suffix"] == (
-            "offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py') }}"
+            "offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py', "
+            "'scripts/dev/run_engine_integration.py') }}"
         )
         assert install["with"]["cache-dependency-glob"] == "uv.lock"
         preparation = next(
@@ -189,3 +190,68 @@ def test_both_ci_consumers_bind_cache_to_preparer_and_run_it_before_pytest():
         assert steps.index(install) < steps.index(preparation) < steps.index(consumer)
         assert "env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I" in preparation["run"]
         assert "scripts/ci/prepare_offline_fixture_cache.py" in preparation["run"]
+
+
+@pytest.mark.parametrize("failure", ["timeout", "interrupt", "unexpected"])
+def test_command_failures_quiesce_owned_child_and_preserve_failure_record(tmp_path, monkeypatch, failure):
+    import json
+    import signal
+    import subprocess
+    import sys
+    import time
+
+    runner = object.__new__(p.Preparation)
+    runner.current = lambda: None
+    runner.sequence = 0
+    runner.output = tmp_path
+    runner.uv = Path(sys.executable)
+    runner.environment = {"PATH": os.environ["PATH"]}
+    runner.deadline = time.monotonic() + (0.1 if failure == "timeout" else 10)
+    real_popen = subprocess.Popen
+
+    def spawn(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        if failure != "timeout":
+            real_wait = process.wait
+
+            def fail_once(*wait_args, **wait_kwargs):
+                process.wait = real_wait
+                if failure == "interrupt":
+                    raise KeyboardInterrupt
+                raise RuntimeError("injected wait error")
+
+            process.wait = fail_once
+        return process
+
+    monkeypatch.setattr(p.subprocess, "Popen", spawn)
+    previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    error = {"timeout": ValueError, "interrupt": KeyboardInterrupt, "unexpected": RuntimeError}[failure]
+    with pytest.raises(error):
+        runner.command(tmp_path, "-c", "import time; time.sleep(30)")
+    record = json.loads((tmp_path / "command-01.json").read_text())
+    assert record["quiescent"] is True
+    assert record["timed_out"] is (failure == "timeout")
+    assert record["returncode"] == (124 if failure == "timeout" else None)
+    assert not (tmp_path / "result.json").exists()
+    with pytest.raises(ProcessLookupError):
+        os.killpg(record["pgid"], 0)
+    assert {s: signal.getsignal(s) for s in previous} == previous
+
+
+def test_main_catches_sigterm_and_restores_prior_handler(tmp_path, monkeypatch):
+    import signal
+    import sys
+
+    class Interrupted:
+        def __init__(self, *args):
+            pass
+
+        def run(self):
+            os.kill(os.getpid(), signal.SIGTERM)
+            pytest.fail("SIGTERM must interrupt preparation")
+
+    previous = signal.getsignal(signal.SIGTERM)
+    monkeypatch.setattr(p, "Preparation", Interrupted)
+    monkeypatch.setattr(sys, "argv", ["prepare", "--root", str(tmp_path), "--output", str(tmp_path / "out")])
+    assert p.main() == 130
+    assert signal.getsignal(signal.SIGTERM) == previous
