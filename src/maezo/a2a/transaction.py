@@ -17,7 +17,13 @@ from maezo.gateway.audit import AuditRecord
 from maezo.gateway.audit_postgres import PostgresAuditSink, normalize_dsn
 
 from .facts import TOPIC_REQUESTED
-from .idempotency import STATUS_DONE, PostgresIdempotencyStore, StoredResult, _row_to_stored
+from .idempotency import (
+    MARK_REQUESTED_SQL,
+    STATUS_DONE,
+    PostgresIdempotencyStore,
+    StoredResult,
+    _row_to_stored,
+)
 from .outbox import ENQUEUE_SQL, PostgresFactOutbox, fact_dedup_key, outbox_row_params
 
 
@@ -98,12 +104,10 @@ class AtomicSession:
 
     async def mark_requested(self, task_id: str) -> None:
         await self.check(self.owner.tenant)
-        await self.conn.execute(
-            "UPDATE a2a_idempotency SET requested_enqueued_at = COALESCE(requested_enqueued_at, now()) "
-            "WHERE task_id = $1 AND tenant = $2",
-            task_id,
-            self.owner.tenant,
-        )
+        # Same statement the non-transactional seam uses (`PostgresIdempotencyStore.mark_requested`);
+        # shared so the two writers of this column cannot drift. Here it commits WITH the outbox
+        # insert, which is what makes this path stronger than the seam's two separate writes.
+        await self.conn.execute(MARK_REQUESTED_SQL, task_id, self.owner.tenant)
 
     async def complete(self, result: Any) -> None:
         await self.check(self.owner.tenant)

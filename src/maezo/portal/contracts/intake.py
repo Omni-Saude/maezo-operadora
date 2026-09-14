@@ -4,6 +4,7 @@ Resource references are selections, never authority. Protected guide content and
 admissibility facts are resolved on the server. A receipt is not a clinical outcome.
 """
 
+from datetime import datetime
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
@@ -66,6 +67,45 @@ class IntakeReceipt(Closed):
             self.case_ref is not None or self.start_receipt_ref is not None
         ):
             raise ValueError("unproven start")
+        return self
+
+
+class IntakeLink(Closed):
+    """A projection of one server-verified delegation, never an authority the browser may assert.
+
+    Every field is a projection of a published `resource_authority` head that the server
+    re-reads and re-verifies on the next request. Selecting a link in a form is a selection;
+    the submit path authorizes it again from the same published source.
+    """
+
+    schema_version: Literal[1] = 1
+    beneficiary_ref: ResourceRef
+    provider_ref: ResourceRef | None = None
+    resource_kind: Literal["guide", "intake", "case"]
+    resource_ref: ResourceRef
+    action: Literal["auth.start"]
+    valid_until: datetime
+    # Derived exclusively from the publishing source's `publisher_ref`; never defaulted,
+    # never inferred from the deployment mode and never supplied by the browser.
+    provenance_kind: Literal["synthetic", "attested"]
+
+    @field_validator("valid_until")
+    @classmethod
+    def aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            raise ValueError("aware deadline required")
+        return value
+
+
+class IntakeLinks(Closed):
+    schema_version: Literal[1] = 1
+    links: tuple[IntakeLink, ...] = ()
+
+    @model_validator(mode="after")
+    def unique_links(self) -> Self:
+        keys = [(link.resource_kind, link.resource_ref, link.action) for link in self.links]
+        if len(set(keys)) != len(keys):
+            raise ValueError("duplicate link")
         return self
 
 

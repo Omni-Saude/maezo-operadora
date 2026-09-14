@@ -352,6 +352,78 @@ ESCALATION_NOTIFY_ERROR = EngineSchema(
     read_projection=("tenant_id", "severidade", "grupo_atendimento", "prioridade", "motivo_categoria"),
 )
 
+#: WP-J1-06. `ST_EnviarNegativaFormal` is the one activity on this topic, and the ONE
+#: outcome it may report other than completion is the modeled incomplete-grounding
+#: error caught by `BE_NegativaIncompleta`. Declaring the row does not grant it: it
+#: states, for review, that this topic's reportable error set is exactly this one code
+#: — the same shape `ESCALATION_NOTIFY_ERROR` has for its boundary. Both owners of the
+#: topic (the generic worker and the portal-decision owner) raise only this code.
+AUTH_DENIAL_INCOMPLETE_ERROR = EngineSchema(
+    "auth.send_denial_notice.bpmn_error.v1",
+    EngineOperation.BPMN_ERROR,
+    "SP-OP-AUTH-001",
+    "worker_runtime",
+    (),
+    (
+        "docs/processes/contracts/SP-OP-AUTH-001.md",
+        "src/maezo/tools/workers/auth.py:SendDenialNoticeWorker",
+        "src/maezo/gateway/denial_notices/producer.py:DenialNoticeProducer",
+        "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn#BE_NegativaIncompleta",
+    ),
+    topic="operadora.auth.send_denial_notice",
+    error_codes=("ERR_AUTH_DENIAL_INCOMPLETE",),
+    audit_actor="operadora-worker",
+    # References and outcome only. No clinical field is readable through this row:
+    # the grounding lives in PHI custody and never enters engine scope (ADR-0006).
+    read_projection=("tenant_id", "decisao_auditor", "human_decision_custody_ref"),
+)
+
+# WP-J1-03 — the dedicated PHI document-request bridge (`gateway/document_requests`), NOT the
+# generic `worker_runtime` harness. The two rows below are the only reviewed rows whose workload
+# is `auth_document_request_bridge`; the bridge's own installed capability documents must carry
+# exactly this workload token, so a generic `worker_runtime` capability can never be bound to
+# this topic and vice-versa (`secured_plan._binding` matches by `schema_id` and then re-derives
+# the document byte-for-byte). Two base rows, not one derived pair, because the two consumers
+# disagree on `read_projection` by contract: `native_fetch/models.py:FetchProfile.__post_init__`
+# requires every classified variable name to appear in the FETCH_LOCK row's `read_projection`,
+# while `document_requests/completion.py` requires the external_complete row's `read_projection`
+# to be EMPTY (zero-output completion). `worker_lifecycle_schema` preserves `read_projection`, so
+# a single base row could satisfy only one of them.
+AUTH_DOCUMENT_REQUEST_FETCH = EngineSchema(
+    "auth.request_documents.bridge.fetch_lock.v2",
+    EngineOperation.FETCH_LOCK,
+    "SP-OP-AUTH-001",
+    "auth_document_request_bridge",
+    (),
+    (
+        "docs/processes/contracts/SP-OP-AUTH-001.md#pedido-de-documentos-ponte-phi",
+        "src/maezo/gateway/document_requests/composition.py:compose",
+        "src/maezo/gateway/document_requests/production.py:build_document_request_host",
+        "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn#ST_SolicitarDocumentos",
+    ),
+    topic="operadora.auth.request_documents",
+    audit_actor="operadora-auth-document-bridge",
+    # The classified inputs the producer context reads (`portal-auth-intake.v1`). `prestador_id`
+    # and `numero_guia_tiss` are business keys; `beneficiario_pseudo_id` is the ADR-0006
+    # pseudonym the recipient resolution needs to name the beneficiary's authority WITHOUT ever
+    # reading a document body. No PHI field is projected.
+    read_projection=("tenant_id", "numero_guia_tiss", "prestador_id", "beneficiario_pseudo_id"),
+)
+AUTH_DOCUMENT_REQUEST_COMPLETE = EngineSchema(
+    "auth.request_documents.bridge.complete.v2",
+    EngineOperation.COMPLETE,
+    "SP-OP-AUTH-001",
+    "auth_document_request_bridge",
+    (),
+    (
+        "docs/processes/contracts/SP-OP-AUTH-001.md#pedido-de-documentos-ponte-phi",
+        "src/maezo/gateway/document_requests/completion.py:CompletionClient",
+        "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn#ST_SolicitarDocumentos",
+    ),
+    topic="operadora.auth.request_documents",
+    audit_actor="operadora-auth-document-bridge",
+)
+
 SCHEMAS: tuple[EngineSchema, ...] = (
     HELENA_START,
     LUCAS_START,
@@ -368,6 +440,9 @@ SCHEMAS: tuple[EngineSchema, ...] = (
     CONSENT_REVOKED,
     CONTAS_IMPACT_COMPLETE,
     ESCALATION_NOTIFY_ERROR,
+    AUTH_DENIAL_INCOMPLETE_ERROR,
+    AUTH_DOCUMENT_REQUEST_FETCH,
+    AUTH_DOCUMENT_REQUEST_COMPLETE,
 )
 
 
