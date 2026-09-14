@@ -340,7 +340,8 @@ class BindingConnection:
                 raise BindingUnavailableError()
         for pin in (*d.relations, *(self.native_cohort_read.relations if self.native_cohort_read else ())):
             r = await connection.fetchrow(
-                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,c.relkind::text AS relkind,c.relrowsecurity,
+                """SELECT c.oid,pg_get_userbyid(c.relowner) AS owner,
+              c.relkind::text AS relkind,c.relrowsecurity,
               has_table_privilege($3,c.oid,'SELECT') AS can_select,
               (has_table_privilege($3,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
               OR has_any_column_privilege($3,c.oid,'INSERT,UPDATE,REFERENCES')) AS writes
