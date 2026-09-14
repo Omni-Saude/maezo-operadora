@@ -106,6 +106,7 @@ from scripts.ci.generate_xfail_census import (  # noqa: E402
     AUTOMATABLE_CLASSES,
     DEFAULT_CENSUS_PATH,
 )
+from scripts.dev import run_engine_integration as process_groups  # noqa: E402
 
 DEFAULT_FLOOR_PATH = "docs/release-capability-floor.json"
 
@@ -250,11 +251,33 @@ def evaluate_unit_tests(
     return passed, []
 
 
-#: Safety-net bound. The suite grew from the historical 40-52s snapshot to 885.98s on the R6
-#: floor and 1242.60s on the integrated Fleet candidate (12210 passed, 14 skipped, 662 deselected,
-#: 1 xfailed; no assertion failure). 1800s leaves measured CI headroom while remaining a finite,
-#: fail-closed subprocess deadline: a timeout still returns rc=-1 and can never satisfy the floor.
-_UNIT_TESTS_TIMEOUT_SECONDS = 1800
+#: CI run 34733483424 measured 4973.97s for the >20k-test suite with coverage,
+#: exceeding the obsolete 1800s budget calibrated to 12k tests. Two hours leaves
+#: headroom without changing the selector or the fail-closed acceptance contract.
+_UNIT_TESTS_TIMEOUT_SECONDS = 7200
+
+
+def _run_unit_measurement(repo_root: Path, python_exe: str) -> subprocess.CompletedProcess[str]:
+    # Reuse the existing owned process-group cleanup, but preserve this lane's exact
+    # environment/argv/stdin. The engine runner's _run deliberately changes those.
+    command = [python_exe, "-m", "pytest", "tests/", "-q"]
+    with process_groups._cleanup_signal_mask():
+        process = subprocess.Popen(
+            command,
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        process_groups._record_pending(process.pid)
+    try:
+        stdout, stderr = process.communicate(timeout=_UNIT_TESTS_TIMEOUT_SECONDS)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+    finally:
+        # Also refuse to leave a child behind when pytest exits before its descendants.
+        process_groups._quiesce_group(process, process.pid)
 
 
 def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int], int, str]:
@@ -264,14 +287,7 @@ def measure_unit_tests(repo_root: Path, python_exe: str) -> tuple[dict[str, int]
     subprocess. `stdin=DEVNULL` is deliberate: this subprocess must never be able to block waiting
     on a stdin that was never meant for it."""
     try:
-        proc = subprocess.run(
-            [python_exe, "-m", "pytest", "tests/", "-q"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            stdin=subprocess.DEVNULL,
-            timeout=_UNIT_TESTS_TIMEOUT_SECONDS,
-        )
+        proc = _run_unit_measurement(repo_root, python_exe)
     except subprocess.TimeoutExpired as exc:
         raw_line = f"TIMEOUT after {_UNIT_TESTS_TIMEOUT_SECONDS}s running pytest tests/ -q: {exc}"
         return {}, -1, raw_line

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -492,21 +493,59 @@ def test_wrong_current_hash_fails_even_when_historical_claim_is_true(
 
 
 def test_release_floor_budget_covers_measured_suite_but_remains_bounded() -> None:
-    assert generate_release_floor._UNIT_TESTS_TIMEOUT_SECONDS == 1800
-    assert 1242.60 < generate_release_floor._UNIT_TESTS_TIMEOUT_SECONDS < 3600
+    assert generate_release_floor._UNIT_TESTS_TIMEOUT_SECONDS == 7200
+    assert 4973.97 < generate_release_floor._UNIT_TESTS_TIMEOUT_SECONDS < 9000
 
 
 def test_release_floor_timeout_remains_a_nonpassing_measurement(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def _timeout(*args: object, **kwargs: object) -> None:
-        raise subprocess.TimeoutExpired(cmd=["pytest", "tests/", "-q"], timeout=1800)
+        raise subprocess.TimeoutExpired(cmd=["pytest", "tests/", "-q"], timeout=7200)
 
-    monkeypatch.setattr(generate_release_floor.subprocess, "run", _timeout)
+    monkeypatch.setattr(generate_release_floor, "_run_unit_measurement", _timeout)
     counts, returncode, raw = generate_release_floor.measure_unit_tests(tmp_path, sys.executable)
     passed, violations = generate_release_floor.evaluate_unit_tests(counts, returncode, raw)
     assert counts == {}
     assert returncode == -1
     assert passed is None
-    assert "TIMEOUT after 1800s" in raw
+    assert "TIMEOUT after 7200s" in raw
     assert violations
+
+
+def test_release_floor_timeout_reaps_the_pytest_descendant_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A real pytest-shaped process starts a child that would survive killing only
+    # its parent. Both share the new session owned by the measurement runner.
+    (tmp_path / "pytest.py").write_text(
+        "import os, pathlib, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+        "pathlib.Path('owned-pgid').write_text(str(os.getpgrp()))\n"
+        "time.sleep(30)\n"
+    )
+    monkeypatch.setattr(generate_release_floor, "_UNIT_TESTS_TIMEOUT_SECONDS", 0.5)
+    counts, returncode, raw = generate_release_floor.measure_unit_tests(tmp_path, sys.executable)
+    pgid = int((tmp_path / "owned-pgid").read_text())
+    assert not generate_release_floor.process_groups._group_exists(pgid)
+    assert pgid not in generate_release_floor.process_groups._pending_groups
+    assert counts == {} and returncode == -1 and "TIMEOUT" in raw
+    passed, violations = generate_release_floor.evaluate_unit_tests(counts, returncode, raw)
+    assert passed is None and violations
+
+
+def test_release_floor_measurement_keeps_exact_selector_and_rejects_red_suite(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pytest.py").write_text(
+        "import json, pathlib, sys\n"
+        "pathlib.Path('argv.json').write_text(json.dumps(sys.argv[1:]))\n"
+        "assert sys.stdin.read() == ''\n"
+        "print('1 failed, 25 passed in 0.01s')\n"
+        "raise SystemExit(1)\n"
+    )
+    counts, returncode, raw = generate_release_floor.measure_unit_tests(tmp_path, sys.executable)
+    assert json.loads((tmp_path / "argv.json").read_text()) == ["tests/", "-q"]
+    assert counts == {"failed": 1, "passed": 25} and returncode == 1
+    passed, violations = generate_release_floor.evaluate_unit_tests(counts, returncode, raw)
+    assert passed is None and violations

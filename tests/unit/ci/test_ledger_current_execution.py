@@ -599,13 +599,42 @@ def test_minimal_environment_never_forwards_the_bare_uv_names_themselves(
 
 
 def _real_uv_cache_dir() -> str:
-    result = subprocess.run([str(current._UV), "cache", "dir"], capture_output=True, text=True, check=True)
+    result = subprocess.run(
+        [str(current._UV), "cache", "dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=current.minimal_environment(Path.home()),
+    )
     return result.stdout.strip()
 
 
 def _real_uv_python_install_dir() -> str:
-    result = subprocess.run([str(current._UV), "python", "dir"], capture_output=True, text=True, check=True)
+    result = subprocess.run(
+        [str(current._UV), "python", "dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=current.minimal_environment(Path.home()),
+    )
     return result.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    "discover,mirror",
+    [
+        (_real_uv_cache_dir, "MAEZO_CI_UV_CACHE_DIR"),
+        (_real_uv_python_install_dir, "MAEZO_CI_UV_PYTHON_INSTALL_DIR"),
+    ],
+)
+def test_uv_discovery_uses_ci_mirrors_after_bare_configuration_is_stripped(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, discover: Any, mirror: str
+) -> None:
+    monkeypatch.delenv("UV_CACHE_DIR", raising=False)
+    monkeypatch.delenv("UV_PYTHON_INSTALL_DIR", raising=False)
+    directory = tmp_path / "qualified-ci-storage"
+    monkeypatch.setenv(mirror, str(directory))
+    assert discover() == str(directory)
 
 
 def _write_tiny_lockable_project(root: Path) -> None:
@@ -646,8 +675,9 @@ def test_actual_offline_lock_succeeds_with_a_fresh_home_once_the_real_cache_is_f
 ) -> None:
     """GREEN counterpart: the IDENTICAL fresh-HOME setup as the RED test above, but with BOTH
     `MAEZO_CI_UV_CACHE_DIR` and `MAEZO_CI_UV_PYTHON_INSTALL_DIR` set to this machine's real
-    (already-populated) uv cache/python-install dirs — the exact mechanism `ci.yml`'s job-level
-    `env:` now provides. `uv lock --offline` needs BOTH: the cache to resolve `pytest==9.1.1`
+    (already-populated) uv cache/python-install dirs, using the CI step mirrors.
+    Discovery must restore them before invoking uv because pytest has bare UV_* names stripped.
+    `uv lock --offline` needs BOTH: the cache to resolve `pytest==9.1.1`
     from, and the managed-Python dir to find an interpreter matching `.python-version` without
     a network search (`--offline` forbids one) — confirmed empirically this session: forwarding
     only the cache still fails with `No interpreter found ... uv is set to offline mode`. The
