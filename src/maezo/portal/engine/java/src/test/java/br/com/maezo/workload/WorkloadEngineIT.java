@@ -147,7 +147,10 @@ class WorkloadEngineIT {
     var fetched=Json.list(call(fetch,Fixtures.request(caps.get(fetch))).get("result"));assertFalse(fetched.isEmpty());
     String task=(String)Json.object(fetched.get(0)).get("id");
     for(String operation:List.of("external_extend_lock","external_unlock")) {
-      String row=base+"."+operation;var request=Fixtures.request(caps.get(row));request.put("resource_ref",task);call(row,request);
+      String row=base+"."+operation;var request=Fixtures.request(caps.get(row));request.put("resource_ref",task);
+      // This lifecycle success case needs a usable lock through the following unlock.
+      if(operation.equals("external_extend_lock"))request.put("parameters",Map.of("newDuration",10000L));
+      call(row,request);
     }
     assertFalse(Json.list(call(fetch,Fixtures.request(caps.get(fetch))).get("result")).isEmpty());
     var failed=Fixtures.request(caps.get(base+".external_failure"));failed.put("resource_ref",task);call(base+".external_failure",failed);
