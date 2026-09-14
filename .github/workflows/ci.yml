@@ -58,6 +58,8 @@ jobs:
           version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
           cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
+          # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
+          cache-suffix: offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py') }}
           cache-dependency-glob: "uv.lock"
 
       - name: Verify uv defaults and populate the qualified interpreter
@@ -74,8 +76,8 @@ jobs:
           set -e
           python -I - <<'PYGUARD'
           import os, sys
-          expected = {"UV_CACHE_DIR": os.environ["RUNNER_TEMP"] + "/setup-uv-cache",
-                      "UV_PYTHON_INSTALL_DIR": os.environ["RUNNER_TEMP"] + "/uv-python-dir"}
+          expected = {"UV_CACHE_DIR": os.environ["HOME"] + "/.cache/uv",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["HOME"] + "/.local/share/uv/python"}
           actual = {key: value for key, value in os.environ.items()
                     if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
           if actual != expected:
@@ -128,6 +130,7 @@ jobs:
             ${{ runner.temp }}/offline-fixture-cache-proof/*.json
             ${{ runner.temp }}/offline-fixture-cache-proof/*.stdout
             ${{ runner.temp }}/offline-fixture-cache-proof/*.stderr
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.txt
             ${{ runner.temp }}/offline-fixture-cache-proof/tiny-*/uv.lock
           retention-days: 7
 
@@ -500,6 +503,8 @@ jobs:
           version: ${{ env.MAEZO_CI_UV_VERSION }}
           enable-cache: true
           cache-local-path: ${{ env.MAEZO_CI_UV_CACHE_DIR }}
+          # Exact-key restores only: do not reuse earlier unconstrained fixture metadata.
+          cache-suffix: offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py') }}
           cache-dependency-glob: "uv.lock"
 
       - name: Verify uv defaults and populate the qualified interpreter
@@ -510,6 +515,22 @@ jobs:
 
       - name: Install dependencies
         run: uv sync --locked --extra dev
+
+      - name: Prepare default offline fixture cache
+        run: |
+          set -e
+          python -I - <<'PYGUARD'
+          import os, sys
+          expected = {"UV_CACHE_DIR": os.environ["HOME"] + "/.cache/uv",
+                      "UV_PYTHON_INSTALL_DIR": os.environ["HOME"] + "/.local/share/uv/python"}
+          actual = {key: value for key, value in os.environ.items()
+                    if key.startswith(("PYTHON", "PYTEST_", "UV_"))}
+          if actual != expected:
+              sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
+          PYGUARD
+          env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
+            scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/offline-fixture-cache-proof"
 
       - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
         run: |
@@ -524,6 +545,19 @@ jobs:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make release-floor-check
+
+      - name: Upload offline fixture preparation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: release-floor-offline-fixture-preparation
+          path: |
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.json
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stdout
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.stderr
+            ${{ runner.temp }}/offline-fixture-cache-proof/*.txt
+            ${{ runner.temp }}/offline-fixture-cache-proof/tiny-*/uv.lock
+          retention-days: 7
 
   validate-terraform:
     name: terraform validate

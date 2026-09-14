@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 from scripts.ci import prepare_offline_fixture_cache as p
 
 
@@ -57,7 +58,7 @@ class Synthetic(p.Preparation):
                 raise ValueError("cache preparation command refused")
             names = ("pytest", "pytest-asyncio") if "async" in cwd.name else ("pytest",)
             content = lock(*names, version="99.0" if self.failure == "closure" else "9.1.1")
-            if self.failure == "resolution" and "--offline" in args:
+            if self.failure == "resolution" and cwd.name.endswith("-offline"):
                 content += b"# changed resolution\n"
             (cwd / "uv.lock").write_bytes(content)
         if self.failure == "wheel" and args[0] == "sync" and cwd.name == "tiny-offline":
@@ -77,6 +78,7 @@ def test_exact_default_cache_preparation_has_fresh_offline_resolution_and_sync(
             name + "-online",
             (
                 "lock",
+                "--offline",
                 "--no-config",
                 "--no-build",
                 "--no-python-downloads",
@@ -86,6 +88,14 @@ def test_exact_default_cache_preparation_has_fresh_offline_resolution_and_sync(
         ) in calls
         assert any(d == name + "-offline" and a[0] == "lock" and "--offline" in a for d, a in calls)
         assert any(d == name + "-offline" and a[0] == "sync" and "--offline" in a for d, a in calls)
+    for name in ("tiny", "tiny-async"):
+        assert any(
+            d == name + "-online"
+            and a[:2] == ("pip", "compile")
+            and "--constraint" in a
+            and "--universal" in a
+            for d, a in runner.commands
+        )
     assert any(d == "root-offline" and "--locked" in a and "--offline" in a for d, a in runner.commands)
     assert all("--upgrade" not in a and "--cache-dir" not in a for _, a in runner.commands)
 
@@ -140,3 +150,42 @@ def test_committed_source_and_tool_bytes_are_rechecked(tmp_path):
     tool.write_bytes(b"changed")
     with pytest.raises(ValueError, match="tool"):
         runner.current()
+
+
+def test_fixture_constraints_include_transitives_from_canonical_lock():
+    root = (
+        lock("pytest", "pytest-asyncio").replace(
+            b'source={registry="https://pypi.org/simple"}',
+            b'dependencies=[{name="helper"}]\nsource={registry="https://pypi.org/simple"}',
+            1,
+        )
+        + b"[[package]]"
+        + lock("helper").split(b"[[package]]", 1)[1]
+    )
+    assert p.fixture_constraints(root, ("pytest==9.1.1",)) == b"helper==1.4.0\npytest==9.1.1\n"
+
+
+def test_fixture_constraints_reject_unselected_direct_pin():
+    with pytest.raises(ValueError, match="outside selected lock"):
+        p.fixture_constraints(lock("pytest"), ("pytest==99.0",))
+
+
+def test_both_ci_consumers_bind_cache_to_preparer_and_run_it_before_pytest():
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[3] / ".github/workflows/ci.yml").read_text())
+    for job_name, consumer_name in (
+        ("quality", "Unit tests + coverage gate (>=85%)"),
+        ("release-floor", "Release-capability floor gate (audit §5 — no override hides a P0 regression)"),
+    ):
+        steps = workflow["jobs"][job_name]["steps"]
+        install = next(step for step in steps if step.get("name") == "Install uv")
+        assert install["with"]["cache-suffix"] == (
+            "offline-fixture-${{ hashFiles('scripts/ci/prepare_offline_fixture_cache.py') }}"
+        )
+        assert install["with"]["cache-dependency-glob"] == "uv.lock"
+        preparation = next(
+            step for step in steps if step.get("name") == "Prepare default offline fixture cache"
+        )
+        consumer = next(step for step in steps if step.get("name") == consumer_name)
+        assert steps.index(install) < steps.index(preparation) < steps.index(consumer)
+        assert "env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I" in preparation["run"]
+        assert "scripts/ci/prepare_offline_fixture_cache.py" in preparation["run"]

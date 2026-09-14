@@ -105,6 +105,33 @@ def check_fixture(root_lock: bytes, fixture_lock: bytes) -> None:
         require(bool(package.get("wheels")), "fixture wheel unavailable")
 
 
+def fixture_constraints(root_lock: bytes, dependencies: tuple[str, ...]) -> bytes:
+    """Close the tiny fixture over exact versions from the selected root lock."""
+    packages = inventory(root_lock)
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for (name, _), package in packages.items():
+        by_name.setdefault(name, []).append(package)
+    pending = []
+    for requirement in dependencies:
+        match = re.fullmatch(r"([a-z0-9-]+)==([0-9.]+)", requirement)
+        require(match is not None, "fixture dependency must be exact")
+        assert match is not None
+        name, version = match.groups()
+        require((name, version) in packages, "fixture dependency outside selected lock")
+        pending.append(name)
+    selected = {}
+    while pending:
+        name = pending.pop()
+        if name in selected:
+            continue
+        candidates = by_name.get(name, [])
+        require(len(candidates) == 1, "ambiguous selected fixture dependency")
+        package = candidates[0]
+        selected[name] = package["version"]
+        pending.extend(dependency["name"] for dependency in package.get("dependencies", []))
+    return "".join(f"{name}=={version}\n" for name, version in sorted(selected.items())).encode()
+
+
 def fixture_config(name: str, dependencies: tuple[str, ...]) -> bytes:
     return (
         "[project]\nname=" + json.dumps(name) + '\nversion="0.0.0"\n'
@@ -267,10 +294,31 @@ class Preparation:
         for name, dependencies in FIXTURES:
             config = fixture_config(name, dependencies)
             online = self.project(name + "-online", config)
-            # Fresh resolution fetches index/metadata that locked sync need not.
+            constraints = self.output / (name + "-constraints.txt")
+            constraints.write_bytes(fixture_constraints(root_lock, dependencies))
+            requirements = self.output / (name + "-requirements.txt")
+            requirements.write_text("\n".join(dependencies) + "\n")
+            # A locked sync caches wheel URLs, not the index/metadata a fresh lock needs.
+            # Prime only selected versions; online unconstrained resolution could download
+            # newer transitive metadata and make the immutable offline fixture drift.
+            self.command(
+                online,
+                "pip",
+                "compile",
+                str(requirements),
+                "--constraint",
+                str(constraints),
+                "--universal",
+                "--no-config",
+                "--no-build",
+                "--no-python-downloads",
+                "--python",
+                str(self.python),
+            )
             self.command(
                 online,
                 "lock",
+                "--offline",
                 "--no-config",
                 "--no-build",
                 "--no-python-downloads",
