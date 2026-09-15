@@ -381,6 +381,13 @@ jobs:
       - name: Alert runbook-URL gate (D12-01-b / R-007)
         run: make check-alert-runbook-urls
 
+      # Frente 8.3 ("Registrar a cadencia, NAO confiar na memoria de ninguem"): a regua de extracao
+      # e as 34 regras clinicas tem data de revisao em spec/revisao-das-reguas.yaml, e esta etapa
+      # fica vermelha no dia em que uma delas passa. Uma cadencia que vive so num documento e' uma
+      # cadencia que ninguem honra — este projeto ja tem quatro cascas vazias nomeadas.
+      - name: Cadencia de revisao das reguas (Frente 8.3)
+        run: make check-revisao-das-reguas
+
       # PLANS.md Hardening §0.8 Onda 0 (finding W5): the strict-xfail census under
       # tests/integration/processes/ is now a GENERATED artifact, not a hand-recounted number —
       # this re-derives it from the AST and fails on drift vs docs/xfail-census.json OR the
