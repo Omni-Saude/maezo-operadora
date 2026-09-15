@@ -474,6 +474,12 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         "app.py",
         "dedup.py",
         "dispatch.py",
+        # `limite.py` (Frente 7.1, 14/09/2026): revisado ao entrar nesta lista, que e' o que esta
+        # cerca cobra. Ele NAO tem chamada de logger nenhuma — o teto decide e devolve um veredito;
+        # quem loga a recusa e' `dispatch.py`, com `message_pseudonym`, dentro da varredura abaixo.
+        # Por isso ele e' varrido (a cerca nao confia na promessa) e nao aparece em
+        # `calls_per_module` com valor exigido.
+        "limite.py",
         "security.py",
         "settings.py",
     ], "o pacote mudou de forma — reveja a cerca antes de ajustar esta lista"

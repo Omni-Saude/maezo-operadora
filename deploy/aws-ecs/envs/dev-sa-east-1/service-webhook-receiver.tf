@@ -97,6 +97,16 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
+      # TETO DE VOLUME (Frente 7.1, 14/09/2026). Os valores do codigo ja' sao estes; declara-los
+      # AQUI e' o que torna a calibracao um `-var` em vez de um deploy de imagem — e o que faz o
+      # teto aparecer para quem le' a task definition, em vez de viver so' num default de Python.
+      #
+      # SAO PONTO DE PARTIDA, nao verdade medida: 6 por conversa e' mais do que alguem digita
+      # conversando, e 120 no tenant e' o dobro do pico das baterias de 13/09. Calibrar com
+      # trafego real; o contador `maezo_webhook_mensagem_limitada_total` e' quem diz se o numero
+      # esta cortando quem nao devia.
+      { name = "WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO", value = tostring(var.limite_por_conversa_por_minuto) },
+      { name = "WHATSAPP_LIMITE_POR_TENANT_POR_MINUTO", value = tostring(var.limite_por_tenant_por_minuto) },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
