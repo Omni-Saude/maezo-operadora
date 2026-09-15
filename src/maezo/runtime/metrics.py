@@ -285,6 +285,18 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # TETO DE VOLUME (14/09/2026). Mensagens recusadas por limite, por tenant e por ESCOPO
+        # (`conversa` = um numero em laco; `tenant` = pico agregado). CONTENT-FREE: nenhum dos dois
+        # rotulos identifica pessoa, e o `conversation_id` NAO e' rotulo — ele tem cardinalidade de
+        # beneficiario e viraria um identificador por serie temporal.
+        self._mensagem_limitada = Counter(
+            "maezo_webhook_mensagem_limitada_total",
+            "Mensagens recusadas pelo teto de volume do canal, por tenant e escopo do teto "
+            "(COUNTS ONLY, vocabulario fechado, nunca a conversa nem o texto)",
+            labelnames=["tenant", "escopo"],
+            registry=self._registry,
+        )
+
         # R-104/WP-ALERTA-SLA-CANAL. SLA-risk alerts turned into a human task, per
         # `notifications_bridge._record_sla_alert_outcome`. CONTENT-FREE BY CONSTRUCTION, same rule
         # as `bridge_dlq` above: `alert_domain` is a closed vocabulary (`notification_bridge.
@@ -517,6 +529,16 @@ class MetricsCollector:
         escalation_precision, false_denial_rate, ...) are measured FROM.
         """
         return self._agent_desfecho_total
+
+    @property
+    def mensagem_limitada(self) -> Counter:
+        """Counter for inbound messages refused by the channel's volume ceiling (Frente 7.1).
+
+        Labels: tenant, escopo (`conversa` | `tenant` — the two closed scopes in
+        `webhooks/whatsapp/limite.py`). The conversation is NOT a label: it has beneficiary
+        cardinality and would turn into one time series per person.
+        """
+        return self._mensagem_limitada
 
     @property
     def sla_alert_human_task(self) -> Counter:
