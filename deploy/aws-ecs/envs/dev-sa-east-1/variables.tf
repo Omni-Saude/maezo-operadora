@@ -515,3 +515,56 @@ variable "a2a_outbox_relay_desired_count" {
   type        = number
   default     = 1
 }
+
+# ---------------------------------------------------------------------------
+# Coletor de metricas (Frente 5)
+# ---------------------------------------------------------------------------
+
+variable "prometheus_workspace_alias" {
+  description = <<-EOT
+    Prefixo do ALIAS do workspace gerenciado (AMP) onde o coletor escreve. Lido por data source,
+    nunca criado por este state: o workspace e' da plataforma e compartilhado, e um `resource`
+    aqui faria um `terraform destroy` do maezo apagar serie historica de outro time.
+  EOT
+  type        = string
+  default     = "amh-prometheus-dev"
+}
+
+variable "metrics_collector_image" {
+  description = <<-EOT
+    Imagem do coletor. `aws-otel-collector` (ADOT) e nao o coletor upstream porque a escrita no
+    workspace gerenciado exige assinatura SigV4 pela role da task, e a extensao `sigv4auth` ja'
+    vem nesta distribuicao. VERSAO FIXA de proposito: `latest` num coletor significa que a forma
+    da configuracao pode mudar num deploy que nao mexeu em nada nosso.
+  EOT
+  type        = string
+  default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.43.1"
+}
+
+variable "metrics_collector_desired_count" {
+  description = <<-EOT
+    Quantas tasks do coletor. 1 e' o certo e 2 seria pior: duas replicas raspam os MESMOS alvos e
+    escrevem a MESMA serie no workspace, o que produz amostras duplicadas no mesmo timestamp em
+    vez de redundancia. Zero desliga a coleta — e volta ao estado que a Frente 5 veio corrigir,
+    entao que seja um ato declarado.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.metrics_collector_desired_count >= 0 && var.metrics_collector_desired_count <= 1
+    error_message = "metrics_collector_desired_count so aceita 0 ou 1: duas replicas raspariam os mesmos alvos e duplicariam amostras no workspace."
+  }
+}
+
+variable "metrics_collector_cpu" {
+  description = "CPU do coletor (256 = 0.25 vCPU). Quatro alvos a cada 30s nao pedem mais."
+  type        = number
+  default     = 256
+}
+
+variable "metrics_collector_memory" {
+  description = "Memoria do coletor em MB. 512 cobre o buffer de escrita remota com folga no volume de dev."
+  type        = number
+  default     = 512
+}
