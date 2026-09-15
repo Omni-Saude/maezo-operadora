@@ -69,8 +69,10 @@ resource "aws_ecs_task_definition" "canal_teste" {
   }
 
   container_definitions = jsonencode([{
-    name      = "canal-teste"
-    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    name = "canal-teste"
+    # `canal_teste_image_tag`, NAO `image_tag` (separadas em 15/09/2026): o canal promove
+    # num ritmo proprio, e a variavel compartilhada fazia o plan querer regredi-lo 4 dias.
+    image     = "${aws_ecr_repository.app.repository_url}:${var.canal_teste_image_tag}"
     essential = true
 
     # `python -c <programa>` como UM argumento de argv: sem shell no meio, portanto sem

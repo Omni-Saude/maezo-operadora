@@ -209,7 +209,12 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "c745fd94" # main de 09/09/2026 — promocao dos 5 servicos (worker primeiro); antes 40dc6d4 de 27/08, 1.304 commits atras
+  # CONFERIDO EM 15/09/2026 contra o cluster: `c745fd94` E' a tag viva de agent-helena,
+  # agent-rafael, agent-marina e worker-runtime. O Canal de Teste NAO usa mais esta variavel —
+  # ele divergiu para `e86c0f89` em 13/09 e agora tem a sua propria (`canal_teste_image_tag`),
+  # porque uma variavel que governa servicos INTENCIONALMENTE em imagens diferentes nao consegue
+  # descrever o ambiente: ou ela mente sobre um, ou o apply regride o outro.
+  default = "c745fd94" # main de 09/09/2026 — agentes + worker; antes 40dc6d4 de 27/08, 1.304 commits atras
 }
 
 variable "webhook_receiver_image_tag" {
@@ -222,7 +227,20 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "5cdb09a5" # 11/09/2026: intent "greeting" (classify-v3). O RECEPTOR e quem executa turno, entao a correcao vale aqui; agent-helena segue em c745fd94 ate a proxima promocao
+  # RECONCILIADO EM 15/09/2026 com o que esta VIVO no cluster. O default apontava para
+  # `5cdb09a5` (11/09) enquanto o servico rodava `e86c0f89` (13/09) — dois dias de deriva, criada
+  # porque os deploys de 12 e 13/09 foram feitos com `-var` e `-target` e o repo nunca foi
+  # atualizado.
+  #
+  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: um `terraform apply` sem `-var` REGREDIRIA o
+  # receptor para antes das correcoes de 13/09 — o `response-v3` que proibiu afirmar ausencia de
+  # alerta, e a conversa pediatrica. Medido no plan de 15/09 antes desta correcao
+  # (`e86c0f89 -> 5cdb09a5`). Nao houve incidente porque o apply estava pausado; a proxima pessoa
+  # a rodar um apply de rotina nao teria essa sorte.
+  #
+  # A REGRA QUE ISTO ESTABELECE: o default e' sempre a tag VIVA. Promover e' um commit que muda
+  # este numero, nao um `-var` que so' existe no terminal de quem aplicou.
+  default = "e86c0f89" # 13/09/2026: response-v3 (negativa clinica proibida) + saudacao + eco do turno. VIVO em webhook-receiver desde 13/09 18:07Z
 }
 
 variable "webhook_receiver_desired_count" {
@@ -514,4 +532,40 @@ variable "a2a_outbox_relay_desired_count" {
   EOT
   type        = number
   default     = 1
+}
+
+variable "canal_teste_image_tag" {
+  description = <<-EOT
+    Tag da imagem do Canal de Teste, SEPARADA de `image_tag` desde 15/09/2026.
+
+    POR QUE SEPARAR. O canal roda a mesma imagem do repo, mas a pagina que ele serve muda num
+    ritmo proprio — foi promovido para `e86c0f89` em 13/09 (pagina de escalonamento) enquanto os
+    agentes ficaram em `c745fd94`. Com UMA variavel para os dois, o repo nao conseguia descrever o
+    ambiente: o default `c745fd94` fazia o plan querer REGREDIR o canal quatro dias, e corrigi-lo
+    para `e86c0f89` teria arrastado os tres agentes e o worker junto, sem ninguem pedir.
+
+    Uma variavel por ritmo de promocao e' o que torna um `terraform apply` sem `-var` um no-op
+    sobre imagem — e um apply que nao e' no-op sobre imagem e' um apply que ninguem roda com
+    tranquilidade.
+  EOT
+  type        = string
+  default     = "e86c0f89" # 13/09/2026: pagina de escalonamento. VIVO em canal-teste desde 13/09 18:07Z
+}
+
+variable "webhook_devolve_turno" {
+  description = <<-EOT
+    ECO DO TURNO no `/receptor/simular`: devolve `resposta` e `conversation_id` no ack.
+
+    LIGADA, e a razao e' de observabilidade, nao de conveniencia: ler a resposta da Helena e' o que
+    achou todos os defeitos graves de setembro. Antes dela o texto morria no 401 do envio, e as
+    canarias de vazamento nunca disparavam porque nenhuma resposta tinha sido lida por ninguem.
+
+    O LEITOR AINDA NAO ESTA NA MAIN — `devolve_turno` vive em
+    `origin/integracao/canal-conversa-e-saudacao` e chega com o PR #371. Ate' la', a imagem viva
+    (`e86c0f89`) le' esta variavel e a main nao; declara-la aqui e' o que impede um apply de rotina
+    de apagar a observabilidade do ambiente. Ver a entrada correspondente em
+    `scripts/ci/check_chart_env_reconciliation.py::DEFERRED_UNRECONCILED_DECLARED`.
+  EOT
+  type        = bool
+  default     = true
 }
