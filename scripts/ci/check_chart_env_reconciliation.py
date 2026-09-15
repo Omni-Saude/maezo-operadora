@@ -218,6 +218,16 @@ _OTEL_SDK_REASON = (
     "`os.environ` literal. Contrast `OTEL_SERVICE_NAME`/`OTEL_EXPORTER_OTLP_ENDPOINT`, which "
     "src/maezo/platform/observability.py DOES read explicitly and are therefore NOT here."
 )
+_ADOT_COLLECTOR_REASON = (
+    "O binario do coletor ADOT (`aws-otel-collector`, "
+    "deploy/aws-ecs/envs/dev-sa-east-1/service-metrics-collector.tf, Frente 5) e' quem le estas "
+    "seis: `AOT_CONFIG_CONTENT` pelo entrypoint da imagem, e as outras cinco pela expansao "
+    "`${env:...}` do proprio coletor dentro de "
+    "deploy/observability/otel-collector-ecs-dev.yaml. Nenhum modulo Python do maezo participa — o "
+    "coletor RASPA o `/metrics` do maezo pela rede, nunca roda dentro dele. Contraste "
+    "`OTEL_SERVICE_NAME`/`OTEL_EXPORTER_OTLP_ENDPOINT`, lidas por observability.py e por isso fora "
+    "desta tabela."
+)
 _CLOUDFLARED_REASON = (
     "The `cloudflared` third-party binary/image's own env vars "
     "(deploy/aws-ecs/envs/dev-sa-east-1/service-cloudflared.tf) — never maezo Python's."
@@ -280,6 +290,17 @@ _CODEBUILD_BUILDSPEC_NAMES: tuple[str, ...] = ("DOCKERFILE", "REGISTRO", "REPOSI
 #: OpenTelemetry SDK's own env-var contract — see `_OTEL_SDK_REASON`.
 _OTEL_SDK_NAMES: tuple[str, ...] = ("OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_RESOURCE_ATTRIBUTES")
 
+#: As seis do coletor ADOT — see `_ADOT_COLLECTOR_REASON`. `AWS_REGION` entra aqui apesar do nome
+#: generico: quem a le' e' a extensao `sigv4auth` do coletor, nao o SDK de nenhum modulo do maezo.
+_ADOT_COLLECTOR_NAMES: tuple[str, ...] = (
+    "AOT_CONFIG_CONTENT",
+    "AWS_REGION",
+    "MAEZO_ENV",
+    "MAEZO_CLUSTER",
+    "MAEZO_NAMESPACE",
+    "AMP_REMOTE_WRITE_URL",
+)
+
 #: `cloudflared`'s own env vars — see `_CLOUDFLARED_REASON`.
 _CLOUDFLARED_NAMES: tuple[str, ...] = ("TUNNEL_LOGLEVEL", "TUNNEL_METRICS", "TUNNEL_TOKEN")
 
@@ -298,6 +319,7 @@ INFRA_OWNED_DECLARED: dict[str, str] = {
     "PYTHONDONTWRITEBYTECODE": _PYTHON_INTERPRETER_REASON,
     **dict.fromkeys(_OTEL_SDK_NAMES, _OTEL_SDK_REASON),
     **dict.fromkeys(_CLOUDFLARED_NAMES, _CLOUDFLARED_REASON),
+    **dict.fromkeys(_ADOT_COLLECTOR_NAMES, _ADOT_COLLECTOR_REASON),
 }
 _require_reasons(INFRA_OWNED_DECLARED, label="INFRA_OWNED_DECLARED")
 
