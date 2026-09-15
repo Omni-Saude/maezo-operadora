@@ -315,7 +315,20 @@ _require_reasons(INFRA_OWNED_DECLARED, label="INFRA_OWNED_DECLARED")
 #: so a FUTURE genuinely-unreconcilable-but-not-infra-owned name has somewhere to go without
 #: re-inventing the table; `_require_reasons` and the empty-dict-safe reconciliation logic both
 #: tolerate it being empty.
-DEFERRED_UNRECONCILED_DECLARED: dict[str, str] = {}
+DEFERRED_UNRECONCILED_DECLARED: dict[str, str] = {
+    "WHATSAPP_WEBHOOK_DEVOLVE_TURNO": (
+        "Frente do eco do turno (12/09/2026): o receptor VIVO em dev le esta variavel — a imagem "
+        "`e86c0f89` foi construida de `origin/integracao/canal-conversa-e-saudacao`, onde "
+        "`webhooks/whatsapp/settings.py::devolve_turno` existe. Ela NAO esta na `main` ainda; "
+        "chega com o PR #371. Declarada em "
+        "`deploy/aws-ecs/envs/dev-sa-east-1/service-webhook-receiver.tf` em 15/09/2026 porque o "
+        "`terraform plan` mostrou que um apply de rotina a REMOVERIA do servico vivo, e com ela a "
+        "unica observabilidade que o ambiente tem sobre o que a Helena escreve (ler a resposta foi "
+        "o que achou todos os defeitos graves de setembro). Entrada TEMPORARIA: quando #371 "
+        "mergear, `src/` passa a ler o nome e esta linha sai — a cerca cobra isso sozinha, porque "
+        "um nome lido E listado aqui vira inconsistencia na proxima execucao."
+    ),
+}
 _require_reasons(DEFERRED_UNRECONCILED_DECLARED, label="DEFERRED_UNRECONCILED_DECLARED")
 
 #: The mirror of the table above for the OTHER direction: required-but-undeclared names whose
