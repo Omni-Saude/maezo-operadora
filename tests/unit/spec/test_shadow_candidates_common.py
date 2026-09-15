@@ -85,7 +85,8 @@ def test_the_roster_is_exactly_the_candidate_manifests_on_disk() -> None:
     here: it could ship with no `tabela_viva` binding at all, no CODEOWNERS line and no refusal
     coverage, and this suite would stay entirely green. Deriving the set from disk is what makes the
     roster a claim about the repository instead of a claim about itself; it is the same disk-derived
-    census as the 62-DMN/16-BPMN pin in section 2-3 below.
+    census as the 63-DMN/16-BPMN pin in section 2-3 below (62 until Frente 2.2 added
+    `triage_sufficiency.dmn`, which that test names explicitly).
     """
     on_disk = {path.name for path in DMN_DIR.glob(CANDIDATE_GLOB)}
     roster = set(ALL_CANDIDATES)
@@ -204,9 +205,25 @@ def test_candidate_manifests_are_invisible_to_artifact_deployment() -> None:
 
 
 def test_the_dmn_census_is_unchanged_by_this_wave() -> None:
-    """The five new files are `.yaml`; the DMN census pin (62) must be untouched."""
+    """The five new files are `.yaml`; the DMN census pin must move only for a NAMED table.
+
+    PIN MOVED 62 -> 63 (Frente 2.2, 15/09/2026), and the way it moved is the point. A bare count
+    tells the next reader THAT something changed, never WHAT — so the delta is asserted by NAME
+    below. `triage_sufficiency.dmn` is the table `docs/design/triage-suficiencia-coleta.md` had
+    proposed in markdown since 09/09 and that `agents/helena/graph.py::SUFFICIENCY_DMN_KEY` already
+    consults; it is NOT ratified, and its existence does NOT enable collection (`coleta_enabled`
+    stays `False` — see `tests/unit/spec/test_triage_sufficiency_dmn.py`).
+
+    This test's own claim — "the shadow-candidate wave introduced no DMN" — survives the bump
+    precisely BECAUSE the one new file is named here: a future unnamed addition still fails.
+    """
     artifacts = collect_artifacts(resolve_spec_processes_dir())
-    assert len([p for p in artifacts if p.suffix == ".dmn"]) == 62
+    dmns = {p.name for p in artifacts if p.suffix == ".dmn"}
+    assert len(dmns) == 63
+    assert "triage_sufficiency.dmn" in dmns, (
+        "o censo subiu para 63 por causa de `triage_sufficiency.dmn` — se ele nao esta mais ai, "
+        "quem subiu o numero foi outra coisa, e essa outra coisa precisa se nomear aqui"
+    )
     assert len([p for p in artifacts if p.suffix == ".bpmn"]) == 16
 
 
