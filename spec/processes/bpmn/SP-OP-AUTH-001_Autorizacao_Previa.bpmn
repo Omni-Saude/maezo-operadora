@@ -11,6 +11,15 @@
                   exporterVersion="0.1.0-draft">
 
   <bpmn:message id="Msg_AuthDocsRecebidos" name="msg.auth.docs_received"/>
+  <!-- WP-BPMN-J1: mensagem de INTAKE do portal (jornada do prestador). Espelha o par
+       operacao-nativa <-> mensagem ja' usado em SP-OP-NIP-001 (operacao A2A `nip.instruct` ->
+       `msg.nip.instruct`, start alternativo Start_NipInstruct): aqui a operacao nativa do
+       despachante de intake do portal e' `auth.start`
+       (src/maezo/gateway/intake/native_dispatch.py:45) e a mensagem correspondente e'
+       `msg.auth.start`. NAO e' um processo por publico: o start de mensagem entra no MESMO
+       fluxo (ST_PublishReceived), com a MESMA business key contratual
+       "AUTH-{tenant_id}-{numero_guia_tiss}". -->
+  <bpmn:message id="Msg_AuthIntakeStart" name="msg.auth.start"/>
   <bpmn:error id="Error_AuthGuiaInvalida" name="Guia TISS invalida/incompleta na origem" errorCode="ERR_AUTH_INVALID_GUIA"/>
   <!-- GAP-AUTH-2 (defesa-em-profundidade, NAO um bypass ativo): o worker send_denial_notice ja
        lanca ERR_AUTH_DENIAL_INCOMPLETE (guard L0, auth.py) quando a negativa formal chega sem
@@ -47,6 +56,15 @@ BUSINESS KEY (idempotente): "AUTH-{tenant_id}-{numero_guia_tiss}"
   — uma instancia por guia TISS. Reenvio da mesma guia NAO cria nova instancia
   (mcp-cibseven.start_process consulta business key antes de iniciar).
 
+ENTRADAS DO PROCESSO (WP-BPMN-J1 — nenhuma aresta de negocio nova):
+  Start_SolicitacaoRecebida (none start) — canal de agente, start tipado por key/id.
+  Start_IntakePortal (message start `msg.auth.start`) — intake do prestador pelo portal,
+    operacao nativa `auth.start`, MESMA business key acima.
+  ICE_DocsRecebidos (`msg.auth.docs_received`, dentro de GW_AguardarDocs) — resposta
+    documental de prestador/beneficiario autorizado, operacao nativa
+    `auth.documents.respond`, correlacao por ocorrencia/subscricao exata.
+  Os tres entram no MESMO processo: nao ha processo, evento nem fluxo por publico.
+
 EVENTOS DE DOMINIO (worker operadora.events.publish):
   inicio -> agents.events.auth.received
   pendencia -> agents.events.auth.pended
@@ -64,6 +82,16 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
       <bpmn:outgoing>Flow_Start_PubReceived</bpmn:outgoing>
     </bpmn:startEvent>
 
+    <!-- WP-BPMN-J1 (jornada do PRESTADOR): start alternativo por mensagem para o intake do
+         portal. Espelha Start_NipInstruct de SP-OP-NIP-001 (none start + message start no mesmo
+         processo, ambos convergindo no primeiro serviceTask). O none start acima PERMANECE o
+         start inicial do processo — startProcessInstanceByKey/ById do canal de agente nao muda. -->
+    <bpmn:startEvent id="Start_IntakePortal" name="Intake do prestador pelo portal (auth.start)">
+      <bpmn:documentation>Entrada tipada do despachante de intake do portal (operacao nativa `auth.start`) no MESMO processo SP-OP-AUTH-001 — nao existe processo por publico. Business key contratual "AUTH-{tenant_id}-{numero_guia_tiss}" (decisao do dono #16, opcao (a)): uma instancia por guia TISS, identica a do canal de agente, de modo que os dois canais compartilhem UM dominio de idempotencia. O caminho fica INERTE ate que o despachante passe a iniciar por mensagem com essa chave E a entrada SP-OP-AUTH-001 seja promovida em _START_DEDUP_POLICY de NON_STRICT (classificacao atual, transport.py:1211) para a postura mais estrita adequada (postura-alvo a ratificar) — ambos fora deste pacote (WP-J1-01/WP-J1-11); enquanto isso nenhum chamador o aciona. O browser NUNCA fornece nome de mensagem, business key, tenant, process key nem mapa de variaveis (ADR-0049 D4): o BFF/gateway resolve tudo no servidor e as mesmas variaveis de start declaradas na documentacao do processo continuam sendo a unica fronteira de dados. Sem formulario de start do Camunda (camunda:formKey) por decisao explicita: o portal liga formulario a tarefa pelo catalogo fechado (portal/contracts/models.py), e um start form da Tasklist abriria exatamente o caminho de variaveis semeadas pelo browser que o ADR-0049 D4 proibe.</bpmn:documentation>
+      <bpmn:outgoing>Flow_IntakePortal_PubReceived</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="MED_AuthIntakeStart" messageRef="Msg_AuthIntakeStart"/>
+    </bpmn:startEvent>
+
     <bpmn:serviceTask id="ST_PublishReceived" name="Publicar evento: auth.received"
                       camunda:type="external" camunda:topic="operadora.events.publish">
       <bpmn:extensionElements>
@@ -73,6 +101,7 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
         </camunda:inputOutput>
       </bpmn:extensionElements>
       <bpmn:incoming>Flow_Start_PubReceived</bpmn:incoming>
+      <bpmn:incoming>Flow_IntakePortal_PubReceived</bpmn:incoming>
       <bpmn:outgoing>Flow_PubReceived_Admiss</bpmn:outgoing>
     </bpmn:serviceTask>
 
@@ -114,7 +143,7 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
     <!-- Ramo: pendencia de documentacao -->
     <bpmn:serviceTask id="ST_SolicitarDocumentos" name="Solicitar documentacao ao prestador"
                       camunda:type="external" camunda:topic="operadora.auth.request_documents">
-      <bpmn:documentation>Suspensao de prazo durante pendencia (regra RN — DRAFT/verify com regulatorio). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.auth.pended diretamente — ver ST_PublishAuthPended logo a seguir (T3.1 Wave 1 remedy B, event-gap design doc §2.3).</bpmn:documentation>
+      <bpmn:documentation>Suspensao de prazo durante pendencia (regra RN — DRAFT/verify com regulatorio). Worker dict-first (ADR-0026, del kafka): NAO publica agents.events.auth.pended diretamente — ver ST_PublishAuthPended logo a seguir (T3.1 Wave 1 remedy B, event-gap design doc §2.3). WP-J1-03 (decisao do dono #18, 2026-09-12) — DESTINATARIOS E EXCLUSIVIDADE. Este topico tem DOIS consumidores possiveis no codigo e EXATAMENTE UM pode estar registrado por implantacao: o worker generico `RequestDocumentsWorker` (tools/workers/auth.py), que apenas registra em log e NAO entrega nada, ou a ponte PHI dedicada `DocumentRequestHost` (gateway/document_requests), que entrega de verdade. A escolha e' declarativa (`MAEZO_AUTH_DOCUMENT_REQUEST_HOST`), nunca inferida, e verificada dos dois lados; os dois registrados fariam fetch-and-lock concorrente na MESMA tarefa externa e a entrega passaria a ser decidida por corrida, invisivel ate o prazo P5D de ICE_PrazoPendencia expirar. Quando a ponte serve o topico, o pedido vai ao PRESTADOR **e** ao BENEFICIARIO — cada um por uma `resource_authority` ATIVA de acao `auth.documents.respond` sobre o mesmo caso, a MESMA acao que ICE_DocsRecebidos reconfere ao aceitar a resposta. O nome desta task continua descrevendo a obrigacao contratual ("ao prestador"): o beneficiario e' destinatario ADICIONAL quando detem delegacao ativa, nunca substituto do prestador, e um pedido sem destinatario prestador e' RECUSADO. NENHUM DELTA EXECUTAVEL AQUI. Os destinatarios vem das heads publicadas (`document_policy` + `resource_authority`), nunca da carga do evento de dominio de ST_PublishAuthPended — a ponte nao le esse evento. Por isso `event_payload_vars` permanece sem `beneficiario_pseudo_id`: inclui-lo ampliaria a exposicao de um pseudonimo (ADR-0006) num evento que o exclui deliberadamente, sem nenhum consumidor que precise dele. Diff executavel vazio ⇒ nenhuma nova versao de processo. Contrato: docs/processes/contracts/SP-OP-AUTH-001.md, "Pedido de documentos — ponte PHI".</bpmn:documentation>
       <bpmn:incoming>Flow_GW_Pendencia</bpmn:incoming>
       <bpmn:incoming>Flow_GWDec_SolicitarInfo</bpmn:incoming>
       <bpmn:outgoing>Flow_Solicitar_PubPended</bpmn:outgoing>
@@ -147,6 +176,7 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
       <bpmn:outgoing>Flow_Wait_Timer</bpmn:outgoing>
     </bpmn:eventBasedGateway>
     <bpmn:intermediateCatchEvent id="ICE_DocsRecebidos" name="Documentacao recebida">
+      <bpmn:documentation>WP-BPMN-J1 (jornada do BENEFICIARIO e do PRESTADOR): esta e' a UNICA entrada da resposta documental do portal — a operacao nativa `auth.documents.respond` (src/maezo/gateway/intake/native_dispatch.py:45), autorizada pela ResourceAuthority de mesma acao, correlaciona AQUI, REUTILIZANDO `msg.auth.docs_received` (contrato SP-OP-AUTH-001.md, "Mensagem documental"). Nenhuma mensagem nova, nenhum evento por publico e nenhum caminho paralelo: prestador e beneficiario autorizado respondem a MESMA pendencia da MESMA instancia. Correlacao por OCORRENCIA/subscricao exata (event subscription + revisao do pedido), nunca ampla por business key: a mesma instancia pode voltar a pendencia, e mensagem atrasada, espera expirada/substituida ou corrida com ICE_PrazoPendencia nao podem consumir uma espera posterior. Nome de mensagem, business key e `documentacao_completa` nunca vem do browser — `documentos_refs` e `documentacao_completa` sao reescritos a partir da verificacao da politica documental antes do retorno a BRT_Admissibilidade.</bpmn:documentation>
       <bpmn:incoming>Flow_Wait_DocsMsg</bpmn:incoming>
       <bpmn:outgoing>Flow_DocsOk_Admiss</bpmn:outgoing>
       <bpmn:messageEventDefinition id="MED_DocsRecebidos" messageRef="Msg_AuthDocsRecebidos"/>
@@ -162,6 +192,36 @@ Contrato completo: docs/processes/contracts/SP-OP-AUTH-001.md.
     <bpmn:userTask id="UT_DecidirPendenciaExpirada" name="Decidir destino da guia com pendencia expirada"
                    camunda:candidateGroups="medico-auditor">
       <bpmn:documentation>Conservador (L0 hard): nem o cancelamento administrativo por pendencia e automatizado. Saidas: decisao_pendencia in {cancelar_guia, conceder_prazo_extra, seguir_analise}.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <!-- WP-J1-05: qualificacao do formulario. Ate aqui o unico enunciado do formulario era a
+             documentacao acima (BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY em
+             portal/contracts/models.py), e o produtor de binding recusa formularios DRAFT
+             (gateway/human/decision.py) — ou seja, claim/release/decision desta tarefa eram
+             recusados com `form_contract_unavailable` (gateway/human/gateway.py). Com o formData
+             abaixo o binding passa a ser VERIFICAVEL contra o BPMN implantado:
+             decision_binding.py exige que o conjunto de `formField/@id` seja EXATAMENTE
+             `allowed_inputs` do formulario `auth_pendencia` — por isso ha UM unico campo e
+             NENHUM `auditor_id` (esse acrescimo so vale para auth_decisao/auth_junta, onde o
+             guard de proveniencia ERR_DENIAL_NOT_HUMAN o consome; aqui nao nasce negativa).
+             Enum + `required`: uma decisao humana SEMPRE deve ser tomada, e o dominio e
+             fechado nos tres literais do contrato — o gateway GW_PendenciaExpirada tem default
+             `seguir_analise`, entao um valor fora do dominio NUNCA cancela a guia.
+             ATENCAO (lacuna de contrato registrada, nao corrigida aqui): `conceder_prazo_extra`
+             NAO rearma a espera documental — Flow_GWPend_PrazoExtra vai para BRT_SlaAnalise,
+             exatamente como `seguir_analise`. Corrigir a semantica exige decisao do dono do
+             contrato/SME e pacote BPMN/DMN/form/worker compativel; nenhum rotulo aqui promete
+             prazo novo. -->
+        <camunda:formData>
+          <camunda:formField id="decisao_pendencia" label="Destino da guia com pendencia expirada" type="enum">
+            <camunda:value id="cancelar_guia" name="Cancelar a guia (decisao humana — publica cancelada_pendencia)"/>
+            <camunda:value id="conceder_prazo_extra" name="Conceder prazo extra (hoje segue para analise; NAO rearma a espera documental)"/>
+            <camunda:value id="seguir_analise" name="Seguir para analise (default do gateway)"/>
+            <camunda:validation>
+              <camunda:constraint name="required"/>
+            </camunda:validation>
+          </camunda:formField>
+        </camunda:formData>
+      </bpmn:extensionElements>
       <bpmn:incoming>Flow_PrazoPendencia_UT</bpmn:incoming>
       <bpmn:outgoing>Flow_UTPend_GW</bpmn:outgoing>
     </bpmn:userTask>
@@ -474,7 +534,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
       <bpmn:errorEventDefinition id="EED_NegativaIncompleta" errorRef="Error_AuthDenialIncompleta"/>
     </bpmn:boundaryEvent>
     <bpmn:endEvent id="End_FundamentacaoIncompletaBloqueada" name="Negativa formal barrada por fundamentacao incompleta (guard L0) — nada transmitido">
-      <bpmn:documentation>Terminal NEUTRO (guard L0, authorization_denial): o worker send_denial_notice RECUSOU transmitir a negativa formal por faltar fundamentacao obrigatoria (justificativa_clinica / cid10_referencia / fundamentacao_dut) — ERR_AUTH_DENIAL_INCOMPLETE. NENHUM efeito adverso ocorreu: a negativa NAO foi enviada ao beneficiario. So alcancavel APOS uma User Task humana (UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta) ter decidido NEGAR — nao ha caminho automatizado. O guard do worker permanece o mecanismo de enforcement (ADR-0018); este terminal apenas encerra a instancia de forma limpa (em vez de incidente travado) para o auditor humano recompor a fundamentacao completa.</bpmn:documentation>
+      <bpmn:documentation>Terminal NEUTRO (guard L0, authorization_denial): o worker send_denial_notice RECUSOU transmitir a negativa formal — ERR_AUTH_DENIAL_INCOMPLETE. DOIS guards alcancam este mesmo terminal, com o mesmo errorCode, e o operador precisa de saber qual disparou (WP-J1-06): (a) o dono GENERICO (SendDenialNoticeWorker, o dono do topico por padrao) recusa por faltar fundamentacao obrigatoria nas variaveis de processo (justificativa_clinica / cid10_referencia / fundamentacao_dut); (b) o dono NATIVO do portal (NativeDenialNoticeWorker, instalado apenas quando MAEZO_DENIAL_NOTICE_OWNER esta ligado) recusa porque as REFERENCIAS da base da decisao humana estavam ausentes ou em branco nas variaveis do engine — a fundamentacao existe em custodia PHI e o que falta e a prova de que existe. Em ambos os casos o significado operacional e o mesmo: a negativa nao esta fundamentada de forma verificavel. NENHUM efeito adverso ocorreu: a negativa NAO foi enviada ao beneficiario. So alcancavel APOS uma User Task humana (UT_AnaliseMedicoAuditor / UT_CoordenacaoAssume / UT_RegistrarParecerJunta) ter decidido NEGAR — nao ha caminho automatizado. O guard do worker permanece o mecanismo de enforcement (ADR-0018); este terminal apenas encerra a instancia de forma limpa (em vez de incidente travado) para o auditor humano recompor a fundamentacao completa.</bpmn:documentation>
       <bpmn:incoming>Flow_NegativaIncompleta_End</bpmn:incoming>
     </bpmn:endEvent>
 
@@ -569,6 +629,7 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
 
     <!-- FLOWS -->
     <bpmn:sequenceFlow id="Flow_Start_PubReceived" sourceRef="Start_SolicitacaoRecebida" targetRef="ST_PublishReceived"/>
+    <bpmn:sequenceFlow id="Flow_IntakePortal_PubReceived" sourceRef="Start_IntakePortal" targetRef="ST_PublishReceived"/>
     <bpmn:sequenceFlow id="Flow_PubReceived_Admiss" sourceRef="ST_PublishReceived" targetRef="BRT_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_Admiss_GW" sourceRef="BRT_Admissibilidade" targetRef="GW_Admissibilidade"/>
     <bpmn:sequenceFlow id="Flow_GW_NaoRequer" name="NAO_REQUER" sourceRef="GW_Admissibilidade" targetRef="ST_PublishNaoRequer">
@@ -648,6 +709,9 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
     <bpmndi:BPMNPlane id="Plane_SP-OP-AUTH-001" bpmnElement="SP-OP-AUTH-001">
       <bpmndi:BPMNShape id="Shape_Start_SolicitacaoRecebida" bpmnElement="Start_SolicitacaoRecebida">
         <dc:Bounds x="72" y="62" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Start_IntakePortal" bpmnElement="Start_IntakePortal">
+        <dc:Bounds x="72" y="112" width="36" height="36"/>
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_ST_PublishReceived" bpmnElement="ST_PublishReceived">
         <dc:Bounds x="220" y="40" width="100" height="80"/>
@@ -775,6 +839,12 @@ analista_id/auditor_id de SP-OP-RECURSO-001 e SP-OP-REEMBOLSO-001).
       </bpmndi:BPMNShape>
       <bpmndi:BPMNEdge id="Edge_Flow_Start_PubReceived" bpmnElement="Flow_Start_PubReceived">
         <di:waypoint x="108" y="80"/>
+        <di:waypoint x="220" y="80"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_IntakePortal_PubReceived" bpmnElement="Flow_IntakePortal_PubReceived">
+        <di:waypoint x="108" y="130"/>
+        <di:waypoint x="164" y="130"/>
+        <di:waypoint x="164" y="80"/>
         <di:waypoint x="220" y="80"/>
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_PubReceived_Admiss" bpmnElement="Flow_PubReceived_Admiss">

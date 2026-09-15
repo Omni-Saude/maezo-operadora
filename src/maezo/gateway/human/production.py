@@ -38,14 +38,28 @@ from .assignment_composition import AssignmentRuntime
 from .assignment_receipt import NativeAssignmentReceiptAuthority
 from .assignment_transport import AssignmentPrivateTransport, NativeAssignmentClient
 from .command_materials import assignment_scope, assignment_signing_lease, install_command_credential
+from .decision import BoundDecisionPorts
+from .decision_binding import BindingConnection, PostgresDecisionBindingSource
+from .decision_binding_qualification import QualificationVerifier
+from .decision_custody import PostgresHumanDecisionCustody
+from .decision_custody_connection import PhiPostgresConnection
+from .decision_materials import (
+    DECISION_MATERIAL_DIRECTORY,
+    DecisionMaterialError,
+    DecisionMaterialPin,
+    DecisionMaterials,
+    load_decision_materials,
+)
 from .engine_evidence import EngineEvidenceReferenceSource
 from .engine_reads import EngineReadBundle, EngineReadComposition
 from .errors import GatewayRefusalError
 from .models import Scope
-from .outbox import PostgresHumanAdmission, PostgresHumanOutbox
+from .outbox import PostgresDecisionAdmission, PostgresHumanAdmission, PostgresHumanOutbox
+from .phi_decision_authorization import EngineBackedPhiDecisionAuthorization
 from .production_materials import (
     MATERIAL_DIRECTORY,
     HumanMaterialError,
+    HumanMaterialPin,
     HumanMaterials,
     PrivateSurface,
     load_human_materials,
@@ -85,6 +99,65 @@ def _surface_context(surface: PrivateSurface, scope: Scope, directory: str) -> s
     return context
 
 
+def compose_decision_ports(
+    decision: DecisionMaterials,
+    *,
+    scope: Scope,
+    client: NativeAssignmentClient,
+    outbox: PostgresHumanOutbox,
+) -> BoundDecisionPorts:
+    """Bind #22 binding, #23 custody and #25 admission from the decision material plane.
+
+    WP-J1-00 §2.4 left these three unbound, and `HumanGateway.submit_decision` refuses
+    outright while `decision_ports is None` — so on `main` today every APROVAR and every
+    NEGAR ends in `form_projection_unavailable`. Nothing about that refusal was wrong;
+    what was missing is this composition.
+
+    Pure wiring, like `compose_human_plane`: no connection is opened here. Both
+    connections are explicit, mTLS-pinned and purpose-separated — the binding plane is
+    opened `reader`-only (it never installs qualification) and the PHI plane is the only
+    one that ever holds clinical text. #24 (`EngineBackedPhiDecisionAuthorization`, built
+    by WP-J1-00) is the authorization the custody provider re-checks on every operation.
+    """
+    manifest = decision.manifest
+    if manifest.scope != scope:
+        # All three ports must carry the gateway's own scope or `HumanGateway`
+        # refuses with `credential_scope_mismatch`; fail here, with the material named.
+        raise DecisionMaterialError()
+    root = Path(decision.directory)
+    binding_identity = HumanTLSIdentity(
+        scope=scope,
+        ca_file=root / "binding-ca.pem",
+        certificate_file=root / "binding-client-certificate.pem",
+        private_key_file=root / "binding-client-key.pem",
+    )
+    binding = PostgresDecisionBindingSource(
+        BindingConnection(
+            database=manifest.binding_database,
+            identity=binding_identity,
+            verifier=QualificationVerifier(decision.root),
+            mode="reader",
+            timeout_seconds=manifest.binding_timeout_seconds,
+        )
+    )
+    phi_connection = PhiPostgresConnection(
+        deployment=manifest.phi.deployment(scope),
+        identity=HumanTLSIdentity(
+            scope=scope,
+            ca_file=root / "phi-ca.pem",
+            certificate_file=root / "phi-client-certificate.pem",
+            private_key_file=root / "phi-client-key.pem",
+        ),
+        timeout_seconds=manifest.phi_timeout_seconds,
+    )
+    custody = PostgresHumanDecisionCustody(
+        connection=phi_connection,
+        keys=decision.ciphers(),
+        authorization=EngineBackedPhiDecisionAuthorization(client=client, connection=phi_connection),
+    )
+    return BoundDecisionPorts(binding=binding, custody=custody, admission=PostgresDecisionAdmission(outbox))
+
+
 @dataclass(frozen=True, repr=False)
 class HumanRuntime:
     """The two compositions `create_app` binds, plus the lifetime that revokes them."""
@@ -101,6 +174,7 @@ def compose_human_plane(
     pool: asyncpg.Pool,
     source_engine: AsyncEngine,
     lifetime: MaterialLifetime,
+    decision: DecisionMaterials | None = None,
 ) -> HumanRuntime:
     """Bind every human port to its concrete provider. Pure wiring: no I/O happens here.
 
@@ -150,6 +224,14 @@ def compose_human_plane(
     receipt_authority = NativeAssignmentReceiptAuthority(
         transport=assignment_transport, source_engine=source_engine, command_scope=scope
     )
+    # #22/#23/#25 — bound only when the decision material plane is deployed. Absent it
+    # the ports stay `None` and `submit_decision` keeps refusing: dark by default, and
+    # never a stand-in provider to make the refusal go away.
+    decision_ports = (
+        None
+        if decision is None
+        else compose_decision_ports(decision, scope=scope, client=client, outbox=outbox)
+    )
     assignment = AssignmentRuntime(
         scope=scope,
         client=client,
@@ -157,6 +239,7 @@ def compose_human_plane(
         transport=engine_transport,
         credentials=command.partition,
         receipt_authority=receipt_authority,
+        decision_ports=decision_ports,
         relay_settings=RelaySettings(
             lease_seconds=manifest.relay_lease_seconds,
             retry_seconds=manifest.relay_retry_seconds,
@@ -201,16 +284,48 @@ def compose_human_plane(
 
 
 @asynccontextmanager
-async def human_runtime(materials: HumanMaterials | None = None) -> AsyncIterator[HumanRuntime]:
+async def human_runtime(
+    pin: HumanMaterialPin,
+    *,
+    decision_directory: str | None = None,
+    decision_pin: DecisionMaterialPin | None = None,
+) -> AsyncIterator[HumanRuntime]:
     """Compose the human plane; every resource opened here is closed here.
 
-    Ordering is the contract: the relay starts before any gateway is built, and on
-    the way out the in-flight delivery is awaited before the pools it uses close.
-    Pools owned by other packages (identity, staff, intake) are never touched.
+    Ordering is the contract, and it begins with trust: `load_human_materials` refuses
+    an unpinned, wrong-tenant, expired or withdrawn bundle *before* the exit stack is
+    entered, so no pool is opened, no query runs and no relay starts on material this
+    deployment has not anchored out of band. There is no seam that supplies materials
+    directly — that would skip both the filesystem custody and the pin.
+
+    After that: the relay starts before any gateway is built, and on the way out the
+    in-flight delivery is awaited before the pools it uses close. Pools owned by other
+    packages (identity, staff, intake) are never touched.
+
+    `decision_directory` names the decision material plane (WP-J1-06 Phase 0). Naming
+    it is the whole activation: absent, the decision ports stay unbound and the gateway
+    refuses decisions exactly as it does on `main`; present, it must be the one fixed
+    path AND carry its own out-of-band `decision_pin`, or the plane fails to start. It
+    is loaded only AFTER the human bundle has been pinned and verified — a decision
+    plane is an addition to a trusted human plane, never a way to reach one.
+
+    Both bundles, and the agreement between their scopes, are settled BEFORE the exit
+    stack: a decision bundle from another tenant is refused with zero connections
+    attempted, not after a pool is already open (V14 MINOR-4).
     """
     lifetime = MaterialLifetime()
     try:
-        material = materials if materials is not None else load_human_materials(MATERIAL_DIRECTORY)
+        material = load_human_materials(MATERIAL_DIRECTORY, pin)
+        decision = None
+        if decision_directory is not None:
+            if decision_pin is None:
+                raise unavailable()
+            decision = load_decision_materials(decision_directory, decision_pin)
+            # Cross-plane agreement, still before any resource is acquired. The two
+            # bundles are separately pinned and separately signed; nothing but this
+            # says they describe the same deployment.
+            if decision.manifest.scope != material.manifest.scope:
+                raise unavailable()
         async with AsyncExitStack() as resources:
             pool = await asyncpg.create_pool(
                 dsn=material.outbox_url.render_as_string(hide_password=False).replace(
@@ -228,7 +343,13 @@ async def human_runtime(materials: HumanMaterials | None = None) -> AsyncIterato
             )
             resources.push_async_callback(source_engine.dispose)
 
-            runtime = compose_human_plane(material, pool=pool, source_engine=source_engine, lifetime=lifetime)
+            runtime = compose_human_plane(
+                material,
+                pool=pool,
+                source_engine=source_engine,
+                lifetime=lifetime,
+                decision=decision,
+            )
             # The relay must be running before any gateway is built from this runtime.
             await runtime.assignment.start()
             resources.push_async_callback(runtime.assignment.close)
@@ -238,7 +359,7 @@ async def human_runtime(materials: HumanMaterials | None = None) -> AsyncIterato
             finally:
                 # Revoke every issued lease before the resources behind them go away.
                 lifetime.close()
-    except (GatewayRefusalError, HumanMaterialError):
+    except (GatewayRefusalError, HumanMaterialError, DecisionMaterialError):
         raise
     except Exception:
         raise unavailable() from None
@@ -252,8 +373,10 @@ def assignment_read_scope(materials: HumanMaterials) -> Scope:
 
 
 __all__ = [
+    "DECISION_MATERIAL_DIRECTORY",
     "HumanRuntime",
     "assignment_read_scope",
+    "compose_decision_ports",
     "compose_human_plane",
     "human_runtime",
 ]

@@ -20,11 +20,13 @@ from maezo.gateway.human.auth_transport import AuthNativeClient, AuthUnavailable
 from maezo.gateway.human.read_profile import digest
 from maezo.portal.api.session import HumanSessionResolver
 from maezo.tools.mcp_cibseven.transport import ProcessInstance, start_process_idempotent
+from maezo.tools.process_business_keys import auth_business_key
 
 from .models import IntakeAuthority
 from .native_dispatch import (
     AuthDispatcher,
     AuthEffectAuthorizationSource,
+    AuthIntakeGuideNumberUnavailableError,
     HumanIntakeProvenance,
     HumanIntakeStartTransport,
 )
@@ -32,6 +34,31 @@ from .native_source_lifecycle import AuthCallerBinding
 from .native_store import PostgresAuthDispatchStore
 from .postgres import PostgresIntakeStore
 from .service import IntakeService
+
+#: Nome do campo, na fonte `guide` publicada, que carrega o numero da guia TISS — o componente
+#: que o contrato exige na business key (`AUTH-{tenant_id}-{numero_guia_tiss}`).
+_GUIDE_NUMBER_FIELD = "numero_guia_tiss"
+
+
+def _published_guide_number(facts: StartFacts) -> str:
+    """LE o `numero_guia_tiss` dos fatos de start publicados; recusa se a fonte nao o publicar.
+
+    LEITURA, nunca derivacao (WP-J1-11). `StartFacts` e' um modelo FECHADO
+    (`gateway/human/auth_profile.py`, `extra="forbid"`) e hoje NAO declara este campo: os fatos
+    publicados trazem `guide_identity_ref`, uma referencia OPACA, e nao ha' funcao que leve de
+    um opaco ao numero da guia. Entao hoje esta leitura nao encontra nada e o start do portal
+    RECUSA com `AuthIntakeGuideNumberUnavailableError` — o estado correto, e' o que impede que
+    o caminho do portal volte a abrir um SEGUNDO dominio de idempotencia por guia enquanto a
+    fonte nao publicar o numero (ver o docstring daquela excecao para o que a fecha).
+
+    Escrita como leitura do dump justamente para NAO precisar de edicao no dia em que o campo
+    passar a existir: `extra="forbid"` garante que a chave so' aparece no dump se o modelo a
+    declarar, entao isto nunca le um campo nao contratado.
+    """
+    value = facts.model_dump().get(_GUIDE_NUMBER_FIELD)
+    if type(value) is not str or not value:
+        raise AuthIntakeGuideNumberUnavailableError()
+    return value
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -78,7 +105,9 @@ class AuthIntakeComponents:
                 caller=caller,
             ),
             process_key="SP-OP-AUTH-001",
-            business_key="AUTHI-" + command.guide_identity_ref,
+            business_key=auth_business_key(
+                tenant_id=command.scope.tenant, numero_guia_tiss=_published_guide_number(facts)
+            ),
             variables=variables,
             audit_sink=self.dispatch_store,
             provenance=provenance,

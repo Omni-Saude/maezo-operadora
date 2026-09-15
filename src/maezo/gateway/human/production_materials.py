@@ -6,6 +6,16 @@ manifest plus purpose-separated key material. Nothing here derives a key from a
 constant, reads a credential from the environment, or accepts a browser-supplied
 locator. Each purpose owns a distinct Ed25519 key and a distinct workload reference;
 `PHI_HMAC_KEY`, the OIDC secret and the A2A key have no representation in this module.
+
+The parity with staff is load-bearing and includes its *second channel*: a bundle does
+not attest itself. `HumanMaterialPin` carries the tenant, the material version and the
+manifest digest from deployment configuration — facts the directory cannot amend — and
+`manifest_matches` compares them before a single byte of key material is read, exactly
+as `manifest_matches` does for staff (`gateway/staff_cases/materials.py:63-95`, digest
+pin at `:93`). The manifest carries a `HumanRevocationSnapshot` with its own observation
+window (mirror of `gateway/staff_cases/production_config.py:161-176`, consumed at
+`gateway/staff_cases/materials.py:89` and `:120-129`), so a withdrawn bundle is refused
+and every lease minted here is clamped by that observation, not only by the issue window.
 """
 
 from __future__ import annotations
@@ -13,6 +23,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
+import re
 import stat
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -175,6 +186,35 @@ class ConnectionDesignation(Closed):
         return self
 
 
+class HumanRevocationSnapshot(Closed):
+    """A fresh observation that nothing in this bundle has been withdrawn.
+
+    Without it the bundle's own issue window is the only bound, so a rolled-back
+    snapshot of a revoked bundle stays acceptable for the remainder of that window.
+    Mirrors the staff `RevocationSnapshot`
+    (`gateway/staff_cases/production_config.py:161-176`): sorted, de-duplicated
+    fingerprints and a closed observation window of its own.
+    """
+
+    scope: Scope
+    source_ref: OpaqueRef
+    revision: Revision
+    observed_at: datetime
+    valid_until: datetime
+    revoked_fingerprints: tuple[Sha256Digest, ...]
+
+    @model_validator(mode="after")
+    def closed_snapshot(self) -> Self:
+        if (
+            tuple(sorted(set(self.revoked_fingerprints))) != self.revoked_fingerprints
+            or self.observed_at.tzinfo is None
+            or self.valid_until.tzinfo is None
+            or self.observed_at >= self.valid_until
+        ):
+            raise HumanMaterialError()
+        return self
+
+
 class HumanPublicManifest(Closed):
     schema_: Literal["portal-human-material.v1"] = Field(alias="schema")
     material_version_id: MaterialVersion
@@ -200,6 +240,7 @@ class HumanPublicManifest(Closed):
     relay_lease_seconds: Seconds
     relay_retry_seconds: Seconds
     relay_poll_seconds: Seconds
+    revocation_snapshot: HumanRevocationSnapshot
     files: dict[str, Sha256Digest | None]
 
     @model_validator(mode="after")
@@ -233,7 +274,20 @@ class HumanPublicManifest(Closed):
             or endpoint.fragment
             or endpoint.username
             or endpoint.password
-            or not self.command_endpoint.startswith(self.command_surface.origin + "/")
+            # The transport appends its own `/v1/...` paths to this value
+            # (`transport.py:243-244`), so the manifest carries the engine's BASE URL —
+            # the bare origin when the engine is mounted at the root, which is how the
+            # deployed CIB Seven human surface is served. Reconstructing the URL from
+            # the surface origin plus the path proves same-origin with nothing else in
+            # it, and a base already inside the transport's own `/v1` namespace is
+            # refused here instead of posting to `/v1/commands/v1/commands` at runtime.
+            or self.command_endpoint != self.command_surface.origin + endpoint.path
+            or (endpoint.path and not re.fullmatch(r"(/[A-Za-z0-9._~-]+)+", endpoint.path))
+            or endpoint.path.startswith("/v1")
+            # The withdrawal channel must speak for THIS bundle and must not attest
+            # material it simultaneously declares revoked.
+            or self.revocation_snapshot.scope != self.scope
+            or bool(self.attested_digests() & set(self.revocation_snapshot.revoked_fingerprints))
             or self.read_surface.ca_file != "read-ca.pem"
             or self.command_surface.ca_file != "command-ca.pem"
             or sum(1 for key in self.cursor_keys if key.current) != 1
@@ -252,6 +306,17 @@ class HumanPublicManifest(Closed):
 
     def canonical(self) -> bytes:
         return canonicalize(wire(self))
+
+    def attested_digests(self) -> frozenset[str]:
+        """Every digest this manifest vouches for; none of them may be revoked."""
+        surfaces = (self.read_surface, self.command_surface)
+        return frozenset(
+            {self.root_key_fingerprint}
+            | {key.fingerprint for key in self.keys}
+            | {key.material_sha256 for key in self.cursor_keys}
+            | {surface.client_spki_sha256 for surface in surfaces}
+            | {surface.server_spki_sha256 for surface in surfaces}
+        )
 
     def key(self, purpose: Purpose) -> KeyDesignation:
         return next(key for key in self.keys if key.purpose == purpose)
@@ -314,6 +379,51 @@ class CursorKeyBundle(Closed):
 
 
 @dataclass(frozen=True, repr=False)
+class HumanMaterialPin:
+    """The out-of-band half of the trust chain: configuration, never the bundle.
+
+    Every other check in this module compares the bundle to itself — the root key to
+    the fingerprint the same manifest declares, the admission to that same root. That
+    closes a loop, so an adversary who can write the material directory supplies a
+    coherent bundle of their own and nothing refuses it. The staff plane does not rely
+    on filesystem custody alone: `manifest_matches`
+    (`gateway/staff_cases/materials.py:63-95`) pins ten manifest facts against
+    independently configured settings first, decisively the manifest digest at `:93`.
+    This is the same second channel, carried as three deployment facts.
+    """
+
+    tenant: str
+    material_version_id: str
+    public_manifest_sha256: str
+
+    def __post_init__(self) -> None:
+        if (
+            not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}", self.tenant)
+            or not re.fullmatch(r"[A-Za-z0-9-]{32,64}", self.material_version_id)
+            or not re.fullmatch(r"[0-9a-f]{64}", self.public_manifest_sha256)
+        ):
+            raise HumanMaterialError()
+
+
+def manifest_matches(pin: HumanMaterialPin, manifest: HumanPublicManifest, now: datetime) -> None:
+    """Refuse an unpinned, stale or withdrawn manifest before anything is read or opened.
+
+    This is the first statement of `verify_materials`, which is in turn reached before
+    `human_runtime` opens its `AsyncExitStack` — so a bundle for the wrong tenant never
+    obtains a connection, never runs a query and never starts the command relay.
+    """
+    snapshot = manifest.revocation_snapshot
+    if (
+        manifest.scope.tenant != pin.tenant
+        or manifest.material_version_id != pin.material_version_id
+        or hashlib.sha256(manifest.canonical()).hexdigest() != pin.public_manifest_sha256
+        or not manifest.issued_at <= now < manifest.valid_until
+        or not snapshot.observed_at <= now < snapshot.valid_until
+    ):
+        raise HumanMaterialError()
+
+
+@dataclass(frozen=True, repr=False)
 class HumanMaterials:
     """Everything the production composition root is allowed to build from."""
 
@@ -324,6 +434,10 @@ class HumanMaterials:
     cursor_material: dict[str, bytes]
     outbox_url: URL
     source_url: URL
+    #: `min(manifest.valid_until, revocation_snapshot.valid_until)`. Every lease minted
+    #: from this bundle is clamped by it, so a stale withdrawal observation shortens the
+    #: material's life instead of being ignored (staff parity: `materials.py:122-129`).
+    not_after: datetime
     directory: str = MATERIAL_DIRECTORY
 
     def private_key(self, purpose: Purpose) -> Ed25519PrivateKey:
@@ -348,19 +462,22 @@ def connection_url(raw: bytes, expected: ConnectionDesignation) -> URL:
 
 
 def verify_materials(
+    pin: HumanMaterialPin,
     manifest: HumanPublicManifest,
     files: dict[str, bytes],
     *,
     now: datetime,
     directory: str = MATERIAL_DIRECTORY,
 ) -> HumanMaterials:
+    # The out-of-band pin is checked FIRST, before the bundle's own bytes are read or
+    # any key material is loaded: the tenant cross-check is not a post-condition of a
+    # composed plane, it is a precondition of trusting the directory at all.
+    manifest_matches(pin, manifest, now)
     if set(files) != FILES or sum(map(len, files.values())) > MAX_BUNDLE:
         raise HumanMaterialError()
     for name in PUBLIC_FILES:
         if hashlib.sha256(files[name]).hexdigest() != manifest.files[name]:
             raise HumanMaterialError()
-    if not manifest.issued_at <= now < manifest.valid_until:
-        raise HumanMaterialError()
     root = serialization.load_der_public_key(files["installation-root.der"])
     if not isinstance(root, Ed25519PublicKey) or fingerprint(root) != manifest.root_key_fingerprint:
         raise HumanMaterialError()
@@ -406,6 +523,7 @@ def verify_materials(
         cursor_material=material,
         outbox_url=connection_url(files["outbox-dsn.txt"], manifest.outbox_connection),
         source_url=connection_url(files["source-dsn.txt"], manifest.source_connection),
+        not_after=min(manifest.valid_until, manifest.revocation_snapshot.valid_until),
         directory=directory,
     )
 
@@ -462,26 +580,46 @@ def _read_at(directory: int, name: str) -> bytes:
         os.close(descriptor)
 
 
-def load_human_materials(directory_setting: str | None) -> HumanMaterials:
-    """Read the single fixed read-only material directory; no search path, no fallback."""
+def read_material_directory(parent_path: str, names: frozenset[str]) -> dict[str, bytes]:
+    """Read one fixed, read-only, root-owned material directory: `manifest.json` + `names`.
+
+    The hardening — a `current` child opened with `O_NOFOLLOW` under an explicitly
+    opened parent, a root-owned `0o500` directory on a read-only filesystem, an exact
+    directory listing, and per-file `O_NOFOLLOW` reads whose stat is re-checked after
+    the bytes are read — is the property, not an implementation detail, so both
+    material planes (this one and `decision_materials.py`) share this one reader
+    instead of each growing its own copy.
+
+    Reading is custody, not trust: what makes the bytes authoritative is the caller's
+    out-of-band anchor (`HumanMaterialPin` here), never this directory.
+    """
+    parent = os.open(parent_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        directory = os.open("current", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    finally:
+        os.close(parent)
+    try:
+        _owned(os.fstat(directory), 0o500, directory=True)
+        if not os.fstatvfs(directory).f_flag & os.ST_RDONLY:
+            raise HumanMaterialError()
+        if set(os.listdir(directory)) != names | {"manifest.json"}:
+            raise HumanMaterialError()
+        return {name: _read_at(directory, name) for name in names | {"manifest.json"}}
+    finally:
+        os.close(directory)
+
+
+def load_human_materials(directory_setting: str | None, pin: HumanMaterialPin) -> HumanMaterials:
+    """Read the single fixed read-only material directory; no search path, no fallback.
+
+    `pin` is the deployment's out-of-band anchor and is not optional: without it the
+    directory would be the sole authority on its own contents.
+    """
     try:
         if directory_setting != MATERIAL_DIRECTORY:
             raise HumanMaterialError()
-        parent = os.open(MATERIAL_PARENT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            directory = os.open("current", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-        finally:
-            os.close(parent)
-        try:
-            _owned(os.fstat(directory), 0o500, directory=True)
-            if not os.fstatvfs(directory).f_flag & os.ST_RDONLY:
-                raise HumanMaterialError()
-            if set(os.listdir(directory)) != FILES | {"manifest.json"}:
-                raise HumanMaterialError()
-            manifest = _parse(HumanPublicManifest, _read_at(directory, "manifest.json"))
-            files = {name: _read_at(directory, name) for name in FILES}
-        finally:
-            os.close(directory)
-        return verify_materials(manifest, files, now=datetime.now(UTC))
+        files = read_material_directory(MATERIAL_PARENT, FILES)
+        manifest = _parse(HumanPublicManifest, files.pop("manifest.json"))
+        return verify_materials(pin, manifest, files, now=datetime.now(UTC))
     except Exception:
         raise HumanMaterialError() from None

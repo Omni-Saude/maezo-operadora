@@ -38,6 +38,8 @@ from typing import Any
 
 import httpx
 
+from maezo.tools.process_business_keys import auth_business_key
+
 #: Os quatro critérios de aprovação automática que o worker calcula
 #: (`tools/workers/auth.py`), como variáveis booleanas de processo.
 CRITERIOS: tuple[str, ...] = (
@@ -95,7 +97,11 @@ def coletar(*, client: httpx.Client | None = None, espera_s: float = 25.0) -> di
     base = _base_url()
     http = client or httpx.Client(timeout=30.0)
     guia = "VALID-" + uuid.uuid4().hex[:10].upper()
-    business_key = "AUTH-amh-" + guia
+    # WP-J1-11: compositor UNICO. Este coletor abre uma instancia REAL de SP-OP-AUTH-001 num
+    # engine vivo, entao a chave que ele monta tem de ser a MESMA que os canais de producao
+    # montam — um coletor de evidencia que compoe a chave por conta propria e' exatamente
+    # como um segundo dominio de idempotencia comeca.
+    business_key = auth_business_key(tenant_id="amh", numero_guia_tiss=guia)
 
     _bloco("1. ABERTURA DA SOLICITACAO  (guia " + guia + ")")
     # MUDOU EM 25/08/2026, e a frase antiga ficou falsa antes de ficar feia.

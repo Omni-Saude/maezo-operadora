@@ -1090,6 +1090,55 @@ class StartDedupPosture(StrEnum):
 #:   WHY IT IS STILL WORTH SHIPPING: the dominant re-delivery burst (external-task lock expiry /
 #:   broker retry, seconds after the handoff) lands inside generation 1, which is the window this
 #:   posture does close — and every generation-2+ racer is left no worse off than before.
+#:
+#: `SP-OP-AUTH-001` — PRIOR AUTHORIZATION OF A TISS GUIA. Key
+#:   `AUTH-{tenant_id}-{numero_guia_tiss}`, minted by the ONE shared composer
+#:   `tools/process_business_keys.py:auth_business_key` (WP-J1-11) through its three call sites:
+#:   `agents/rafael/graph.py:_business_key` (the agent channel, started at
+#:   `agents/rafael/graph.py:RafaelGraph.start_process`), `runtime/agent_runtime/ingress.py`
+#:   (`POST /v1/autorizacoes`, which composes the key for that same graph) and
+#:   `gateway/intake/native_composition.py:dispatch_prepared_start` (the portal intake channel).
+#:   PROMOTED FROM `NON_STRICT` BY OWNER DECISION #16 (2026-09-12), option (a).
+#:   WHAT THE OWNER DECIDED, AND WHAT WAS LEFT OPEN. Until #16 this key sat in the NON_STRICT
+#:   block with the note "whether a re-submitted/reopened guia may reuse its number is a
+#:   MEDICAL/ANS semantics question, explicitly out of an engineering agent's authority. Human
+#:   call." The owner made the call that was blocking: ONE IDEMPOTENCY DOMAIN PER GUIA — the
+#:   portal channel stops minting its own `AUTHI-{guide_identity_ref}` key (a SECOND domain,
+#:   invisible to the agent channel) and both channels use the contractual form above. What the
+#:   owner did NOT rule on is the cross-TIME question: whether a guia number, once its case has
+#:   closed, may legitimately head a NEW case. That distinction is exactly the `EXCLUSIVE` vs
+#:   `PERMANENT` fork of criterion step 2, and it is why this entry is `EXCLUSIVE`.
+#:   WHY `EXCLUSIVE` (criterion step 1 — YES). Two channels now mint the SAME key for one guia,
+#:   which is the point of #16 and also why a concurrent race became reachable for the first
+#:   time: a provider's portal submission and an agent turn for the same guia can be in flight
+#:   together, and before the durable claim the only thing between them was
+#:   `find_active_instance`, whose TOCTOU window is documented at `:1444-1448`. A second
+#:   CONCURRENT instance for one guia means two `UT_AnaliseMedicoAuditor` reviews of the same
+#:   authorization — duplicated human clinical work, and two decisions that can disagree.
+#:   WHY NOT `PERMANENT` — TWO INDEPENDENT REASONS, EITHER ONE SUFFICIENT.
+#:   (1) THE DOMAIN QUESTION IS STILL OPEN. `PERMANENT` on a key whose second case is legitimate
+#:   refuses that case with `ALREADY_COMPLETED`, with NO human in the loop — an adverse outcome
+#:   against a beneficiary manufactured by an idempotency gate, the same defect the
+#:   `SP-OP-CANCEL-001` block above refuses. `EXCLUSIVE` is the posture that does not need the
+#:   MEDICAL/ANS answer in order to be safe: it separates concurrent starts and denies nothing.
+#:   (2) `PERMANENT` WOULD NOT EVEN HOLD, BECAUSE ONE OF THE TWO CHANNELS CANNOT REACH THIS GATE.
+#:   `start_process_idempotent` short-circuits a `HumanIntakeProvenance` start into `start_human`
+#:   BEFORE the posture is ever read (the first branch of that function): the portal channel
+#:   writes no durable claim and consults none. `EXCLUSIVE` survives that asymmetry — the shared
+#:   key still collapses both channels onto ONE `ACT_HI_PROCINST.BUSINESS_KEY_`, and a FINISHED
+#:   generation is startable again on both sides, so the two channels agree on what they enforce.
+#:   `PERMANENT` would NOT: the agent channel would refuse a re-started guia while the portal
+#:   channel started it anyway — a gate that is permanent through one door and absent through the
+#:   other. A posture one channel silently bypasses is worse than no posture, because it reads as
+#:   a guarantee. Pinned by
+#:   `test_auth_permanent_would_be_bypassed_by_the_portal_channel_but_exclusive_is_not`.
+#:   ⚠️ POSTURA-ALVO A RATIFICAR (owner/SME, not an engineering fact). If the MEDICAL/ANS owners
+#:   rule that a TISS guia number is ONE-SHOT — that a closed guia may never head a second case —
+#:   the target posture is `PERMANENT`, and moving this entry is then a reviewed change that must
+#:   land TOGETHER with routing the portal channel through this gate (reason (2)) and with the
+#:   `audit_emit_dedup` retention exclusion below (co-requisite 1, which applies to every
+#:   `PERMANENT` key). DECIDERS: medico-auditor / ANS-regulatorio. Until then `EXCLUSIVE` is the
+#:   conservative and self-consistent answer.
 #: └────────────────────────────────────────────────────────────────────────────────────────────
 #:
 #: ┌ NON_STRICT (classified — legitimate re-run across time, or genuinely ambiguous) ────────────
@@ -1127,10 +1176,6 @@ class StartDedupPosture(StrEnum):
 #:   and a duplicate filing is a real harm — but `glosa_id` is externally supplied on this path
 #:   (see M-9 note in `tools/workers/contas.py`), so its stability is not this module's to assert.
 #:   Human call.
-#: `SP-OP-AUTH-001` — key `AUTH-{tenant}-{numero_guia_tiss}` (`agents/rafael/graph.py:167-169`),
-#:   started at `agents/rafael/graph.py:598`. AMBIGUOUS: a TISS guia is normally one-shot, but
-#:   whether a re-submitted/reopened guia may reuse its number is a MEDICAL/ANS semantics question,
-#:   explicitly out of an engineering agent's authority. Human call.
 #: `SP-OP-ANS-SUBMIT-001` — key `ANSSUB-{tenant}-{report_type}-{competencia}`
 #:   (`agents/gustavo/graph.py:303-311`), started at `agents/gustavo/graph.py:697`. CYCLE-SCOPED
 #:   (competencia), so a new period already mints a new key — but a RETIFICACAO for an already
@@ -1209,7 +1254,9 @@ _START_DEDUP_POLICY: Mapping[str, StartDedupPosture] = {
     "SP-OP-FRAUDE-001": StartDedupPosture.NON_STRICT,
     "SP-OP-CONTAS-001": StartDedupPosture.NON_STRICT,
     "SP-OP-RECURSO-001": StartDedupPosture.NON_STRICT,
-    "SP-OP-AUTH-001": StartDedupPosture.NON_STRICT,
+    # WP-J1-11 / owner decision #16 (2026-09-12), option (a): ONE idempotency domain per guia.
+    # `EXCLUSIVE`, never `PERMANENT` — see the AUTH block above for the two independent reasons.
+    "SP-OP-AUTH-001": StartDedupPosture.EXCLUSIVE,
     "SP-OP-ANS-SUBMIT-001": StartDedupPosture.NON_STRICT,
     "SP-OP-NIP-001": StartDedupPosture.NON_STRICT,
     "SP-OP-PROGRAMA-001": StartDedupPosture.NON_STRICT,

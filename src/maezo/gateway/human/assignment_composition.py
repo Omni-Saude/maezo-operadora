@@ -54,6 +54,15 @@ class AssignmentRuntime:
         self._runner: asyncio.Task[None] | None = None
         self._closed = False
 
+    @property
+    def decision_ports(self) -> BoundDecisionPorts | None:
+        """The bound decision composition, or `None` while decisions stay refused.
+
+        Exposed for evidence: whether `submit_decision` can run at all is a deployment
+        fact a test must be able to assert without reaching into private state.
+        """
+        return self._decision_ports
+
     async def start(self) -> None:
         from .errors import GatewayRefusalError
 

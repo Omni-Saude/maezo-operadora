@@ -37,6 +37,8 @@ EXPECTED_PATHS = {
     "/api/v1/portal/intake-recovery",
     "/api/v1/portal/intake-recovery/commands/{command_id}",
     "/api/v1/portal/intakes/auth",
+    # WP-J1-02: additive read of the principal's own published vínculos (J1-DESIGN row l).
+    "/api/v1/portal/intakes/auth/links",
     "/api/v1/portal/intakes/{intake_ref}",
     "/api/v1/portal/intakes/{intake_ref}/document-uploads",
     "/api/v1/portal/session",

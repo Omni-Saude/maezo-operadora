@@ -92,6 +92,7 @@ from fastapi.responses import JSONResponse
 
 from maezo.agents.rafael.graph import new_rafael_state
 from maezo.platform.privacy.key_scrubber import egress_pseudonymizer, scrub_key_value
+from maezo.tools.process_business_keys import BusinessKeyComponentError, auth_business_key
 
 if TYPE_CHECKING:  # pragma: no cover - só para tipo; evita import circular com service.py
     from maezo.runtime.agent_runtime.service import AgentState
@@ -309,7 +310,15 @@ def build_ingress_router(state: AgentState) -> APIRouter:
 
         tenant = str(entrada.get("tenant_id", ""))
         guia = str(entrada.get("numero_guia_tiss", ""))
-        business_key = f"AUTH-{tenant}-{guia}"
+        try:
+            # WP-J1-11: compositor UNICO, o mesmo do grafo do rafael e do intake do portal —
+            # um dominio de idempotencia por guia (decisao do dono #16, opcao (a)). A f-string
+            # daqui produzia `"AUTH--"` com tenant/guia ausente, e `montar_estado` NAO exige
+            # nenhum dos dois: 422 e' a resposta certa para um corpo sem a guia, e o 500 que
+            # uma chave colapsada evitava era o pior dos dois (sob `EXCLUSIVE` ela funde casos).
+            business_key = auth_business_key(tenant_id=tenant, numero_guia_tiss=guia)
+        except BusinessKeyComponentError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         thread_id = scrub_key_value(business_key, egress_pseudonymizer())
 
         # `numero_guia_tiss` NÃO entra no log: liga ao beneficiário. O que entra é o
