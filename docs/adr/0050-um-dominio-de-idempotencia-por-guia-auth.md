@@ -106,6 +106,19 @@ Duas razoes independentes, qualquer uma suficiente:
 - **O canal do portal permanece inerte**, agora com a razao dita em voz alta. Habilita-lo exige
   a fonte publicar o numero da guia — um campo novo num DTO FECHADO, com dono de fonte e
   analise de minimizacao (o numero liga ao beneficiario) — e o daemon de WP-J1-01.
+- **Uma familia GATED passa a exigir autorizacao de `READ_HISTORY` no preflight D7-A.**
+  `gateway/engine_start.py::authorize_start` autoriza `READ_ACTIVE` e, **so' quando
+  `is_strict_start_dedup(process_key)`**, tambem `READ_HISTORY` — o portao precisa poder
+  perguntar ao engine se a geracao reivindicada terminou. Promover AUTH portanto acrescenta esse
+  requisito ao start de AUTH pelo caminho com preflight.
+  **O que o repositorio prova:** `platform/engine_bootstrap/secured_plan.py::_registered`
+  REGISTRA o companion `READ_HISTORY` para TODO schema de START, incondicionalmente, e
+  `gateway/engine_schemas.py::registered_schema` o aceita. **O que o repositorio NAO prova:**
+  que o plano EFETIVAMENTE INSTALADO por um dono num ambiente concreto contenha o binding
+  correspondente — registro de schema nao e' binding instalado. Antes de ativar AUTH em um
+  ambiente com preflight D7-A, confirmar o binding `READ_HISTORY` de `SP-OP-AUTH-001` no plano
+  instalado; sem ele o start e' NEGADO (`engine_operation_denied`) — fail-closed, ruidoso,
+  nunca um start silencioso.
 - A perna (c) de DL-0043 (ID cru de fonte em business key, proibicao 5 do ADR-0037) **nao e'
   fechada aqui** e nao e' atenuada: esta ADR implanta a forma que o contrato ja exige, e o
   proprio contrato mantem a chave como interna ("nunca exibi-la em URL/erro/recibo externo nem
