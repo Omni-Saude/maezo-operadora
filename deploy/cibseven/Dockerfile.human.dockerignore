@@ -1,0 +1,35 @@
+# Dedicated Java image context: the application root .dockerignore excludes deploy/.
+# Only the Maven sources and human/read servlet descriptors are required here.
+**
+!src/
+src/*
+!src/maezo/
+src/maezo/*
+!src/maezo/portal/
+src/maezo/portal/*
+!src/maezo/portal/engine/
+src/maezo/portal/engine/*
+!src/maezo/portal/engine/java/
+src/maezo/portal/engine/java/*
+!src/maezo/portal/engine/java/pom.xml
+!src/maezo/portal/engine/java/src/
+!src/maezo/portal/engine/java/src/**
+!deploy/
+deploy/*
+!deploy/cibseven/
+deploy/cibseven/*
+!deploy/cibseven/human-webapp/
+!deploy/cibseven/human-webapp/**
+!deploy/cibseven/read-webapp/
+deploy/cibseven/read-webapp/*
+!deploy/cibseven/read-webapp/WEB-INF/
+deploy/cibseven/read-webapp/WEB-INF/*
+!deploy/cibseven/read-webapp/WEB-INF/web.xml
+
+# This file takes precedence over the root ignore, including its secret exclusions.
+.env
+.env.*
+*.env
+**/.env
+**/.env.*
+**/*.env

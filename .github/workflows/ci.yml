@@ -634,6 +634,11 @@ jobs:
             cd "$dir"
             terraform init -backend=false -input=false
             terraform validate
+            # `validate` nao executa `run` blocks: sem `terraform test` o servico do portal
+            # (composicao dark, desired_count=0) passaria verde sem nenhuma assercao sobre ele.
+            if [ "$dir" = "deploy/aws-ecs/envs/dev-sa-east-1/" ]; then
+              terraform test -filter=tests/portal.tftest.hcl
+            fi
             cd - > /dev/null
           done
         working-directory: ${{ github.workspace }}
@@ -644,6 +649,27 @@ jobs:
           terraform init -backend=false -input=false
           terraform validate
         working-directory: deploy/aws-identity-center
+
+  # Ate aqui nenhum job de "CI" compilava ou testava o plugin humano em Java: um PR podia ficar
+  # verde com o plugin quebrado. Surefire exclui `**/*EngineIT.java` (pom.xml:19) e nao ha
+  # failsafe, entao este job cobre compilacao + os testes finitos; os `*EngineIT` rodam
+  # explicitamente no runner do motor, com a receita de fixture em
+  # src/maezo/portal/engine/java/ENGINE-IT.md.
+  java-plugin:
+    name: plugin humano Java (mvn verify)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
+        with:
+          # 17: `maven.compiler.release` do pom (src/maezo/portal/engine/java/pom.xml).
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      - name: mvn verify
+        run: mvn -B -f src/maezo/portal/engine/java/pom.xml verify
 
   validate-helm:
     name: helm lint + egress NetworkPolicy CI
@@ -767,7 +793,6 @@ jobs:
     # to be waved through by raising the number.
     timeout-minutes: 150
     # Sem "test coverage illusion": testes de integracao rodam contra engine REAL.
-    needs: [quality]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     # `pull-requests: read` is for dorny/paths-filter's listFiles fallback — same reason and
     # same minimum as the `evals` job below; `contents: read` restates the workflow default.
