@@ -180,6 +180,22 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("WHATSAPP_WEBHOOK_ACK_THEN_QUEUE", "ack_then_queue"),
     )
 
+    # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1, 15/09/2026). LIGADA por padrao — ao contrario de
+    # toda outra novidade deste modulo, e a diferenca e' deliberada.
+    #
+    # O motivo: desligada, o sistema fica no comportamento MEDIDO COMO ERRADO. Em 13/09 um bebe de
+    # 11 meses foi triado pela tabela de ADULTO, tres vezes, porque a mae disse a idade num turno e
+    # o sintoma no seguinte. Entre um default que preserva um defeito com paciente do outro lado e
+    # um que o corrige, e' o segundo que nao precisa de justificativa.
+    #
+    # `false` faz cada turno comecar do zero, exatamente como antes desta frente — reversivel por
+    # variavel de ambiente, sem deploy de imagem. E ela SO' tem efeito com checkpointer atachado:
+    # sem estado duravel nao ha turno anterior de onde lembrar.
+    memoria_clinica_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_MEMORIA_CLINICA", "memoria_clinica_enabled"),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _map_bare_field_name_kwargs(cls, data: Any) -> Any:

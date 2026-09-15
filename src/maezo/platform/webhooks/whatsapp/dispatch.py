@@ -290,6 +290,11 @@ class HelenaDispatcher:
     # for the same reason `seam_context` is: the unit tests construct a dispatcher directly. The
     # production root (`platform/webhooks/service.py::_build_dispatcher`) always supplies it.
     dedup: WhatsAppDedupGuard | None = None
+    #: MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). Default `True` aqui pelo mesmo motivo que nas
+    #: settings: desligar preserva o defeito do bebe triado como adulto. A raiz de composicao
+    #: (`webhooks/service.py`) passa o valor das settings; os testes que nao o passam recebem a
+    #: Helena que lembra, que e' a de producao.
+    memoria_clinica_enabled: bool = True
 
     def _outbound_key_factory(self, message_id: str) -> Callable[[int], str] | None:
         """The per-send idempotency-key builder for ONE inbound message, or None with no guard."""
@@ -437,6 +442,12 @@ class HelenaDispatcher:
                 "whatsapp": sender,
                 "audit_sink": self.audit_sink,
                 "agent_version": "helena@v0",
+                # MEMORIA CLINICA (Frente 2.1). Passada EXPLICITAMENTE em vez de deixada no default
+                # do `build`: o despachante e' quem sabe se ha' checkpointer, e uma memoria ligada
+                # sem estado duravel nao e' um erro, mas tambem nao lembra nada — deixar a decisao
+                # visivel aqui e' o que permite ler, num lugar so', por que a Helena lembrou (ou
+                # nao) num ambiente.
+                "memoria_clinica_enabled": self.memoria_clinica_enabled,
             }
         )
         # `conversation_id` (a KEYED `wa:{tenant}:hk1_{hmac}`) IS the checkpoint thread id — it

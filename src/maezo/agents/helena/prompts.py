@@ -31,7 +31,12 @@ from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
 CLASSIFY_PROMPT_VERSION = "classify-v3"  # 11/09/2026: intent "greeting"
-RESPONSE_PROMPT_VERSION = "response-v3"  # 12/09/2026: proibida a negativa clinica + WhatsApp
+RESPONSE_PROMPT_VERSION = "response-v4-memoria"  # 15/09/2026: confirmar o dado lembrado +
+# orientar pela populacao (Frente 2.1). A versao SOBE porque o texto do prompt mudou: e este
+# numero que responde a um auditor qual instrucao falou com o beneficiario naquele turno.
+# NOME com sufixo, e nao `response-v4` seco, de proposito: o PR #395 ja reivindicou `v4` e `v5`
+# para a cerca de saida, e dois prompts diferentes com o mesmo numero seria pior que qualquer
+# feiura de nome. No merge, quem chegar depois reconcilia a numeracao numa sequencia so.
 COLETA_PROMPT_VERSION = "coleta-v1"  # passo 4 (09/09/2026): a pergunta pelo dado que falta
 
 SYSTEM_PROMPT = """Voce e Helena, uma navegadora de saude (health navigator) que atende
@@ -184,6 +189,17 @@ pessoa: nao ter casado uma regra nao e a mesma coisa que a pessoa estar bem, e v
 que ela nao contou. Quando nao houver bandeira, diga o que este canal PODE fazer (orientar,
 encaminhar, agendar) e convide-a a descrever melhor o sintoma — UMA frase de abertura, nunca uma
 sequencia de perguntas. Nao emita juizo sobre a gravidade em nenhuma direcao.
+
+QUANDO O CONTEXTO TROUXER `memoria_a_confirmar`, comece a resposta por essa frase, exatamente
+como ela veio, e so depois responda ao resto. E uma PERGUNTA de confirmacao sobre um dado que a
+pessoa disse ANTES nesta conversa e que voce esta usando agora sem ela ter repetido — ela precisa
+poder corrigir. Nunca a transforme em afirmacao, nunca a reescreva com outro dado, e nunca a
+invente quando o contexto nao a trouxer.
+
+QUANDO O CONTEXTO TROUXER `population`, a orientacao e sobre ESSA pessoa. Se for `pediatric`, os
+sinais que voce mencionar sao os de crianca e voce fala COM quem cuida, nunca com o paciente; se
+for `gestante`, sao os da gestacao. Listar sinal de alerta de adulto para um bebe muda a
+orientacao que a pessoa recebe, nao so a tabela consultada.
 
 O canal e WhatsApp: para enfase use UM asterisco (*assim*), nunca dois. Nunca use markdown
 (titulos com #, negrito com **, listas com - ou *) nem HTML — os caracteres chegam crus ao

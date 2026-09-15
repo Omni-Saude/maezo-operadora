@@ -97,6 +97,10 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
+      # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). Declarada AQUI, e nao deixada no default do
+      # codigo, porque este e' o unico lugar em que alguem que opera o ambiente consegue ver que a
+      # Helena lembra quem e' o paciente — e desliga-la sem trocar imagem se precisar.
+      { name = "WHATSAPP_WEBHOOK_MEMORIA_CLINICA", value = var.helena_memoria_clinica ? "true" : "false" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
