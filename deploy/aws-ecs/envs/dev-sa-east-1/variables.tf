@@ -515,3 +515,20 @@ variable "a2a_outbox_relay_desired_count" {
   type        = number
   default     = 1
 }
+
+variable "helena_memoria_clinica" {
+  description = <<-EOT
+    MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). `true` faz a Helena lembrar QUEM E' O PACIENTE —
+    populacao e idades — de um turno para o outro, dentro de uma janela de horas.
+
+    LIGADA por padrao, ao contrario das outras novidades do receptor. Desligada, o sistema fica no
+    comportamento MEDIDO COMO ERRADO em 13/09/2026: um bebe de 11 meses triado pela tabela de
+    ADULTO, tres vezes, porque a mae disse a idade num turno e o sintoma no seguinte.
+
+    `false` faz cada turno comecar do zero, exatamente como antes desta frente — a reversao existe
+    e e' um ato declarado, nao um esquecimento. So' tem efeito com checkpointer atachado: sem
+    estado duravel nao ha turno anterior de onde lembrar.
+  EOT
+  type        = bool
+  default     = true
+}
