@@ -209,12 +209,7 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  # CONFERIDO EM 15/09/2026 contra o cluster: `c745fd94` E' a tag viva de agent-helena,
-  # agent-rafael, agent-marina e worker-runtime. O Canal de Teste NAO usa mais esta variavel —
-  # ele divergiu para `e86c0f89` em 13/09 e agora tem a sua propria (`canal_teste_image_tag`),
-  # porque uma variavel que governa servicos INTENCIONALMENTE em imagens diferentes nao consegue
-  # descrever o ambiente: ou ela mente sobre um, ou o apply regride o outro.
-  default = "c745fd94" # main de 09/09/2026 — agentes + worker; antes 40dc6d4 de 27/08, 1.304 commits atras
+  default     = "c745fd94" # main de 09/09/2026 — promocao dos 5 servicos (worker primeiro); antes 40dc6d4 de 27/08, 1.304 commits atras
 }
 
 variable "webhook_receiver_image_tag" {
@@ -227,19 +222,19 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  # RECONCILIADO EM 15/09/2026 com o que esta VIVO no cluster. O default apontava para
-  # `5cdb09a5` (11/09) enquanto o servico rodava `e86c0f89` (13/09) — dois dias de deriva, criada
-  # porque os deploys de 12 e 13/09 foram feitos com `-var` e `-target` e o repo nunca foi
-  # atualizado.
+  # RECONCILIADO EM 15/09/2026 contra o cluster. O default apontava para uma imagem de 11/09
+  # enquanto o servico rodava a de 13/09 (`e86c0f89`) — dois dias de deriva, criada porque os
+  # deploys de 12 e 13/09 foram feitos com `-var`/`-target` e o repo nunca foi atualizado.
   #
-  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: um `terraform apply` sem `-var` REGREDIRIA o
-  # receptor para antes das correcoes de 13/09 — o `response-v3` que proibiu afirmar ausencia de
-  # alerta, e a conversa pediatrica. Medido no plan de 15/09 antes desta correcao
-  # (`e86c0f89 -> 5cdb09a5`). Nao houve incidente porque o apply estava pausado; a proxima pessoa
-  # a rodar um apply de rotina nao teria essa sorte.
+  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: medi no `terraform plan` de 15/09, ANTES desta
+  # correcao, que um apply sem `-var` faria `e86c0f89 -> 5cdb09a5` no webhook-receiver. Isso apagaria o `response-v3` — a
+  # correcao que proibiu a Helena AFIRMAR AUSENCIA DE ALERTA a um beneficiario — junto com a
+  # saudacao e a pagina de escalonamento. Nao houve incidente porque o apply estava pausado; quem
+  # rodasse um apply de rotina nao teria essa sorte.
   #
-  # A REGRA QUE ISTO ESTABELECE: o default e' sempre a tag VIVA. Promover e' um commit que muda
-  # este numero, nao um `-var` que so' existe no terminal de quem aplicou.
+  # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
+  # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
+  # no terminal de quem aplicou.
   default = "e86c0f89" # 13/09/2026: response-v3 (negativa clinica proibida) + saudacao + eco do turno. VIVO em webhook-receiver desde 13/09 18:07Z
 }
 
@@ -447,6 +442,36 @@ variable "prefixo_fonte_build" {
   default     = "maezo-operadora"
 }
 
+variable "canal_teste_image_tag" {
+  description = <<-EOT
+    Tag da imagem do CANAL DE TESTE — separada de `image_tag` pelo mesmo motivo que
+    `webhook_receiver_image_tag` foi: o canal ganhou a rota `/receptor/simular` e a pagina
+    `escalonamento.html`, e essas duas coisas vivem NA IMAGEM (o canal roda como modulo desde
+    19/08). Subir todos os servicos na tag nova seria um deploy de carona numa entrega que
+    pede um servico.
+
+    O default DESCREVE O QUE RODA. Se ele voltar a apontar para `image_tag`, um apply sem
+    variavel devolveria o canal a uma imagem SEM a rota, e a pagina do escalonamento passaria
+    a responder 404 no meio do teste de alguem — sem erro de Terraform, so' um botao que para
+    de funcionar.
+  EOT
+  type        = string
+  # RECONCILIADO EM 15/09/2026 contra o cluster. O default apontava para uma imagem de 11/09
+  # enquanto o servico rodava a de 13/09 (`e86c0f89`) — dois dias de deriva, criada porque os
+  # deploys de 12 e 13/09 foram feitos com `-var`/`-target` e o repo nunca foi atualizado.
+  #
+  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: medi no `terraform plan` de 15/09, ANTES desta
+  # correcao, que um apply sem `-var` faria `e86c0f89 -> e4edbef6` no canal-teste. Isso apagaria o `response-v3` — a
+  # correcao que proibiu a Helena AFIRMAR AUSENCIA DE ALERTA a um beneficiario — junto com a
+  # saudacao e a pagina de escalonamento. Nao houve incidente porque o apply estava pausado; quem
+  # rodasse um apply de rotina nao teria essa sorte.
+  #
+  # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
+  # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
+  # no terminal de quem aplicou.
+  default = "e86c0f89" # 13/09/2026: pagina de escalonamento com entradas/saidas. VIVO em canal-teste desde 13/09 18:07Z
+}
+
 variable "canal_teste_desired_count" {
   description = <<-EOT
     Replicas do Canal de Teste. 1 para o time usar; 0 para tirar do ar.
@@ -532,40 +557,4 @@ variable "a2a_outbox_relay_desired_count" {
   EOT
   type        = number
   default     = 1
-}
-
-variable "canal_teste_image_tag" {
-  description = <<-EOT
-    Tag da imagem do Canal de Teste, SEPARADA de `image_tag` desde 15/09/2026.
-
-    POR QUE SEPARAR. O canal roda a mesma imagem do repo, mas a pagina que ele serve muda num
-    ritmo proprio — foi promovido para `e86c0f89` em 13/09 (pagina de escalonamento) enquanto os
-    agentes ficaram em `c745fd94`. Com UMA variavel para os dois, o repo nao conseguia descrever o
-    ambiente: o default `c745fd94` fazia o plan querer REGREDIR o canal quatro dias, e corrigi-lo
-    para `e86c0f89` teria arrastado os tres agentes e o worker junto, sem ninguem pedir.
-
-    Uma variavel por ritmo de promocao e' o que torna um `terraform apply` sem `-var` um no-op
-    sobre imagem — e um apply que nao e' no-op sobre imagem e' um apply que ninguem roda com
-    tranquilidade.
-  EOT
-  type        = string
-  default     = "e86c0f89" # 13/09/2026: pagina de escalonamento. VIVO em canal-teste desde 13/09 18:07Z
-}
-
-variable "webhook_devolve_turno" {
-  description = <<-EOT
-    ECO DO TURNO no `/receptor/simular`: devolve `resposta` e `conversation_id` no ack.
-
-    LIGADA, e a razao e' de observabilidade, nao de conveniencia: ler a resposta da Helena e' o que
-    achou todos os defeitos graves de setembro. Antes dela o texto morria no 401 do envio, e as
-    canarias de vazamento nunca disparavam porque nenhuma resposta tinha sido lida por ninguem.
-
-    O LEITOR AINDA NAO ESTA NA MAIN — `devolve_turno` vive em
-    `origin/integracao/canal-conversa-e-saudacao` e chega com o PR #371. Ate' la', a imagem viva
-    (`e86c0f89`) le' esta variavel e a main nao; declara-la aqui e' o que impede um apply de rotina
-    de apagar a observabilidade do ambiente. Ver a entrada correspondente em
-    `scripts/ci/check_chart_env_reconciliation.py::DEFERRED_UNRECONCILED_DECLARED`.
-  EOT
-  type        = bool
-  default     = true
 }

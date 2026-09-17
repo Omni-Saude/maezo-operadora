@@ -97,23 +97,17 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
-      # ECO DO TURNO. DECLARADA AQUI EM 15/09/2026 porque o `terraform plan` mostrou que um apply
-      # de rotina a REMOVERIA do receptor vivo — ela foi posta a mao em 12/09 e nunca entrou no
-      # repo.
+
+      # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
+      # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo
+      # fica byte por byte como sempre foi — e e' assim que producao tem de ficar, porque la'
+      # quem recebe este corpo e' a Meta e o contrato do ack e' o CODIGO de status.
       #
-      # O QUE SE PERDERIA, e nao e' pequeno: com ela, `/receptor/simular` devolve `resposta` e
-      # `conversation_id`. LER A RESPOSTA E' O QUE ACHOU TODOS OS DEFEITOS GRAVES — a Helena
-      # desmentindo o proprio P1, a promessa de contato humano com zero processos abertos, a
-      # negativa clinica. Antes disso o texto morria no 401 do envio e as canarias de vazamento
-      # nunca disparavam, porque nenhuma resposta tinha sido lida por ninguem.
-      #
-      # ATENCAO — O LEITOR NAO ESTA NA MAIN: `devolve_turno` existe em
-      # `origin/integracao/canal-conversa-e-saudacao` (a branch de onde saiu a imagem `e86c0f89`,
-      # viva) e chega a main com o PR #371. Ou seja: DEV RODA CODIGO QUE A MAIN NAO TEM. Declarar a
-      # variavel aqui e' o que impede o apply de apaga-la enquanto esse PR nao merga; registrada em
-      # `DEFERRED_UNRECONCILED_DECLARED` de `check_chart_env_reconciliation.py` exatamente por
-      # isso. Quando #371 entrar, a entrada sai da tabela e esta variavel passa a ter leitor.
-      { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = var.webhook_devolve_turno ? "1" : "0" },
+      # Ligado AQUI e so' aqui porque e' aqui que existe uma tela olhando a conversa: sem o
+      # texto, o que a Helena escreve nunca foi lido por ninguem — ele e' redigido, entregue ao
+      # envio do WhatsApp e morre no 401 da credencial de preenchimento. Nao da' para avaliar se
+      # o texto presta, nem conferir se vaza orientacao clinica, sem le-lo uma vez.
+      { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
