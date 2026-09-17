@@ -157,6 +157,7 @@ def test_janelas_ociosas_sao_esquecidas() -> None:
 # O teto dentro do despachante: nao roda o turno, responde honesto, conta.
 # ---------------------------------------------------------------------------------------------
 
+
 class _InferenciaProibida:
     """Se o teto funcionar, o modelo NUNCA e' chamado — que e' o ponto do teto."""
 

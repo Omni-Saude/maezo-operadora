@@ -88,8 +88,7 @@ def test_o_dono_clinico_nasce_do_signoff_e_nao_antes(spec: dict) -> None:
     assinantes = {str(r.get("reviewer_name", "")).strip() for r in registros}
     nome = clinico.split("<")[0].strip()
     assert nome in assinantes, (
-        f"o dono clinico declarado ({nome!r}) nao esta entre quem assinou o signoff "
-        f"({sorted(assinantes)})."
+        f"o dono clinico declarado ({nome!r}) nao esta entre quem assinou o signoff ({sorted(assinantes)})."
     )
 
 

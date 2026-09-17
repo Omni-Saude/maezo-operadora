@@ -441,9 +441,7 @@ class HelenaDispatcher:
             conversation_id=conversation_id,
             escopo=veredito.escopo,
             observadas=veredito.observadas,
-            message_pseudonym=log_safe_message_id(
-                message.message_id, self.tenant_id, self.pseudonymizer
-            ),
+            message_pseudonym=log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer),
         )
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
@@ -500,9 +498,7 @@ class HelenaDispatcher:
         # (`comunicacao_beneficiario`), e um caminho de saida paralelo seria exatamente a segunda
         # porta que o gate existe para impedir.
         if self.limitador is not None:
-            veredito = self.limitador.registrar(
-                tenant_id=self.tenant_id, conversation_id=conversation_id
-            )
+            veredito = self.limitador.registrar(tenant_id=self.tenant_id, conversation_id=conversation_id)
             if not veredito.permitido:
                 return await self._recusar_por_limite(message, phone_hash, conversation_id, veredito)
 
