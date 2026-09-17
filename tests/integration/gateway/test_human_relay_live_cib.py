@@ -519,9 +519,29 @@ async def test_production_composition_relay_reconciles_lost_response_with_same_p
 
 
 def _server_spki(origin: str) -> str:
-    """The live engine's TLS server key, read from the socket it is actually serving."""
+    """The live engine's TLS server key, read from the socket it is actually serving.
+
+    LER SEM VERIFICAR E' O PONTO DESTA FUNCAO, e nao um relaxamento. Ela existe para PRODUZIR o pin
+    de chave publica (SPKI SHA-256) contra o qual as conexoes seguintes sao verificadas — exigir
+    verificacao antes de ler seria circular, porque nao ha contra o que verificar ate' este valor
+    existir, e o engine de integracao serve certificado proprio.
+
+    `ssl.get_server_certificate` e' a funcao da BIBLIOTECA PADRAO para exatamente este ato, e usa-la
+    substitui a versao anterior desta funcao, que montava um `SSLContext` a mao com
+    `check_hostname=False` e `CERT_NONE`. Trocar nao foi cosmetico:
+
+      * aquele par de linhas e' o que o CodeQL marcava como `py/insecure-protocol` (alerta de
+        severidade alta). A intencao estava certa, mas um leitor — humano ou scanner — via um
+        cliente TLS com verificacao desligada e tinha de ler tres paragrafos de comentario para
+        descobrir que nao era;
+      * um `SSLContext` relaxado construido a mao e' reutilizavel. Este ficava numa variavel local,
+        mas a forma convida ao copia-e-cola para um lugar onde dado TRAFEGA. A chamada de stdlib
+        nao produz objeto reutilizavel: ela abre, le' o certificado, fecha.
+
+    Nenhum dado trafega nesta conexao, e codigo de producao nenhum passa por aqui
+    (`tests/integration/`).
+    """
     import hashlib
-    import socket
     import ssl
     from urllib.parse import urlsplit
 
@@ -530,16 +550,9 @@ def _server_spki(origin: str) -> str:
 
     url = urlsplit(origin)
     assert url.hostname and url.port
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
-    with (
-        socket.create_connection((url.hostname, url.port), timeout=10) as raw,
-        context.wrap_socket(raw, server_hostname=url.hostname) as tls,
-    ):
-        peer = tls.getpeercert(binary_form=True)
-    assert peer is not None
-    certificate = x509.load_der_x509_certificate(peer)
+    # Sem `ca_certs`: nao verifica, que e' o comportamento pedido acima. Devolve PEM.
+    pem = ssl.get_server_certificate((url.hostname, url.port), timeout=10)
+    certificate = x509.load_pem_x509_certificate(pem.encode("ascii"))
     return hashlib.sha256(
         certificate.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
     ).hexdigest()

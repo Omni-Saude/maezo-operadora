@@ -95,3 +95,74 @@ c3b3a9d059c21ce2d231d9486a7f4a0071ba30e5:src/maezo/gateway/document_requests/com
 #     do train ("form-selection data, not credentials"); nao pode ser reescrito sem alterar os
 #     bytes canonicos que o teste prova.
 9b3d1a7e64c0b0a042f7d55c96991d68c1cc313d:tests/unit/gateway/human/test_receipt_recording_metadata.py:generic-api-key:42
+
+# =================================================================================================
+# TRIAGEM DE 15/09/2026 — 9 achados do sweep de historico completo, TODOS falso positivo da
+# heuristica `generic-api-key`. Verificados um a um lendo a linha no commit que a gitleaks citou.
+#
+# POR QUE ISTO IMPORTAVA MAIS QUE OS 9. O job `gitleaks / secrets` reprovava em TODO push para a
+# main desde 09/09 ("leaks found: 9"). Um detector de segredos permanentemente vermelho nao e' um
+# detector: e' ruido, e um vazamento DE VERDADE chegaria indistinguivel dos nove. Triar aqui e' o
+# que devolve o sinal — a partir do proximo sweep, um achado novo e' um achado novo.
+#
+# Cada entrada e' fingerprint-bound (commit:file:rule:line), como todas as acima: um segredo real
+# no MESMO arquivo, noutra linha ou noutro commit, continua disparando.
+
+# --- CLASSE 1: anotacao de tipo num campo de dataclass (5 achados) ------------------------------
+# A linha e' uma ANOTACAO DE TIPO num campo de dataclass: o identificador e' `key` (ou `_key`), o
+# tipo e' a classe de chave privada Ed25519 do `cryptography`, e o campo e' construido com
+# `repr` desligado. O que a regra casou foi o nome do TIPO — entropia suficiente para a
+# heuristica — ao lado do identificador. Nao ha literal nenhum: nao ha valor e nao ha atribuicao.
+#
+# (A linha NAO e' reproduzida aqui de proposito: ver a nota sobre auto-referencia no fim.)
+#
+# A IRONIA QUE VALE REGISTRAR: `repr=False` nessas linhas E' O CONTROLE que impede a chave privada
+# de aparecer num repr, num traceback ou num log. O detector esta apontando para a defesa e
+# chamando-a de defeito. Remover o `repr=False` para "limpar o alerta" seria trocar um falso
+# positivo por um vazamento real.
+82d68600fd93f9507cf15aa12e6114e112db4499:src/maezo/gateway/staff_cases/publisher.py:generic-api-key:48
+206a53dd8c8d7a349c6d04db5631234c0b1c1252:src/maezo/gateway/staff_cases/publisher.py:generic-api-key:41
+6770eb848bec667e3476d2032e2e13fac77d2118:src/maezo/gateway/human/credentials.py:generic-api-key:72
+9253328bbae54d0a6b947db7bf792eef006c02c0:src/maezo/gateway/human/auth_transport.py:generic-api-key:64
+262f004d3b976abaa1a2421a2f0e2d44dc35ddcf:src/maezo/gateway/human/read_credentials.py:generic-api-key:72
+
+# --- CLASSE 2: nomes de argumento nomeado, sem literal algum (2 achados) ------------------------
+# A linha e' `scope=scope, active_key_id=active_body_key_id, keys=body_keys, valid_until=...` — a
+# construcao de `PhiContentKeys`. Todo valor e' uma VARIAVEL; nao ha string no trecho casado. A
+# regra disparou pela densidade de `key`/`keys`/`key_id` na mesma linha.
+d71dac0025c09df7d09cbbb822cb3ac0be9e0293:src/maezo/gateway/document_requests/composition.py:generic-api-key:260
+cbb5d1965a79efaa553b1b08421d6f05be00d100:src/maezo/gateway/document_requests/composition.py:generic-api-key:242
+
+# --- CLASSE 3: form key sintetico num teste Java (1 achado) -------------------------------------
+# A linha poe, num mapa de um teste de fronteira do plugin humano, o identificador de FORMULARIO
+# do Camunda/CIB Seven. Formulario nao e' credencial de especie nenhuma, e o valor e' sintetico e
+# se anuncia como tal no proprio nome. As linhas vizinhas do mesmo teste usam caracteres
+# repetidos 64 vezes como digests, o que reforca que o arquivo inteiro e' fixture fabricado.
+#
+# (Idem: o literal nao e' reproduzido — ver a nota do fim.)
+d9e12e11cb3d8a913d0ad5a1d0abbc3b0c73dd9b:src/maezo/portal/engine/java/src/test/java/br/com/maezo/human/ReviewerBoundaryTest.java:generic-api-key:29
+
+# --- CLASSE 4: business key de BPMN (1 achado) -------------------------------------------------
+# `json={"businessKey": "...", "variables": {}}` no preparador de fixture do CIB Seven. E' a MESMA
+# classe de falso positivo ja documentada tres vezes acima neste arquivo (chave de negocio com
+# entropia alta casando o substring "key"). Nao entrou no allowlist de shape do `.gitleaks.toml`
+# porque o caminho (`deploy/cibseven/secured/`) esta fora dos paths que aquele allowlist ancora, e
+# alargar o path para um unico achado relaxaria a contencao verificada. Fingerprint, entao.
+a71a14e15fde4515567d65564a019ce9a7c0f021:deploy/cibseven/secured/prepare_fixture.py:generic-api-key:349
+
+# =================================================================================================
+# POR QUE ESTE ARQUIVO NAO CITA OS TRECHOS QUE TRIA
+#
+# A primeira versao desta triagem (commit f52b124) reproduzia as linhas ofensoras entre crases,
+# para que quem lesse nao precisasse abrir o commit. Resultado medido no PR #410: o proprio
+# `.gitleaksignore` VIROU ACHADO — duas entradas novas, `generic-api-key`, apontando para as linhas
+# de comentario onde os literais estavam citados.
+#
+# E' obvio depois de acontecer: um detector que varre TODO o repositorio varre tambem o arquivo que
+# lista o que ele deve ignorar, e uma allowlist por FINGERPRINT (commit:file:rule:line) nao cobre a
+# copia do texto noutro arquivo — de proposito, porque cobrir cobriria tambem um segredo REAL colado
+# aqui como "exemplo".
+#
+# A regra que fica: descrever a linha, nunca reproduzi-la. Quem precisar do texto exato abre o
+# commit citado no fingerprint — que e' onde ele deve ser lido de qualquer forma, com o contexto
+# em volta.
