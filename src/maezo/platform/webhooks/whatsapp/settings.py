@@ -204,6 +204,31 @@ class WhatsAppWebhookSettings(BaseSettings):
         ),
     )
 
+    # DEVOLVER O TURNO NO CORPO DO ACK (12/09/2026). Com `True`, a resposta 200 de `/webhook`
+    # ganha dois campos: `resposta` (o texto que a Helena redigiu neste turno) e
+    # `conversation_id`. Sem ele, o corpo fica BYTE POR BYTE como sempre foi.
+    #
+    # POR QUE ISTO PRECISA EXISTIR. O texto da Helena nunca foi lido por ninguem: ele e' redigido,
+    # entregue ao envio do WhatsApp e morre num 401 de credencial de preenchimento em dev. Sem ver
+    # o texto nao ha' como avaliar se ele presta nem conferir se vaza orientacao clinica — que e'
+    # exatamente a cerca `leak_canaries` dos conjuntos golden.
+    #
+    # POR QUE E' UM PORTAO E NAO O PADRAO. Em producao quem recebe esta resposta e' a Meta, e o
+    # contrato do ack com ela e' o CODIGO de status: a Meta re-entrega o que nao recebeu 200 e nao
+    # le' o corpo. (O runbook §6 "Local testing" documenta o corpo VISIVEL em dev — inclusive os
+    # campos deste portao — e nao e' a fonte do contrato da Meta; a citacao anterior apontava para
+    # la' como se fosse.)
+    # Ampliar o corpo por padrao mudaria o que sai do processo em producao para ganhar uma
+    # conveniencia de teste — entao o default e' `False` e uma implantacao que nao o nomeia nao
+    # muda em nada. O `conversation_id` e' keyed-irreversivel e ja' aparece em log e no Cockpit; o
+    # `resposta` e' texto voltado ao beneficiario, de uma agente proibida de dar orientacao
+    # clinica, sobre uma mensagem ja' pseudonimizada. Os dois viajam sob o MESMO portao porque o
+    # motivo de liberar e' um so': alguem estar olhando a conversa numa tela de teste.
+    devolve_turno: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_DEVOLVE_TURNO", "devolve_turno"),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _map_bare_field_name_kwargs(cls, data: Any) -> Any:

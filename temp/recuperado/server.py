@@ -320,34 +320,6 @@ def _paginas_disponiveis() -> list[str]:
     return sorted(f.name for f in PAGINAS.iterdir() if f.suffix.lower() in TIPOS)
 
 
-def _corpo_do_receptor(bruto: bytes) -> dict[str, object]:
-    """Resposta do canal para `/receptor/simular`: o eco cru do receptor MAIS os dois campos do
-    turno ELEVADOS ao topo, quando o receptor os devolveu.
-
-    `receptor` continua sendo a string crua, byte por byte, porque e' a evidencia do que a outra
-    ponta respondeu e um dia alguem vai querer ler o corpo inteiro. `resposta` e `conversation_id`
-    sobem ao topo porque e' ali que a pagina olha primeiro, e porque um contrato que existe so'
-    por acidente — "funciona porque o JSON aninhado por acaso tem essa chave" — nao e' contrato.
-
-    Os campos so' EXISTEM quando o receptor roda com `WHATSAPP_WEBHOOK_DEVOLVE_TURNO=1`. Ausentes,
-    nada e' inventado: a pagina detecta a falta e diz que nao recebeu, que e' o comportamento que
-    o proprio autor dela pediu.
-    """
-    texto = bruto.decode("utf-8", "replace")
-    corpo: dict[str, object] = {"receptor": texto}
-    try:
-        interno = json.loads(texto)
-    except (ValueError, json.JSONDecodeError):
-        return corpo
-    if not isinstance(interno, dict):
-        return corpo
-    for campo in ("resposta", "conversation_id"):
-        valor = interno.get(campo)
-        if isinstance(valor, str) and valor:
-            corpo[campo] = valor
-    return corpo
-
-
 class Handler(BaseHTTPRequestHandler):
     def _proxy(self, base: str, prefixo: str, timeout: int = 30) -> None:
         """Repassa a requisicao para `base`, tirando `prefixo` do caminho.
@@ -540,9 +512,9 @@ class Handler(BaseHTTPRequestHandler):
         )
         try:
             with urllib.request.urlopen(req, timeout=120) as r:
-                self._responder_json(r.status, _corpo_do_receptor(r.read()))
+                self._responder_json(r.status, {"receptor": r.read().decode("utf-8", "replace")})
         except urllib.error.HTTPError as e:
-            self._responder_json(e.code, _corpo_do_receptor(e.read()))
+            self._responder_json(e.code, {"receptor": e.read().decode("utf-8", "replace")})
         except OSError as e:
             self._responder_json(502, {"erro": f"receptor inacessivel ({RECEPTOR}): {e}"})
 

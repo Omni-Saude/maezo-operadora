@@ -42,8 +42,17 @@ graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
   classify: classify-v3
-  response: response-v3               # 12/09/2026: proibida a negativa clinica + WhatsApp
+  response: response-v5               # 13/09/2026: + promessa de humano fora de escalate/schedule
+                                     # e promessa de CAPACIDADE em toda rota (PR #395, mergeado).
+                                     # Subiu v3 -> v5 na main enquanto esta branch estava aberta; a
+                                     # cerca `test_helena_dono_declarado` pegou a deriva no merge —
+                                     # e' o defeito que ela existe para nao deixar passar calado.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
+  recusa_de_saida: recusa-v3          # 13/09/2026: a cerca de SAIDA em `_respond_llm` — negativa
+                                     # clinica, promessa de humano e de capacidade. Chegou com o
+                                     # PR #395; declarada aqui porque a cerca compara as DUAS
+                                     # fontes (PROMPT_VERSIONS x este yaml), e um numero a menos
+                                     # aqui e' a mesma deriva que um numero errado.
 model:
   task_default: { tier: fast }        # triagem/classificacao
   reasoning:    { tier: frontier }    # casos ambiguos
