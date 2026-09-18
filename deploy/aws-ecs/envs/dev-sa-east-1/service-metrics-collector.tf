@@ -166,10 +166,26 @@ resource "aws_ecs_task_definition" "metrics_collector" {
       }
     }
 
-    # O health check da extensao `health_check` (13133). A imagem do coletor nao traz curl; traz
-    # `wget`, o mesmo que o compose local ja' usa para este endpoint.
+    # O health check da extensao `health_check` (13133), pelo binario que a PROPRIA imagem traz.
+    #
+    # CORRIGIDO EM 18/09/2026, no primeiro apply em dev. A versao anterior era
+    # `["CMD-SHELL", "wget -q -O - http://localhost:13133/healthz || exit 1"]`, e o comentario que a
+    # acompanhava dizia "a imagem do coletor nao traz curl; traz `wget`, o mesmo que o compose local
+    # ja' usa". A premissa estava errada por uma razao simples: **o compose local usa OUTRA imagem**
+    # (`otel/opentelemetry-collector-contrib`, base Alpine, que tem wget). Esta aqui e'
+    # `aws-observability/aws-otel-collector`, e o conteudo dela foi MEDIDO layer a layer no registry:
+    # os unicos executaveis sao `/awscollector` e `/healthcheck`. Nao ha wget, nao ha curl e **nao ha
+    # `/bin/sh`** — entao `CMD-SHELL` nao tinha nem como ser interpretado.
+    #
+    # O SINTOMA NAO FOI UM COLETOR QUEBRADO, e e' por isso que vale registrar: o coletor subiu,
+    # raspou os tres jobs e escreveu no workspace (22 metricas `maezo_*` medidas no AMP). Quem falhou
+    # foi so' o health check, e o ECS deployment circuit breaker derrubou um servico que estava
+    # FUNCIONANDO. Um healthcheck errado nao devolve "nao sei"; devolve "doente".
+    #
+    # `CMD` e nao `CMD-SHELL` de proposito: `CMD` executa o binario direto, sem shell. Trocar o
+    # comando mantendo `CMD-SHELL` continuaria falhando pelo mesmo motivo.
     healthCheck = {
-      command     = ["CMD-SHELL", "wget -q -O - http://localhost:13133/healthz || exit 1"]
+      command     = ["CMD", "/healthcheck"]
       interval    = 30
       timeout     = 5
       retries     = 3
