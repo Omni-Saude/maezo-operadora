@@ -222,7 +222,14 @@ def test_no_client_context_trusts_and_verifies_only_the_server(monkeypatch: pyte
         cadata: str | bytes | None = None,
     ) -> ssl.SSLContext:
         calls.append((purpose, cafile))
-        return real_create_default_context(purpose, cafile=cafile, capath=capath, cadata=cadata)
+        # Registra o `cafile` pedido mas NAO o carrega. O que este teste prova e' a PASSAGEM do
+        # caminho ate' `ssl.create_default_context` e as flags que o oracle fixa DEPOIS de criar o
+        # contexto (TLS 1.3 min/max, check_hostname, CERT_REQUIRED) — nada disso depende de o
+        # arquivo existir. Carrega-lo tornava o teste dependente de plataforma: `/etc/ssl/cert.pem`
+        # existe no macOS e no Alpine, NAO no Ubuntu do runner (que usa
+        # `/etc/ssl/certs/ca-certificates.crt`), e `load_verify_locations` levantava
+        # FileNotFoundError em ssl.py:719 — a unica falha deste arquivo no CI de 18/09/2026.
+        return real_create_default_context(purpose, capath=capath, cadata=cadata)
 
     monkeypatch.setattr(ssl, "create_default_context", recording_create_default_context)
     context = server_authenticated_tls13_context("/etc/ssl/cert.pem")
