@@ -404,6 +404,31 @@ def test_anssubmit_notification_anchors_on_report_type_and_competencia() -> None
     assert pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, notification) == "amh|DIOPS|2026-08"
 
 
+@pytest.mark.parametrize("instance", ["timer-a", "timer-b"])
+def test_ans_cron_fact_uses_calendar_anchors_across_timer_instances(instance: str) -> None:
+    # SP-OP-ANS-CRON-001 publishes ans.cron_due, not anssubmit.*. Calendar facts
+    # must use the already contracted tenant/report/period identity without a case key.
+    payload = {
+        "type": "ans.cron_due",
+        "tenant_id": "amh",
+        "report_type": "DIOPS",
+        "competencia": "2026-08",
+        "_business_key": "",
+        "_process_instance_id": instance,
+    }
+    assert pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, payload) == "amh|DIOPS|2026-08"
+    for field in ("tenant_id", "report_type", "competencia"):
+        assert (
+            pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, dict(payload, **{field: ""}))
+            != "amh|DIOPS|2026-08"
+        )
+    assert (
+        pk.derive_partition_key(pk.NOTIFICATIONS_TOPIC, dict(payload, type="ans.unknown"))
+        == f"amh|{instance}"
+    )
+    assert pk.derive_partition_key(_AUTH_TOPIC, payload) == f"amh|{instance}"
+
+
 def test_a_family_with_no_anchor_group_still_falls_to_the_process_instance() -> None:
     """`lgpd`/`escalation`/`programa`/`adequacao` have no verified per-entity business-key
     derivation in this repo to copy, so they are deliberately absent from the table and order

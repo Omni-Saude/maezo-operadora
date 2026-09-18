@@ -285,6 +285,35 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # TETO DE VOLUME (14/09/2026). Mensagens recusadas por limite, por tenant e por ESCOPO
+        # (`conversa` = um numero em laco; `tenant` = pico agregado). CONTENT-FREE: nenhum dos dois
+        # rotulos identifica pessoa, e o `conversation_id` NAO e' rotulo — ele tem cardinalidade de
+        # beneficiario e viraria um identificador por serie temporal.
+        self._mensagem_limitada = Counter(
+            "maezo_webhook_mensagem_limitada_total",
+            "Mensagens recusadas pelo teto de volume do canal, por tenant e escopo do teto "
+            "(COUNTS ONLY, vocabulario fechado, nunca a conversa nem o texto)",
+            labelnames=["tenant", "escopo"],
+            registry=self._registry,
+        )
+
+        # RECUSA DE SAIDA (13/09/2026). Quantas vezes o texto redigido pelo modelo foi BARRADO
+        # antes de sair, por grupo de padrao e rota. CONTENT-FREE: `motivo` e' um dos dois rotulos
+        # fechados de `prompts.py` (nunca o texto nem o padrao exato, que vao para o log), e
+        # `response_kind` e' o vocabulario fechado do grafo.
+        #
+        # POR QUE ELE IMPORTA MAIS QUE O NUMERO. Enquanto ele sobe, o prompt esta pedindo e o
+        # modelo esta tentando assim mesmo — e' a medida de quanto a instrucao sozinha valeria.
+        # Zero sustentado nao prova obediencia: prova que a cerca nao teve o que barrar NAQUELE
+        # periodo, o que so' e' interpretavel junto do volume de turnos.
+        self._agent_resposta_recusada = Counter(
+            "maezo_agent_resposta_recusada_total",
+            "Respostas redigidas pelo modelo que foram BARRADAS antes de chegar ao beneficiario, "
+            "por agente/motivo/rota (COUNTS ONLY, vocabularios fechados, nunca o texto)",
+            labelnames=["agent_id", "motivo", "response_kind"],
+            registry=self._registry,
+        )
+
         # R-104/WP-ALERTA-SLA-CANAL. SLA-risk alerts turned into a human task, per
         # `notifications_bridge._record_sla_alert_outcome`. CONTENT-FREE BY CONSTRUCTION, same rule
         # as `bridge_dlq` above: `alert_domain` is a closed vocabulary (`notification_bridge.
@@ -517,6 +546,27 @@ class MetricsCollector:
         escalation_precision, false_denial_rate, ...) are measured FROM.
         """
         return self._agent_desfecho_total
+
+    @property
+    def mensagem_limitada(self) -> Counter:
+        """Counter for inbound messages refused by the channel's volume ceiling (Frente 7.1).
+
+        Labels: tenant, escopo (`conversa` | `tenant` — the two closed scopes in
+        `webhooks/whatsapp/limite.py`). The conversation is NOT a label: it has beneficiary
+        cardinality and would turn into one time series per person.
+        """
+        return self._mensagem_limitada
+
+    @property
+    def agent_resposta_recusada(self) -> Counter:
+        """Counter for model-drafted replies BLOCKED before reaching the beneficiary (13/09/2026).
+
+        Labels: agent_id, motivo (`negativa_clinica` | `promessa_de_humano` — the two closed
+        groups in `agents/helena/prompts.py`), response_kind (the graph's closed route vocabulary).
+        The exact matched pattern is NOT a label: it goes to the log line, so this counter's
+        cardinality does not grow when the pattern list does.
+        """
+        return self._agent_resposta_recusada
 
     @property
     def sla_alert_human_task(self) -> Counter:

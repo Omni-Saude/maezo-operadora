@@ -153,6 +153,19 @@ EVENTS_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({_ERR_EVENT_PUBLISH_FAIL
 _ANS_CRON_DUE_EVENT_TYPE = "ans.cron_due"
 _ANS_CRON_REFERENCE_DATE_KEY = "ans_cron_reference_date_iso"
 
+# SP-OP-ANS-CRON-001 contract: TimerStartEvent has no case/business key. Only these
+# fetched engine process/activity pairs publish its calendar fact (BPMN topology).
+# Match exact source identities, never a prefix or caller-controlled event fields alone.
+_ANS_TIMER_PUBLICATION_SOURCES = frozenset(
+    {
+        ("SP-OP-ANS-CRON-001-RN124SIP", "ST_PublishCronDueRn124Sip"),
+        ("SP-OP-ANS-CRON-001-RN209", "ST_PublishCronDueRn209"),
+        ("SP-OP-ANS-CRON-001-RN388", "ST_PublishCronDueRn388"),
+        ("SP-OP-ANS-CRON-001-RN424TISS", "ST_PublishCronDueRn424Tiss"),
+        ("SP-OP-ANS-CRON-001-DIOPS", "ST_PublishCronDueDiops"),
+    }
+)
+
 #: t2-notify-integrity item 2 (NIP→ANS one-shot handoff durability): event TYPES whose publish is
 #: FAIL-CLOSED — the handler passes `best_effort=False`, overriding the producer's topic-default
 #: best-effort posture for `operadora.notifications.internal`. Criticality is a property of the
@@ -286,6 +299,28 @@ def make_publish_event_handler(
         for var_name in payload_vars:
             if var_name in task.variables:
                 payload[var_name] = task.variables[var_name]
+
+        is_ans_timer_fact = (
+            type(task.process_definition_key) is str
+            and type(task.activity_id) is str
+            and (task.process_definition_key, task.activity_id) in _ANS_TIMER_PUBLICATION_SOURCES
+            and task.topic == "operadora.events.publish"
+            and event_topic == "operadora.notifications.internal"
+            and event_type == _ANS_CRON_DUE_EVENT_TYPE
+            and payload.get("type") == _ANS_CRON_DUE_EVENT_TYPE
+        )
+        if (not task.business_key or not task.business_key.strip()) and not is_ans_timer_fact:
+            # AUTH's _business_key is the clinical payload_ref (GAP-AUTH-1, ADR-0006,
+            # ADR-0050). Keep its fail-closed identity requirement, even when event inputs
+            # are missing/forged, and preserve the existing requirement for other families.
+            # Contracted ANS timer facts have no case identity: their existing partition
+            # composer derives tenant/report_type/competencia below. Do not fabricate a key.
+            # Bad input remains a harness incident, not an unmodeled BPMN business error.
+            raise ValueError(
+                "operadora.events.publish: `business_key` ausente/vazia na instancia — o fato "
+                "seria publicado com `_business_key` vazio, isto e', sem o payload_ref que o "
+                "consumidor usa para resolver o caso (o fato NUNCA carrega PHI)"
+            )
 
         # Deployment-tenant stamp (t2-notify-integrity item 3 follow-up — see the
         # `deployment_tenant_id` docstring): setdefault semantics, so a process-var-supplied

@@ -256,6 +256,11 @@ def anchor_family(topic: str, payload: Mapping[str, Any]) -> str:
     """
     family = topic_family(topic)
     if family == NOTIFICATIONS_FAMILY:
+        # SP-OP-ANS-CRON-001's calendar fact has the same tenant/report/competencia
+        # anchors as ANS-SUBMIT, but its contracted type is ans.cron_due. Match this
+        # exact event only; other ans.* notifications retain their existing fallback.
+        if payload.get(_NOTIFICATION_TYPE_FIELD) == "ans.cron_due":
+            return "anssubmit"
         return notification_family(payload)
     return family
 

@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="https://www.omg.org/spec/DMN/20191111/MODEL/"
+             xmlns:dmndi="https://www.omg.org/spec/DMN/20191111/DMNDI/"
+             xmlns:camunda="http://camunda.org/schema/1.0/dmn"
+             id="defs_triage_sufficiency"
+             name="Suficiencia de dados para triagem"
+             namespace="http://maezo.health/dmn/operadora">
+  <description>
+    triage_sufficiency v0.1.0 — status: FORMA FINAL; CONTEUDO: NAO RATIFICADO.
+    Frente 2.2 de HELENA_EM_PRODUCAO_O_QUE_FALTA.md, passo 2 de 4.
+
+    O QUE ESTA TABELA DECIDE, e o que ela NAO decide. Ela responde "os dados bastam para
+    decidir com honestidade?" — NUNCA "o caso e grave?". A gravidade e' das quatro tabelas
+    triage_redflag_*, e esta so' e' consultada DEPOIS de a red flag ter dito `false`: uma
+    emergencia nunca espera pergunta.
+
+    O DEFEITO QUE ELA FECHA, medido em 09/09/2026 no motor de dev: "estou com dor de cabeca"
+    produz sintoma_codigo=None e intensidade="desconhecida"; a rede de seguranca das quatro
+    tabelas exige `grave`; o catch-all devolve red_flag=false; a resposta automatica sai. A
+    tabela respondeu com CONFIANCA sobre dados que nao tinha. O que falta nao e' uma regra
+    nova de red flag — e' perguntar.
+
+    NAO RATIFICADA, E E' POR ISSO QUE `coleta_enabled` CONTINUA `False`. Este arquivo existir
+    NAO liga a coleta: a ordem obrigatoria, e ela nao admite atalho, e' (1) ratificar o
+    conteudo, (2) o arquivo, (3) publicar no motor, (4) so' entao `coleta_enabled=true`.
+    Ligar antes faz o codigo falhar FECHADO — DMN indisponivel vira falha_tecnica e todo turno
+    vai para humano. Seguro, e inutil.
+
+    POR QUE O ARQUIVO EXISTE ANTES DA ASSINATURA: uma tabela que so' vive numa tabela de
+    markdown e' uma das quatro cascas vazias que este projeto ja tem. Escrita em DMN, ela pode
+    ser LIDA no editor que o medico usa, VALIDADA pelo `make validate-artifacts`, e discutida
+    linha a linha — que e' o que a ratificacao precisa. O conteudo continua sendo dele.
+
+    AS TRES DECISOES DE MERITO QUE ESTAO ABERTAS (docs/design/triage-suficiencia-coleta.md):
+      1. para onde escalar quando esgota — `solicitacao_humano` (P3, 4h, o que o documento
+         pediu e o que esta implementado) ou `intencao_clinica` (P2, 30min). Quem nao consegue
+         descrever o proprio sintoma em duas rodadas pode estar confuso pelo proprio quadro;
+      2. a regra 6 — adulto com sintoma e intensidade, sem idade: perguntar sempre (custa uma
+         rodada a quem ja disse o que importa) ou so' quando o sintoma for `febre`, que e' o
+         unico do adulto que usa idade (`febre >= 65`);
+      3. duas rodadas — `COLETA_MAX_RODADAS = 2` veio do documento, nao de medicao.
+
+    Schema: entradas de `agents/helena/graph.py` (montagem em `classify`); saida `veredito`,
+    vocabulario FECHADO validado no codigo — veredito fora dele e' `falha_tecnica`, nunca
+    resposta automatica. Hit policy FIRST: a ordem das linhas E' a regra.
+  </description>
+
+  <decision id="triage_sufficiency" name="Suficiencia de dados para triagem" camunda:historyTimeToLive="P180D">
+    <decisionTable id="dt_triage_sufficiency" hitPolicy="FIRST">
+
+      <input id="in_intent" label="Intencao classificada (intent)">
+        <inputExpression id="ie_intent" typeRef="string"><text>intent</text></inputExpression>
+      </input>
+      <input id="in_population" label="Populacao (population)">
+        <inputExpression id="ie_population" typeRef="string"><text>population</text></inputExpression>
+      </input>
+      <input id="in_sintoma_reconhecido" label="O sintoma casou com um codigo da allowlist (sintoma_reconhecido)">
+        <inputExpression id="ie_sintoma_reconhecido" typeRef="boolean"><text>sintoma_reconhecido</text></inputExpression>
+      </input>
+      <input id="in_intensidade_informada" label="A intensidade foi dita pela pessoa (intensidade_informada)">
+        <inputExpression id="ie_intensidade_informada" typeRef="boolean"><text>intensidade_informada</text></inputExpression>
+      </input>
+      <input id="in_campo_populacao" label="O campo que a populacao exige esta presente (campo_populacao_disponivel)">
+        <inputExpression id="ie_campo_populacao" typeRef="boolean"><text>campo_populacao_disponivel</text></inputExpression>
+      </input>
+      <input id="in_rodadas" label="Perguntas ja feitas nesta conversa (rodadas)">
+        <inputExpression id="ie_rodadas" typeRef="integer"><text>rodadas</text></inputExpression>
+      </input>
+
+      <output id="out_veredito" label="veredito" name="veredito" typeRef="string"/>
+
+      <!-- ================================================================================
+           REGRA 1 — TEM FIM.
+           Primeira de proposito: nenhuma outra linha pode ser alcancada depois do limite.
+           REDUNDANTE COM O CODIGO, e a redundancia e' deliberada: `classify` ja escala em
+           `COLETA_MAX_RODADAS` sem consultar esta tabela. Se a redundancia se perder, o
+           beneficiario fica num interrogatorio — e quem esta em sofrimento e' quem menos
+           consegue responder a terceira pergunta.
+           ================================================================================ -->
+      <rule id="suf_r1_tem_fim">
+        <description>Limite de rodadas atingido: para de perguntar e entrega a um humano.</description>
+        <inputEntry id="suf_r1_intent"><text>"symptom"</text></inputEntry>
+        <inputEntry id="suf_r1_pop"><text>-</text></inputEntry>
+        <inputEntry id="suf_r1_sint"><text>-</text></inputEntry>
+        <inputEntry id="suf_r1_int"><text>-</text></inputEntry>
+        <inputEntry id="suf_r1_campo"><text>-</text></inputEntry>
+        <inputEntry id="suf_r1_rod"><text>&gt;= 2</text></inputEntry>
+        <outputEntry id="suf_r1_out"><text>"ESCALAR"</text></outputEntry>
+      </rule>
+
+      <!-- ================================================================================
+           REGRA 2 — O SINTOMA NAO CASOU COM NENHUM CODIGO.
+           E' o caso literal de "estou com dor de cabeca" e de "nao estou me sentindo bem".
+           NUNCA ADIVINHAR: escolher o codigo mais proximo e' o defeito de 13/09 (o P1 de cinco
+           minutos aberto por uma dor comum), e e' o que a regra R2 da regua de extracao proibe.
+           A tabela e a regua sao a MESMA decisao vista de dois lados — uma manda devolver nulo,
+           a outra manda perguntar pelo nulo.
+           ================================================================================ -->
+      <rule id="suf_r2_sem_codigo">
+        <description>Nenhum codigo da allowlist casou: pergunte pela caracterizacao, nunca adivinhe.</description>
+        <inputEntry id="suf_r2_intent"><text>"symptom"</text></inputEntry>
+        <inputEntry id="suf_r2_pop"><text>-</text></inputEntry>
+        <inputEntry id="suf_r2_sint"><text>false</text></inputEntry>
+        <inputEntry id="suf_r2_int"><text>-</text></inputEntry>
+        <inputEntry id="suf_r2_campo"><text>-</text></inputEntry>
+        <inputEntry id="suf_r2_rod"><text>-</text></inputEntry>
+        <outputEntry id="suf_r2_out"><text>"PERGUNTAR_CARACTERIZACAO"</text></outputEntry>
+      </rule>
+
+      <!-- ================================================================================
+           REGRA 3 — A INTENSIDADE NAO FOI DITA.
+           Varias regras de red flag dependem dela, e a REDE DE SEGURANCA das quatro tabelas so'
+           pega `grave` (achado da revisao das 34 regras, Frente 4). Sem intensidade, um sintoma
+           moderado sem regra propria sai sem bandeira — o pior caso levantado e' reacao
+           alergica moderada, que progride. Perguntar aqui e' o que fecha esse buraco pelo lado
+           do dado, ja que fecha-lo pelo lado da regra e' mexer nas 34.
+           ================================================================================ -->
+      <rule id="suf_r3_sem_intensidade">
+        <description>Sintoma reconhecido, intensidade nao dita: pergunte pela intensidade.</description>
+        <inputEntry id="suf_r3_intent"><text>"symptom"</text></inputEntry>
+        <inputEntry id="suf_r3_pop"><text>-</text></inputEntry>
+        <inputEntry id="suf_r3_sint"><text>true</text></inputEntry>
+        <inputEntry id="suf_r3_int"><text>false</text></inputEntry>
+        <inputEntry id="suf_r3_campo"><text>-</text></inputEntry>
+        <inputEntry id="suf_r3_rod"><text>-</text></inputEntry>
+        <outputEntry id="suf_r3_out"><text>"PERGUNTAR_INTENSIDADE"</text></outputEntry>
+      </rule>
+
+      <!-- ================================================================================
+           REGRA 4 — GESTANTE SEM IDADE GESTACIONAL.
+           Antes da pediatrica de proposito: a revisao das 34 regras mediu que QUATRO DAS CINCO
+           regras P1 da gestante dependem da idade gestacional, que a beneficiaria raramente da
+           espontaneamente. "Estou perdendo liquido" sem as semanas NAO escala hoje. E' a maior
+           lacuna medida das quatro tabelas.
+           ================================================================================ -->
+      <rule id="suf_r4_gestante_sem_ig">
+        <description>Gestante sem idade gestacional: quatro das cinco regras P1 dependem dela.</description>
+        <inputEntry id="suf_r4_intent"><text>"symptom"</text></inputEntry>
+        <inputEntry id="suf_r4_pop"><text>"gestante"</text></inputEntry>
+        <inputEntry id="suf_r4_sint"><text>true</text></inputEntry>
+        <inputEntry id="suf_r4_int"><text>true</text></inputEntry>
+        <inputEntry id="suf_r4_campo"><text>false</text></inputEntry>
+        <inputEntry id="suf_r4_rod"><text>-</text></inputEntry>
+        <outputEntry id="suf_r4_out"><text>"PERGUNTAR_IDADE_GESTACIONAL"</text></outputEntry>
+      </rule>
+
+      <!-- ================================================================================
+           REGRA 5 — CRIANCA SEM IDADE EM MESES.
+           Mesmo padrao da gestante, medido na mesma revisao: febre abaixo de 3 meses e' P1, e
+           a mae escreve "meu bebe esta com febre" sem dizer os meses. A Frente 2.1 (memoria
+           entre turnos) faz a idade dita num turno valer no seguinte; esta regra cobre quem
+           nunca a disse.
+           ================================================================================ -->
+      <rule id="suf_r5_pediatrica_sem_idade">
+        <description>Crianca sem idade em meses: febre abaixo de 3 meses e' P1.</description>
+        <inputEntry id="suf_r5_intent"><text>"symptom"</text></inputEntry>
+        <inputEntry id="suf_r5_pop"><text>"pediatric"</text></inputEntry>
+        <inputEntry id="suf_r5_sint"><text>true</text></inputEntry>
+        <inputEntry id="suf_r5_int"><text>true</text></inputEntry>
+        <inputEntry id="suf_r5_campo"><text>false</text></inputEntry>
+        <inputEntry id="suf_r5_rod"><text>-</text></inputEntry>
+        <outputEntry id="suf_r5_out"><text>"PERGUNTAR_IDADE"</text></outputEntry>
+      </rule>
+
+      <!-- ================================================================================
+           REGRA 6 — ADULTO SEM IDADE: SUFICIENTE.
+           *** A LINHA ABERTA AO MEDICO AUDITOR. ***
+           No adulto, so' `febre >= 65 anos` usa a idade. Perguntar a idade a quem ja disse o
+           sintoma E a intensidade custa uma rodada — e rodada e' recurso escasso (sao duas).
+           Escrita como SUFICIENTE porque, na duvida, o barato e' NAO perguntar o que quase
+           nunca muda a decisao. Se a leitura clinica for outra, a troca e' esta linha virar
+           `PERGUNTAR_IDADE` — ou uma linha nova restrita a `febre`.
+           ================================================================================ -->
+      <rule id="suf_r6_adulto_sem_idade">
+        <description>ABERTA A RATIFICACAO: adulto sem idade segue como suficiente (so febre >= 65 usa idade).</description>
+        <inputEntry id="suf_r6_intent"><text>"symptom"</text></inputEntry>
+        <inputEntry id="suf_r6_pop"><text>"adult"</text></inputEntry>
+        <inputEntry id="suf_r6_sint"><text>true</text></inputEntry>
+        <inputEntry id="suf_r6_int"><text>true</text></inputEntry>
+        <inputEntry id="suf_r6_campo"><text>false</text></inputEntry>
+        <inputEntry id="suf_r6_rod"><text>-</text></inputEntry>
+        <outputEntry id="suf_r6_out"><text>"SUFICIENTE"</text></outputEntry>
+      </rule>
+
+      <!-- ================================================================================
+           REGRA 7 — CATCH-ALL.
+           As intencoes que nao sao sintoma nunca chegam aqui (`classify` so' consulta esta
+           tabela no ramo `symptom`), mas uma tabela FIRST sem linha final devolve VAZIO — e
+           `first_row` trata vazio como `DmnNoResultError`, que vira `falha_tecnica` e manda
+           para humano. Um turno administrativo virando tarefa humana por falta de uma linha
+           seria a tabela inundando a fila com o que ela nem deveria julgar.
+           ================================================================================ -->
+      <rule id="suf_r7_catchall">
+        <description>Catch-all: nada faltando (ou intencao que nao e sintoma) segue para a resposta.</description>
+        <inputEntry id="suf_r7_intent"><text>-</text></inputEntry>
+        <inputEntry id="suf_r7_pop"><text>-</text></inputEntry>
+        <inputEntry id="suf_r7_sint"><text>-</text></inputEntry>
+        <inputEntry id="suf_r7_int"><text>-</text></inputEntry>
+        <inputEntry id="suf_r7_campo"><text>-</text></inputEntry>
+        <inputEntry id="suf_r7_rod"><text>-</text></inputEntry>
+        <outputEntry id="suf_r7_out"><text>"SUFICIENTE"</text></outputEntry>
+      </rule>
+
+    </decisionTable>
+  </decision>
+</definitions>

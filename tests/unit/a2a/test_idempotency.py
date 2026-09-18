@@ -106,6 +106,7 @@ class _FakeIdempotencyStore:
     def __init__(self) -> None:
         self._done: dict[str, StoredResult] = {}
         self._claimed: set[str] = set()
+        self._requested: set[str] = set()
         self.claim_calls = 0
 
     async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | None:
@@ -120,9 +121,19 @@ class _FakeIdempotencyStore:
     async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
         self._done[task_id] = StoredResult.from_result(result)
 
+    async def requested_emitted(self, *, tenant: str, task_id: str) -> bool:
+        return task_id in self._requested
+
+    async def mark_requested(self, *, tenant: str, task_id: str) -> None:
+        self._requested.add(task_id)
+
 
 def _dispatcher_with_store(
-    store: IdempotencyStore, *, cards: list[AgentCard], handlers: dict[str, AgentHandler]
+    store: IdempotencyStore,
+    *,
+    cards: list[AgentCard],
+    handlers: dict[str, AgentHandler],
+    producer: RecordingProducer | None = None,
 ) -> DelegationDispatcher:
     registry = A2ARegistry()
     for card in cards:
@@ -131,7 +142,7 @@ def _dispatcher_with_store(
         registry=registry,
         handlers=handlers,
         audit=FakeAuditSink(),
-        facts=FactProducer(RecordingProducer()),
+        facts=FactProducer(producer if producer is not None else RecordingProducer()),
         idempotency=store,
     )
 
@@ -333,6 +344,122 @@ async def test_inmemory_failed_requested_emit_is_reemitted_on_redelivery() -> No
     assert calls == 0, "a emissao do `requested` precede o handler: ele nao deveria ter rodado"
 
     result = await dispatcher.delegate(_envelope("mem-emit-falha-1"))  # reentrega do MESMO task_id
+
+    assert result.success, "a reentrega apos falha de emissao deveria executar normalmente"
+    assert calls == 1, "a reentrega nao executou o handler"
+    assert producer.topics() == [TOPIC_REQUESTED, TOPIC_COMPLETED], (
+        f"o fato `requested` foi PERDIDO: a reentrega publicou {producer.topics()!r} "
+        f"— um `completed` sem `requested` antes quebra a trilha de auditoria A2A"
+    )
+
+
+# --- Seam durável (`idempotency=` sem `transactions=`) ------------------------------------------
+#
+# A2A-RETRY-REEMITS-REQUESTED-FACT, a metade que o caminho atômico NÃO cobre. `_delegate_atomic`
+# (raízes de produção) já fecha o buraco com o marcador durável `requested_enqueued_at` da migração
+# 0011, inscrito na MESMA transação do enfileiramento na outbox. O seam `_delegate_durable` —
+# `IdempotencyStore` injetada sem `PostgresDelegationTransactions` — não tinha marcador nenhum:
+# `claim_or_get` devolvia `None` tanto para uma reivindicação INÉDITA quanto para a REENTREGA de
+# uma linha já reivindicada e nunca selada, então a segunda entrega reemitia `requested`.
+
+
+class _FakeSeamStoreNeverSeals:
+    """Seam durável cuja linha é reivindicada e NUNCA selada.
+
+    Modela exatamente a janela do defeito: a primeira tentativa ganha a reivindicação, o handler
+    falha de forma RETENTÁVEL (a exceção salta por cima de `store.complete`) e a linha fica
+    `processing` para sempre. Espelha o contrato do `PostgresIdempotencyStore` real:
+
+      - `claim_or_get` -> `None` na primeira chamada (reivindicação vencida) E nas seguintes (a
+        linha existe, não está `done`, e o poll limitado expira) — é justamente essa
+        indistinguibilidade que o marcador durável resolve, e NÃO um sentinela de reivindicação;
+      - `requested_emitted`/`mark_requested` -> o marcador `requested_enqueued_at` (migração 0011),
+        escrito SOMENTE depois de `_emit(REQUESTED)` retornar.
+    """
+
+    def __init__(self) -> None:
+        self._claimed: set[str] = set()
+        self._requested: set[str] = set()
+
+    async def claim_or_get(self, *, tenant: str, task_id: str) -> StoredResult | None:
+        self._claimed.add(task_id)
+        return None  # nunca sela: sempre "execute" — fresh ou reentrega, indistinguíveis aqui
+
+    async def complete(self, *, tenant: str, task_id: str, result: DelegationResult) -> None:
+        pass  # nunca sela, por construção — este fake É a janela
+
+    async def requested_emitted(self, *, tenant: str, task_id: str) -> bool:
+        return task_id in self._requested
+
+    async def mark_requested(self, *, tenant: str, task_id: str) -> None:
+        self._requested.add(task_id)
+
+
+async def test_durable_seam_redelivery_of_unsealed_row_does_not_reemit_requested() -> None:
+    """A2A-RETRY-REEMITS-REQUESTED-FACT no seam `_delegate_durable`.
+
+    Uma `task_id` reivindicada mas nunca selada (falha RETENTÁVEL do handler, canal RAF-02) tem o
+    handler REEXECUTADO na reentrega — retentabilidade preservada — mas o fato `requested` sai UMA
+    vez ao longo das DUAS entregas, não uma por entrega.
+
+    Mutação que leva a RED: em `_delegate_durable`, chamar `self._execute(envelope)` sem consultar
+    `store.requested_emitted` (o estado de `main` antes desta correção) -> 2 fatos `requested`
+    para 1 delegação lógica.
+    """
+    calls = 0
+
+    async def _failing_handler(envelope: DelegationEnvelope) -> HandlerOutput:
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("engine indisponivel (sonda A2A-RETRY-REEMITS-REQUESTED-FACT)")
+
+    producer = RecordingProducer()
+    store = _FakeSeamStoreNeverSeals()
+    dispatcher = _dispatcher_with_store(
+        store, cards=[make_card("rafael")], handlers={"rafael": _failing_handler}, producer=producer
+    )
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="engine indisponivel"):
+            await dispatcher.delegate(_envelope("seam-retry-1"))
+
+    assert calls == 2, "a reentrega nao reexecutou o handler (retentabilidade RAF-02 quebrada)"
+    assert producer.topics() == [TOPIC_REQUESTED], (
+        f"a reentrega reemitiu {TOPIC_REQUESTED!r} uma segunda vez (topics={producer.topics()!r})"
+    )
+
+
+async def test_durable_seam_failed_requested_emit_is_reemitted_on_redelivery() -> None:
+    """O marcador durável do seam só pode registrar uma emissão OBSERVADA, nunca uma reivindicação.
+
+    Se `_emit(REQUESTED)` falha, o marcador NÃO é escrito e a reentrega REEMITE: uma duplicata o
+    consumidor colapsa pela `fact_dedup_key`, uma PERDA ninguém recupera. É esta assimetria que
+    torna o marcador (fato observado) correto e um sentinela de reivindicação (fato inferido)
+    errado — a mera existência da linha nasce ANTES da emissão.
+
+    Mutação que leva a RED: em `_delegate_durable`, chamar `store.mark_requested` antes de
+    `self._execute` em vez de pelo callback `on_requested_emitted` -> o `requested` some para
+    sempre e sai um `completed` sem `requested` antes.
+    """
+    calls = 0
+
+    async def _handler(envelope: DelegationEnvelope) -> HandlerOutput:
+        nonlocal calls
+        calls += 1
+        return HandlerOutput(output_ref="fhir://Task/ok")
+
+    producer = _ProducerFailingFirstSend()
+    store = _FakeSeamStoreNeverSeals()
+    dispatcher = _dispatcher_with_store(
+        store, cards=[make_card("rafael")], handlers={"rafael": _handler}, producer=producer
+    )
+
+    with pytest.raises(RuntimeError, match="outbox indisponivel"):
+        await dispatcher.delegate(_envelope("seam-emit-falha-1"))
+    assert producer.topics() == [], f"a emissao falhou; nada deveria ter saido ({producer.topics()!r})"
+    assert calls == 0, "a emissao do `requested` precede o handler: ele nao deveria ter rodado"
+
+    result = await dispatcher.delegate(_envelope("seam-emit-falha-1"))  # reentrega do MESMO task_id
 
     assert result.success, "a reentrega apos falha de emissao deveria executar normalmente"
     assert calls == 1, "a reentrega nao executou o handler"

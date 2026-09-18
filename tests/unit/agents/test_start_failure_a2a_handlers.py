@@ -8,8 +8,17 @@ handler e sucesso: ele grava o audit terminal `_DECISION_COMPLETED`, emite o fat
 devolve `DelegationResult.ok`. Esse resultado e entao SELADO pela idempotencia por `task_id`
 (`_delegate_inflight` guarda `entry.result`; `_delegate_durable` chama `store.complete`), o que
 torna o falso sucesso IRRETENTAVEL: uma reentrega do mesmo `task_id` devolve o sucesso fabricado
-sem reexecutar coisa alguma. E `cibseven_start_claim_orphaned` nao socorre — ele so cobre as
-familias `gated`, e AUTH e NON_STRICT (D3-02).
+sem reexecutar coisa alguma.
+
+WP-J1-11 (decisao do dono #16): `SP-OP-AUTH-001` deixou de ser `NON_STRICT` e passou a
+`EXCLUSIVE` em `_START_DEDUP_POLICY`. A frase original deste docstring — "`cibseven_start_claim_
+orphaned` nao socorre, ele so cobre as familias `gated`, e AUTH e NON_STRICT (D3-02)" — ficou
+FALSA, e o efeito e visivel no teste de reentrega abaixo: a segunda entrega nao repete o POST ao
+engine, ela para no portao com `StartClaimWithoutInstanceError` (reivindicacao duravel sem
+instancia = indecidivel, travado ALTO para um operador). A propriedade RAF-02 que este arquivo
+guarda NAO depende da postura e continua valendo: o dispatcher nao grava terminal, nao emite
+`COMPLETED` e NAO SELA o `task_id` — o handler reexecuta. O que mudou e' o desfecho dessa
+reexecucao: um erro tipado e alto no lugar de um segundo start silencioso.
 
 A CORRECAO e uma excecao TIPADA (`runtime.start_outcome.StartProcessFailedError`) levantada pelo
 handler quando o estado devolvido pelo grafo carrega o marcador `start_failed`. Ela NAO herda de
@@ -28,7 +37,12 @@ from maezo.a2a import TOPIC_COMPLETED, TOPIC_REQUESTED
 from maezo.agents.helena.delegation import build_auth_analysis_envelope
 from maezo.agents.rafael.delegation import make_rafael_handler
 from maezo.runtime.start_outcome import StartProcessFailedError
-from maezo.tools.mcp_cibseven.transport import CibSevenError, FakeCibSevenTransport, ProcessInstance
+from maezo.tools.mcp_cibseven.transport import (
+    CibSevenError,
+    FakeCibSevenTransport,
+    ProcessInstance,
+    StartClaimWithoutInstanceError,
+)
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 from tests.unit.a2a.fakes import build_test_dispatcher, make_card
@@ -76,12 +90,21 @@ class _CountingFailingTransport(FakeCibSevenTransport):
     def __init__(self) -> None:
         super().__init__()
         self.tentativas = 0
+        #: Quantas vezes o PORTAO consultou o historico do engine. Sob `EXCLUSIVE` esta e' a
+        #: sonda que prova reexecucao quando `tentativas` ja' nao pode prova-la: o portao
+        #: resolve o hit de dedup ANTES de qualquer POST, entao uma reentrega que chega aqui
+        #: so' pode ter reexecutado o grafo.
+        self.consultas_historico = 0
 
     async def start_process_instance(
         self, process_key: str, business_key: str, variables: dict[str, Any]
     ) -> ProcessInstance:
         self.tentativas += 1
         raise CibSevenError(f"engine indisponivel (probe RAF-02): start de {process_key}")
+
+    async def find_any_instance(self, business_key: str, *, process_key: str = "") -> ProcessInstance | None:
+        self.consultas_historico += 1
+        return await super().find_any_instance(business_key, process_key=process_key)
 
 
 def _dmn() -> FakeDmnTransport:
@@ -133,8 +156,21 @@ async def test_dispatcher_neither_seals_nor_completes_a_failed_start() -> None:
     """O dispatcher NAO grava `_DECISION_COMPLETED`, NAO emite o fato `COMPLETED` e NAO cacheia.
 
     A prova de que nada foi selado e operacional, nao estrutural: a MESMA entrega (`task_id`
-    identico, que `auth_task_id` deriva de tenant+guia) e reexecutada ate o start, em vez de
-    devolver um resultado guardado.
+    identico, que `auth_task_id` deriva de tenant+guia) e REEXECUTADA, em vez de devolver um
+    resultado guardado.
+
+    WP-J1-11: com `SP-OP-AUTH-001` em `EXCLUSIVE`, a reexecucao nao chega mais ao POST — a
+    reivindicacao duravel da primeira tentativa ja' existe e o portao a resolve contra o
+    historico do engine, que esta' vazio (o start falhou de verdade). Isso e' indecidivel por
+    construcao — "nunca iniciou" e "um concorrente esta' em voo" sao indistinguiveis — e o
+    portao trava ALTO (`StartClaimWithoutInstanceError`) em vez de arriscar um segundo start.
+    A troca e' deliberada e identica a de `SP-OP-CANCEL-001`, e e' o preco de UM dominio de
+    idempotencia por guia: uma guia travada e visivel para um operador, nunca duas analises
+    medicas concorrentes da mesma autorizacao.
+
+    O que este teste continua provando, e que e' o ponto de RAF-02: nada foi SELADO por
+    `task_id`. Se tivesse sido, a segunda entrega devolveria o resultado guardado sem tocar o
+    grafo — e `consultas_historico` ficaria em 0.
     """
     transport = _CountingFailingTransport()
     dispatcher, sink, producer = build_test_dispatcher(
@@ -155,12 +191,22 @@ async def test_dispatcher_neither_seals_nor_completes_a_failed_start() -> None:
         f"(decisoes: {decisoes})"
     )
 
+    # Na PRIMEIRA entrega o portao nao precisou do historico: a reivindicacao era nova.
+    assert transport.consultas_historico == 0
+
     # REENTREGA do MESMO task_id: o handler roda de novo (nada foi selado por idempotencia).
-    with pytest.raises(StartProcessFailedError):
+    # Sob `EXCLUSIVE` o desfecho dessa reexecucao e' o travamento tipado do portao, NAO um
+    # segundo POST — e nao e' `StartProcessFailedError`, porque nao houve recusa do engine:
+    # houve recusa do portao antes de chegar ao engine.
+    with pytest.raises(StartClaimWithoutInstanceError):
         await dispatcher.delegate(_envelope())
-    assert transport.tentativas == 2, (
+    assert transport.consultas_historico >= 1, (
         "a reentrega nao reexecutou o handler — o falso sucesso teria ficado irretentavel por "
         "task_id, que e exatamente o agravante RAF-02"
+    )
+    assert transport.tentativas == 1, (
+        "a reentrega repetiu o POST de start sob uma postura GATED: a reivindicacao duravel da "
+        "primeira tentativa deveria te-la barrado antes do engine"
     )
     # A2A-RETRY-REEMITS-REQUESTED-FACT: o handler REEXECUTA (retentabilidade preservada acima),
     # mas o fato `requested` NAO deve ser reemitido para a mesma reentrega — uma unica delegacao
