@@ -88,7 +88,10 @@ class _SenderSilencioso:
     def __init__(self) -> None:
         self.enviados: list[tuple[str, str]] = []
 
-    async def send(self, to_hash: str, text: str, *, idempotency_key: str | None = None) -> Any:
+    # SEM DEFAULT em `idempotency_key`, e a cerca P-17 (`test_inference_fakes_match_protocol.py`)
+    # e' quem exige: um falso estrutural que aceita a chamada SEM a chave deixaria passar um call
+    # site que esqueceu de passa-la, e o `WhatsAppSender` real do Lucas (LUC-08) a exige.
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str | None) -> Any:
         self.enviados.append((to_hash, text))
         return {"message_id": "wamid.fake"}
 
