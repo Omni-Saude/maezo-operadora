@@ -101,6 +101,17 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # codigo, porque este e' o unico lugar em que alguem que opera o ambiente consegue ver que a
       # Helena lembra quem e' o paciente — e desliga-la sem trocar imagem se precisar.
       { name = "WHATSAPP_WEBHOOK_MEMORIA_CLINICA", value = var.helena_memoria_clinica ? "true" : "false" },
+
+      # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
+      # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo
+      # fica byte por byte como sempre foi — e e' assim que producao tem de ficar, porque la'
+      # quem recebe este corpo e' a Meta e o contrato do ack e' o CODIGO de status.
+      #
+      # Ligado AQUI e so' aqui porque e' aqui que existe uma tela olhando a conversa: sem o
+      # texto, o que a Helena escreve nunca foi lido por ninguem — ele e' redigido, entregue ao
+      # envio do WhatsApp e morre no 401 da credencial de preenchimento. Nao da' para avaliar se
+      # o texto presta, nem conferir se vaza orientacao clinica, sem le-lo uma vez.
+      { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 
