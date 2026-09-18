@@ -187,6 +187,14 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             # supressao nao e' uma resolucao.
             "envio_suprimido_duplicata",
             "escalado_humano",
+            # CERCA DE SAIDA (18/09/2026): o rascunho do modelo foi BARRADO antes de sair e o
+            # beneficiario recebeu a constante segura. Declarado, e nao normalizado para `outro`,
+            # porque a taxa de recusa e' a medida de quanto a proibicao no prompt valeria sozinha
+            # — e some do radar se ninguem a contar. Literal duplicado de
+            # `agents/lucas/graph.py::DESFECHO_RESPOSTA_RECUSADA` (este modulo nao importa
+            # grafos); o teste `test_lucas.py::
+            # test_o_desfecho_de_recusa_esta_no_vocabulario_de_telemetria` impede a divergencia.
+            "resposta_recusada_na_saida",
             _DESFECHO_ERRO_INICIO_PROCESSO,
         }
     ),
