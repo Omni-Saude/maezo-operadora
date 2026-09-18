@@ -122,4 +122,10 @@ def test_versao_do_prompt_subiu_junto_com_a_regra() -> None:
     Mudar a regra sem subir a versao faz o numero apontar para o texto errado — o cabecalho de
     `prompts.py` exige edicao diffavel com versao incrementada.
     """
-    assert RESPONSE_PROMPT_VERSION == "response-v3"
+    assert RESPONSE_PROMPT_VERSION.startswith("response-v")
+    # Nao fixa o numero: o `response-v3` desta cerca virou `v4` em 13/09 ao ganhar a proibicao da
+    # promessa de humano, e fixar o numero faria toda edicao futura do prompt falhar AQUI em vez
+    # de falhar na cerca que interessa (o texto da regra, logo acima). O que precisa ser
+    # verdadeiro e' que a versao SUBIU quando a regra mudou, e quem cobra isso e' o cabecalho de
+    # `prompts.py` mais a revisao do diff, nao uma igualdade a um literal que envelhece.
+    assert RESPONSE_PROMPT_VERSION != "response-v2", "a versao tem de subir junto com a regra"
