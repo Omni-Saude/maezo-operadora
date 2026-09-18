@@ -135,6 +135,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, TypedDict, cast
 
 import structlog
@@ -416,6 +417,14 @@ class HelenaState(TypedDict, total=False):
     coleta_veredito: str | None
     coleta_pergunta: str | None
 
+    # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). Tambem e' MEMORIA DE CONVERSA: sobrevive ao
+    # `receive` do turno seguinte. Guarda QUEM E' O PACIENTE — populacao e idades —, que e' o
+    # unico grupo de campos cuja ausencia no turno seguinte muda a TABELA consultada.
+    memoria_clinica: dict[str, Any] | None
+    # Do turno corrente, zerado como qualquer saida: o texto que a Helena deve confirmar quando um
+    # dado LEMBRADO entra numa decisao clinica pela primeira vez.
+    memoria_a_confirmar: str | None
+
     # Routing.
     next_kind: ResponseKind
     escalation_motivo: MotivoCategoria | None
@@ -490,6 +499,10 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "coleta_contexto": "",
     "coleta_veredito": None,
     "coleta_pergunta": None,
+    # MEMORIA CLINICA (Frente 2.1): default neutro aqui — como a memoria de coleta, `receive` a
+    # PRESERVA em vez de zerar quando a feature esta ligada.
+    "memoria_clinica": None,
+    "memoria_a_confirmar": None,
     "next_kind": "inform",
     "escalation_motivo": None,
     # HELENA-SEVERIDADE-DEFAULT: `None`, never `"leve"` — a clinical severity that was never
@@ -533,8 +546,177 @@ _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
 #: deles suprime uma red flag, forja um `dmn_decision_ref` ou desvia um escalonamento — os
 #: campos que fazem isso continuam zerados em todo turno.
 _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
-    {"coleta_rodadas", "coleta_pendente", "coleta_contexto"}
+    {"coleta_rodadas", "coleta_pendente", "coleta_contexto", "memoria_clinica"}
 )
+
+#: MEMORIA CLINICA ENTRE TURNOS (Frente 2.1) — os campos que dizem QUEM E' O PACIENTE.
+#:
+#: O DEFEITO QUE ISTO CORRIGE, reproduzido tres vezes em 13/09/2026: um bebe de 11 meses foi
+#: triado pela tabela de ADULTO. A mae disse a idade no primeiro turno e descreveu o sintoma no
+#: segundo; `receive` zera toda saida entre turnos, entao `population` voltou a `none` e o sintoma
+#: caiu em `triage_redflag_adult`. Nao e' um bug de extracao — e' a memoria desenhada estreita de
+#: proposito (defesa T1.11), que resolveu seguranca e nao resolveu continuidade.
+#:
+#: POR QUE SO' ESTES QUATRO, e nao "o estado do turno anterior": sao os unicos cuja ausencia muda
+#: a TABELA consultada. Lembrar `sintoma_codigo` seria pior que nao lembrar — o sintoma e' o que a
+#: pessoa esta dizendo AGORA, e carregar o anterior faria a Helena responder a mensagem errada.
+_MEMORIA_CLINICA_CAMPOS: tuple[str, ...] = (
+    "population",
+    "idade_anos",
+    "idade_meses",
+    "idade_gestacional_semanas",
+)
+
+#: Quanto tempo um dado lembrado vale, em horas. O documento pede janela "de horas, nao de
+#: minutos": beneficiario que volta depois do almoco e' o caso comum, nao a excecao. Seis horas
+#: cobrem a volta na mesma parte do dia; alem disso o quadro clinico pode ter mudado o bastante
+#: para que lembrar seja pior que perguntar de novo.
+MEMORIA_CLINICA_JANELA_HORAS: float = 6.0
+
+#: O carimbo de quando a memoria foi gravada. Chave separada dos campos clinicos de proposito: a
+#: validacao rejeita a memoria inteira quando ele falta ou nao parseia, e uma memoria sem relogio
+#: e' indistinguivel de uma memoria eterna.
+_MEMORIA_GRAVADA_EM: str = "gravado_em"
+
+#: Se a Helena JA' disse a pessoa o que lembrou. A confirmacao acontece UMA vez por conversa, nao
+#: por turno: repeti-la a cada mensagem viraria ruido e a pessoa pararia de ler.
+_MEMORIA_CONFIRMADA: str = "confirmada"
+
+
+def _memoria_clinica_valida(
+    bruta: Any, *, agora: datetime, janela_horas: float = MEMORIA_CLINICA_JANELA_HORAS
+) -> dict[str, Any] | None:
+    """A memoria lembrada, ou `None` quando ela nao pode ser confiada.
+
+    FALHA PARA `None`, NUNCA PARA UM VALOR PARCIAL, e essa escolha e' o coracao da seguranca aqui:
+    `None` degrada exatamente para o comportamento de hoje (cada turno comeca do zero), que e'
+    conhecido e ja' esta em producao. Um valor parcialmente aceito seria um paciente parcialmente
+    lembrado — o modo de falha que esta frente existe para acabar.
+
+    Recusa, em ordem: o que nao e' mapa; o que nao tem carimbo de tempo parseavel; o que esta fora
+    da janela; populacao fora do vocabulario fechado; idade que nao e' inteiro nao-negativo.
+    """
+    if not isinstance(bruta, dict):
+        return None
+    carimbo = bruta.get(_MEMORIA_GRAVADA_EM)
+    if not isinstance(carimbo, str):
+        return None
+    try:
+        gravado = datetime.fromisoformat(carimbo)
+    except ValueError:
+        return None
+    if gravado.tzinfo is None:
+        gravado = gravado.replace(tzinfo=UTC)
+    idade_da_memoria = (agora - gravado).total_seconds()
+    if idade_da_memoria < 0 or idade_da_memoria > janela_horas * 3600:
+        return None
+
+    limpa: dict[str, Any] = {}
+    populacao = bruta.get("population")
+    if populacao is not None:
+        if populacao not in _VALID_POPULATIONS:
+            return None
+        limpa["population"] = populacao
+    for campo in ("idade_anos", "idade_meses", "idade_gestacional_semanas"):
+        valor = bruta.get(campo)
+        if valor is None:
+            continue
+        # `bool` e' subclasse de `int` em Python: `True` passaria por `isinstance(v, int)` e
+        # viraria idade 1. Recusado explicitamente, como o helper de rodadas de coleta ja' faz.
+        if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
+            return None
+        limpa[campo] = valor
+    if not limpa:
+        return None
+    limpa[_MEMORIA_GRAVADA_EM] = gravado.isoformat()
+    limpa[_MEMORIA_CONFIRMADA] = bruta.get(_MEMORIA_CONFIRMADA) is True
+    return limpa
+
+
+def _fundir_memoria_clinica(
+    extraction: dict[str, Any], memoria: dict[str, Any] | None
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Funde o que a mensagem trouxe com o que a conversa lembrava.
+
+    Devolve `(extracao_fundida, o_que_veio_da_memoria)`. A extracao NAO e' mutada: o segundo
+    elemento e' o que decide se ha' algo a confirmar em voz alta, e confundir "o modelo extraiu"
+    com "a conversa lembrou" tiraria justamente essa distincao.
+
+    A REGRA, decisao 3 do documento: a informacao NOVA vence, EXCETO quando a nova e' AUSENCIA.
+    Nao repetir "meu bebe" nao apaga o bebe. So' afirmacao explicita em contrario troca a
+    populacao.
+
+    O QUE CONTA COMO AUSENCIA, e e' onde mora a sutileza: para as idades e' `None`, direto. Para
+    `population` e' o literal `"none"` — o vocabulario fechado nao tem `None`, e o modelo devolve
+    `"none"` tanto para "nao consegui determinar" quanto para "a mensagem nao e' sobre ninguem em
+    particular". As duas leituras levam a mesma conduta aqui: nenhuma delas e' uma afirmacao de
+    que o paciente MUDOU, entao nenhuma das duas apaga o que ja' se sabia.
+    """
+    if not memoria:
+        return extraction, {}
+
+    fundida = dict(extraction)
+    veio_da_memoria: dict[str, Any] = {}
+    for campo in _MEMORIA_CLINICA_CAMPOS:
+        lembrado = memoria.get(campo)
+        if lembrado is None:
+            continue
+        atual = fundida.get(campo)
+        ausente = atual is None or (campo == "population" and atual == "none")
+        if ausente:
+            fundida[campo] = lembrado
+            veio_da_memoria[campo] = lembrado
+    return fundida, veio_da_memoria
+
+
+def _memoria_a_gravar(
+    extraction: dict[str, Any], memoria: dict[str, Any] | None, *, agora: datetime, confirmada: bool
+) -> dict[str, Any] | None:
+    """A memoria do PROXIMO turno, ou `None` quando nao ha' nada que valha lembrar.
+
+    Grava a extracao JA' FUNDIDA, entao um dado lembrado no turno 2 continua lembrado no turno 3
+    sem a pessoa ter de repeti-lo — que e' a diferenca entre lembrar e ter memoria de um turno so'.
+
+    O CARIMBO E' SEMPRE O DE AGORA, e nao o da gravacao original: a janela mede desde a ULTIMA vez
+    que o dado foi usado, nao desde a primeira vez que foi dito. Uma conversa ativa nao deveria
+    esquecer quem e' o paciente no meio so' porque ela comecou ha' seis horas.
+    """
+    lembravel = {
+        campo: extraction.get(campo)
+        for campo in _MEMORIA_CLINICA_CAMPOS
+        if extraction.get(campo) is not None and extraction.get(campo) != "none"
+    }
+    if not lembravel:
+        # NADA A LEMBRAR nao apaga o que ja' se lembrava: um turno administrativo no meio de uma
+        # conversa clinica ("qual o telefone da central?") nao pode fazer a Helena esquecer o bebe.
+        return memoria
+    lembravel[_MEMORIA_GRAVADA_EM] = agora.isoformat()
+    lembravel[_MEMORIA_CONFIRMADA] = confirmada
+    return lembravel
+
+
+def _frase_de_confirmacao(lembrados: dict[str, Any]) -> str:
+    """O que a Helena diz ao usar um dado lembrado pela primeira vez.
+
+    UMA FRASE, NAO UM FORMULARIO — a decisao 4 do documento e' explicita. E ela e' uma PERGUNTA,
+    nao um aviso: a pessoa precisa poder corrigir, porque o custo de uma populacao errada lembrada
+    e' a tabela errada consultada em silencio.
+    """
+    if lembrados.get("idade_meses") is not None:
+        quem = f"seu bebe de {lembrados['idade_meses']} meses"
+    elif lembrados.get("idade_anos") is not None:
+        quem = f"a pessoa de {lembrados['idade_anos']} anos"
+    elif lembrados.get("idade_gestacional_semanas") is not None:
+        quem = f"a gestacao de {lembrados['idade_gestacional_semanas']} semanas"
+    elif lembrados.get("population") == "pediatric":
+        quem = "sua crianca"
+    elif lembrados.get("population") == "gestante":
+        quem = "a gestacao"
+    else:
+        quem = "a mesma pessoa de antes"
+    return f"entendi que voce esta falando sobre {quem}, certo?"
+
+
 assert frozenset(_HELENA_NEUTRAL_OUTPUTS) >= _HELENA_MEMORIA_DE_CONVERSA
 if frozenset(HelenaState.__annotations__) != _HELENA_ALL_FIELDS:
     _missing = frozenset(HelenaState.__annotations__) - _HELENA_ALL_FIELDS
@@ -876,6 +1058,7 @@ class HelenaGraph:
         whatsapp: WhatsAppSender,
         agent_version: str = "helena@v0",
         coleta_enabled: bool = False,
+        memoria_clinica_enabled: bool = True,
     ) -> None:
         self._llm = inference
         self._dmn = dmn
@@ -884,6 +1067,15 @@ class HelenaGraph:
         # motor — ratificada pelo medico — senao todo sintoma sem red flag e sem dado suficiente
         # escala como `falha_tecnica` (fail-closed, nunca resposta automatica).
         self._coleta_enabled = bool(coleta_enabled)
+        # MEMORIA CLINICA (Frente 2.1): LIGADA por default, ao contrario da coleta, e a diferenca
+        # e' deliberada. A coleta desligada deixa o sistema no comportamento conhecido; a memoria
+        # desligada deixa o sistema no comportamento MEDIDO COMO ERRADO — o bebe de 11 meses
+        # triado pela tabela de adulto, tres vezes. Entre um default que preserva o defeito e um
+        # que o corrige, o segundo e' o que precisa de justificativa para ser desligado.
+        #
+        # Desligar continua possivel (`memoria_clinica_enabled=False`) e faz cada turno comecar do
+        # zero, exatamente como antes desta frente.
+        self._memoria_clinica_enabled = bool(memoria_clinica_enabled)
         # T-C2 fence: required durable ADR-0007 sink for the SP-OP-ESCALATION-001 start
         # (audit-before-effect). This is the LIVE agent execution path (webhook dispatch).
         self._audit_sink = audit_sink
@@ -910,11 +1102,27 @@ class HelenaGraph:
         # Memoria de coleta so' e' preservada com a feature ligada. O helper estrito
         # recusa bool, negativos e valores malformados como rodadas esgotadas.
         if self._coleta_enabled:
-            for chave in _HELENA_MEMORIA_DE_CONVERSA:
+            for chave in _HELENA_MEMORIA_DE_CONVERSA - {"memoria_clinica"}:
                 if chave in state:
                     reset[chave] = state[chave]  # type: ignore[literal-required]
             if "coleta_rodadas" in state:
                 reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"])
+        # MEMORIA CLINICA (Frente 2.1): preservada por uma chave PROPRIA, independente da coleta.
+        # As duas memorias respondem a perguntas diferentes — "que pergunta ficou em aberto" e
+        # "quem e' o paciente" — e amarrar a segunda ao portao da primeira deixaria a crianca
+        # triada como adulto ate' a tabela de suficiencia ser ratificada, que e' um prazo que nao
+        # tem relacao nenhuma com o defeito.
+        #
+        # A VALIDACAO ACONTECE AQUI, NA FRONTEIRA, e nao no ponto de uso: o que nao passa vira
+        # `None`, e `None` degrada para o comportamento de hoje. Isto tambem e' o que mantem viva
+        # a defesa T1.11 para este campo — um valor plantado por quem chama com forma errada,
+        # carimbo ausente ou fora da janela nao atravessa, e um valor plantado com forma CERTA
+        # produz no maximo a confirmacao em voz alta ("entendi que e' sobre seu bebe, certo?"),
+        # que e' visivel ao beneficiario em vez de silenciosa.
+        if self._memoria_clinica_enabled and "memoria_clinica" in state:
+            reset["memoria_clinica"] = _memoria_clinica_valida(
+                state["memoria_clinica"], agora=datetime.now(UTC)
+            )
         if not state.get("conversation_id") or not state.get("tenant_id"):
             reset["next_kind"] = "escalate"
             reset["error"] = "missing runtime context (tenant_id/conversation_id)"
@@ -967,6 +1175,13 @@ class HelenaGraph:
             }
         intent = cast(Intent, extraction.get("intent", "information"))
         psychosocial = bool(extraction.get("psychosocial_risk", False))
+
+        # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). A fusao acontece AQUI, antes de qualquer
+        # decisao, porque e' `extraction` — nao `update` — que vai para `_evaluate_dmn`, e e' a
+        # ESCOLHA DA TABELA que o defeito de 13/09 errava. Fundir depois seria consertar o que a
+        # Helena diz e nao o que ela consulta.
+        memoria = state.get("memoria_clinica") if self._memoria_clinica_enabled else None
+        extraction, veio_da_memoria = _fundir_memoria_clinica(extraction, memoria)
         population = cast(Population, extraction.get("population", "none"))
 
         update: dict[str, Any] = {
@@ -975,7 +1190,35 @@ class HelenaGraph:
             "psychosocial_risk": psychosocial,
             "sintoma_codigo": extraction.get("sintoma_codigo"),
             "intensidade": extraction.get("intensidade", "desconhecida"),
+            "idade_anos": extraction.get("idade_anos"),
+            "idade_meses": extraction.get("idade_meses"),
+            "idade_gestacional_semanas": extraction.get("idade_gestacional_semanas"),
         }
+
+        # MOSTRAR ANTES DE USAR (decisao 4 do documento), e as tres condicoes sao todas
+        # necessarias:
+        #   1. algum dado veio da MEMORIA, nao da mensagem — confirmar o que a pessoa acabou de
+        #      dizer seria papagaio, nao transparencia;
+        #   2. o turno e' CLINICO (`symptom` ou risco psicossocial) — e' onde o dado lembrado muda
+        #      a tabela e a orientacao; num turno administrativo ele nao decide nada;
+        #   3. a confirmacao ainda nao foi feita NESTA conversa — uma vez, nao a cada mensagem,
+        #      senao vira ruido e a pessoa para de ler.
+        ja_confirmada = bool(memoria and memoria.get(_MEMORIA_CONFIRMADA))
+        turno_clinico = psychosocial or intent == "symptom"
+        confirmar_agora = bool(veio_da_memoria) and turno_clinico and not ja_confirmada
+        if confirmar_agora:
+            update["memoria_a_confirmar"] = _frase_de_confirmacao(veio_da_memoria)
+            logger.info(
+                "helena_memoria_clinica_usada",
+                node="classify",
+                campos=sorted(veio_da_memoria),  # so' os NOMES dos campos, nunca os valores
+            )
+        update["memoria_clinica"] = _memoria_a_gravar(
+            extraction,
+            memoria,
+            agora=datetime.now(UTC),
+            confirmada=ja_confirmada or confirmar_agora,
+        )
 
         # SAUDACAO COM PEDIDO NAO E' SAUDACAO (11/09/2026). A regra do prompt ja' diz isso, mas a
         # rota nao pode depender da obediencia do modelo: se vier `greeting` junto de um codigo de
@@ -1697,11 +1940,25 @@ class HelenaGraph:
         return data, None
 
     async def _respond_llm(self, state: HelenaState, response_kind: ResponseKind) -> str:
-        context = {
+        context: dict[str, Any] = {
             "response_kind": response_kind,
             "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
             "escalation_severidade": state.get("escalation_severidade"),
         }
+        # MEMORIA CLINICA (Frente 2.1, decisao 5 do documento): a populacao vale TAMBEM para o
+        # texto, nao so' para a tabela. O defeito medido em 13/09 nao foi apenas triar um bebe pela
+        # tabela de adulto — foi a Helena listar sinais de alerta de ADULTO para a mae de um bebe
+        # de 11 meses, e depois perguntar "descreva melhor como VOCE esta se sentindo" a quem nao
+        # era o paciente. O erro de populacao muda a ORIENTACAO que a pessoa recebe.
+        populacao = state.get("population")
+        if populacao and populacao != "none":
+            context["population"] = populacao
+        # A frase de confirmacao so' entra quando `classify` decidiu que ha' o que confirmar. Ela
+        # vai PRONTA, e nao como um sinalizador para o modelo redigir: o que se confirma e' um dado
+        # clinico, e deixar o modelo formular significaria deixa-lo escolher qual dado.
+        a_confirmar = state.get("memoria_a_confirmar")
+        if a_confirmar:
+            context["memoria_a_confirmar"] = a_confirmar
         # HEL-06: mesma fronteira do `_classify_llm`. Aqui o poder da injecao seria sobre o
         # TEXTO enviado ao beneficiario (a rota ja esta decidida), o que nao a torna menos
         # necessaria: a resposta e' a unica coisa que a pessoa do outro lado le'.
@@ -1852,6 +2109,10 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     # leitura de env aqui de proposito — ligar coleta e' decisao de quem monta o runtime, com a
     # tabela ratificada no motor, nao uma variavel que aparece num container.
     coleta_enabled = cfg.get("coleta_enabled", False) is True
+    # MEMORIA CLINICA: ligada salvo desligamento EXPLICITO (`is not False`), ao contrario da
+    # coleta. Uma composicao que nao diz nada sobre memoria recebe a Helena que lembra quem e' o
+    # paciente — ver a justificativa do default no construtor.
+    memoria_clinica_enabled = cfg.get("memoria_clinica_enabled", True) is not False
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -1860,6 +2121,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         whatsapp=cast(WhatsAppSender, whatsapp),
         agent_version=agent_version,
         coleta_enabled=coleta_enabled,
+        memoria_clinica_enabled=memoria_clinica_enabled,
     ).compile_graph()
 
 

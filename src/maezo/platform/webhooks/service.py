@@ -207,6 +207,10 @@ def _build_dispatcher(
         ),
         # OUTBOUND leg of the same guard (R-071: "tratadas como uma entrega so").
         dedup=dedup,
+        # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). Vem das settings, entao o receptor implantado
+        # lembra quem e' o paciente salvo desligamento EXPLICITO na task definition — e a decisao
+        # fica legivel no `terraform plan` em vez de escondida num default de codigo.
+        memoria_clinica_enabled=settings.memoria_clinica_enabled,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the

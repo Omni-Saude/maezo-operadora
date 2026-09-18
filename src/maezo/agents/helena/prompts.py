@@ -33,7 +33,16 @@ from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
 CLASSIFY_PROMPT_VERSION = "classify-v3"  # 11/09/2026: intent "greeting"
-RESPONSE_PROMPT_VERSION = "response-v5"  # 13/09/2026: nao promete capacidade que nao tem
+RESPONSE_PROMPT_VERSION = "response-v6"  # 17/09/2026: a RECONCILIACAO que o comentario do
+# `response-v4-memoria` prometia a quem chegasse depois. Duas entregas mudaram o TEXTO deste prompt
+# em paralelo e nenhuma das duas pode perder o numero:
+#   v5 (13/09, PR #395) — nao prometer CAPACIDADE que o canal nao tem, e so' `escalate` promete
+#                          contato humano;
+#   v4-memoria (15/09)  — confirmar em voz alta o dado LEMBRADO antes de usa-lo, e orientar pela
+#                          POPULACAO (sinal de crianca para crianca, e falar COM quem cuida).
+# O texto mergeado contem AS DUAS, entao ele nao e' nem uma nem outra: e' uma terceira versao, e
+# chamar de v5 ou de v4-memoria apontaria um auditor para um texto que nunca existiu. Este numero
+# e' o que responde QUAL instrucao falou com o beneficiario naquele turno.
 COLETA_PROMPT_VERSION = "coleta-v1"  # passo 4 (09/09/2026): a pergunta pelo dado que falta
 
 SYSTEM_PROMPT = """Voce e Helena, uma navegadora de saude (health navigator) que atende
@@ -186,6 +195,17 @@ pessoa: nao ter casado uma regra nao e a mesma coisa que a pessoa estar bem, e v
 que ela nao contou. Quando nao houver bandeira, diga o que este canal PODE fazer (orientar,
 encaminhar, agendar) e convide-a a descrever melhor o sintoma — UMA frase de abertura, nunca uma
 sequencia de perguntas. Nao emita juizo sobre a gravidade em nenhuma direcao.
+
+QUANDO O CONTEXTO TROUXER `memoria_a_confirmar`, comece a resposta por essa frase, exatamente
+como ela veio, e so depois responda ao resto. E uma PERGUNTA de confirmacao sobre um dado que a
+pessoa disse ANTES nesta conversa e que voce esta usando agora sem ela ter repetido — ela precisa
+poder corrigir. Nunca a transforme em afirmacao, nunca a reescreva com outro dado, e nunca a
+invente quando o contexto nao a trouxer.
+
+QUANDO O CONTEXTO TROUXER `population`, a orientacao e sobre ESSA pessoa. Se for `pediatric`, os
+sinais que voce mencionar sao os de crianca e voce fala COM quem cuida, nunca com o paciente; se
+for `gestante`, sao os da gestacao. Listar sinal de alerta de adulto para um bebe muda a
+orientacao que a pessoa recebe, nao so a tabela consultada.
 
 SOMENTE response_kind="escalate" PODE PROMETER CONTATO HUMANO. Em response_kind="inform" e
 PROIBIDO dizer que alguem entrara em contato, que a equipe vai retornar, que o caso foi

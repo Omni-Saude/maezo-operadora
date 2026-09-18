@@ -111,6 +111,15 @@ _NAME_ONLY: Final[dict[str, str]] = {
         "and replace the engine resolver/client in-process, with no Postgres, broker, engine, "
         "network access, or integration marker; only the filename matches the live-suite glob."
     ),
+    "tests/evals/test_extracao_live.py": (
+        "Frente 3.3: mede a TRADUCAO ao vivo contra o corpus rotulado. MESMA CLASSE de "
+        "`test_inference_live.py` abaixo — a coordenada dela e' uma CHAVE DE API, nao uma porta "
+        "servida pelo repo: `pytest.mark.llm_live` mais o `live_key_skip` do harness, que pula "
+        "ALTO quando nao ha chave. Nao abre Postgres, nao resolve broker, e o duplo de DMN que ela "
+        "injeta e' VAZIO de proposito (se o `classify` chegar a consultar a tabela, o duplo levanta "
+        "e o teste falha alto — aqui se mede o que o modelo extraiu, nunca a conduta que a tabela "
+        "deriva disso). So' o nome casa o glob desta cerca."
+    ),
     "tests/unit/runtime/test_inference_live.py": (
         "live Anthropic API call (T1.7), `pytestmark = pytest.mark.llm_live`; its coordinate is an "
         "API KEY, not a repo-served port, and it skips loudly via `skipif` when no key is set — "
