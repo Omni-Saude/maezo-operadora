@@ -141,6 +141,12 @@ ALERT_METRIC_EMITTERS: Final[dict[str, str]] = {
 #: `test_external_metric_allowlist_is_exactly_the_five_owner_slice_series`'s own cross-check).
 RECORDING_RULE_METRIC_EMITTERS: Final[dict[str, str]] = {
     "maezo_agent_desfecho_total": "record_agent_desfecho",
+    # O QUARTO NUMERO da Frente 5 (`maezo_helena_recusa_de_saida_rate`): quantas vezes o modelo
+    # tentou dizer algo proibido e foi barrado em `_respond_llm` antes de o texto chegar ao
+    # beneficiario. Entrou AQUI, e nao em `EXTERNAL_ALERT_METRICS`, porque este repo emite a serie
+    # de verdade — a distincao e' o ponto das duas tabelas, e trocar uma pela outra esconderia uma
+    # lacuna real nos dois sentidos.
+    "maezo_agent_resposta_recusada_total": "record_resposta_recusada",
 }
 
 #: A NON-VACUITY FLOOR, not the closed set. The set of graph-invocation seams is DERIVED from the
