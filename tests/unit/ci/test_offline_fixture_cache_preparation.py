@@ -63,6 +63,18 @@ class Synthetic(p.Preparation):
             (cwd / "uv.lock").write_bytes(content)
         if self.failure == "wheel" and args[0] == "sync" and cwd.name == "tiny-offline":
             raise ValueError("cache preparation command refused")
+        if self.failure == "poisoned-cache" and args[0] == "sync" and cwd.name == "root-online":
+            # Reproduz o que o cache restaurado devolveu no run 35373462749
+            # (tentativa 2): o sync ONLINE recusa por causa de um wheel podre que veio
+            # do cache, nao por falta de rede.
+            raise p.CommandRefusedError(
+                "command-03",
+                ["/synthetic/uv", *args],
+                2,
+                False,
+                "error: Failed to install: pytest-9.1.1-py3-none-any.whl (pytest==9.1.1)"
+                "  Caused by: Invalid package version",
+            )
         return b""
 
 
@@ -260,3 +272,53 @@ def test_main_catches_sigterm_and_restores_prior_handler(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["prepare", "--root", str(tmp_path), "--output", str(tmp_path / "out")])
     assert p.main() == 130
     assert signal.getsignal(signal.SIGTERM) == previous
+
+
+def test_poisoned_restored_cache_is_cleaned_and_repopulated_online_once(tmp_path):
+    # Cache restaurado podre nao pode derrubar uma PR que nao tem nada a ver com ele:
+    # online ha rede, entao limpa e repopula UMA vez.
+    runner = Synthetic(tmp_path, "poisoned-cache")
+    runner.run()
+    assert (tmp_path / "result.json").is_file()
+    assert (tmp_path / "cache-recovery.json").is_file()
+    assert any(argv[:2] == ("cache", "clean") for _, argv in runner.commands)
+    assert any(d == "root-online-repaired" and argv[0] == "sync" for d, argv in runner.commands)
+    # A cura e so da fase online: a admissao offline segue com uma unica chance.
+    offline = [(d, argv) for d, argv in runner.commands if d == "root-offline"]
+    assert len(offline) == 1 and "--offline" in offline[0][1]
+
+
+def test_refused_command_carries_argv_returncode_and_stderr(tmp_path):
+    refusal = p.CommandRefusedError("command-03", ["uv", "sync"], 2, False, "Invalid package version")
+    assert isinstance(refusal, ValueError)
+    detail = refusal.detail()
+    assert "command-03" in detail
+    assert "returncode=2" in detail
+    assert "Invalid package version" in detail
+
+
+def test_main_prints_the_real_cause_not_only_refused(tmp_path, monkeypatch, capsys):
+    import contextlib
+    import sys
+
+    # O guarda de sinal e POSIX (pthread_sigmask); aqui ele nao e o objeto do teste.
+    @contextlib.contextmanager
+    def guard(*args, **kwargs):
+        yield lambda: None
+
+    monkeypatch.setattr(p.process_groups, "_spawn_signal_guard", guard)
+
+    class Poisoned:
+        def __init__(self, *args):
+            pass
+
+        def run(self):
+            raise p.CommandRefusedError("command-03", ["uv", "sync"], 2, False, "Invalid package version")
+
+    monkeypatch.setattr(p, "Preparation", Poisoned)
+    monkeypatch.setattr(sys, "argv", ["prepare", "--root", str(tmp_path), "--output", str(tmp_path)])
+    assert p.main() == 1
+    err = capsys.readouterr().err
+    assert "offline fixture cache preparation refused" in err
+    assert "returncode=2" in err
+    assert "Invalid package version" in err

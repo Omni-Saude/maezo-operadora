@@ -18,6 +18,7 @@ import subprocess
 import sys
 import time
 import tomllib
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,39 @@ FIXTURES = (
     ("tiny", ("pytest==9.1.1",)),
     ("tiny-async", ("pytest==9.1.1", "pytest-asyncio==1.4.0")),
 )
+
+
+class CommandRefusedError(ValueError):
+    """Um comando uv da preparacao saiu com codigo != 0 (ou estourou o prazo).
+
+    Herda de ValueError de proposito: todo chamador/guarda que ja tratava
+    ValueError continua igual. O que muda e que a excecao CARREGA a causa real
+    (label, argv, returncode, stderr) para o log do job poder nomea-la, em vez
+    de so imprimir "refused" e esconder o detalhe no diretorio --output.
+    """
+
+    def __init__(
+        self,
+        label: str,
+        argv: list[str],
+        returncode: int | None,
+        timed_out: bool,
+        stderr: str,
+    ) -> None:
+        super().__init__(
+            "cache preparation command refused: "
+            f"{label} returncode={returncode} timed_out={timed_out} argv={argv}"
+        )
+        self.label = label
+        self.argv = argv
+        self.returncode = returncode
+        self.timed_out = timed_out
+        self.stderr = stderr
+
+    def detail(self) -> str:
+        tail = "\n".join(self.stderr.splitlines()[-40:])
+        header = f"--- {self.label}.stderr (ultimas linhas) ---"
+        return "\n".join((str(self), header, tail))
 
 
 def require(ok: bool, reason: str) -> None:
@@ -259,7 +293,17 @@ class Preparation:
                         },
                     )
         self.current()
-        require(not timed_out and code == 0, "cache preparation command refused")
+        if timed_out or code != 0:
+            # Antes aqui havia um `require(...)` com mensagem generica: o job so via
+            # "refused" e a causa (argv/returncode/stderr) ficava no --output, que
+            # somente o job release-floor publicava como artefato.
+            raise CommandRefusedError(
+                label,
+                argv,
+                code,
+                timed_out,
+                (self.output / (label + ".stderr")).read_text(errors="replace"),
+            )
         return (self.output / (label + ".stdout")).read_bytes()
 
     def project(self, name: str, config: bytes, lock: bytes | None = None) -> Path:
@@ -314,9 +358,58 @@ class Preparation:
             cutoff == config_cutoff and isinstance(cutoff, str),
             "source cutoff mismatch",
         )
-        for name, offline in (("root-online", False), ("root-offline", True)):
-            project = self.project(name, self.inputs["pyproject.toml"], root_lock)
-            self.sync(project, offline=offline, cutoff=cutoff)
+        # Sonda + cura do cache HOME restaurado (correcao de raiz da falha erratica).
+        #
+        # Evidencia medida (run 35373462749, PR #414, tentativa 2, job "lint / type /
+        # unit"): o setup-uv registrou "Cache hit" na chave compartilhada e restaurou
+        # 103 MB em ~/.cache/uv; o PRIMEIRO comando de sync deste bloco -- que e
+        # ONLINE, sem --offline -- morreu em 0,16 s com
+        #   error: Failed to install: pytest-9.1.1-py3-none-any.whl (pytest==9.1.1)
+        #     Caused by: Invalid package version
+        # isto e, a entrada de cache restaurada estava corrompida. O que se publica
+        # como cache e o estado do FIM do job anterior (depois dos testes que rodam uv
+        # contra este mesmo cache default e matam grupos de processo), nao o estado
+        # validado logo apos esta preparacao -- e ninguem valida na gravacao nem na
+        # restauracao.
+        #
+        # Na fase ONLINE existe rede: derrubar o build inteiro por causa de uma entrada
+        # de cache podre e a escolha errada. Limpamos o cache e repopulamos UMA vez, com
+        # a causa impressa e gravada na prova. A fase OFFLINE logo abaixo continua sem
+        # rede e sem segunda chance -- e ela que prova a admissao historica, e nada aqui
+        # a relaxa.
+        try:
+            self.sync(
+                self.project("root-online", self.inputs["pyproject.toml"], root_lock),
+                offline=False,
+                cutoff=cutoff,
+            )
+        except CommandRefusedError as refusal:
+            print(refusal.detail(), file=sys.stderr)
+            print(
+                "restored default cache rejected an ONLINE command; cleaning it and repopulating once",
+                file=sys.stderr,
+            )
+            self.record(
+                "cache-recovery.json",
+                {
+                    "label": refusal.label,
+                    "argv": refusal.argv,
+                    "returncode": refusal.returncode,
+                    "timed_out": refusal.timed_out,
+                    "action": "uv cache clean + one online repopulation",
+                },
+            )
+            self.command(self.root, "cache", "clean", "--no-config")
+            self.sync(
+                self.project("root-online-repaired", self.inputs["pyproject.toml"], root_lock),
+                offline=False,
+                cutoff=cutoff,
+            )
+        self.sync(
+            self.project("root-offline", self.inputs["pyproject.toml"], root_lock),
+            offline=True,
+            cutoff=cutoff,
+        )
         for name, dependencies in FIXTURES:
             config = fixture_config(name, dependencies)
             online = self.project(name + "-online", config)
@@ -400,8 +493,20 @@ def main() -> int:
     except (KeyboardInterrupt, process_groups.RunnerInterrupted):
         print("offline fixture cache preparation interrupted", file=sys.stderr)
         return 130
-    except (ValueError, OSError, subprocess.SubprocessError, process_groups.RunnerError):
+    except (
+        ValueError,
+        OSError,
+        subprocess.SubprocessError,
+        process_groups.RunnerError,
+    ) as refusal:
+        # Metade do defeito era diagnostico: so saia esta linha, e a causa ficava no
+        # diretorio --output, que so um dos dois jobs consumidores publicava como
+        # artefato. Agora a causa vai para o stderr do job, onde quem investiga
+        # ja esta olhando.
         print("offline fixture cache preparation refused", file=sys.stderr)
+        if isinstance(refusal, CommandRefusedError):
+            print(refusal.detail(), file=sys.stderr)
+        traceback.print_exc()
         return 1
     return 0
 
