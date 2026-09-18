@@ -22,7 +22,11 @@ graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
   classify: classify-v3
-  response: response-v2
+  response: response-v6               # 17/09/2026: o texto mergeado tem AS DUAS entregas — a
+                                     # proibicao de prometer capacidade (v5, #395) e a confirmacao
+                                     # do dado lembrado + orientacao por populacao (v4-memoria).
+                                     # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
+                                     # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
 model:
   task_default: { tier: fast }        # triagem/classificacao

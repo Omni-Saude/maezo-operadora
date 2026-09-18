@@ -141,6 +141,7 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -169,10 +170,12 @@ from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
     CLASSIFY_PROMPT_VERSION,
     COLETA_PROMPT_VERSION,
+    RECUSA_DE_SAIDA_VERSION,
     RESPONSE_PROMPT_VERSION,
     SYSTEM_PROMPT_VERSION,
     classify_prompt,
     coleta_prompt,
+    motivo_de_recusa,
     response_prompt,
 )
 
@@ -282,6 +285,40 @@ RESPOSTA_FALHA_TECNICA_START: str = (
     "em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de "
     "emergencia mais proximo."
 )
+
+#: RECUSA DE SAIDA (13/09/2026): o texto de handoff quando o proprio rascunho de `escalate` foi
+#: barrado. CONSTANTE, nunca um segundo rascunho: um humano FOI acionado neste ponto (o processo
+#: esta' sendo aberto), entao a promessa aqui e' verdadeira, e a frase nao contem nenhum dos
+#: padroes proibidos — o que a torna a saida segura por construcao, nao por sorte do modelo.
+RESPOSTA_HANDOFF_RECUSADA: str = (
+    "Recebemos sua mensagem e encaminhamos seu caso para um profissional da nossa equipe de "
+    "saude, que vai dar continuidade ao seu atendimento. Se voce estiver passando por uma "
+    "emergencia, procure o servico de emergencia mais proximo."
+)
+
+#: RECUSA DE SAIDA (13/09/2026): o `error` do turno em que o texto redigido pelo modelo foi
+#: BARRADO antes de sair. O sufixo e' o GRUPO do padrao (`negativa_clinica` /
+#: `promessa_de_humano`), nunca o texto recusado — que e' output de modelo sobre a mensagem do
+#: beneficiario e nao tem por que entrar num campo que viaja para o handoff.
+ERRO_RESPOSTA_RECUSADA: str = "resposta recusada na saida"
+
+
+class RespostaRecusadaError(RuntimeError):
+    """O texto redigido violou `motivo_de_recusa` e NAO vai ser enviado.
+
+    Excecao, e nao um valor de retorno, de proposito: `_respond_llm` devolve `str` para tres
+    chamadores e um deles (`_start_escalation`) usa o texto no meio de uma sequencia que tambem
+    inicia processo. Um sentinela de string obrigaria cada chamador a lembrar de compara-lo, e
+    esquecer a comparacao enviaria o sentinela ao beneficiario. A excecao nao tem como ser
+    ignorada por esquecimento.
+    """
+
+    def __init__(self, grupo: str, padrao: str, response_kind: str) -> None:
+        super().__init__(f"resposta recusada ({grupo}) na rota {response_kind}")
+        self.grupo = grupo
+        self.padrao = padrao
+        self.response_kind = response_kind
+
 
 #: HEL-07: o `error` do turno em que o rascunho de resposta voltou VAZIO. Token de classe
 #: (nao carrega o texto, que e' justamente o que nao existe), para um alerta poder distinguir
@@ -1404,8 +1441,36 @@ class HelenaGraph:
         return {"response_text": text, "response_kind": "collect"}
 
     async def inform(self, state: HelenaState) -> dict[str, Any]:
-        """Administrative response (no clinical guidance, no red flag)."""
-        text = await self._respond_llm(state, "inform")
+        """Administrative response (no clinical guidance, no red flag).
+
+        RECUSA DE SAIDA (13/09/2026): quando o rascunho e' barrado, este turno NAO vira uma
+        resposta diferente — vira ESCALONAMENTO. E' a mesma escolha que `_rota_informativa` ja faz
+        quando a precondicao da rota informativa nao se sustenta (HEL-03), so' que um passo
+        adiante: se a unica coisa que a Helena tinha para dizer era algo que ela nao pode dizer,
+        entao ela nao tem resposta automatica para dar, e quem tem e' um humano.
+
+        Tentar redigir de novo seria a alternativa obvia e esta' deliberadamente FORA: o mesmo
+        prompt com a mesma mensagem tende ao mesmo texto, e um laco de tentativas transformaria
+        uma cerca num atraso. `_start_escalation` redige o texto do handoff pelo mesmo
+        `_respond_llm`, agora na rota `escalate` — se ATE ESSE for recusado, ele cai na constante.
+        """
+        try:
+            text = await self._respond_llm(state, "inform")
+        except RespostaRecusadaError:
+            # O `error` leva o TOKEN DE CLASSE e nada mais. Ler `recusa.grupo` aqui seria um
+            # atributo de excecao ligada indo para campo de estado, que a cerca LUC-06/NEW-01
+            # recusa — e ela esta' certa mesmo com um valor que por acaso e' seguro: este campo
+            # sobrevive para o sufixo `[falha tecnica: ...]` do handoff no turno seguinte. QUAL
+            # padrao barrou fica onde detalhe deve ficar: na linha de log e no contador, os dois
+            # emitidos em `_respond_llm`.
+            return await self._start_escalation(
+                state,
+                motivo="falha_tecnica",
+                # HEL-04: a severidade DERIVA da classificacao ja feita, nunca de um literal.
+                severidade=_severidade_de_intensidade(state.get("intensidade")),
+                response_kind="escalate",
+                error=ERRO_RESPOSTA_RECUSADA,
+            )
         return {"response_text": text, "response_kind": "inform"}
 
     async def schedule(self, state: HelenaState) -> dict[str, Any]:
@@ -1479,6 +1544,7 @@ class HelenaGraph:
         motivo: MotivoCategoria | None,
         severidade: Severidade | None,
         response_kind: ResponseKind,
+        error: str | None = None,
     ) -> dict[str, Any]:
         """Shared SP-OP-ESCALATION-001 start, factored out of `escalate` (GAP 9.2) so `schedule`
         can hand off to a human through the EXACT SAME audited/idempotent path instead of a
@@ -1505,7 +1571,8 @@ class HelenaGraph:
         # `start_process_idempotent` (CC-06). Scrubbing twice is idempotent: `redact_free_text`
         # replaces identifier substrings with class tokens, and the class tokens match no pattern.
         resumo = redact_free_text(await self._resumo_contexto(state, motivo))
-        if motivo == "falha_tecnica" and state.get("error"):
+        motivo_tecnico = error or state.get("error")
+        if motivo == "falha_tecnica" and motivo_tecnico:
             # R1 cycle-1 fix: carry the technical-failure reason into the human handoff so the
             # attendant sees WHY the automated turn failed. The reason is bounded and contains
             # no raw LLM output / no beneficiary text (see `_classify_llm`) — everything else in
@@ -1516,7 +1583,7 @@ class HelenaGraph:
             # `CibSevenError` handler writes `f"start_process indisponivel: {exc}"` into it, and a
             # transport exception message is arbitrary text from another system. `redact_error_message`
             # (which delegates to the same `redact_free_text` net) bounds BOTH.
-            resumo = f"{resumo} [falha tecnica: {redact_error_message(state['error'])}]"
+            resumo = f"{resumo} [falha tecnica: {redact_error_message(motivo_tecnico)}]"
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
             "source_agent_id": "helena",
@@ -1532,7 +1599,14 @@ class HelenaGraph:
         if ref:
             variables["dmn_decision_ref"] = ref
 
-        response_text = await self._respond_llm(state, response_kind)
+        try:
+            response_text = await self._respond_llm(state, response_kind)
+        except RespostaRecusadaError:
+            # A recusa ja foi registrada e contada em `_respond_llm`. AQUI um humano FOI mesmo
+            # acionado (este metodo esta' abrindo o processo), entao a constante honesta promete o
+            # que e' verdade e nao contem nenhum dos padroes proibidos. Nao ha nova tentativa pelo
+            # mesmo motivo que em `inform`.
+            response_text = RESPOSTA_HANDOFF_RECUSADA
         provenance = AgentDecisionProvenance(
             agent_id="helena",
             agent_version=self._agent_version,
@@ -1573,7 +1647,7 @@ class HelenaGraph:
                 "response_kind": response_kind,
             }
 
-        return {
+        saida_ok: dict[str, Any] = {
             "escalation_started": True,
             "escalation_motivo": motivo,
             "escalation_severidade": severidade,
@@ -1586,6 +1660,12 @@ class HelenaGraph:
             "response_text": response_text,
             "response_kind": response_kind,
         }
+        if error:
+            # A recusa de saida (o unico chamador que informa `error` hoje) precisa sobreviver no
+            # estado do turno: sem ela o desfecho seria indistinguivel de um escalonamento clinico
+            # comum, e a linha de log seria a unica testemunha de que a Helena foi barrada.
+            saida_ok["error"] = error
+        return saida_ok
 
     async def respond(self, state: HelenaState) -> dict[str, Any]:
         """Send the drafted response over WhatsApp. A policy refusal or transport failure is
@@ -1887,7 +1967,7 @@ class HelenaGraph:
             f"{render_untrusted_block('message_body', state.get('message_body', ''))}"
         )
         try:
-            return await self._llm.generate(
+            texto = await self._llm.generate(
                 prompt,
                 phi=True,
                 agent_id="helena",
@@ -1899,6 +1979,35 @@ class HelenaGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
+
+        # RECUSA DE SAIDA (13/09/2026). ESTE e' o unico ponto por onde passa todo texto que chega
+        # ao beneficiario — `inform` (1x), `_start_escalation` (escalate e schedule) e o fallback
+        # de `respond`. Cercar aqui cobre as tres rotas com uma verificacao so'.
+        #
+        # POR QUE A CERCA EXISTE MESMO COM A PROIBICAO NO PROMPT. O `response-v3` proibiu a
+        # negativa clinica em maiusculas e com o raciocinio inteiro, e o modelo passou por cima
+        # DUAS VEZES na mesma conversa (medido 13/09/2026). Toda esta agente e' feita de travas —
+        # a DMN decide em vez do modelo, a negativa so' nasce de User Task, o provedor recusa
+        # construir sem atestacao — e o texto, que e' a unica coisa que a pessoa do outro lado le',
+        # nao tinha nenhuma. Pedir e' instrucao; isto e' cerca.
+        recusa = motivo_de_recusa(texto, response_kind)
+        if recusa is not None:
+            grupo, padrao = recusa
+            # O PADRAO no log (onde alguem depura), o GRUPO no contador (onde alguem conta). O
+            # TEXTO nao vai para nenhum dos dois: e' saida de modelo sobre a mensagem do
+            # beneficiario, e um log nao e' lugar de ampliar o alcance dela.
+            logger.error(
+                "helena_resposta_recusada",
+                node="_respond_llm",
+                grupo=grupo,
+                padrao=padrao,
+                response_kind=response_kind,
+                recusa_version=RECUSA_DE_SAIDA_VERSION,
+                prompt_version=RESPONSE_PROMPT_VERSION,
+            )
+            record_resposta_recusada(agent_id="helena", motivo=grupo, response_kind=response_kind)
+            raise RespostaRecusadaError(grupo, padrao, response_kind)
+        return texto
 
     async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
         # Token somente de exibicao; motivo_categoria continua None na ausencia.
@@ -2022,4 +2131,8 @@ PROMPT_VERSIONS: dict[str, str] = {
     "classify": CLASSIFY_PROMPT_VERSION,
     "response": RESPONSE_PROMPT_VERSION,
     "coleta": COLETA_PROMPT_VERSION,
+    # A lista de recusa nao e' um prompt, mas e' um artefato VERSIONADO que decide o que chega ao
+    # beneficiario — exatamente o que este mapa existe para tornar auditavel. Deixa-la de fora
+    # significaria um texto barrado sem registro de QUAL cerca o barrou.
+    "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
 }

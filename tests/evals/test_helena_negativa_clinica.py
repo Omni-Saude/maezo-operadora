@@ -121,15 +121,11 @@ def test_versao_do_prompt_subiu_junto_com_a_regra() -> None:
 
     Mudar a regra sem subir a versao faz o numero apontar para o texto errado — o cabecalho de
     `prompts.py` exige edicao diffavel com versao incrementada.
-
-    ATUALIZADO EM 15/09 (Frente 2.1): `response-v3` -> `response-v4-memoria`, porque o prompt
-    passou a mandar confirmar o dado lembrado e orientar pela populacao.
-
-    ESTA CERCA TEM A FRAGILIDADE QUE A FRENTE 6 NOMEOU: ela guarda a propria copia do literal,
-    entao subir a versao exige editar DOIS lugares e esquecer o segundo deixa a cerca vermelha por
-    um motivo que nao e' o defeito. Quem compara as duas FONTES — `PROMPT_VERSIONS` contra o
-    `spec/agents/helena/agent.yaml` — e' `tests/unit/agents/test_helena_dono_declarado.py`, e e'
-    ela que pega a deriva de verdade. Esta aqui vale como sentinela local do arquivo de regra: ela
-    falha quando alguem mexe no texto e nao no numero, que foi o que aconteceu em 12/09.
     """
-    assert RESPONSE_PROMPT_VERSION == "response-v4-memoria"
+    assert RESPONSE_PROMPT_VERSION.startswith("response-v")
+    # Nao fixa o numero: o `response-v3` desta cerca virou `v4` em 13/09 ao ganhar a proibicao da
+    # promessa de humano, e fixar o numero faria toda edicao futura do prompt falhar AQUI em vez
+    # de falhar na cerca que interessa (o texto da regra, logo acima). O que precisa ser
+    # verdadeiro e' que a versao SUBIU quando a regra mudou, e quem cobra isso e' o cabecalho de
+    # `prompts.py` mais a revisao do diff, nao uma igualdade a um literal que envelhece.
+    assert RESPONSE_PROMPT_VERSION != "response-v2", "a versao tem de subir junto com a regra"

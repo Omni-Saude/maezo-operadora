@@ -9,7 +9,7 @@
     "d12-02"
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "style": "dark",
   "timezone": "browser",
   "editable": true,
@@ -515,6 +515,69 @@
       "targets": [
         {
           "expr": "maezo_lucas_resolution_rate",
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Helena recusa da cerca de saida (Frente 5)",
+      "description": "Recording rule maezo_agent_kpi_derived (alert-rules.yml). Fracao dos turnos em que o texto do modelo foi BARRADO antes de chegar ao beneficiario. Subindo = o prompt pede e o modelo tenta assim mesmo, e a cerca esta pagando por si. ZERO NAO PROVA OBEDIENCIA: prova que nao houve o que barrar, e so e interpretavel junto do volume de turnos.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 24,
+        "w": 6,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "maezo_helena_recusa_de_saida_rate",
           "refId": "A",
           "datasource": {
             "type": "prometheus",

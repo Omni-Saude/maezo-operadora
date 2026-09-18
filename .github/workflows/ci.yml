@@ -716,6 +716,16 @@ jobs:
         # env.py's MAEZO_TENANT_ID before merge. See scripts/ci/check_chart_env_reconciliation.py.
         run: .venv/bin/python scripts/ci/check_chart_env_reconciliation.py
 
+      - name: Cerca da rota /receptor/simular (canal de teste — assinatura sintetica)
+        # A rota do Canal de Teste que assina um envelope de WhatsApp produz assinatura
+        # INDISTINGUIVEL da da Meta: quem alcanca o canal fabrica mensagem de beneficiario.
+        # Isso e' aceitavel em dev-sa-east-1 (atras do Access, telefone restrito a faixa de
+        # teste) e em nenhum outro lugar. A cerca reprova (1) a rota ligada em qualquer outro
+        # ambiente, (2) o app_secret entregue ao container do canal fora de dev, e (3) a
+        # remocao de qualquer uma das cercas do proprio server.py.
+        # Ver scripts/ci/check_canal_simular.py.
+        run: uv run python scripts/ci/check_canal_simular.py
+
       # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
       # existe. NetworkPolicy egress tests serão implementados quando o módulo
       # de provisionamento de tenant for construído (post-M13).
