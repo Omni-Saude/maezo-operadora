@@ -113,6 +113,18 @@ POLITICAS_DE_PORTAO: dict[str, PoliticaPortao] = {
         "pela Helena) e `conversation_id` — egresso de conteudo conversacional no corpo da "
         "resposta HTTP. Em producao quem recebe o ack e' a Meta.",
     ),
+    "WHATSAPP_WEBHOOK_MEMORIA_CLINICA": PoliticaPortao(
+        QUALQUER_AMBIENTE,
+        "memoria clinica entre turnos (Frente 2.1): faz `population` e as idades sobreviverem de "
+        "um turno para o outro DENTRO da mesma conversa, por uma janela de horas. NAO abre egresso "
+        "nenhum — nada sai do processo que ja nao saia, e o dado lembrado vem do CHECKPOINT da "
+        "propria conversa, nunca do que o chamador mandou (a validacao na fronteira de `receive` "
+        "recusa memoria malformada, sem carimbo ou fora da janela, degradando para o "
+        "comportamento de hoje). O que ele muda e' QUAL TABELA de red flag e' consultada no "
+        "segundo turno — legitimo em qualquer ambiente, e DESLIGA-LO e' que precisa de "
+        "justificativa: sem ele um bebe de 11 meses volta a ser triado pela tabela de adulto, "
+        "medido tres vezes em 13/09/2026.",
+    ),
     "WHATSAPP_WEBHOOK_ACK_THEN_QUEUE": PoliticaPortao(
         QUALQUER_AMBIENTE,
         "modo ack-then-queue (decisao do dono R-072): muda QUANDO o turno roda, nao O QUE sai "
@@ -123,8 +135,7 @@ POLITICAS_DE_PORTAO: dict[str, PoliticaPortao] = {
 #: Casa qualquer nome governado explicitamente ou por familia, para a regra de precaucao.
 _NOME_VIGIADO = re.compile(
     "|".join(
-        [re.escape(n) for n in POLITICAS_DE_PORTAO]
-        + [re.escape(p) + "[A-Z0-9_]+" for p in PREFIXOS_VIGIADOS]
+        [re.escape(n) for n in POLITICAS_DE_PORTAO] + [re.escape(p) + "[A-Z0-9_]+" for p in PREFIXOS_VIGIADOS]
     )
 )
 
@@ -690,11 +701,7 @@ def _servidor(raiz: Path) -> Path:
 
 
 def _funcoes(arvore: ast.AST) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
-    return {
-        no.name: no
-        for no in ast.walk(arvore)
-        if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef))
-    }
+    return {no.name: no for no in ast.walk(arvore) if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
 
 def _nomes_usados(no: ast.AST) -> set[str]:
@@ -801,16 +808,14 @@ def checar_cercas_no_codigo(raiz: Path = REPO_ROOT) -> list[str]:
 
     for nome in NOMES_EXIGIDOS:
         if nome not in atribuidos:
-            achados.append(
-                f"server.py: a constante {nome} desapareceu — era uma das cercas da rota."
-            )
+            achados.append(f"server.py: a constante {nome} desapareceu — era uma das cercas da rota.")
 
     portao = atribuidos.get("SIMULAR_LIGADO")
     if portao is not None:
         constantes = _constantes(portao)
         if VAR_PORTAO not in constantes or "1" not in constantes:
             achados.append(
-                f"server.py: SIMULAR_LIGADO nao e' mais {VAR_PORTAO}==\"1\" lido do ambiente — "
+                f'server.py: SIMULAR_LIGADO nao e\' mais {VAR_PORTAO}=="1" lido do ambiente — '
                 f"o portao deixou de ser o que a task definition liga e a cerca de CI vigia."
             )
     receptor = atribuidos.get(NOME_BASE_SINK)
@@ -890,11 +895,7 @@ def _checar_destino(funcao: ast.AST, nome: str) -> list[str]:
 
 
 def executar(raiz: Path = REPO_ROOT) -> list[str]:
-    return (
-        checar_ligacao_fora_de_dev(raiz)
-        + checar_segredo_no_canal(raiz)
-        + checar_cercas_no_codigo(raiz)
-    )
+    return checar_ligacao_fora_de_dev(raiz) + checar_segredo_no_canal(raiz) + checar_cercas_no_codigo(raiz)
 
 
 def main() -> int:
