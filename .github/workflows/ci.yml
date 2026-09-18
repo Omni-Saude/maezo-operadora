@@ -51,7 +51,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -172,7 +172,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -235,7 +235,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -381,6 +381,13 @@ jobs:
       - name: Alert runbook-URL gate (D12-01-b / R-007)
         run: make check-alert-runbook-urls
 
+      # Frente 8.3 ("Registrar a cadencia, NAO confiar na memoria de ninguem"): a regua de extracao
+      # e as 34 regras clinicas tem data de revisao em spec/revisao-das-reguas.yaml, e esta etapa
+      # fica vermelha no dia em que uma delas passa. Uma cadencia que vive so num documento e' uma
+      # cadencia que ninguem honra — este projeto ja tem quatro cascas vazias nomeadas.
+      - name: Cadencia de revisao das reguas (Frente 8.3)
+        run: make check-revisao-das-reguas
+
       # PLANS.md Hardening §0.8 Onda 0 (finding W5): the strict-xfail census under
       # tests/integration/processes/ is now a GENERATED artifact, not a hand-recounted number —
       # this re-derives it from the AST and fails on drift vs docs/xfail-census.json OR the
@@ -454,7 +461,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -513,7 +520,7 @@ jobs:
           echo "MAEZO_CI_UV_PYTHON_INSTALL_DIR=$HOME/.local/share/uv/python" >> "$GITHUB_ENV"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ env.MAEZO_CI_UV_PYTHON_INSTALL_DIR }}
         with:
@@ -696,7 +703,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -734,6 +741,16 @@ jobs:
         # the chart/TF — catches a rename drift like job-migrations.yaml's MAEZO_TENANT vs
         # env.py's MAEZO_TENANT_ID before merge. See scripts/ci/check_chart_env_reconciliation.py.
         run: .venv/bin/python scripts/ci/check_chart_env_reconciliation.py
+
+      - name: Cerca da rota /receptor/simular (canal de teste — assinatura sintetica)
+        # A rota do Canal de Teste que assina um envelope de WhatsApp produz assinatura
+        # INDISTINGUIVEL da da Meta: quem alcanca o canal fabrica mensagem de beneficiario.
+        # Isso e' aceitavel em dev-sa-east-1 (atras do Access, telefone restrito a faixa de
+        # teste) e em nenhum outro lugar. A cerca reprova (1) a rota ligada em qualquer outro
+        # ambiente, (2) o app_secret entregue ao container do canal fora de dev, e (3) a
+        # remocao de qualquer uma das cercas do proprio server.py.
+        # Ver scripts/ci/check_canal_simular.py.
+        run: uv run python scripts/ci/check_canal_simular.py
 
       # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
       # existe. NetworkPolicy egress tests serão implementados quando o módulo
@@ -882,7 +899,7 @@ jobs:
 
       - name: Install uv
         if: steps.gate.outputs.run == 'true'
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1104,7 +1121,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1394,7 +1411,7 @@ jobs:
 
       - name: Install uv
         if: steps.agent_changes.outputs.agents == 'true'
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:
@@ -1518,7 +1535,7 @@ jobs:
           PY
 
       - name: Install uv
-        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
         env:
           UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
         with:

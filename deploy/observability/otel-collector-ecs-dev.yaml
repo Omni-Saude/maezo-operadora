@@ -1,0 +1,169 @@
+# Coletor de metricas do maezo-operadora em dev (ECS/Fargate) — Frente 5, passo 5.1.
+#
+# O DEFEITO QUE ISTO FECHA. `maezo_agent_desfecho_total` e' emitido desde CC-09, as regras de
+# agregacao existem em `alert-rules.yml`, o workspace gerenciado (AMP) esta' ACTIVE — e NINGUEM
+# COLETA. Medido em 14/09/2026: zero scrapers no workspace, zero coletor no cluster. Consequencia
+# pratica: todo contador do canal zera a cada redeploy, e a taxa de escalonamento que o
+# `agent.yaml` diz que "nao pode ser nem alta demais nem baixa demais" NAO TEM COMO SER SABIDA.
+#
+# ESTE ARQUIVO NAO SUBSTITUI `prometheus.yml`, e a diferenca importa: aquele e' o Prometheus do
+# docker-compose local, com alvos `maezo-app:8000` que so' existem na maquina de quem desenvolve.
+# Este e' o coletor que roda DENTRO do cluster de dev, descobre os alvos pelo Cloud Map e
+# escreve no workspace gerenciado. Um nao le o outro; os dois carregam as MESMAS regras
+# (`alert-rules.yml`), que e' a postura do ADR-0014 — mesmo YAML, destino diferente.
+#
+# COMO A CONFIGURACAO CHEGA AO CONTAINER: pela variavel de ambiente `AOT_CONFIG_CONTENT`, lida
+# pelo entrypoint da imagem `aws-observability/aws-otel-collector`. Nao ha parametro no SSM e nao
+# ha segredo aqui — sao nomes de DNS interno e um endpoint de escrita. O arquivo vive no repo e
+# o Terraform o injeta com `file()`, entao o que roda no cluster e' o que esta' versionado, e um
+# `terraform plan` mostra qualquer diferenca.
+
+extensions:
+  # A mesma forma do coletor local (`otel-collector.yaml`): health check em 13133, caminho
+  # `/healthz`, que e' o que o healthCheck da task definition consulta.
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: "/healthz"
+
+  # ASSINATURA SIGV4 PARA O AMP. O workspace gerenciado nao aceita credencial estatica: a escrita
+  # e' autorizada pela ROLE DA TASK (`aps:RemoteWrite`), assinada aqui. Nenhum segredo transita —
+  # e' exatamente por isso que o coletor tem role propria e nao reaproveita a role dos agentes.
+  sigv4auth:
+    region: ${env:AWS_REGION}
+    service: aps
+
+receivers:
+  prometheus:
+    config:
+      global:
+        # 30s, nao 15s: o intervalo do compose local existe para quem olha um grafico ao vivo na
+        # propria maquina. Aqui cada raspagem e' uma chamada de rede dentro da VPC e uma escrita
+        # remota paga por amostra. 30s ainda da' dois pontos por minuto, que e' resolucao de
+        # sobra para taxa de escalonamento e p95 de primeira resposta.
+        scrape_interval: 30s
+        scrape_timeout: 10s
+
+        # ROTULOS QUE DIZEM DE ONDE VEIO A SERIE. Sem `environment`, uma leitura de dev e uma de
+        # producao ficariam indistinguiveis no mesmo workspace no dia em que producao subir — o
+        # mesmo cuidado que o job `kafka-exporter` do `prometheus.yml` ja' toma com o seu proprio
+        # `environment: dev`.
+        external_labels:
+          environment: ${env:MAEZO_ENV}
+          cluster: ${env:MAEZO_CLUSTER}
+
+      scrape_configs:
+        # -------------------------------------------------------------------
+        # AGENTES — porta 8000, o `/metrics` do agent_runtime.
+        # -------------------------------------------------------------------
+        # DESCOBERTA PELO CLOUD MAP, nao por IP fixo. O IP de uma task Fargate muda a cada deploy;
+        # foi por isso que o namespace `.internal` existe (ver `ecs.tf`). Os registros sao
+        # MULTIVALUE, entao o A record devolve um IP por task e o `dns_sd_configs` gera um alvo
+        # por IP — o coletor acompanha um `desired_count` que sobe sem editar este arquivo.
+        #
+        # O QUE ACONTECE QUANDO UM AGENTE NAO SOBE: o alvo some da resposta DNS e o job fica sem
+        # alvo, nao com alvo `down`. Isso e' deliberado: `up == 0` de um agente que nao deveria
+        # estar no ar seria alarme falso, e o desaparecimento ja' e' visivel pelo proprio
+        # `desired_count` do servico.
+        - job_name: "maezo-agentes"
+          metrics_path: "/metrics"
+          dns_sd_configs:
+            - names:
+                - "agent-helena.${env:MAEZO_NAMESPACE}"
+                - "agent-rafael.${env:MAEZO_NAMESPACE}"
+                - "agent-marina.${env:MAEZO_NAMESPACE}"
+              type: A
+              port: 8000
+              refresh_interval: 30s
+          relabel_configs:
+            # `componente` sai do NOME do servico, nao do IP. O `instance` continua sendo o
+            # IP:porta (comportamento padrao) e rotaciona a cada deploy — por isso nenhuma regra
+            # de KPI agrega por `instance`, e todas somam por `agent_id`, que e' rotulo da
+            # aplicacao e sobrevive a troca de task.
+            # `$$1` e nao `$1`: o coletor expande `${...}` na carga da configuracao, entao um
+            # `$1` de relabel do Prometheus seria consumido antes de chegar ao receptor. O cifrao
+            # dobrado e' a forma de escapar — e o motivo de o resto do arquivo usar `${env:...}`
+            # explicito em vez da forma curta.
+            - source_labels: [__meta_dns_name]
+              target_label: componente
+              regex: "([^.]+)\\..*"
+              replacement: "$$1"
+            - target_label: service
+              replacement: "maezo-operadora"
+
+        # -------------------------------------------------------------------
+        # RECEPTOR DE WEBHOOK — porta 8080. E' AQUI QUE A HELENA RODA.
+        # -------------------------------------------------------------------
+        # A distincao vale ser dita porque ela ja' escondeu um defeito por semanas: `agent-helena`
+        # NAO executa turno (`agent_graph_execution_not_performed_here`); quem conduz o turno da
+        # Helena e' o receptor, em processo. Um coletor que raspasse so' os tres agentes teria
+        # `maezo_agent_desfecho_total` sempre em zero e pareceria um canal sem trafego, nao um
+        # canal sem coleta. Este job e' o que torna a Frente 5 verdadeira.
+        - job_name: "maezo-receptor"
+          metrics_path: "/metrics"
+          dns_sd_configs:
+            - names:
+                - "webhook-receiver.${env:MAEZO_NAMESPACE}"
+              type: A
+              port: 8080
+              refresh_interval: 30s
+          relabel_configs:
+            - target_label: componente
+              replacement: "webhook-receiver"
+            - target_label: service
+              replacement: "maezo-operadora"
+
+        # -------------------------------------------------------------------
+        # O PROPRIO COLETOR.
+        # -------------------------------------------------------------------
+        # Sem isto nao ha como distinguir "o canal esta' quieto" de "o coletor parou" — as duas
+        # coisas produzem o mesmo grafico vazio, e a segunda e' justamente o modo de falha que a
+        # Frente 5 inteira existe para nao repetir. `otelcol_exporter_send_failed_metric_points`
+        # e' a serie que diz que a escrita remota esta' sendo recusada.
+        - job_name: "otel-collector"
+          metrics_path: "/metrics"
+          static_configs:
+            - targets: ["localhost:8888"]
+              labels:
+                service: "maezo-operadora"
+                componente: "otel-collector"
+
+processors:
+  # Lote antes da escrita remota: uma requisicao por raspagem por alvo seria o pior padrao de
+  # custo e de throttle do AMP.
+  batch:
+    timeout: 15s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+exporters:
+  # ESCRITA REMOTA PARA O WORKSPACE GERENCIADO. Este e' o ponto inteiro da frente: a serie deixa
+  # de morrer com a task. `maezo_agent_desfecho_total` zerava a cada redeploy porque so' existia
+  # na memoria do processo; a partir daqui o historico e' do workspace, e o reset do contador
+  # vira o degrau que `rate()`/`increase()` sabem tratar.
+  prometheusremotewrite:
+    endpoint: ${env:AMP_REMOTE_WRITE_URL}
+    auth:
+      authenticator: sigv4auth
+    # DESLIGADO DE PROPOSITO: converter atributo de recurso em rotulo traria `aws.ecs.task.arn`
+    # para dentro da serie, e o ARN da task muda a cada deploy — seria uma serie temporal nova
+    # por implantacao, exatamente a cardinalidade que a Frente 5 quer evitar pagar.
+    resource_to_telemetry_conversion:
+      enabled: false
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 120s
+
+service:
+  extensions: [health_check, sigv4auth]
+  pipelines:
+    metrics:
+      receivers: [prometheus]
+      processors: [batch]
+      exporters: [prometheusremotewrite]
+  telemetry:
+    logs:
+      level: "info"
+    metrics:
+      address: 0.0.0.0:8888
