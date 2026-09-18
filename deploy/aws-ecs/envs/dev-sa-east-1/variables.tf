@@ -222,7 +222,20 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "5cdb09a5" # 11/09/2026: intent "greeting" (classify-v3). O RECEPTOR e quem executa turno, entao a correcao vale aqui; agent-helena segue em c745fd94 ate a proxima promocao
+  # RECONCILIADO EM 15/09/2026 contra o cluster. O default apontava para uma imagem de 11/09
+  # enquanto o servico rodava a de 13/09 (`e86c0f89`) — dois dias de deriva, criada porque os
+  # deploys de 12 e 13/09 foram feitos com `-var`/`-target` e o repo nunca foi atualizado.
+  #
+  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: medi no `terraform plan` de 15/09, ANTES desta
+  # correcao, que um apply sem `-var` faria `e86c0f89 -> 5cdb09a5` no webhook-receiver. Isso apagaria o `response-v3` — a
+  # correcao que proibiu a Helena AFIRMAR AUSENCIA DE ALERTA a um beneficiario — junto com a
+  # saudacao e a pagina de escalonamento. Nao houve incidente porque o apply estava pausado; quem
+  # rodasse um apply de rotina nao teria essa sorte.
+  #
+  # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
+  # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
+  # no terminal de quem aplicou.
+  default = "e86c0f89" # 13/09/2026: response-v3 (negativa clinica proibida) + saudacao + eco do turno. VIVO em webhook-receiver desde 13/09 18:07Z
 }
 
 variable "webhook_receiver_desired_count" {
@@ -469,7 +482,20 @@ variable "canal_teste_image_tag" {
     de funcionar.
   EOT
   type        = string
-  default     = "e4edbef6" # pagina: data no formato do motor, numero sorteado, leitura de "nenhum processo novo" (11/09/2026)
+  # RECONCILIADO EM 15/09/2026 contra o cluster. O default apontava para uma imagem de 11/09
+  # enquanto o servico rodava a de 13/09 (`e86c0f89`) — dois dias de deriva, criada porque os
+  # deploys de 12 e 13/09 foram feitos com `-var`/`-target` e o repo nunca foi atualizado.
+  #
+  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: medi no `terraform plan` de 15/09, ANTES desta
+  # correcao, que um apply sem `-var` faria `e86c0f89 -> e4edbef6` no canal-teste. Isso apagaria o `response-v3` — a
+  # correcao que proibiu a Helena AFIRMAR AUSENCIA DE ALERTA a um beneficiario — junto com a
+  # saudacao e a pagina de escalonamento. Nao houve incidente porque o apply estava pausado; quem
+  # rodasse um apply de rotina nao teria essa sorte.
+  #
+  # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
+  # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
+  # no terminal de quem aplicou.
+  default = "e86c0f89" # 13/09/2026: pagina de escalonamento com entradas/saidas. VIVO em canal-teste desde 13/09 18:07Z
 }
 
 variable "canal_teste_desired_count" {
