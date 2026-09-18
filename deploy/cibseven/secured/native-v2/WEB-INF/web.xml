@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" version="6.0" metadata-complete="true">
+  <absolute-ordering/>
+  <servlet>
+    <servlet-name>maezo-native-v2</servlet-name>
+    <servlet-class>br.com.maezo.workload.WorkloadV2Servlet</servlet-class>
+    <async-supported>false</async-supported>
+    <load-on-startup>1</load-on-startup>
+  </servlet>
+  <servlet-mapping><servlet-name>maezo-native-v2</servlet-name><url-pattern>/v2/*</url-pattern></servlet-mapping>
+</web-app>
