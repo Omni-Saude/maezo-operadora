@@ -23,7 +23,16 @@ extensions:
   # `/healthz`, que e' o que o healthCheck da task definition consulta.
   health_check:
     endpoint: 0.0.0.0:13133
-    path: "/healthz"
+    # SEM `path:` DE PROPOSITO — o default (`/`) e' o que o binario `/healthcheck` da imagem sonda.
+    #
+    # 18/09/2026: aqui estava `path: "/healthz"`, copiado do padrao dos outros servicos deste
+    # ambiente (webhook-receiver, agents, worker), que sao imagens `python:3.12-slim` e sondam com
+    # um `python -c urlopen(...)`. Esta imagem nao tem python, nem shell, nem wget — o unico jeito
+    # de sondar e' o binario que ela ja' traz, e ele usa o caminho default. Manter o `/healthz`
+    # deixava o endpoint respondendo 404 para o unico cliente que existia.
+    #
+    # O `/healthz` do coletor nao era consumido por mais ninguem: nao ha load balancer nem target
+    # group apontando para 13133 (ele so' RASPA, nao recebe trafego).
 
   # ASSINATURA SIGV4 PARA O AMP. O workspace gerenciado nao aceita credencial estatica: a escrita
   # e' autorizada pela ROLE DA TASK (`aps:RemoteWrite`), assinada aqui. Nenhum segredo transita —
