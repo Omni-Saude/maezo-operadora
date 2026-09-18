@@ -1,0 +1,50 @@
+# A cadencia de revisao das reguas — Frente 8.3 de HELENA_EM_PRODUCAO_O_QUE_FALTA.md.
+#
+# O documento e' explicito sobre a forma: "Registrar a cadencia, NAO confiar na memoria de
+# ninguem." Uma cadencia que vive num documento e' uma cadencia que ninguem honra — este projeto
+# ja tem quatro cascas vazias, e "revisamos a cada seis meses" e' o formato exato de uma quinta.
+#
+# Entao ela vive AQUI, com data, e `scripts/ci/check_revisao_das_reguas.py` deixa a esteira
+# VERMELHA no dia em que a data passa. NAO HA RENOVACAO SILENCIOSA: a saida e' um PR revisado que
+# ou registra a revisao feita (nova data, nova nota) ou declara por que ela nao aconteceu.
+#
+# POR QUE DUAS CONDICOES ("o que vier primeiro"), e nao so' o calendario: uma regua envelhece por
+# TEMPO (a pratica clinica muda, o modelo e' trocado) e por VOLUME (mil conversas expoem casos que
+# cem nao expunham). Amarrar so' ao calendario deixaria um canal que triplicou de volume rodando
+# seis meses com a regua de quando era pequeno.
+
+reguas:
+  - id: extracao
+    o_que: >-
+      A regua de extracao: o que a Helena pode inferir de uma mensagem (intensidade, codigo,
+      populacao, idade). Cinco regras em docs/design/regua-de-extracao.md.
+    documento: docs/design/regua-de-extracao.md
+    corpus: tests/evals/extracao/casos.json
+    # Quem assina a regua e' quem assina as 34 regras clinicas — nao ha dois donos aqui.
+    dono: medico auditor
+    revisar_ate: "2026-12-15"
+    ou_apos_conversas: 1000
+    ultima_revisao: null # NUNCA revisada: a regua nasceu em 15/09/2026 e ainda nao foi assinada.
+    nota: >-
+      Estado em 15/09/2026: escrita, implementada e medida, NAO ratificada. A primeira revisao e'
+      tambem a primeira assinatura.
+
+  - id: regras-clinicas
+    o_que: >-
+      As 34 regras de red flag das quatro tabelas DMN (11 adulto, 8 pediatrica, 8 gestante,
+      7 saude mental).
+    # A REGUA E' A TABELA, nao o relatorio sobre ela. O relatorio de 14/09
+    # (`docs/reports/revisao-das-34-regras-14-09-2026.md`) e' EVIDENCIA da ultima leitura e chega
+    # com o PR da onda 1; apontar a cadencia para ele faria a cerca depender de um documento de
+    # circunstancia em vez do artefato que governa o comportamento.
+    documento: spec/processes/dmn/triage_redflag_adult.dmn
+    corpus: spec/processes/dmn/
+    dono: medico auditor
+    revisar_ate: "2026-12-15"
+    ou_apos_conversas: 1000
+    ultima_revisao: "2026-09-14"
+    nota: >-
+      Revisao de engenharia feita em 14/09/2026 (Frente 4), com tres padroes estruturais achados:
+      a rede de seguranca so' pega `grave`; 4 das 5 regras P1 da gestante dependem da idade
+      gestacional; o mesmo na pediatria com a idade em meses. A ASSINATURA continua pendente —
+      revisao lida nao e' revisao assinada.
