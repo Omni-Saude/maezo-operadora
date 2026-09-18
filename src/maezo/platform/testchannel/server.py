@@ -25,14 +25,25 @@ Configuração por ambiente, nada cravado:
     CANAL_PORT       — porta HTTP (default 8500)
     CANAL_BIND       — interface (default 0.0.0.0; em container tem de ser 0.0.0.0)
     COCKPIT_URL      — link do Cockpit mostrado na página
+    RECEPTOR_URL          — base do receptor de webhook (só para `/receptor/simular`)
+    WHATSAPP_APP_SECRET   — segredo da Meta, usado para ASSINAR o envelope sintético
+    CANAL_SIMULAR_RECEPTOR — "1" LIGA `/receptor/simular`; ausente = rota inexistente
+
+A rota `/receptor/simular` é a única coisa aqui que fabrica uma mensagem de beneficiário
+assinada. Ela está DESLIGADA por padrão e as três cercas estão descritas em
+`_simular_whatsapp` — leia lá antes de mexer.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
+import re
 import urllib.error
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -54,6 +65,30 @@ COCKPIT_URL = os.environ.get("COCKPIT_URL", "http://localhost:8080")
 #: `http://agent-rafael.maezo-operadora-dev.internal:8000`. Vazio desliga o painel do
 #: agente na pagina — melhor do que um botao que sempre falha.
 AGENTE = os.environ.get("AGENT_INGRESS_URL", "").rstrip("/")
+
+#: Base do receptor de webhook. Vazio = `/receptor/simular` nao funciona (503).
+RECEPTOR = os.environ.get("RECEPTOR_URL", "").rstrip("/")
+
+#: Segredo da Meta, LIDO DO AMBIENTE e nunca servido. E' o que assina o envelope
+#: sintetico. Se estiver vazio a rota recusa — nunca assina com string vazia, que
+#: produziria uma assinatura valida para quem soubesse que o segredo e' "".
+APP_SECRET = os.environ.get("WHATSAPP_APP_SECRET", "")
+
+#: TERCEIRA CERCA, e a mais importante: a rota nao existe a menos que alguem a LIGUE
+#: explicitamente. Ter o segredo e a URL no ambiente NAO basta. Assim um ambiente que
+#: herde as duas variaveis por descuido continua sem a rota, e ligar e' um ato visivel
+#: na task definition — que e' onde a cerca de CI (`scripts/ci/check_canal_simular.py`)
+#: consegue ver e reprovar fora de `dev-sa-east-1`.
+SIMULAR_LIGADO = os.environ.get("CANAL_SIMULAR_RECEPTOR", "") == "1"
+
+#: SEGUNDA CERCA: a faixa de telefone de teste, ancorada nas DUAS pontas e com
+#: comprimento exato. `startswith` sozinho aceitaria `55119000000` seguido de qualquer
+#: coisa, inclusive de um numero real mais longo.
+FAIXA_TESTE = re.compile(r"^55119000000\d{2}$")
+
+#: Teto do texto aceito. O receptor tem os seus proprios limites; este existe para a
+#: rota nao ser um caminho barato de empurrar megabytes para dentro do cluster.
+TEXTO_MAX = 2000
 
 #: Diretorio das paginas externas servidas em `/p/<arquivo>`. ADJACENTE AO MODULO de
 #: proposito, e nao um caminho configuravel: `resolve` + comparacao de pai e' o que fecha
@@ -285,6 +320,34 @@ def _paginas_disponiveis() -> list[str]:
     return sorted(f.name for f in PAGINAS.iterdir() if f.suffix.lower() in TIPOS)
 
 
+def _corpo_do_receptor(bruto: bytes) -> dict[str, object]:
+    """Resposta do canal para `/receptor/simular`: o eco cru do receptor MAIS os dois campos do
+    turno ELEVADOS ao topo, quando o receptor os devolveu.
+
+    `receptor` continua sendo a string crua, byte por byte, porque e' a evidencia do que a outra
+    ponta respondeu e um dia alguem vai querer ler o corpo inteiro. `resposta` e `conversation_id`
+    sobem ao topo porque e' ali que a pagina olha primeiro, e porque um contrato que existe so'
+    por acidente — "funciona porque o JSON aninhado por acaso tem essa chave" — nao e' contrato.
+
+    Os campos so' EXISTEM quando o receptor roda com `WHATSAPP_WEBHOOK_DEVOLVE_TURNO=1`. Ausentes,
+    nada e' inventado: a pagina detecta a falta e diz que nao recebeu, que e' o comportamento que
+    o proprio autor dela pediu.
+    """
+    texto = bruto.decode("utf-8", "replace")
+    corpo: dict[str, object] = {"receptor": texto}
+    try:
+        interno = json.loads(texto)
+    except (ValueError, json.JSONDecodeError):
+        return corpo
+    if not isinstance(interno, dict):
+        return corpo
+    for campo in ("resposta", "conversation_id"):
+        valor = interno.get(campo)
+        if isinstance(valor, str) and valor:
+            corpo[campo] = valor
+    return corpo
+
+
 class Handler(BaseHTTPRequestHandler):
     def _proxy(self, base: str, prefixo: str, timeout: int = 30) -> None:
         """Repassa a requisicao para `base`, tirando `prefixo` do caminho.
@@ -368,6 +431,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/engine"):
             self._proxy(ENGINE, "/engine")
             return
+        # Rota ESTREITA e comparacao EXATA: `startswith` deixaria `/receptor/simular/algo`
+        # cair aqui tambem, e esta e' a ultima rota onde se quer folga.
+        if self.path == "/receptor/simular":
+            self._simular_whatsapp()
+            return
         if self.path.startswith("/agente"):
             if not AGENTE:
                 self._responder_json(503, {"erro": "AGENT_INGRESS_URL nao configurada neste canal"})
@@ -378,6 +446,105 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(404)
         self.end_headers()
+
+    def _simular_whatsapp(self) -> None:
+        """Assina um envelope sintetico de WhatsApp e o encaminha ao receptor.
+
+        POR QUE ISTO EXISTE AQUI E NAO NA PAGINA. O receptor valida
+        `X-Hub-Signature-256: sha256=HMAC(app_secret, corpo_bruto)` em
+        `whatsapp/security.py::verify_hub_signature` e devolve 401 antes de olhar o corpo —
+        e esta certo, e' o que prova que a mensagem veio da Meta. Uma pagina no navegador
+        so' conseguiria assinar carregando o segredo da Meta no JavaScript, o que e' PIOR
+        do que o problema que resolve: o segredo passaria a viver num arquivo servido.
+        Entao a assinatura mora no servidor, e o segredo nunca sai do container.
+
+        O RISCO, DITO SEM RODEIO: esta rota produz assinaturas INDISTINGUIVEIS das da Meta.
+        Quem alcanca este canal consegue fabricar uma mensagem de beneficiario. Tres cercas
+        contem isso, e as tres precisam continuar valendo:
+
+          1. `CANAL_SIMULAR_RECEPTOR=1` — a rota nao existe sem isso (`SIMULAR_LIGADO`), e
+             `scripts/ci/check_canal_simular.py` reprova quem a ligar fora de dev.
+          2. `FAIXA_TESTE` — so' `55119000000xx`, ancorado nas duas pontas. Sem isso o canal
+             forjaria mensagem em nome de um numero real.
+          3. O Cloudflare Access na frente. E' a mesma fronteira de identidade que o proxy
+             arbitrario de `/engine` ja depende, e nao e' menos necessaria aqui.
+
+        NADA do que o cliente envia entra no calculo da assinatura sem passar por este
+        molde: o envelope e' construido AQUI, campo por campo, a partir de dois valores
+        validados. Um envelope vindo do navegador seria assinado como veio.
+        """
+        if not SIMULAR_LIGADO:
+            self.send_response(404)
+            self.end_headers()
+            return
+        if not RECEPTOR or not APP_SECRET:
+            self._responder_json(503, {"erro": "RECEPTOR_URL ou WHATSAPP_APP_SECRET ausente"})
+            return
+
+        try:
+            tamanho = int(self.headers.get("Content-Length") or 0)
+            pedido = json.loads(self.rfile.read(tamanho) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self._responder_json(400, {"erro": "corpo nao e' JSON valido"})
+            return
+        if not isinstance(pedido, dict):
+            self._responder_json(400, {"erro": "corpo deve ser um objeto JSON"})
+            return
+
+        texto = str(pedido.get("texto") or "").strip()
+        telefone = str(pedido.get("telefone") or "").strip()
+
+        if not texto:
+            self._responder_json(400, {"erro": "texto vazio"})
+            return
+        if len(texto) > TEXTO_MAX:
+            self._responder_json(400, {"erro": f"texto acima de {TEXTO_MAX} caracteres"})
+            return
+        if not FAIXA_TESTE.match(telefone):
+            self._responder_json(400, {"erro": "telefone fora da faixa de teste 55119000000xx"})
+            return
+
+        envelope = {
+            "object": "whatsapp_business_account",
+            "entry": [
+                {
+                    "changes": [
+                        {
+                            "value": {
+                                "messages": [
+                                    {
+                                        "type": "text",
+                                        "from": telefone,
+                                        "id": "wamid.CANAL-TESTE-" + uuid.uuid4().hex[:20],
+                                        "text": {"body": texto},
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+        }
+
+        # OS MESMOS BYTES QUE VIAJAM SAO OS BYTES ASSINADOS. Serializar uma vez para assinar
+        # e outra para enviar produz assinatura invalida por uma virgula de diferenca — e o
+        # sintoma e' um 401 que parece "segredo errado". Este e' o bug obvio desta rota.
+        corpo = json.dumps(envelope, separators=(",", ":")).encode("utf-8")
+        assinatura = "sha256=" + hmac.new(APP_SECRET.encode("utf-8"), corpo, hashlib.sha256).hexdigest()
+
+        req = urllib.request.Request(
+            RECEPTOR + "/webhook",
+            data=corpo,
+            method="POST",
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": assinatura},
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                self._responder_json(r.status, _corpo_do_receptor(r.read()))
+        except urllib.error.HTTPError as e:
+            self._responder_json(e.code, _corpo_do_receptor(e.read()))
+        except OSError as e:
+            self._responder_json(502, {"erro": f"receptor inacessivel ({RECEPTOR}): {e}"})
 
     def _responder_json(self, status: int, corpo: dict[str, object]) -> None:
         data = json.dumps(corpo).encode()
@@ -395,7 +562,8 @@ def main() -> None:
     """Sobe o servidor. Log de uma linha, para aparecer no CloudWatch no boot."""
     print(
         f"canal de teste ouvindo em {BIND}:{PORT} | motor: {ENGINE} | cockpit: {COCKPIT_URL} "
-        f"| agente: {AGENTE or '(nao configurado)'} | paginas: {_paginas_disponiveis() or '(nenhuma)'}",
+        f"| agente: {AGENTE or '(nao configurado)'} | paginas: {_paginas_disponiveis() or '(nenhuma)'} "
+        f"| /receptor/simular: {'LIGADA -> ' + RECEPTOR if SIMULAR_LIGADO and RECEPTOR and APP_SECRET else 'desligada'}",
         flush=True,
     )
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
