@@ -306,6 +306,27 @@ groups:
       # `_DESFECHO_VOCAB` tokens) — `escalado_humano` and the shared `erro_inicio_processo` are
       # the only other members of that same vocabulary, so this is the vocabulary's complement,
       # named explicitly rather than inferred as "everything else".
+      # Helena recusa_de_saida_rate — o QUARTO numero da Frente 5: quantas vezes o modelo tentou
+      # dizer algo proibido e foi barrado em `_respond_llm` antes de o texto chegar ao
+      # beneficiario. Numerador e denominador contam coisas diferentes de proposito: recusas sobre
+      # TURNOS, nao sobre tentativas, porque e' "em que fracao das conversas a instrucao sozinha
+      # nao teria segurado" que responde a pergunta que interessa.
+      #
+      # COMO SE LE, e a leitura errada e' tentadora: SUBINDO significa que o prompt esta' pedindo e
+      # o modelo esta' tentando assim mesmo — a cerca esta' pagando por si. ZERO NAO PROVA
+      # OBEDIENCIA: prova que a cerca nao teve o que barrar naquele periodo, o que so' e'
+      # interpretavel junto do volume de turnos. Medido em 13/09: com o `response-v4` no ar, este
+      # contador ficou em zero nos cinco turnos da conversa pediatrica, e isso nao provou nada
+      # sobre a cerca — quem prova sao os testes de unidade.
+      #
+      # `increase(...[1h])` pela mesma razao das regras acima: contador de processo zera a cada
+      # redeploy, e numerador e denominador zeram em momentos diferentes.
+      - record: maezo_helena_recusa_de_saida_rate
+        expr: |
+          sum(increase(maezo_agent_resposta_recusada_total{agent_id="helena"}[1h]))
+          /
+          sum(increase(maezo_agent_desfecho_total{agent_id="helena"}[1h]))
+
       - record: maezo_lucas_resolution_rate
         expr: |
           sum(maezo_agent_desfecho_total{agent_id="lucas", desfecho=~"resposta_informativa_enviada|lembrete_enviado"})

@@ -1,0 +1,621 @@
+<!--
+  Canal de Teste — SP-OP-ESCALATION-001, como CONVERSA.
+
+  DESTINO NO REPOSITORIO: src/maezo/platform/testchannel/paginas/escalonamento.html
+  Servida em https://maezo-teste-dev.austa.com.br/p/escalonamento.html (atras do Access).
+
+  MESMA ORIGEM, sem credencial e sem CORS:
+    GET/POST /engine/...        -> engine-rest do CIB Seven
+    POST     /receptor/simular  -> assina e entrega ao receptor (o segredo fica no Canal)
+
+  O QUE MUDOU NESTA VERSAO (12/09/2026) e por que
+
+  1. VIROU CONVERSA. A versao anterior era bancada: uma mensagem, um resultado, tela limpa.
+     O diretor perguntou por que a Helena nao interage como um bot normal — e parte da resposta
+     era a pagina: ela NUNCA mostrou o que a Helena respondeu. A resposta existia (a Helena
+     redige e entrega ao envio do WhatsApp, que da 401) e ninguem via.
+
+  2. O NUMERO NAO AVANCA MAIS SOZINHO. Avancar a cada envio impedia conversa de varios turnos,
+     que e' exatamente o que se quer testar quando a coleta (passo 4) for ligada. Agora o numero
+     FICA e existe um botao "nova conversa". A armadilha que o avanco automatico resolvia — numero
+     com caso aberto nao abre outro — continua tratada, mas pelo texto honesto do passo 3.
+
+  3. A CONTAGEM PAROU DE MENTIR. A versao anterior dizia "este numero ja tinha N casos abertos".
+     Era falso: contava TODOS os escalonamentos abertos no motor, de todas as baterias. Como
+     sempre ha casos abertos, a tela nunca mais dava leitura firme — uma resolucao automatica
+     correta aparecia como ambigua. Agora ela diz o que de fato mediu.
+
+  4. DEGRADA COM HONESTIDADE. A rota DEVOLVE `resposta` e `conversation_id` quando o receptor
+     roda com `WHATSAPP_WEBHOOK_DEVOLVE_TURNO=1` — o caso em `dev-sa-east-1`, e so' la': e'
+     texto voltado ao beneficiario, e a cerca de CI reprova o portao ligado em outro ambiente.
+     Sem o portao os dois campos simplesmente nao vem, e ai' a pagina DIZ que nao recebeu, em
+     vez de fingir. Nunca inventa um texto nem finge silencio da Helena.
+-->
+<title>Conversa com a Helena — Canal de Teste</title>
+<style>
+  :root{
+    --tinta:#15191f; --tinta2:#4a5260; --tinta3:#767e8c;
+    --fundo:#f6f7f9; --papel:#ffffff; --linha:#e2e6ec;
+    --azul:#1f3864; --verde:#1e7a3c; --vermelho:#b31b1b;
+    --ambar:#9a6b00; --bolhaEu:#dcf0dd; --bolhaEla:#eef1f5;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--fundo);color:var(--tinta);
+       font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       margin:0;padding:20px 16px 50px}
+  .largura{max-width:1180px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 3px;color:var(--azul)}
+  .sub{color:var(--tinta3);font-size:13px;margin:0 0 18px}
+
+  .colunas{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:16px;align-items:start}
+  @media(max-width:900px){.colunas{grid-template-columns:1fr}}
+
+  .cartao{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:15px 17px}
+  .cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px}
+  .cab h2{font-size:14px;margin:0;color:var(--azul);text-transform:uppercase;letter-spacing:.04em}
+  .cab .meta{font-size:11.5px;color:var(--tinta3);font-variant-numeric:tabular-nums}
+
+  /* ---- conversa ---- */
+  #thread{min-height:190px;max-height:440px;overflow-y:auto;padding:2px 2px 6px}
+  .bolha{max-width:82%;padding:9px 13px;border-radius:13px;margin-bottom:9px;
+         font-size:14px;white-space:pre-wrap;word-wrap:break-word}
+  .eu{background:var(--bolhaEu);margin-left:auto;border-bottom-right-radius:4px}
+  .ela{background:var(--bolhaEla);border-bottom-left-radius:4px}
+  .quem{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;
+        color:var(--tinta3);margin-bottom:3px;font-weight:700}
+  .ausente{background:#fff8e6;border:1px dashed #e3c977;color:var(--ambar);font-size:13px}
+  .vaziothread{color:var(--tinta3);font-style:italic;font-size:13.5px;text-align:center;padding:40px 10px}
+
+  textarea,input{font:inherit;border:1px solid var(--linha);border-radius:7px;
+                 padding:9px 11px;background:var(--papel);color:var(--tinta);width:100%}
+  textarea{resize:vertical;min-height:58px}
+  label{display:block;font-size:12px;color:var(--tinta2);margin:0 0 4px;font-weight:600}
+
+  button{font:inherit;font-weight:600;border:0;border-radius:7px;padding:9px 15px;
+         cursor:pointer;background:var(--azul);color:#fff;font-size:14px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.sec{background:#eef1f5;color:var(--tinta)}
+  button.verde{background:var(--verde)} button.ambar{background:var(--ambar)}
+  button.vermelho{background:var(--vermelho)}
+  .botoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .exemplos{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 0}
+  .exemplos button{background:#eef1f5;color:var(--tinta2);font-size:12px;padding:5px 10px;font-weight:500}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:2px}
+  th,td{text-align:left;padding:6px 9px;border-bottom:1px solid var(--linha);vertical-align:top}
+  th{color:var(--tinta3);font-weight:600;font-size:11px;text-transform:uppercase;
+     letter-spacing:.03em;width:180px}
+  td code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12px}
+
+  .selo{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:700;color:#fff}
+  .selo.ok{background:var(--verde)} .selo.esc{background:var(--vermelho)}
+  .selo.esp{background:var(--tinta3)} .selo.av{background:var(--ambar)}
+
+  .bloco{border-top:1px solid var(--linha);padding-top:11px;margin-top:13px}
+  .bloco:first-child{border-top:0;padding-top:0;margin-top:0}
+  .bloco h3{font-size:12px;margin:0 0 7px;color:var(--tinta2);
+            text-transform:uppercase;letter-spacing:.04em}
+  .vazio{color:var(--tinta3);font-size:13px;font-style:italic}
+  .erro{background:#fdeaea;border:1px solid #f3c2c2;color:var(--vermelho);
+        border-radius:7px;padding:10px 12px;font-size:13px;margin-top:8px}
+  .nota{color:var(--tinta3);font-size:12px;margin:6px 0 0}
+  .relogio{font-variant-numeric:tabular-nums;font-weight:700}
+  .rastro{font-size:12px;border-left:2px solid var(--linha);padding-left:11px}
+  .rastro div{padding:2px 0;color:var(--tinta2)}
+  pre{background:#f0f2f5;border-radius:7px;padding:10px;overflow-x:auto;font-size:11px;max-height:260px}
+</style>
+
+<div class="largura">
+  <h1>Conversa com a Helena</h1>
+  <p class="sub">SP-OP-ESCALATION-001 · ambiente de desenvolvimento · dados fictícios</p>
+
+  <div class="colunas">
+
+    <!-- ============================ esquerda: a conversa -->
+    <div class="cartao">
+      <div class="cab">
+        <h2>A conversa</h2>
+        <span class="meta" id="metaConversa">número <b id="foneLbl">—</b> · turno <b id="turnoLbl">0</b></span>
+      </div>
+
+      <div id="thread"><p class="vaziothread">Escreva como um beneficiário escreveria no WhatsApp.</p></div>
+
+      <div class="bloco">
+        <label>Sua mensagem</label>
+        <textarea id="texto" placeholder="Ex.: oi"></textarea>
+        <div class="exemplos">
+          <button onclick="ex('Oi')">oi</button>
+          <button onclick="ex('Estou com uma dor muito forte no peito e falta de ar')">dor no peito</button>
+          <button onclick="ex('Minha filha de 3 anos está com febre alta e vomitando muito')">febre pediátrica</button>
+          <button onclick="ex('Não aguento mais viver assim, só queria saber um horário de atendimento')">risco psicossocial</button>
+          <button onclick="ex('Quero saber qual é a minha carência para fisioterapia')">dúvida administrativa</button>
+          <button onclick="ex('Estou com dor de cabeça')">mensagem vaga</button>
+        </div>
+        <div class="botoes">
+          <button id="btEnviar" onclick="enviar()">Enviar</button>
+          <button class="sec" onclick="novaConversa()">Nova conversa</button>
+        </div>
+        <p class="nota">
+          O número <b>fica</b> enquanto você conversa — é o que permite testar vários turnos.
+          Use <b>Nova conversa</b> para começar limpo, com outro número.
+        </p>
+        <div id="erroEnvio"></div>
+      </div>
+    </div>
+
+    <!-- ============================ direita: o que o processo fez -->
+    <div class="cartao">
+      <div class="cab">
+        <h2>O que o processo fez</h2>
+        <span class="meta" id="metaTurno">último turno</span>
+      </div>
+
+      <div class="bloco">
+        <h3>A triagem entendeu</h3>
+        <div id="vTriagem"><p class="vazio">Aguardando uma mensagem.</p></div>
+      </div>
+
+      <div class="bloco">
+        <h3>Escalou ou resolveu sozinha?</h3>
+        <div id="vRota"><p class="vazio">Aguardando.</p></div>
+      </div>
+
+      <div class="bloco">
+        <h3>Para onde foi, e com que prazo</h3>
+        <div id="vRoteamento"><p class="vazio">Aguardando.</p></div>
+      </div>
+
+      <div class="bloco">
+        <h3>Relógios de prazo</h3>
+        <div id="vRelogios"><p class="vazio">Aguardando.</p></div>
+      </div>
+
+      <div class="bloco">
+        <h3>Você é a pessoa da equipe</h3>
+        <div id="vTarefa"><p class="vazio">Aguardando.</p></div>
+      </div>
+
+      <div class="bloco">
+        <h3>O rastro</h3>
+        <div id="vRastro"><p class="vazio">Aguardando.</p></div>
+        <div class="botoes" id="botoesEvid" style="display:none">
+          <button class="sec" onclick="copiarEvidencia()">Copiar evidência</button>
+          <button class="sec" onclick="verBruto()">Dados brutos</button>
+        </div>
+        <div id="bruto" style="display:none"><pre id="brutoTxt"></pre></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ estado */
+
+var S = {fone:null, turno:0, pid:null, bk:null, t0:null, evid:{}, historico:[]};
+
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+function ex(t){ $("texto").value = t; $("texto").focus(); }
+
+function api(caminho, corpo){
+  var o = {method: corpo ? "POST" : "GET", headers:{"Content-Type":"application/json"}};
+  if (corpo) o.body = JSON.stringify(corpo);
+  return fetch(caminho, o).then(function(r){
+    return r.text().then(function(t){
+      if (!r.ok) throw new Error("HTTP " + r.status + (t ? " — " + t.slice(0,280) : ""));
+      return t ? JSON.parse(t) : null;
+    });
+  });
+}
+function espera(ms){ return new Promise(function(ok){ setTimeout(ok, ms); }); }
+function falha(alvo, e){ $(alvo).innerHTML = '<div class="erro"><b>Não deu para seguir.</b><br>' + esc(e.message) + '</div>'; }
+function linha(r,v){ return "<tr><th>"+r+"</th><td>"+v+"</td></tr>"; }
+
+/* O motor le data em `yyyy-MM-dd'T'HH:mm:ss.SSSZ` com fuso RFC 822 (`+0000`) — nao o `+00:00`
+   do ISO, e nao sem fuso. Sem isto o motor devolve HTTP 400 ("cannot convert to java.util.Date")
+   e a tela morre na PRIMEIRA consulta depois do envio, parecendo que nada aconteceu. */
+function dataParaMotor(d){ return d.toISOString().replace("Z","+0000"); }
+
+/* INDEXA AS ENTRADAS DE UMA DECISAO POR TODO NOME QUE ELAS PODEM TER.
+   O defeito de 12/09: eu lia `i.clauseName`, que e' o ROTULO HUMANO da coluna — em
+   `triage_redflag_adult` ele e' "Sintoma normalizado (sintoma_codigo)", nao "sintoma_codigo".
+   A chave nunca casava, e o painel escrevia "nao reconhecido" sobre um sintoma que a tabela
+   tinha reconhecido: o diretor viu bandeira vermelha SIM ao lado de "sintoma nao reconhecido",
+   e Motivo/Gravidade do roteamento saiam vazios pelo mesmo motivo (rotulos "Motivo
+   (motivo_categoria)" e "Severidade (severidade)").
+   Agora indexa por rotulo, por id da coluna E pelo nome entre parenteses — a convencao das
+   tabelas desta repo. */
+function entradasDe(decisao){
+  var m = {};
+  ((decisao && decisao.inputs) || []).forEach(function(i){
+    if (i.clauseName) m[i.clauseName] = i.value;
+    if (i.clauseId)   m[i.clauseId]   = i.value;
+    var p = /\(([^)]+)\)\s*$/.exec(i.clauseName || "");
+    if (p) m[p[1].trim()] = i.value;
+  });
+  return m;
+}
+
+function saidasDe(decisao){
+  var m = {};
+  ((decisao && decisao.outputs) || []).forEach(function(o){
+    if (o.variableName) m[o.variableName] = o.value;
+    if (o.clauseName)   m[o.clauseName]   = o.value;
+  });
+  return m;
+}
+
+function prazoHumano(iso){
+  if (!iso) return "—";
+  var m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso);
+  if (!m) return iso;
+  var p = [];
+  if (m[1]) p.push(m[1] + (m[1]==="1" ? " hora" : " horas"));
+  if (m[2]) p.push(m[2] + " minutos");
+  if (m[3]) p.push(m[3] + " segundos");
+  return p.join(" e ") || iso;
+}
+
+var MOTIVOS = {red_flag_clinico:"bandeira vermelha clínica", risco_psicossocial:"risco psicossocial",
+  intencao_clinica:"pedido de orientação clínica", solicitacao_humano:"pediu falar com uma pessoa",
+  falha_tecnica:"falha técnica", outro:"outro"};
+var PRIORIDADES = {P1:"P1 — emergência", P2:"P2 — urgente", P3:"P3 — pode esperar"};
+var DESFECHOS = {End_ResolvidoPorHumano:["Resolvido por uma pessoa","ok"],
+  End_DevolvidoAoAgente:["Devolvido ao agente — a conversa retoma","av"],
+  End_SupervisorAlertado:["Supervisão alertada, caso segue aberto","esc"]};
+
+/* ------------------------------------------------------------- a conversa */
+
+/* FAIXA DE 999, NAO DE 99. Com 99 numeros a colisao era questao de tempo, e aconteceu duas
+   vezes na tarde de 13/09: o sorteio caiu num numero ja usado, que tinha escalonamento aberto de
+   uma bateria anterior, e o painel mostrou o caso velho como se fosse do turno. A cerca do Canal
+   aceita `55119000000` + dois digitos; com tres, o prefixo encurta um. Confirmar com o time que
+   `check_canal_simular.py` aceita a faixa nova ANTES de aplicar — se nao aceitar, manter 99 e
+   trocar so' o alerta de colisao. */
+function novaConversa(){
+  var n = 1 + Math.floor(Math.random()*99);
+  S = {fone: "55119000000" + (n<10 ? "0"+n : String(n)),
+       turno:0, pid:null, bk:null, t0:null, evid:{}, historico:[]};
+  $("foneLbl").textContent = S.fone;
+  $("turnoLbl").textContent = "0";
+  $("thread").innerHTML = '<p class="vaziothread">Escreva como um beneficiário escreveria no WhatsApp.</p>';
+  ["vTriagem","vRota","vRoteamento","vRelogios","vTarefa","vRastro"].forEach(function(id){
+    $(id).innerHTML = '<p class="vazio">Aguardando.</p>';
+  });
+  $("botoesEvid").style.display = "none";
+  $("bruto").style.display = "none";
+  $("erroEnvio").innerHTML = "";
+}
+
+function bolha(quem, texto, classe){
+  var t = $("thread");
+  if (t.querySelector(".vaziothread")) t.innerHTML = "";
+  var d = document.createElement("div");
+  d.className = "bolha " + classe;
+  d.innerHTML = '<div class="quem">' + esc(quem) + "</div>" + esc(texto);
+  t.appendChild(d);
+  t.scrollTop = t.scrollHeight;
+  return d;
+}
+
+function enviar(){
+  var texto = $("texto").value.trim();
+  if (!texto){ $("erroEnvio").innerHTML = '<div class="erro">Escreva uma mensagem primeiro.</div>'; return; }
+
+  $("erroEnvio").innerHTML = "";
+  $("btEnviar").disabled = true;
+  S.turno += 1;
+  S.t0 = dataParaMotor(new Date(Date.now() - 5000));
+  S.pid = null; S.bk = null;
+  S.evid = {turno:S.turno, telefone:S.fone, mensagem:texto};
+  S.historico.push({quem:"você", texto:texto});
+  $("turnoLbl").textContent = String(S.turno);
+
+  bolha("Você", texto, "eu");
+  $("texto").value = "";
+  var pensando = bolha("Helena", "…", "ela");
+
+  ["vTriagem","vRota","vRoteamento","vRelogios","vTarefa","vRastro"].forEach(function(id){
+    $(id).innerHTML = '<p class="vazio">Processando…</p>';
+  });
+  $("metaTurno").textContent = "turno " + S.turno;
+
+  // Fotografia dos escalonamentos abertos ANTES. Serve so' para o texto honesto do passo
+  // "escalou?": se nenhum processo novo aparecer, a tela precisa dizer quantos ja' havia em vez
+  // de afirmar que a Helena resolveu sozinha.
+  api("/engine/process-instance?processDefinitionKey=SP-OP-ESCALATION-001&maxResults=100")
+    .then(function(a){ S.evid.abertosAntes = (a||[]).length; })
+    .catch(function(){ S.evid.abertosAntes = null; })
+    .then(function(){ return api("/receptor/simular", {texto: texto, telefone: S.fone}); })
+    .then(function(resp){ mostrarResposta(pensando, resp); return espera(2500); })
+    .then(mostrarTriagem)
+    .catch(function(e){
+      pensando.className = "bolha ausente";
+      pensando.innerHTML = '<div class="quem">Helena</div>não foi possível entregar a mensagem';
+      falha("vTriagem", e);
+      if (/404|501/.test(e.message)){
+        $("vTriagem").innerHTML += '<p class="nota">A rota <code>/receptor/simular</code> não está ' +
+          'ligada neste Canal.</p>';
+      }
+    })
+    .then(function(){ $("btEnviar").disabled = false; });
+}
+
+/* Sob `WHATSAPP_WEBHOOK_DEVOLVE_TURNO=1` o receptor devolve `resposta` e `conversation_id` no
+   corpo do ack, e o canal ELEVA os dois ao topo da sua resposta (`server.py::_corpo_do_receptor`)
+   mantendo o eco cru em `receptor` — por isso a busca abaixo olha os dois niveis. Sem o portao os
+   campos nao existem, e a tela DIZ que nao recebeu: nunca inventa um texto nem finge silencio da
+   Helena. */
+function mostrarResposta(bolhaPensando, resp){
+  var texto = null, conv = null;
+  try {
+    var r = resp || {};
+    var interno = r.receptor;
+    if (typeof interno === "string") { try { interno = JSON.parse(interno); } catch(e){ interno = {}; } }
+    interno = interno || {};
+    texto = r.resposta || r.reply || interno.resposta || interno.reply || null;
+    conv  = r.conversation_id || interno.conversation_id || null;
+  } catch(e){ /* resposta em forma inesperada: cai no ramo honesto abaixo */ }
+
+  if (conv) S.evid.conversation_id = conv;
+
+  if (texto){
+    bolhaPensando.className = "bolha ela";
+    bolhaPensando.innerHTML = '<div class="quem">Helena</div>' + esc(texto);
+    S.historico.push({quem:"Helena", texto:texto});
+    S.evid.resposta = texto;
+  } else {
+    bolhaPensando.className = "bolha ausente";
+    bolhaPensando.innerHTML = '<div class="quem">Helena</div>' +
+      "Ela respondeu, mas o texto não chega até aqui.\n\n" +
+      "A resposta foi redigida e entregue ao envio do WhatsApp, que recusa em dev " +
+      "(credencial de preenchimento). A rota /receptor/simular ainda não devolve o texto.";
+    S.historico.push({quem:"Helena", texto:"[resposta não visível nesta tela]"});
+  }
+}
+
+/* --------------------------------------------------- o que o processo fez */
+
+function mostrarTriagem(){
+  return api("/engine/history/decision-instance?includeInputs=true&includeOutputs=true" +
+             "&evaluatedAfter=" + encodeURIComponent(S.t0) +
+             "&sortBy=evaluationTime&sortOrder=desc&maxResults=20")
+    .then(function(ds){
+      var tri = (ds||[]).filter(function(d){ return /^triage_redflag_/.test(d.decisionDefinitionKey); });
+      S.evid.triagem = tri;
+      if (!tri.length){
+        $("vTriagem").innerHTML = '<p class="vazio">Nenhuma tabela de triagem foi consultada — ' +
+          'a mensagem não foi lida como sintoma.</p>';
+        return rota();
+      }
+      var d = tri[0], ent = entradasDe(d), sai = saidasDe(d);
+      var pop = d.decisionDefinitionKey.replace("triage_redflag_","")
+        .replace("adult","adulto").replace("pediatric","pediátrica").replace("mental_health","saúde mental");
+      var bandeira = (sai["red_flag"] === true || sai["red_flag"] === "true");
+      $("vTriagem").innerHTML = "<table>" +
+        linha("População", pop) +
+        linha("Sintoma", ent["sintoma_codigo"] || "<i>não reconhecido</i>") +
+        linha("Intensidade", ent["intensidade"] || "—") +
+        linha("Bandeira vermelha?", bandeira ? '<span class="selo esc">SIM</span>'
+                                             : '<span class="selo ok">NÃO</span>') +
+        linha("Conduta", sai["conduta"] || "—") +
+        linha("Tabela", "<code>" + esc(d.decisionDefinitionKey) + "</code>") +
+        "</table>";
+      return rota();
+    })
+    .catch(function(e){ falha("vTriagem", e); });
+}
+
+function rota(){ return procurar(0); }
+
+function procurar(tentativa){
+  return api("/engine/history/process-instance?processDefinitionKey=SP-OP-ESCALATION-001" +
+             "&startedAfter=" + encodeURIComponent(S.t0) +
+             "&sortBy=startTime&sortOrder=desc&maxResults=5")
+    .then(function(ps){
+      if (ps && ps.length){
+        S.pid = ps[0].id; S.bk = ps[0].businessKey; S.evid.processo = ps[0];
+        $("vRota").innerHTML = '<p><span class="selo esc">ESCALOU</span> — processo aberto neste turno.</p>' +
+          "<table>" + linha("Chave", "<code>" + esc(ps[0].businessKey || "—") + "</code>") + "</table>";
+        return roteamento();
+      }
+      if (tentativa < 10) return espera(2000).then(function(){ return procurar(tentativa+1); });
+      return semProcessoNovo();
+    })
+    .catch(function(e){ falha("vRota", e); });
+}
+
+/* NENHUM PROCESSO NOVO NESTE TURNO — e a tela nao pode escolher a leitura otimista.
+   COM o `conversation_id` em maos (portao `WHATSAPP_WEBHOOK_DEVOLVE_TURNO`, ver o cabecalho), a
+   consulta e' pela chave EXATA `ESC-amh-<conversation_id>` e nao ha' ambiguidade nenhuma — e' o
+   primeiro ramo abaixo. SEM ele cai-se no segundo ramo, e ai' vale o LIMITE CONHECIDO, dito em
+   vez de escondido: a contagem e' de TODOS os escalonamentos abertos no motor, nao os deste
+   numero, porque a chave vem de um `conversation_id` que o receptor calcula com chave secreta e
+   a pagina nao tem como derivar do telefone. */
+/* QUANDO NADA ESCALA, OS PAINEIS DE BAIXO NAO TEM O QUE MOSTRAR — e precisam DIZER isso.
+   Ate 13/09 eles ficavam pendurados em "Processando…" para sempre, e na bateria do diretor isso
+   fez parecer que o processo tinha travado quando ele nem tinha comecado. "Processando" e' uma
+   promessa de que algo vem; quando nada vem, e' a mesma familia de mentira dos outros dois
+   defeitos desta tela. */
+function encerrarPaineisSemProcesso(motivo){
+  ["vRoteamento","vRelogios","vTarefa","vRastro"].forEach(function(id){
+    $(id).innerHTML = '<p class="vazio">Não se aplica — ' + motivo + '</p>';
+  });
+  $("botoesEvid").style.display = "flex";
+}
+
+function semProcessoNovo(){
+  var antes = S.evid.abertosAntes;
+
+  if (S.evid.conversation_id){
+    var bk = "ESC-amh-" + S.evid.conversation_id;
+    return api("/engine/process-instance?processDefinitionKey=SP-OP-ESCALATION-001" +
+               "&businessKey=" + encodeURIComponent(bk))
+      .then(function(ins){
+        if (ins && ins.length){
+          S.pid = ins[0].id; S.bk = bk;
+          // O QUE A TELA SABE, E O QUE ELA NAO SABE. Ela mediu duas coisas: nenhum processo
+          // comecou neste turno, e existe um escalonamento aberto para esta conversa. NAO mediu
+          // se o turno TOCOU esse escalonamento — pode ter se juntado a ele, ou pode ter
+          // resolvido sozinho ao lado de um caso que ja' estava la' de outro turno. Dizer "o
+          // turno se juntou a ele" foi afirmacao sem medicao, e apareceu tres vezes na bateria
+          // de 13/09 — inclusive sobre uma saudacao, que nao se junta a caso nenhum.
+          $("vRota").innerHTML = '<p><span class="selo esp">NENHUM PROCESSO NOVO</span></p>' +
+            '<p>Este turno <b>não abriu</b> escalonamento, e esta conversa <b>tem um aberto</b> — ' +
+            'de agora ou de um turno anterior. Um beneficiário não gera duas filas, então não ' +
+            'abrir é o comportamento correto.</p>' +
+            '<p class="nota">O que aparece abaixo é o escalonamento <b>aberto desta conversa</b>. ' +
+            'Se este turno não tinha bandeira vermelha, ele não o alterou — os dados são do caso ' +
+            'que já existia.</p>';
+          return roteamento();
+        }
+        $("vRota").innerHTML = '<p><span class="selo ok">NÃO ESCALOU</span> — a Helena resolveu ' +
+          'sozinha e ninguém foi incomodado.</p>' +
+          '<p class="nota">Leitura firme: esta conversa não tem escalonamento aberto.</p>';
+        encerrarPaineisSemProcesso("nenhum escalonamento foi aberto neste turno.");
+        return null;
+      })
+      .catch(function(e){ falha("vRota", e); });
+  }
+
+  var txt = '<p><span class="selo esp">SEM PROCESSO NOVO NESTE TURNO</span></p>';
+  if (antes === null){
+    txt += '<p>A consulta que conta os escalonamentos abertos falhou, então esta tela não sabe ' +
+           'distinguir entre "resolveu sozinha" e "juntou-se a um caso existente".</p>';
+  } else {
+    txt += '<p>Nenhum escalonamento foi aberto por este turno. Duas leituras possíveis:</p><table>' +
+      linha("Provável", "A Helena resolveu sozinha — é o esperado para saudação, dúvida administrativa e sintoma sem bandeira vermelha.") +
+      linha("A outra", "Esta conversa tem um escalonamento aberto de antes, e este turno não o alterou.") +
+      "</table>" +
+      '<p class="nota">Esta tela ainda não distingue as duas. O número mostrado — <b>' + antes +
+      '</b> escalonamento(s) aberto(s) — é do <b>motor inteiro</b>, somando todas as baterias de ' +
+      'teste, e não deste número. Some quando a rota devolver o identificador da conversa.</p>';
+  }
+  $("vRota").innerHTML = txt;
+  encerrarPaineisSemProcesso("nenhum processo foi aberto por este turno.");
+  return null;
+}
+
+function roteamento(){
+  return api("/engine/history/decision-instance?processInstanceId=" + S.pid +
+             "&includeInputs=true&includeOutputs=true")
+    .then(function(ds){
+      var r = (ds||[]).filter(function(d){ return d.decisionDefinitionKey === "escalation_routing"; })[0];
+      S.evid.roteamento = r || null;
+      if (!r){ $("vRoteamento").innerHTML = '<p class="vazio">Roteamento ainda não registrado.</p>'; }
+      else {
+        var ent = entradasDe(r), sai = saidasDe(r);
+        $("vRoteamento").innerHTML = "<table>" +
+          linha("Motivo", MOTIVOS[ent["motivo_categoria"]] || ent["motivo_categoria"] || "—") +
+          linha("Gravidade", ent["severidade"] || "<i>não se aplica</i>") +
+          linha("Prioridade", "<b>" + (PRIORIDADES[sai["prioridade"]] || sai["prioridade"] || "—") + "</b>") +
+          linha("Fila", "<code>" + esc(sai["grupo_atendimento"] || "—") + "</code>") +
+          linha("Prazo para assumir", "<b>" + prazoHumano(sai["sla_ack"]) + "</b>") +
+          linha("Prazo para resolver", "<b>" + prazoHumano(sai["sla_resolucao"]) + "</b>") +
+          "</table>";
+      }
+      return relogios();
+    })
+    .catch(function(e){ falha("vRoteamento", e); });
+}
+
+function relogios(){
+  return api("/engine/job?processInstanceId=" + S.pid)
+    .then(function(js){
+      S.evid.relogios = js;
+      if (!js || !js.length){ $("vRelogios").innerHTML = '<p class="vazio">Nenhum relógio ativo.</p>'; return tarefa(); }
+      var agora = Date.now(), html = "<table><tr><th>Vence</th><th>Situação</th></tr>";
+      js.forEach(function(j){
+        // O campo do Camunda e' `dueDate` em camelCase. `duedate` devolve vazio e a tela mente
+        // dizendo que nao ha prazo.
+        var d = j.dueDate ? new Date(j.dueDate) : null;
+        var falta = d ? Math.round((d.getTime()-agora)/60000) : null;
+        html += "<tr><td>" + (d ? d.toLocaleString("pt-BR") : "—") + "</td><td>" +
+          (falta === null ? "—" : falta > 0
+            ? '<span class="relogio">faltam ' + falta + ' min</span>'
+            : '<span class="selo av">venceu há ' + Math.abs(falta) + ' min</span>') + "</td></tr>";
+      });
+      $("vRelogios").innerHTML = html + "</table>" +
+        '<p class="nota">Se um prazo vencer sem ninguém assumir, o processo aciona a supervisão sozinho.</p>';
+      return tarefa();
+    })
+    .catch(function(e){ falha("vRelogios", e); });
+}
+
+function tarefa(){
+  return api("/engine/task?processInstanceId=" + S.pid)
+    .then(function(ts){
+      S.evid.tarefa = ts;
+      if (!ts || !ts.length){ $("vTarefa").innerHTML = '<p class="vazio">Nenhuma tarefa aberta.</p>'; return rastro(); }
+      var t = ts[0];
+      $("vTarefa").innerHTML = "<table>" +
+        linha("Tarefa", "<b>" + esc(t.name) + "</b>") +
+        linha("Criada", new Date(t.created).toLocaleString("pt-BR")) + "</table>" +
+        '<div class="botoes">' +
+        '<button class="verde" onclick="concluir(\'' + t.id + '\',\'resolvido_humano\')">Resolvi</button>' +
+        '<button class="ambar" onclick="concluir(\'' + t.id + '\',\'devolvido_agente\')">Devolvo ao agente</button>' +
+        '<button class="vermelho" onclick="concluir(\'' + t.id + '\',\'emergencia_acionada\')">Acionei emergência</button>' +
+        "</div>";
+      return null;
+    })
+    .catch(function(e){ falha("vTarefa", e); });
+}
+
+function concluir(tid, resultado){
+  $("vTarefa").innerHTML = '<p class="vazio">Concluindo…</p>';
+  api("/engine/task/" + tid + "/complete", {variables:{
+      resultado:{value:resultado,type:"String"},
+      notas_resolucao:{value:"Concluído pelo Canal de Teste (" + resultado + ")",type:"String"}}})
+    .then(function(){ return espera(1800); })
+    .then(function(){
+      S.evid.resultado = resultado;
+      $("vTarefa").innerHTML = "<p>Você escolheu: <b>" +
+        ({resolvido_humano:"Resolvi", devolvido_agente:"Devolvo ao agente",
+          emergencia_acionada:"Acionei emergência"}[resultado]) + "</b></p>";
+      return rastro();
+    })
+    .catch(function(e){ falha("vTarefa", e); });
+}
+
+function rastro(){
+  return api("/engine/history/activity-instance?processInstanceId=" + S.pid +
+             "&sortBy=startTime&sortOrder=asc&maxResults=200")
+    .then(function(as){
+      S.evid.rastro = as;
+      var html = '<div class="rastro">';
+      (as||[]).forEach(function(a){
+        var fim = DESFECHOS[a.activityId];
+        html += "<div>" + new Date(a.startTime).toLocaleTimeString("pt-BR") + " — <b>" +
+          esc(a.activityName || a.activityId) + "</b>" +
+          (fim ? ' <span class="selo ' + fim[1] + '">' + fim[0] + "</span>" : "") + "</div>";
+      });
+      $("vRastro").innerHTML = html + "</div>";
+      $("botoesEvid").style.display = "flex";
+    })
+    .catch(function(e){ falha("vRastro", e); });
+}
+
+function copiarEvidencia(){
+  var t = ["SP-OP-ESCALATION-001 — teste pelo Canal",
+    "Quando: " + new Date().toLocaleString("pt-BR"),
+    "Número: " + S.fone + " · turno " + S.turno,
+    "", "CONVERSA:"];
+  S.historico.forEach(function(m){ t.push("  " + m.quem + ": " + m.texto); });
+  t.push("", "Instância: " + (S.pid || "nenhuma aberta neste turno"),
+         "Desfecho escolhido: " + (S.evid.resultado || "—"),
+         "", "Dados completos:", JSON.stringify(S.evid, null, 1));
+  navigator.clipboard.writeText(t.join("\n")).then(function(){ alert("Evidência copiada."); });
+}
+
+function verBruto(){
+  var d = $("bruto");
+  d.style.display = d.style.display === "none" ? "block" : "none";
+  $("brutoTxt").textContent = JSON.stringify(S.evid, null, 2);
+}
+
+novaConversa();
+</script>
