@@ -950,11 +950,30 @@ export interface components {
             allowed_actions: unknown[];
             case: components["schemas"]["CaseSummary"];
             freshness: components["schemas"]["Freshness"];
+            outcome: components["schemas"]["CaseOutcome"] | null;
             /**
              * Schema
              * @constant
              */
             schema: "portal-external-case-detail.v1";
+        };
+        /**
+         * CaseOutcome
+         * @description Desfecho fechado projetado do estado terminal do motor; nada e inferido aqui.
+         */
+        CaseOutcome: {
+            /** Authorization Ref */
+            authorization_ref: string | null;
+            /**
+             * Desfecho
+             * @enum {string}
+             */
+            desfecho: "aprovada_automatica" | "aprovada_auditor" | "negada_auditor" | "nao_requer_autorizacao" | "cancelada_pendencia";
+            /**
+             * Phase
+             * @constant
+             */
+            phase: "decisao_executada";
         };
         /** CasePage */
         CasePage: {
@@ -2561,6 +2580,7 @@ export interface components {
             identity: components["schemas"]["Identity"];
             /** Next Task Cursor */
             next_task_cursor: string | null;
+            outcome: components["schemas"]["CaseOutcome"] | null;
             /**
              * Schema
              * @constant

@@ -66,6 +66,7 @@ function caseDetail() {
     case: selectedCasePage().items[0],
     allowed_actions: [],
     freshness: { observed_at: observed, valid_until: future },
+    outcome: null,
   } as const;
 }
 

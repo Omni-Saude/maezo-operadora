@@ -1,4 +1,4 @@
-# ADR-0051: A memória clínica da conversa NÃO é leitura de prontuário — o `ClinicalContextPort` continua sendo a única costura clínica (XRD-06 do ADR-0037)
+# ADR-0052: A memória clínica da conversa NÃO é leitura de prontuário — o `ClinicalContextPort` continua sendo a única costura clínica (XRD-06 do ADR-0037)
 
 **Status:** Proposed — **NÃO RATIFICADO.** · **Data:** 2026-09-18 · **Área:** Fronteira de plataforma / Privacidade / Governança de ADR
 

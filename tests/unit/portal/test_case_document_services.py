@@ -53,36 +53,57 @@ class Lease:
 
 
 class Native:
+    """Motor sintetico. `state`/`outcome` sao estado do motor, jamais inferidos pelo servico."""
+
     def __init__(self):
         self.extra = False
         self.wrong_case = False
+        self.extra_outcome = False
+        self.state = "active"
+        # None = a chave `outcome` vai nula no fio (caso em andamento).
+        self.outcome: dict[str, object] | None = None
+        self.omit_outcome = False
 
     async def observe(self, **request):
         now = datetime.now(UTC)
         item = dict(
             case_ref=REF2 if self.wrong_case else REF,
             kind="authorization",
-            state="active",
+            state=self.state,
             record_revision="1",
             state_observed_at=instant(now),
         )
         if self.extra:
             item["clinical_notes"] = "PRIVATE_CANARY"
+        outcome = self.outcome
+        if self.extra_outcome and outcome is not None:
+            outcome = dict(outcome, justificativa_clinica="PRIVATE_CANARY")
+        projection: dict[str, object] = {
+            "schema": "portal-external-case-detail.v1",
+            "case": item,
+            "allowed_actions": [],
+            "freshness": {
+                "observed_at": instant(now),
+                "valid_until": instant(now + timedelta(seconds=5)),
+            },
+            "outcome": outcome,
+        }
+        if self.omit_outcome:
+            del projection["outcome"]
         return canonicalize(
             {
                 "schema": "portal-external-case-observation.v1",
                 "continuity_proof": "synthetic-proof",
-                "projection": {
-                    "schema": "portal-external-case-detail.v1",
-                    "case": item,
-                    "allowed_actions": [],
-                    "freshness": {
-                        "observed_at": instant(now),
-                        "valid_until": instant(now + timedelta(seconds=5)),
-                    },
-                },
+                "projection": projection,
             }
         )
+
+
+APROVADA = {
+    "phase": "decisao_executada",
+    "desfecho": "aprovada_auditor",
+    "authorization_ref": "b" * 64,
+}
 
 
 @pytest.mark.asyncio
@@ -102,6 +123,53 @@ async def test_case_projection_never_infers_more_than_w6(change):
     service = CaseService(Resolver(), lease, native)
     with pytest.raises(ExternalCaseError):
         await service.read("synthetic", case_ref=REF)
+    assert not lease.finalized
+
+
+@pytest.mark.asyncio
+async def test_case_outcome_projects_engine_desfecho_without_the_tiss_number():
+    lease, native = Lease(), Native()
+    native.state, native.outcome = "ended", APROVADA
+    raw = await (CaseService(Resolver(), lease, native)).read("synthetic", case_ref=REF)
+    assert lease.finalized
+    assert b'"desfecho":"aprovada_auditor"' in raw and b'"phase":"decisao_executada"' in raw
+    # `numero_autorizacao = AUTH-{tenant}-{guia}-{uuid8}` (`tools/workers/auth.py:1336`)
+    # nao cruza a fronteira externa: o grant de divulgacao de recibo esta diferido.
+    assert b"AUTH-" not in raw and ("b" * 64).encode() in raw
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "outcome", "omit", "extra_outcome"),
+    [
+        # Fecha por ausencia: encerrado sem registro de decisao nao vira projecao.
+        ("ended", None, False, False),
+        # Desfecho sem encerramento seria inferencia de estado do motor.
+        ("active", APROVADA, False, False),
+        # Chave obrigatoria no fio: produtor que a omite e recusado, nao defaultado.
+        ("active", None, True, False),
+        # Nenhum campo alem de phase/desfecho/authorization_ref atravessa.
+        ("ended", APROVADA, False, True),
+        # BPMN :546 nao declara `numero_autorizacao` para a negativa.
+        ("ended", {**APROVADA, "desfecho": "negada_auditor"}, False, False),
+        # BPMN :505 declara `numero_autorizacao` para a aprovacao do auditor.
+        ("ended", {**APROVADA, "authorization_ref": None}, False, False),
+        # Vocabulario fechado: so os cinco `event_desfecho` do BPMN.
+        ("ended", {**APROVADA, "desfecho": "aprovada_por_omissao"}, False, False),
+        # `comunicado_entregue` pertence ao WP-J1-07 completo, ainda nao provavel.
+        ("ended", {**APROVADA, "phase": "comunicado_entregue"}, False, False),
+        # Referencia opaca: o composto TISS nao satisfaz o formato hexadecimal.
+        ("ended", {**APROVADA, "authorization_ref": "AUTH-tenant-12345-abcdef12"}, False, False),
+    ],
+)
+async def test_case_outcome_fails_closed_against_every_inconsistent_engine_record(
+    state, outcome, omit, extra_outcome
+):
+    lease, native = Lease(), Native()
+    native.state, native.outcome = state, outcome
+    native.omit_outcome, native.extra_outcome = omit, extra_outcome
+    with pytest.raises(ExternalCaseError):
+        await (CaseService(Resolver(), lease, native)).read("synthetic", case_ref=REF)
     assert not lease.finalized
 
 
