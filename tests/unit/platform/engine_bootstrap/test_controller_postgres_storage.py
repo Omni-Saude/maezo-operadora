@@ -338,9 +338,6 @@ class ReaderConnection:
     def rollback(self) -> None:
         self.calls.append("rollback")
 
-    def close(self) -> None:
-        self.calls.append("close")
-
 
 @pytest.mark.parametrize("role", ["actual issuer login", "scoped D observer login"])
 @pytest.mark.parametrize("found", [False, True])

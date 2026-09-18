@@ -448,9 +448,6 @@ class InstallationProtocolConnection:
     def rollback(self) -> None:
         self.calls.append("rollback")
 
-    def close(self) -> None:
-        self.calls.append("close")
-
 
 class InstallationProtocolAuthority:
     def __init__(self) -> None:

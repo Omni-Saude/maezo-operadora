@@ -425,16 +425,7 @@ _AGENTES_CONHECIDOS: frozenset[str] = frozenset(
 #: todo falso de `IdempotencyStore` declara `claim_or_get`, entao continua classificado e tem o
 #: `mark_requested` conferido. `requested_emitted` NAO entra aqui -- nenhum outro Protocol usa
 #: esse nome, entao ele segue como ancora independente.
-#: `close` (18/09/2026, PR-F controller-D): MESMA razao, terceira familia. `close` era ancora
-#: independente de DmnTransport porque so' ele o declara na tabela — mas `close(self)` e' o
-#: metodo mais generico que existe (todo cursor, conexao, socket e cliente o tem) e nao carrega
-#: parametro nenhum para o gate de FORMA discriminar. Resultado: os duplos SINCRONOS de psycopg
-#: que `controller_postgres_storage` consome (`Cursor.close`, `ReaderConnection.close`,
-#: `InstallationProtocolConnection.close`) eram acusados de drift de um falso de DmnTransport
-#: que nunca fingiram ser. Como SECUNDARIO a cobertura real fica intacta: todo falso de
-#: DmnTransport declara `evaluate`, entao continua classificado e tem o `close` conferido.
 _SECUNDARIOS_POR_FAMILIA: dict[str, tuple[str, ...]] = {
-    "DmnTransport": ("close",),
     "IdempotencyStore": ("complete", "mark_requested"),
     "FactBrokerPublisher": ("start", "stop"),
 }
@@ -977,6 +968,38 @@ def _checa_metodo_ambiguo(
 # teste. `http.client.HTTPConnection` expõe só `close` nesta família; `botocore.httpsession.
 # URLLib3Session` expõe `send(request)` síncrono e `close()` — o par exato que colide com os
 # Protocols do projeto (`BrRegionalTransport.send`, `DmnTransport.close`).
+# Duplos CONSTRUIDOS (nunca monkeypatchados) de colaboradores externos, declarados a mao. O
+# mecanismo abaixo prova identidade pelo ALVO do monkeypatch; um duplo que e' instanciado e passado
+# como argumento nao tem alvo — e se o unico metodo que ele compartilha com uma familia e' `close`,
+# a forma `close(self)` nao tem parametro nenhum para o gate de FORMA discriminar, entao a cerca o
+# acusa de ser drift de `DmnTransport` (async) quando ele e' um cursor psycopg (sincrono).
+#
+# CHAVE = (rotulo do arquivo em posix, nome da classe) -> (metodos isentos, razao). Estreita de
+# proposito: outro arquivo, ou outra classe no mesmo arquivo, continua acusado — e'
+# `test_declared_constructed_double_is_keyed_to_one_file_and_one_class` em
+# test_structural_fake_collaborators.py que prova isso. Toda entrada exige razao nao-vazia
+# (asserido em import). Isto NAO e' um `# noqa`: e' o mesmo contrato de allowlist com justificativa
+# que `.github/osv-allowlist.json` e `.gitleaksignore` seguem neste repo.
+_DUPLOS_CONSTRUIDOS_DECLARADOS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
+    ("tests/unit/platform/engine_bootstrap/test_controller_postgres_storage.py", "Cursor"): (
+        frozenset({"close"}),
+        "duplo SINCRONO do Protocol `controller_postgres_storage.Cursor` (execute/fetchone/close), "
+        "que `cursor.close()` em controller_postgres_storage.py consome e cujo `close_error` o teste "
+        "`failure == 'close'` exercita. Nao e' DmnTransport: o unico nome em comum e' `close`.",
+    ),
+}
+for _chave, (_metodos, _razao) in _DUPLOS_CONSTRUIDOS_DECLARADOS.items():
+    assert _metodos and _razao.strip(), f"entrada sem metodos ou sem razao: {_chave}"
+
+
+def _duplos_declarados_para(rotulo: str) -> dict[str, frozenset[str]]:
+    """nome da classe -> metodos isentos, para o arquivo `rotulo` (normalizado para posix)."""
+    posix = rotulo.replace("\\", "/")
+    return {
+        nome: metodos for (arq, nome), (metodos, _) in _DUPLOS_CONSTRUIDOS_DECLARADOS.items() if arq == posix
+    }
+
+
 _COLABORADORES_EXTERNOS_SUBSTITUIVEIS: dict[tuple[str, str], frozenset[str]] = {
     ("http.client", "HTTPConnection"): frozenset({"close"}),
     ("botocore.httpsession", "URLLib3Session"): frozenset({"send", "close"}),
@@ -1492,15 +1515,19 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
     modulos_arquivo = _modulos_importados_ast(arvore)
     agentes_arquivo = _agentes_mencionados_ast(arvore, modulos_arquivo)
     metodos_externos = _metodos_de_colaborador_externo(arvore)
+    duplos_declarados = _duplos_declarados_para(rotulo)
 
     for classe in _classes_da_arvore(arvore):
         metodos_classe = _metodos_proprios_ast(classe)
+        isentos_declarados = duplos_declarados.get(classe.name, frozenset())
         familias_ancoradas: set[str] = set()
         achados_da_classe: list[str] = []
 
         for nome_metodo, no in metodos_classe.items():
             if nome_metodo in metodos_externos.get(classe, set()):
                 continue  # uso concreto identifica outro colaborador, não esta família
+            if nome_metodo in isentos_declarados:
+                continue  # duplo construido declarado com razao em _DUPLOS_CONSTRUIDOS_DECLARADOS
             if nome_metodo == _NOME_COM_DISCRIMINADOR_PROPRIO:
                 continue  # coberto pelas secoes (A)/(B) acima (marcador `phi`)
             if nome_metodo in _NOMES_SOMENTE_SECUNDARIOS:
