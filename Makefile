@@ -2,6 +2,7 @@
         check-bpmn-error-allowlist check-start-process-fence effect-chokepoint-fence \
         verify-amh-contract-pin \
         check-alert-runbook-urls \
+        check-revisao-das-reguas \
         check-plans-counts \
         check-doc-symbol-citations \
         xfail-census-check xfail-census-write \
@@ -62,6 +63,12 @@ check-bpmn-error-allowlist: ## ADR-0030 §2: prova que todo WorkerBpmnError rais
 	# FALHA em raise nao-coberto/nao-catalogado; clausula (c) dead-model e warn-only no Tier-0..2
 	# (F5) — `--strict-dead-models` endurece para FALHA no fecho do Tier-3.
 	.venv/bin/python scripts/ci/check_bpmn_error_allowlist.py
+
+check-revisao-das-reguas: ## Frente 8.3: a cadencia de revisao das reguas nao vence em silencio
+	# Falha no dia em que `spec/revisao-das-reguas.yaml` diz que uma regua deveria ter sido
+	# revista — e nao ha renovacao silenciosa: a saida e' um PR que registre a revisao feita ou
+	# declare por que ela nao aconteceu. Mesma disciplina de `deviation-expiry-check`.
+	.venv/bin/python scripts/ci/check_revisao_das_reguas.py
 
 check-alert-runbook-urls: ## D12-01-b / R-007: toda regra alert: de alert-rules.yml carrega annotations.runbook_url resolvivel no repo
 	# Falha se uma regra `alert:` nao tem `runbook_url`, se o caminho apontado nao existe no
