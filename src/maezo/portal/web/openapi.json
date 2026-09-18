@@ -1335,6 +1335,16 @@
           "freshness": {
             "$ref": "#/components/schemas/Freshness"
           },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schema": {
             "const": "portal-external-case-detail.v1",
             "title": "Schema",
@@ -1344,9 +1354,51 @@
         "required": [
           "schema",
           "case",
-          "freshness"
+          "freshness",
+          "outcome"
         ],
         "title": "CaseDetail",
+        "type": "object"
+      },
+      "CaseOutcome": {
+        "additionalProperties": false,
+        "description": "Desfecho fechado projetado do estado terminal do motor; nada e inferido aqui.",
+        "properties": {
+          "authorization_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Ref"
+          },
+          "desfecho": {
+            "enum": [
+              "aprovada_automatica",
+              "aprovada_auditor",
+              "negada_auditor",
+              "nao_requer_autorizacao",
+              "cancelada_pendencia"
+            ],
+            "title": "Desfecho",
+            "type": "string"
+          },
+          "phase": {
+            "const": "decisao_executada",
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "desfecho",
+          "authorization_ref"
+        ],
+        "title": "CaseOutcome",
         "type": "object"
       },
       "CasePage": {
@@ -6107,6 +6159,16 @@
             ],
             "title": "Next Task Cursor"
           },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schema": {
             "const": "portal-staff-case-detail.v1",
             "title": "Schema",
@@ -6124,7 +6186,8 @@
           "active_tasks",
           "next_task_cursor",
           "tasks_complete",
-          "freshness"
+          "freshness",
+          "outcome"
         ],
         "title": "StaffDetail",
         "type": "object"

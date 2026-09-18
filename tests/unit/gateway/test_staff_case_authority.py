@@ -295,7 +295,7 @@ def test_created_at_requires_distinct_actual_task_resource_decision():
     assert digest(resource | {"task_id": "another"}) != result.task_decisions[0].resource_identity_digest
 
 
-def _detail_observation(identity, witness, now):
+def _detail_observation(identity, witness, now, *, state="active", outcome=None):
     from maezo.gateway.human.read_profile import utc
 
     until = utc(now + timedelta(seconds=5))
@@ -304,7 +304,7 @@ def _detail_observation(identity, witness, now):
         "case": {
             "case_ref": identity.case_ref,
             "kind": "authorization",
-            "state": "active",
+            "state": state,
             "record_revision": "9",
             "state_observed_at": utc(now),
         },
@@ -318,6 +318,7 @@ def _detail_observation(identity, witness, now):
             "valid_until": until,
             "refresh_after_seconds": "10",
         },
+        "outcome": outcome,
     }
     pins = [
         {"kind": kind, "ref": ref, "revision": "1", "digest": "a" * 64, "valid_until": until}
@@ -475,6 +476,51 @@ def test_native_cadence_refuses_values_outside_exact_signed_grammar(cadence):
     _, _, identity, witness, _, now, _, _ = scenario()
     value = _detail_observation(identity, witness, now)
     value["projection"]["freshness"]["refresh_after_seconds"] = cadence
+    with pytest.raises((StaffCaseError, ProfileError)):
+        observation(value, request_digest="a" * 64, case_ref=identity.case_ref, limit=25, now=now)
+
+
+_STAFF_APROVADA = {
+    "phase": "decisao_executada",
+    "desfecho": "aprovada_auditor",
+    "authorization_ref": "c" * 64,
+}
+
+
+def test_staff_detail_projects_the_engine_outcome_of_an_ended_case():
+    from maezo.gateway.staff_cases.service import observation
+
+    _, _, identity, witness, _, now, _, _ = scenario()
+    value = _detail_observation(identity, witness, now, state="ended", outcome=_STAFF_APROVADA)
+    result = observation(value, request_digest="a" * 64, case_ref=identity.case_ref, limit=25, now=now)
+    assert result.projection.outcome is not None
+    assert result.projection.outcome.desfecho == "aprovada_auditor"
+    assert result.projection.outcome.phase == "decisao_executada"
+    assert result.projection.outcome.authorization_ref == "c" * 64
+
+
+@pytest.mark.parametrize(
+    ("state", "outcome"),
+    [
+        # Fecha por ausencia: encerrado sem registro de decisao nao vira projecao.
+        ("ended", None),
+        # Desfecho sem encerramento seria inferencia de estado do motor.
+        ("active", _STAFF_APROVADA),
+        # Vocabulario fechado: so os cinco `event_desfecho` do BPMN SP-OP-AUTH-001.
+        ("ended", {**_STAFF_APROVADA, "desfecho": "aprovada_por_omissao"}),
+        # BPMN :546 nao declara `numero_autorizacao` para a negativa.
+        ("ended", {**_STAFF_APROVADA, "desfecho": "negada_auditor"}),
+        # Referencia opaca: o composto TISS nao satisfaz o formato hexadecimal.
+        ("ended", {**_STAFF_APROVADA, "authorization_ref": "AUTH-tenant-12345-abcdef12"}),
+        # Nenhum campo clinico atravessa a projecao de leitura do colaborador.
+        ("ended", {**_STAFF_APROVADA, "justificativa_clinica": "PRIVATE_CANARY"}),
+    ],
+)
+def test_staff_detail_outcome_fails_closed_against_inconsistent_engine_records(state, outcome):
+    from maezo.gateway.staff_cases.service import observation
+
+    _, _, identity, witness, _, now, _, _ = scenario()
+    value = _detail_observation(identity, witness, now, state=state, outcome=outcome)
     with pytest.raises((StaffCaseError, ProfileError)):
         observation(value, request_digest="a" * 64, case_ref=identity.case_ref, limit=25, now=now)
 
