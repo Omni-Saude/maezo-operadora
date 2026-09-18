@@ -1260,6 +1260,13 @@ def _emit_raw_handler_worker_metrics(
 # --------------------------------------------------------------------------------------------
 
 
+class TopicSealError(RuntimeError):
+    """A sealed topic may not be re-registered by anything but its own owner."""
+
+    def __init__(self, topic: str) -> None:
+        super().__init__(f"topic_sealed:{topic}")
+
+
 class WorkerHarness:
     """Fetch-and-lock loop for CIB Seven external tasks.
 
@@ -1324,6 +1331,8 @@ class WorkerHarness:
         # `_emit_raw_handler_worker_metrics`.
         self._worker_base_topics: set[str] = set()
         self._handler_names: dict[str, str] = {}
+        #: Topics with a durable exclusive owner — see `seal_topic`.
+        self._sealed_topics: dict[str, type[WorkerBase]] = {}
         self._registry = WorkerRegistry()
         self._running = False
 
@@ -1345,7 +1354,11 @@ class WorkerHarness:
         reported under and clears any prior `register_worker` claim on it — "last registration
         wins" has to hold for the metric identity too, or a topic re-registered raw would keep
         being treated as `WorkerBase`-emitted and would emit nothing at all.
+
+        "Last registration wins" stops at a SEALED topic (`seal_topic`): an exclusive
+        owner that can be displaced by a later caller is not exclusive.
         """
+        self._assert_not_sealed(topic, None)
         self._handlers[topic] = handler
         self._topic_variables[topic] = variables
         self._handler_names[topic] = derive_handler_name(handler)
@@ -1365,6 +1378,7 @@ class WorkerHarness:
         against the base-class default, which just re-enters `run()` synchronously and would
         defeat the bridge if awaited directly).
         """
+        self._assert_not_sealed(worker.topic, type(worker))
         self._registry.register(worker.topic, worker)
         run_async_overridden = type(worker).run_async is not WorkerBase.run_async
 
@@ -1373,13 +1387,39 @@ class WorkerHarness:
                 return await _worker.run_async(task.variables)
             return await asyncio.to_thread(_worker.run, task.variables)
 
-        self.register(worker.topic, _adapter)
+        sealed = self._sealed_topics.pop(worker.topic, None)
+        try:
+            self.register(worker.topic, _adapter)
+        finally:
+            if sealed is not None:
+                self._sealed_topics[worker.topic] = sealed
         # AFTER `register` (which clears the flag): this topic's M11 metrics come from
         # `WorkerBase.run()` itself, so `_handle` must NOT emit a second, doubling observation.
         # The label matches what `WorkerBase.run()` uses (`type(self).__name__`) so the two legs
         # of `registered_topics` share one vocabulary.
         self._worker_base_topics.add(worker.topic)
         self._handler_names[worker.topic] = type(worker).__name__
+
+    def seal_topic(self, topic: str, owner: type[WorkerBase]) -> None:
+        """Make `topic` exclusively `owner`'s, durably (WP-J1-06 / V14 MINOR-5).
+
+        `assert_exclusive` only looked at one moment in time: registering the generic
+        worker AFTERWARDS silently replaced the owner, because `WorkerRegistry.register`
+        warns and overwrites on a duplicate topic. `register_all_workers` is documented
+        as idempotent and safe to call again, so a second call without the seam handed
+        the topic straight back. A seal survives that: re-registering the SAME owner
+        type stays idempotent, and anything else — another `WorkerBase`, or a raw
+        handler — is refused instead of winning.
+        """
+        current = self._registry.get(topic)
+        if type(current) is not owner:
+            raise TopicSealError(topic)
+        self._sealed_topics[topic] = owner
+
+    def _assert_not_sealed(self, topic: str, incoming: type[WorkerBase] | None) -> None:
+        owner = self._sealed_topics.get(topic)
+        if owner is not None and incoming is not owner:
+            raise TopicSealError(topic)
 
     @property
     def registered_topics(self) -> list[str]:

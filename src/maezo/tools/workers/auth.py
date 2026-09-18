@@ -75,6 +75,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from maezo.gateway.required_text import ZERO_WIDTH_CHARS, ZERO_WIDTH_TRANSLATION, is_blank
 from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.observability import record_worker_error
 from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
@@ -1382,8 +1383,12 @@ class IssueAuthorizationWorker(WorkerBase):
 # Zero-width / BOM code points that carry NO visible content but which `str.strip()` does NOT
 # remove (their `str.isspace()` is False): zero-width space, ZWNJ, ZWJ, word joiner, BOM /
 # zero-width no-break space. A grounding field made only of these is empty for completeness.
-_ZERO_WIDTH_CHARS = "\u200b\u200c\u200d\u2060\ufeff"  # ZWSP, ZWNJ, ZWJ, word-joiner, BOM/ZWNBSP
-_ZERO_WIDTH_TRANSLATION = dict.fromkeys(map(ord, _ZERO_WIDTH_CHARS))
+# The table and the emptiness rule now live in ONE place (`gateway/required_text.py`) because a
+# second denial guard (the portal-decision owner, WP-J1-06) depends on the identical rule and a
+# duplicated normalization is a normalization that eventually diverges. Names kept for the
+# docstring below and for anything that reads them.
+_ZERO_WIDTH_CHARS = ZERO_WIDTH_CHARS
+_ZERO_WIDTH_TRANSLATION = ZERO_WIDTH_TRANSLATION
 
 
 def _is_blank(value: Any) -> bool:
@@ -1398,9 +1403,7 @@ def _is_blank(value: Any) -> bool:
         zero-width strip closes a gap where ``"\\u200b"`` alone (isspace() is False) would otherwise
         survive ``.strip()`` and read as present.
     """
-    if not isinstance(value, str):
-        return True
-    return not value.translate(_ZERO_WIDTH_TRANSLATION).strip()
+    return is_blank(value)
 
 
 class SendDenialNoticeWorker(WorkerBase):
@@ -1871,6 +1874,13 @@ def register_auth_workers(
     would leave `ST_ValidateAutoApprovalCriteria` unserved and STALL every authorization
     request — the outcome design §6 exists to prevent.
 
+    `denial_notice_host` (WP-J1-06) is the opposite kind of seam: it names ANOTHER owner
+    for `operadora.auth.send_denial_notice`, so `SendDenialNoticeWorker` must NOT be
+    registered alongside it. Two workers on one topic race for the same external task and
+    the loser's guard never runs — one owner per topic, decided here, at the only place
+    that registers the generic one. Absent the seam nothing changes: the generic worker
+    stays the owner and reads its grounding from process variables as it always has.
+
     WP-J1-09: `operadora.auth.notify_sla_risk` is now a RAW `harness.register()` handler instead
     of a `register_worker(NotifySlaRiskWorker())` entry, because publishing the alert needs the
     async Kafka seam a `WorkerBase.execute` boundary cannot reach — the same conversion lgpd's
@@ -1878,14 +1888,19 @@ def register_auth_workers(
     EXCLUSIVITY: the class is NOT also registered on that topic (a topic serves exactly one
     handler); it is now CALLED BY the handler, so its pure step and its three unit tests are
     unchanged. `kafka` therefore stops being unused in this bootstrap.
+
+    COMPOSICAO DOS DOIS WPs (18/09/2026, resolucao do conflito de merge, feita por AGENTE — ver
+    a nota no PR). Os dois retiram UM worker da lista abaixo, cada um o SEU, e os topicos sao
+    DISJUNTOS: `send_denial_notice` (J1-06) e `notify_sla_risk` (J1-09). Por isso a lista base
+    nao tem NENHUM dos dois — cada um volta pelo seu proprio caminho, o primeiro por `append`
+    condicional ao seam e o segundo por `harness.register` cru depois do laco. O descarte do
+    `kafka` que a main fazia no topo SAI, porque o handler cru do J1-09 consome o seam: mante-lo
+    devolveria o alerta ao caminho sem produtor, que e' o defeito que aquele WP fechou.
     """
-    # WP-J1-03's conditional list, kept verbatim. The `del kafka` that used to sit here is GONE:
-    # WP-J1-09's raw `notify_sla_risk` handler consumes the seam, so discarding it would silently
-    # put the alert back on the no-producer path — the exact defect this WP closed.
+    host = seams.get("denial_notice_host")
     workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
         IssueAuthorizationWorker,
-        SendDenialNoticeWorker,
         ConveneJuntaWorker,
     ]
     # WP-J1-03 — EXCLUSIVIDADE DE TOPICO. `operadora.auth.request_documents` tem dois
@@ -1904,7 +1919,38 @@ def register_auth_workers(
     # historico byte-a-byte: o worker generico registra.
     if not seams.get("document_request_host_installed", False):
         workers.insert(1, RequestDocumentsWorker)
+    # WP-J1-06 — A MESMA REGRA, SEGUNDO TOPICO. `operadora.auth.send_denial_notice`
+    # tambem tem dois consumidores possiveis e exatamente um pode estar registrado:
+    #   (a) este `SendDenialNoticeWorker`, que le a fundamentacao das variaveis de
+    #       processo; e
+    #   (b) o dono nativo do portal (`DenialNoticeHost`, instalado so quando
+    #       `MAEZO_DENIAL_NOTICE_OWNER` esta ligado), que le a base da decisao humana em
+    #       custodia PHI.
+    # Dois workers num topico correm pela mesma tarefa externa e o guard do perdedor
+    # nunca corre. A ausencia do seam mantem o comportamento historico byte-a-byte.
+    # A ordem de registo e' indiferente (topicos distintos), por isso um `append` basta
+    # e evita aritmetica de indices que dependa do bloco acima.
+    if host is None:
+        workers.append(SendDenialNoticeWorker)
     for worker_cls in workers:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
     harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
+    if host is not None:
+        # Re-assert exclusivity AFTER registration: the seam's own installation check
+        # cannot see workers registered later on the same harness.
+        owner = host.worker()
+        # Re-installing the SAME owner is a no-op, not a conflict: `register_all_workers`
+        # is documented idempotent, and `assert_exclusive` only sees topic NAMES, so on a
+        # second pass it would otherwise refuse the owner its own topic. A topic held by
+        # anyone else still goes through the exclusivity check below and is refused.
+        if type(harness.registry.get(owner.topic)) is not type(owner):
+            host.assert_exclusive(harness.registered_topics)
+            harness.register_worker(owner)
+            # And make it durable (V14 MINOR-5): re-asserting at one moment in time let
+            # a LATER `register_all_workers(harness)` without the seam silently hand the
+            # topic back to the generic worker, because the registry warns and overwrites
+            # on a duplicate topic. The seal keeps this idempotent for the same owner and
+            # refuses anything else. Sealed from the host's own worker, so the seal can
+            # never name a type the host does not actually install.
+            harness.seal_topic(owner.topic, type(owner))

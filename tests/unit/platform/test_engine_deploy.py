@@ -126,7 +126,10 @@ class TestCollectArtifacts:
         bpmn = [p for p in artifacts if p.suffix == ".bpmn"]
         dmn = [p for p in artifacts if p.suffix == ".dmn"]
         assert len(bpmn) == 16
-        assert len(dmn) == 62
+        # 62 -> 63: `triage_sufficiency.dmn` (Frente 2.2) entrou na arvore. O arquivo e' nomeado
+        # na entrada #407 do CORPUS_DELTA_LOG (test_validation_phi_completeness), com os sete
+        # nomes que ele traz e o balde de cada um.
+        assert len(dmn) == 63
 
     def test_empty_tree_raises(self, tmp_path: Path) -> None:
         with pytest.raises(EngineDeployError, match="nothing to deploy"):

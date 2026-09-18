@@ -777,3 +777,25 @@ async def test_explicit_native_read_outcome_survives_only_additive_taxonomy(monk
     legacy = "task_unavailable" if provider == "task" else "authority_unavailable"
     with pytest.raises(GatewayRefusalError, match="^" + legacy + "$"):
         await g.read_task(session_secret=SECRET, task_id="task-1")
+
+
+async def test_frozen_collection_clock_survives_a_suite_longer_than_the_session_ttl(monkeypatch):
+    """POLL-HUNT: `NOW` e' amostrado UMA vez, no import deste modulo (a coleta do pytest).
+
+    tests/unit/portal/test_task_queue_api.py importa `harness` daqui e exercita o resolver REAL.
+    Enquanto a TTL da sessao da fixture ficava ancorada nesse instante de coleta, os 47 testes
+    daquele modulo morriam com AuthenticationError tao logo o job `lint / type / unit` passasse de
+    uma hora (observado em 3963.19s = 1:06:03), sem nenhuma mudanca nos arquivos envolvidos.
+    """
+    from maezo.portal.api.auth import digest
+    from maezo.portal.api.session import HumanSessionResolver
+
+    # Restaura o relogio falso no teardown mesmo depois de `harness` reatribui-lo direto.
+    monkeypatch.setattr(Clock, "value", NOW)
+    monkeypatch.setitem(globals(), "NOW", NOW - timedelta(hours=2))
+
+    g = await harness(monkeypatch)
+    store = g._resolver.store
+    assert await store.get_session(digest(SECRET), datetime.now(UTC)) is not None
+    resolved = await HumanSessionResolver(g._resolver.settings, store).resolve(SECRET)
+    assert resolved.record.expires_at > datetime.now(UTC)

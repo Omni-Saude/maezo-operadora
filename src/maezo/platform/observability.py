@@ -839,6 +839,49 @@ def record_agent_desfecho(
     )
 
 
+def record_mensagem_limitada(*, tenant: str, escopo: str) -> None:
+    """Record ONE inbound message refused by the channel's volume ceiling (Frente 7.1).
+
+    O DEFEITO QUE ISTO MEDE. O receptor nao tinha teto nenhum: um numero em laco, ou um incidente
+    que faca mil pessoas escreverem ao mesmo tempo, entrava inteiro e a fila humana recebia tudo.
+    Este contador e' o que diz se o teto esta' cortando trafego de verdade — e, mais importante, se
+    esta' cortando o de QUEM NAO DEVIA: uma subida sustentada no escopo `tenant` com volume normal
+    significa que o numero foi calibrado baixo demais e beneficiarios legitimos estao sendo
+    recusados.
+
+    Best-effort, como os demais registros deste modulo: telemetria nunca derruba o turno.
+    """
+    try:
+        collector = _get_metrics_collector()
+        collector.mensagem_limitada.labels(tenant=tenant, escopo=escopo).inc()
+    except Exception:  # telemetria nunca derruba o turno que ela conta (ver docstring)
+        logger.warning("mensagem_limitada_metric_failed", tenant=tenant, exc_info=True)
+
+
+def record_resposta_recusada(*, agent_id: str, motivo: str, response_kind: str) -> None:
+    """Record ONE model-drafted reply that was BLOCKED before reaching the beneficiary.
+
+    THE DEFECT THIS MEASURES. `response-v3` proibiu a negativa clinica em maiusculas e com o
+    raciocinio inteiro, e o modelo passou por cima duas vezes na mesma conversa (medido em
+    13/09/2026). Pedir ao modelo e' instrucao; a cerca em `_respond_llm` e' o que impede. Este
+    contador e' o que diz quanto o modelo AINDA tenta — e' a medida de quanto a instrucao sozinha
+    valeria, e some do radar se ninguem o emitir.
+
+    CONTENT-FREE por construcao: `motivo` e' um dos dois rotulos fechados e `response_kind` e' o
+    vocabulario fechado do grafo. O padrao exato e o texto ficam no log, nunca aqui.
+
+    Best-effort, como `record_agent_desfecho`: um defeito de telemetria nunca pode derrubar o
+    turno cuja recusa ele esta contando — e uma recusa nao contada ainda e' uma recusa aplicada.
+    """
+    try:
+        collector = _get_metrics_collector()
+        collector.agent_resposta_recusada.labels(
+            agent_id=agent_id, motivo=motivo, response_kind=response_kind
+        ).inc()
+    except Exception:  # telemetria nunca derruba o turno cuja recusa ela conta (ver docstring)
+        logger.warning("resposta_recusada_metric_failed", agent_id=agent_id, exc_info=True)
+
+
 def record_agent_first_response(*, agent_id: str, seconds: float) -> None:
     """Record ONE inbound-to-reply-attempt latency observation (GAP 11.2, `first_response_p95`).
 

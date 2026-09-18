@@ -134,6 +134,7 @@ from typing import Any, Final, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
+from maezo.platform.observability import record_resposta_recusada
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -165,11 +166,14 @@ from maezo.tools.workers.dmn_transport import (
 
 from .prompts import (
     DOSSIER_PROMPT_VERSION,
+    ESCALATION_ACK_PROMPT_VERSION,
     MESSAGE_PROMPT_VERSION,
+    RECUSA_DE_SAIDA_VERSION,
     SYSTEM_PROMPT_VERSION,
     dossier_prompt,
     escalation_ack_prompt,
     message_prompt,
+    motivo_de_recusa,
 )
 
 logger = structlog.get_logger(__name__)
@@ -674,6 +678,59 @@ _FATOS_BOOLEANOS_DOSSIE: Final[dict[str, str]] = {
 }
 
 
+#: CERCA DE SAIDA (18/09/2026): o `error` do turno em que o texto redigido pelo modelo foi BARRADO
+#: antes de sair. Token de CLASSE — nunca o grupo e nunca o texto recusado. O texto e' saida de
+#: modelo sobre a cobranca de uma pessoa e nao tem por que entrar num campo que viaja para o
+#: handoff; o grupo e o padrao ficam onde detalhe deve ficar, na linha de log e no contador.
+ERRO_RESPOSTA_RECUSADA: str = "resposta recusada na saida"
+
+#: CERCA DE SAIDA: o desfecho do mesmo turno. Precisa estar em
+#: `turn_telemetry._DESFECHO_VOCAB["lucas"]` — um valor fora do vocabulario e' normalizado para
+#: `"outro"`, o que apagaria exatamente a distincao que esta cerca cria. Literal duplicado la',
+#: pelo mesmo motivo que `DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA`: aquele modulo nao importa grafos, e
+#: o teste `test_o_desfecho_de_recusa_esta_no_vocabulario_de_telemetria` e' o que impede as duas
+#: copias de divergirem.
+DESFECHO_RESPOSTA_RECUSADA: str = "resposta_recusada_na_saida"
+
+#: CERCA DE SAIDA: o texto informativo quando o rascunho foi barrado. CONSTANTE, nunca um segundo
+#: rascunho — o mesmo prompt com os mesmos fatos tende ao mesmo texto, e um laco de tentativas
+#: transformaria uma cerca num atraso.
+#:
+#: ELA NAO PROMETE HUMANO, e essa ausencia e' a parte pensada: esta rota (`respond_member`) NUNCA
+#: abre processo, entao "um atendente vai entrar em contato" seria falso aqui — e cairia na
+#: propria cerca, que e' como se sabe que a frase abaixo esta' certa. O que ela oferece e' o canal
+#: oficial, que existe e nao depende do Lucas.
+RESPOSTA_INFORMATIVA_RECUSADA: str = (
+    "Recebemos sua mensagem sobre sua cobranca. Para que a informacao chegue ate voce com "
+    "precisao, consulte os dados do seu boleto no portal do beneficiario ou fale com a central "
+    "de atendimento da operadora."
+)
+
+#: CERCA DE SAIDA: o ACK de escalacao quando o rascunho foi barrado. Aqui um humano FOI mesmo
+#: acionado — `send_escalation_ack` so' roda com `process_started is True` —, entao a promessa e'
+#: verdadeira, e a frase nao contem nenhum dos padroes proibidos. E' saida segura por construcao,
+#: nao por sorte do modelo.
+ACK_ESCALACAO_RECUSADO: str = (
+    "Recebemos sua solicitacao e ela ja esta com um atendente da nossa equipe, que vai continuar "
+    "o atendimento por aqui. Nenhuma decisao sobre seu plano foi tomada."
+)
+
+
+class RespostaRecusadaError(RuntimeError):
+    """O texto redigido violou `motivo_de_recusa` e NAO vai ser enviado.
+
+    Excecao, e nao um valor de retorno, pela mesma razao que na Helena: um sentinela de string
+    obrigaria cada chamador a lembrar de compara-lo, e esquecer a comparacao enviaria o sentinela
+    ao beneficiario. A excecao nao tem como ser ignorada por esquecimento.
+    """
+
+    def __init__(self, grupo: str, padrao: str, response_kind: str) -> None:
+        super().__init__(f"resposta recusada ({grupo}) na rota {response_kind}")
+        self.grupo = grupo
+        self.padrao = padrao
+        self.response_kind = response_kind
+
+
 class LucasGraph:
     """Wires Lucas's injected dependencies into a compilable `StateGraph[LucasState]`."""
 
@@ -894,7 +951,18 @@ class LucasGraph:
             # WhatsApp) o desfecho segue sendo o token informativo, ainda que
             # `mensagem_enviada=False` e `envio_nota` ja contem a verdade da entrega.
             desfecho = (
-                "lembrete_enviado"
+                # CERCA DE SAIDA (18/09/2026): o rascunho foi barrado e quem foi entregue foi a
+                # constante segura, nao a resposta que os fatos pediam. Chamar isso de
+                # "resposta_informativa_enviada" afirmaria um atendimento que nao aconteceu.
+                #
+                # A SUPRESSAO POR DUPLICATA continua ganhando deste token, no ramo acima, e o
+                # motivo e' que a recusa nao depende do desfecho para ser vista: ela tem contador
+                # proprio (`record_resposta_recusada`, emitido em `_cercar_saida`), que conta a
+                # recusa mesmo quando a entrega deste turno foi suprimida. Ja' a supressao so'
+                # existe aqui.
+                DESFECHO_RESPOSTA_RECUSADA
+                if mensagem.get("recusa_de_saida")
+                else "lembrete_enviado"
                 if state.get("admissibilidade") == "LEMBRETE"
                 else "resposta_informativa_enviada"
             )
@@ -1152,6 +1220,36 @@ class LucasGraph:
         variables["dossie_lucas"] = dossier
         return variables
 
+    def _cercar_saida(self, texto: str, response_kind: str, fatos: dict[str, Any] | None = None) -> str:
+        """Devolve `texto`, ou LEVANTA `RespostaRecusadaError` se ele violar a cerca de saida.
+
+        PONTO UNICO. Diferente da Helena, que tem um `_respond_llm` por onde passa todo texto, o
+        Lucas redige em dois lugares — `_build_message` (jornada informativa) e
+        `_build_escalation_ack` (o ACK depois da escalacao). Este metodo e' o ponto unico que os
+        dois compartilham, e e' de proposito que a NARRATIVA DO DOSSIE nao passe por aqui: ela e'
+        lida por um humano que precisa ver o desfecho adverso nomeado.
+
+        POR QUE A CERCA EXISTE MESMO COM A PROIBICAO NO PROMPT: ver o cabecalho de `prompts.py`.
+        Em resumo medido — a Helena tinha a mesma proibicao em maiusculas e o modelo passou por
+        cima dela duas vezes na mesma conversa em 13/09/2026.
+        """
+        recusa = motivo_de_recusa(texto, response_kind, fatos)
+        if recusa is None:
+            return texto
+        grupo, padrao = recusa
+        # O PADRAO no log (onde alguem depura), o GRUPO no contador (onde alguem conta). O TEXTO
+        # nao vai para nenhum dos dois: e' saida de modelo sobre a cobranca do beneficiario, e um
+        # log nao e' lugar de ampliar o alcance dela.
+        logger.error(
+            "lucas_resposta_recusada",
+            grupo=grupo,
+            padrao=padrao,
+            response_kind=response_kind,
+            recusa_version=RECUSA_DE_SAIDA_VERSION,
+        )
+        record_resposta_recusada(agent_id="lucas", motivo=grupo, response_kind=response_kind)
+        raise RespostaRecusadaError(grupo, padrao, response_kind)
+
     async def _build_message(self, state: LucasState) -> dict[str, Any]:
         """Drafts the informational/reminder message (J1/J2). The LLM only phrases already-known
         facts — it never decides `admissibilidade` (that is 100% DMN-derived, ADR-0012)."""
@@ -1180,8 +1278,21 @@ class LucasGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             texto = "Recebemos sua solicitacao. Em breve enviaremos os detalhes por aqui."
+
+        # CERCA DE SAIDA (18/09/2026). Os `fatos` vao junto porque o grupo `valor_sem_fato` e' uma
+        # comparacao com eles — e' o que separa "o valor em aberto e' R$ 450,00" inventado de um
+        # valor que um dia venha da conciliacao.
+        recusado = False
+        try:
+            texto = self._cercar_saida(texto, "mensagem", facts)
+        except RespostaRecusadaError:
+            # NAO ha segunda tentativa, pelo mesmo motivo que na Helena: o mesmo prompt com os
+            # mesmos fatos tende ao mesmo texto. A constante e' honesta para esta rota.
+            texto = RESPOSTA_INFORMATIVA_RECUSADA
+            recusado = True
         return {
             "prompt_version": MESSAGE_PROMPT_VERSION,
+            "recusa_de_saida": recusado,
             "tipo": "mensagem_beneficiario",
             "fatos": facts,
             "texto": texto,
@@ -1253,7 +1364,7 @@ class LucasGraph:
         disclosed improvement over the donor). NEVER reveals the pending adverse outcome."""
         prompt = f"{escalation_ack_prompt()}\n\nmotivo_humano={state.get('motivo_humano')}"
         try:
-            return await self._llm.generate(
+            texto = await self._llm.generate(
                 prompt,
                 phi=True,
                 agent_id="lucas",
@@ -1264,6 +1375,15 @@ class LucasGraph:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
             return "Recebemos sua solicitacao. Um atendente humano vai continuar por aqui em breve."
+
+        # CERCA DE SAIDA (18/09/2026). ESTE e' o texto mais exposto do Lucas: ele chega a alguem
+        # cujo caso acabou de ser encaminhado por inadimplencia, contestacao ou pedido de
+        # cancelamento — exatamente a pessoa a quem um desfecho adverso revelado cedo faria o pior
+        # estrago. A rota `ack_escalacao` e' a UNICA em que prometer humano e' verdadeiro.
+        try:
+            return self._cercar_saida(texto, "ack_escalacao")
+        except RespostaRecusadaError:
+            return ACK_ESCALACAO_RECUSADO
 
     # -- Graph assembly -----------------------------------------------------------------------
 
@@ -1355,4 +1475,10 @@ PROMPT_VERSIONS: dict[str, str] = {
     "system": SYSTEM_PROMPT_VERSION,
     "message": MESSAGE_PROMPT_VERSION,
     "dossier": DOSSIER_PROMPT_VERSION,
+    # 18/09/2026: os dois que faltavam. O ACK de escalacao e' o texto do caminho ADVERSO e era o
+    # unico sem numero — olhando uma mensagem que vazou, nao dava para dizer qual redacao a
+    # produziu. A cerca entra aqui pelo mesmo motivo que na Helena: ela decide o que o
+    # beneficiario le', entao ela e' versao de prompt para todo efeito de auditoria.
+    "escalation_ack": ESCALATION_ACK_PROMPT_VERSION,
+    "recusa_de_saida": RECUSA_DE_SAIDA_VERSION,
 }
