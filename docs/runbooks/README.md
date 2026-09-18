@@ -29,6 +29,7 @@ the established convention rather than introducing a second language into this d
 | [`phi-inference-ops.md`](phi-inference-ops.md) | LLM provider selection, fail-closed PHI routing, credential handling | Platform, security, PHI operations |
 | [`a2a-key-rotation.md`](a2a-key-rotation.md) | Agent Card signing key today, registry verification, what's pending | Security, platform |
 | [`aws-ecs.md`](aws-ecs.md) | `maezo-operadora` on ECS/Fargate (AMH data account `amh-data-dev`, dev/staging) — the `deploy/aws-ecs/` path that superseded the never-provisioned EKS/Helm one | Platform, SRE, on-call |
+| [`melhorar-com-o-uso.md`](melhorar-com-o-uso.md) | De conversa real a caso de teste: o comando, o rotulo que continua humano, e a cadencia de revisao das reguas como cerca de CI (Frente 8) | Plataforma, QA, dono clinico |
 | [`metricas-do-canal.md`](metricas-do-canal.md) | O coletor de metricas em dev (ECS/Cloud Map -> workspace gerenciado), os quatro numeros do canal, e a rotina semanal de leitura humana das respostas da Helena (Frente 5) | Plataforma, SRE, dono clinico |
 
 ## Alert runbooks
