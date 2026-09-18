@@ -69,12 +69,36 @@ to make all 16 registrable.
   after exhaustion re-raises the last error (`base.py:107-185`). Metrics are best-effort (`base.py:151-152,
   174-175`). `execute()` is the single abstract method (`base.py:93-105`).
 - **Tests bind to the *functions*, not classes.** Function-module tests import and call the free functions
-  directly — e.g. `from maezo.tools.workers.ans_cron import check_calendar, trigger_submissions`
+  directly — e.g. `from maezo.tools.workers.ans_cron import trigger_submissions`
   (`tests/unit/tools/workers/test_ans_cron.py`) — and import typed **result dataclasses**
   (`RecursoValidationResult`, `CancelValidationResult`, `ReembolsoCalculoResult`, `NipClassificationResult`,
   `GlosaIdentified`, `NipRoutingResult`). Class-module tests call `worker.run(process_vars)` (≈39 call
   sites). So the *tested unit* of the 13 modules is the free function; the *tested unit* of the 3 is
   `run()`.
+
+**Adendo 2026-09-06 (R-089 / gap `ADR-0026-0028-STALE-ANSCRON`, owner-decision, `docs/adr/` CODEOWNED,
+disclosed in `scripts/ci/check_doc_symbol_citations.py::_DISCLOSED_ROT` ate a correcao abaixo — ver
+**CORRECAO 2026-09-06 (reparo F2/VER-ADR-BATCH)** ao final deste adendo).** O exemplo acima citava
+`check_calendar` como um dos dois nomes importados de `ans_cron.py` por
+`tests/unit/tools/workers/test_ans_cron.py`. `check_calendar` foi **REMOVIDA** desse modulo (nao
+renomeada, nao desativada) apos a reconciliacao de taxonomia GAP-ANS-1/ANS-CRON-DEAD-CODE: era uma
+reimplementacao Python de `ans_calendar.dmn` que a propria docstring do modulo ja declarava bloqueada
+pela divergencia de taxonomia; com a taxonomia reconciliada, o portao do **ADR-0028 §7** ("only after
+100% parity in CI: delete the Python re-implementation") passou a valer, e a tabela e avaliada hoje
+ENGINE-SIDE pelo businessRuleTask `BRT_Calendario` (`camunda:decisionRef="ans_calendar"`) em
+`spec/processes/bpmn/SP-OP-ANS-SUBMIT-001_Envios_Periodicos_ANS.bpmn`. O import real hoje (mesmo
+arquivo de teste) e `from maezo.tools.workers.ans_cron import (..., parse_competencia_referencia_iso,
+register_ans_cron_workers, trigger_submissions, ...)` — o ponto arquitetural do bullet acima ("tests
+bind to functions, not classes") continua verdadeiro com esses nomes; so o exemplo literal apodreceu.
+Ver **ADR-0028**'s proprio adendo 2026-09-06 para a re-ancoragem do lado da tabela de decision-keys.
+
+**CORRECAO 2026-09-06 (reparo F2/VER-ADR-BATCH, terceiro agente).** A `resposta_sugerida` do dono
+para R-089 ordena explicitamente "remover `check_calendar` do exemplo de import" NO MESMO PR — uma
+excecao pontual, autorizada pelo dono, a convencao padrao de `docs/adr/README.md:8` (que veda edicao
+in-loco de ADR `Accepted`) para estas duas linhas nomeadas (esta e `docs/adr/0028-...:192`). O exemplo
+acima FOI editado in-loco por essa autorizacao explicita: `check_calendar` nao aparece mais no import;
+o `_DISCLOSED_ROT` correspondente foi removido do gate (a citacao resolve agora). Este adendo
+permanece como o registro datado do PORQUE da mudanca, nao como allowlist de um defeito ainda vivo.
 
 **Honesty note — v2 has already diverged from v1.** The v1 donor has **no** `WorkerBase` class at all:
 its workers are **async closures** `async def handler(task: ExternalTask) -> Mapping|None`, produced by

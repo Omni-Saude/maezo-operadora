@@ -144,6 +144,18 @@ class Admission(DurableAdmission):
 
 async def setup(snap=None, member=None, *, fixture_at=None, **task_changes):
     fixture_at = fixture_at or (snap.snapshot_at if snap else datetime.now(UTC))
+    # `expires_at` e' o UNICO campo desta fixture que a producao confere contra o relogio REAL,
+    # nao contra o relogio injetado pelo chamador: HumanSessionResolver.resolve le
+    # `store.get_session(..., datetime.now(UTC))` e `session.expires_at <= datetime.now(UTC)`
+    # (src/maezo/portal/api/session.py:68 e :73). Todos os outros prazos abaixo (`valid_until`,
+    # `snapshot_at`, `committed_at`) sao comparados com o relogio falso que o chamador instala em
+    # maezo.gateway.human.gateway. Um chamador que congela o relogio num instante amostrado no
+    # IMPORT do modulo (ou seja, na coleta do pytest) entregava ao resolver uma sessao que expira
+    # uma hora depois da COLETA e nao uma hora depois de o teste rodar: assim que a suite passa da
+    # TTL, o modulo inteiro morre com AuthenticationError sem nenhuma mudanca de codigo-fonte.
+    # Cada dominio de relogio e' ancorado no seu proprio agora; `max` nunca adianta um chamador que
+    # amostra o relogio na hora da chamada (todos os atuais), so impede a ancora ficar no passado.
+    session_at = max(fixture_at, datetime.now(UTC))
     store = LocalTestIdentityStore("test-tenant")
     m = member or membership()
     store.memberships[(m.issuer, m.subject)] = m
@@ -157,7 +169,7 @@ async def setup(snap=None, member=None, *, fixture_at=None, **task_changes):
             principal_ref=m.principal_ref,
             membership_revision=m.revision,
             authenticated_at=fixture_at,
-            expires_at=fixture_at + timedelta(hours=1),
+            expires_at=session_at + timedelta(hours=1),
         ),
         None,
     )
@@ -270,6 +282,28 @@ async def test_fixture_clock_is_sampled_after_a_six_minute_collection_delay():
 
         await submit(g)
         assert admission.receipts[0].committed_at == fixture_at
+
+
+async def test_session_ttl_is_anchored_to_the_real_clock_not_to_a_stale_fixture_anchor():
+    """POLL-HUNT: `expires_at` e' conferido contra o relogio REAL, nunca contra `fixture_at`.
+
+    Um chamador que congela o relogio num instante amostrado no import do modulo (a coleta do
+    pytest) nao pode produzir uma sessao ja expirada quando o teste roda horas depois; era esse o
+    unico mecanismo da contaminacao de ordem que matava tests/unit/portal/test_task_queue_api.py.
+    """
+    stale = datetime.now(UTC) - timedelta(hours=2)
+    _, store, transport, _, _ = await setup(fixture_at=stale)
+
+    record = await store.get_session(digest(SECRET), datetime.now(UTC))
+    assert record is not None, "sessao amostrada na coleta expirou antes de o teste rodar"
+    assert record.expires_at > datetime.now(UTC)
+    # O dominio do relogio falso continua ancorado em `fixture_at`: nada aqui foi adiantado.
+    assert record.authenticated_at == stale
+    assert transport.task.snapshot.snapshot_at == stale
+    assert transport.task.valid_until == stale + timedelta(minutes=5)
+    # O resolver real (relogio real, sem patch) tem de aceitar a sessao.
+    resolved = await HumanSessionResolver(config(), store).resolve(SECRET)
+    assert resolved.record.secret_hash == digest(SECRET)
 
 
 @pytest.mark.parametrize(

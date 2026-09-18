@@ -180,6 +180,71 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("WHATSAPP_WEBHOOK_ACK_THEN_QUEUE", "ack_then_queue"),
     )
 
+    # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1, 15/09/2026). LIGADA por padrao — ao contrario de
+    # toda outra novidade deste modulo, e a diferenca e' deliberada.
+    #
+    # O motivo: desligada, o sistema fica no comportamento MEDIDO COMO ERRADO. Em 13/09 um bebe de
+    # 11 meses foi triado pela tabela de ADULTO, tres vezes, porque a mae disse a idade num turno e
+    # o sintoma no seguinte. Entre um default que preserva um defeito com paciente do outro lado e
+    # um que o corrige, e' o segundo que nao precisa de justificativa.
+    #
+    # `false` faz cada turno comecar do zero, exatamente como antes desta frente — reversivel por
+    # variavel de ambiente, sem deploy de imagem. E ela SO' tem efeito com checkpointer atachado:
+    # sem estado duravel nao ha turno anterior de onde lembrar.
+    memoria_clinica_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_MEMORIA_CLINICA", "memoria_clinica_enabled"),
+    )
+
+    # TETO DE VOLUME (Frente 7.1, 14/09/2026). O receptor nao tinha protecao nenhuma: um numero em
+    # laco, ou um incidente que faca mil pessoas escreverem ao mesmo tempo, entrava inteiro — cada
+    # mensagem uma chamada de modelo, uma DMN e, quando o modelo cai, um escalonamento. A fila
+    # humana recebia tudo no pior momento possivel.
+    #
+    # LIGADOS POR PADRAO, ao contrario das outras novidades deste modulo, e a diferenca e'
+    # deliberada: um teto que precisa ser ligado e' um teto que ninguem liga. Os numeros abaixo
+    # sao PONTO DE PARTIDA para calibrar com trafego real, nao verdade medida — 6 mensagens por
+    # minuto e' mais do que alguem digita conversando, e 120 no tenant e' o dobro do pico das
+    # baterias. Zero DESLIGA aquele teto, e desligar passa a ser um ato declarado na task
+    # definition em vez de um esquecimento.
+    limite_por_conversa_por_minuto: int = Field(
+        default=6,
+        validation_alias=AliasChoices(
+            "WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO", "limite_por_conversa_por_minuto"
+        ),
+    )
+    limite_por_tenant_por_minuto: int = Field(
+        default=120,
+        validation_alias=AliasChoices(
+            "WHATSAPP_LIMITE_POR_TENANT_POR_MINUTO", "limite_por_tenant_por_minuto"
+        ),
+    )
+
+    # DEVOLVER O TURNO NO CORPO DO ACK (12/09/2026). Com `True`, a resposta 200 de `/webhook`
+    # ganha dois campos: `resposta` (o texto que a Helena redigiu neste turno) e
+    # `conversation_id`. Sem ele, o corpo fica BYTE POR BYTE como sempre foi.
+    #
+    # POR QUE ISTO PRECISA EXISTIR. O texto da Helena nunca foi lido por ninguem: ele e' redigido,
+    # entregue ao envio do WhatsApp e morre num 401 de credencial de preenchimento em dev. Sem ver
+    # o texto nao ha' como avaliar se ele presta nem conferir se vaza orientacao clinica — que e'
+    # exatamente a cerca `leak_canaries` dos conjuntos golden.
+    #
+    # POR QUE E' UM PORTAO E NAO O PADRAO. Em producao quem recebe esta resposta e' a Meta, e o
+    # contrato do ack com ela e' o CODIGO de status: a Meta re-entrega o que nao recebeu 200 e nao
+    # le' o corpo. (O runbook §6 "Local testing" documenta o corpo VISIVEL em dev — inclusive os
+    # campos deste portao — e nao e' a fonte do contrato da Meta; a citacao anterior apontava para
+    # la' como se fosse.)
+    # Ampliar o corpo por padrao mudaria o que sai do processo em producao para ganhar uma
+    # conveniencia de teste — entao o default e' `False` e uma implantacao que nao o nomeia nao
+    # muda em nada. O `conversation_id` e' keyed-irreversivel e ja' aparece em log e no Cockpit; o
+    # `resposta` e' texto voltado ao beneficiario, de uma agente proibida de dar orientacao
+    # clinica, sobre uma mensagem ja' pseudonimizada. Os dois viajam sob o MESMO portao porque o
+    # motivo de liberar e' um so': alguem estar olhando a conversa numa tela de teste.
+    devolve_turno: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("WHATSAPP_WEBHOOK_DEVOLVE_TURNO", "devolve_turno"),
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _map_bare_field_name_kwargs(cls, data: Any) -> Any:

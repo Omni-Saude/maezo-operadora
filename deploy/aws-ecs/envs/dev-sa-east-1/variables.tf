@@ -222,7 +222,20 @@ variable "webhook_receiver_image_tag" {
     forem promovidos para a mesma tag, esta variavel pode voltar a apontar para `image_tag`.
   EOT
   type        = string
-  default     = "5cdb09a5" # 11/09/2026: intent "greeting" (classify-v3). O RECEPTOR e quem executa turno, entao a correcao vale aqui; agent-helena segue em c745fd94 ate a proxima promocao
+  # RECONCILIADO EM 15/09/2026 contra o cluster. O default apontava para uma imagem de 11/09
+  # enquanto o servico rodava a de 13/09 (`e86c0f89`) — dois dias de deriva, criada porque os
+  # deploys de 12 e 13/09 foram feitos com `-var`/`-target` e o repo nunca foi atualizado.
+  #
+  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: medi no `terraform plan` de 15/09, ANTES desta
+  # correcao, que um apply sem `-var` faria `e86c0f89 -> 5cdb09a5` no webhook-receiver. Isso apagaria o `response-v3` — a
+  # correcao que proibiu a Helena AFIRMAR AUSENCIA DE ALERTA a um beneficiario — junto com a
+  # saudacao e a pagina de escalonamento. Nao houve incidente porque o apply estava pausado; quem
+  # rodasse um apply de rotina nao teria essa sorte.
+  #
+  # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
+  # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
+  # no terminal de quem aplicou.
+  default = "e86c0f89" # 13/09/2026: response-v3 (negativa clinica proibida) + saudacao + eco do turno. VIVO em webhook-receiver desde 13/09 18:07Z
 }
 
 variable "webhook_receiver_desired_count" {
@@ -260,6 +273,32 @@ variable "helena_zona_phi" {
   EOT
   type        = bool
   default     = false
+}
+
+variable "limite_por_conversa_por_minuto" {
+  description = <<-EOT
+    Teto de mensagens por CONVERSA por minuto no receptor (Frente 7.1). Protege do caso que de
+    fato acontece: um numero em laco. `0` desliga, e desligar passa a ser um ato declarado aqui
+    em vez de um esquecimento.
+
+    6 e' ponto de partida — mais do que alguem digita conversando —, nao verdade medida. Quem diz
+    se esta cortando quem nao devia e' `maezo_webhook_mensagem_limitada_total{escopo="conversa"}`.
+  EOT
+  type        = number
+  default     = 6
+}
+
+variable "limite_por_tenant_por_minuto" {
+  description = <<-EOT
+    Teto global de mensagens por minuto no tenant (Frente 7.1). Protege do incidente: mil pessoas
+    escrevendo ao mesmo tempo. `0` desliga.
+
+    120 e' o dobro do pico das baterias de 13/09. ATENCAO: o limitador e' memoria de PROCESSO —
+    com mais de uma replica do receptor, o teto efetivo e' N vezes este numero. Hoje
+    `webhook_receiver_desired_count` e' 1, entao a conta fecha.
+  EOT
+  type        = number
+  default     = 120
 }
 
 variable "log_retention_days" {
@@ -429,6 +468,36 @@ variable "prefixo_fonte_build" {
   default     = "maezo-operadora"
 }
 
+variable "canal_teste_image_tag" {
+  description = <<-EOT
+    Tag da imagem do CANAL DE TESTE — separada de `image_tag` pelo mesmo motivo que
+    `webhook_receiver_image_tag` foi: o canal ganhou a rota `/receptor/simular` e a pagina
+    `escalonamento.html`, e essas duas coisas vivem NA IMAGEM (o canal roda como modulo desde
+    19/08). Subir todos os servicos na tag nova seria um deploy de carona numa entrega que
+    pede um servico.
+
+    O default DESCREVE O QUE RODA. Se ele voltar a apontar para `image_tag`, um apply sem
+    variavel devolveria o canal a uma imagem SEM a rota, e a pagina do escalonamento passaria
+    a responder 404 no meio do teste de alguem — sem erro de Terraform, so' um botao que para
+    de funcionar.
+  EOT
+  type        = string
+  # RECONCILIADO EM 15/09/2026 contra o cluster. O default apontava para uma imagem de 11/09
+  # enquanto o servico rodava a de 13/09 (`e86c0f89`) — dois dias de deriva, criada porque os
+  # deploys de 12 e 13/09 foram feitos com `-var`/`-target` e o repo nunca foi atualizado.
+  #
+  # O QUE A DERIVA CUSTAVA, e nao e' hipotetico: medi no `terraform plan` de 15/09, ANTES desta
+  # correcao, que um apply sem `-var` faria `e86c0f89 -> e4edbef6` no canal-teste. Isso apagaria o `response-v3` — a
+  # correcao que proibiu a Helena AFIRMAR AUSENCIA DE ALERTA a um beneficiario — junto com a
+  # saudacao e a pagina de escalonamento. Nao houve incidente porque o apply estava pausado; quem
+  # rodasse um apply de rotina nao teria essa sorte.
+  #
+  # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
+  # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
+  # no terminal de quem aplicou.
+  default = "e86c0f89" # 13/09/2026: pagina de escalonamento com entradas/saidas. VIVO em canal-teste desde 13/09 18:07Z
+}
+
 variable "canal_teste_desired_count" {
   description = <<-EOT
     Replicas do Canal de Teste. 1 para o time usar; 0 para tirar do ar.
@@ -514,4 +583,74 @@ variable "a2a_outbox_relay_desired_count" {
   EOT
   type        = number
   default     = 1
+}
+
+variable "helena_memoria_clinica" {
+  description = <<-EOT
+    MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). `true` faz a Helena lembrar QUEM E' O PACIENTE —
+    populacao e idades — de um turno para o outro, dentro de uma janela de horas.
+
+    LIGADA por padrao, ao contrario das outras novidades do receptor. Desligada, o sistema fica no
+    comportamento MEDIDO COMO ERRADO em 13/09/2026: um bebe de 11 meses triado pela tabela de
+    ADULTO, tres vezes, porque a mae disse a idade num turno e o sintoma no seguinte.
+
+    `false` faz cada turno comecar do zero, exatamente como antes desta frente — a reversao existe
+    e e' um ato declarado, nao um esquecimento. So' tem efeito com checkpointer atachado: sem
+    estado duravel nao ha turno anterior de onde lembrar.
+  EOT
+  type        = bool
+  default     = true
+}
+
+# ---------------------------------------------------------------------------
+# Coletor de metricas (Frente 5)
+# ---------------------------------------------------------------------------
+
+variable "prometheus_workspace_alias" {
+  description = <<-EOT
+    Prefixo do ALIAS do workspace gerenciado (AMP) onde o coletor escreve. Lido por data source,
+    nunca criado por este state: o workspace e' da plataforma e compartilhado, e um `resource`
+    aqui faria um `terraform destroy` do maezo apagar serie historica de outro time.
+  EOT
+  type        = string
+  default     = "amh-prometheus-dev"
+}
+
+variable "metrics_collector_image" {
+  description = <<-EOT
+    Imagem do coletor. `aws-otel-collector` (ADOT) e nao o coletor upstream porque a escrita no
+    workspace gerenciado exige assinatura SigV4 pela role da task, e a extensao `sigv4auth` ja'
+    vem nesta distribuicao. VERSAO FIXA de proposito: `latest` num coletor significa que a forma
+    da configuracao pode mudar num deploy que nao mexeu em nada nosso.
+  EOT
+  type        = string
+  default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.43.1"
+}
+
+variable "metrics_collector_desired_count" {
+  description = <<-EOT
+    Quantas tasks do coletor. 1 e' o certo e 2 seria pior: duas replicas raspam os MESMOS alvos e
+    escrevem a MESMA serie no workspace, o que produz amostras duplicadas no mesmo timestamp em
+    vez de redundancia. Zero desliga a coleta — e volta ao estado que a Frente 5 veio corrigir,
+    entao que seja um ato declarado.
+  EOT
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.metrics_collector_desired_count >= 0 && var.metrics_collector_desired_count <= 1
+    error_message = "metrics_collector_desired_count so aceita 0 ou 1: duas replicas raspariam os mesmos alvos e duplicariam amostras no workspace."
+  }
+}
+
+variable "metrics_collector_cpu" {
+  description = "CPU do coletor (256 = 0.25 vCPU). Quatro alvos a cada 30s nao pedem mais."
+  type        = number
+  default     = 256
+}
+
+variable "metrics_collector_memory" {
+  description = "Memoria do coletor em MB. 512 cobre o buffer de escrita remota com folga no volume de dev."
+  type        = number
+  default     = 512
 }

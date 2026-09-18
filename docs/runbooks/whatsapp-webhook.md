@@ -194,6 +194,13 @@ recuperacao para um receptor morto no meio do turno.
 - `WHATSAPP_WAMID_DEDUP_LEASE_S` — lease em voo, default `120`.
 - `WHATSAPP_WEBHOOK_ACK_THEN_QUEUE` — modo ack-then-queue, default `false`
   (`docs/processes/webhook-whatsapp-ack-then-queue.md`).
+- `WHATSAPP_WEBHOOK_DEVOLVE_TURNO` — devolve `resposta` (o texto que a Helena redigiu) e
+  `conversation_id` no corpo do 200 de `POST /webhook`, default `false`. **Somente
+  `dev-sa-east-1`**: e' egresso de texto voltado ao beneficiario, e em producao quem recebe o
+  ack e' a Meta. Nao e' conversa de review — `scripts/ci/check_canal_simular.py`
+  (`POLITICAS_DE_PORTAO`) reprova o portao ligado em qualquer outro ambiente, e reprova tambem
+  um portao novo de `WHATSAPP_WEBHOOK_*` que chegue sem politica declarada. Ver §6 para o corpo
+  que ele produz.
 
 **Fail-closed:** registro inalcancavel => o receptor NAO despacha nada e responde `500`
 (`status="dedup_unavailable"`), para a Meta re-entregar. Despachar sem protecao seria reabrir a
@@ -303,7 +310,12 @@ curl -X POST http://localhost:8000/webhook \
   -d "$PAYLOAD"
 ```
 
-Expected response: `{"status": "ok"}`
+Expected response: `{"status": "ok"}` (mais `dispatched`/`failed` quando ha' mensagens no lote).
+
+Com `WHATSAPP_WEBHOOK_DEVOLVE_TURNO=1` — so' em `dev-sa-east-1`, ver §3 — o MESMO 200 carrega
+ainda `resposta` e `conversation_id`. O contrato com a Meta continua sendo o CODIGO de status:
+ela re-entrega o que nao recebeu 200 e nao le' o corpo. O corpo ampliado existe para quem assina
+a requisicao em dev (o Canal de Teste), que sem ele nao tem como ler o texto da Helena.
 
 ### GET verification
 

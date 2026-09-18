@@ -63,6 +63,7 @@ from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from .whatsapp.app import create_app
 from .whatsapp.dedup import WhatsAppDedupGuard
 from .whatsapp.dispatch import HelenaDispatcher
+from .whatsapp.limite import LimitadorDeVolume
 from .whatsapp.settings import WhatsAppWebhookSettings
 
 #: F2 mode discriminator — the ONLY non-production `runtime_mode`. Anything else (Helm injects
@@ -196,8 +197,20 @@ def _build_dispatcher(
         # fence discipline as the DATABASE_URL check above.
         pseudonymizer=pseudonymizer,
         audit_sink=seams["audit_sink"],
+        # TETO DE VOLUME (Frente 7.1). Construido AQUI, na raiz de composicao, e nao dentro do
+        # despachante: o limitador guarda estado entre mensagens, e um por turno nao limitaria
+        # nada. Os testes que constroem um despachante direto continuam sem teto (`None`), que e'
+        # o comportamento anterior; o receptor implantado sempre tem.
+        limitador=LimitadorDeVolume(
+            por_conversa=settings.limite_por_conversa_por_minuto,
+            por_tenant=settings.limite_por_tenant_por_minuto,
+        ),
         # OUTBOUND leg of the same guard (R-071: "tratadas como uma entrega so").
         dedup=dedup,
+        # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). Vem das settings, entao o receptor implantado
+        # lembra quem e' o paciente salvo desligamento EXPLICITO na task definition — e a decisao
+        # fica legivel no `terraform plan` em vez de escondida num default de codigo.
+        memoria_clinica_enabled=settings.memoria_clinica_enabled,
         # ONDA 1 §5.5 / O4 — the per-request knot. The WhatsApp seam CANNOT be built here: it is
         # `_ScopedWhatsAppSender`, created per turn inside `dispatch()` around the raw recipient of
         # the one inbound request. So the DECISION half is built once, here, and frozen; the

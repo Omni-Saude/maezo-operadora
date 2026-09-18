@@ -11,6 +11,7 @@ import hashlib
 import os
 import ssl
 import stat
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -27,6 +28,7 @@ from maezo.gateway.human.auth_profile import (
     PAYLOAD_TYPES,
     Actor,
     AuditIntentPayload,
+    DocumentCustody,
     EffectCommand,
     HumanStartCommand,
     InputKind,
@@ -85,6 +87,20 @@ class NativeDatabaseBinding(Closed):
     installed_binding_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     installed_qualification_digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     valid_until: datetime
+
+
+AuthorityAction = Literal[
+    "auth.start", "auth.documents.respond", "auth.receipt.read", "auth.document_context.read"
+]
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class PublishedAuthorities:
+    """One snapshot of the published heads a principal currently holds. Not a grant by itself."""
+
+    authorities: tuple[tuple[ResourceAuthority, datetime], ...] = field(repr=False)
+    custodies: tuple[tuple[DocumentCustody, datetime], ...] = field(repr=False)
+    until: datetime
 
 
 class NativeAuthReader:
@@ -317,6 +333,71 @@ class NativeAuthReader:
         if not source.observed_at <= now < until:
             raise AuthUnavailableError()
         return payload, dict(row), until
+
+    async def published_authorities(
+        self,
+        principal_ref: str,
+        *,
+        action: AuthorityAction,
+        documents: tuple[str, ...] = (),
+    ) -> PublishedAuthorities:
+        """Verified authorities naming this principal, plus the custody of selected documents.
+
+        Selection is a candidate filter only. Each candidate is re-read through `head`, the
+        single sanctioned verification (publisher purpose and installed source grant, payload
+        digest, version join, source lifetime); a candidate that fails it is not an authority
+        and is omitted. Omission is the fail-closed direction: an unverifiable row can only
+        ever remove a projection, never create or weaken one. Document custody is absolute —
+        a selected document without a verified custody head refuses the whole read, because
+        an unverified attachment must never reach an effect.
+
+        One REPEATABLE READ READ ONLY snapshot covers both reads, so a concurrent revocation
+        can never be observed half-applied across them.
+        """
+        authorities: list[tuple[ResourceAuthority, datetime]] = []
+        custodies: list[tuple[DocumentCustody, datetime]] = []
+        async with self.engine.connect() as db:
+            await db.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+            _, until = await self.qualified(db)
+            refs = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT resource_ FROM "
+                            + self.table("mzo_auth_input_head")
+                            + " WHERE tenant_=:tenant AND kind_='resource_authority' AND state_"
+                            "='active' AND payload_::jsonb->>'action'=:action AND payload_"
+                            "::jsonb->'actor'->>'principal_ref'=:principal"
+                        ),
+                        {
+                            "tenant": self.binding.scope.tenant,
+                            "action": action,
+                            "principal": principal_ref,
+                        },
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            for ref in sorted(set(refs)):
+                try:
+                    authority, _row, deadline = await self.head(db, "resource_authority", ref)
+                except AuthUnavailableError:
+                    continue
+                if (
+                    type(authority) is not ResourceAuthority
+                    or authority.actor.principal_ref != principal_ref
+                    or authority.action != action
+                    or authority.state != "active"
+                ):
+                    continue
+                authorities.append((authority, min(until, deadline)))
+            for document in sorted(set(documents)):
+                custody, _row, deadline = await self.head(db, "document_custody", document)
+                if type(custody) is not DocumentCustody or custody.document.document_ref != document:
+                    raise AuthUnavailableError()
+                custodies.append((custody, min(until, deadline)))
+        return PublishedAuthorities(tuple(authorities), tuple(custodies), until)
 
     async def observation(
         self, command: EffectCommand, actor: Actor, *, read: bool, original_intent: AuditIntentPayload | None
