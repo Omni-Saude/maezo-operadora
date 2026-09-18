@@ -45,6 +45,8 @@ _pending_groups: set[int] = set()
 _process_owner: EngineLock | None = None
 _source_digests: dict[Path, tuple[str, dict[str, str]]] = {}
 _collected_items: dict[Path, list[dict[str, Any]]] = {}
+_source_leases: dict[Path, EngineLock] = {}
+_source_cleanup_ready: set[Path] = set()
 
 CHECKOUT_INPUTS = (
     "docker-compose.yml",
@@ -229,6 +231,137 @@ def _cleanup_signal_mask() -> Iterator[None]:
         signal.pthread_sigmask(signal.SIG_SETMASK, previous)
 
 
+@contextmanager
+def _spawn_signal_guard(
+    on_interrupt: Callable[[], None] | None = None,
+    *,
+    handlers: Mapping[int, Any] | None = None,
+) -> Iterator[Callable[[], None]]:
+    """Protect the complete owned-child lifetime without changing its signal mask.
+
+    Call the yielded activation function after Popen assignment and registration.
+    Before activation parent signals defer; afterwards they close the owned child
+    and dispatch the original handlers promptly, including during communicate().
+    Reentrant signals defer through cleanup, then dispatch individually so a second
+    raising handler cannot interrupt entry into the first handler's cleanup.
+
+    The caller's finally must quiesce its child INSIDE this scope. Original handlers
+    restore only after that cleanup, never while a normally owned child remains live.
+    Caught handlers reset on exec; ignored dispositions and preexisting masks stay
+    unchanged. Optional handler overrides restore the caller's original dispositions
+    inside this same scope. For an owned child, a nonraising custom handler is
+    invoked and then RunnerInterrupted is raised: cancellation must not resume a
+    communicate() whose pipes cleanup already closed. Cleanup refusal takes precedence
+    over fatal default delivery. Like CLI signal setup, this requires the main thread.
+    """
+    previous_handlers: dict[int, Any] = {}
+    dispatch_handlers: dict[int, Any] = {}
+    deferred: dict[int, Any] = {}
+    active = False
+    delivering = False
+    cleanup_failure: BaseException | None = None
+
+    def deliver(*, restoring: bool = False) -> None:
+        nonlocal active, delivering, cleanup_failure
+        failure = cleanup_failure
+        first_signal = min(deferred, default=None)
+        delivering = True
+        try:
+            if on_interrupt is not None:
+                try:
+                    on_interrupt()
+                except BaseException as exc:
+                    if cleanup_failure is None:
+                        cleanup_failure = exc
+                    failure = cleanup_failure
+            while deferred:
+                signum = min(deferred)
+                frame = deferred.pop(signum)
+                previous = (previous_handlers if restoring else dispatch_handlers)[signum]
+                try:
+                    if callable(previous):
+                        previous(signum, frame)
+                    elif failure is None:
+                        # Cleanup refusal takes precedence over a fatal default:
+                        # otherwise the parent would die and hide the owned PGID.
+                        # A default disposition retains its OS semantics only once
+                        # the owned child has been closed successfully.
+                        signal.signal(signum, previous)
+                        try:
+                            signal.raise_signal(signum)
+                        finally:
+                            if not restoring:
+                                signal.signal(signum, defer)
+                except BaseException as exc:
+                    if failure is None:
+                        failure = exc
+            if failure is None and on_interrupt is not None and first_signal is not None:
+                failure = RunnerInterrupted(first_signal)
+        finally:
+            # Once interruption starts unwinding, late signals must remain deferred
+            # until the caller's finally has closed its group and restored its mask.
+            if failure is not None:
+                active = False
+            delivering = False
+        if failure is not None:
+            raise failure
+
+    def defer(signum: int, frame: object) -> None:
+        deferred[signum] = frame
+        if active and not delivering:
+            deliver()
+
+    def activate() -> None:
+        nonlocal active
+        active = True
+        if deferred:
+            deliver()
+
+    try:
+        with _cleanup_signal_mask():
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous = signal.getsignal(signum)
+                if previous is None:
+                    raise RunnerError("spawn signal handler cannot be restored")
+                dispatch = handlers.get(signum, previous) if handlers is not None else previous
+                if dispatch != signal.SIG_IGN:
+                    signal.signal(signum, defer)
+                    previous_handlers[signum] = previous
+                    dispatch_handlers[signum] = dispatch
+        yield activate
+    finally:
+        active = False
+        body_error = sys.exc_info()[1]
+        if cleanup_failure is None and isinstance(body_error, ProcessGroupCleanupError):
+            cleanup_failure = body_error
+        failure = cleanup_failure
+        try:
+            if deferred:
+                deliver()
+        except BaseException as exc:
+            if failure is None:
+                failure = exc
+        finally:
+            # Keep deferrers through the caller's cleanup-mask restoration. Do NOT
+            # block signals while restoring original handlers: that creates a batch
+            # of raising Python handlers when the mask is lifted. Each restoration
+            # and each captured delivery completes before its exception propagates.
+            for signum, previous in previous_handlers.items():
+                try:
+                    signal.signal(signum, previous)
+                except BaseException as exc:
+                    if failure is None:
+                        failure = exc
+            if deferred:
+                try:
+                    deliver(restoring=True)
+                except BaseException as exc:
+                    if failure is None:
+                        failure = exc
+        if failure is not None:
+            raise failure
+
+
 def _record_pending(group_id: int) -> None:
     _pending_groups.add(group_id)
     if _process_owner is not None and not _process_owner.update(
@@ -289,8 +422,14 @@ def _run(
         process: subprocess.Popen[str] | None = None
         stdout: str | None = None
         stderr: str | None = None
-        try:
-            with _cleanup_signal_mask():
+
+        def close_spawned_group() -> None:
+            nonlocal stdout, stderr
+            if process is not None and process.pid in _pending_groups:
+                stdout, stderr = _quiesce_group(process, process.pid)
+
+        with _spawn_signal_guard(close_spawned_group) as activate:
+            try:
                 if _process_owner is not None and not _process_owner.update(
                     "subprocess_spawning", subprocess_quiescent=False
                 ):
@@ -305,21 +444,22 @@ def _run(
                     start_new_session=True,
                 )
                 _record_pending(process.pid)
-            try:
-                stdout, stderr = process.communicate(timeout=timeout)
-                return_code = int(process.returncode)
-            except subprocess.TimeoutExpired:
-                return_code = 124
-        finally:
-            with _cleanup_signal_mask():
+                activate()
                 try:
-                    if process is not None and process.pid in _pending_groups:
-                        stdout, stderr = _quiesce_group(process, process.pid)
-                finally:
-                    if log_path is not None:
-                        raw.flush()
-                        raw.seek(0)
-                        log_path.write_text(_redact_text(raw.read()))
+                    stdout, stderr = process.communicate(timeout=timeout)
+                    return_code = int(process.returncode)
+                except subprocess.TimeoutExpired:
+                    return_code = 124
+            finally:
+                with _cleanup_signal_mask():
+                    try:
+                        if process is not None and process.pid in _pending_groups:
+                            stdout, stderr = _quiesce_group(process, process.pid)
+                    finally:
+                        if log_path is not None:
+                            raw.flush()
+                            raw.seek(0)
+                            log_path.write_text(_redact_text(raw.read()))
         if log_path is not None:
             stdout, stderr = log_path.read_text(errors="replace"), ""
         return subprocess.CompletedProcess(
@@ -601,10 +741,30 @@ def execution_checkout(checkout: Path, expected_sha: str, results_dir: Path) -> 
         _source_digests[target] = (expected_sha, digests)
         yield target, str(imported)
     finally:
-        # Processo ainda ativo pode continuar usando a cópia; nunca removê-la nesse estado.
-        if not _pending_groups:
-            _source_digests.pop(target, None)
+        # A generator may finalize during unwind/GC. Cleanup permission belongs to
+        # the source lease, never to the lifetime of the Python context reference.
+        owner = _source_leases.get(target)
+        if not _pending_groups and (
+            owner is None
+            or (
+                target in _source_cleanup_ready
+                and owner.owns()
+                and owner.owner.get("subprocess_quiescent") is not False
+            )
+        ):
+            if target in _source_digests:
+                _assert_execution_source(target)
             shutil.rmtree(scratch)
+            _source_digests.pop(target, None)
+            _source_leases.pop(target, None)
+            _source_cleanup_ready.discard(target)
+
+
+def _bind_execution_source(checkout: Path, lock: EngineLock) -> None:
+    _assert_execution_source(checkout)
+    if not lock.owns() or checkout in _source_leases:
+        raise RunnerError("fonte sem posse exclusiva para vincular à lease")
+    _source_leases[checkout] = lock
 
 
 def _assert_execution_source(checkout: Path) -> None:
@@ -1068,7 +1228,7 @@ class EngineLock:
         if _pending_groups or self.owner.get("subprocess_quiescent") is False:
             self.update("subprocess_cleanup_unconfirmed", pending_pgids=sorted(_pending_groups))
             return False
-        if not self.owns():
+        if not self.owns() or any(owner is self for owner in _source_leases.values()):
             return False
         self.owner_path.unlink()
         try:
@@ -1082,6 +1242,13 @@ class EngineLock:
 
 
 def _compose_base(checkout: Path) -> list[str]:
+    # Also covers readiness/schema commands that call _run directly with this argv.
+    _assert_execution_source(checkout)
+    owner = _source_leases.get(checkout)
+    if owner is not None and (
+        not owner.owns() or _pending_groups or owner.owner.get("subprocess_quiescent") is False
+    ):
+        raise RunnerError("Compose recusado sem posse e quiescência da fonte")
     return [
         "docker",
         "--context",
@@ -1750,6 +1917,7 @@ def run_suite(args: argparse.Namespace) -> int:
     stack_touched = False
     env = _runtime_env()
     source_context = None
+    cleanup_complete = False
     try:
         _invalidate_mutation_selection(results_dir)
         original, _ = validate_checkout(args.checkout, args.sha)
@@ -1796,6 +1964,7 @@ def run_suite(args: argparse.Namespace) -> int:
             _json_write(results_dir / "run-state.json", state)
             return BUSY_EXIT
         _process_owner = lock
+        _bind_execution_source(checkout, lock)
         lock.update("preflight_complete", results_dir=results_dir.as_posix())
         state["state"] = "lock_acquired"
         _json_write(results_dir / "run-state.json", state)
@@ -1846,12 +2015,8 @@ def run_suite(args: argparse.Namespace) -> int:
                     state.update(state="subprocess_cleanup_unconfirmed", return_code=1)
                     lock.update("subprocess_cleanup_unconfirmed", return_code=1, state=state["state"])
                 elif not stack_touched:
-                    if not lock.release():
-                        state.update(
-                            state="lock_release_failed",
-                            lock_release_error="posse mudou ou diretório contém arquivos inesperados",
-                        )
-                        return_code = return_code or 1
+                    _assert_execution_source(checkout)
+                    cleanup_complete = True
                 else:
                     outcome_before_teardown = state["state"]
                     # Nem o estado nem o rc durável são verdes durante a desmontagem.
@@ -1891,12 +2056,7 @@ def run_suite(args: argparse.Namespace) -> int:
                         if not lock.update("teardown_complete", return_code=return_code):
                             raise RunnerError("posse perdida ao confirmar teardown")
                         state.update(state=outcome_before_teardown, teardown_finished_at=_now())
-                        if not lock.release():
-                            state.update(
-                                state="lock_release_failed",
-                                lock_release_error="posse mudou ou diretório contém arquivos inesperados",
-                            )
-                            return_code = return_code or 1
+                        cleanup_complete = True
                     if _pending_groups or lock.owner.get("subprocess_quiescent") is False:
                         return_code = 1
                         state["state"] = "subprocess_cleanup_unconfirmed"
@@ -1913,7 +2073,15 @@ def run_suite(args: argparse.Namespace) -> int:
         finally:
             try:
                 if source_context is not None:
+                    if cleanup_complete:
+                        _source_cleanup_ready.add(checkout)
                     source_context.__exit__(None, None, None)
+                if cleanup_complete and lock is not None and not lock.release():
+                    state.update(
+                        state="lock_release_failed",
+                        lock_release_error="fonte retida, posse mudou ou arquivos inesperados na lease",
+                    )
+                    return_code = return_code or 1
             except (KeyboardInterrupt, RunnerInterrupted) as exc:
                 return_code = 130
                 state.update(state="source_cleanup_interrupted", error=type(exc).__name__)

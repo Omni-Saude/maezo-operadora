@@ -143,11 +143,13 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import io
 import ipaddress
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -155,6 +157,8 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 from urllib.parse import ParseResult, parse_qsl, urlparse
 
 # scripts/ci/<file> -> parents[2] == repo root.
@@ -272,6 +276,78 @@ def parse_supersession_claim(line: str) -> SupersessionClaim | None:
 
 
 @dataclass(frozen=True)
+class InvalidDeclarationMarker:
+    """A v2 reference, never a v1 equality claim or execution approval."""
+
+    record_path: str
+    record_sha256: str
+    kind: str = "invalid-declaration"
+
+
+_INVALID_MARKER_RE = re.compile(
+    r"\[ledger-supersedes:v2;kind=invalid-declaration;"
+    r"record=(docs/evidence-corrections/([0-9a-f]{64})\.json);"
+    r"record_sha256=([0-9a-f]{64})\]"
+)
+INVALID_ROW_TEMPLATE_TOKEN = "{{ledger-invalid-declaration-record}}"
+
+
+def parse_invalid_declaration_marker(line: str) -> InvalidDeclarationMarker | None:
+    if "[ledger-supersedes:v2" not in line:
+        return None
+    matches = list(_INVALID_MARKER_RE.finditer(line))
+    if len(matches) != 1 or line.count(_SUPERSESSION_HINT) != 1:
+        raise SupersessionError(
+            "IC_MARKER: malformed marker; expected exactly one closed v2 invalid-declaration marker"
+        )
+    match = matches[0]
+    if match.group(2) != match.group(3) or INVALID_ROW_TEMPLATE_TOKEN in line:
+        raise SupersessionError("IC_MARKER: content address mismatch or pre-existing template token")
+    return InvalidDeclarationMarker(match.group(1), match.group(3))
+
+
+def invalid_declaration_template_sha256(line: str) -> str:
+    if parse_invalid_declaration_marker(line) is None:
+        raise SupersessionError("IC_MARKER: missing v2 marker")
+    return hashlib.sha256(_INVALID_MARKER_RE.sub(INVALID_ROW_TEMPLATE_TOKEN, line).encode()).hexdigest()
+
+
+_HISTORY_MARKER_RE = re.compile(
+    r"\[ledger-supersedes:v3;kind=verified-history;"
+    r"record=(docs/evidence-history/([0-9a-f]{64})\.json);"
+    r"record_sha256=([0-9a-f]{64})\]"
+)
+HISTORY_ROW_TEMPLATE_TOKEN = "{{ledger-verified-history-record}}"
+
+
+def parse_operational_marker(line: str) -> InvalidDeclarationMarker | None:
+    if "[ledger-supersedes:v3" not in line:
+        return parse_invalid_declaration_marker(line)
+    matches = list(_HISTORY_MARKER_RE.finditer(line))
+    if len(matches) != 1 or line.count(_SUPERSESSION_HINT) != 1:
+        raise SupersessionError("VH_MARKER: expected exactly one closed v3 verified-history marker")
+    match = matches[0]
+    if match.group(2) != match.group(3) or HISTORY_ROW_TEMPLATE_TOKEN in line:
+        raise SupersessionError("VH_MARKER: content address or template token")
+    return InvalidDeclarationMarker(match.group(1), match.group(3), "verified-history")
+
+
+def operational_template_sha256(line: str) -> str:
+    marker = parse_operational_marker(line)
+    if marker is None or marker.kind == "invalid-declaration":
+        return invalid_declaration_template_sha256(line)
+    return hashlib.sha256(_HISTORY_MARKER_RE.sub(HISTORY_ROW_TEMPLATE_TOKEN, line).encode()).hexdigest()
+
+
+def _invalid_declaration_module() -> ModuleType:
+    # Support both package imports and the established direct-script CLI.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    sys.modules.setdefault("scripts.ci.check_evidence_ledger_hashes", sys.modules[__name__])
+    return importlib.import_module("scripts.ci.ledger_invalid_declarations")
+
+
+@dataclass(frozen=True)
 class DeclaredRow:
     """One ledger row that opted into the machine-readable declared-path convention."""
 
@@ -289,6 +365,7 @@ class DeclaredRow:
     # public value semantics used by the pre-existing parser tests and hand-built rows.
     raw_line: str = field(default="", compare=False, repr=False)
     supersession: SupersessionClaim | None = field(default=None, compare=False)
+    invalid_declaration: InvalidDeclarationMarker | None = field(default=None, compare=False)
 
 
 def is_table_row(line: str) -> bool:
@@ -310,7 +387,8 @@ def parse_row_line(line: str) -> DeclaredRow | None:
     hash_match = _DECLARED_HASH_RE.search(line)
     if hash_match is None:
         return None
-    supersession = parse_supersession_claim(line)
+    invalid_declaration = parse_operational_marker(line)
+    supersession = None if invalid_declaration else parse_supersession_claim(line)
     return DeclaredRow(
         task_id=task_match.group(1).strip(),
         declared_hash=hash_match.group(1).lower(),
@@ -321,6 +399,7 @@ def parse_row_line(line: str) -> DeclaredRow | None:
         row_date=extract_row_date(line),
         raw_line=line,
         supersession=supersession,
+        invalid_declaration=invalid_declaration,
     )
 
 
@@ -366,6 +445,8 @@ def select_rows(lines: Sequence[str]) -> RowSelection:
     declared: list[DeclaredRow] = []
     legacy: list[LegacyRow] = []
     for line in lines:
+        if _SUPERSESSION_HINT in line:
+            _invalid_declaration_module().validate_marker_row(line)
         stripped = line.lstrip()
         task_match = _TASK_ID_CELL_RE.match(stripped)
         if task_match is None:
@@ -564,6 +645,8 @@ def build_supersession_plan(
     # A malformed marker on a non-declared row must not fall through the legacy path.
     for line in ledger_lines:
         if is_table_row(line) and _SUPERSESSION_HINT in line:
+            if parse_operational_marker(line) is not None:
+                continue
             parse_supersession_claim(line)
             successor = parse_row_line(line)
             if successor is None:
@@ -1210,6 +1293,193 @@ def is_live_test_path(path: str) -> bool:
     return path.startswith(_LIVE_TEST_PATH_PREFIX)
 
 
+def _read_admission_source(repo_root: Path, path: str) -> bytes:
+    """Read a regular source through non-symlink components, without importing it."""
+    descriptor = os.open(repo_root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        parts = path.split("/")
+        for part in parts[:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        leaf = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=descriptor)
+        with os.fdopen(leaf, "rb") as source:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                raise ValueError("admission source is not a regular file")
+            return source.read()
+    finally:
+        os.close(descriptor)
+
+
+def _metadata_module() -> ModuleType:
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    return importlib.import_module("scripts.ci.pytest_metadata_admission")
+
+
+def _offline_source_refusal(source: bytes) -> str | None:
+    """Compatibility entry: absent source context never resolves an imported mark."""
+    result: str | None = _metadata_module().source_refusal(source)
+    return result
+
+
+def classify_test_admission(
+    repo_root: Path,
+    test_path: str,
+    source_commit: str | None = None,
+    *,
+    expected_source_sha256: str | None = None,
+) -> Any:
+    """Return closed metadata status plus exact source/lock/config dependency hashes.
+
+    No test import, collection, or recipe occurs. Historical resolution never uses
+    current files; a historical root must match its explicitly expected SHA256.
+    This result grants neither actual test success nor live execution permission.
+    """
+    import tomllib
+
+    metadata = _metadata_module()
+    observed: dict[str, bytes] = {}
+    absent: set[str] = set()
+    source_hash: str | None = None
+
+    def result(status: str, reason: str) -> Any:
+        return metadata.TestAdmission(
+            status,
+            reason,
+            source_hash,
+            tuple(sorted((path, _sha256_bytes(data)) for path, data in observed.items())),
+        )
+
+    if not is_safe_test_path(test_path):
+        return result("UNKNOWN", "unsafe admission test path")
+    live_reason = "integration subtree" if is_live_test_path(test_path) else ""
+    if source_commit is not None and (
+        expected_source_sha256 is None or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+    ):
+        return result("UNKNOWN", "historical admission requires exact commit and expected source SHA256")
+
+    def read(path: str) -> bytes:
+        parts = path.split("/")
+        if any(part in {"", ".", ".."} for part in parts) or path.startswith("/"):
+            raise ValueError("unsafe metadata dependency path")
+        if source_commit is None:
+            data = _read_admission_source(repo_root, path)
+        else:
+            entry = run_git_bytes(["ls-tree", source_commit, "--", path], repo_root)
+            if not entry:
+                raise FileNotFoundError(path)
+            if not entry.startswith((b"100644 blob ", b"100755 blob ")):
+                raise ValueError("historical metadata dependency is not a regular Git blob")
+            data = _source_blob(repo_root, source_commit, path)
+        if path in observed and observed[path] != data:
+            raise ValueError("metadata source drift: " + path)
+        observed[path] = data
+        return data
+
+    def optional(path: str) -> bytes | None:
+        try:
+            return read(path)
+        except FileNotFoundError:
+            absent.add(path)
+            return None
+
+    try:
+        source = read(test_path)
+        source_hash = _sha256_bytes(source)
+        if expected_source_sha256 is not None and source_hash != expected_source_sha256:
+            return result("UNKNOWN", "admission source differs from expected test hash")
+        classifier = metadata.Classifier(read)
+
+        def inspect(data: bytes, path: str, *, collected: bool) -> None:
+            nonlocal live_reason
+            try:
+                classifier.module_metadata(classifier.parse(data, path), collected=collected)
+            except metadata.LiveMetadataError as exc:
+                live_reason = str(exc)
+
+        inspect(source, test_path, collected=True)
+        optional("uv.lock")
+        configuration = optional("pyproject.toml")
+        if configuration is not None:
+            options = (
+                tomllib.loads(configuration.decode()).get("tool", {}).get("pytest", {}).get("ini_options", {})
+            )
+            if any(
+                key in options
+                for key in (
+                    "addopts",
+                    "required_plugins",
+                    "python_files",
+                    "python_classes",
+                    "python_functions",
+                )
+            ):
+                raise ValueError("unresolved pytest collection configuration")
+            pythonpath = options.get("pythonpath", ["."])
+            if (
+                not isinstance(pythonpath, list)
+                or not all(value in {".", "src"} for value in pythonpath)
+                or len(set(pythonpath)) != len(pythonpath)
+            ):
+                raise ValueError("unresolved pytest import path configuration")
+        for name in ("pytest.ini", ".pytest.ini", "tox.ini", "setup.cfg"):
+            data = optional(name)
+            if data is not None and (
+                name.endswith("pytest.ini") or b"[pytest]" in data or b"[tool:pytest]" in data
+            ):
+                raise ValueError("unresolved alternate pytest configuration")
+        parts = test_path.split("/")[:-1]
+        for count in range(len(parts) + 1):
+            prefix = "/".join(parts[:count])
+            for leaf in ("conftest.py", "__init__.py"):
+                path = prefix + "/" + leaf if prefix else leaf
+                data = optional(path)
+                if data is not None:
+                    inspect(data, path, collected=False)
+        # Revalidate this read-set, including newly appearing optional config.
+        # The execution consumer additionally binds its complete source inventory.
+        for path in tuple(observed):
+            read(path)
+        for path in absent:
+            if optional(path) is not None:
+                raise ValueError("metadata dependency appeared during classification")
+    except metadata.LiveMetadataError as exc:
+        return result("LIVE", str(exc))
+    except (
+        metadata.UnresolvedMetadataError,
+        GitError,
+        SupersessionError,
+        OSError,
+        ValueError,
+        SyntaxError,
+        UnicodeError,
+        RecursionError,
+        TypeError,
+        AttributeError,
+    ) as exc:
+        return result("UNKNOWN", str(exc))
+    return (
+        result("LIVE", live_reason)
+        if live_reason
+        else result("OFFLINE", "statically resolved pytest metadata")
+    )
+
+
+def _source_admission_message(source: bytes, *, allow_live: bool) -> str | None:
+    refusal = _offline_source_refusal(source)
+    if refusal is None or allow_live:
+        return None
+    return _admission_refusal_message(refusal)
+
+
+def _admission_refusal_message(refusal: str) -> str:
+    return (
+        f"{refusal}; refusing before test import/capture (HARNESS-LEDGER-HASH-AMBIENT-STACK). "
+        "Re-run with --allow-live only while personally holding the engine mutex and controlling the stack."
+    )
+
+
 # Truthy values accepted for the `LEDGER_HASH_ALLOW_LIVE` env-var fallback to `--allow-live` (see
 # `resolve_allow_live`) — deliberately small and explicit, not "any non-empty string", so a stray
 # exported-but-empty or accidentally-"0"/"false" var never silently grants the assertion.
@@ -1268,6 +1538,20 @@ def verify_row(
         return RowVerification(
             row, False, f"{row.task_id}: declared test file {row.test_path} does not exist at HEAD."
         )
+    try:
+        source = _read_admission_source(repo_root, row.test_path)
+    except (OSError, ValueError) as exc:
+        return RowVerification(row, False, f"{row.task_id}: unsafe admission source: {exc}")
+    admission = classify_test_admission(
+        repo_root, row.test_path, expected_source_sha256=_sha256_bytes(source)
+    )
+    refusal = (
+        None
+        if admission.status == "OFFLINE" or (admission.status == "LIVE" and allow_live)
+        else _admission_refusal_message(admission.reason)
+    )
+    if refusal is not None:
+        return RowVerification(row, False, f"{row.task_id}: {row.test_path}: {refusal}")
     capture = capture_pytest_recipe(repo_root, row.test_path, python_exe)
     outcome = recipe_outcome_from_capture(capture, row.test_path, node_id_regex=_RESULT_LINE_RE)
     if not outcome.ok:
@@ -1332,6 +1616,8 @@ def verify_historical_row(
 ) -> RowVerification:
     """Re-run a superseded target in its bound archive; never fall back to candidate HEAD."""
     row = edge.target
+    if not is_safe_test_path(row.test_path):
+        return RowVerification(row, False, f"{row.task_id}: unsafe historical test path; refusing execution")
     if is_live_test_path(row.test_path) and not allow_live:
         return RowVerification(
             row,
@@ -1340,6 +1626,28 @@ def verify_historical_row(
             f"{_LIVE_TEST_PATH_PREFIX}; HARNESS-LEDGER-HASH-AMBIENT-STACK applies equally to "
             "archived tests. Re-run with --allow-live only while holding the engine mutex.",
         )
+    try:
+        metadata = run_git_bytes(["ls-tree", edge.claim.source_commit, "--", row.test_path], repo_root)
+        if not metadata.startswith((b"100644 blob ", b"100755 blob ")):
+            raise SupersessionError("historical admission source is not a regular Git blob")
+        source = _source_blob(repo_root, edge.claim.source_commit, row.test_path)
+        if _sha256_bytes(source) != edge.claim.source_test_sha256:
+            raise SupersessionError("historical admission source differs from bound test hash")
+    except (GitError, SupersessionError) as exc:
+        return RowVerification(row, False, f"{row.task_id}: {exc}")
+    admission = classify_test_admission(
+        repo_root,
+        row.test_path,
+        edge.claim.source_commit,
+        expected_source_sha256=edge.claim.source_test_sha256,
+    )
+    refusal = (
+        None
+        if admission.status == "OFFLINE" or (admission.status == "LIVE" and allow_live)
+        else _admission_refusal_message(admission.reason)
+    )
+    if refusal is not None:
+        return RowVerification(row, False, f"{row.task_id}: historical {row.test_path}: {refusal}")
     current_lock_path = repo_root / "uv.lock"
     if not current_lock_path.is_file():
         return RowVerification(
@@ -1424,6 +1732,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--version",
+        action="version",
+        version="ledger-hashes v1 + v2-operational/1 (bounded reviewed history)",
+    )
+    parser.add_argument(
+        "--proof-output",
+        type=Path,
+        default=None,
+        help="Existing private 0700 output directory for bounded operational correction proofs.",
+    )
+    parser.add_argument(
         "--base",
         default=None,
         help="Base ref/sha for range selection (merge-based with HEAD). Default: origin/main. "
@@ -1470,17 +1789,21 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
 
     ledger_path = root / args.ledger_path
     try:
-        ledger_text = ledger_path.read_text(encoding="utf-8")
-    except OSError as exc:
+        ledger_text = ledger_path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
         print(f"{prefix} ERROR: could not read ledger {args.ledger_path}: {exc}", file=sys.stderr)
         return 1
 
     try:
         supersession_plan = build_supersession_plan(root, ledger_text, args.ledger_path)
+        invalid_plan = _invalid_declaration_module().build_plan(
+            root, ledger_text, supersession_plan, args.ledger_path
+        )
     except (OSError, SupersessionError) as exc:
         print(f"{prefix} ERROR: invalid ledger supersession provenance: {exc}", file=sys.stderr)
         return 1
 
+    effective_base = None
     if args.all:
         try:
             selection = select_rows(ledger_text.splitlines())
@@ -1502,13 +1825,58 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
             return 1
         scope_desc = f"rows added in {effective_base}..HEAD of {args.ledger_path}"
 
+    try:
+        invalid_results = _invalid_declaration_module().selected_unresolved(
+            root, invalid_plan, selection.declared, effective_base
+        )
+    except (OSError, SupersessionError) as exc:
+        print(f"{prefix} ERROR: {exc}", file=sys.stderr)
+        return 1
+    correction_results: tuple[Any, ...] = ()
+    unresolved_count = 0
+    refused_attempts: int | None = 0
+    accepted_endpoint_hashes: set[str] = set()
+    if invalid_results:
+        operational = importlib.import_module("scripts.ci.ledger_history_proofs")
+        correction_results = operational.execute_selected(
+            root, invalid_plan, invalid_results, args.proof_output
+        )
+        for result in correction_results:
+            print(f"{prefix} {result.status}: {json.dumps(result.to_dict(), sort_keys=True)}")
+        unresolved = [result for result in correction_results if result.status == "UNRESOLVED"]
+        if unresolved:
+            print(
+                f"{prefix} SUMMARY: 0 current verified, 0 historical verified, 0 invalidated declarations, "
+                f"0 corrected relations, {len(unresolved)} unresolved relations, "
+                f"{len(selection.declared)} selected physical occurrences; "
+                "0 executions."
+                if args.proof_output is None
+                else f"{prefix} UNRESOLVED: see proof-output for attempted captures; no overall acceptance."
+            )
+            if args.proof_output is None:
+                return 1
+        unresolved_count = len(unresolved)
+        refused_attempts = (
+            None
+            if any(result.recorded_fresh_attempts is None for result in unresolved)
+            else sum(result.recorded_fresh_attempts for result in unresolved)
+        )
+        # Every selected operational endpoint belongs to its own lane. Ordinary
+        # disjoint rows still execute and retain their failures even on refusal.
+        accepted_endpoint_hashes = {
+            digest
+            for result in correction_results
+            for digest in (result.target_row_sha256, result.correction_row_sha256)
+        }
+        correction_results = tuple(result for result in correction_results if result.status != "UNRESOLVED")
+
     # Legacy rows are listed with their reason (shape or date) EVERY time, not just when nothing
     # is declared — a row skipped for the mzo-040-style date-coincidence reason must be visible
     # even on a run where other rows ARE verified.
     for legacy_row in selection.legacy:
         print(f"{prefix} SKIP (legacy): {legacy_row.task_id} — {legacy_row.reason}")
 
-    if not selection.declared:
+    if not selection.declared and not correction_results and not unresolved_count:
         legacy_note = (
             f" (legacy task IDs: {', '.join(r.task_id for r in selection.legacy)})"
             if selection.legacy
@@ -1525,6 +1893,8 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
     historical_scheduled: set[str] = set()
     for row in selection.declared:
         digest = row_sha256(row)
+        if digest in accepted_endpoint_hashes:
+            continue
         successor_edge = supersession_plan.by_successor_row_sha256.get(digest)
         target_edge = supersession_plan.by_target_row_sha256.get(digest)
 
@@ -1574,7 +1944,38 @@ def main(argv: Sequence[str] | None = None, *, repo_root: Path | None = None) ->
         f" ({declared_count} selected rows{proof_note}), "
         f"{len(selection.legacy)} legacy rows skipped — {scope_desc}."
     )
-    return 1 if failures else 0
+    if correction_results or unresolved_count:
+        current_ordinary = sum(
+            result.ok and row_sha256(result.row) not in historical_scheduled for result in results
+        )
+        historical_ordinary = sum(
+            result.ok and row_sha256(result.row) in historical_scheduled for result in results
+        )
+        invalid_count = sum(
+            result.status == "CORRECTED_WITH_INVALID_HISTORY" for result in correction_results
+        )
+        valid_history_count = len(correction_results) - invalid_count
+        disposition = (
+            "UNRESOLVED"
+            if failures or unresolved_count
+            else ("ACCEPTED_WITH_INVALID_HISTORY" if invalid_count else "ACCEPTED_WITH_VERIFIED_HISTORY")
+        )
+        execution_note = (
+            f"{len(results) + 2 * len(correction_results)} executions."
+            if not unresolved_count
+            else f"{len(results) + 2 * len(correction_results)} completed-relation/ordinary checks; "
+            f"{'unknown' if refused_attempts is None else refused_attempts} recorded refused pytest attempts."
+        )
+        print(
+            f"{prefix} {disposition}: {current_ordinary + len(correction_results)} current verified, "
+            f"{historical_ordinary + valid_history_count} historical verified, "
+            f"{invalid_count} invalidated declarations, "
+            f"{len(correction_results)} corrected relations, "
+            f"{len(failures) + unresolved_count} unresolved/errors; "
+            f"{len(selection.declared)} selected physical occurrences; "
+            f"{execution_note}"
+        )
+    return 1 if failures or unresolved_count else 0
 
 
 if __name__ == "__main__":
