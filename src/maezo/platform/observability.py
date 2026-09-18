@@ -839,6 +839,25 @@ def record_agent_desfecho(
     )
 
 
+def record_mensagem_limitada(*, tenant: str, escopo: str) -> None:
+    """Record ONE inbound message refused by the channel's volume ceiling (Frente 7.1).
+
+    O DEFEITO QUE ISTO MEDE. O receptor nao tinha teto nenhum: um numero em laco, ou um incidente
+    que faca mil pessoas escreverem ao mesmo tempo, entrava inteiro e a fila humana recebia tudo.
+    Este contador e' o que diz se o teto esta' cortando trafego de verdade — e, mais importante, se
+    esta' cortando o de QUEM NAO DEVIA: uma subida sustentada no escopo `tenant` com volume normal
+    significa que o numero foi calibrado baixo demais e beneficiarios legitimos estao sendo
+    recusados.
+
+    Best-effort, como os demais registros deste modulo: telemetria nunca derruba o turno.
+    """
+    try:
+        collector = _get_metrics_collector()
+        collector.mensagem_limitada.labels(tenant=tenant, escopo=escopo).inc()
+    except Exception:  # telemetria nunca derruba o turno que ela conta (ver docstring)
+        logger.warning("mensagem_limitada_metric_failed", tenant=tenant, exc_info=True)
+
+
 def record_resposta_recusada(*, agent_id: str, motivo: str, response_kind: str) -> None:
     """Record ONE model-drafted reply that was BLOCKED before reaching the beneficiary.
 

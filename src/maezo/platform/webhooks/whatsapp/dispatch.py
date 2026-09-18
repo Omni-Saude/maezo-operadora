@@ -84,8 +84,9 @@ from maezo.agents.helena.graph import HelenaState, WhatsAppSender, build, new_he
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
-from maezo.platform.observability import record_agent_first_response
+from maezo.platform.observability import record_agent_first_response, record_mensagem_limitada
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -93,6 +94,7 @@ from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import DmnTransport
 
 from .dedup import WhatsAppDedupGuard
+from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
 
 logger = structlog.get_logger(__name__)
@@ -109,6 +111,20 @@ logger = structlog.get_logger(__name__)
 #: wiring and its tests, never before.
 NON_TEXT_ACK_TEXT: Final[str] = (
     "Este canal aceita apenas mensagens de texto. Por favor, envie sua mensagem em texto."
+)
+
+#: A resposta de quem bateu no teto de volume (Frente 7.1). CONSTANTE e sem modelo no meio: o
+#: motivo de a mensagem nao ter sido atendida e' de infraestrutura, e pedir um texto ao modelo
+#: justamente quando se esta' cortando volume seria gastar a chamada que o teto existe para poupar.
+#:
+#: O QUE ELA PRECISA DIZER, e por que nao pode simplesmente sumir: o documento e' explicito — o
+#: limite NAO pode descartar em silencio. Uma pessoa que escreve e nao recebe nada conclui que
+#: ninguem leu. Entao ela diz que a mensagem nao foi atendida AGORA, que e' verdade, e aponta o
+#: caminho de emergencia, porque quem esta' em laco pode estar em panico.
+LIMITE_EXCEDIDO_TEXT: Final[str] = (
+    "Recebemos muitas mensagens suas em pouco tempo e nao conseguimos atender esta agora. "
+    "Aguarde um minuto e envie novamente. Se voce estiver passando por uma emergencia, procure "
+    "o servico de emergencia mais proximo ou ligue para a central de atendimento do seu plano."
 )
 
 
@@ -290,6 +306,10 @@ class HelenaDispatcher:
     # for the same reason `seam_context` is: the unit tests construct a dispatcher directly. The
     # production root (`platform/webhooks/service.py::_build_dispatcher`) always supplies it.
     dedup: WhatsAppDedupGuard | None = None
+    #: TETO DE VOLUME (Frente 7.1). `None` = sem teto, que e' o comportamento anterior e continua
+    #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
+    #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
+    limitador: LimitadorDeVolume | None = None
 
     def _outbound_key_factory(self, message_id: str) -> Callable[[int], str] | None:
         """The per-send idempotency-key builder for ONE inbound message, or None with no guard."""
@@ -401,6 +421,49 @@ class HelenaDispatcher:
         )
         return ack
 
+    async def _recusar_por_limite(
+        self,
+        message: InboundMessage,
+        phone_hash: str,
+        conversation_id: str,
+        veredito: Veredito,
+    ) -> dict[str, Any]:
+        """Responde o teto de volume e NAO roda o turno.
+
+        Devolve um estado marcado com `limite_excedido`, e nao levanta excecao, porque isto nao e'
+        falha: e' o canal funcionando como configurado. `app.py` le' a marca para contar o lote
+        separadamente — confundir com `failed` faria o painel acusar defeito onde ha protecao.
+        """
+        record_mensagem_limitada(tenant=self.tenant_id, escopo=veredito.escopo or "desconhecido")
+        logger.warning(
+            "whatsapp_mensagem_limitada",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            escopo=veredito.escopo,
+            observadas=veredito.observadas,
+            message_pseudonym=log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer),
+        )
+        sender = self._gated_scoped_sender(
+            raw_to=message.from_number,
+            phone_hash=phone_hash,
+            conversation_id=conversation_id,
+            idempotency_key_for=self._outbound_key_factory(message.message_id),
+        )
+        enviada = True
+        try:
+            await sender.send(phone_hash, LIMITE_EXCEDIDO_TEXT)
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            # O aviso e' cortesia; falhar ao envia-lo nao pode transformar uma protecao em erro do
+            # lote. O contador acima ja registrou a recusa, que e' o que importa medir.
+            enviada = False
+            logger.warning("whatsapp_aviso_de_limite_nao_enviado", tenant_id=self.tenant_id, exc_info=True)
+        return {
+            "limite_excedido": True,
+            "escopo_do_limite": veredito.escopo,
+            "conversation_id": conversation_id,
+            "aviso_enviado": enviada,
+        }
+
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         """Run ONE complete Helena turn (receive..respond) for `message`.
 
@@ -421,6 +484,24 @@ class HelenaDispatcher:
         # irreversible without `PHI_HMAC_KEY`, not a reversible bare sha256 of the phone.
         phone_hash = hash_phone(message.from_number, self.tenant_id, self.pseudonymizer)
         conversation_id = f"wa:{self.tenant_id}:{phone_hash}"
+
+        # TETO DE VOLUME (Frente 7.1), ANTES de qualquer efeito caro. Aqui e' o primeiro ponto do
+        # turno em que a conversa tem identidade keyed — e o ultimo antes de a mensagem virar uma
+        # chamada de modelo, uma avaliacao de DMN e, quando o modelo cai, um escalonamento.
+        #
+        # A RECUSA NAO E' SILENCIO. O documento e' explicito: mensagem recusada por limite vira
+        # resposta honesta ao beneficiario e contador. Uma pessoa que escreve e nao recebe nada
+        # conclui que ninguem leu — e quem esta' em laco pode estar em panico, por isso o texto
+        # constante aponta o caminho de emergencia.
+        #
+        # O ENVIO USA A MESMA COSTURA CERCADA do resto: e' um efeito
+        # (`comunicacao_beneficiario`), e um caminho de saida paralelo seria exatamente a segunda
+        # porta que o gate existe para impedir.
+        if self.limitador is not None:
+            veredito = self.limitador.registrar(tenant_id=self.tenant_id, conversation_id=conversation_id)
+            if not veredito.permitido:
+                return await self._recusar_por_limite(message, phone_hash, conversation_id, veredito)
+
         beneficiario_pseudo_id = self.pseudonymizer.pseudonymize({"telefone": phone_hash})["telefone"]
 
         sender = self._gated_scoped_sender(

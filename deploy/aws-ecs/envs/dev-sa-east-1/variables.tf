@@ -262,6 +262,32 @@ variable "helena_zona_phi" {
   default     = false
 }
 
+variable "limite_por_conversa_por_minuto" {
+  description = <<-EOT
+    Teto de mensagens por CONVERSA por minuto no receptor (Frente 7.1). Protege do caso que de
+    fato acontece: um numero em laco. `0` desliga, e desligar passa a ser um ato declarado aqui
+    em vez de um esquecimento.
+
+    6 e' ponto de partida — mais do que alguem digita conversando —, nao verdade medida. Quem diz
+    se esta cortando quem nao devia e' `maezo_webhook_mensagem_limitada_total{escopo="conversa"}`.
+  EOT
+  type        = number
+  default     = 6
+}
+
+variable "limite_por_tenant_por_minuto" {
+  description = <<-EOT
+    Teto global de mensagens por minuto no tenant (Frente 7.1). Protege do incidente: mil pessoas
+    escrevendo ao mesmo tempo. `0` desliga.
+
+    120 e' o dobro do pico das baterias de 13/09. ATENCAO: o limitador e' memoria de PROCESSO —
+    com mais de uma replica do receptor, o teto efetivo e' N vezes este numero. Hoje
+    `webhook_receiver_desired_count` e' 1, entao a conta fecha.
+  EOT
+  type        = number
+  default     = 120
+}
+
 variable "log_retention_days" {
   description = "Retencao dos log groups. 30 dias em dev; auditoria de verdade nao mora em CloudWatch (ADR de retencao de 5 anos)."
   type        = number
