@@ -196,6 +196,30 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("WHATSAPP_WEBHOOK_MEMORIA_CLINICA", "memoria_clinica_enabled"),
     )
 
+    # TETO DE VOLUME (Frente 7.1, 14/09/2026). O receptor nao tinha protecao nenhuma: um numero em
+    # laco, ou um incidente que faca mil pessoas escreverem ao mesmo tempo, entrava inteiro — cada
+    # mensagem uma chamada de modelo, uma DMN e, quando o modelo cai, um escalonamento. A fila
+    # humana recebia tudo no pior momento possivel.
+    #
+    # LIGADOS POR PADRAO, ao contrario das outras novidades deste modulo, e a diferenca e'
+    # deliberada: um teto que precisa ser ligado e' um teto que ninguem liga. Os numeros abaixo
+    # sao PONTO DE PARTIDA para calibrar com trafego real, nao verdade medida — 6 mensagens por
+    # minuto e' mais do que alguem digita conversando, e 120 no tenant e' o dobro do pico das
+    # baterias. Zero DESLIGA aquele teto, e desligar passa a ser um ato declarado na task
+    # definition em vez de um esquecimento.
+    limite_por_conversa_por_minuto: int = Field(
+        default=6,
+        validation_alias=AliasChoices(
+            "WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO", "limite_por_conversa_por_minuto"
+        ),
+    )
+    limite_por_tenant_por_minuto: int = Field(
+        default=120,
+        validation_alias=AliasChoices(
+            "WHATSAPP_LIMITE_POR_TENANT_POR_MINUTO", "limite_por_tenant_por_minuto"
+        ),
+    )
+
     # DEVOLVER O TURNO NO CORPO DO ACK (12/09/2026). Com `True`, a resposta 200 de `/webhook`
     # ganha dois campos: `resposta` (o texto que a Helena redigiu neste turno) e
     # `conversation_id`. Sem ele, o corpo fica BYTE POR BYTE como sempre foi.

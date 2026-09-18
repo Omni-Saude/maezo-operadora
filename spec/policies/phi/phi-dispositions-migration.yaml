@@ -124,6 +124,18 @@ ratificacao:
 #   rotulo          o rotulo obrigatorio enquanto a linha nao esta assinada.
 # ---------------------------------------------------------------------------------------------
 disposicoes:
+  # Frente 2.2 (15/09/2026). A pergunta integral vive em `phi_completeness.py::DISPOSITIONS`;
+  # resumo: booleano de PRESENCA da tabela de suficiencia (`sintoma_codigo is not None`), que
+  # nao carrega qual codigo nem palavra do beneficiario. Recomendacao da engenharia: NAO listar.
+  # Registrado ANTES de a tabela existir no motor — a coleta segue desligada.
+  - nome: sintoma_reconhecido
+    disposicao: null
+    ratificacao:
+      ratificado: false
+      revisor: null
+      ratificado_em: null
+    rotulo: "recomendação — pendente de assinatura do DPO"
+
   - nome: detalhes_requisicao
     disposicao: null
     ratificacao:

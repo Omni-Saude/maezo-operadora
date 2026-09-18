@@ -117,6 +117,14 @@ orphans:
     DmnTransport.evaluate (ADR-0028 seam; ADR-0012 for the informal triage
     red-flag use) — not through a BPMN businessRuleTask; no SP-OP-TRIAGE-*
     process exists yet.
+  triage_sufficiency: >-
+    Agent-consumed: evaluated directly by the Helena agent via DmnTransport.evaluate
+    (ADR-0028 seam; agents/helena/graph.py::SUFFICIENCY_DMN_KEY), not through a BPMN
+    businessRuleTask — same shape as the four triage_redflag_* tables above. Frente 2.2:
+    decides whether the DATA suffices to answer honestly, never whether the case is severe;
+    consulted ONLY after the red-flag table has already said `false`. NOT RATIFIED, and its
+    existence does not enable collection (`coleta_enabled` stays False) — see the file's own
+    description and tests/unit/spec/test_triage_sufficiency_dmn.py.
   triage_redflag_pediatric: >-
     Agent-consumed: evaluated directly by the Helena agent via
     DmnTransport.evaluate (ADR-0028 seam; ADR-0012 for the informal triage

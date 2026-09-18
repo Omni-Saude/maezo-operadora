@@ -101,6 +101,16 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # codigo, porque este e' o unico lugar em que alguem que opera o ambiente consegue ver que a
       # Helena lembra quem e' o paciente — e desliga-la sem trocar imagem se precisar.
       { name = "WHATSAPP_WEBHOOK_MEMORIA_CLINICA", value = var.helena_memoria_clinica ? "true" : "false" },
+      # TETO DE VOLUME (Frente 7.1, 14/09/2026). Os valores do codigo ja' sao estes; declara-los
+      # AQUI e' o que torna a calibracao um `-var` em vez de um deploy de imagem — e o que faz o
+      # teto aparecer para quem le' a task definition, em vez de viver so' num default de Python.
+      #
+      # SAO PONTO DE PARTIDA, nao verdade medida: 6 por conversa e' mais do que alguem digita
+      # conversando, e 120 no tenant e' o dobro do pico das baterias de 13/09. Calibrar com
+      # trafego real; o contador `maezo_webhook_mensagem_limitada_total` e' quem diz se o numero
+      # esta cortando quem nao devia.
+      { name = "WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO", value = tostring(var.limite_por_conversa_por_minuto) },
+      { name = "WHATSAPP_LIMITE_POR_TENANT_POR_MINUTO", value = tostring(var.limite_por_tenant_por_minuto) },
 
       # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
       # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo

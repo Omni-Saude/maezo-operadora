@@ -17,6 +17,26 @@ out_of_scope:                          # o que Helena NAO faz, rastreado (nao e 
 process_keys:
   - SP-OP-ESCALATION-001
 reports_to: "gestor.atendimento@amh"
+
+# DONO DECLARADO (Frente 6, 14/09/2026). `reports_to` acima e' um ENDERECO DE PAPEL e nunca
+# respondeu a pergunta que importa: quem decide se esta agente pode dizer determinada frase, e
+# quem atende quando ela erra com um beneficiario de verdade. Para um agente que fala com
+# paciente, isso precisa ter nome de PESSOA — um time nao acorda as tres da manha.
+#
+# SAO DOIS DONOS PORQUE SAO DUAS PERGUNTAS DIFERENTES:
+#   tecnico  — comportamento, prompt, extracao, deploy. Quem decide se o texto muda.
+#   clinico  — as regras das tabelas, a regua de extracao, e o que ela pode AFIRMAR a alguem.
+#              Quem assina que uma regra esta certa.
+#
+# O DONO CLINICO NASCE DO SIGNOFF, nao de uma linha escrita a toa. Enquanto
+# `docs/processes/contracts/signoffs/SP-OP-ESCALATION-001.signoff.yaml` nao existir, nao ha dono
+# clinico — e a cerca (`tests/unit/agents/test_helena_dono_declarado.py`) EXIGE o campo
+# preenchido a partir do momento em que o arquivo existir, casando com quem assinou. Preencher
+# antes seria a quinta casca vazia deste projeto.
+owners:
+  tecnico: "Leonardo Silva <lsilva@austa.com.br>"
+  clinico: ""   # preenchido pelo mesmo ato que assina as 34 regras (Frente 4)
+  runbook_incidente: docs/runbooks/helena-erro-com-beneficiario.md
 security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
@@ -28,6 +48,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
+  recusa_de_saida: recusa-v3          # 13/09/2026: a cerca de SAIDA em `_respond_llm` — negativa
+                                     # clinica, promessa de humano e de capacidade (PR #395).
+
 model:
   task_default: { tier: fast }        # triagem/classificacao
   reasoning:    { tier: frontier }    # casos ambiguos
