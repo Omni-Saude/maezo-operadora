@@ -172,16 +172,26 @@ async def _run_one_message(
     dispatcher: HelenaDispatcher,
     dedup: WhatsAppDedupGuard | None,
     tenant: str,
+    turno: dict[str, str] | None = None,
 ) -> str:
     """Run ONE claimed message's effect and settle its claim. Returns the outcome name.
 
     `"dispatched"` (a Helena turn), `"acked"` (the fixed non-text reply) or `"failed"`. Never
     raises: one message's failure must not drop the rest of the batch, and in ack-then-queue mode
     this coroutine IS the background task, whose exception nobody would ever see.
+
+    `turno` e' um COLETOR OPCIONAL, nao um retorno: quando passado, recebe `resposta` e
+    `conversation_id` do turno despachado. Coletor em vez de alargar o tipo de retorno porque o
+    chamador de fundo (`_run_background_turn`) nao tem requisicao para responder e nao deve
+    carregar um campo que nunca vai usar. Escrito SOMENTE no ramo `dispatched` — um ack de
+    nao-texto nao e' um turno da Helena, e um turno que falhou nao tem texto honesto a mostrar.
     """
     try:
         if isinstance(message, InboundMessage):
-            await dispatcher.dispatch(message)
+            resultado = await dispatcher.dispatch(message)
+            if turno is not None:
+                turno["resposta"] = str(resultado.get("response_text") or "")
+                turno["conversation_id"] = str(resultado.get("conversation_id") or "")
             outcome = "dispatched"
         else:
             # Gap `WHATSAPP-NON-TEXT-DROPPED`: ONE fixed reply through the same gated seam.
@@ -362,6 +372,8 @@ def create_app(
         failed = 0
         duplicates = 0
         queued = 0
+        #: Campos do primeiro turno despachado, devolvidos no corpo SO' com `devolve_turno`.
+        turno_do_lote: dict[str, str] = {}
         # Whether the BATCH carried non-text at all — decided by the INPUT shape, not by the
         # outcome, so the `acked` field below does not disappear from the body exactly when an
         # acknowledgement failed. A text-only batch keeps the pre-change body byte for byte.
@@ -443,7 +455,15 @@ def create_app(
                 continue
 
             outcome = await _run_one_message(
-                message, dispatcher=dispatcher, dedup=dedup, tenant=settings.tenant_id
+                message,
+                dispatcher=dispatcher,
+                dedup=dedup,
+                tenant=settings.tenant_id,
+                # PRIMEIRO turno despachado do lote, e so' ele. A rota de teste do Canal manda uma
+                # mensagem por requisicao, entao "o primeiro" e "o unico" coincidem; num lote de
+                # varias, devolver o primeiro e' a escolha honesta — devolver o ultimo faria o
+                # corpo depender da ordem em que a Meta empacotou, que nao e' contrato de ninguem.
+                turno=turno_do_lote if not turno_do_lote else None,
             )
             if outcome == "dispatched":
                 dispatched += 1
@@ -520,6 +540,15 @@ def create_app(
             ok_content["acked"] = acked
         if duplicates:
             ok_content["duplicates"] = duplicates
+        # O TURNO, sob portao (12/09/2026). Sem `devolve_turno` o corpo acima fica byte por byte
+        # como sempre foi — e' o que a Meta recebe em producao, cujo contrato e' o codigo de
+        # status. Com ele, quem assinou a requisicao (em dev, o Canal de Teste) le' o texto que a
+        # Helena redigiu e a conversa em que o turno caiu. `escalation_business_key` NAO entra
+        # aqui: a pagina a deriva de `ESC-{tenant}-{conversation_id}`, e devolver a chave pronta
+        # criaria uma segunda fonte para a mesma verdade.
+        if settings.devolve_turno and turno_do_lote:
+            ok_content["resposta"] = turno_do_lote.get("resposta", "")
+            ok_content["conversation_id"] = turno_do_lote.get("conversation_id", "")
         return JSONResponse(status_code=200, content=ok_content)
 
     return app

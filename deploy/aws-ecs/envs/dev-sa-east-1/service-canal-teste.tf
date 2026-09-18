@@ -70,7 +70,7 @@ resource "aws_ecs_task_definition" "canal_teste" {
 
   container_definitions = jsonencode([{
     name      = "canal-teste"
-    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    image     = "${aws_ecr_repository.app.repository_url}:${var.canal_teste_image_tag}"
     essential = true
 
     # `python -c <programa>` como UM argumento de argv: sem shell no meio, portanto sem
@@ -94,6 +94,35 @@ resource "aws_ecs_task_definition" "canal_teste" {
       # falha; e' o mesmo raciocinio do `desired_count` que descreve o que existe.
       { name = "AGENT_INGRESS_URL", value = local.agent_ingress_url },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
+
+      # ---------------------------------------------------------------------
+      # Rota `/receptor/simular` — a que fabrica mensagem de WhatsApp assinada.
+      # ---------------------------------------------------------------------
+      # POR QUE ELA EXISTE. O receptor exige `X-Hub-Signature-256` e devolve 401 sem
+      # ela, o que esta certo. Uma pagina no navegador so' assinaria carregando o
+      # segredo da Meta no JavaScript — pior do que o problema que resolve. Entao a
+      # assinatura acontece no canal, que roda no cluster, e o segredo fica no
+      # container. O time passa a testar a TRIAGEM inteira sem CLI e sem a Meta.
+      #
+      # O RISCO, DITO: a assinatura produzida e' INDISTINGUIVEL da da Meta. Quem
+      # alcanca o canal fabrica uma mensagem de beneficiario. As tres cercas, e as
+      # tres tem de continuar valendo:
+      #   1. este `CANAL_SIMULAR_RECEPTOR=1` — sem ele a rota devolve 404, e
+      #      `scripts/ci/check_canal_simular.py` reprova quem o ligar fora deste
+      #      ambiente. E' a unica razao pela qual a variavel existe em vez de a rota
+      #      simplesmente funcionar quando ha segredo: um portao tem de ser visivel.
+      #   2. a faixa `55119000000xx` no proprio `server.py`, ancorada nas duas pontas;
+      #   3. o Cloudflare Access na frente — a mesma fronteira de identidade de que o
+      #      proxy arbitrario de `/engine` ja depende neste servico.
+      { name = "RECEPTOR_URL", value = local.receptor_base_url },
+      { name = "CANAL_SIMULAR_RECEPTOR", value = "1" },
+    ]
+
+    # PRIMEIRO segredo deste container. Vale dizer o que ele NAO e': aqui o
+    # `app_secret` serve para PRODUZIR assinatura, nao para verificar — que e' o uso
+    # legitimo dele no receptor. E' essa inversao que a cerca de CI vigia.
+    secrets = [
+      { name = "WHATSAPP_APP_SECRET", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },
     ]
 
     readonlyRootFilesystem = true

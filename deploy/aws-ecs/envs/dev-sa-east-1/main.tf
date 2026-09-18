@@ -47,4 +47,10 @@ locals {
   # Ingresso do agente que executa turnos. O rafael e' o unico com a rota ligada
   # (ver `service-agents.tf`), por isso o endereco e' dele e nao de um agente qualquer.
   agent_ingress_url = "http://agent-rafael.${local.name}.internal:8000"
+
+  # Receptor de webhook, por nome DNS interno. Usado SO' pelo Canal de Teste, na rota
+  # `/receptor/simular` — o caminho que deixa o time exercitar a triagem sem a Meta.
+  # Sem `/webhook` no fim: quem monta o caminho e' o canal, e uma base que ja' trouxesse
+  # a rota impediria o canal de falar com qualquer outro endpoint do receptor depois.
+  receptor_base_url = "http://webhook-receiver.${local.name}.internal:8080"
 }

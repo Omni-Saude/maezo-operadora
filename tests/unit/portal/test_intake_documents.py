@@ -215,3 +215,24 @@ async def test_openapi_exports_exact_closed_fields(h: Harness) -> None:
     intake = schemas["AuthIntakeSubmission"]
     assert intake["additionalProperties"] is False
     assert set(intake["properties"]) == set(submission()) | {"schema_version"}
+    # WP-J1-02: the vínculo projection is exported closed too. Deliberate additive change —
+    # a link carries only opaque references, a deadline and its provenance label; no name,
+    # document number, procedure or clinical field may ever enter this schema.
+    links = schemas["IntakeLinks"]
+    assert links["additionalProperties"] is False
+    assert set(links["properties"]) == {"schema_version", "links"}
+    link = schemas["IntakeLink"]
+    assert link["additionalProperties"] is False
+    assert set(link["properties"]) == {
+        "schema_version",
+        "beneficiary_ref",
+        "provider_ref",
+        "resource_kind",
+        "resource_ref",
+        "action",
+        "valid_until",
+        "provenance_kind",
+    }
+    assert link["properties"]["provenance_kind"]["enum"] == ["synthetic", "attested"]
+    assert "default" not in link["properties"]["provenance_kind"]
+    assert link["properties"]["action"]["const"] == "auth.start"
