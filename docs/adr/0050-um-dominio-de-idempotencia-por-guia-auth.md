@@ -107,7 +107,7 @@ Duas razoes independentes, qualquer uma suficiente:
   a fonte publicar o numero da guia — um campo novo num DTO FECHADO, com dono de fonte e
   analise de minimizacao (o numero liga ao beneficiario) — e o daemon de WP-J1-01.
 - **Uma familia GATED passa a exigir autorizacao de `READ_HISTORY` no preflight D7-A.**
-  `gateway/engine_start.py::authorize_start` autoriza `READ_ACTIVE` e, **so' quando
+  `gateway/engine_start.py::ProfileStartAuthorizer.authorize_start` autoriza `READ_ACTIVE` e, **so' quando
   `is_strict_start_dedup(process_key)`**, tambem `READ_HISTORY` — o portao precisa poder
   perguntar ao engine se a geracao reivindicada terminou. Promover AUTH portanto acrescenta esse
   requisito ao start de AUTH pelo caminho com preflight.
