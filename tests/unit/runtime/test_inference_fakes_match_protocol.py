@@ -425,7 +425,16 @@ _AGENTES_CONHECIDOS: frozenset[str] = frozenset(
 #: todo falso de `IdempotencyStore` declara `claim_or_get`, entao continua classificado e tem o
 #: `mark_requested` conferido. `requested_emitted` NAO entra aqui -- nenhum outro Protocol usa
 #: esse nome, entao ele segue como ancora independente.
+#: `close` (18/09/2026, PR-F controller-D): MESMA razao, terceira familia. `close` era ancora
+#: independente de DmnTransport porque so' ele o declara na tabela — mas `close(self)` e' o
+#: metodo mais generico que existe (todo cursor, conexao, socket e cliente o tem) e nao carrega
+#: parametro nenhum para o gate de FORMA discriminar. Resultado: os duplos SINCRONOS de psycopg
+#: que `controller_postgres_storage` consome (`Cursor.close`, `ReaderConnection.close`,
+#: `InstallationProtocolConnection.close`) eram acusados de drift de um falso de DmnTransport
+#: que nunca fingiram ser. Como SECUNDARIO a cobertura real fica intacta: todo falso de
+#: DmnTransport declara `evaluate`, entao continua classificado e tem o `close` conferido.
 _SECUNDARIOS_POR_FAMILIA: dict[str, tuple[str, ...]] = {
+    "DmnTransport": ("close",),
     "IdempotencyStore": ("complete", "mark_requested"),
     "FactBrokerPublisher": ("start", "stop"),
 }
