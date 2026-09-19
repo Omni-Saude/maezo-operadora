@@ -266,7 +266,7 @@ def test_furo_quantia_lavada_por_fato_nao_monetario(quantia: str, fatos: dict[st
                 strict=True,
                 reason=(
                     "quantia POR EXTENSO esta fora do alcance de um casador lexico — fechar isso e' eval "
-                    "de saida, nao unit test; strict para que uma solucao futura tenha de retirar este marcador"
+                    "de saida, nao unit test; strict para que a solucao futura tenha de retirar o marcador"
                 ),
             ),
         ),
