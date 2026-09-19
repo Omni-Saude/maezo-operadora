@@ -377,15 +377,15 @@ class Controls(unittest.TestCase):
                 # Remove precisely the added calls before inventory, source disposal,
                 # and lease release, retaining every pre-existing safety call.
                 for index in reversed(range(len(b.body) - 1)):
-                    current, following = b.body[index:index + 2]
+                    current, following = b.body[index : index + 2]
                     if (
                         isinstance(current, ast.If)
                         and ast.unparse(current.test) == "deadline is not None"
                         and ast.unparse(current.body[0]) == "require_cleanup_safe()"
                         and (
-                        ast.unparse(following).startswith("current = docker.inventory()")
-                        or ast.unparse(following).startswith("runner._source_cleanup_ready.add(")
-                        or ast.unparse(following).startswith("g.require(lock.release(),")
+                            ast.unparse(following).startswith("current = docker.inventory()")
+                            or ast.unparse(following).startswith("runner._source_cleanup_ready.add(")
+                            or ast.unparse(following).startswith("g.require(lock.release(),")
                         )
                     ):
                         b.body.pop(index)
@@ -412,7 +412,11 @@ class Controls(unittest.TestCase):
         self.assertNotIn("AMBIENT_CANARY", json.dumps(result))
 
     def run_collect(
-        self, stop_rc=0, partial=False, uncertain=False, stop_error=None,
+        self,
+        stop_rc=0,
+        partial=False,
+        uncertain=False,
+        stop_error=None,
         tmpfs_options="rw,nosuid,nodev,noexec,size=33554432,mode=0700,uid=1000,gid=1000",
     ):
         parent = self.root / "retained"
@@ -590,8 +594,13 @@ class Controls(unittest.TestCase):
         lock.owner = {"subprocess_quiescent": True}
         with patch.object(m.g, "prove"), self.assertRaises(m.g.Refused):
             namespace["finish"](
-                runner, {"private": str(self.root)}, docker, context,
-                self.root / "checkout", lock, executor=executor,
+                runner,
+                {"private": str(self.root)},
+                docker,
+                context,
+                self.root / "checkout",
+                lock,
+                executor=executor,
             )
         runner._assert_execution_source.assert_not_called()
         self.assertEqual(docker.mock_calls, [])
@@ -607,8 +616,12 @@ class Controls(unittest.TestCase):
                 e = self.command_executor()
                 with patch.object(m.g, "prove"):
                     raw, actual = m.capture_command(
-                        e, [sys.executable, "-I", "-B", "-c", f"raise SystemExit({rc})"],
-                        2, 32, mutating=True, require_success=False,
+                        e,
+                        [sys.executable, "-I", "-B", "-c", f"raise SystemExit({rc})"],
+                        2,
+                        32,
+                        mutating=True,
+                        require_success=False,
                     )
                 self.assertEqual((raw, actual), (b"", rc))
                 self.assertEqual(e.uncertain, rc != 0)
@@ -620,9 +633,16 @@ class Controls(unittest.TestCase):
         e = self.command_executor()
         e.uncertain = True
         with patch.object(m.g, "prove"):
-            self.assertEqual(m.capture_command(
-                e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
-            ), (b"", 0))
+            self.assertEqual(
+                m.capture_command(
+                    e,
+                    [sys.executable, "-I", "-B", "-c", "pass"],
+                    2,
+                    32,
+                    mutating=True,
+                ),
+                (b"", 0),
+            )
         self.assertTrue(e.uncertain)
         self.assert_original_finish_refuses(e)
 
@@ -632,11 +652,21 @@ class Controls(unittest.TestCase):
         for error in (OSError("PRIVATE_CANARY"), KeyboardInterrupt(), asyncio.CancelledError()):
             with self.subTest(error=type(error).__name__):
                 e = self.command_executor()
-                with patch.object(m.g, "prove"), patch.object(
-                    m.selectors, "DefaultSelector", side_effect=error,
-                ), self.assertRaises(type(error)):
+                with (
+                    patch.object(m.g, "prove"),
+                    patch.object(
+                        m.selectors,
+                        "DefaultSelector",
+                        side_effect=error,
+                    ),
+                    self.assertRaises(type(error)),
+                ):
                     m.capture_command(
-                        e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+                        e,
+                        [sys.executable, "-I", "-B", "-c", "pass"],
+                        2,
+                        32,
+                        mutating=True,
                     )
                 self.assertTrue(e.uncertain)
                 self.assertFalse(e.r._pending_groups)
@@ -646,8 +676,11 @@ class Controls(unittest.TestCase):
         e = self.command_executor()
         with patch.object(m.g, "prove"), self.assertRaises(m.g.Refused):
             m.capture_command(
-                e, [sys.executable, "-I", "-B", "-c", "import time; time.sleep(1)"],
-                0.03, 32, mutating=True,
+                e,
+                [sys.executable, "-I", "-B", "-c", "import time; time.sleep(1)"],
+                0.03,
+                32,
+                mutating=True,
             )
         self.assertTrue(e.uncertain)
         self.assertFalse(e.r._pending_groups)
@@ -666,18 +699,34 @@ class Controls(unittest.TestCase):
 
                 e.r._record_pending = record
                 try:
-                    with patch.object(m.g, "prove"), patch.object(
-                        e.r, "_group_exists", **({"side_effect": result} if isinstance(result, OSError)
-                                                else {"return_value": result}),
+                    with (
+                        patch.object(m.g, "prove"),
+                        patch.object(
+                            e.r,
+                            "_group_exists",
+                            **(
+                                {"side_effect": result}
+                                if isinstance(result, OSError)
+                                else {"return_value": result}
+                            ),
+                        ),
                     ):
                         if isinstance(result, OSError):
                             with self.assertRaises(OSError):
-                                m.capture_command(e, [sys.executable, "-I", "-B", "-c", "pass"],
-                                                  2, 32, mutating=True)
+                                m.capture_command(
+                                    e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True
+                                )
                         else:
-                            self.assertEqual(m.capture_command(
-                                e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
-                            ), (b"", 0))
+                            self.assertEqual(
+                                m.capture_command(
+                                    e,
+                                    [sys.executable, "-I", "-B", "-c", "pass"],
+                                    2,
+                                    32,
+                                    mutating=True,
+                                ),
+                                (b"", 0),
+                            )
                     self.assertTrue(e.uncertain)
                     self.assert_original_finish_refuses(e)
                 finally:
@@ -688,7 +737,8 @@ class Controls(unittest.TestCase):
     def test46_unconfirmed_spawn_failure_is_conservative(self):
         e = self.command_executor()
         with (
-            patch.object(m.g, "prove"), patch.object(m.subprocess, "Popen", side_effect=OSError()),
+            patch.object(m.g, "prove"),
+            patch.object(m.subprocess, "Popen", side_effect=OSError()),
             self.assertRaises(OSError),
         ):
             m.capture_command(e, ["synthetic"], 2, 32, mutating=True)
@@ -697,9 +747,14 @@ class Controls(unittest.TestCase):
 
     def test47_proved_authority_rejection_never_submits(self):
         e = self.command_executor()
-        with patch.object(m.g, "prove", side_effect=m.g.Refused("refused")), patch.object(
-            m.subprocess, "Popen",
-        ) as spawn, self.assertRaises(m.g.Refused):
+        with (
+            patch.object(m.g, "prove", side_effect=m.g.Refused("refused")),
+            patch.object(
+                m.subprocess,
+                "Popen",
+            ) as spawn,
+            self.assertRaises(m.g.Refused),
+        ):
             m.capture_command(e, ["synthetic"], 2, 32, mutating=True)
         self.assertFalse(e.uncertain)
         spawn.assert_not_called()
@@ -760,9 +815,12 @@ class Controls(unittest.TestCase):
         e = self.command_executor()
         with patch.object(m.g, "prove"):
             _, rc = m.capture_command(
-                e, [sys.executable, "-I", "-B", "-c",
-                    "import os,signal; os.kill(os.getpid(),signal.SIGTERM)"],
-                2, 32, mutating=True, require_success=False,
+                e,
+                [sys.executable, "-I", "-B", "-c", "import os,signal; os.kill(os.getpid(),signal.SIGTERM)"],
+                2,
+                32,
+                mutating=True,
+                require_success=False,
             )
         self.assertEqual(rc, -signal.SIGTERM)
         self.assertTrue(e.uncertain)
@@ -778,12 +836,16 @@ class Controls(unittest.TestCase):
 
         e = self.command_executor()
         with (
-            patch.object(m.g, "prove"), patch.object(m.selectors, "DefaultSelector", DrainFailure),
+            patch.object(m.g, "prove"),
+            patch.object(m.selectors, "DefaultSelector", DrainFailure),
             self.assertRaises(OSError),
         ):
             m.capture_command(
-                e, [sys.executable, "-I", "-B", "-c", "print('synthetic')"],
-                2, 32, mutating=True,
+                e,
+                [sys.executable, "-I", "-B", "-c", "print('synthetic')"],
+                2,
+                32,
+                mutating=True,
             )
         self.assertTrue(e.uncertain)
         self.assertFalse(e.r._pending_groups)
@@ -799,11 +861,16 @@ class Controls(unittest.TestCase):
 
         e = self.command_executor()
         with (
-            patch.object(m.g, "prove"), patch.object(m.selectors, "DefaultSelector", CloseFailure),
+            patch.object(m.g, "prove"),
+            patch.object(m.selectors, "DefaultSelector", CloseFailure),
             self.assertRaises(OSError),
         ):
             m.capture_command(
-                e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+                e,
+                [sys.executable, "-I", "-B", "-c", "pass"],
+                2,
+                32,
+                mutating=True,
             )
         self.assertTrue(e.uncertain)
         self.assertFalse(e.r._pending_groups)
@@ -838,11 +905,16 @@ class Controls(unittest.TestCase):
 
         try:
             with (
-                patch.object(m.g, "prove"), patch.object(e.r, "_quiesce_group", side_effect=quiesce),
+                patch.object(m.g, "prove"),
+                patch.object(e.r, "_quiesce_group", side_effect=quiesce),
                 self.assertRaises(OSError),
             ):
                 m.capture_command(
-                    e, [sys.executable, "-I", "-B", "-c", "pass"], 2, 32, mutating=True,
+                    e,
+                    [sys.executable, "-I", "-B", "-c", "pass"],
+                    2,
+                    32,
+                    mutating=True,
                 )
             self.assertTrue(e.uncertain)
             self.assertFalse(e.r._pending_groups)
@@ -854,9 +926,12 @@ class Controls(unittest.TestCase):
 
     def test58_tmpfs_ownership_is_closed(self):
         result = prep.instrument(self.compose, self.root, self.project)
-        self.assertEqual(result["services"]["engine"]["tmpfs"], [
-            prep.AREA + ":rw,nosuid,nodev,noexec,size=33554432,mode=0700,uid=1000,gid=1000",
-        ])
+        self.assertEqual(
+            result["services"]["engine"]["tmpfs"],
+            [
+                prep.AREA + ":rw,nosuid,nodev,noexec,size=33554432,mode=0700,uid=1000,gid=1000",
+            ],
+        )
         self.assertNotIn("user", result["services"]["engine"])
         self.assertEqual(self.compose["services"]["engine"]["volumes"], [])
 
@@ -867,8 +942,7 @@ class Controls(unittest.TestCase):
                 self.compose["services"]["engine"]["entrypoint"] = ["/fixed/public-entrypoint"]
                 result = prep.instrument(self.compose, self.root, self.project)
                 self.assertEqual(result["services"]["engine"]["user"], user)
-                self.assertEqual(result["services"]["engine"]["entrypoint"],
-                                 ["/fixed/public-entrypoint"])
+                self.assertEqual(result["services"]["engine"]["entrypoint"], ["/fixed/public-entrypoint"])
 
     def test60_only_tmpfs_owner_changes_generated_configuration(self):
         import importlib.util

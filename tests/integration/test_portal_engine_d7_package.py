@@ -745,7 +745,7 @@ def _new_readiness_observation(purpose: str) -> dict:
     )
     assert re.fullmatch(r"[0-9a-f]{40}", source_sha), (
         "MAEZO_D7_READINESS_SOURCE_SHA is required to bind readiness-attempts.json to the exact "
-        "observed source revision: 40-hex `git -C \"$CANDIDATE\" rev-parse HEAD`; export it next "
+        'observed source revision: 40-hex `git -C "$CANDIDATE" rev-parse HEAD`; export it next '
         "to MAEZO_D7_PACKAGE_FIXTURE — deploy/cibseven/secured/ACCEPTANCE.md"
     )
     assert re.fullmatch(r"[0-9a-f]{40}", source_tree), (
