@@ -350,11 +350,11 @@ class PortalReadProfileTest {
   }
   @Test void pendingNativeReadUsesExistingExactAuthFormWithoutReembolsoAlias() {
     var entry=Map.<String,Object>of("process_definition_key","SP-OP-AUTH-001","task_definition_key","UT_DecidirPendenciaExpirada",
-        "form_key","auth_pendencia","form_source_status","BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY","allowed_inputs",List.of("decisao_pendencia"));
+        "form_key","auth_pendencia","form_source_status","BPMN_FORMDATA","allowed_inputs",List.of("decisao_pendencia"));
     assertDoesNotThrow(()->PortalReadCommand.compiled(entry));
     var wrong=new HashMap<>(entry);wrong.put("process_definition_key","SP-OP-REEMBOLSO-001");
     var foreign=wrong;assertThrows(RuntimeException.class,()->PortalReadCommand.compiled(foreign));
-    wrong=new HashMap<>(entry);wrong.put("form_source_status","BPMN_FORMDATA");
+    wrong=new HashMap<>(entry);wrong.put("form_source_status","BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY");
     var changedSource=wrong;assertThrows(RuntimeException.class,()->PortalReadCommand.compiled(changedSource));
   }
 
