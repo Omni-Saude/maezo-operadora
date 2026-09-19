@@ -3,9 +3,13 @@
 resource "aws_ecr_repository" "app" {
   name = "amh/maezo-operadora"
 
-  # MUTABLE em dev: a iteracao reaproveita tag. Em producao isto vira IMMUTABLE —
-  # sem imutabilidade nao ha como provar qual artefato gerou um comportamento.
-  image_tag_mutability = "MUTABLE"
+  # IMMUTABLE desde 19/09/2026 (decisao do dono, pacote trivy/IaC D2): dev deixa de
+  # reaproveitar tag. O comentario antigo — "MUTABLE em dev: a iteracao reaproveita
+  # tag. Em producao isto vira IMMUTABLE" — ja admitia o custo: sem imutabilidade nao
+  # ha como provar qual artefato gerou um comportamento. Promover imagem segue sendo
+  # apontar para outro tag (o CodeBuild imprime o digest de cada push); reenviar a
+  # MESMA tag agora falha alto no push em vez de sobrescrever em silencio.
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true
@@ -53,8 +57,12 @@ resource "aws_ecr_lifecycle_policy" "app" {
 # Registro do ENGINE. Imagem propria porque a oficial embute o showcase de
 # demonstracao, que cria o usuario `demo` a cada boot — ver deploy/cibseven/Dockerfile.
 resource "aws_ecr_repository" "engine" {
-  name                 = "amh/cibseven-maezo"
-  image_tag_mutability = "MUTABLE"
+  name = "amh/cibseven-maezo"
+  # IMMUTABLE desde 19/09/2026 (decisao do dono, pacote trivy/IaC D2). O engine e' a
+  # autoridade BPMN/PHI-adjacente: era o alvo de maior valor de uma tag reescrita em
+  # silencio. A imagem consome digest na task def (service-cibseven.tf), entao a
+  # promocao passa por tag nova + digest, nao por sobrescrita.
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true

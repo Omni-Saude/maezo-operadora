@@ -1,0 +1,56 @@
+# =============================================================================
+# Registro ESCOPADO de supressoes trivy — decisao do dono, pacote trivy/IaC D2
+# (2026-09-19). Tres entradas: uma INTERIM (egress NAT para APIs AWS) e duas do
+# tunel cloudflared (QUIC + fallback HTTP/2). Cada uma com id, caminho exato,
+# motivo e validade.
+#
+# STATUS: o trivy 0.70.0 (a versao que a lane `trivy / iac` fixa) NAO carrega
+# este arquivo automaticamente — medido localmente em 2026-09-19: scan sem
+# `--ignorefile` nao o le. A supressao ATIVA hoje sao os comentarios inline
+# `# trivy:ignore:AWS-0104 exp:2026-12-19` nos tres recursos apontados abaixo.
+# Este YAML e o registro estruturado (escopo por arquivo + motivo + validade)
+# e passa a valer no momento em que a lane passar
+# `--ignorefile .trivyignore.yaml`; nesse passo os comentarios inline saem.
+# Ate la, mantenha os DOIS em sincronia (mesmas linhas, mesma validade).
+#
+# Sintaxe provada contra trivy v0.70.0 (medido, 2026-09-19):
+#   - `paths` casa com o caminho RELATIVO AO SCAN-REF (`deploy/`), ex.:
+#     "aws-ecs/envs/dev-sa-east-1/security_groups.tf".
+#   - `expired_at` exige RFC3339; data simples "2026-12-19" FATALIZA o scan.
+#   - o .trivyignore LEGADO nao escopa por arquivo: a linha "ID <caminho>"
+#     suprime o ID GLOBALMENTE (medido) — exatamente o excesso que se quer
+#     evitar; por isso este formato estruturado aqui.
+# =============================================================================
+misconfigurations:
+  # --- INTERIM: sai quando o VPC endpoint pousar (cross-repo, VPC compartilhado) ---
+  - id: AWS-0104
+    paths:
+      - "aws-ecs/envs/dev-sa-east-1/security_groups.tf"
+    expired_at: "2026-12-19T23:59:59Z"
+    statement: >-
+      Egress 443 -> 0.0.0.0/0 pela NAT e o que mantem as tasks vivas (ECR, Secrets
+      Manager, CloudWatch Logs, SSM, Bedrock — consumidores listados na regra).
+      O conserto real e VPC endpoint (gateway S3 + interface endpoints ECR/Secrets/
+      Logs/SSM/Bedrock) no VPC compartilhado da plataforma — trabalho cross-repo,
+      fora deste state. Precedente de egress exato no mesmo env: portal-network.tf
+      (lista /32 validada fail-closed). Expira 2026-12-19; o dono pode emendar.
+  # --- Tunel cloudflared: topologia-exigido, medido (cabecalho do proprio arquivo) ---
+  - id: AWS-0104
+    paths:
+      - "aws-ecs/envs/dev-sa-east-1/security_groups_cloudflared.tf"
+    expired_at: "2026-12-19T23:59:59Z"
+    statement: >-
+      udp/7844 (QUIC, protocolo preferido do cloudflared) -> 0.0.0.0/0. A borda
+      Cloudflare e anycast global (region1/region2.v2.argotunnel.com) e a lista de
+      IPs muda sem aviso; medido que o tunel nao registrava com so 443 liberado
+      (cabecalho do proprio arquivo). Fixar CIDR trocaria uma regra larga por uma
+      regra que quebra em silencio — o modo de falha pior. Expira 2026-12-19; o
+      dono pode emendar/revisar.
+  - id: AWS-0104
+    paths:
+      - "aws-ecs/envs/dev-sa-east-1/security_groups_cloudflared.tf"
+    expired_at: "2026-12-19T23:59:59Z"
+    statement: >-
+      tcp/7844 (fallback HTTP/2 do MESMO tunel) -> 0.0.0.0/0. Mesmo dispacho do
+      QUIC acima: se a borda UDP cair sob endurecimento de rede, o TCP/7844 e o que
+      mantem o tunel de pe. Expira 2026-12-19; o dono pode emendar/revisar.

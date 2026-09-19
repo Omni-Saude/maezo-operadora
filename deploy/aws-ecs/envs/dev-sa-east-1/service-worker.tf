@@ -21,6 +21,25 @@
 # construido, o harness falha fechado e registra ZERO workers. Foi medido no boot
 # local de 2026-08-12 (o compose nao injetava a variavel e o worker subia mudo).
 
+# ---------------------------------------------------------------------------
+# DIGEST DA IMAGEM DO WORKER (19/09/2026, decisao do dono — pacote trivy/IaC D2)
+#
+# O repositorio `amh/maezo-operadora` ficou IMMUTABLE (ecs.tf), entao a task def
+# consome DIGEST, nao tag — mesmo padrao da sonda (`diagnostics_image_digest`,
+# task-diagnostics.tf) e do portal (`portal.image_digest`): variavel obrigatória,
+# sem default, sem "digest inventado". Quem promove pega o digest da saida do
+# CodeBuild (`aws ecr describe-images ... --query imageDetails[0].imageDigest`) e
+# passa `-var worker_image_digest=sha256:...`.
+# ---------------------------------------------------------------------------
+variable "worker_image_digest" {
+  description = "Digest sha256 completo da imagem ECR app que o worker-runtime executa; obrigatorio no deploy (o repo e' IMMUTABLE), sem tag mutavel ou digest inventado."
+  type        = string
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.worker_image_digest))
+    error_message = "Forneca o digest sha256 completo de uma imagem app qualificada."
+  }
+}
+
 resource "aws_ecs_task_definition" "worker" {
   family                   = "${local.name}-worker"
   network_mode             = "awsvpc"
@@ -37,7 +56,7 @@ resource "aws_ecs_task_definition" "worker" {
 
   container_definitions = jsonencode([{
     name      = "worker-runtime"
-    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    image     = "${aws_ecr_repository.app.repository_url}@${var.worker_image_digest}"
     essential = true
 
     command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.runtime.worker_runtime"]

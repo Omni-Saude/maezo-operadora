@@ -58,8 +58,14 @@ variables {
   # Synthetic fixtures only. These are not deployed origins, credentials or image IDs.
   # Mock-provider fixture only; never a deployable image qualification.
   diagnostics_image_digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-  tenant_id                = "portaltest"
-  fhir_cognito_client_id   = "machine123"
+  # Required digest variables (IMMUTABLE repos — 19/09/2026 owner decision, trivy/IaC D2
+  # packet): terraform test needs a syntactically valid value for every required variable
+  # even though these run blocks target only the portal graph. Synthetic, never deployable.
+  worker_image_digest    = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  agents_image_digest    = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  engine_image_digest    = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  tenant_id              = "portaltest"
+  fhir_cognito_client_id = "machine123"
   portal = {
     tenant                  = "portaltest"
     issuer                  = "https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_TestPool"
