@@ -20,3 +20,27 @@ RUN cp /camunda/webapps/camunda/WEB-INF/web.xml /camunda/camunda-web.legacy.xml
 COPY deploy/cibseven/secured/descriptors/camunda-web.xml /camunda/webapps/camunda/WEB-INF/web.xml
 # No default policy or TLS material: SecureLayout requires exactly one HTTPS/mTLS connector,
 # explicit mounted-file digests, auth/SPI/filter bindings and disabled autoDeploy before availability.
+
+# ---------------------------------------------------------------------------
+# DS-0002 (trivy "Least Privilege User") — explicit final non-root USER plus a
+# fail-closed build-time assertion. Base facts proven 2026-09-19 against
+# cibseven/cibseven (index sha256:20a2135b…, Alpine 3.22.2): the image config
+# already runs as User "camunda" (uid/gid 1000, home/WorkingDir /camunda, mode
+# 2755), /tmp is 1777, and /usr/local/tomcat does NOT exist in this base — the
+# real runtime paths are /camunda and /tmp. Every RUN above therefore already
+# executed as camunda; USER below only makes it explicit, and the assertion runs
+# AS camunda, so `test -w` proves the runtime user's write access, not root's.
+# If the base changes underneath us (user missing, different uid, paths the
+# camunda user cannot write), the build FAILS instead of publishing a root image.
+# ---------------------------------------------------------------------------
+USER camunda
+RUN set -eu; \
+    die() { echo "FATAL (DS-0002): $*" >&2; exit 1; }; \
+    getent passwd camunda >/dev/null || die "user 'camunda' missing from base image (getent passwd failed)"; \
+    [ "$(id -u)" = "1000" ] || die "effective uid $(id -u) != 1000 — USER camunda did not resolve to the proven base uid"; \
+    [ "$(id -g)" = "1000" ] || die "effective gid $(id -g) != 1000"; \
+    for d in /camunda /tmp; do \
+        [ -d "$d" ] || die "runtime path missing from base image: $d"; \
+        [ -w "$d" ] || die "camunda(1000:1000) cannot write $d — engine startup would break"; \
+    done; \
+    echo "OK (DS-0002): USER camunda 1000:1000 active; camunda writes /camunda and /tmp"

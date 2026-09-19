@@ -24,6 +24,16 @@ resource "aws_security_group" "tasks" {
 
 # Saida 443: ECR (puxar imagem), Secrets Manager, CloudWatch Logs, SSM (ECS Exec) e
 # Bedrock — tudo pela NAT. Sem esta regra a task nem inicia: falha ao puxar a imagem.
+#
+# AWS-0104 (trivy) — INTERIM, decidido pelo dono no pacote trivy/IaC D2 (19/09/2026):
+# o conserto de verdade NAO e' estreitar este CIDR, e' VPC endpoint (gateway S3 +
+# interface endpoints para ECR API/DKR, Secrets Manager, Logs, SSM e Bedrock) no VPC
+# compartilhado da plataforma — trabalho cross-repo, fora deste state. Enquanto isso
+# nao pousa, a saida /0 pela NAT e' o que mantem as tasks vivas. Precedente de egress
+# exato no mesmo env: portal-network.tf (lista /32 validada fail-closed).
+# EXPIRA 2026-12-19 (o dono pode emendar): quando o endpoint pousar, a regra /0 some
+# e este ignore sai junto — a data esta aqui para o ignore nao virar permanente.
+# trivy:ignore:AWS-0104 exp:2026-12-19
 resource "aws_vpc_security_group_egress_rule" "https" {
   security_group_id = aws_security_group.tasks.id
   description       = "APIs AWS (ECR, Secrets Manager, Logs, SSM, Bedrock) via NAT"
