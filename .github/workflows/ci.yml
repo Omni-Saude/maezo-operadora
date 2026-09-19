@@ -459,6 +459,41 @@ jobs:
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). make validate-signoff funciona.
   # ✅ Passa em CI (greenfield stub, exit 0).
+  # Regra INVIOLAVEL do CLAUDE.md global: nenhum commit assinado com `Co-Authored-By: Claude`.
+  # Medido em 18/09/2026: 14 dos ultimos 60 commits da main carregam esse trailer (commits de branch
+  # que entraram por merge/squash), e nenhum dos 4 checks obrigatorios le mensagem de commit. Este
+  # job le. Checa TODOS os commits do PR (nao so' o HEAD) e, em push na main, o
+  # proprio commit. Trailer `Co-authored-by:` de PESSOA (o que o GitHub adiciona no squash quando
+  # o autor do commit difere de quem mergeou) passa: o padrao casa so' claude|anthropic.
+  # NAO e' check obrigatorio da ruleset por si — promover e' decisao do dono (ver corpo do PR).
+  ai-attribution-gate:
+    name: ai-attribution-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Nenhum commit assinado por IA
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BASE_REF}" ]; then
+            range="origin/${BASE_REF}..HEAD"
+          else
+            range="HEAD~1..HEAD"
+          fi
+          echo "verificando ${range}"
+          hits="$(git log --format='%H%x09%B%x00' "${range}" | tr '\0' '\n' | grep -inE 'co-authored-by:.*(claude|anthropic)' || true)"
+          if [ -n "${hits}" ]; then
+            echo "::error::commit(s) neste PR assinados por IA (Co-Authored-By: ...claude|anthropic). Regra inviolavel do CLAUDE.md: remova o trailer (rebase/reword) antes de mergear."
+            printf '%s\n' "${hits}"
+            exit 1
+          fi
+          echo "ok: nenhum trailer de IA em ${range}"
+
   content-signoff-gate:
     name: content-signoff-gate
     runs-on: ubuntu-latest
@@ -822,6 +857,10 @@ jobs:
   integration:
     name: integration tests (real engine)
     runs-on: ubuntu-latest
+    # `needs: [quality]` RESTAURADO (18/09/2026): sumiu no squash de #378 sem justificativa, e o
+    # paragrafo de CI-minutes acima so' e' verdadeiro com ele — sem o needs, um PR reprovado no
+    # ruff/mypy disparava os ~93 min desta lane em paralelo, em vez de ser barrado antes.
+    needs: [quality]
     # Hard cap (CI-minutes hygiene): measured steady state is 92.4-95.9 min per run (every
     # completed run 2026-08-07..2026-09-03). Without a cap a wedged engine or a stuck long-poll
     # bills GitHub's 360-min default before the job dies. 150 leaves ~55 min of headroom over

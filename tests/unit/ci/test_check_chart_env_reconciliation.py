@@ -1054,8 +1054,16 @@ def test_deferred_required_table_is_empty_now_that_the_portal_deployer_landed() 
     e' mais required-and-undeclared e a tabela ficou vazia — que e' o desfecho que o teste antigo
     pedia. O que sobra a provar e' o inverso: que ninguem volte a povoar a tabela sem restaurar
     a cerca de nao-vacuidade nas duas direcoes."""
+    # As DUAS provas semanticas do teste original, em forma vacuamente verdadeira: custam zero com a
+    # tabela vazia e voltam a valer SOZINHAS no dia em que alguem a povoar — sem depender de alguem
+    # ler a mensagem abaixo e "restaurar a cerca" (code-reviewer, 18/09/2026).
+    _, required_names, _, _ = extract_settings_env_names(_SRC_DIR)
+    declared = _real_declared_names()
+    for nome in DEFERRED_UNDECLARED_REQUIRED:
+        assert nome in required_names, f"{nome}: deferido mas nao e required em src/"
+        assert nome not in declared, f"{nome}: deferido mas JA declarado no chart/TF — apague a entrada"
     assert not DEFERRED_UNDECLARED_REQUIRED, (
-        "a tabela voltou a ter entradas; restaure a cerca de nao-vacuidade (deferred <= required "
-        "E deferred.isdisjoint(declared)) junto com elas — ver historico deste teste"
+        "a tabela voltou a ter entradas; as duas assercoes acima ja as validaram — se voce chegou aqui, "
+        "decida se a deferral e legitima e remova ESTE assert de vacuidade (nao os de cima)"
     )
     _require_reasons(DEFERRED_UNDECLARED_REQUIRED, label="DEFERRED_UNDECLARED_REQUIRED")
