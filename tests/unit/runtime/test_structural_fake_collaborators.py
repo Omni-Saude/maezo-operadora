@@ -543,3 +543,93 @@ def test_declared_constructed_double_is_keyed_to_one_file_and_one_class():
 def test_every_declared_constructed_double_carries_a_reason():
     for chave, (metodos, razao) in fence._DUPLOS_CONSTRUIDOS_DECLARADOS.items():
         assert metodos and razao.strip(), chave
+
+
+# =================================================================================================
+# `_DUPLOS_CONSTRUIDOS_DECLARADOS` — ate' onde a isencao chega (lane adversarial, 18/09/2026)
+#
+# A tabela e' uma allowlist com justificativa, e toda allowlist vale o que vale o seu ESCOPO. Os
+# dois testes que ja' existem acima provam o eixo do ARQUIVO (outro arquivo continua acusado) e o
+# eixo da CLASSE IRMA (outro nome no mesmo arquivo continua acusado). Falta o que um atacante — ou
+# um refactor distraido — faria de verdade: aninhar, renomear o rotulo, e declarar um metodo a
+# mais. Os tres eixos abaixo.
+# =================================================================================================
+
+
+def test_declared_exemption_covers_only_the_declared_methods():
+    """A isencao e' `frozenset({"close"})`, nao a classe inteira.
+
+    Um `Cursor` que passasse a declarar TAMBEM `evaluate` seria um falso de `DmnTransport` de
+    verdade — o unico nome que a entrada justifica e' `close`, e a razao escrita na tabela diz
+    isso com todas as letras ("o unico nome em comum e' `close`"). Se a isencao fosse por classe,
+    a tabela viraria um `# noqa` de arquivo inteiro na primeira vez que alguem acrescentasse um
+    metodo aqui, e nenhum teste apontaria.
+    """
+    with_evaluate = _CURSOR_SPECIMEN + "    async def evaluate(self, key, variables): pass\n"
+    findings = fence._achados_estruturais_em_fonte(with_evaluate, _CURSOR_REAL_FILE)
+    assert findings, "metodo nao declarado herdou a isencao do `close`"
+    assert "evaluate" in findings[0] and "DmnTransport" in findings[0]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "./" + _CURSOR_REAL_FILE,
+        _CURSOR_REAL_FILE.replace("/", "//"),
+        "/" + _CURSOR_REAL_FILE,
+        "D:/checkout/" + _CURSOR_REAL_FILE,
+        r"D:\checkout" + "\\" + _CURSOR_REAL_FILE.replace("/", "\\"),
+        _CURSOR_REAL_FILE.upper(),
+    ],
+    ids=["dot-slash", "double-slash", "absolute-posix", "windows-drive", "windows-backslash", "upper"],
+)
+def test_declared_exemption_fails_closed_for_any_label_that_is_not_the_canonical_one(label):
+    r"""`_duplos_declarados_para` so' normaliza `\` -> `/`: nenhuma outra forma do mesmo caminho
+    casa, e o resultado e' ACUSAR.
+
+    Esse e' o lado certo de falhar. O rotulo real vem sempre de `str(caminho.relative_to(_RAIZ))`
+    (a varredura de `tests/`), entao as formas abaixo nao ocorrem na cerca de verdade — mas se um
+    dia ocorressem, o defeito seria um falso-positivo ruidoso, e nao uma isencao concedida a um
+    arquivo que ninguem declarou. Este teste trava essa direcao: uma "melhoria" que passasse a
+    casar prefixo, sufixo ou caixa transformaria a chave exata numa correspondencia frouxa.
+    """
+    assert fence._achados_estruturais_em_fonte(_CURSOR_SPECIMEN, label)
+
+
+def test_declared_exemption_leaks_to_a_same_named_nested_class_in_the_same_file():
+    """GAP CONHECIDO, fixado aqui de proposito: a chave e' (arquivo, NOME da classe), e
+    `_classes_da_arvore` usa `ast.walk` — ou seja, desce em classes aninhadas e em classes
+    declaradas dentro de uma funcao. Um segundo `Cursor` aninhado no MESMO arquivo herda a
+    isencao sem nunca ter sido declarado.
+
+    O alcance e' estreito (um arquivo, um nome) e a cerca continua acusando esse mesmo codigo em
+    qualquer outro arquivo — por isso isto esta' fixado como comportamento conhecido e nao como
+    `xfail`. SE ESTE TESTE FALHAR, a chave foi endurecida (p.ex. para qualname ou so' top-level):
+    isso e' uma melhoria, e a acao certa e' apagar este teste, nao afrouxar a cerca de volta.
+    """
+    nested = "class Outer:\n" + "".join("    " + line + "\n" for line in _CURSOR_SPECIMEN.strip().split("\n"))
+    in_function = "def build():\n" + "".join(
+        "    " + line + "\n" for line in _CURSOR_SPECIMEN.strip().split("\n")
+    )
+    assert fence._achados_estruturais_em_fonte(nested, _CURSOR_REAL_FILE) == []
+    assert fence._achados_estruturais_em_fonte(in_function, _CURSOR_REAL_FILE) == []
+    # CONTRAPROVA obrigatoria: a mesma fonte aninhada em qualquer outro arquivo continua acusada,
+    # o que prova que o `== []` acima vem da isencao e nao de `ast.walk` ignorar o aninhamento.
+    assert fence._achados_estruturais_em_fonte(nested, "arbitrary.py")
+    assert fence._achados_estruturais_em_fonte(in_function, "arbitrary.py")
+
+
+def test_every_declared_key_points_at_a_file_that_exists_and_a_class_that_is_in_it():
+    """Uma entrada cujo arquivo foi renomeado ou cuja classe sumiu vira isencao ZUMBI: nao protege
+    nada, e continua abrindo espaco para qualquer classe futura que reuse aquele nome naquele
+    caminho. O teste de razao nao-vazia que ja' existe nao pega isso."""
+    raiz = fence._RAIZ
+    for (arquivo, classe), _ in fence._DUPLOS_CONSTRUIDOS_DECLARADOS.items():
+        caminho = raiz / arquivo
+        assert caminho.is_file(), f"entrada declarada para arquivo inexistente: {arquivo}"
+        nomes = {
+            c.name
+            for c in ast.walk(ast.parse(caminho.read_text(encoding="utf-8")))
+            if isinstance(c, ast.ClassDef)
+        }
+        assert classe in nomes, f"classe `{classe}` nao existe mais em {arquivo}"

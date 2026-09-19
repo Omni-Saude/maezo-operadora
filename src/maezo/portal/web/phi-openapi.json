@@ -31,6 +31,54 @@
         "title": "CommunicationContent",
         "type": "object"
       },
+      "CommunicationContentReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "body_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Body Ref",
+            "type": "string"
+          },
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          },
+          "disposition": {
+            "const": "preserved",
+            "default": "preserved",
+            "title": "Disposition",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body_ref",
+          "command_id"
+        ],
+        "title": "CommunicationContentReceipt",
+        "type": "object"
+      },
+      "CommunicationContentSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          },
+          "command_id": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Command Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command_id",
+          "body"
+        ],
+        "title": "CommunicationContentSubmission",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -109,11 +157,120 @@
     }
   },
   "info": {
-    "title": "Portal Maezo PHI communications",
+    "title": "Portal Maezo PHI documents",
     "version": "1.0.0"
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/phi/cases/{case_ref}/communication-content": {
+      "post": {
+        "operationId": "preserve_content_api_v1_phi_cases__case_ref__communication_content_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "case_ref",
+            "required": true,
+            "schema": {
+              "title": "Case Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommunicationContentSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationContentReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Preserve Content"
+      }
+    },
     "/api/v1/phi/cases/{case_ref}/communications/{communication_ref}/content": {
       "get": {
         "operationId": "read_content_api_v1_phi_cases__case_ref__communications__communication_ref__content_get",
@@ -220,6 +377,196 @@
           }
         },
         "summary": "Read Content"
+      }
+    },
+    "/api/v1/phi/documents/{document_ref}/content": {
+      "get": {
+        "operationId": "read_content_api_v1_phi_documents__document_ref__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_ref",
+            "required": true,
+            "schema": {
+              "title": "Document Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Content"
+      }
+    },
+    "/api/v1/phi/documents/{upload_ref}/content": {
+      "put": {
+        "description": "The one PHI write: the creator's own bytes, before completion, never re-written.\n\nDeliberately a plain route — `ProductRoute` speaks JSON, and this body is the\ndocument itself. The same session/CSRF/origin checks are enforced here explicitly,\nthe body is size-bounded, and nothing about the document is echoed back.",
+        "operationId": "store_content_api_v1_phi_documents__upload_ref__content_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_ref",
+            "required": true,
+            "schema": {
+              "title": "Upload Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Store Content"
       }
     }
   }

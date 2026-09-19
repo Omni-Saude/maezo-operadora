@@ -20,6 +20,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from maezo.gateway.required_text import ZERO_WIDTH_TRANSLATION
+
 SYSTEM_PROMPT_VERSION = "system-v1"
 MESSAGE_PROMPT_VERSION = "message-v1"
 DOSSIER_PROMPT_VERSION = "dossier-v1"
@@ -125,7 +127,7 @@ Responda APENAS com o texto da mensagem, sem JSON, sem markdown."""
 
 #: Versao da cerca. Sobe quando um grupo ou um padrao muda — e' o que deixa "a cerca de 18/09"
 #: ser um objeto citavel num incidente, em vez de "o codigo que estava la' naquele dia".
-RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v1"
+RECUSA_DE_SAIDA_VERSION = "recusa-lucas-v2"
 
 #: Versao do ACK de escalacao. ELE NAO TINHA UMA ate 18/09/2026 — o unico texto do Lucas que
 #: chega ao beneficiario no caminho ADVERSO era tambem o unico sem numero, o que tornava
@@ -180,6 +182,29 @@ DESFECHO_ADVERSO_PROIBIDO: tuple[str, ...] = (
     "seu pedido foi negado",
     "foi indeferido",
     "nao foi aprovado pela operadora",
+)
+
+#: A MESMA PROIBICAO EM FORMA CANONICA (v2, 18/09/2026). A lista literal acima cai com UMA palavra
+#: a mais: "seu plano JA foi suspenso por falta de pagamento" e "HAVERA suspensao do seu contrato"
+#: voltavam `None` na auditoria de seguranca — e o modo de falha que a cerca existe para cobrir
+#: (modelo passando por cima da proibicao) produz linguagem natural VARIAVEL, nao as strings
+#: canonicas. Estes regex casam o sujeito (plano/contrato/beneficio/cobertura), ate' dois termos
+#: intercalados, o verbo e o desfecho. Os literais ficam como REGRESSAO (e como rotulo legivel no
+#: log); o mecanismo e' este. Continua fechado a "recebi seu pedido de cancelamento": nao ha verbo
+#: de desfecho aplicado ao plano da pessoa. E NEGACAO nao casa: "seu plano NAO foi suspenso" e' a unica
+#: frase que acalma alguem, e a constante `ACK_ESCALACAO_RECUSADO` do repo depende dessa leitura
+#: (`test_a_negacao_do_desfecho_passa_e_isso_e_deliberado`). O falso-negativo aqui e' assimetrico a
+#: favor do beneficiario.
+DESFECHO_ADVERSO_REGEX: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(seu|sua|o|a)\s+(plano|contrato|beneficio|cobertura|cadastro|acesso)\s+"
+        r"(?:(?!(?:nao|nunca|jamais)\b)\w+\s+){0,2}(foi|sera|esta|ficou|ficara|encontra-se)\s+"
+        r"(suspens[oa]|cancelad[oa]|rescindid[oa]|bloquead[oa]|encerrad[oa])\b"
+    ),
+    re.compile(r"\bhavera\s+(?:a\s+|o\s+)?(suspensao|cancelamento|rescisao|bloqueio)\b"),
+    re.compile(
+        r"\b(suspensao|cancelamento|rescisao)\s+(?:do|de|da)\s+(seu|sua)\s+(plano|contrato|beneficio)\b"
+    ),
 )
 
 #: PROMESSA DE CAPACIDADE QUE O CANAL NAO TEM (grupo 2). Mesma categoria que a Helena descobriu em
@@ -260,7 +285,26 @@ _ROTAS_QUE_PODEM_PROMETER_HUMANO: frozenset[str] = frozenset({"ack_escalacao"})
 #:
 #: SO' MOEDA, nunca digito solto: data, competencia (2026-09) e numero de boleto sao digitos
 #: legitimos e abundantes no texto certo, e casar digito reprovaria toda mensagem correta.
-_MOEDA: re.Pattern[str] = re.compile(r"r\$\s*([\d][\d.,]*)")
+_MOEDA: re.Pattern[str] = re.compile(
+    # "R$ 450,00", "R $450", "BRL 450,00", "450,00 reais" — a v1 exigia "r$" colado e deixava passar
+    # "450 reais" e "R $ 450" (bateria adversarial de 18/09). Dois grupos porque a quantia vem antes
+    # ou depois do marcador; `_quantias` normaliza isso.
+    r"(?:r\s*\$|brl)\s*([\d][\d.,]*)|([\d][\d.,]*)\s*reais\b"
+)
+
+#: Os fatos que PODEM justificar uma quantia no texto. So' `valor_em_aberto` — que NENHUM `_build_message`
+#: produz hoje, entao na pratica toda quantia e' inventada; o nome esta' aqui para o dia em que ele entrar:
+#: o dicionario de fatos de `_build_message` nao tem campo monetario, entao toda quantia e'
+#: inventada. A v1 comparava a quantia com os digitos de TODOS os fatos — e `numero_boleto="45000"`
+#: LAVAVA "R$ 450,00", `competencia="2026-09"` lavava "R$ 2.026,09" (medido). Quando um campo de
+#: valor entrar nos fatos (ex.: `valor_em_aberto`), ele entra AQUI, nominalmente, e so' ele passa a
+#: justificar quantias.
+_FATOS_MONETARIOS: frozenset[str] = frozenset({"valor_em_aberto"})
+
+
+def _quantias(plano: str) -> list[str]:
+    return [g1 or g2 for g1, g2 in _MOEDA.findall(plano) if (g1 or g2)]
+
 
 #: Rotulos dos quatro grupos. FECHADOS, porque viram rotulo de metrica: o padrao exato vai para o
 #: log (onde alguem depura) e o GRUPO vai para o contador (onde alguem conta), de modo que a
@@ -271,10 +315,53 @@ RECUSA_PROMESSA_DE_HUMANO: str = "promessa_de_humano"
 RECUSA_VALOR_SEM_FATO: str = "valor_sem_fato"
 
 
+#: Homoglifos cirilicos que se confundem com letras latinas usadas em portugues. NFKD NAO os
+#: dobra (sao letras de outro alfabeto, nao acentos), e um modelo que escreva "suspеnso" com um
+#: "е" cirilico passa por um casador de substring latina. Lista FECHADA e pequena de proposito: e'
+#: o conjunto que a bateria adversarial de 18/09 usou, mais os pares obvios; nao e' uma tabela de
+#: confusables geral, que traria falsos positivos em texto legitimo.
+_HOMOGLIFOS: dict[int, str] = {
+    ord("а"): "a",
+    ord("е"): "e",
+    ord("о"): "o",
+    ord("р"): "p",
+    ord("с"): "c",
+    ord("у"): "y",
+    ord("х"): "x",
+    ord("і"): "i",
+    ord("ѕ"): "s",
+    ord("ј"): "j",
+    ord("А"): "a",
+    ord("Е"): "e",
+    ord("О"): "o",
+    ord("Р"): "p",
+    ord("С"): "c",
+    ord("У"): "y",
+    ord("Х"): "x",
+    ord("І"): "i",
+    ord("Ѕ"): "s",
+    ord("Ј"): "j",
+}
+_ESPACOS = re.compile(r"\s+")
+
+
 def _normalizar(texto: str) -> str:
-    """Minuscula e sem acento — a forma em que os padroes acima estao escritos."""
-    decomposto = unicodedata.normalize("NFKD", texto)
-    return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+    """Minuscula, sem acento, sem invisiveis, com UM espaco entre palavras — a forma em que os
+    padroes acima estao escritos.
+
+    Tres coisas que a v1 NAO fazia, medidas pela bateria adversarial de 18/09/2026 (todas com
+    reproducao em `tests/unit/agents/test_lucas_cerca_de_saida_evasao.py`):
+      1. colapsar espaco em branco — "seu plano foi\nsuspenso" e' quebra de linha ORDINARIA de LLM,
+         sem adversario nenhum, e desarmava o grupo mais grave;
+      2. remover caracteres de largura zero — a tabela ja' existia no repo
+         (`gateway.required_text.ZERO_WIDTH_TRANSLATION`) e a Helena nao a usava aqui;
+      3. dobrar homoglifos cirilicos (`_HOMOGLIFOS`).
+    NBSP e narrow-NBSP ja' eram cobertos: NFKD os decompoe em espaco comum.
+    """
+    sem_invisiveis = texto.translate(ZERO_WIDTH_TRANSLATION).translate(_HOMOGLIFOS)
+    decomposto = unicodedata.normalize("NFKD", sem_invisiveis)
+    plano = "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+    return _ESPACOS.sub(" ", plano).strip()
 
 
 def _so_digitos(valor: str) -> str:
@@ -304,11 +391,18 @@ def motivo_de_recusa(
     for padrao in DESFECHO_ADVERSO_PROIBIDO:
         if padrao in plano:
             return (RECUSA_DESFECHO_ADVERSO, padrao)
+    for regex in DESFECHO_ADVERSO_REGEX:
+        if regex.search(plano):
+            return (RECUSA_DESFECHO_ADVERSO, regex.pattern)
     for padrao in PROMESSA_DE_CAPACIDADE_PROIBIDA:
         if padrao in plano:
             return (RECUSA_PROMESSA_DE_CAPACIDADE, padrao)
-    permitidos = {_so_digitos(str(v)) for v in (fatos or {}).values() if isinstance(v, (str, int, float))}
-    for achado in _MOEDA.findall(plano):
+    permitidos = {
+        _so_digitos(str(v))
+        for k, v in (fatos or {}).items()
+        if k in _FATOS_MONETARIOS and isinstance(v, (str, int, float))
+    }
+    for achado in _quantias(plano):
         digitos = _so_digitos(achado)
         if digitos and digitos not in permitidos:
             # O PADRAO reportado e' a forma generica, nunca a quantia: ela e' saida de modelo sobre

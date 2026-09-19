@@ -91,6 +91,51 @@ Currently active:
     data carries no KEV flag, and fabricating that signal would violate
     this task's no-fabricated-results constraint — CRITICAL CVSS severity
     is used as the documented, honest proxy instead.
+- **L3 coverage of the Java engine plugin and of infrastructure-as-code
+  (added 2026-09-18, closing the three gaps the security-reviewer audit of
+  2026-09-18 recorded against the L3 gate).**
+  - **`codeql / java-kotlin` job.** The CodeQL lane above scans `python`
+    only, so `src/maezo/portal/engine/java/` (Maven) — the code that runs
+    *inside* the CIB Seven engine — had no static analysis at all. The new
+    job runs the same pinned `github/codeql-action` init/analyze pair
+    (init and analyze always on the **same** SHA) with
+    `languages: java-kotlin` and **`build-mode: manual`**: CodeQL's Java
+    extractor only sees classes it observes being compiled, so `build-mode:
+    none` would produce an empty database that reports zero findings and
+    reads green. The traced build is
+    `mvn -B -f src/maezo/portal/engine/java/pom.xml -DskipTests package` —
+    a subset of the `mvn verify` that ci.yml's `java-plugin` job already
+    runs green, so no new network dependency is introduced. SARIF is named
+    `java.sarif` (codeql-action resolves the `java-kotlin` alias to the
+    canonical `java`); the GHAS try-and-classify upload, the
+    `codeql-java-sarif` artifact and the Step-Summary table work exactly as
+    in the python lane.
+  - **`pom.xml` added to the OSV lane.** `osv-scan` now scans both
+    `uv.lock` and `src/maezo/portal/engine/java/pom.xml` (osv-scanner
+    resolves the pom's transitive Maven tree itself) under the same
+    fail-closed `HIGH` gate. Measured with the pinned osv-scanner 2.4.0
+    when the flag was added: 6 packages, 1 finding — `GHSA-659m-px2c-25wj`,
+    CVSS 3.7 **LOW**, `spring-core` 6.2.11 pulled in transitively by
+    cibseven-engine, fixed in 6.2.19. Below the threshold, so the gate is
+    green on a truthful count, with nothing allowlisted.
+  - **`trivy / iac` job — WARNING-ONLY, by an explicit, dated decision.**
+    `trivy config` (pinned action SHA + pinned trivy version) scans
+    `deploy/` — which contains the live `deploy/aws-ecs/` Terraform, the
+    Cloudflare/Identity-Center roots, every Dockerfile and the helm charts
+    — at `HIGH,CRITICAL`, publishes SARIF (same GHAS try-and-classify path
+    + `trivy-iac-sarif` artifact + Step Summary). The severity verdict step
+    carries `continue-on-error: true` and emits `::warning::` **because the
+    tree is already red**: 10 findings (3 CRITICAL `AWS-0104` unrestricted
+    egress; 7 HIGH — `AWS-0031` mutable ECR tags ×3, `DS-0002` root image
+    user ×4) measured on 2026-09-18. Making that a merge blocker in the
+    same change that introduced the scanner would have blocked every
+    unrelated PR or forced blind ignore-annotations across live infra.
+    **Dropping `continue-on-error` — with no other edit — turns this into a
+    real L3 blocker, and that is the intended end state once the owner
+    dispositions each finding.**
+- The SARIF Step-Summary renderer shared by all three SARIF lanes lives in
+  `scripts/ci/summarize_sarif.py` (stdlib only) and is unit-tested
+  off-runner by `tests/unit/ci/test_summarize_sarif.py`.
 - All third-party GitHub Actions across every workflow are pinned to full
   commit SHAs (a trailing comment names the version tag each SHA resolves
   to) — no floating `@vN` mutable tags remain, as of T2.4 (remainder).

@@ -51,6 +51,11 @@ class Veredito:
     escopo: str | None = None
     #: Quantas mensagens ja' havia na janela quando a decisao foi tomada. So' para log.
     observadas: int = 0
+    #: Numa RECUSA: se esta e' a primeira da janela para aquele escopo — e portanto a unica em
+    #: que o canal deve responder. Um numero em laco a 1 msg/s recebia 60 avisos por minuto: cada
+    #: recusa virava um envio pago e, com um bot do outro lado, um laco de ida e volta. Numa
+    #: permissao e' sempre False (security-reviewer, 18/09/2026).
+    avisar: bool = False
 
 
 class LimitadorDeVolume:
@@ -77,11 +82,23 @@ class LimitadorDeVolume:
         self._agora = agora
         self._conversas: defaultdict[str, deque[float]] = defaultdict(deque)
         self._tenants: defaultdict[str, deque[float]] = defaultdict(deque)
+        #: `escopo:chave` -> instante do ultimo aviso. Marcado na DECISAO, nao no envio: o aviso e'
+        #: cortesia, e um envio que falhou nao merece uma segunda tentativa a cada mensagem do laco.
+        self._avisos: dict[str, float] = {}
 
     def _podar(self, janela: deque[float], agora: float) -> None:
         limite = agora - JANELA_SEGUNDOS
         while janela and janela[0] <= limite:
             janela.popleft()
+
+    def _deve_avisar(self, escopo: str, chave: str, agora: float) -> bool:
+        """Primeira recusa da janela para (escopo, chave)? Se sim, marca e devolve True."""
+        marca = f"{escopo}:{chave}"
+        ultimo = self._avisos.get(marca)
+        if ultimo is not None and agora - ultimo < JANELA_SEGUNDOS:
+            return False
+        self._avisos[marca] = agora
+        return True
 
     def registrar(self, *, tenant_id: str, conversation_id: str) -> Veredito:
         """Conta esta mensagem e diz se ela pode seguir.
@@ -96,12 +113,24 @@ class LimitadorDeVolume:
         conversa = self._conversas[conversation_id]
         self._podar(conversa, agora)
         if self._por_conversa and len(conversa) >= self._por_conversa:
-            return Veredito(permitido=False, escopo=ESCOPO_CONVERSA, observadas=len(conversa))
+            return Veredito(
+                permitido=False,
+                escopo=ESCOPO_CONVERSA,
+                observadas=len(conversa),
+                avisar=self._deve_avisar(ESCOPO_CONVERSA, conversation_id, agora),
+            )
 
         tenant = self._tenants[tenant_id]
         self._podar(tenant, agora)
         if self._por_tenant and len(tenant) >= self._por_tenant:
-            return Veredito(permitido=False, escopo=ESCOPO_TENANT, observadas=len(tenant))
+            # No teto do TENANT a chave do aviso continua sendo a CONVERSA: e' a pessoa que recebe o
+            # texto, e cada pessoa merece ouvir uma vez — nao so' a primeira do tenant.
+            return Veredito(
+                permitido=False,
+                escopo=ESCOPO_TENANT,
+                observadas=len(tenant),
+                avisar=self._deve_avisar(ESCOPO_TENANT, conversation_id, agora),
+            )
 
         conversa.append(agora)
         tenant.append(agora)
@@ -122,4 +151,17 @@ class LimitadorDeVolume:
                 mortas.append(chave)
         for chave in mortas:
             del self._conversas[chave]
+        # Os outros dois dicionarios tinham o MESMO vazamento e nao eram podados (security-reviewer,
+        # 18/09/2026): `_tenants` cresce uma entrada por tenant visto (poucos, mas para sempre) e
+        # `_avisos` uma por conversa RECUSADA. Nenhum dos dois entra na contagem devolvida, que o
+        # chamador le' como 'conversas esquecidas'.
+        tenants_mortos = []
+        for chave, janela in self._tenants.items():
+            self._podar(janela, agora)
+            if not janela:
+                tenants_mortos.append(chave)
+        for chave in tenants_mortos:
+            del self._tenants[chave]
+        for marca in [m for m, t in self._avisos.items() if agora - t >= JANELA_SEGUNDOS]:
+            del self._avisos[marca]
         return len(mortas)
