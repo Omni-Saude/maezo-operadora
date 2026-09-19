@@ -210,14 +210,6 @@ def test_normalizacao_nfkd_fecha_caixa_acento_largura_e_espaco_inquebravel(texto
 # =============================================================================================
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FURO 1 (o mais provavel sem adversario nenhum): `_normalizar` nao colapsa espaco em "
-        "branco, e os padroes estao escritos com UM espaco. Uma quebra de linha no meio da frase "
-        "— saida ordinaria de LLM redigindo WhatsApp — desarma o grupo mais grave da cerca."
-    ),
-)
 @pytest.mark.parametrize(
     "texto",
     [
@@ -233,15 +225,6 @@ def test_furo_espaco_em_branco_entre_as_palavras_do_padrao(texto: str) -> None:
     assert recusa is not None and recusa[0] == RECUSA_DESFECHO_ADVERSO
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FURO 2: `_normalizar` nao remove os caracteres de largura zero, EMBORA o repo ja' tenha "
-        "a tabela pronta em `maezo.gateway.required_text.ZERO_WIDTH_TRANSLATION` (usada por "
-        "`is_blank`, e importada por tools/workers/auth.py). Um ZWSP no meio de 'suspenso' e' "
-        "invisivel para quem le' no WhatsApp e total para a cerca. Homoglifo cirilico idem."
-    ),
-)
 @pytest.mark.parametrize(
     "invisivel", list(ZERO_WIDTH_CHARS), ids=[f"u+{ord(c):04x}" for c in ZERO_WIDTH_CHARS]
 )
@@ -251,30 +234,11 @@ def test_furo_caractere_de_largura_zero_no_meio_da_palavra(invisivel: str) -> No
     assert recusa is not None and recusa[0] == RECUSA_DESFECHO_ADVERSO
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FURO 2b: homoglifo cirilico ('о' U+043E no lugar de 'o'). NFKD nao funde alfabetos, e o "
-        "texto renderiza identico. Exige adversario — mas o SYSTEM_PROMPT do Lucas ja' declara o "
-        "modelo de ameaca ao mandar ignorar instrucao embutida no material de entrada."
-    ),
-)
 def test_furo_homoglifo_cirilico() -> None:
     texto = "Informamos que seu planо foi suspensо por falta de pagamento."
     assert motivo_de_recusa(texto, "mensagem", _FATOS_REAIS) is not None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FURO 3 (divergencia contrato x implementacao): o docstring do grupo `valor_sem_fato` "
-        "afirma que 'NENHUM campo de valor monetario' existe nos fatos e que por isso 'qualquer "
-        "quantia em reais no texto foi inventada POR CONSTRUCAO'. A implementacao, porem, compara "
-        "com os digitos de TODOS os fatos — inclusive `numero_boleto` e `competencia`, que nao "
-        "sao monetarios. Uma quantia alucinada cujos digitos coincidam com o numero do boleto e' "
-        "LAVADA pela propria cerca."
-    ),
-)
 @pytest.mark.parametrize(
     ("quantia", "fatos"),
     [
@@ -290,21 +254,76 @@ def test_furo_quantia_lavada_por_fato_nao_monetario(quantia: str, fatos: dict[st
     assert recusa is not None and recusa[0] == RECUSA_VALOR_SEM_FATO
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "FURO 4: `_MOEDA` exige 'r$' colado ao numero. Em portugues a quantia dispensa o simbolo "
-        "('450,00 reais') e o modelo separa o simbolo com espaco ('R $ 450,00') sem esforco "
-        "nenhum. Escrever por extenso ('quatrocentos e cinquenta reais') e' o mesmo furo levado "
-        "ao limite — e, diferente dos outros, esse provavelmente NAO deve ser fechado por regex."
-    ),
-)
 @pytest.mark.parametrize(
     "quantia",
-    ["450,00 reais", "R $ 450,00", "450 reais", "quatrocentos e cinquenta reais"],
+    [
+        "450,00 reais",
+        "R $ 450,00",
+        "450 reais",
+        pytest.param(
+            "quatrocentos e cinquenta reais",
+            marks=pytest.mark.xfail(
+                strict=True,
+                reason=(
+                    "quantia POR EXTENSO esta fora do alcance de um casador lexico — fechar isso e' eval "
+                    "de saida, nao unit test; strict para que uma solucao futura tenha de retirar este marcador"
+                ),
+            ),
+        ),
+    ],
     ids=["sufixo-reais", "simbolo-separado", "inteiro-reais", "por-extenso"],
 )
 def test_furo_quantia_sem_o_simbolo_colado(quantia: str) -> None:
     texto = f"O valor em aberto da sua mensalidade e de {quantia}."
     recusa = motivo_de_recusa(texto, "mensagem", _FATOS_REAIS)
     assert recusa is not None and recusa[0] == RECUSA_VALOR_SEM_FATO
+
+
+# --------------------------------------------------------------------------------------------
+# (C) As parafrases EXATAS do relatorio do security-reviewer (18/09/2026), que a v1 deixava passar
+#     porque a lista literal cai com uma palavra a mais. Se algum destes voltar a passar, a cerca
+#     regrediu para casador de substring.
+# --------------------------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Seu plano ja foi suspenso por falta de pagamento.",
+        "Havera suspensao do seu contrato em 30 dias.",
+        "Seu contrato encontra-se cancelado desde ontem.",
+        "Informamos o cancelamento do seu plano.",
+    ],
+)
+def test_parafrase_do_desfecho_adverso_e_recusada(texto: str) -> None:
+    recusa = motivo_de_recusa(texto, "mensagem", {})
+    assert recusa is not None and recusa[0] == RECUSA_DESFECHO_ADVERSO, texto
+
+
+@pytest.mark.parametrize(
+    ("texto", "fatos"),
+    [
+        ("O valor em aberto e de 450 reais.", {}),
+        ("O valor em aberto e BRL 450,00.", {}),
+        ("O valor em aberto e R$ 1.234,56.", {"numero_boleto": "123456"}),
+        ("O valor e R $ 450,00.", {"competencia": "2026-09"}),
+    ],
+)
+def test_quantia_do_relatorio_de_seguranca_e_recusada(texto: str, fatos: dict) -> None:
+    recusa = motivo_de_recusa(texto, "mensagem", fatos)
+    assert recusa is not None and recusa[0] == RECUSA_VALOR_SEM_FATO, texto
+
+
+def test_o_caminho_certo_continua_passando_na_v2() -> None:
+    """A v2 nao pode ter virado uma cerca que barra o atendimento correto."""
+    assert (
+        motivo_de_recusa(
+            "Recebi seu pedido de cancelamento e ja encaminhei para analise.", "ack_escalacao", None
+        )
+        is None
+    )
+    assert motivo_de_recusa("Voce pode entrar em contato com a central pelo 0800.", "mensagem", {}) is None
+    assert (
+        motivo_de_recusa(
+            "Seu boleto da competencia 2026-09 consta em aberto.", "mensagem", {"competencia": "2026-09"}
+        )
+        is None
+    )

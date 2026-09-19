@@ -212,18 +212,6 @@ def test_reinstalar_o_mesmo_dono_nativo_continua_idempotente() -> None:
     assert type(harness.registry.get(TOPICO_NEGATIVA)) is NativeDenialNoticeWorker
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG (REGISTRO PARCIAL). O selo recusa a retomada — certo — mas recusa LEVANTANDO no meio "
-        "do laco de `register_auth_workers`, e `SendDenialNoticeWorker` e' o ULTIMO item da "
-        "lista. `ValidateAutoCriteriaWorker` e o handler cru de `notify_sla_risk` vem DEPOIS do "
-        "laco e nunca chegam a ser registrados. O docstring da propria funcao diz que deixar "
-        "`ST_ValidateAutoApprovalCriteria` sem servico 'STALL every authorization request' — que "
-        "e' exatamente o estado em que esta chamada termina. Cenario citado pelo docstring de "
-        "`seal_topic`: 'a LATER register_all_workers(harness) without the seam'."
-    ),
-)
 def test_a_recusa_do_selo_nao_deveria_deixar_o_modulo_auth_pela_metade() -> None:
     harness = _harness()
     host = install_denial_notice_host(generic_topics=harness.registered_topics)
@@ -238,15 +226,6 @@ def test_a_recusa_do_selo_nao_deveria_deixar_o_modulo_auth_pela_metade() -> None
     assert _NOTIFY_SLA_RISK_TOPIC in servidos, "alerta de risco de SLA sem handler"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "MESMO BUG, alcance real: `register_all_workers` itera os 17 bootstraps em ordem e nao "
-        "isola falha de modulo. Com o topico selado, `auth` levanta e os 13 modulos seguintes — "
-        "contas, fraude, lgpd, escalation, pagto... — nunca sao registrados. Medido: 21 de ~99 "
-        "topicos, 4 de 17 dominios."
-    ),
-)
 def test_a_recusa_do_selo_nao_deveria_derrubar_os_outros_dezesseis_modulos() -> None:
     harness = _harness()
     host = install_denial_notice_host(generic_topics=harness.registered_topics)
