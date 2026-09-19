@@ -379,6 +379,48 @@ class ResourceAuthority(Closed):
     source: SourceProvenance
 
 
+def authority_covers(
+    authority: ResourceAuthority,
+    *,
+    action: str,
+    resource_kind: str,
+    resource_ref: str,
+    request_ref: str | None,
+) -> bool:
+    """THE one admission-scope predicate over a published `resource_authority`.
+
+    Every side that admits an authority for ONE resource and ONE request asks this exact
+    question, so no side can grow its own wider reading of `request_ref`:
+
+    * responder admission (`gateway/intake/native_authority.py:NativeAuthReader.observation`),
+      which passes the operation's own `request_ref` (`DocumentOccurrence.request_ref` is
+      non-nullable, so a document answer is always about one named request);
+    * document-recipient selection (`gateway/document_requests/production.py`, which wraps this
+      predicate as `answers_document_request`) — the WP-J1-03b root fix: recipient selection used
+      to admit a case-wide authority (`request_ref` NULL) that responder admission then refused,
+      so a principal could receive the PHI notice and be unable to answer it;
+    * the Java engine's `AuthInputs.authority`, which refuses on
+      `!Objects.equals(request, authority.get("request_ref"))` — the same equality, restated
+      because the two runtimes cannot share code.
+
+    The `request_ref` semantics are EXACT equality, including `None`: an authority that names no
+    request is a case-wide delegation, and it matches only an operation that itself names no
+    request (`auth.start` / `auth.receipt.read`). It never matches a document request. Consent,
+    legal basis and validity are deliberately NOT here — each caller enforces those at its own
+    altitude (`observation` as a refusal, recipient projection as a loud `require`), and folding
+    them in would hide which side refused.
+
+    `state == "active"` IS here: a revoked authority covers nothing on any side.
+    """
+    return (
+        authority.action == action
+        and authority.resource_kind == resource_kind
+        and authority.resource_ref == resource_ref
+        and authority.request_ref == request_ref
+        and authority.state == "active"
+    )
+
+
 class DocumentCustody(Closed):
     document: DocumentRef
     resource_kind: Literal["intake", "case"]
