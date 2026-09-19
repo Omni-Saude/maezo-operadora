@@ -153,6 +153,58 @@ def test_janelas_ociosas_sao_esquecidas() -> None:
     assert lim.esquecer_conversas_ociosas() == 0
 
 
+def test_a_janela_do_tenant_e_a_marca_de_aviso_tambem_sao_esquecidas() -> None:
+    """`_tenants` e `_avisos` tinham o MESMO vazamento e nao eram podados (security-reviewer, 18/09)."""
+    lim, relogio = _limitador(conversa=1)
+    lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_a")
+    lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_a")  # recusada: marca o aviso
+    assert lim._tenants and lim._avisos  # noqa: SLF001 — o teste e' exatamente sobre a memoria interna
+
+    relogio.avancar(JANELA_SEGUNDOS + 1)
+    lim.esquecer_conversas_ociosas()
+
+    assert not lim._tenants  # noqa: SLF001
+    assert not lim._avisos  # noqa: SLF001
+
+
+def test_so_a_primeira_recusa_da_janela_pede_aviso() -> None:
+    """Um numero em laco a 1 msg/s recebia 60 avisos por minuto — cada recusa virava um envio pago.
+    A primeira recusa da janela pede aviso; as seguintes nao; a janela deslizar reabre o aviso."""
+    lim, relogio = _limitador(conversa=1)
+    lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_laco")
+
+    primeira = lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_laco")
+    segunda = lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_laco")
+    terceira = lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_laco")
+
+    assert (primeira.permitido, primeira.avisar) == (False, True)
+    assert (segunda.permitido, segunda.avisar) == (False, False)
+    assert (terceira.permitido, terceira.avisar) == (False, False)
+
+    relogio.avancar(JANELA_SEGUNDOS + 1)
+    lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_laco")  # a janela abriu: passa
+    de_novo = lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_laco")
+    assert (de_novo.permitido, de_novo.avisar) == (False, True)
+
+
+def test_no_teto_do_tenant_cada_conversa_e_avisada_uma_vez() -> None:
+    """A chave do aviso e' a CONVERSA mesmo quando o escopo e' o tenant: cada pessoa ouve uma vez."""
+    lim, _ = _limitador(conversa=10, tenant=1)
+    lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_a")
+
+    a1 = lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_a")
+    b1 = lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_b")
+    a2 = lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_a")
+
+    assert a1.escopo == b1.escopo == ESCOPO_TENANT
+    assert (a1.avisar, b1.avisar, a2.avisar) == (True, True, False)
+
+
+def test_uma_permissao_nunca_pede_aviso() -> None:
+    lim, _ = _limitador()
+    assert lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_x").avisar is False
+
+
 # ---------------------------------------------------------------------------------------------
 # O teto dentro do despachante: nao roda o turno, responde honesto, conta.
 # ---------------------------------------------------------------------------------------------
@@ -211,3 +263,21 @@ async def test_acima_do_teto_o_turno_nao_roda_e_a_pessoa_recebe_resposta() -> No
     assert saida["escopo_do_limite"] == ESCOPO_CONVERSA
     # A recusa NAO e' silencio: o texto constante foi enviado.
     assert any(texto == LIMITE_EXCEDIDO_TEXT for _, texto in cliente.enviados)
+
+
+@pytest.mark.asyncio
+async def test_o_laco_recebe_o_aviso_uma_vez_por_janela_e_nao_uma_vez_por_mensagem() -> None:
+    """Antes: cada mensagem recusada gerava um envio. Um numero em laco recebia um aviso por
+    mensagem — custo por recusa e, com um bot do outro lado, laco de ida e volta."""
+    cliente = _ClienteQueRegistra()
+    lim, _ = _limitador(conversa=1, tenant=100)
+    conv = f"wa:amh:{hash_phone('5511900000001', 'amh', Pseudonymizer())}"
+    lim.registrar(tenant_id="amh", conversation_id=conv)
+    d = _despachante(cliente, lim)
+
+    saidas = [await d.dispatch(_mensagem(i)) for i in range(2, 7)]
+
+    assert all(s["limite_excedido"] for s in saidas)
+    assert [s["aviso_enviado"] for s in saidas] == [True, False, False, False, False]
+    assert [s["aviso_suprimido"] for s in saidas] == [False, True, True, True, True]
+    assert sum(texto == LIMITE_EXCEDIDO_TEXT for _, texto in cliente.enviados) == 1
