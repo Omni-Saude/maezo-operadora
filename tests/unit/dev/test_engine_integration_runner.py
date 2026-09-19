@@ -33,7 +33,14 @@ RUNNER = REPO_ROOT / "scripts" / "dev" / "run_engine_integration.py"
 ROOT_FIXTURE_SUITES = [
     "tests/integration/gateway/test_decision_binding_live_pg.py",
     "tests/integration/gateway/test_human_relay_live_cib.py",
+    # PR-C/Q7 (18/09/2026): cinco suites ROOT-only que chegaram so' com `integration` e pintaram
+    # o lane da main de vermelho (1160 casos); marcadas em 19/09 — ver a allowlist com as razoes.
+    "tests/integration/platform/test_d7_control_storage_live.py",
     "tests/integration/portal/test_phi_decision_custody.py",
+    "tests/integration/test_native_acquisition_v2.py",
+    "tests/integration/test_portal_engine_d7_package.py",
+    "tests/integration/test_portal_engine_package.py",
+    "tests/integration/test_portal_engine_reads.py",
 ]
 
 
