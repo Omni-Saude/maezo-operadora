@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/phi/cases/{case_ref}/communication-content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preserve Content */
+        post: operations["preserve_content_api_v1_phi_cases__case_ref__communication_content_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/phi/cases/{case_ref}/communications/{communication_ref}/content": {
         parameters: {
             query?: never;
@@ -14,6 +31,47 @@ export interface paths {
         /** Read Content */
         get: operations["read_content_api_v1_phi_cases__case_ref__communications__communication_ref__content_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/phi/documents/{document_ref}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Content */
+        get: operations["read_content_api_v1_phi_documents__document_ref__content_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/phi/documents/{upload_ref}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Store Content
+         * @description The one PHI write: the creator's own bytes, before completion, never re-written.
+         *
+         *     Deliberately a plain route — `ProductRoute` speaks JSON, and this body is the
+         *     document itself. The same session/CSRF/origin checks are enforced here explicitly,
+         *     the body is size-bounded, and nothing about the document is echoed back.
+         */
+        put: operations["store_content_api_v1_phi_documents__upload_ref__content_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -35,6 +93,26 @@ export interface components {
             observed_at: string;
             /** Valid Until */
             valid_until: string;
+        };
+        /** CommunicationContentReceipt */
+        CommunicationContentReceipt: {
+            /** Body Ref */
+            body_ref: string;
+            /** Command Id */
+            command_id: string;
+            /**
+             * Disposition
+             * @default preserved
+             * @constant
+             */
+            disposition: "preserved";
+        };
+        /** CommunicationContentSubmission */
+        CommunicationContentSubmission: {
+            /** Body */
+            body: string;
+            /** Command Id */
+            command_id: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -71,6 +149,95 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    preserve_content_api_v1_phi_cases__case_ref__communication_content_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommunicationContentSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommunicationContentReceipt"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
     read_content_api_v1_phi_cases__case_ref__communications__communication_ref__content_get: {
         parameters: {
             query?: never;
@@ -91,6 +258,174 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CommunicationContent"];
                 };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    read_content_api_v1_phi_documents__document_ref__content_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    store_content_api_v1_phi_documents__upload_ref__content_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                upload_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Bad Request */
             400: {

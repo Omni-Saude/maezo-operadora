@@ -34,6 +34,13 @@ import asyncpg  # type: ignore[import-untyped]
 import httpx
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from maezo.gateway.documents.materials import (
+    DocumentPlane,
+    DocumentPlanePin,
+    compose_document_plane,
+    load_document_materials,
+)
+
 from .assignment_composition import AssignmentRuntime
 from .assignment_receipt import NativeAssignmentReceiptAuthority
 from .assignment_transport import AssignmentPrivateTransport, NativeAssignmentClient
@@ -160,12 +167,18 @@ def compose_decision_ports(
 
 @dataclass(frozen=True, repr=False)
 class HumanRuntime:
-    """The two compositions `create_app` binds, plus the lifetime that revokes them."""
+    """The compositions `create_app` binds, plus the lifetime that revokes them.
+
+    `documents` is WP-J1-04's plane: `None` keeps the document routes refusing exactly
+    as `main` ships them, present it binds the concrete `DocumentAuthority` and
+    `ProtectedDocumentProvider` — never a stand-in.
+    """
 
     read: EngineReadComposition
     assignment: AssignmentRuntime
     lifetime: MaterialLifetime
     scope: Scope
+    documents: DocumentPlane | None = None
 
 
 def compose_human_plane(
@@ -175,6 +188,7 @@ def compose_human_plane(
     source_engine: AsyncEngine,
     lifetime: MaterialLifetime,
     decision: DecisionMaterials | None = None,
+    document: DocumentPlane | None = None,
 ) -> HumanRuntime:
     """Bind every human port to its concrete provider. Pure wiring: no I/O happens here.
 
@@ -280,7 +294,9 @@ def compose_human_plane(
         command_admission=admission_port,
         transport_pool=transport_pool,
     )
-    return HumanRuntime(read=read, assignment=assignment, lifetime=lifetime, scope=scope)
+    if document is not None and document.tenant != scope.tenant:
+        raise unavailable()
+    return HumanRuntime(read=read, assignment=assignment, lifetime=lifetime, scope=scope, documents=document)
 
 
 @asynccontextmanager
@@ -289,6 +305,8 @@ async def human_runtime(
     *,
     decision_directory: str | None = None,
     decision_pin: DecisionMaterialPin | None = None,
+    document_directory: str | None = None,
+    document_pin: DocumentPlanePin | None = None,
 ) -> AsyncIterator[HumanRuntime]:
     """Compose the human plane; every resource opened here is closed here.
 
@@ -309,9 +327,14 @@ async def human_runtime(
     is loaded only AFTER the human bundle has been pinned and verified — a decision
     plane is an addition to a trusted human plane, never a way to reach one.
 
-    Both bundles, and the agreement between their scopes, are settled BEFORE the exit
-    stack: a decision bundle from another tenant is refused with zero connections
-    attempted, not after a pool is already open (V14 MINOR-4).
+    `document_directory` names the document material plane (WP-J1-04) under the same
+    discipline: absent, the document routes keep refusing exactly as `main` ships; present,
+    its own pinned bundle is loaded, `compose_document_plane` binds the concrete
+    authority and provider, and this same exit stack closes the plane's engines.
+
+    All bundles, and the agreement between their scopes, are settled BEFORE the exit
+    stack: a decision or document bundle from another tenant is refused with zero
+    connections attempted, not after a pool is already open (V14 MINOR-4).
     """
     lifetime = MaterialLifetime()
     try:
@@ -325,6 +348,13 @@ async def human_runtime(
             # bundles are separately pinned and separately signed; nothing but this
             # says they describe the same deployment.
             if decision.manifest.scope != material.manifest.scope:
+                raise unavailable()
+        document = None
+        if document_directory is not None:
+            if document_pin is None:
+                raise unavailable()
+            document = compose_document_plane(load_document_materials(document_directory, document_pin))
+            if document.tenant != material.manifest.scope.tenant:
                 raise unavailable()
         async with AsyncExitStack() as resources:
             pool = await asyncpg.create_pool(
@@ -342,6 +372,11 @@ async def human_runtime(
                 material.source_url, echo=False, hide_parameters=True, pool_size=2, max_overflow=0
             )
             resources.push_async_callback(source_engine.dispose)
+            if document is not None:
+                # The document plane's engines are owned by the same lifetime that bound
+                # them: no connection outlives the composition that opened it.
+                for engine in document.materials.engines:
+                    resources.push_async_callback(engine.dispose)
 
             runtime = compose_human_plane(
                 material,
@@ -377,6 +412,7 @@ __all__ = [
     "HumanRuntime",
     "assignment_read_scope",
     "compose_decision_ports",
+    "compose_document_plane",
     "compose_human_plane",
     "human_runtime",
 ]
