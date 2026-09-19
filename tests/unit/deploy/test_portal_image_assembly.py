@@ -103,10 +103,7 @@ def test_staged_read_webapp_copy_is_owned_by_declared_nonroot_user() -> None:
     # build-time assertion is stripped.
     users = [line for line in logical if line.startswith("USER ")]
     assert users == ["USER camunda"]
-    assert any(
-        line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line
-        for line in logical
-    )
+    assert any(line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line for line in logical)
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="RUN requires Linux sed -i; image UID remains unverified")
@@ -126,10 +123,7 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str) -
     # and the fail-closed build assertion pinning uid 1000 is still there.
     users = [line for line in logical if line.startswith("USER ")]
     assert users == ["USER camunda"]
-    assert any(
-        line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line
-        for line in logical
-    )
+    assert any(line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line for line in logical)
     camunda = tmp_path / "camunda"
     stage = tmp_path / "tmp/maezo-human-read"
     (camunda / "conf").mkdir(parents=True)
