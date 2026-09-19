@@ -590,11 +590,16 @@ class IntakeDispatchService:
         )
         return outcome
 
-    async def drain_once(self) -> DrainReport:
+    async def drain_once(self, *, on_row: Callable[[ItemOutcome], None] | None = None) -> DrainReport:
         """One sweep: read the outbox, dispatch at most one row per business-key domain.
 
         Sequential by construction. Concurrency here would buy nothing (the store serialises every
         row with `pg_advisory_xact_lock` + a lease) and would cost the per-key fence its meaning.
+
+        `on_row`, when given, fires after EVERY row's outcome — refused and deferred included. The
+        drain loop uses it to touch the liveness heartbeat per row: the probe's threshold then has
+        to cover one row's worst case, not a whole sweep of `batchSize` rows, and a slow sweep can
+        no longer be mistaken for a dead process.
         """
         items = await self.pending.pending(limit=self.batch_size)
         outcomes: list[ItemOutcome] = []
@@ -606,11 +611,15 @@ class IntakeDispatchService:
                 # decides what this row's assembly will even be allowed to be; acting on both now
                 # is exactly the double-start the key exists to prevent.
                 outcomes.append(self._refuse(item, "deferred", "business_key_busy"))
+                if on_row is not None:
+                    on_row(outcomes[-1])
                 continue
             outcome = await self._handle(item)
             if domain is not None and outcome.disposition not in ("leased", "deferred"):
                 claimed.add(domain)
             outcomes.append(outcome)
+            if on_row is not None:
+                on_row(outcome)
         report = DrainReport(tuple(outcomes))
         # No `**mapping` on a logger call: the field NAMES must stay static and visible to the
         # key-scrubber sweep (`test_logger_kwarg_unpacks_are_pinned…`). `counts()` is keyed by the
@@ -648,13 +657,22 @@ async def run_dispatch_loop(
     backlog. Errors are NOT swallowed here — a database failure ends the process, the same
     fail-closed posture `run_relay_loop` takes (`a2a/outbox_relay.py:388`); per-row refusals are
     already dispositions, not exceptions.
+
+    The heartbeat is touched at start, at every sweep completion AND at every row's outcome
+    (`drain_once(on_row=...)`): the probe's threshold therefore covers one row's worst case — a
+    sweep of slow rows keeps proving liveness row after row, and what ages is a process that can
+    not even finish one row.
     """
     reports: list[DrainReport] = []
     sweeps = 0
+    if heartbeat is not None:
+        heartbeat()
     while True:
         if stop_event is not None and stop_event.is_set():
             break
-        report = await service.drain_once()
+        report = await service.drain_once(
+            on_row=(lambda _outcome: heartbeat()) if heartbeat is not None else None
+        )
         reports.append(report)
         if heartbeat is not None:
             heartbeat()

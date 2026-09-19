@@ -27,10 +27,20 @@ propriedade root satisfaz isso (o loader aceita `st_uid` 0 ou o proprio euid).
 PROBE. O daemon nao expoe /healthz e a imagem de runtime (`python:3.12-slim` + `libpq5`,
 `deploy/Dockerfile`) nao tem `procps`, entao `pgrep` sairia 127 e o kubelet reiniciaria o pod para
 sempre (o mesmo achado F3 do a2a-outbox-relay). Liveness por heartbeat: `run_dispatch_loop` toca o
-arquivo a cada sweep COMPLETO (um sweep travado envelhece corretamente em vez de bater um timer),
-e a probe calcula `max(3 * pollIntervalS, 5)` EM PYTHON a partir dos proprios env vars do
-container — zero aritmetica Helm (`mul`/`int` truncaria um `pollIntervalS` fracionario para 0 e a
-probe falharia sempre, achado G1 do irmao).
+arquivo no arranque, a cada sweep COMPLETO e a cada LINHA concluida (recusada inclusive) — o
+silencio legitimo mais longo e' de UMA linha, nunca um sweep inteiro de `batchSize` linhas; o que
+envelhece e' um processo que nao termina nem uma linha. A probe calcula
+`max(3 * pollIntervalS, 5) + rowBudgetS` EM PYTHON a partir dos proprios env vars do container —
+zero aritmetica Helm (`mul`/`int` truncaria um `pollIntervalS` fracionario para 0 e a probe
+falharia sempre, achado G1 do irmao). `rowBudgetS` e' o teto DECLARADO para drenar UMA linha,
+derivado dos tetos que a composicao JA' impoe — ida e volta no engine limitada a 10s
+(`gateway/human/auth_transport.py` recusa `timeout_seconds` acima de 10) e statement protegido a
+5s (`asyncpg command_timeout`, `gateway/intake/native_authority.py:842`) — vezes a cadeia limitada
+que despachar uma linha e' (uma duzia de transacoes de loja + a ida e volta), com folga; e
+consumida SO' pela probe (o daemon nao impoe timeout proprio). Reiniciar no meio de um sweep e' a
+falha que este limiar nao pode causar: a linha interrompida fica `sending` e, sem autoridade de
+leitura head-less (disclosure no docstring do servico), fica permanentemente
+`awaiting_receipt`.
 */ -}}
 {{- if .Values.intakeDispatch.enabled }}
 apiVersion: apps/v1
@@ -94,6 +104,8 @@ spec:
               value: {{ .Values.intakeDispatch.batchSize | quote }}
             - name: MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S
               value: {{ .Values.intakeDispatch.pollIntervalS | quote }}
+            - name: MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S
+              value: {{ .Values.intakeDispatch.rowBudgetS | quote }}
             - name: MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH
               value: "/tmp/maezo-intake-dispatch.heartbeat"
             {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
@@ -109,7 +121,7 @@ spec:
               command:
                 - python
                 - -c
-                - "import os,sys,time; p=os.environ.get('MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH',''); poll=float(os.environ.get('MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S','2')); threshold=max(3.0*poll,5.0); sys.exit(0 if p and os.path.exists(p) and (time.time()-os.stat(p).st_mtime)<threshold else 1)"
+                - "import os,sys,time; p=os.environ.get('MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH',''); poll=float(os.environ.get('MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S','2')); budget=float(os.environ.get('MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S','120')); threshold=max(3.0*poll,5.0)+budget; sys.exit(0 if p and os.path.exists(p) and (time.time()-os.stat(p).st_mtime)<threshold else 1)"
             initialDelaySeconds: 20
             periodSeconds: 30
           volumeMounts:

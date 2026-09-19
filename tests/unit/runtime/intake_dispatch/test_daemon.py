@@ -676,12 +676,38 @@ async def test_a_sweep_that_dispatched_nothing_is_idle():
 
 @pytest.mark.asyncio
 async def test_the_loop_stops_after_max_sweeps_and_touches_the_heartbeat_each_time():
+    """Start + (one row + one sweep completion) per sweep, for three sweeps."""
     beats: list[int] = []
     service, *_rest = build((item(),))
     reports = await run_dispatch_loop(
         service, poll_interval_s=0.01, max_sweeps=3, heartbeat=lambda: beats.append(1)
     )
-    assert len(reports) == 3 and len(beats) == 3
+    assert len(reports) == 3 and len(beats) == 7
+
+
+@pytest.mark.asyncio
+async def test_the_loop_touches_the_heartbeat_per_row_so_a_slow_sweep_stays_alive():
+    """Three rows in ONE sweep prove three row touches — a per-sweep-only loop would touch twice.
+
+    The probe's threshold covers ONE row's worst case; this is the property that makes a slow
+    sweep (batchSize sequential engine round-trips) impossible to mistake for a dead process.
+    """
+    beats: list[int] = []
+    service, *_rest = build((item(command_id="row-1"), item(command_id="row-2"), item(command_id="row-3")))
+    await run_dispatch_loop(service, poll_interval_s=0.01, max_sweeps=1, heartbeat=lambda: beats.append(1))
+    assert len(beats) == 5  # start + three rows + sweep completion
+
+
+@pytest.mark.asyncio
+async def test_the_loop_touches_the_heartbeat_for_a_deferred_row_too():
+    """A row deferred by the business-key fence is still progress; it keeps the heartbeat warm."""
+    beats: list[int] = []
+    service, *_rest = build((item(), item()))  # same default guide -> the second row defers
+    reports = await run_dispatch_loop(
+        service, poll_interval_s=0.01, max_sweeps=1, heartbeat=lambda: beats.append(1)
+    )
+    assert len(beats) == 4  # start + two rows (one deferred) + sweep completion
+    assert reports[0].outcomes[1].reason == "business_key_busy"
 
 
 @pytest.mark.asyncio

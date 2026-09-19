@@ -102,16 +102,29 @@ def test_the_probe_reads_its_own_environment_rather_than_a_helm_literal() -> Non
     script = container["livenessProbe"]["exec"]["command"][2]
     assert "MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH" in script
     assert "MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S" in script
+    assert "MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S" in script
     # No Helm arithmetic: a truncated threshold is the failure this formula exists to avoid.
     assert "{{" not in script and "mul" not in script
+
+
+def test_the_row_budget_the_probe_declares_is_rendered_into_the_container_env() -> None:
+    """The threshold covers ONE row's worst case, so the budget must travel with the container."""
+    container = _container(_deployment(*_ENABLE) or {})
+    env = _env(container)
+    assert float(env["MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S"]["value"]) > 0
+    # The floor + budget threshold, evaluated in Python exactly as `heartbeat_stale_after_s` does.
+    poll = float(env["MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S"]["value"])
+    budget = float(env["MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S"]["value"])
+    assert heartbeat_stale_after_s(poll, budget) == max(3.0 * poll, 5.0) + budget
 
 
 @pytest.mark.parametrize("poll", ["0.5", "1", "2", "5"])
 def test_the_rendered_probe_computes_the_same_threshold_as_the_loop(tmp_path, poll: str) -> None:
     container = _container(_deployment(*_ENABLE) or {})
     script = container["livenessProbe"]["exec"]["command"][2]
+    budget = _env(container)["MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S"]["value"]
     heartbeat = tmp_path / "heartbeat"
-    threshold = heartbeat_stale_after_s(float(poll))
+    threshold = heartbeat_stale_after_s(float(poll), float(budget))
 
     def run() -> int:
         return subprocess.run(
@@ -120,6 +133,7 @@ def test_the_rendered_probe_computes_the_same_threshold_as_the_loop(tmp_path, po
                 **os.environ,
                 "MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH": str(heartbeat),
                 "MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S": poll,
+                "MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S": budget,
             },
             timeout=30,
         ).returncode

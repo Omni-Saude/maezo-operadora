@@ -496,6 +496,15 @@ intakeDispatch:
   # ser despachada enquanto seu `authorization_until` (o teto da sessao que admitiu) vale, entao
   # um poll lento EXPIRA trabalho em vez de apenas atrasa-lo.
   pollIntervalS: 2
+  # Teto DECLARADO (segundos) para drenar UMA linha, somado ao limiar da liveness probe
+  # (`MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S`; consumida so' pela probe — o daemon nao impoe timeout
+  # proprio). O heartbeat e' tocado por LINHA (arranque + fim de sweep + cada linha), entao o
+  # limiar cobre o pior caso de UMA linha, nunca um sweep inteiro de `batchSize`: ida e volta no
+  # engine limitada a 10s (`gateway/human/auth_transport.py` recusa `timeout_seconds` acima de 10)
+  # + statements protegidos a 5s (`asyncpg command_timeout`,
+  # `gateway/intake/native_authority.py:842`) numa cadeia limitada, com folga. Reiniciar no meio
+  # de um sweep deixaria a linha em `sending`, permanentemente `awaiting_receipt`.
+  rowBudgetS: 120
   # Secret com os materiais protegidos do dono: `lifecycle.json`
   # (`AuthLifecycleConfiguration` — o MESMO arquivo que o portal carrega), `definition.json`
   # (o pin da definition implantada), `definition-digest` e `identity-writer-url`.

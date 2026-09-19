@@ -35,12 +35,28 @@ logger = structlog.get_logger(__name__)
 #: misconfigured sub-second interval cannot produce a probe that never passes.
 MIN_HEARTBEAT_STALE_AFTER_S: Final[float] = 5.0
 
+#: One row's drain budget, in seconds, that the probe adds to the floor above. Derived from the
+#: bounds the composition already ENFORCES — one engine round trip is hard-capped at 10s
+#: (`gateway/human/auth_transport.py` refuses `timeout_seconds` above 10) and every protected
+#: statement runs under asyncpg's `command_timeout=5` (`gateway/intake/native_authority.py:842`) —
+#: times the bounded chain a dispatched row is (a dozen-ish store transactions plus that round
+#: trip), with slack on top: a DECLARED ceiling, not a measured latency. Probe-only: the daemon
+#: enforces no timeout of its own, and the heartbeat is touched per ROW, so the longest legitimate
+#: silence is one row, never a full sweep of `batchSize` rows (a spurious mid-sweep restart is the
+#: one failure this threshold must never cause: the interrupted row is left `sending`, and the
+#: disclosed head-less read authority makes it permanently unreconcilable).
+DEFAULT_ROW_BUDGET_S: Final[float] = 120.0
+
 _heartbeat_write_failure_logged = False
 
 
-def heartbeat_stale_after_s(poll_interval_s: float) -> float:
-    """Pure: the liveness probe's staleness threshold for a given poll interval."""
-    return max(3.0 * poll_interval_s, MIN_HEARTBEAT_STALE_AFTER_S)
+def heartbeat_stale_after_s(poll_interval_s: float, row_budget_s: float = DEFAULT_ROW_BUDGET_S) -> float:
+    """Pure: the liveness probe's staleness threshold.
+
+    `max(3 * poll, floor) + one row's budget`: the loop touches the heartbeat per row, so the
+    threshold has to cover ONE row's worst case, not a whole sweep.
+    """
+    return max(3.0 * poll_interval_s, MIN_HEARTBEAT_STALE_AFTER_S) + row_budget_s
 
 
 def touch_heartbeat(path: str | None) -> None:
