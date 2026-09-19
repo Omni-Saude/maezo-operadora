@@ -25,7 +25,7 @@ function detailResponses() {
   return [
     json({
       schema: "portal-external-case-detail.v1", case: summary, allowed_actions: [],
-      freshness: { observed_at: observed, valid_until: future },
+      freshness: { observed_at: observed, valid_until: future }, outcome: null,
     }),
     json({
       case_ref: summary.case_ref,
@@ -287,7 +287,8 @@ it.each(["documents", "document-requests"])("recusa validade expirada aguardando
     if (url.endsWith("/documents")) return page("documents");
     if (url.endsWith("/document-requests")) return page("document-requests");
     return json({ schema: "portal-external-case-detail.v1", case: summary, allowed_actions: [],
-      freshness: { observed_at: "2026-09-10T11:59:00.000000Z", valid_until: "2026-09-10T12:00:01.000000Z" } });
+      freshness: { observed_at: "2026-09-10T11:59:00.000000Z", valid_until: "2026-09-10T12:00:01.000000Z" },
+      outcome: null });
   }));
   const pending = api.readCase(summary.case_ref, signal());
   for (let i = 0; i < 30; i++) await Promise.resolve();

@@ -65,3 +65,9 @@ docs/reports/amh-integration-forensics-summary.md
 # per-user local settings override that must never carry credentials into the repo.
 .claude/worktrees/
 .claude/settings.local.json
+
+# Pasta de trabalho local: documentos que o dono deixa aqui para eu ler (especificacoes do
+# diretor, arquivos recuperados do ECR, transcricoes de bateria). NAO E DO REPOSITORIO — entrou
+# por engano num `git add -A` em 17/09/2026 e trouxe junto tres alertas de path injection do
+# CodeQL sobre uma copia antiga do canal de teste. Ignorada para o engano nao se repetir.
+temp/

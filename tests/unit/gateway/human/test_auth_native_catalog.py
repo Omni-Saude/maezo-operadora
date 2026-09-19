@@ -27,7 +27,7 @@ async def test_native_catalog_refuses_hidden_revocation_and_source_guarantee_dri
                 return dict(
                     oid=pin.oid,
                     owner=pin.owner,
-                    relkind="r",
+                    relkind="r" if "c.relkind::text AS relkind" in sql else b"r",
                     relrowsecurity=pin.name in rls,
                     can_select=True,
                     writes=False,
@@ -46,7 +46,7 @@ async def test_native_catalog_refuses_hidden_revocation_and_source_guarantee_dri
                 assert args[1] == state.d.schema_name
                 assert "NOT t.tgisinternal" in sql and "count(*) OVER ()" in sql
                 return {
-                    "tgenabled": "O",
+                    "tgenabled": "O" if "t.tgenabled::text AS tgenabled" in sql else b"O",
                     "tgtype": 58,
                     "prosrc": "BEGIN RAISE EXCEPTION 'immutable consumer evidence'; END",
                     "prosecdef": False,

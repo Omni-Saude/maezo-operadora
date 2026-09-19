@@ -85,15 +85,15 @@ class FailingStarterSpy:
 
 
 def test_bridge_initializes_with_default_handoffs() -> None:
-    """NotificationBridge registers the 10 default handoff rules on init (5 pre-T2.6-7 + 2 T2.6-7
-    + 3 R-104 SLA-alert rules)."""
+    """NotificationBridge registers the 11 default handoff rules on init (5 pre-T2.6-7 + 2 T2.6-7
+    + 4 SLA-alert rules)."""
     bridge = _make_bridge()
     handoffs = bridge.list_handoffs()
-    # 10 rules: agents.events.recurso.intake_recebido, agents.events.contas.completed,
+    # 11 rules: agents.events.recurso.intake_recebido, agents.events.contas.completed,
     # agents.events.fraude.completed (x3: CRED, CANCEL, INADIMPLENCIA),
     # nip.handoff_ans_submit, ans.cron_due (T2.6-7),
-    # {lgpd,programa,recurso}.notify_sla_risk (R-104 -> SP-OP-ESCALATION-001).
-    assert len(handoffs) == 10
+    # {auth,lgpd,programa,recurso}.notify_sla_risk (R-104 + WP-J1-09 -> SP-OP-ESCALATION-001).
+    assert len(handoffs) == 11
 
     targets = {h["target_process"] for h in handoffs}
     assert "SP-OP-RECURSO-001" in targets
@@ -126,7 +126,7 @@ def test_bridge_register_custom_handoff() -> None:
         target_process="SP-CUSTOM-001",
         variables_fn=lambda p: {"value": p.get("x", 0)},
     )
-    assert len(bridge.list_handoffs()) == 11
+    assert len(bridge.list_handoffs()) == 12
 
     result = bridge.evaluate(HandoffEvent(event_type="custom.test", payload={"go": True, "x": 42}))
     assert result.handoff_triggered is True
@@ -687,7 +687,7 @@ def test_list_handoffs_returns_all() -> None:
     bridge = _make_bridge()
     handoffs = bridge.list_handoffs()
     assert isinstance(handoffs, list)
-    assert len(handoffs) == 10
+    assert len(handoffs) == 11
     assert all("event_type" in h and "target_process" in h for h in handoffs)
 
 
@@ -738,14 +738,14 @@ def test_get_handoff_unknown_returns_empty() -> None:
 def test_count_handoffs() -> None:
     """count_handoffs returns the number of registered rules."""
     bridge = _make_bridge()
-    assert bridge.count_handoffs() == 10
+    assert bridge.count_handoffs() == 11
     bridge.register_handoff(
         event_type="extra.rule.here",
         predicate=lambda p: True,
         target_process="SP-EXTRA-001",
         variables_fn=lambda p: {},
     )
-    assert bridge.count_handoffs() == 11
+    assert bridge.count_handoffs() == 12
 
 
 # ---------------------------------------------------------------------------
@@ -1516,12 +1516,13 @@ _FRAUDE_TO_CANCEL_PAYLOAD = {
 def test_fraude_to_cancel_is_the_only_bridge_rule_targeting_a_gated_family() -> None:
     """Scope pin. Exactly one of the 10 registered rules targets a gated start-dedup family, and it
     is FRAUDE→CANCEL. If a future rule targets another one, this test names it — so the seam
-    requirements above get re-checked instead of being discovered in production. (R-104's three
+    requirements above get re-checked instead of being discovered in production. (the four
     SLA-alert rules target SP-OP-ESCALATION-001, classified `NON_STRICT` in `_START_DEDUP_POLICY`,
-    so they do not widen this surface.)"""
+    so they do not widen this surface. WP-J1-09 added a FOURTH SLA-alert rule, `auth`, onto the
+    same NON_STRICT target — see that posture's re-examination in `_START_DEDUP_POLICY`.)"""
     bridge = _make_bridge()
     registered = bridge.list_handoffs()
-    assert len(registered) == bridge.count_handoffs() == 10
+    assert len(registered) == bridge.count_handoffs() == 11
     gated = sorted({r["target_process"] for r in registered if is_strict_start_dedup(r["target_process"])})
     assert gated == ["SP-OP-CANCEL-001"]
     assert start_dedup_posture("SP-OP-CANCEL-001") is StartDedupPosture.EXCLUSIVE

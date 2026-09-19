@@ -69,7 +69,7 @@ registra corretamente o estado do seu momento: "`AUTH` esta hoje classificado `N
 postura mais estrita adequada (`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar)". **ESTA
 emenda E' essa promocao.** (Correcao de ancora, achado V12: em `f954e8b0` a linha `:1211` e'
 `SP-OP-RECURSO-001`; a entrada de `SP-OP-AUTH-001` estava em `:1212` e, apos esta entrega,
-esta' em `transport.py:1259`. A citacao de E01-b erra por uma linha.)
+esta' em `transport.py:1212` (o numero de linha se move conforme o bloco de comentario cresce; a ancora estavel e' a propria chave no mapa). A citacao original de E01-b errava por uma linha e foi corrigida nesta entrega.)
 
 Onde as duas convivem no mesmo arquivo, a frase de E01-b passa a ser HISTORICA: a classificacao corrente e' `EXCLUSIVE`, declarada acima. O que E01-b chama de
 "postura-alvo a ratificar" continua ABERTO e e' exatamente o quadro desta secao — `PERMANENT`
@@ -212,12 +212,15 @@ por público. A business key permanece a contratual `AUTH-{tenant_id}-{numero_gu
 canal de agente compartilhem UM domínio de idempotência, e não criar um segundo.
 
 **Estado: caminho de intake INERTE nesta entrega.** O BPMN passa a admitir o start por
-mensagem, mas nenhum chamador o utiliza: o despachante ainda inicia por id/key com a chave
-legada, e `AUTH` está hoje classificado `NON_STRICT` em `_START_DEDUP_POLICY` (`transport.py:1211`) —
-habilitar o start por mensagem exige promovê-lo à postura mais estrita adequada
-(`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar). Habilitar exige os dois
-juntos (WP-J1-01 / WP-J1-11) mais o teste "dois canais, uma guia → uma instância"; enquanto
-isso, **somente guias sintéticas**. A resposta documental não depende desta emenda: já
+mensagem, mas nenhum chamador o utiliza: o despachante ainda inicia por id/key. A classificação
+de `AUTH` em `_START_DEDUP_POLICY` **já foi promovida para `EXCLUSIVE`** (`transport.py:1212`;
+WP-J1-11, decisão do dono #16) — starts CONCORRENTES da mesma guia ficam mutuamente excluídos
+pela reivindicação durável, resolvida contra a evidência do engine, e uma guia cuja instância
+ENCERROU pode iniciar o próximo caso (nunca um portão permanente). A **postura-alvo `PERMANENT`
+fica a ratificar** (médico-auditor / ANS-regulatório): ver a emenda "UM domínio de idempotência
+por guia" acima para as duas razões independentes pelas quais `PERMANENT` seria errado hoje.
+Habilitar o start por mensagem depende agora só de WP-J1-01 mais o teste "dois canais, uma guia
+→ uma instância"; enquanto isso, **somente guias sintéticas**. A resposta documental não depende desta emenda: já
 correlacionava em `ICE_DocsRecebidos` por ocorrência/subscrição exata.
 
 **Sem `camunda:formKey`, por decisão.** O repositório não usa `camunda:formKey` em nenhum
@@ -387,7 +390,7 @@ emitia sem declaracao no contrato).
 | External task | `operadora.auth.request_documents` | consome | pendencia documental — **um unico consumidor por implantacao**, ver "Pedido de documentos — ponte PHI" |
 | External task | `operadora.auth.issue_authorization` | consome | emite autorizacao (TISS) |
 | External task | `operadora.auth.send_denial_notice` | consome (worker) | worker `SendDenialNoticeWorker` (`ST_EnviarNegativaFormal`): **COMPOE** o registro da negativa formal por escrito em nome do auditor humano e o devolve com o conteudo clinico REDIGIDO (ADR-0006). **NAO afirma mais `status=notice_sent`** (AUTH-SEND-DENIAL-NOTICE-STATUS-LITERAL): o worker e sincrono (`WorkerBase.execute`), sem seam de Kafka e sem canal nenhum — nada e transmitido ao beneficiario/prestador nesta etapa; o canal seguro real e de Fase 1. O que sai e real: `notice_type`, `error_code=None`, a proveniencia `human_approved` resolvida pelo GUARD 2 e os tres campos clinicos redigidos. O unico `status` que este worker escreve e o registro de recusa `blocked_by_guard` (+ `ERR_DENIAL_NOT_HUMAN`). O fato `agents.events.auth.completed` (desfecho `negada_auditor`) e publicado adiante por `ST_PublishNegada`, no unico fluxo de saida da task (`Flow_Negativa_Pub`) |
-| External task | `operadora.auth.notify_sla_risk` | consome (worker) | worker `NotifySlaRiskWorker`: registra que a ETAPA de alerta de risco de SLA a `coordenacao-auditoria-medica` rodou (timer nao-interruptivo `BT_AlertaSla`) e retorna `{}` — **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** e nao contata canal algum (worker sincrono, sem seam de Kafka). Aquele evento e publicado por `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise` — outro ramo (FAB-SLA-RISK-NOTIFIED-SLICE4). Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
+| External task | `operadora.auth.notify_sla_risk` | consome (worker) + **publica** `auth.notify_sla_risk` | handler cru `make_notify_sla_risk_handler` (WP-J1-09, decisao do dono #17): executa a etapa pura `NotifySlaRiskWorker` — que segue retornando `{}` e **NAO afirma `status=risk_notified` NEM o evento `agents.events.auth.sla_breached`** (FAB-SLA-RISK-NOTIFIED-SLICE4; aquele evento e de `ST_PublishSlaBreach`, no ramo do boundary INTERRUPTIVO `BT_SlaAnalise`) — e ENTAO publica a notificacao `{type: auth.notify_sla_risk, tenant_id, numero_guia_tiss, beneficiario_pseudo_id}` em `operadora.notifications.internal`, com `best_effort=False`. Ate WP-J1-09 o worker era sincrono e **sem seam de Kafka**: a etapa rodava e ninguem era avisado. O publish e um PEDIDO de alerta, nunca prova de que um humano foi avisado — a prova e a linha de inbox do consumidor. Informativo e nunca adverso: `UT_AnaliseMedicoAuditor` segue aberta |
 | External task | `operadora.auth.convene_junta` | consome | convoca junta medica (RN 424 — DRAFT) |
 | Message BPMN | `msg.auth.docs_received` | recebe | correlacao por business key, destrava pendencia |
 
@@ -528,7 +531,7 @@ out: `sla_analise: string (ISO)`, `sla_alerta: string (ISO)`, `fonte_regulatoria
 | Analise (urgencia) | PT2H | interruptivo -> coordenacao assume | Lei 9.656 art. 35-C ("imediato") — **DRAFT/verify** |
 | Analise (eletivo alta complexidade/OPME/internacao) | P10D | idem | RN 259 (21 dias uteis garantia) — **DRAFT/verify** |
 | Analise (eletivo padrao) | P5D | idem | RN 395/2016 (5 dias uteis) — **DRAFT/verify** |
-| Alerta de risco | 50–70% do SLA (DMN `sla_alerta`) | nao-interruptivo -> notify_sla_risk | politica interna |
+| Alerta de risco | 50–70% do SLA (DMN `sla_alerta`) | nao-interruptivo -> notify_sla_risk -> escalonamento humano `ESC-{tenant_id}-sla-auth-{numero_guia_tiss}` (WP-J1-09, decisao do dono #17; emenda em `SP-OP-ESCALATION-001.md` + ADR-0051). NAO interrompe a analise e NAO move a titularidade: a retomada continua sendo `BT_SlaAnalise` -> `UT_CoordenacaoAssume`, dentro deste processo | politica interna |
 | Pendencia de documentacao | P5D | event gateway -> `UT_DecidirPendenciaExpirada` (humano decide destino) | **DRAFT/verify** (suspensao de prazo durante pendencia: confirmar regra RN) |
 | Negativa por escrito | registro COMPOSTO pelo worker `send_denial_notice`; a TRANSMISSAO em si nao tem canal implementado (Fase 1) | — | RN 395 art. 10 (24h) — **DRAFT/verify** |
 

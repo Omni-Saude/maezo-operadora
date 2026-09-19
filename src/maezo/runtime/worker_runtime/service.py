@@ -69,6 +69,7 @@ from maezo.platform.observability import (
     bootstrap_observability,
     get_metrics_collector,
 )
+from maezo.runtime.worker_runtime.denial_notices import DenialNoticeHost, install_denial_notice_host
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
 from maezo.tools.workers.ans_submit import ANS_SUBMIT_BPMN_ERROR_ALLOWLIST
 from maezo.tools.workers.auth import AUTH_BPMN_ERROR_ALLOWLIST
@@ -259,6 +260,7 @@ def register_default_workers(
     dmn: GatedDmnTransport | None = None,
     engine: CibSevenTransport | None = None,
     audit_sink: AuditStartSink | None = None,
+    denial_notice_host: DenialNoticeHost | None = None,
     tenant_id: str = "",
     kafka: AioKafkaEventsProducer | None = None,
     dossier_dispatcher: DelegationDispatcher | None = None,
@@ -323,6 +325,7 @@ def register_default_workers(
         dmn=dmn,
         engine=engine,
         audit_sink=audit_sink,
+        denial_notice_host=denial_notice_host,
         tenant_id=tenant_id,
         kafka=kafka,
         dossier_dispatcher=dossier_dispatcher,
@@ -1013,6 +1016,11 @@ async def _bring_up_dependencies(state: WorkerState) -> None:
                 audit_sink=FreshSinkAuditEmitter(settings.database_url, settings.tenant_id)
                 if settings.database_url
                 else None,
+                # WP-J1-06 / V14 MAJOR-1: the portal NEGAR owner's ONE installation
+                # path. Dark unless the deployment asks for it; when asked, this is the
+                # only construction of the host, and `register_auth_workers` then omits
+                # the generic worker so the topic has exactly one owner.
+                denial_notice_host=install_denial_notice_host() if settings.denial_notice_owner else None,
                 tenant_id=settings.tenant_id,
                 kafka=state.kafka_publisher,
                 # Dossier-A2A seam (DL-0033/DL-0037): None when degraded — the raw dossier

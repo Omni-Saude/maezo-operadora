@@ -106,10 +106,29 @@ _NAME_ONLY: Final[dict[str, str]] = {
         "same class as test_inference_live.py below. The relay grammar of _EXPLICIT_FIXTURES "
         "(loader class + pinned compose host/port) does not describe it. PR-A landing record."
     ),
+    "tests/integration/platform/test_d7_control_storage_live.py": (
+        "S6b controller-D storage lane (dark): it requests the whole ROOT-supplied "
+        "`d7_live_storage_lane` fixture — a real PostgreSQL 16 owner/runtime connection pair plus "
+        "the actual qualified DynamoDB client — via `request.getfixturevalue`, so it builds no "
+        "connection of its own; there is no caller DSN and no repo-served default port for this "
+        "fence to check, and it skips loudly (`NOT_RUN: ROOT must provide the real "
+        "owner-qualified D7 storage lane`) when the lane is absent. Same class as "
+        "test_decision_binding_live_pg.py above; the relay grammar of _EXPLICIT_FIXTURES "
+        "(loader class + pinned compose host/port) does not describe an injected lane."
+    ),
     "tests/unit/a2a/test_a2a_edge_live_pg_fixture.py": (
         "four pure unit fences for the companion A2A live-engine fixture: they inspect composition "
         "and replace the engine resolver/client in-process, with no Postgres, broker, engine, "
         "network access, or integration marker; only the filename matches the live-suite glob."
+    ),
+    "tests/evals/test_extracao_live.py": (
+        "Frente 3.3: mede a TRADUCAO ao vivo contra o corpus rotulado. MESMA CLASSE de "
+        "`test_inference_live.py` abaixo — a coordenada dela e' uma CHAVE DE API, nao uma porta "
+        "servida pelo repo: `pytest.mark.llm_live` mais o `live_key_skip` do harness, que pula "
+        "ALTO quando nao ha chave. Nao abre Postgres, nao resolve broker, e o duplo de DMN que ela "
+        "injeta e' VAZIO de proposito (se o `classify` chegar a consultar a tabela, o duplo levanta "
+        "e o teste falha alto — aqui se mede o que o modelo extraiu, nunca a conduta que a tabela "
+        "deriva disso). So' o nome casa o glob desta cerca."
     ),
     "tests/unit/runtime/test_inference_live.py": (
         "live Anthropic API call (T1.7), `pytestmark = pytest.mark.llm_live`; its coordinate is an "

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" version="6.0" metadata-complete="true">
+  <absolute-ordering/>
+  <display-name>Maezo secured migration boundary</display-name>
+  <servlet>
+    <servlet-name>closed-historical-api</servlet-name>
+    <servlet-class>br.com.maezo.workload.ClosedServlet</servlet-class>
+    <load-on-startup>1</load-on-startup>
+  </servlet>
+  <servlet-mapping><servlet-name>closed-historical-api</servlet-name><url-pattern>/*</url-pattern></servlet-mapping>
+</web-app>

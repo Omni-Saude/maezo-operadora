@@ -130,7 +130,10 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     config = Config()
     config.set_main_option("script_location", str(_VERSIONS_DIR.parent))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == ["0014"]
+    # WP-J1-09 appended 0015 (`escalation_team_notice`); the chain stays LINEAR, which is what
+    # this test actually guards.
+    assert script.get_heads() == ["0015"]
+    assert script.get_revision("0015").down_revision == "0014"
     assert script.get_revision("0014").down_revision == "0013"
     assert script.get_revision("0013").down_revision == "0012"
     assert script.get_revision("0012").down_revision == "0011"

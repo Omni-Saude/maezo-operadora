@@ -48,6 +48,7 @@ function detail(ref = caseRef) {
       valid_until: "2099-09-10T12:00:10.000000Z",
       refresh_after_seconds: 10 as const,
     },
+    outcome: null,
   };
 }
 

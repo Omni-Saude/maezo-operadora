@@ -547,6 +547,41 @@ DISPOSITIONS: Mapping[str, Disposition] = MappingProxyType(
         d.name: d
         for d in (
             Disposition(
+                name="sintoma_reconhecido",
+                evidence=(
+                    "spec/processes/dmn/triage_sufficiency.dmn:58 (dmn_input_expression) — a "
+                    "BOOLEAN input of the Frente 2.2 sufficiency table, derived in "
+                    "src/maezo/agents/helena/graph.py::classify as `sintoma_codigo is not None`. "
+                    "The shape heuristic matched it because the name contains `sintoma`, the same "
+                    "stem as `sintoma_codigo`, which IS already a listed shape-suspect "
+                    "(triage_redflag_*.dmn). No other surface declares this name: it exists only "
+                    "as that table's input."
+                ),
+                recommendation=(
+                    "RECOMMEND NOT listing it, and the reason is the design of the table rather "
+                    "than a judgement about the name. `sintoma_reconhecido` is a PRESENCE FLAG: "
+                    "it answers 'did the message match one of the 25 allow-listed codes?' with "
+                    "true/false, and CANNOT carry which code, which symptom, or any wording from "
+                    "the beneficiary. The sufficiency table was built this way deliberately — it "
+                    "decides whether the DATA SUFFICES to answer honestly, never what the data "
+                    "says, so its six inputs are two closed vocabularies (`intent`, `population`), "
+                    "three booleans and a round counter. Nothing free-text reaches it. "
+                    "COUNTER-EVIDENCE CONSIDERED: a boolean derived FROM PHI can still be PHI when "
+                    "it is inferentially strong — `true` here means 'this person described "
+                    "something the triage vocabulary knows', which in a health channel is already "
+                    "a health inference about an identified conversation. That is the argument for "
+                    "listing it, and it is not frivolous; what tips it the other way is that the "
+                    "SAME inference is already carried, with far more resolution, by "
+                    "`sintoma_codigo` itself, which is listed. Protecting the flag while the code "
+                    "travels beside it protects nothing. If the DPO reads it differently, the "
+                    "cheaper fix is at the source (stop putting `sintoma_codigo` in process "
+                    "variables) rather than at this derived flag. THE TABLE IS NOT DEPLOYED and "
+                    "the collection node stays off (`coleta_enabled=False`), so no decision here "
+                    "is urgent — the question is being recorded before the artifact is live, "
+                    "which is the order this fence exists to enforce."
+                ),
+            ),
+            Disposition(
                 name="detalhes_requisicao",
                 evidence=(
                     "spec/processes/bpmn/SP-OP-LGPD-DSR-001_Direitos_do_Titular.bpmn:55 "

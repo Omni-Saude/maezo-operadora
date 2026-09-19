@@ -40,12 +40,15 @@ from pathlib import Path
 
 import pytest
 from scripts.ci.check_chart_env_reconciliation import (
+    _KEY_YIELDING_ENVIRON_METHODS,
     _MARKER_REASON,
     _NO_DEFAULT_REASON,
+    _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS,
     DEFERRED_UNDECLARED_REQUIRED,
     DEFERRED_UNRECONCILED_DECLARED,
     INFRA_OWNED_DECLARED,
     EnvNameRef,
+    UnrecognizedEnvironAccess,
     _has_chart_required_marker,
     _module_level_string_constants,
     _require_reasons,
@@ -54,6 +57,7 @@ from scripts.ci.check_chart_env_reconciliation import (
     extract_declared_from_terraform,
     extract_literal_env_names,
     extract_settings_env_names,
+    extract_unrecognized_environ_accesses,
     reconcile,
     render_chart,
 )
@@ -670,6 +674,345 @@ def test_removing_whatsapp_verify_token_from_the_deployment_states_the_boot_reas
 
 
 # ---------------------------------------------------------------------------
+# 8. `.pop`/`.setdefault`/`in` recognized as reads (B6/V9, PR-C `service-portal.tf:254`)
+# ---------------------------------------------------------------------------
+#
+# `os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE")` in PR-C's
+# `src/maezo/gateway/staff_cases/materialize.py` went undetected as a read of the name
+# `service-portal.tf:254` declares via a `secrets = [...]` block — the checker only recognized
+# `.get`/`os.getenv`/subscript, so it reported a false `DECLARED BUT NEVER READ`. Each test below
+# reproduces the exact shape and is a genuine RED-before/GREEN-after proof: run it against
+# `git show 371ba6a5:scripts/ci/check_chart_env_reconciliation.py` (the last revision before this
+# fix) and it fails; against this file, it passes.
+
+
+def test_extract_literal_env_names_covers_pop_form(tmp_path: Path) -> None:
+    """The exact PR-C shape: `os.environ.pop(KEY)` with no default argument."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE")\n', encoding="utf-8"
+    )
+    assert "MAEZO_PORTAL_STAFF_SECRET_BUNDLE" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_pop_form_with_default(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = os.environ.pop("MAEZO_POP_WITH_DEFAULT_TEST", None)\n', encoding="utf-8"
+    )
+    assert "MAEZO_POP_WITH_DEFAULT_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_setdefault_form(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nos.environ.setdefault("MAEZO_SETDEFAULT_TEST", "x")\n', encoding="utf-8"
+    )
+    assert "MAEZO_SETDEFAULT_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_membership_in_form(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nif "MAEZO_MEMBERSHIP_IN_TEST" in os.environ:\n    pass\n', encoding="utf-8"
+    )
+    assert "MAEZO_MEMBERSHIP_IN_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_membership_not_in_form(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        'import os\nif "MAEZO_MEMBERSHIP_NOT_IN_TEST" not in os.environ:\n    pass\n', encoding="utf-8"
+    )
+    assert "MAEZO_MEMBERSHIP_NOT_IN_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_extract_literal_env_names_covers_pop_via_module_level_constant(tmp_path: Path) -> None:
+    """`.pop` reached through the same-name constant-resolution heuristic, not only a direct
+    literal — the same two-pass design `.get` already gets, extended to `.pop`."""
+    (tmp_path / "mod.py").write_text(
+        "import os\n"
+        'BUNDLE_ENV: str = "MAEZO_PORTAL_STAFF_SECRET_BUNDLE_VIA_CONST"\n'
+        "raw = os.environ.pop(BUNDLE_ENV)\n",
+        encoding="utf-8",
+    )
+    assert "MAEZO_PORTAL_STAFF_SECRET_BUNDLE_VIA_CONST" in extract_literal_env_names(tmp_path)
+
+
+def test_reconciliation_pipeline_recognizes_pop_end_to_end() -> None:
+    """End-to-end (not just the extraction helper): a name declared via TF and read only via
+    `.pop(...)` must reconcile clean — the exact PR-C shape, run through the real `reconcile`."""
+    declared = [EnvNameRef(name="MAEZO_PORTAL_STAFF_SECRET_BUNDLE", source="service-portal.tf:254")]
+    read_names = {"MAEZO_PORTAL_STAFF_SECRET_BUNDLE"}
+    result = reconcile(declared, read_names, required=[])
+    assert result.ok, result.render()
+
+
+# ---------------------------------------------------------------------------
+# 9. Fail-closed on an unrecognized `os.environ.<method>()` form
+# ---------------------------------------------------------------------------
+
+
+def test_unrecognized_environ_call_is_flagged(tmp_path: Path) -> None:
+    """A method call this gate has never been taught (`.foobar(...)`) must surface as a hard
+    finding, never be silently treated as either a read or a non-read — the fail-closed contract
+    the brief asked for, generalizing past `.pop` specifically."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nos.environ.foobar("MAEZO_UNRECOGNIZED_TEST")\n', encoding="utf-8"
+    )
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "foobar"
+    assert findings[0].lineno == 2
+
+
+def test_unrecognized_environ_access_fails_the_reconciliation_result() -> None:
+    finding = UnrecognizedEnvironAccess(path="pkg/mod.py", lineno=3, method="foobar")
+    result = reconcile(declared=[], read_names=set(), required=[], unrecognized_environ=[finding])
+    assert not result.ok
+    assert "UNRECOGNIZED os.environ ACCESS" in result.render()
+    assert "os.environ.foobar(...)" in result.render()
+    assert "pkg/mod.py:3" in result.render()
+
+
+@pytest.mark.parametrize("method", sorted(_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS))
+def test_known_whole_mapping_methods_are_not_flagged_as_unrecognized(tmp_path: Path, method: str) -> None:
+    (tmp_path / "mod.py").write_text(f"import os\nos.environ.{method}()\n", encoding="utf-8")
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+@pytest.mark.parametrize("method", sorted(_KEY_YIELDING_ENVIRON_METHODS))
+def test_key_yielding_methods_are_not_flagged_as_unrecognized(tmp_path: Path, method: str) -> None:
+    (tmp_path / "mod.py").write_text(
+        f'import os\nos.environ.{method}("MAEZO_ANY_TEST", "x")\n', encoding="utf-8"
+    )
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_key_yielding_and_opaque_method_sets_are_disjoint() -> None:
+    """Non-vacuity of the classification itself: a method cannot be both key-yielding and
+    whole-mapping-opaque, or the two `elif`-style branches in `_unrecognized_environ_accesses`
+    would depend on evaluation order instead of the sets being a true partition."""
+    assert _KEY_YIELDING_ENVIRON_METHODS.isdisjoint(_OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS)
+
+
+def test_bare_environ_reference_is_not_flagged_as_unrecognized(tmp_path: Path) -> None:
+    """`self._environ = os.environ` (`src/maezo/a2a/keyset.py`'s real shape) is a bare attribute
+    reference, never an `os.environ.<method>(...)` call — out of scope by design (see the module
+    docstring): tracking reads through an aliased reference is full data-flow, not attempted here.
+    Must NOT be misclassified as unrecognized."""
+    (tmp_path / "mod.py").write_text(
+        "import os\nclass X:\n    def __init__(self):\n        self._environ = os.environ\n",
+        encoding="utf-8",
+    )
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_real_src_tree_has_zero_unrecognized_environ_accesses() -> None:
+    """Non-vacuity against the real tree: every `os.environ.<method>()` call in `src/maezo` today
+    is one this gate now classifies (all `.get`, verified exhaustively via `rg` during this fix)."""
+    assert extract_unrecognized_environ_accesses(_SRC_DIR) == []
+
+
+# ---------------------------------------------------------------------------
+# 10. PR-C merged-tree proof (throwaway, never pushed) — see R6c-Q6-REPORT.md for the full
+#     `git fetch origin/build/pr-c-infra` + `git merge --no-commit` procedure run in a separate
+#     scratch worktree. This test proves the SAME shape locally without needing that fetch.
+# ---------------------------------------------------------------------------
+
+
+def test_pr_c_staff_secret_bundle_shape_reconciles_end_to_end(tmp_path: Path) -> None:
+    """Reproduces PR-C's exact three-line defect shape end-to-end: `service-portal.tf` declares
+    `MAEZO_PORTAL_STAFF_SECRET_BUNDLE` via a `secrets = [...]` block (matched by the same
+    `_TF_ENV_NAME_RE` regex as an `environment = [...]` block — verified here, not assumed), and a
+    synthetic `src/` module reads it via `.pop(...)`, mirroring `materialize.py`."""
+    tf_root = tmp_path / "deploy"
+    tf_root.mkdir()
+    (tf_root / "service-portal.tf").write_text(
+        'resource "aws_ecs_task_definition" "portal_staff" {\n'
+        "  container_definitions = jsonencode([{\n"
+        '    secrets = [{ name = "MAEZO_PORTAL_STAFF_SECRET_BUNDLE", valueFrom = "arn:aws:..." }]\n'
+        "  }])\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    src_dir = tmp_path / "src" / "maezo"
+    src_dir.mkdir(parents=True)
+    (src_dir / "materialize.py").write_text(
+        "import os\n\n\ndef load_bundle() -> bytes:\n"
+        '    return os.environ.pop("MAEZO_PORTAL_STAFF_SECRET_BUNDLE").encode("utf-8")\n',
+        encoding="utf-8",
+    )
+
+    declared = extract_declared_from_terraform(tf_root)
+    assert any(ref.name == "MAEZO_PORTAL_STAFF_SECRET_BUNDLE" for ref in declared), (
+        "the synthetic secrets={} block was not matched — _TF_ENV_NAME_RE shape drifted"
+    )
+    literal_names = extract_literal_env_names(src_dir)
+    unrecognized = extract_unrecognized_environ_accesses(src_dir)
+    result = reconcile(declared, literal_names, required=[], unrecognized_environ=unrecognized)
+    assert result.ok, result.render()
+
+
+# ---------------------------------------------------------------------------
+# 11. V9 §Delta-5 — four forms that still SILENTLY PASSED after the pop/setdefault/in fix
+# ---------------------------------------------------------------------------
+#
+# Each form below is a genuine RED-before/GREEN-after proof: a single, isolated one-line mutation
+# of scripts/ci/check_chart_env_reconciliation.py that removes ONLY that form's handling makes the
+# corresponding fixture's key silently disappear from extract_literal_env_names (empty set) —
+# reproduced live this session for all four (see R6d-Q6 report); the tests below pin the FIXED
+# (GREEN) behaviour permanently.
+
+
+def test_copy_then_subscript_resolves_the_key(tmp_path: Path) -> None:
+    """`os.environ.copy()[KEY]` reads exactly the same one name a direct `os.environ[KEY]` would —
+    a snapshot copy does not change which key is being read."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = os.environ.copy()["MAEZO_COPY_SUBSCRIPT_TEST"]\n', encoding="utf-8"
+    )
+    assert "MAEZO_COPY_SUBSCRIPT_TEST" in extract_literal_env_names(tmp_path)
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_bare_copy_not_subscripted_is_unrecognized(tmp_path: Path) -> None:
+    """A `.copy()` call NOT immediately used to look up a key names no key at all — this gate
+    cannot tell whether the copy is later indexed by something it could resolve, so it fails
+    closed instead of silently assuming the copy is harmless."""
+    (tmp_path / "mod.py").write_text("import os\nsnapshot = os.environ.copy()\n", encoding="utf-8")
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "copy"
+    assert "not subscripted" in findings[0].detail
+
+
+def test_update_with_dict_literal_resolves_every_key(tmp_path: Path) -> None:
+    """`os.environ.update({K1: v1, K2: v2})` names its keys as literally as a dict literal can —
+    both must resolve, not just the first."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nos.environ.update({"MAEZO_UPDATE_DICT_TEST_1": "a", "MAEZO_UPDATE_DICT_TEST_2": "b"})\n',
+        encoding="utf-8",
+    )
+    names = extract_literal_env_names(tmp_path)
+    assert "MAEZO_UPDATE_DICT_TEST_1" in names
+    assert "MAEZO_UPDATE_DICT_TEST_2" in names
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_update_with_non_literal_argument_is_unrecognized(tmp_path: Path) -> None:
+    """`os.environ.update(some_variable)` — the keys are not visible to static analysis at all;
+    must fail closed, never be silently treated as a harmless whole-mapping op."""
+    (tmp_path / "mod.py").write_text(
+        "import os\npayload = {}\nos.environ.update(payload)\n", encoding="utf-8"
+    )
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "update"
+    assert "non-dict-literal" in findings[0].detail
+
+
+def test_getattr_indirected_get_resolves_the_key(tmp_path: Path) -> None:
+    """`getattr(os.environ, "get")(KEY)` reaches the same `.get` this gate already trusts, just
+    through `getattr` instead of a direct attribute — the method name is a literal, so it resolves
+    exactly like `os.environ.get(KEY)` would."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nraw = getattr(os.environ, "get")("MAEZO_GETATTR_GET_TEST")\n', encoding="utf-8"
+    )
+    assert "MAEZO_GETATTR_GET_TEST" in extract_literal_env_names(tmp_path)
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_getattr_indirected_unknown_method_is_unrecognized(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text('import os\ngetattr(os.environ, "foobar")("X")\n', encoding="utf-8")
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "getattr"
+
+
+def test_getattr_indirected_non_literal_method_name_is_unrecognized(tmp_path: Path) -> None:
+    """The method name itself is not statically known (`method_name` is a variable) — cannot be
+    classified as key-yielding, opaque, or anything else; must fail closed."""
+    (tmp_path / "mod.py").write_text(
+        'import os\nmethod_name = pick_a_method()\ngetattr(os.environ, method_name)("X")\n',
+        encoding="utf-8",
+    )
+    findings = extract_unrecognized_environ_accesses(tmp_path)
+    assert len(findings) == 1
+    assert findings[0].method == "getattr"
+    assert "non-literal method name" in findings[0].detail
+
+
+def test_simple_module_level_alias_resolves_pop(tmp_path: Path) -> None:
+    """`e = os.environ; e.pop(K)` — the exact PR358-shaped alias form V9 named. The module
+    docstring previously called aliasing 'out of scope' while ALSO not turning it into a finding —
+    a claim/behaviour mismatch the docstring rewrite (this commit) corrects: a SIMPLE alias like
+    this one is now resolved, and only more complex origins (attribute targets, conditionals)
+    remain genuinely out of scope."""
+    (tmp_path / "mod.py").write_text(
+        'import os\ne = os.environ\nraw = e.pop("MAEZO_ALIAS_POP_TEST")\n', encoding="utf-8"
+    )
+    assert "MAEZO_ALIAS_POP_TEST" in extract_literal_env_names(tmp_path)
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_simple_function_level_alias_resolves_get(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        "import os\n\n\ndef read() -> str:\n"
+        "    e = os.environ\n"
+        '    return e.get("MAEZO_FUNC_ALIAS_GET_TEST", "")\n',
+        encoding="utf-8",
+    )
+    assert "MAEZO_FUNC_ALIAS_GET_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_from_os_import_environ_alias_is_tracked(tmp_path: Path) -> None:
+    """`from os import environ` (verified empty repo-wide today, tracked defensively) — the bare
+    `environ` name must resolve exactly like `os.environ` would."""
+    (tmp_path / "mod.py").write_text(
+        'from os import environ\nraw = environ.get("MAEZO_FROM_IMPORT_ENVIRON_TEST")\n',
+        encoding="utf-8",
+    )
+    assert "MAEZO_FROM_IMPORT_ENVIRON_TEST" in extract_literal_env_names(tmp_path)
+
+
+def test_aliased_membership_and_subscript_also_resolve(tmp_path: Path) -> None:
+    (tmp_path / "mod.py").write_text(
+        "import os\n"
+        "e = os.environ\n"
+        'if "MAEZO_ALIAS_IN_TEST" in e:\n'
+        "    pass\n"
+        'raw = e["MAEZO_ALIAS_SUBSCRIPT_TEST"]\n',
+        encoding="utf-8",
+    )
+    names = extract_literal_env_names(tmp_path)
+    assert "MAEZO_ALIAS_IN_TEST" in names
+    assert "MAEZO_ALIAS_SUBSCRIPT_TEST" in names
+
+
+def test_attribute_target_alias_remains_out_of_scope_and_unflagged(tmp_path: Path) -> None:
+    """The REAL shape in `src/maezo/a2a/keyset.py`: `self._environ = os.environ if environ is None
+    else environ` — an attribute target (not a simple Name) with a conditional RHS. Deliberately
+    NOT tracked (full data-flow, not an AST pattern) — must not be misclassified as unrecognized
+    either, since the assignment itself is not an `os.environ.<method>()` call."""
+    (tmp_path / "mod.py").write_text(
+        "import os\n\n\nclass X:\n"
+        "    def __init__(self, environ=None):\n"
+        "        self._environ = os.environ if environ is None else environ\n",
+        encoding="utf-8",
+    )
+    assert extract_unrecognized_environ_accesses(tmp_path) == []
+
+
+def test_real_src_tree_still_has_zero_unrecognized_environ_accesses_after_delta5() -> None:
+    """Non-vacuity against the real tree, re-run after widening the classifier: still zero — no
+    `.copy`/`.update`/`getattr`/alias shape in `src/maezo` today needed any of this to go green."""
+    assert extract_unrecognized_environ_accesses(_SRC_DIR) == []
+
+
+def test_opaque_whole_mapping_set_no_longer_includes_copy_or_update() -> None:
+    """Pin the V9 §Delta-5 fix at the constant level: `.copy`/`.update` used to be blanket-safe
+    (never even inspected); they are now individually classified instead."""
+    assert "copy" not in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
+    assert "update" not in _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
+    assert {"items", "keys", "values", "clear"} == _OPAQUE_WHOLE_MAPPING_ENVIRON_METHODS
+
+
+# ---------------------------------------------------------------------------
 # DEFERRED_UNDECLARED_REQUIRED — the required-direction mirror of the deferred table (PR-A)
 # ---------------------------------------------------------------------------
 
@@ -703,14 +1046,16 @@ def test_a_required_name_outside_the_deferred_table_still_fails(monkeypatch: pyt
     assert result.deferred_required == []
 
 
-def test_deferred_required_entries_are_genuinely_required_and_undeclared_today() -> None:
-    """Non-vacuity, both ways: every deferred required name must (1) be a genuinely REQUIRED
-    `BaseSettings` name in today's src/ and (2) be declared NOWHERE in today's chart/TF. The
-    moment the portal deployer lands (PR-C `service-portal.tf`), (2) breaks and the entry must be
-    deleted — a deferral can never outlive its reason."""
-    _, required_names, _, _ = extract_settings_env_names(_SRC_DIR)
-    deferred = set(DEFERRED_UNDECLARED_REQUIRED)
-    assert deferred, "table unexpectedly empty — delete this test's premise, not the check"
-    assert deferred <= required_names, sorted(deferred - required_names)
-    assert deferred.isdisjoint(_real_declared_names()), sorted(deferred & _real_declared_names())
+def test_deferred_required_table_is_empty_now_that_the_portal_deployer_landed() -> None:
+    """Substitui `test_deferred_required_entries_are_genuinely_required_and_undeclared_today`,
+    que cobrava nao-vacuidade de uma tabela NAO-VAZIA e dizia, na propria mensagem de falha:
+    "table unexpectedly empty — delete this test's premise, not the check". A premissa acabou
+    neste PR (PR-C, S8): `service-portal.tf` declara os oito `MAEZO_PORTAL_*`, entao nenhum nome
+    e' mais required-and-undeclared e a tabela ficou vazia — que e' o desfecho que o teste antigo
+    pedia. O que sobra a provar e' o inverso: que ninguem volte a povoar a tabela sem restaurar
+    a cerca de nao-vacuidade nas duas direcoes."""
+    assert not DEFERRED_UNDECLARED_REQUIRED, (
+        "a tabela voltou a ter entradas; restaure a cerca de nao-vacuidade (deferred <= required "
+        "E deferred.isdisjoint(declared)) junto com elas — ver historico deste teste"
+    )
     _require_reasons(DEFERRED_UNDECLARED_REQUIRED, label="DEFERRED_UNDECLARED_REQUIRED")

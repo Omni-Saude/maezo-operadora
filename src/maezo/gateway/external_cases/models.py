@@ -23,6 +23,9 @@ Revision = Annotated[str, StringConstraints(pattern=r"^(0|[1-9][0-9]*)$")]
 Kind = Literal["authorization", "reimbursement", "account"]
 Audience = Literal["beneficiary", "provider"]
 FIELDS = frozenset({"case_ref", "kind", "state", "record_revision", "state_observed_at"})
+# BPMN SP-OP-AUTH-001: apenas estes dois desfechos declaram `numero_autorizacao` em
+# `event_payload_vars` (:305 ST_PublishAprovadaAuto, :505 ST_PublishAprovadaAuditor).
+ISSUING_DESFECHOS = frozenset({"aprovada_automatica", "aprovada_auditor"})
 KINDS = {
     "beneficiary": frozenset({"authorization", "reimbursement"}),
     "provider": frozenset({"authorization", "account"}),
@@ -445,11 +448,69 @@ class CasePage(Closed):
         return self
 
 
+# WP-J1-07 (fino) — proveniencia de cada valor de `CaseOutcome`. Fica fora da docstring
+# porque a docstring vira `description` no OpenAPI publico; a evidencia e interna.
+#
+# * `desfecho` — os cinco valores que o proprio BPMN declara em
+#   `camunda:inputParameter name="event_desfecho"` das service tasks `ST_Publish*`
+#   (`spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn` :132, :239, :304,
+#   :504, :546), reproduzidos no contrato como o payload de
+#   `agents.events.auth.completed` (`docs/processes/contracts/SP-OP-AUTH-001.md:383`).
+#   O publicador copia a variavel do motor sem interpretar
+#   (`src/maezo/tools/workers/events.py:302-304`). A origem no motor e
+#   `ACT_HI_PROCINST_.END_ACT_ID_` / a projecao fechada equivalente.
+# * `phase` — fatia fina: um unico valor fechado, `decisao_executada`. O contrato exige
+#   distinguir "decisao executada" de "comunicado entregue"
+#   (`docs/processes/contracts/SP-OP-AUTH-001.md:159`); a comunicacao de sistema em
+#   `auth.completed` esta DIFERIDA para o WP-J1-07 completo, entao o unico valor que
+#   esta fatia consegue provar a partir do motor e o primeiro. Literal de um membro e o
+#   padrao ja usado na fronteira para cadencia fechada
+#   (`StaffFreshness.refresh_after_seconds`) e obriga ampliacao deliberada.
+# * `authorization_ref` — referencia OPACA de 64 hexadecimais. O `numero_autorizacao`
+#   real (`AUTH-{tenant_id}-{numero_guia_tiss}-{uuid8}`, `src/maezo/tools/workers/auth.py:1336`)
+#   carrega o numero de guia e NAO cruza esta fronteira: divulgar o recibo externo
+#   depende do grant explicito que esta fatia difere. O formato hexadecimal torna
+#   estruturalmente impossivel ecoar o composto.
+class CaseOutcome(Closed):
+    """Desfecho fechado projetado do estado terminal do motor; nada e inferido aqui."""
+
+    phase: Literal["decisao_executada"]
+    desfecho: Literal[
+        "aprovada_automatica",
+        "aprovada_auditor",
+        "negada_auditor",
+        "nao_requer_autorizacao",
+        "cancelada_pendencia",
+    ]
+    authorization_ref: Digest | None
+
+    @model_validator(mode="after")
+    def issued_only_when_bpmn_carries_it(self) -> Self:
+        if (self.authorization_ref is not None) != (self.desfecho in ISSUING_DESFECHOS):
+            raise ExternalCaseError("invalid")
+        return self
+
+
 class CaseDetail(Closed):
     schema_: Literal["portal-external-case-detail.v1"] = Field(alias="schema")
     case: CaseSummary
     freshness: Freshness
     allowed_actions: tuple[()] = ()
+    outcome: CaseOutcome | None
+
+    @model_validator(mode="after")
+    def outcome_exactly_when_ended(self) -> Self:
+        """Fecha por ausencia: `ended` sem registro de desfecho nao vira projecao.
+
+        A chave `outcome` e obrigatoria no fio (sem default), entao um produtor que a
+        omita e recusado por `parse` antes deste validador. Instancia encerrada em um
+        fim que nao publica desfecho (`End_FundamentacaoIncompletaBloqueada` :536,
+        `End_ErrDecisaoInvalida` :625) nao tem desfecho projetavel e o caso fica
+        indisponivel ao publico externo — nunca "encerrado" sem motivo.
+        """
+        if (self.outcome is None) != (self.case.state == "active"):
+            raise ExternalCaseError("invalid")
+        return self
 
 
 class FinalizationReceipt(Closed):

@@ -311,6 +311,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/intakes/auth/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Intake Links */
+        get: operations["read_intake_links_api_v1_portal_intakes_auth_links_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/intakes/{intake_ref}": {
         parameters: {
             query?: never;
@@ -933,11 +950,30 @@ export interface components {
             allowed_actions: unknown[];
             case: components["schemas"]["CaseSummary"];
             freshness: components["schemas"]["Freshness"];
+            outcome: components["schemas"]["CaseOutcome"] | null;
             /**
              * Schema
              * @constant
              */
             schema: "portal-external-case-detail.v1";
+        };
+        /**
+         * CaseOutcome
+         * @description Desfecho fechado projetado do estado terminal do motor; nada e inferido aqui.
+         */
+        CaseOutcome: {
+            /** Authorization Ref */
+            authorization_ref: string | null;
+            /**
+             * Desfecho
+             * @enum {string}
+             */
+            desfecho: "aprovada_automatica" | "aprovada_auditor" | "negada_auditor" | "nao_requer_autorizacao" | "cancelada_pendencia";
+            /**
+             * Phase
+             * @constant
+             */
+            phase: "decisao_executada";
         };
         /** CasePage */
         CasePage: {
@@ -1747,6 +1783,62 @@ export interface components {
              */
             schema_version: 1;
         };
+        /**
+         * IntakeLink
+         * @description A projection of one server-verified delegation, never an authority the browser may assert.
+         *
+         *     Every field is a projection of a published `resource_authority` head that the server
+         *     re-reads and re-verifies on the next request. Selecting a link in a form is a selection;
+         *     the submit path authorizes it again from the same published source.
+         */
+        IntakeLink: {
+            /**
+             * Action
+             * @constant
+             */
+            action: "auth.start";
+            /** Beneficiary Ref */
+            beneficiary_ref: string;
+            /**
+             * Provenance Kind
+             * @enum {string}
+             */
+            provenance_kind: "synthetic" | "attested";
+            /** Provider Ref */
+            provider_ref?: string | null;
+            /**
+             * Resource Kind
+             * @enum {string}
+             */
+            resource_kind: "guide" | "intake" | "case";
+            /** Resource Ref */
+            resource_ref: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * Valid Until
+             * Format: date-time
+             */
+            valid_until: string;
+        };
+        /** IntakeLinks */
+        IntakeLinks: {
+            /**
+             * Links
+             * @default []
+             */
+            links: components["schemas"]["IntakeLink"][];
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
         /** IntakeReceipt */
         IntakeReceipt: {
             /** Case Ref */
@@ -2488,6 +2580,7 @@ export interface components {
             identity: components["schemas"]["Identity"];
             /** Next Task Cursor */
             next_task_cursor: string | null;
+            outcome: components["schemas"]["CaseOutcome"] | null;
             /**
              * Schema
              * @constant
@@ -4048,6 +4141,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+        };
+    };
+    read_intake_links_api_v1_portal_intakes_auth_links_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeLinks"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalIntakeError"];
                 };
             };
             /** @description Service Unavailable */

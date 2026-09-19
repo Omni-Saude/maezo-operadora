@@ -66,6 +66,21 @@ class WorkerRuntimeSettings(BaseSettings):
     # not consumed by this build (no T1.1-registered worker publishes PHI-adjacent values to
     # Kafka yet). Kept so a later worker-egress seam can read it without a settings-surface change.
     phi_hmac_key: str | None = Field(default=None, alias="PHI_HMAC_KEY")
+    # WP-J1-06 / V14 MAJOR-1. Installs the portal NEGAR owner
+    # (`NativeDenialNoticeWorker`) as the EXCLUSIVE owner of
+    # `operadora.auth.send_denial_notice`, displacing the generic
+    # `SendDenialNoticeWorker`. DARK BY DEFAULT: absent or false, the generic worker
+    # keeps the topic and the daemon is byte-for-byte what it is today. Flipping it is
+    # the whole activation — there is no other way to reach the native owner, and no
+    # deployment gets it by accident.
+    #
+    # FAIL-CLOSED when on: the native owner reads the human-decision basis references
+    # from engine variables. Until the writer exists (PR-C's `ClassifiedDecision`), the
+    # references are blank, `read_basis` raises `DenialIncompleteError` and the worker
+    # raises `ERR_AUTH_DENIAL_INCOMPLETE` to `BE_NegativaIncompleta` -> the terminal
+    # `End_FundamentacaoIncompletaBloqueada` the process already reaches today. No new
+    # failure mode, and never a silent success.
+    denial_notice_owner: bool = Field(default=False, alias="MAEZO_DENIAL_NOTICE_OWNER")
 
     # --- Fetch-and-lock loop parameters (WorkerHarness, design §11) ---------------------------
     # GAP D4-03 (round-5, 2026-09-05): the register's concern is that this posture (30s lock / 5s

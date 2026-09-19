@@ -200,7 +200,13 @@ class ReadAuthority:
 
 
 @pytest.fixture
-def setup(monkeypatch):
+def setup(monkeypatch, request):
+    if hasattr(request, "param"):
+        collected_at = datetime.now(UTC) - timedelta(minutes=request.param)
+        monkeypatch.setattr(__name__ + ".NOW", collected_at)
+        monkeypatch.setattr(
+            __name__ + ".PRINCIPAL", PRINCIPAL.model_copy(update={"authenticated_at": collected_at})
+        )
     clock = [NOW]
     db = SQL(clock)
     engine = SimpleNamespace()
@@ -263,12 +269,14 @@ SCOPE = Scope(
 )
 
 
-def _bind_native_reservation_source(h, *, lose_admission_ack=False):
+def _bind_native_reservation_source(h, *, lose_admission_ack=False, at=None):
     """Wire the fixture's native dispatch store with an in-memory reservation source: the
     reservation it mints is a REAL `IdentitySourceReservation` bound to the caller's original
     session, so `stage_intake` seals the same v2 identity production writes. With
     `lose_admission_ack` the fake database loses the acknowledgement of the NEXT commit, which is
     the admission transaction that follows the reservation."""
+
+    at = at or NOW
 
     class Source:
         async def reserve(self, caller, *, scope, command_id, admission_ref, operation, **facts):
@@ -288,8 +296,8 @@ def _bind_native_reservation_source(h, *, lose_admission_ack=False):
                 session_binding=SessionBinding(
                     session_ref=PRINCIPAL.session_ref,
                     authenticated_at=PRINCIPAL.authenticated_at,
-                    session_expires_at=NOW + timedelta(hours=2),
-                    authorization_until=NOW + timedelta(hours=1),
+                    session_expires_at=at + timedelta(hours=2),
+                    authorization_until=at + timedelta(hours=1),
                     session_source_revision=1,
                     session_record_digest="c" * 64,
                 ),
@@ -301,8 +309,8 @@ def _bind_native_reservation_source(h, *, lose_admission_ack=False):
                     source_revision=1,
                     source_digest="e" * 64,
                     receipt_ref="receipt",
-                    observed_at=NOW,
-                    valid_until=NOW + timedelta(hours=1),
+                    observed_at=at,
+                    valid_until=at + timedelta(hours=1),
                 ),
             )
 
@@ -323,9 +331,11 @@ async def observe(h, command):
     return await h.service.observe_frozen("s" * 43, command, freeze=lambda value: value)
 
 
+@pytest.mark.parametrize("setup", [0, 61, 1440], indirect=True)
 @pytest.mark.asyncio
 async def test_real_admission_commit_lost_ack_is_recoverable_without_payload(setup):
     h = setup
+    admission_at = max(NOW, datetime.now(UTC))
     request = AuthIntakeSubmission(
         command_id=REF,
         beneficiary_ref=REF,
@@ -343,10 +353,8 @@ async def test_real_admission_commit_lost_ack_is_recoverable_without_payload(set
         guide_identity_ref=OTHER,
         authority_receipt_ref=OTHER,
         authority_digest="a" * 64,
-        # `PostgresIntakeStore.admit` checks the REAL clock against this deadline (not the fixture
-        # clock); `NOW` is taken at import, so a one-minute window expires inside a long run.
-        # The window is synthetic; one hour keeps the proof deterministic.
-        valid_until=NOW + timedelta(hours=1),
+        # Production validates the real clock: mint admission authority at execution time.
+        valid_until=admission_at + timedelta(hours=1),
     )
     # PR-A landing repair. On the train this admission was refused BEFORE any write
     # (`PostgresIntakeStore.admit` requires a caller binding and a reservation source/scope once a
@@ -358,11 +366,11 @@ async def test_real_admission_commit_lost_ack_is_recoverable_without_payload(set
     # The lost acknowledgement is armed from inside the reservation — minted between the prior-
     # command lookup and the admission transaction — so it is exactly the admission COMMIT whose
     # acknowledgement is lost, never the lookup that precedes it.
-    _bind_native_reservation_source(h, lose_admission_ack=True)
+    _bind_native_reservation_source(h, lose_admission_ack=True, at=admission_at)
     caller = AuthCallerBinding(
         PRINCIPAL,
         SimpleNamespace(),
-        NOW + timedelta(hours=1),
+        admission_at + timedelta(hours=1),
         lambda *a, **k: None,
         "s" * 43,
         SimpleNamespace(),

@@ -285,32 +285,74 @@ groups:
   # excluded technical failures from its own denominator would over-state the rate.
   - name: maezo_agent_kpi_derived
     rules:
+      # JANELA DESLIZANTE DE 1h, NAO SOMA DESDE SEMPRE (Frente 5, 15/09/2026). As tres regras
+      # abaixo dividiam `sum(<contador>)` por `sum(<contador>)` — soma do valor ACUMULADO de um
+      # contador. Isso tem dois defeitos que so' se tornam visiveis agora que alguem coleta:
+      #
+      #   1. RESET. O contador vive na memoria do processo e zera a cada redeploy. Com varias
+      #      tasks e deploys escalonados, o numerador e o denominador zeram em momentos
+      #      DIFERENTES, e a razao da' um salto que nao corresponde a comportamento nenhum da
+      #      Helena. `increase()` conhece o degrau de reset e o trata; `sum()` do valor cru nao.
+      #   2. MEMORIA INFINITA. Uma soma desde o inicio dos tempos afoga qualquer mudanca recente:
+      #      depois de um mes no ar, uma semana ruim mal move o numero. Um KPI que o `agent.yaml`
+      #      quer usar para decidir se a taxa esta' "alta demais ou baixa demais" precisa
+      #      responder a semana corrente, nao ao acumulado historico.
+      #
+      # 1h e' a janela: com raspagem de 30s sao 120 pontos, curto o bastante para reagir a um
+      # incidente e longo o bastante para nao oscilar com meia duzia de turnos. Sem trafego na
+      # janela a serie fica AUSENTE em vez de zero — e ausente e' a leitura honesta de "nao houve
+      # conversa", que um zero faria passar por "nenhuma resolvida".
+      #
+      # A forma `sum(...) / sum(...)` (ambos os lados agregados identicamente) e' mantida de
+      # proposito: e' o que `test_alert_vector_match_fence.py` cobra de toda razao deste arquivo.
+
       # Helena resolution_rate ("resolvidas sem humano / total", agent.yaml:52): the share of
       # turns Helena resolved WITHOUT a human handoff.
       - record: maezo_helena_resolution_rate
         expr: |
-          sum(maezo_agent_desfecho_total{agent_id="helena", desfecho="resolvido_automatico"})
+          sum(increase(maezo_agent_desfecho_total{agent_id="helena", desfecho="resolvido_automatico"}[1h]))
           /
-          sum(maezo_agent_desfecho_total{agent_id="helena"})
+          sum(increase(maezo_agent_desfecho_total{agent_id="helena"}[1h]))
 
       # Helena escalation_rate ("nem alto demais (inutil) nem baixo (risco)", agent.yaml:53): the
       # share of turns Helena escalated to a human (SP-OP-ESCALATION-001).
       - record: maezo_helena_escalation_rate
         expr: |
-          sum(maezo_agent_desfecho_total{agent_id="helena", desfecho="escalado_humano"})
+          sum(increase(maezo_agent_desfecho_total{agent_id="helena", desfecho="escalado_humano"}[1h]))
           /
-          sum(maezo_agent_desfecho_total{agent_id="helena"})
+          sum(increase(maezo_agent_desfecho_total{agent_id="helena"}[1h]))
 
       # Lucas resolution_rate (agent.yaml:35): Lucas resolves a turn WITHOUT a human whenever it
       # ends `resposta_informativa_enviada` or `lembrete_enviado` (its two non-escalation
       # `_DESFECHO_VOCAB` tokens) — `escalado_humano` and the shared `erro_inicio_processo` are
       # the only other members of that same vocabulary, so this is the vocabulary's complement,
       # named explicitly rather than inferred as "everything else".
+      # Helena recusa_de_saida_rate — o QUARTO numero da Frente 5: quantas vezes o modelo tentou
+      # dizer algo proibido e foi barrado em `_respond_llm` antes de o texto chegar ao
+      # beneficiario. Numerador e denominador contam coisas diferentes de proposito: recusas sobre
+      # TURNOS, nao sobre tentativas, porque e' "em que fracao das conversas a instrucao sozinha
+      # nao teria segurado" que responde a pergunta que interessa.
+      #
+      # COMO SE LE, e a leitura errada e' tentadora: SUBINDO significa que o prompt esta' pedindo e
+      # o modelo esta' tentando assim mesmo — a cerca esta' pagando por si. ZERO NAO PROVA
+      # OBEDIENCIA: prova que a cerca nao teve o que barrar naquele periodo, o que so' e'
+      # interpretavel junto do volume de turnos. Medido em 13/09: com o `response-v4` no ar, este
+      # contador ficou em zero nos cinco turnos da conversa pediatrica, e isso nao provou nada
+      # sobre a cerca — quem prova sao os testes de unidade.
+      #
+      # `increase(...[1h])` pela mesma razao das regras acima: contador de processo zera a cada
+      # redeploy, e numerador e denominador zeram em momentos diferentes.
+      - record: maezo_helena_recusa_de_saida_rate
+        expr: |
+          sum(increase(maezo_agent_resposta_recusada_total{agent_id="helena"}[1h]))
+          /
+          sum(increase(maezo_agent_desfecho_total{agent_id="helena"}[1h]))
+
       - record: maezo_lucas_resolution_rate
         expr: |
-          sum(maezo_agent_desfecho_total{agent_id="lucas", desfecho=~"resposta_informativa_enviada|lembrete_enviado"})
+          sum(increase(maezo_agent_desfecho_total{agent_id="lucas", desfecho=~"resposta_informativa_enviada|lembrete_enviado"}[1h]))
           /
-          sum(maezo_agent_desfecho_total{agent_id="lucas"})
+          sum(increase(maezo_agent_desfecho_total{agent_id="lucas"}[1h]))
 
   # ---------------------------------------------------------------------------
   # Lifecycle CronJob Alerts (T2.9 — closes the gap self-documented at

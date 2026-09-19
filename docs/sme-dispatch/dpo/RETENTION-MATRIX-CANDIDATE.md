@@ -67,7 +67,10 @@ marcadas `retirada: true` (§8.3). Ver §8.2.
 `outbox_a2a`/`a2a_fact_outbox`; `identidade_portal`/`portal_login_transactions`,
 `portal_code_claims`, `portal_sessions`, `portal_memberships`; e `comando_humano`/
 `human_command_delivery`, `human_command_outbox`; e `autoridade_atribuicao`/`portal_assignment_source`,
-`portal_assignment_publications`, `portal_assignment_receipt_source`. Essas catorze relações continuam sem decisão de
+`portal_assignment_publications`, `portal_assignment_receipt_source`; e
+`inbox_escalonamento`/`escalation_team_notice` (migração `0015`, WP-J1-09 — linha de inbox do
+aviso `escalation.notify_team`, endereçada a um GRUPO de atendimento e sem coluna de titular).
+Essas quinze relações continuam sem decisão de
 retenção — e sem qualquer mecanismo que as toque. As seis últimas foram introduzidas pelas
 migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
 `src/maezo/platform/migrations/versions/0013_human_command_outbox.py`: as três primeiras relações
@@ -211,6 +214,14 @@ escopo_b:
         fora do escopo B; 0014 guarda a fonte de autoridade de atribuicao de pessoal (E03), as
         publicacoes imutaveis e os recibos; identity_digest e digest da identidade da atribuicao,
         nao coluna de titular nem de principal; sem decisao de retencao ratificada
+    - camada: inbox_escalonamento
+      tabelas: [escalation_team_notice]
+      motivo: >-
+        fora do escopo B; 0015 (WP-J1-09) guarda a linha de inbox duravel do aviso
+        escalation.notify_team — o que torna a notificacao uma ENTREGA em vez de um offset Kafka
+        (ADR-0037 XRD-10). A linha e enderecada a um GRUPO de atendimento (audience travado em
+        staff por CHECK), nunca a uma pessoa, e nao tem coluna de titular, texto livre nem
+        payload; sem decisao de retencao ratificada
   categorias_nao_cobertas:
     - financeiros_faturamento
     - regulatorios_ans

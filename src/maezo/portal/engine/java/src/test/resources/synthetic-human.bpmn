@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" targetNamespace="https://maezo.example.test/nonclinical">
+  <!-- Synthetic technical fixture only. No SP-OP, insurance decision or patient data. -->
+  <process id="MZO-HUMAN-SYNTHETIC" isExecutable="true" camunda:historyTimeToLive="1">
+    <startEvent id="Start"/><sequenceFlow id="F1" sourceRef="Start" targetRef="UT_Acknowledge"/>
+    <userTask id="UT_Acknowledge" camunda:candidateGroups="synthetic-reviewers"/>
+    <sequenceFlow id="F2" sourceRef="UT_Acknowledge" targetRef="ST_Wait"/>
+    <serviceTask id="ST_Wait" camunda:type="external" camunda:topic="synthetic.after"/>
+    <sequenceFlow id="F3" sourceRef="ST_Wait" targetRef="End"/><endEvent id="End"/>
+    <boundaryEvent id="Timer" attachedToRef="UT_Acknowledge" cancelActivity="true"><timerEventDefinition><timeDuration>PT1H</timeDuration></timerEventDefinition></boundaryEvent>
+    <sequenceFlow id="F4" sourceRef="Timer" targetRef="TimedOut"/><endEvent id="TimedOut"/>
+  </process>
+</definitions>

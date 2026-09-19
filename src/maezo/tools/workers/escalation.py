@@ -207,7 +207,13 @@ _GRUPO_SUPERVISAO: str = "supervisao-atendimento"
 _NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
 _NOTIFY_TEAM_TOPIC = "operadora.escalation.notify_team"
 _NOTIFY_SUPERVISOR_TOPIC = "operadora.escalation.notify_supervisor"
-_NOTIFY_TEAM_NOTIFICATION_TYPE = "escalation.notify_team"
+#: PUBLIC (WP-J1-09): the durable-inbox consumer
+#: (`platform/integrations/notifications_inbox.py`) matches on this exact literal. Exported as
+#: ONE constant, imported there, so the producer and the consumer of the notification can never
+#: drift into two spellings — the failure mode would be silent (every notice skipped as a foreign
+#: `type`, no error anywhere).
+NOTIFY_TEAM_NOTIFICATION_TYPE: str = "escalation.notify_team"
+_NOTIFY_TEAM_NOTIFICATION_TYPE = NOTIFY_TEAM_NOTIFICATION_TYPE
 _NOTIFY_SUPERVISOR_NOTIFICATION_TYPE = "escalation.notify_supervisor"
 
 # ADR-0030 Tier-1 (G2-fs technical fail-safe): the modeled BPMN error a notify handler raises when
@@ -584,6 +590,21 @@ def make_notify_team_handler(kafka: KafkaPublisher | None) -> TaskHandler:
             "tenant_id": tenant_id,
             "severidade": severidade,
             "grupo_atendimento": grupo,
+            # WP-J1-09 — WHICH escalation. Until this field existed the notification said only
+            # "some escalation needs group X": four bounded routing labels and no case reference
+            # at all, so a durable inbox line built from it could not be opened by the human who
+            # received it. `task.business_key` is the ENGINE'S OWN business key for this instance
+            # (`ESC-{tenant}-{conversation_id}`, contract "Business key (idempotencia)"), read off
+            # the task — never re-derived here, so it cannot disagree with the instance it names.
+            # PHI posture: this is a business identifier of the SAME class the engine already
+            # stores and that `partition_key_for_task` already consumes below — not clinical text,
+            # not a name, not a raw subject id (the conversational form is the keyed-HMAC
+            # `conversation_id` of ADR-0036; the SLA-alert form is the derived `sla-{dominio}-
+            # {ancoras}`, whose LGPD variant carries a Zona-Geral pseudonym, ADR-0006). It is
+            # deliberately NOT written into the durable audit chain, where resolvable business
+            # identifiers do not belong; it goes to the human's inbox line, which is exactly the
+            # place a case reference is supposed to be.
+            "business_key": task.business_key,
         }
         if prioridade is not None:
             notification["prioridade"] = prioridade

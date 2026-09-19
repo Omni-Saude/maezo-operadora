@@ -241,7 +241,7 @@ def all_rows():
 
 
 @pytest.mark.parametrize("schema", all_rows(), ids=lambda s: s.schema_id)
-def test_all_57_frozen_rows_have_only_b_minimum_grants(schema):
+def test_all_62_frozen_rows_have_only_b_minimum_grants(schema):
     from maezo.gateway.engine_contracts import FieldOrigin
 
     attestations = [
@@ -271,7 +271,12 @@ def test_all_57_frozen_rows_have_only_b_minimum_grants(schema):
     # be able to fail/extend/unlock, its own external task. Two base rows and not one because
     # `FetchProfile` requires the classified variables in `read_projection` while the
     # external_complete contract requires that same field to be EMPTY.
-    assert len(all_rows()) == 57
+    # WP-J1-06 (2026-09-12): 57 -> 62. The five further rows are the denial boundary row
+    # (`auth.send_denial_notice.bpmn_error.v1`) and its four lifecycle companions. Re-read and
+    # confirmed B-minimum too: the row grants nothing, it declares that this topic's reportable
+    # error set is exactly `ERR_AUTH_DENIAL_INCOMPLETE`, and its `read_projection` carries
+    # references and an outcome only — no clinical field.
+    assert len(all_rows()) == 62
     assert plan["execution_authorized"] is False
     assert all(g["engine_user"] == "syntheticworker" for g in plan["grants"])
     for grant in plan["grants"]:

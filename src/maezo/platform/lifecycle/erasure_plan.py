@@ -603,6 +603,22 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="inbox_escalonamento",
+        tabela="escalation_team_notice",
+        migracao="0015_escalation_team_notice.py::upgrade (escalation_team_notice; immutable triggers)",
+        identificacao=(
+            "tenant + notice_ref (sha256 of the notification's own canonical content); the row is "
+            "addressed to a STAFF CANDIDATE GROUP (`grupo_atendimento`, `audience='staff'` by "
+            "CHECK), never to a person, and carries no subject column at all: the "
+            "`escalation.notify_team` notification it records has no beneficiary reference and no "
+            "free text, only bounded routing tokens plus the engine's own `business_key`"
+        ),
+        resolucao=IdentityResolution.SEM_COLUNA_DE_TITULAR,
+        ordem=26,
+        subject_column=None,
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)
