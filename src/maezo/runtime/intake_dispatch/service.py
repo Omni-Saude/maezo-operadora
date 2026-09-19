@@ -105,6 +105,7 @@ from maezo.gateway.human.auth_profile import (
 )
 from maezo.gateway.intake.native_dispatch import AuthIntakeGuideNumberUnavailableError
 from maezo.gateway.intake.native_source_lifecycle import AuthCallerBinding
+from maezo.runtime.dependency_failures import PROGRAMMING_ERRORS
 from maezo.tools.mcp_cibseven.transport import ProcessInstance
 from maezo.tools.process_business_keys import (
     AUTH_BUSINESS_KEY_PREFIX,
@@ -424,11 +425,17 @@ class IntakeDispatchService:
                 intake_ref=item.resource_ref,
             )
             return SeamResult(refusal="guide_number_unpublished")
+        except PROGRAMMING_ERRORS:
+            # A derived signature, a violated state contract, a stub port: a seam BUG must stop
+            # the daemon loudly — the boundary allowlist of the broad-except fence records this
+            # clause — never turn into one more silent `seam_refused`.
+            raise
         except Exception as exc:
-            # Deliberately broad: EVERY remaining failure mode — refused authority, a closed
-            # window, a transport error, and (on the happy path) the head-less disclosure read —
-            # leads to the same next step, which is reading the durable receipt. Only the
-            # exception TYPE is logged; messages can carry query text.
+            # The boundary contract (allowlisted in the fence): EVERY remaining failure mode —
+            # refused authority, a closed window, a transport error, and (on the happy path) the
+            # head-less disclosure read — leads to the same next step, which is reading the durable
+            # receipt. Nothing here invents an outcome from the failure; only the exception TYPE is
+            # logged, messages can carry query text.
             logger.info(
                 "intake_dispatch_seam_refused",
                 command_id=item.command_id,
@@ -472,6 +479,10 @@ class IntakeDispatchService:
                 token=unassembled.token,
             )
             return self._refuse(item, "unavailable", unassembled.token)
+        except PROGRAMMING_ERRORS:
+            # Same boundary rule as `_send` (allowlisted in the broad-except fence): an assembly
+            # BUG propagates and stops the daemon; only a dependency refusal becomes a token.
+            raise
         except Exception as exc:
             logger.info(
                 "intake_dispatch_assembly_refused",
@@ -482,6 +493,11 @@ class IntakeDispatchService:
             return self._refuse(item, "unavailable", "command_unassembled")
         try:
             settled = await self.receipts.completed(prepared.command)
+        except PROGRAMMING_ERRORS:
+            # A receipt read cannot be allowed to swallow a bug either: `PostgresAuthDispatchStore.
+            # completed` translates every internal failure it owns into `AuthUnavailableError`
+            # (RuntimeError) precisely so this boundary can tell a refusal from a defect.
+            raise
         except Exception as exc:
             logger.info(
                 "intake_dispatch_receipt_unavailable",
@@ -498,6 +514,10 @@ class IntakeDispatchService:
 
         try:
             receipt = await self.receipts.completed(prepared.command)
+        except PROGRAMMING_ERRORS:
+            # A bug here must never be reported as `awaiting_receipt`: that disposition means "a
+            # send may be on the wire", and a defect is not evidence of one.
+            raise
         except Exception as exc:
             logger.info(
                 "intake_dispatch_receipt_unavailable_after_send",
@@ -577,7 +597,25 @@ class IntakeDispatchService:
                 claimed.add(domain)
             outcomes.append(outcome)
         report = DrainReport(tuple(outcomes))
-        logger.info("intake_dispatch_drained", scanned=report.scanned, **dict(report.counts()))
+        # No `**mapping` on a logger call: the field NAMES must stay static and visible to the
+        # key-scrubber sweep (`test_logger_kwarg_unpacks_are_pinned…`). `counts()` is keyed by the
+        # closed `Disposition` Literal, so the shape is written out in full — one field per
+        # disposition, zero when absent — which also keeps the log line fixed-width for dashboards.
+        counts = report.counts()
+        logger.info(
+            "intake_dispatch_drained",
+            scanned=report.scanned,
+            started=counts.get("started", 0),
+            existing=counts.get("existing", 0),
+            correlated=counts.get("correlated", 0),
+            already_executed=counts.get("already_executed", 0),
+            awaiting_receipt=counts.get("awaiting_receipt", 0),
+            expired=counts.get("expired", 0),
+            leased=counts.get("leased", 0),
+            deferred=counts.get("deferred", 0),
+            unsupported=counts.get("unsupported", 0),
+            unavailable=counts.get("unavailable", 0),
+        )
         return report
 
 

@@ -215,6 +215,28 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
         1,
         "envio WhatsApp best-effort: idem fernando/notify",
     ),
+    # -- (d) fronteira do daemon de dispatch de intake (WP-J1-01) ---------------------------
+    #  Mesma FORMA do item (E04/PR-A) de document_requests: a PRIMEIRA clausula re-levanta
+    #  PROGRAMMING_ERRORS sem converter (um bug do porto PROPAGA e derruba o daemon — a lição
+    #  NEW-12 vale aqui dentro do seam também), e a clausula residual larga traduz a falha num
+    #  TOKEN LIMITADO. Nenhuma das duas inventa resultado: no `::IntakeDispatchService::_send`
+    #  quem decide o que aconteceu e' o RECIBO durable lido na sequencia (o transporte nunca
+    #  decide), e em `::_handle` as três leituras de porto (assembly, recibo antes e depois do
+    #  envio) falham para `unavailable`/`awaiting_receipt` — nunca para um segundo envio. Só
+    #  `type(exc).__name__` chega ao log; a mensagem pode carregar texto de query.
+    "src/maezo/runtime/intake_dispatch/service.py::IntakeDispatchService::_send": (
+        1,
+        "fronteira do seam: re-levanta PROGRAMMING_ERRORS (bug propaga) e traduz QUALQUER outra "
+        "falha do porto em `seam_refused`; a decisão fica com o recibo durable, nunca com o "
+        "resultado do transporte",
+    ),
+    "src/maezo/runtime/intake_dispatch/service.py::IntakeDispatchService::_handle": (
+        3,
+        "fronteira do daemon: as três leituras de porto (command.prepared, receipts.completed "
+        "antes e depois do envio) falham para token limitado (`unavailable`/`awaiting_receipt`) "
+        "em vez de derrubar a varredura; a primeira clausula re-levanta PROGRAMMING_ERRORS, "
+        "então nenhum bug vira recusa silenciosa nem `awaiting_receipt` inventado",
+    ),
 }
 
 
