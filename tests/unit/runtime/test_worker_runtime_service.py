@@ -84,10 +84,17 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     # (`make_retransmit_handler` — the name the contract itself uses, SP-OP-ANS-SUBMIT-001.md:157)
     # for the SAME async-Kafka-seam reason: it publishes the `anssubmit.retransmit` internal
     # notification, which the sync `FunctionWorker.execute` boundary cannot reach.
+    # WP-J1-09 (owner decision #17): `operadora.auth.notify_sla_risk` MOVED off
+    # `register_worker(NotifySlaRiskWorker())` onto a raw handler, for the SAME async-Kafka-seam
+    # reason as every entry above — it now publishes the `auth.notify_sla_risk` internal
+    # notification the bridge turns into `ESC-{tenant}-sla-auth-{guia}`, and a synchronous
+    # `WorkerBase.execute` reaches no producer (that absence is exactly why the alert used to
+    # reach nobody). The CLASS still exists and is called BY the handler; it is simply no longer
+    # registered itself, so the topic keeps exactly one server.
     # Raw-handler count, re-derived cell by cell (the previous one-line sum was arithmetic that
     # no longer matched the assertion below): 1 events + 3 lgpd + 3 recurso + 1 ans-notify
-    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao = 20.
-    assert harness.registry.count() == len(harness.registered_topics) - 20
+    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao + 1 auth = 21.
+    assert harness.registry.count() == len(harness.registered_topics) - 21
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:

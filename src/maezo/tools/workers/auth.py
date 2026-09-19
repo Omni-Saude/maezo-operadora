@@ -8,7 +8,9 @@ Workers:
 - RequestDocumentsWorker: pendencia ao prestador
 - IssueAuthorizationWorker: emite autorizacao TISS
 - SendDenialNoticeWorker: negativa formal (guard: ERR_AUTH_DENIAL_NOT_HUMAN)
-- NotifySlaRiskWorker: alerta coordenacao
+- NotifySlaRiskWorker: etapa pura do alerta de risco de SLA (devolve `{}`), executada pelo
+  handler cru `make_notify_sla_risk_handler`, que publica o alerta `auth.notify_sla_risk`
+  (WP-J1-09, decisao do dono #17 — o bridge o converte em escalonamento humano)
 - ConveneJuntaWorker: convoca junta medica
 
 CRITICAL (ADR-0008, L0 hard):
@@ -74,6 +76,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from maezo.gateway.required_text import ZERO_WIDTH_CHARS, ZERO_WIDTH_TRANSLATION, is_blank
+from maezo.platform.integrations.partition_key import partition_key_for_task
 from maezo.platform.observability import record_worker_error
 from maezo.tools.workers.auth_criteria import CriteriaSources, criteria_sources
 from maezo.tools.workers.base import (
@@ -81,6 +84,7 @@ from maezo.tools.workers.base import (
     ERR_AUTH_DENIAL_INCOMPLETE,
     ERR_DENIAL_NOT_HUMAN,
     WorkerBase,
+    pick_fields,
 )
 from maezo.tools.workers.ceilings import CeilingResolver
 from maezo.tools.workers.dmn_transport import DmnTransport, evaluate_sync, first_row
@@ -131,7 +135,12 @@ _REQUIRED_DENIAL_FIELDS: tuple[str, ...] = (
 AUTH_BPMN_ERROR_ALLOWLIST: frozenset[str] = frozenset({ERR_AUTH_DENIAL_INCOMPLETE})
 
 if TYPE_CHECKING:
-    from maezo.tools.workers.harness import KafkaPublisher, WorkerHarness
+    from maezo.tools.workers.harness import (
+        ExternalTask,
+        KafkaPublisher,
+        TaskHandler,
+        WorkerHarness,
+    )
 
 
 def _norm_decision(value: Any) -> str:
@@ -1645,6 +1654,127 @@ class NotifySlaRiskWorker(WorkerBase):
 
 
 # ---------------------------------------------------------------------------
+# notify_sla_risk — canal REAL do alerta (WP-J1-09, decisao do dono #17)
+# ---------------------------------------------------------------------------
+
+#: Canal de notificacao interna. MESMO topico que `recurso.py`/`lgpd.py`/`programa.py` ja usam
+#: para o alerta de risco de SLA — nao ha topico novo, e por isso o consumidor que ja existe
+#: (`platform/integrations/notifications_bridge.py`) passa a ver o alerta de AUTH sem nenhuma
+#: mudanca de topologia.
+_NOTIFICATIONS_TOPIC = "operadora.notifications.internal"
+
+#: O `type` que o bridge casa para iniciar SP-OP-ESCALATION-001. Segue a convencao fechada
+#: `<dominio>.notify_sla_risk` (`notification_bridge.SLA_ALERT_TYPE_SUFFIX`): um `type` fora dela
+#: nao e roteado, e um `<dominio>.notify_sla_risk` DESCONHECIDO e contado/avisado, nunca engolido.
+_NOTIFY_SLA_RISK_NOTIFICATION_TYPE = "auth.notify_sla_risk"
+
+#: Topico de external task do `ST_NotificarRiscoSla` (BPMN `:344-348`) — inalterado.
+_NOTIFY_SLA_RISK_TOPIC = "operadora.auth.notify_sla_risk"
+
+
+@dataclass
+class NotifySlaRiskInput:
+    """Entradas do alerta de risco de SLA de AUTH — as ANCORAS da chave de escalonamento.
+
+    `tenant_id` e `numero_guia_tiss` sao variaveis de entrada declaradas do processo (BPMN `:57`)
+    e juntas formam a chave `ESC-{tenant}-sla-auth-{numero_guia_tiss}` que o bridge deriva. Sao
+    exatamente as mesmas chaves de negocio que `ST_PublishSlaBreach` ja publica no ramo
+    interruptivo (`event_payload_vars` BPMN `:365`), portanto nenhum identificador novo atravessa
+    a fronteira.
+
+    `beneficiario_pseudo_id` e o pseudonimo de Zona Geral (ADR-0006) que o contrato de
+    SP-OP-ESCALATION-001 marca como entrada obrigatoria; e uma variavel de entrada declarada de
+    AUTH (BPMN `:57`), logo nao e fabricada aqui. Quando ausente ele vai VAZIO — como em
+    `recurso`, cujo alerta legitimamente nao tem beneficiario —, nunca inventado.
+    """
+
+    tenant_id: str = ""
+    numero_guia_tiss: str = ""
+    beneficiario_pseudo_id: str = ""
+
+
+def make_notify_sla_risk_handler(kafka: KafkaPublisher | None) -> TaskHandler:
+    """Handler cru de `operadora.auth.notify_sla_risk` (serve `ST_NotificarRiscoSla`).
+
+    WP-J1-09 / DECISAO DO DONO #17 (2026-09-12, RATIFICADA): AUTH passa a poder levantar um
+    escalonamento humano `ESC-{tenant}-sla-auth-{numero_guia_tiss}`. O que muda aqui e APENAS o
+    canal: a etapa deixa de ser um `logger.warning` sem destinatario e passa a publicar o alerta
+    no canal interno que `recurso`/`programa`/`lgpd` ja usam. Quem converte esse alerta numa
+    tarefa humana e o bridge (`platform/notification_bridge.py`, spec `domain="auth"`), pela MESMA
+    cerca fenced-start (ADR-0007/T-C2) das outras tres; e quem decide o GRUPO e a DMN
+    `escalation_routing`, nunca este worker. Nenhuma regra de negocio nasce em Python: o RELOGIO
+    continua sendo o boundary nao-interruptivo `BT_AlertaSla` com `${sla.sla_alerta}` (BPMN
+    `:338-343`), cujo valor vem da DMN `auth_sla`.
+
+    POR QUE HANDLER CRU E NAO `WorkerBase`. `WorkerBase.execute` e sincrono por design e nao
+    alcanca seam async nenhum (`base.py` "Async I/O is handled by the engine/message layer"), e
+    foi exatamente essa ausencia que fez `NotifySlaRiskWorker` AFIRMAR uma notificacao que nao
+    podia ter emitido (FAB-SLA-RISK-NOTIFIED-SLICE4, ver a docstring da classe). O padrao de
+    conversao e o mesmo ja aplicado a `lgpd.notify_sla_risk` e aos dois `escalation.notify_*`
+    (DL-0034): `harness.register()`, nao `register_worker()`.
+
+    A CLASSE CONTINUA VIVA E E CHAMADA AQUI. `NotifySlaRiskWorker.execute` segue sendo a etapa
+    pura (devolve `{}`, nao afirma nada) e este wrapper a executa antes de publicar — a trilha
+    `auth_sla_risk_notified` com `notified_asserted=False` permanece byte-a-byte, e o retorno do
+    handler continua `{}`: NENHUMA variavel de processo e escrita, e em particular nao existe
+    `sla_risk_notified`. Publicar e um PEDIDO de alerta, jamais prova de que um humano foi
+    avisado; essa prova e a linha de inbox do consumidor
+    (`platform/integrations/notifications_inbox.py`), nunca um offset Kafka.
+
+    POSTURA FAIL-CLOSED DO PUBLISH (`best_effort=False`): o publish e o UNICO efeito desta etapa,
+    entao uma falha de broker precisa PROPAGAR em vez de ser engolida enquanto o handler declara
+    sucesso. `ST_NotificarRiscoSla` NAO declara boundary de erro (o unico boundary do arquivo e
+    `BE_NegativaIncompleta` sobre `ST_EnviarNegativaFormal`), logo a propagacao e CRUA, para a
+    escada de retry/incidente do harness (ADR-0030) — byte-a-byte a postura de
+    `recurso.make_notify_sla_risk_handler` e `lgpd.make_notify_sla_risk_handler`. Contencao: a
+    etapa e alimentada SO pelo boundary NAO-interruptivo `BT_AlertaSla`, entao a propagacao fica
+    no ramo lateral do alerta — `UT_AnaliseMedicoAuditor` e o teto interruptivo `BT_SlaAnalise`
+    sao do engine e seguem intactos; a analise humana NAO para por causa de um broker fora do ar.
+
+    SEM PRODUTOR (`kafka is None`): loga alto com `notified_asserted=False` e completa. A tarefa
+    PRECISA completar — o ramo do alerta tem de alcancar `End_RiscoSlaNotificado` —, e fabricar um
+    status de notificacao no exato caminho em que nada foi publicado e a fabricacao que
+    FAB-SLA-RISK-NOTIFIED-SLICE4 removeu. Os dois caminhos devolvem `{}`.
+    """
+
+    async def handler(task: ExternalTask) -> dict[str, Any]:
+        input_data = NotifySlaRiskInput(**pick_fields(task.variables, NotifySlaRiskInput))
+        # A etapa pura primeiro: mantem a trilha `auth_sla_risk_notified` intacta e preserva a
+        # propriedade "nada e afirmado" mesmo quando o publish adiante falhar.
+        NotifySlaRiskWorker().execute(dict(task.variables))
+        if kafka is None:
+            _MODULE_LOGGER.warning(
+                "auth_notify_sla_risk_no_producer",
+                business_key=task.business_key,
+                notified_asserted=False,
+            )
+            return {}
+        # Sem PHI: `tenant_id`/`numero_guia_tiss` sao chaves de negocio que o proprio
+        # `ST_PublishSlaBreach` ja publica (BPMN `:365`), e `beneficiario_pseudo_id` e um
+        # pseudonimo de Zona Geral (ADR-0006). Nenhum texto livre clinico e copiado: o
+        # `resumo_contexto` que o humano le e uma CONSTANTE por spec, no bridge, nunca bytes
+        # desta mensagem.
+        notification = {
+            "type": _NOTIFY_SLA_RISK_NOTIFICATION_TYPE,
+            "tenant_id": input_data.tenant_id,
+            "numero_guia_tiss": input_data.numero_guia_tiss,
+            "beneficiario_pseudo_id": input_data.beneficiario_pseudo_id,
+        }
+        # GAP-SC-04-a: chave de particao pela cadeia compartilhada (business key -> ancoras ->
+        # `{tenant}|{process_instance_id}`), nunca `task.business_key or None` — esse idioma
+        # degradava uma business key vazia num publish SEM CHAVE (round-robin entre as particoes,
+        # sem ordenacao por entidade). Derivada ACIMA do publish para que um
+        # `PseudonymizerKeyMissingError` (DL-0043 `scrub_only` sem `PHI_HMAC_KEY` provisionada)
+        # continue sendo uma falha de CONFIGURACAO com o tipo intacto, nunca um diagnostico de
+        # broker.
+        message_key = partition_key_for_task(task, _NOTIFICATIONS_TOPIC, notification)
+        await kafka.publish(_NOTIFICATIONS_TOPIC, notification, key=message_key, best_effort=False)
+        return {}
+
+    return handler
+
+
+# ---------------------------------------------------------------------------
 # ConveneJuntaWorker
 # ---------------------------------------------------------------------------
 
@@ -1736,7 +1866,7 @@ def register_auth_workers(
     kafka: KafkaPublisher | None = None,
     **seams: Any,
 ) -> None:
-    """Register the 7 SP-OP-AUTH-001 `WorkerBase` workers on `harness`.
+    """Register the 6 SP-OP-AUTH-001 `WorkerBase` workers + 1 raw handler on `harness`.
 
     `ValidateAutoCriteriaWorker` takes the ADR-0028 `dmn=` seam. An ABSENT seam is NOT a
     registration failure: the worker fails each DMN-backed criterion closed with its own
@@ -1750,13 +1880,27 @@ def register_auth_workers(
     the loser's guard never runs — one owner per topic, decided here, at the only place
     that registers the generic one. Absent the seam nothing changes: the generic worker
     stays the owner and reads its grounding from process variables as it always has.
+
+    WP-J1-09: `operadora.auth.notify_sla_risk` is now a RAW `harness.register()` handler instead
+    of a `register_worker(NotifySlaRiskWorker())` entry, because publishing the alert needs the
+    async Kafka seam a `WorkerBase.execute` boundary cannot reach — the same conversion lgpd's
+    `notify_sla_risk` and the two `escalation.notify_*` tasks already went through (DL-0034).
+    EXCLUSIVITY: the class is NOT also registered on that topic (a topic serves exactly one
+    handler); it is now CALLED BY the handler, so its pure step and its three unit tests are
+    unchanged. `kafka` therefore stops being unused in this bootstrap.
+
+    COMPOSICAO DOS DOIS WPs (18/09/2026, resolucao do conflito de merge, feita por AGENTE — ver
+    a nota no PR). Os dois retiram UM worker da lista abaixo, cada um o SEU, e os topicos sao
+    DISJUNTOS: `send_denial_notice` (J1-06) e `notify_sla_risk` (J1-09). Por isso a lista base
+    nao tem NENHUM dos dois — cada um volta pelo seu proprio caminho, o primeiro por `append`
+    condicional ao seam e o segundo por `harness.register` cru depois do laco. O descarte do
+    `kafka` que a main fazia no topo SAI, porque o handler cru do J1-09 consome o seam: mante-lo
+    devolveria o alerta ao caminho sem produtor, que e' o defeito que aquele WP fechou.
     """
-    del kafka  # unused — no auth.py worker declares a Kafka dependency
     host = seams.get("denial_notice_host")
     workers: list[type[WorkerBase]] = [
         AnalyzeRequestWorker,
         IssueAuthorizationWorker,
-        NotifySlaRiskWorker,
         ConveneJuntaWorker,
     ]
     # WP-J1-03 — EXCLUSIVIDADE DE TOPICO. `operadora.auth.request_documents` tem dois
@@ -1791,6 +1935,7 @@ def register_auth_workers(
     for worker_cls in workers:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
+    harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
     if host is not None:
         # Re-assert exclusivity AFTER registration: the seam's own installation check
         # cannot see workers registered later on the same harness.

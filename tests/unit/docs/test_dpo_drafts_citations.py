@@ -574,8 +574,12 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     assert expected <= uncovered
     assert expected.isdisjoint(covered)
     assert expected.isdisjoint(retired)
-    assert len(covered | uncovered) == 25
-    assert len(uncovered) == 14
+    # WP-J1-09 added `inbox_escalonamento`/`escalation_team_notice` (migration 0015), declared
+    # NOT covered: the row is addressed to a staff candidate GROUP and has no subject column, and
+    # no retention disposition has been ratified for it. The signer's scope GROWS with a new
+    # relation and must never shrink — 25 -> 26 total, 14 -> 15 uncovered.
+    assert len(covered | uncovered) == 26
+    assert len(uncovered) == 15
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in expected)
     assert {key: by_key[key].resolucao for key in expected} == {

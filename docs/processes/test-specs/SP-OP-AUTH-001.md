@@ -133,6 +133,24 @@ Stubs de integracao (pytest, marker `integration`) contra CIB Seven real. Arquiv
 - **Given** `UT_AnaliseMedicoAuditor` aberta (urgencia: `sla.sla_alerta=PT1H`)
 - **When** job do timer `BT_AlertaSla` executado
 - **Then** `operadora.auth.notify_sla_risk` recebeu task; User Task segue aberta
+- **And** (WP-J1-09, decisao do dono #17) a sonda observa UMA notificacao
+  `type=auth.notify_sla_risk` em `operadora.notifications.internal`, com `tenant_id` e
+  `numero_guia_tiss`. Ate WP-J1-09 este canal era MORTO — o worker era sincrono e sem seam de
+  Kafka — e a asserção de notificacao tinha sido removida por ser um fato fabricado
+  (FAB-SLA-RISK-NOTIFIED-SLICE4); agora ela volta porque ha publicacao real.
+
+### test_alerta_sla_de_auth_abre_escalonamento_humano (WP-J1-09 — prova de ponta a ponta)
+- **Given** `UT_AnaliseMedicoAuditor` aberta numa guia com `sla.sla_alerta` curto, com o
+  `notification_bridge` consumindo `operadora.notifications.internal`
+- **When** o job do timer `BT_AlertaSla` executa e o bridge processa a notificacao
+- **Then** existe UMA instancia de `SP-OP-ESCALATION-001` com business key
+  `ESC-{tenant_id}-sla-auth-{numero_guia_tiss}`, e `UT_TratarEscalonamento` aparece em `/tasks`
+  com o grupo RESOLVIDO pela DMN `escalation_routing` (catch-all `r7` -> `atendimento-humano`,
+  P2) — grupo vindo do engine, nunca do worker
+- **And** `UT_AnaliseMedicoAuditor` continua ABERTA e nenhuma decisao adversa foi tomada: o
+  escalonamento e informativo e nao move a titularidade do caso
+- **And** reexecutar o mesmo alerta NAO cria segunda instancia (start idempotente pela business
+  key); a fila nao inunda
 
 ### test_timer_sla_estourado_coordenacao_assume
 - **Given** analise aberta alem de `sla.sla_analise`
