@@ -19,7 +19,7 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
   WorkloadPlugin(BoundaryPolicy policy) {this.policy=policy;}
 
   @Override public void preInit(ProcessEngineConfigurationImpl config) {
-    if(policy==null) {policy=BoundaryPolicy.environment(); SecureLayout.verify(policy);} configuration=config;
+    if(policy==null) {if(!BoundaryPolicyV2.configured())SecuredBpmPlatformBootstrap.claimConfiguration(config);policy=BoundaryPolicy.environment(); SecureLayout.verify(policy);} configuration=config;
     if(BoundaryPolicyV2.configured()) {
       nativeV2=BoundaryPolicyV2.environment();SecureLayout.verifyV2(nativeV2);
       if(!"false".equals(config.getDatabaseSchemaUpdate()) || !nativeV2.transport.engine.equals(config.getProcessEngineName())
@@ -45,6 +45,16 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     if(!configuration.isAuthorizationEnabled() || !configuration.isTenantCheckEnabled())throw Refused.unavailable();
     running=this;
   }
+  void verifyStartup(ProcessEngineConfigurationImpl expected) {
+    if(running!=this || configuration!=expected || engine==null || nativeV2!=null
+        || !(engine instanceof org.cibseven.bpm.engine.impl.ProcessEngineImpl actual)
+        || actual.getProcessEngineConfiguration()!=configuration
+        || ProcessEngines.getProcessEngines().get(engine.getName())!=engine)throw Refused.unavailable();
+    var fresh=BoundaryPolicy.environment();
+    if(!fresh.digest.equals(policy.digest) || !fresh.engine.equals(engine.getName()))throw Refused.unavailable();
+    policy.current(null);SecureLayout.verify(fresh);
+  }
+  static boolean installed() {return running!=null;}
   public static WorkloadPlugin running() {
     WorkloadPlugin value=running;if(value==null)throw Refused.unavailable();return value;
   }
@@ -82,7 +92,7 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
   }
   byte[] execute(BoundaryPolicy.Peer peer,Map<String,Object> request) {
     authenticated(peer);
-    Capability cap=peer.capabilities().stream().filter(c->c.digest.equals(request.get("capability_digest"))).findFirst().orElseThrow(Refused::denied);
+    Capability cap=Capability.forRequest(peer.capabilities(),request);
     cap.validate(request);
     if(nativeV2!=null && nativeV2.manages(cap))throw Refused.denied();
     long poll=0;
