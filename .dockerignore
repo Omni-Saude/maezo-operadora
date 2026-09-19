@@ -35,11 +35,35 @@ docs/
 
 # Artefatos de deploy (o Dockerfile fica em deploy/ mas o contexto é a raiz)
 deploy/
-# Excecao unica (09/09/2026): a imagem do motor (deploy/cibseven/Dockerfile) COPIA este script
-# para injetar groupResourceWhitelistPattern no bpm-platform.xml. Sem a negacao, `deploy/` inteiro
-# fica fora do contexto e o COPY falha com "not found" — medido no CodeBuild e local. So' este
-# arquivo entra; o resto de deploy/ continua fora.
+!deploy/
+deploy/*
+!deploy/cibseven/
+deploy/cibseven/*
+# Script de configuracao do motor, com as demais excecoes fechadas abaixo.
 !deploy/cibseven/configure-group-whitelist.sh
+!deploy/cibseven/human-webapp/
+deploy/cibseven/human-webapp/*
+!deploy/cibseven/human-webapp/WEB-INF/
+deploy/cibseven/human-webapp/WEB-INF/*
+!deploy/cibseven/human-webapp/WEB-INF/web.xml
+!deploy/cibseven/read-webapp/
+deploy/cibseven/read-webapp/*
+!deploy/cibseven/read-webapp/WEB-INF/
+deploy/cibseven/read-webapp/WEB-INF/*
+!deploy/cibseven/read-webapp/WEB-INF/web.xml
+!deploy/cibseven/secured/
+deploy/cibseven/secured/*
+!deploy/cibseven/secured/descriptors/
+deploy/cibseven/secured/descriptors/*
+!deploy/cibseven/secured/descriptors/global-web.xml
+!deploy/cibseven/secured/descriptors/bpm-platform.xml
+!deploy/cibseven/secured/descriptors/engine-rest-web.xml
+!deploy/cibseven/secured/descriptors/camunda-web.xml
+!deploy/cibseven/secured/native-v2/
+deploy/cibseven/secured/native-v2/*
+!deploy/cibseven/secured/native-v2/WEB-INF/
+deploy/cibseven/secured/native-v2/WEB-INF/*
+!deploy/cibseven/secured/native-v2/WEB-INF/web.xml
 
 # Variáveis de ambiente locais (nunca empacotar segredos)
 .env

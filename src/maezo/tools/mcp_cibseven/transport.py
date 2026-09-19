@@ -1249,6 +1249,25 @@ _START_DEDUP_POLICY: Mapping[str, StartDedupPosture] = {
     "SP-OP-PAGTO-001": StartDedupPosture.PERMANENT,
     "SP-OP-CANCEL-001": StartDedupPosture.EXCLUSIVE,
     "SP-OP-INADIMPLENCIA-001": StartDedupPosture.NON_STRICT,
+    # WP-J1-09 (owner decision #17) added a FOURTH key family under this process key:
+    # `ESC-{tenant}-sla-auth-{numero_guia_tiss}`, minted by `notification_bridge`'s `auth` SLA
+    # spec. The posture is RE-EXAMINED rather than inherited, and it stays NON_STRICT, which is
+    # the substantively right answer for every ESC family — not a default nobody looked at:
+    #   * Convergence already comes from the right place. The fenced starter's
+    #     `find_active_instance` lookup is by business key, so a redelivered or repeated SLA alert
+    #     about the SAME guia joins the OPEN escalation instead of flooding the queue. That is the
+    #     property this handoff needs, and it does not require the durable claim to gate anything.
+    #   * A gated posture would be actively WRONG here. `EXCLUSIVE`/`PERMANENT` make a FINISHED
+    #     instance refuse a new start (that is the point for a payment). An escalation legitimately
+    #     RECURS for the same guia: the risk alert can fire again in a later analysis cycle after a
+    #     human already resolved the previous escalation, and a permanent claim would silently
+    #     swallow the second one — no task, no human, no signal. For an SLA alert whose entire
+    #     purpose is human visibility, a refused start is a LOST escalation, which is the adverse
+    #     direction; a duplicate task is merely noise a human closes.
+    #   * The two gate seams a gated posture demands (`_require_strict_gate_seams`) are about
+    #     resolving a claim against engine evidence for an EFFECT that must not repeat. Starting a
+    #     human review is not that class of effect: it commits no money, transmits nothing
+    #     externally, and decides no outcome.
     "SP-OP-ESCALATION-001": StartDedupPosture.NON_STRICT,
     "SP-OP-CRED-001": StartDedupPosture.NON_STRICT,
     "SP-OP-FRAUDE-001": StartDedupPosture.NON_STRICT,

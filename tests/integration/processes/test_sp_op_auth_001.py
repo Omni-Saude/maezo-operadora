@@ -1244,6 +1244,24 @@ async def test_timer_alerta_sla_nao_interruptivo(
     open_keys = {t.task_definition_key for t in await engine.list_user_tasks(iid)}
     assert _UT_AUDITOR in open_keys, "Timer nao-interruptivo nao deve cancelar a User Task"
 
+    # WP-J1-09 (decisao do dono #17) — O CANAL VOLTA A SER ASSERTAVEL. O assert de notificacao
+    # original foi removido em item-9 auth Class-A porque o canal estava MORTO:
+    # `NotifySlaRiskWorker` era sincrono e nao tinha seam de Kafka nenhum, entao exigir uma
+    # notificacao teria sido exigir um fato fabricado. Agora `make_notify_sla_risk_handler`
+    # publica de verdade, e esta e a prova do PRODUTOR — a metade consumidora (o bridge abrindo
+    # `ESC-{tenant}-sla-auth-{guia}` e a task humana em `/tasks`) e coberta pela prova de ponta a
+    # ponta descrita no test-spec.
+    sla_alerts = auth_probe.notifications_of_type("auth.notify_sla_risk")
+    assert len(sla_alerts) == 1, (
+        "BT_AlertaSla deve ter produzido EXATAMENTE uma notificacao auth.notify_sla_risk no canal "
+        f"interno (a ancora do escalonamento). observadas={sla_alerts}"
+    )
+    assert sla_alerts[0]["numero_guia_tiss"], (
+        "a notificacao precisa carregar numero_guia_tiss: e a ANCORA de "
+        "ESC-{tenant}-sla-auth-{guia}; sem ela a regra do bridge fica dormente (fail-closed) e "
+        f"nenhum humano ve o risco. payload={sla_alerts[0]}"
+    )
+
 
 async def test_timer_sla_estourado_coordenacao_assume(
     engine: EngineRest,

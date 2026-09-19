@@ -386,7 +386,24 @@ def test_repository_root_copy_and_narrow_ignore_exception_are_retained() -> None
     assert "deploy/" in ignore
     assert "!deploy/cibseven/configure-group-whitelist.sh" in ignore
     assert [line for line in ignore if line.startswith("!deploy")] == [
-        "!deploy/cibseven/configure-group-whitelist.sh"
+        "!deploy/",
+        "!deploy/cibseven/",
+        "!deploy/cibseven/configure-group-whitelist.sh",
+        "!deploy/cibseven/human-webapp/",
+        "!deploy/cibseven/human-webapp/WEB-INF/",
+        "!deploy/cibseven/human-webapp/WEB-INF/web.xml",
+        "!deploy/cibseven/read-webapp/",
+        "!deploy/cibseven/read-webapp/WEB-INF/",
+        "!deploy/cibseven/read-webapp/WEB-INF/web.xml",
+        "!deploy/cibseven/secured/",
+        "!deploy/cibseven/secured/descriptors/",
+        "!deploy/cibseven/secured/descriptors/global-web.xml",
+        "!deploy/cibseven/secured/descriptors/bpm-platform.xml",
+        "!deploy/cibseven/secured/descriptors/engine-rest-web.xml",
+        "!deploy/cibseven/secured/descriptors/camunda-web.xml",
+        "!deploy/cibseven/secured/native-v2/",
+        "!deploy/cibseven/secured/native-v2/WEB-INF/",
+        "!deploy/cibseven/secured/native-v2/WEB-INF/web.xml",
     ]
     assert {".env", ".env.*", "*.env"}.issubset(ignore)
     assert not (ROOT / "deploy/cibseven/Dockerfile.dockerignore").exists()

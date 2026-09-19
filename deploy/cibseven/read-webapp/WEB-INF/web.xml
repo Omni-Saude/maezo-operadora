@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" version="6.0">
+  <display-name>Maezo private employee reads</display-name>
+  <servlet><servlet-name>portal-read</servlet-name><servlet-class>br.com.maezo.human.PortalReadServlet</servlet-class></servlet>
+  <servlet-mapping><servlet-name>portal-read</servlet-name><url-pattern>/*</url-pattern></servlet-mapping>
+  <session-config><cookie-config><http-only>true</http-only><secure>true</secure></cookie-config><tracking-mode>COOKIE</tracking-mode></session-config>
+</web-app>

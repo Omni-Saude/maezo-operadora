@@ -97,6 +97,31 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "MAEZO_BEDROCK_MODEL_ID", value = var.bedrock_model_id },
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "MAEZO_DOSSIER_NARRATIVE_GENERAL_ZONE_SYNTHETIC_ONLY", value = var.caso_sintetico_zona_geral ? "1" : "0" },
+      # MEMORIA CLINICA ENTRE TURNOS (Frente 2.1). Declarada AQUI, e nao deixada no default do
+      # codigo, porque este e' o unico lugar em que alguem que opera o ambiente consegue ver que a
+      # Helena lembra quem e' o paciente — e desliga-la sem trocar imagem se precisar.
+      { name = "WHATSAPP_WEBHOOK_MEMORIA_CLINICA", value = var.helena_memoria_clinica ? "true" : "false" },
+      # TETO DE VOLUME (Frente 7.1, 14/09/2026). Os valores do codigo ja' sao estes; declara-los
+      # AQUI e' o que torna a calibracao um `-var` em vez de um deploy de imagem — e o que faz o
+      # teto aparecer para quem le' a task definition, em vez de viver so' num default de Python.
+      #
+      # SAO PONTO DE PARTIDA, nao verdade medida: 6 por conversa e' mais do que alguem digita
+      # conversando, e 120 no tenant e' o dobro do pico das baterias de 13/09. Calibrar com
+      # trafego real; o contador `maezo_webhook_mensagem_limitada_total` e' quem diz se o numero
+      # esta cortando quem nao devia.
+      { name = "WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO", value = tostring(var.limite_por_conversa_por_minuto) },
+      { name = "WHATSAPP_LIMITE_POR_TENANT_POR_MINUTO", value = tostring(var.limite_por_tenant_por_minuto) },
+
+      # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
+      # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo
+      # fica byte por byte como sempre foi — e e' assim que producao tem de ficar, porque la'
+      # quem recebe este corpo e' a Meta e o contrato do ack e' o CODIGO de status.
+      #
+      # Ligado AQUI e so' aqui porque e' aqui que existe uma tela olhando a conversa: sem o
+      # texto, o que a Helena escreve nunca foi lido por ninguem — ele e' redigido, entregue ao
+      # envio do WhatsApp e morre no 401 da credencial de preenchimento. Nao da' para avaliar se
+      # o texto presta, nem conferir se vaza orientacao clinica, sem le-lo uma vez.
+      { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])
 

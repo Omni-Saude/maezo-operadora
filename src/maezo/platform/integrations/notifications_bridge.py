@@ -188,9 +188,20 @@ class NotificationsBridgeSettings(BaseSettings):
 REASON_INVALID_JSON: Final[str] = "invalid_json"
 REASON_NOT_A_JSON_OBJECT: Final[str] = "not_a_json_object"
 REASON_MISSING_TYPE: Final[str] = "missing_type"
+#: WP-J1-09 — raised by `notifications_inbox.parse_team_notice` for a message whose `type` SAYS
+#: `escalation.notify_team` but which carries no `business_key`/`grupo_atendimento`: it names no
+#: case and/or no queue, so no human could act on the inbox line it would become. Lives in THIS
+#: closed vocabulary (rather than in the inbox module) because both daemons quarantine through
+#: the same `BridgeDlqShunt`, and this set is what bounds the `reason` metric label for both.
+REASON_MISSING_ESCALATION_ANCHOR: Final[str] = "missing_escalation_anchor"
 
 BRIDGE_DLQ_REASONS: Final[frozenset[str]] = frozenset(
-    {REASON_INVALID_JSON, REASON_NOT_A_JSON_OBJECT, REASON_MISSING_TYPE}
+    {
+        REASON_INVALID_JSON,
+        REASON_NOT_A_JSON_OBJECT,
+        REASON_MISSING_TYPE,
+        REASON_MISSING_ESCALATION_ANCHOR,
+    }
 )
 
 

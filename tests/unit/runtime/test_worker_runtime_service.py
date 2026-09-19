@@ -84,10 +84,17 @@ def test_register_default_workers_registers_all_17_modules() -> None:
     # (`make_retransmit_handler` — the name the contract itself uses, SP-OP-ANS-SUBMIT-001.md:157)
     # for the SAME async-Kafka-seam reason: it publishes the `anssubmit.retransmit` internal
     # notification, which the sync `FunctionWorker.execute` boundary cannot reach.
+    # WP-J1-09 (owner decision #17): `operadora.auth.notify_sla_risk` MOVED off
+    # `register_worker(NotifySlaRiskWorker())` onto a raw handler, for the SAME async-Kafka-seam
+    # reason as every entry above — it now publishes the `auth.notify_sla_risk` internal
+    # notification the bridge turns into `ESC-{tenant}-sla-auth-{guia}`, and a synchronous
+    # `WorkerBase.execute` reaches no producer (that absence is exactly why the alert used to
+    # reach nobody). The CLASS still exists and is called BY the handler; it is simply no longer
+    # registered itself, so the topic keeps exactly one server.
     # Raw-handler count, re-derived cell by cell (the previous one-line sum was arithmetic that
     # no longer matched the assertion below): 1 events + 3 lgpd + 3 recurso + 1 ans-notify
-    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao = 20.
-    assert harness.registry.count() == len(harness.registered_topics) - 20
+    # + 1 ans-retransmit + 2 escalation + 4 dossier + 4 programa + 1 adequacao + 1 auth = 21.
+    assert harness.registry.count() == len(harness.registered_topics) - 21
 
 
 def test_register_default_workers_topics_match_expected_prefixes() -> None:
@@ -387,6 +394,7 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         dmn: Any = None,
         engine: Any = None,
         audit_sink: Any = None,
+        denial_notice_host: Any = None,
         tenant_id: str = "",
         kafka: Any = None,
         dossier_dispatcher: Any = None,
@@ -395,6 +403,7 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         captured["engine"] = engine
         captured["dmn"] = dmn
         captured["audit_sink"] = audit_sink
+        captured["denial_notice_host"] = denial_notice_host
         captured["tenant_id"] = tenant_id
         captured["kafka"] = kafka
         captured["dossier_dispatcher"] = dossier_dispatcher
@@ -426,6 +435,12 @@ async def test_bring_up_threads_audit_sink_and_engine_and_spawns_when_probe_gree
         # WP-J1-03: the exclusivity seam reaches the bootstrap, defaulting to the
         # historical posture (generic `RequestDocumentsWorker` registered) when unset.
         assert captured["document_request_host_installed"] is False
+        # WP-J1-06 / V14 MAJOR-1: the NEGAR-owner seam IS threaded, and is dark unless
+        # the deployment asks for it. `denial_notice_owner` defaults to False, so the
+        # generic `SendDenialNoticeWorker` keeps the topic in this (default) bring-up.
+        # Two topics, one rule, both defaulting to the historical owner.
+        assert settings.denial_notice_owner is False
+        assert captured["denial_notice_host"] is None
         # T1.10 wave: the worker-side audit seam is a loop-safe per-call emitter (handoff_rescisao
         # emits on its own asyncio.run loop — the pooled sink must never cross loops).
         assert isinstance(captured["audit_sink"], FreshSinkAuditEmitter)

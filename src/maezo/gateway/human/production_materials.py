@@ -580,6 +580,35 @@ def _read_at(directory: int, name: str) -> bytes:
         os.close(descriptor)
 
 
+def read_material_directory(parent_path: str, names: frozenset[str]) -> dict[str, bytes]:
+    """Read one fixed, read-only, root-owned material directory: `manifest.json` + `names`.
+
+    The hardening — a `current` child opened with `O_NOFOLLOW` under an explicitly
+    opened parent, a root-owned `0o500` directory on a read-only filesystem, an exact
+    directory listing, and per-file `O_NOFOLLOW` reads whose stat is re-checked after
+    the bytes are read — is the property, not an implementation detail, so both
+    material planes (this one and `decision_materials.py`) share this one reader
+    instead of each growing its own copy.
+
+    Reading is custody, not trust: what makes the bytes authoritative is the caller's
+    out-of-band anchor (`HumanMaterialPin` here), never this directory.
+    """
+    parent = os.open(parent_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        directory = os.open("current", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    finally:
+        os.close(parent)
+    try:
+        _owned(os.fstat(directory), 0o500, directory=True)
+        if not os.fstatvfs(directory).f_flag & os.ST_RDONLY:
+            raise HumanMaterialError()
+        if set(os.listdir(directory)) != names | {"manifest.json"}:
+            raise HumanMaterialError()
+        return {name: _read_at(directory, name) for name in names | {"manifest.json"}}
+    finally:
+        os.close(directory)
+
+
 def load_human_materials(directory_setting: str | None, pin: HumanMaterialPin) -> HumanMaterials:
     """Read the single fixed read-only material directory; no search path, no fallback.
 
@@ -589,21 +618,8 @@ def load_human_materials(directory_setting: str | None, pin: HumanMaterialPin) -
     try:
         if directory_setting != MATERIAL_DIRECTORY:
             raise HumanMaterialError()
-        parent = os.open(MATERIAL_PARENT, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            directory = os.open("current", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
-        finally:
-            os.close(parent)
-        try:
-            _owned(os.fstat(directory), 0o500, directory=True)
-            if not os.fstatvfs(directory).f_flag & os.ST_RDONLY:
-                raise HumanMaterialError()
-            if set(os.listdir(directory)) != FILES | {"manifest.json"}:
-                raise HumanMaterialError()
-            manifest = _parse(HumanPublicManifest, _read_at(directory, "manifest.json"))
-            files = {name: _read_at(directory, name) for name in FILES}
-        finally:
-            os.close(directory)
+        files = read_material_directory(MATERIAL_PARENT, FILES)
+        manifest = _parse(HumanPublicManifest, files.pop("manifest.json"))
         return verify_materials(pin, manifest, files, now=datetime.now(UTC))
     except Exception:
         raise HumanMaterialError() from None

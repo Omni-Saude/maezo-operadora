@@ -1,0 +1,22 @@
+# ADR0049 D7-B opt-in staging image. Existing Dockerfile.human and deployed human UI are unchanged.
+FROM maven:3.9.9-eclipse-temurin-17@sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc AS secured-build
+WORKDIR /build
+COPY src/maezo/portal/engine/java/pom.xml ./pom.xml
+COPY src/maezo/portal/engine/java/src ./src
+RUN mvn -B -DskipTests package
+FROM cibseven/cibseven:tomcat-2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
+RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war \
+    && rm -f /camunda/lib/camunda-invoice*.jar \
+    && test ! -e /camunda/webapps/camunda-invoice
+COPY --from=secured-build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar
+# SPI API is provided by engine-rest's WEB-INF dependencies. It cannot live in Tomcat's common-loader jar.
+COPY --from=secured-build /build/target/human-command-engine-1.0.0-rest-spi.jar /camunda/webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar
+COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
+# Reproducible XML patches of the inspected actual distribution; vendor servlet defaults retained.
+COPY deploy/cibseven/secured/descriptors/global-web.xml /camunda/conf/web.xml
+COPY deploy/cibseven/secured/descriptors/bpm-platform.xml /camunda/conf/bpm-platform.xml
+COPY deploy/cibseven/secured/descriptors/engine-rest-web.xml /camunda/webapps/engine-rest/WEB-INF/web.xml
+RUN cp /camunda/webapps/camunda/WEB-INF/web.xml /camunda/camunda-web.legacy.xml
+COPY deploy/cibseven/secured/descriptors/camunda-web.xml /camunda/webapps/camunda/WEB-INF/web.xml
+# No default policy or TLS material: SecureLayout requires exactly one HTTPS/mTLS connector,
+# explicit mounted-file digests, auth/SPI/filter bindings and disabled autoDeploy before availability.

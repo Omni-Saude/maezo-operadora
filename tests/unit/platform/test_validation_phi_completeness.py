@@ -135,7 +135,9 @@ class TestNonVacuity:
         """16 BPMN + 62 DMN + 8 YAML must all have been opened."""
         touched = {ref.path for ref in live_sweep.refs}
         assert len({p for p in touched if p.suffix == ".bpmn"}) == 16
-        assert len({p for p in touched if p.suffix == ".dmn"}) == 62
+        # 62 -> 63 com `triage_sufficiency.dmn` (Frente 2.2) — ver a entrada #407 do
+        # CORPUS_DELTA_LOG, que nomeia o arquivo e os sete nomes que ele traz.
+        assert len({p for p in touched if p.suffix == ".dmn"}) == 63
 
     def test_every_declared_surface_fires_on_the_live_spec(self, live_sweep: Sweep) -> None:
         """A dead extraction path must not masquerade as coverage."""
@@ -896,6 +898,89 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "1645 -> 1646 occurrences."
         ),
     ),
+    CorpusDelta(
+        date="2026-09-15",
+        pr="#407",
+        name="sintoma_reconhecido",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "Frente 2.2: `spec/processes/dmn/triage_sufficiency.dmn` entrou na arvore — a tabela de "
+            "suficiencia, que decide se o DADO BASTA para responder com honestidade (nunca o que o dado "
+            "diz), consultada SO' depois de a tabela de red flag ja ter devolvido false. Ela NAO esta "
+            "ratificada e NAO liga a coleta (`coleta_enabled` segue False). Arquivo NOVO, entao nome e "
+            "ocorrencia andam juntos — ao contrario das entradas de ocorrencia unica acima. Corpus 334 -> "
+            "341 nomes, 1646 -> 1653 ocorrencias, nas sete entradas desta leva. O UNICO dos sete que move o "
+            "balde: SHAPE_SUSPECT 9 -> 10, casado pelo radical `sintoma` que ele divide com "
+            "`sintoma_codigo`, ja suspeito. A pergunta esta escrita em `phi_completeness.DISPOSITIONS`, "
+            "enfileirada em `docs/review-queue.md` e com vaga de assinatura no manifesto CODEOWNED, com a "
+            "engenharia recomendando NAO listar: e' um booleano de PRESENCA (`sintoma_codigo is not None`) "
+            "que nao consegue carregar qual codigo, qual sintoma, nem palavra nenhuma do beneficiario. "
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-15",
+        pr="#407",
+        name="intensidade_informada",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Booleano de presenca da mesma forma que `sintoma_reconhecido` — responde se a pessoa "
+            "DISSE a intensidade, nunca qual. Sem radical PHI no nome, entao a heuristica nem o olha. "
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-15",
+        pr="#407",
+        name="campo_populacao_disponivel",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Booleano de presenca: se o campo que aquela populacao exige (idade em anos, em meses, "
+            "semanas de gestacao ou risco imediato) chegou. Nao carrega o valor. "
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-15",
+        pr="#407",
+        name="intent",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Vocabulario FECHADO de seis valores, validado em `agents/helena/graph.py` antes de "
+            "chegar a tabela — um valor fora dele e' falha de classificacao, nao entrada. "
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-15",
+        pr="#407",
+        name="population",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. Vocabulario FECHADO de cinco valores, mesma validacao. E' o campo que escolhe a tabela "
+            "de red flag, entao ele ja circulava; nesta DMN ele e' entrada declarada pela primeira vez. "
+        ),
+    ),
+    CorpusDelta(
+        date="2026-09-15",
+        pr="#407",
+        name="rodadas",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=("CLEAN. Contador de perguntas ja feitas na conversa. Inteiro, sem dominio aberto. "),
+    ),
+    CorpusDelta(
+        date="2026-09-15",
+        pr="#407",
+        name="veredito",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. A SAIDA da tabela, vocabulario fechado de seis valores que o codigo valida — veredito "
+            "fora dele vira `falha_tecnica`, nunca resposta automatica. "
+        ),
+    ),
 )
 
 
@@ -905,11 +990,11 @@ class TestBuckets:
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
-        expected_clean = expected_names - 6 - 9
-        assert expected_clean == 319
+        expected_clean = expected_names - 6 - 10
+        assert expected_clean == 325
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
-            SHAPE_SUSPECT: 9,
+            SHAPE_SUSPECT: 10,
             CLEAN: expected_clean,
         }
         assert sum(len(value) for value in buckets.values()) == len(live_sweep.names)
@@ -935,8 +1020,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 334
-        assert len(live_sweep.refs) == expected_refs == 1646
+        assert len(live_sweep.names) == expected_names == 341
+        assert len(live_sweep.refs) == expected_refs == 1653
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -994,6 +1079,7 @@ class TestBuckets:
             "fundamentacao_legal",
             "has_cid10_codes",
             "sintoma_codigo",
+            "sintoma_reconhecido",
         )
 
     def test_every_shape_suspect_provenance_is_pinned(self, live_sweep: Sweep) -> None:
@@ -1005,8 +1091,8 @@ class TestBuckets:
         assert actual == {
             "auditor_id": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:384 (bpmn_form_field)",
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:469 (bpmn_form_field)",
-                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:607 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:470 (bpmn_form_field)",
+                "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:608 (bpmn_form_field)",
             ],
             "cid10": [
                 "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77 (bpmn_declared_input)",
@@ -1032,6 +1118,9 @@ class TestBuckets:
             "has_cid10_codes": [
                 "phantom_no_diagnosis.dmn:30 (dmn_input_expression)",
             ],
+            "sintoma_reconhecido": [
+                "triage_sufficiency.dmn:58 (dmn_input_expression)",
+            ],
             "sintoma_codigo": [
                 "triage_redflag_adult.dmn:26 (dmn_input_expression)",
                 "triage_redflag_gestante.dmn:19 (dmn_input_expression)",
@@ -1056,16 +1145,16 @@ class TestBuckets:
     def test_render_buckets_shows_all_three_with_provenance(self, live_sweep: Sweep) -> None:
         rendered = render_buckets(live_sweep)
         assert f"## {LISTED} (6)" in rendered
-        assert f"## {SHAPE_SUSPECT} (9)" in rendered
+        assert f"## {SHAPE_SUSPECT} (10)" in rendered
         assert (
-            f"## {CLEAN} (319)" in rendered
-        )  # see CORPUS_DELTA_LOG — #339's two names and #345's `lastro_decisor_id` entered
+            f"## {CLEAN} (325)" in rendered
+        )  # see CORPUS_DELTA_LOG — #339's two names, #345's `lastro_decisor_id`, and #407's seven
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`
         # would stay green after an edit that renamed the constant's VALUE to
         # "RATIFICADO pelo DPO", which is exactly the laundering this asserts
         # against.
-        assert rendered.count("DRAFT/verify (DPO)") == 9
+        assert rendered.count("DRAFT/verify (DPO)") == 10
 
 
 # ---------------------------------------------------------------------------
@@ -1157,8 +1246,8 @@ class TestZonaAnnotationRule:
     def test_the_live_spec_annotations_are_found_and_all_listed(self, live_sweep: Sweep) -> None:
         assert [(ref.path.name, ref.line, ref.name) for ref in live_sweep.annotated] == [
             ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 365, "justificativa_clinica"),
-            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 450, "justificativa_clinica"),
-            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 588, "justificativa_clinica"),
+            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 451, "justificativa_clinica"),
+            ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", 589, "justificativa_clinica"),
             ("SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn", 159, "notas_resolucao"),
             ("SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn", 272, "notas_resolucao"),
         ]

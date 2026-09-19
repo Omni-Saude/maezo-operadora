@@ -148,7 +148,11 @@ async def test_synthetic_or_in_memory_provider_is_refused(tmp_path):
     """T00-03 — there is no seam through which a fake provider can be installed."""
     parameters = inspect.signature(compose_human_plane).parameters
     # Materials + deployment resources only: no provider parameter exists at all.
-    assert set(parameters) == {"material", "pool", "source_engine", "lifetime"}
+    # `decision` (WP-J1-06) is the second MATERIAL bundle, not a provider seam — it is
+    # a verified `DecisionMaterials`, and the providers it produces are built inside
+    # `compose_decision_ports` from those bytes, exactly as `material` is used here.
+    assert set(parameters) == {"material", "pool", "source_engine", "lifetime", "decision"}
+    assert parameters["decision"].annotation == "DecisionMaterials | None"
 
     _, runtime = _plane(tmp_path)
     bundle = runtime.read._new_bundle()
@@ -670,11 +674,42 @@ async def test_tenant_cross_check_precedes_every_pool_query_and_relay(tmp_path, 
 
 
 def test_human_runtime_has_no_seam_that_skips_the_loader():
-    """MINOR-5 — materials reach the runtime through the pinned loader or not at all."""
+    """MINOR-5 — materials reach the runtime through the pinned loader or not at all.
+
+    WP-J1-06 added `decision_directory`, and it is NOT such a seam: it is a directory
+    NAME, not material, and `load_decision_materials` accepts exactly one literal path
+    (asserted below and in `test_decision_ports_composition.py`). The rule this test
+    defends — no object may arrive already "verified" — still admits no exception.
+    """
     signature = inspect.signature(production_module.human_runtime)
-    assert list(signature.parameters) == ["pin"]
+    # `pin` stays the only positional, and every additional parameter is keyword-only
+    # material *locators* plus their own out-of-band anchors — never materials.
+    assert list(signature.parameters) == ["pin", "decision_directory", "decision_pin"]
+    assert signature.parameters["decision_pin"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["pin"].default is inspect.Parameter.empty
     assert signature.parameters["pin"].annotation == "HumanMaterialPin"
+    decision = signature.parameters["decision_directory"]
+    assert decision.kind is inspect.Parameter.KEYWORD_ONLY
+    assert decision.default is None
+    assert decision.annotation == "str | None"
     source = inspect.getsource(production_module.human_runtime)
     assert "load_human_materials(MATERIAL_DIRECTORY, pin)" in source
     assert "materials if materials is not None" not in source
+    # The decision plane goes through its own loader, by name AND by its own
+    # out-of-band anchor — naming the directory without the pin is refused (V14 MAJOR-2).
+    assert "load_decision_materials(decision_directory, decision_pin)" in source
+    assert "if decision_pin is None:" in source
+    assert "decision is not None" not in source
+
+    from maezo.gateway.human.decision_materials import (
+        DecisionMaterialError,
+        DecisionMaterialPin,
+        load_decision_materials,
+    )
+
+    anchor = DecisionMaterialPin(
+        tenant="tenant_j1", material_version_id="j1decision" + "0" * 26, public_manifest_sha256="a" * 64
+    )
+    for rejected in (None, "", "/tmp/decision", "/run/maezo-decision-materials"):
+        with pytest.raises(DecisionMaterialError):
+            load_decision_materials(rejected, anchor)

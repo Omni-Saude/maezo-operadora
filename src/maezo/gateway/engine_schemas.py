@@ -352,6 +352,32 @@ ESCALATION_NOTIFY_ERROR = EngineSchema(
     read_projection=("tenant_id", "severidade", "grupo_atendimento", "prioridade", "motivo_categoria"),
 )
 
+#: WP-J1-06. `ST_EnviarNegativaFormal` is the one activity on this topic, and the ONE
+#: outcome it may report other than completion is the modeled incomplete-grounding
+#: error caught by `BE_NegativaIncompleta`. Declaring the row does not grant it: it
+#: states, for review, that this topic's reportable error set is exactly this one code
+#: — the same shape `ESCALATION_NOTIFY_ERROR` has for its boundary. Both owners of the
+#: topic (the generic worker and the portal-decision owner) raise only this code.
+AUTH_DENIAL_INCOMPLETE_ERROR = EngineSchema(
+    "auth.send_denial_notice.bpmn_error.v1",
+    EngineOperation.BPMN_ERROR,
+    "SP-OP-AUTH-001",
+    "worker_runtime",
+    (),
+    (
+        "docs/processes/contracts/SP-OP-AUTH-001.md",
+        "src/maezo/tools/workers/auth.py:SendDenialNoticeWorker",
+        "src/maezo/gateway/denial_notices/producer.py:DenialNoticeProducer",
+        "spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn#BE_NegativaIncompleta",
+    ),
+    topic="operadora.auth.send_denial_notice",
+    error_codes=("ERR_AUTH_DENIAL_INCOMPLETE",),
+    audit_actor="operadora-worker",
+    # References and outcome only. No clinical field is readable through this row:
+    # the grounding lives in PHI custody and never enters engine scope (ADR-0006).
+    read_projection=("tenant_id", "decisao_auditor", "human_decision_custody_ref"),
+)
+
 # WP-J1-03 — the dedicated PHI document-request bridge (`gateway/document_requests`), NOT the
 # generic `worker_runtime` harness. The two rows below are the only reviewed rows whose workload
 # is `auth_document_request_bridge`; the bridge's own installed capability documents must carry
@@ -414,6 +440,7 @@ SCHEMAS: tuple[EngineSchema, ...] = (
     CONSENT_REVOKED,
     CONTAS_IMPACT_COMPLETE,
     ESCALATION_NOTIFY_ERROR,
+    AUTH_DENIAL_INCOMPLETE_ERROR,
     AUTH_DOCUMENT_REQUEST_FETCH,
     AUTH_DOCUMENT_REQUEST_COMPLETE,
 )

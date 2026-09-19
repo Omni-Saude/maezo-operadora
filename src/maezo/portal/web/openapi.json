@@ -1335,6 +1335,16 @@
           "freshness": {
             "$ref": "#/components/schemas/Freshness"
           },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schema": {
             "const": "portal-external-case-detail.v1",
             "title": "Schema",
@@ -1344,9 +1354,51 @@
         "required": [
           "schema",
           "case",
-          "freshness"
+          "freshness",
+          "outcome"
         ],
         "title": "CaseDetail",
+        "type": "object"
+      },
+      "CaseOutcome": {
+        "additionalProperties": false,
+        "description": "Desfecho fechado projetado do estado terminal do motor; nada e inferido aqui.",
+        "properties": {
+          "authorization_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Ref"
+          },
+          "desfecho": {
+            "enum": [
+              "aprovada_automatica",
+              "aprovada_auditor",
+              "negada_auditor",
+              "nao_requer_autorizacao",
+              "cancelada_pendencia"
+            ],
+            "title": "Desfecho",
+            "type": "string"
+          },
+          "phase": {
+            "const": "decisao_executada",
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase",
+          "desfecho",
+          "authorization_ref"
+        ],
+        "title": "CaseOutcome",
         "type": "object"
       },
       "CasePage": {
@@ -3857,6 +3909,98 @@
         "title": "IntakeCommandObservation",
         "type": "object"
       },
+      "IntakeLink": {
+        "additionalProperties": false,
+        "description": "A projection of one server-verified delegation, never an authority the browser may assert.\n\nEvery field is a projection of a published `resource_authority` head that the server\nre-reads and re-verifies on the next request. Selecting a link in a form is a selection;\nthe submit path authorizes it again from the same published source.",
+        "properties": {
+          "action": {
+            "const": "auth.start",
+            "title": "Action",
+            "type": "string"
+          },
+          "beneficiary_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Beneficiary Ref",
+            "type": "string"
+          },
+          "provenance_kind": {
+            "enum": [
+              "synthetic",
+              "attested"
+            ],
+            "title": "Provenance Kind",
+            "type": "string"
+          },
+          "provider_ref": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9_-]{16,128}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Ref"
+          },
+          "resource_kind": {
+            "enum": [
+              "guide",
+              "intake",
+              "case"
+            ],
+            "title": "Resource Kind",
+            "type": "string"
+          },
+          "resource_ref": {
+            "pattern": "^[A-Za-z0-9_-]{16,128}$",
+            "title": "Resource Ref",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "valid_until": {
+            "format": "date-time",
+            "title": "Valid Until",
+            "type": "string"
+          }
+        },
+        "required": [
+          "beneficiary_ref",
+          "resource_kind",
+          "resource_ref",
+          "action",
+          "valid_until",
+          "provenance_kind"
+        ],
+        "title": "IntakeLink",
+        "type": "object"
+      },
+      "IntakeLinks": {
+        "additionalProperties": false,
+        "properties": {
+          "links": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/IntakeLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "title": "IntakeLinks",
+        "type": "object"
+      },
       "IntakeReceipt": {
         "additionalProperties": false,
         "properties": {
@@ -6015,6 +6159,16 @@
             ],
             "title": "Next Task Cursor"
           },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CaseOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "schema": {
             "const": "portal-staff-case-detail.v1",
             "title": "Schema",
@@ -6032,7 +6186,8 @@
           "active_tasks",
           "next_task_cursor",
           "tasks_complete",
-          "freshness"
+          "freshness",
+          "outcome"
         ],
         "title": "StaffDetail",
         "type": "object"
@@ -8148,6 +8303,84 @@
           }
         },
         "summary": "Submit Intake"
+      }
+    },
+    "/api/v1/portal/intakes/auth/links": {
+      "get": {
+        "operationId": "read_intake_links_api_v1_portal_intakes_auth_links_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntakeLinks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalIntakeError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Intake Links"
       }
     },
     "/api/v1/portal/intakes/{intake_ref}": {

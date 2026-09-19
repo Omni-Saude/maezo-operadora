@@ -26,8 +26,35 @@ navegador de uma pessoa (um CI, um robô) — não é o caso aqui.
 |---|---|
 | `GET/POST /engine/...` | `engine-rest` do CIB Seven (motor BPMN/DMN) |
 | `POST /agente/v1/autorizacoes` | ingresso do Rafael — **executa um turno** |
+| `POST /receptor/simular` | receptor de webhook — **executa um turno da Helena** (só em dev) |
 
 `exemplo.html` exercita as duas e serve de referência mínima.
+
+## `/receptor/simular` — use um telefone NOVO em cada teste
+
+A rota assina um envelope de WhatsApp no servidor e o entrega ao receptor, o que faz a
+triagem da Helena rodar de verdade. Duas coisas a saber antes de usar:
+
+**O telefone tem de estar na faixa `55119000000xx`** — dois dígitos no fim, nada além. É a
+cerca que impede este canal de fabricar mensagem em nome de um número real, e ela é
+verificada nas duas pontas (`^55119000000\d{2}$`), então a faixa como prefixo de um número
+mais longo é recusada.
+
+**Um telefone repetido NÃO abre um escalonamento novo.** A chave de negócio do processo é
+derivada da conversa, que é derivada do telefone. Se aquele número já tem um escalonamento
+ABERTO, o turno novo se prende ao que já existe em vez de abrir um segundo — que é o
+comportamento correto (um beneficiário não gera duas filas), mas engana num teste: você manda
+"dor no peito", recebe `200`, e a tela mostra um escalonamento antigo com a prioridade
+daquele outro caso. Medido em 11/09/2026.
+
+Então: **incremente os dois últimos dígitos a cada rodada**. Com um número virgem, a mensagem
+*"estou com uma dor muito forte no peito e falta de ar"* produz, em poucos segundos,
+`red_flag_clinico` / severidade grave / **P1** / fila `plantao-clinico`, prazos `PT5M` e
+`PT30M`, a tarefa *"Assumir e tratar escalonamento"* esperando nessa fila e **dois relógios
+armados** (5 e 30 minutos). Foi exatamente isso que `5511900000077` produziu na validação.
+
+A rota só existe onde `CANAL_SIMULAR_RECEPTOR=1`, e `scripts/ci/check_canal_simular.py`
+reprova quem a ligar fora de `dev-sa-east-1`.
 
 ## Como publicar uma página
 

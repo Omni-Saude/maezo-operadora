@@ -11,8 +11,16 @@ reports_to: "atendimento@amh"
 security_zone: general
 graph: graph.py:build
 prompt_versions:
+  # 18/09/2026: o yaml declarava DOIS dos cinco. Faltavam a narrativa do dossie (que ja existia
+  # e nunca esteve aqui), o ACK de escalacao (que nao tinha nem constante de versao no codigo —
+  # o texto do caminho ADVERSO era o unico sem numero) e a cerca de saida. Este numero e o que
+  # diz QUAL texto falou com o beneficiario; incompleto, ele aponta para o texto errado.
+  # `test_lucas_dono_declarado.py` e o que impede a deriva de voltar.
   system: system-v1
   message: message-v1
+  dossier: dossier-v1
+  escalation_ack: escalation-ack-v1
+  recusa_de_saida: recusa-lucas-v1
 model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }

@@ -698,12 +698,18 @@ def test_a_retired_relation_keeps_the_dpo_decision_pending() -> None:
 
 
 def test_the_dpo_review_scope_did_not_shrink() -> None:
-    """Preserve the 16 historical relations and add nine ADR-0049/E03 pending dispositions
-    (0012: 4, 0013: 2, 0014: 3)."""
+    """Preserve the 16 historical relations, the nine ADR-0049/E03 pending dispositions
+    (0012: 4, 0013: 2, 0014: 3), and WP-J1-09's `escalation_team_notice` (0015: 1).
+
+    The scope may GROW — a new table is a new structural fact a DPO must see — and must never
+    SHRINK. Note what growing does NOT mean: the new row's `decisao_dpo`/`base_legal`/`retencao`
+    are the same explicit placeholders as every other row, because deriving the structure is a
+    schema fact and deciding the disposition is a human act no agent performs here (the
+    artifact's own header says so)."""
     camadas = _shipped_raw()["camadas"]
-    assert len(camadas) == 25, [entry["tabela"] for entry in camadas]
+    assert len(camadas) == 26, [entry["tabela"] for entry in camadas]
     pendentes = [entry["tabela"] for entry in camadas if entry["decisao_dpo"] == "PENDENTE"]
-    assert len(pendentes) == 25, pendentes
+    assert len(pendentes) == 26, pendentes
 
 
 def test_a_retired_relation_is_reported_as_not_applicable_retired() -> None:
