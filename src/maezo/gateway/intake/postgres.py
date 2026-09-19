@@ -348,5 +348,13 @@ class PostgresIntakeStore:
             return request
         except IntakeError:
             raise
+        except ExternalCaseError as exc:
+            # MESMA tradução por código do `admit` (este módulo, acima): as cercas deste leitor
+            # levantam `ExternalCaseError("conflict")` — texto adulterado que não cumpre o digest
+            # atestado, ou submission selada de outro comando — e `ExternalCaseError(ValueError)`
+            # não é `IntakeError`, então sem esta cláusula ambas caíam no broad clause abaixo e
+            # uma linha adulterada/trocada virava "indisponibilidade de dependência", retried para
+            # sempre, com o conflito que o leitor escreveu inobservável.
+            raise IntakeError("conflict" if exc.code == "conflict" else "dependency_unavailable") from None
         except Exception:
             raise IntakeError("dependency_unavailable") from None
