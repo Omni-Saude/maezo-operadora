@@ -19,8 +19,8 @@
 # `terraform plan` mostra qualquer diferenca.
 
 extensions:
-  # A mesma forma do coletor local (`otel-collector.yaml`): health check em 13133, caminho
-  # `/healthz`, que e' o que o healthCheck da task definition consulta.
+  # A mesma forma do coletor local (`otel-collector.yaml`) MENOS o `path:` — health check em 13133,
+  # no caminho default (`/`), que e' o que o binario `/healthcheck` da imagem sonda (ver abaixo).
   health_check:
     endpoint: 0.0.0.0:13133
     # SEM `path:` DE PROPOSITO — o default (`/`) e' o que o binario `/healthcheck` da imagem sonda.
