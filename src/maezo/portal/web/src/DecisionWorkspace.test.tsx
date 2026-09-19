@@ -169,7 +169,10 @@ it("explica que a escolha de prazo extra não renova a espera e mantém o enum h
   setup("auth_pendencia");
   const select = await screen.findByRole("combobox");
   expect(screen.getByText(/não reinicia a espera de documentos/)).toBeVisible();
-  expect(screen.getByText(/contrato em revisão/)).toBeVisible();
+  // WP-J1-05: o formulario auth_pendencia agora e' declarado pelo formData deployado
+  // (BPMN_FORMDATA), portanto o aviso de "contrato em revisão" (DRAFT/verify) NÃO se aplica;
+  // a ressalva de que prazo extra não rearma a espera continua, pois é lacuna de contrato.
+  expect(screen.queryByText(/contrato em revisão/)).not.toBeInTheDocument();
   for (const choice of ["cancelar_guia", "conceder_prazo_extra", "seguir_analise"]) {
     expect(select.querySelector(`option[value="${choice}"]`)).not.toBeNull();
   }

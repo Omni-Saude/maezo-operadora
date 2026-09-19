@@ -35,6 +35,7 @@ from maezo.gateway.human.auth_profile import (
     Purpose,
     ResourceAuthority,
     Scope,
+    authority_covers,
 )
 from maezo.gateway.human.auth_transport import (
     AuthCredentialLease,
@@ -141,8 +142,10 @@ class NativeAuthReader:
                 )
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
+        if row is None:
+            raise AuthUnavailableError()
         if (row["role"], row["session_role"], row["name"], row["oid"], row["schema_oid"], row["tls"]) != (
             b.reader_role,
             b.reader_role,
@@ -180,8 +183,10 @@ class NativeAuthReader:
                     )
                 )
                 .mappings()
-                .one()
+                .one_or_none()
             )
+            if row is None:
+                raise AuthUnavailableError()
             observed = (
                 row["oid"],
                 row["owner"],
@@ -201,8 +206,10 @@ class NativeAuthReader:
                 )
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
+        if installed is None:
+            raise AuthUnavailableError()
         scope = strict_loads(installed["scope_"])
         qualification = strict_loads(installed["qualification_"])
         if (
@@ -242,8 +249,10 @@ class NativeAuthReader:
                 )
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
+        if row is None:
+            raise AuthUnavailableError()
         value = parse_model(KeyDesignation, strict_loads(row["designation_"]))
         now = datetime.now(UTC)
         if (
@@ -282,8 +291,13 @@ class NativeAuthReader:
                 )
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
+        if row is None:
+            # An absent head is the same refusal as every other unverifiable row here — never a
+            # driver-level `NoResultFound` escaping the AUTH plane's own refusal type
+            # (WP-J1-03b MINOR-3): callers refuse on `AuthUnavailableError`.
+            raise AuthUnavailableError()
         if row["state_"] != "active":
             raise AuthUnavailableError()
         source = parse_model(SourceProvenance, strict_loads(row["source_"]))
@@ -318,8 +332,10 @@ class NativeAuthReader:
                 )
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
+        if version is None:
+            raise AuthUnavailableError()
         request = strict_loads(version["request_"])
         if (
             digest(request) != version["digest_"]
@@ -510,16 +526,20 @@ class NativeAuthReader:
             request = (
                 None if read or isinstance(command, HumanStartCommand) else command.occurrence.request_ref
             )
+            # `authority_covers` is the ONE scope predicate, shared with the document bridge's
+            # recipient selection (`document_requests.production`). The `request_ref` comparison
+            # is exact equality, so an authority that names no request (a case-wide delegation)
+            # can never answer this document request — the same authority is therefore never a
+            # recipient either. WP-J1-03b.
             if (
-                (
-                    authority.actor,
-                    authority.action,
-                    authority.resource_kind,
-                    authority.resource_ref,
-                    authority.request_ref,
-                    authority.state,
+                authority.actor != actor
+                or not authority_covers(
+                    authority,
+                    action=action,
+                    resource_kind=kind,
+                    resource_ref=resource,
+                    request_ref=request,
                 )
-                != (actor, action, kind, resource, request, "active")
                 or authority.consent_state == "revoked"
                 or (authority.legal_basis == "consent" and authority.consent_state != "valid")
             ):

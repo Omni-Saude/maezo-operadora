@@ -246,8 +246,9 @@ def test_notification_bridge_ans_cron_rule_now_wired() -> None:
     target_process, predicate = rules[0]
     assert target_process == _PROCESS_KEY_ANS_SUBMIT
     assert callable(predicate)
-    # Anchor (t2-notify-integrity item 3): a regra exige tenant_id ALEM de report_type (as 7
-    # regras do bridge exigem non_blank(tenant_id) — simetrico com os workers in-flow). Na
+    # Anchor (t2-notify-integrity item 3): a regra exige tenant_id ALEM de report_type (todas as
+    # regras do bridge — hoje 11 — exigem non_blank(tenant_id) via `_anchored`, simetrico com os
+    # workers in-flow). Na
     # producao o tenant chega no fato via o stamp de deployment do publicador generico
     # (`register_events_workers` -> `make_publish_event_handler`), entao a regra ARMA ao vivo.
     assert predicate({"tenant_id": "amh", "report_type": "DIOPS_TRIMESTRAL"}) is True
@@ -257,9 +258,12 @@ def test_notification_bridge_ans_cron_rule_now_wired() -> None:
 
     targets = {h["target_process"] for h in bridge.list_handoffs()}
     assert _PROCESS_KEY_ANS_SUBMIT in targets
-    # Regressao: as 5 regras pre-T2.6-7 continuam intactas + as 2 novas (NIP + cron) + as 3 de
-    # alerta de SLA -> SP-OP-ESCALATION-001 (R-104/WP-ALERTA-SLA-CANAL) = 10.
-    assert bridge.count_handoffs() == 10
+    # Regressao: as 5 regras pre-T2.6-7 continuam intactas + as 2 novas (NIP + cron) + as 4 de
+    # alerta de SLA -> SP-OP-ESCALATION-001 (R-104/WP-ALERTA-SLA-CANAL; lgpd, recurso, programa e
+    # auth — `auth.notify_sla_risk` veio com o BT_AlertaSla do SP-OP-AUTH-001) = 11. A fonte da
+    # verdade e `_SLA_ALERT_SPECS` + `_register_default_handoffs`: qualquer nova regra DEVE passar
+    # por aqui e re-derivar este numero (drift V11: a 4a regra de SLA aterrissou sem bump).
+    assert bridge.count_handoffs() == 11
 
 
 # ===========================================================================
