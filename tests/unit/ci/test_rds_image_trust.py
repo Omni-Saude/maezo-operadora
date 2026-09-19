@@ -24,6 +24,28 @@ ROOT = Path(__file__).resolve().parents[3]
 BUNDLE = ROOT / "deploy/certificates/sa-east-1-bundle.pem"
 
 
+def synthetic_ca(common_name: str) -> tuple[ec.EllipticCurvePrivateKey, x509.Certificate]:
+    """Throwaway self-signed root generated in-test, never from a host trust store."""
+    now = datetime.now(UTC)
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
+    return key, (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(
+            x509.KeyUsage(True, False, False, False, False, True, True, False, False), critical=True
+        )
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .sign(key, hashes.SHA256())
+    )
+
+
 @pytest.fixture
 def installer():
     spec = importlib.util.spec_from_file_location(
@@ -37,15 +59,14 @@ def installer():
 
 @pytest.fixture
 def isolated_trust(tmp_path, monkeypatch):
-    # One unrelated real root is retained as the pre-existing system-store control.
-    existing = ssl.create_default_context().get_ca_certs(binary_form=True)
-    rds_ders = {
-        cert.public_bytes(serialization.Encoding.DER)
-        for cert in x509.load_pem_x509_certificates(BUNDLE.read_bytes())
-    }
-    unrelated = next(cert for cert in existing if cert not in rds_ders)
+    # One unrelated synthetic root is retained as the pre-existing system-store control.
+    # Deriving it from ssl.create_default_context() made the fixture depend on the host:
+    # on CI runners that source is empty or RDS-only, so bare next() raised StopIteration
+    # in setup. The control must stay non-RDS and outside the pinned bundle, which a
+    # self-signed in-test root guarantees on every machine.
+    _, unrelated = synthetic_ca("Synthetic unrelated root; never for deployment")
     path = tmp_path / "trust.pem"
-    path.write_text(ssl.DER_cert_to_PEM_cert(unrelated))
+    path.write_bytes(unrelated.public_bytes(serialization.Encoding.PEM))
     empty_dir = tmp_path / "empty-capath"
     empty_dir.mkdir()
     monkeypatch.setenv("SSL_CERT_FILE", str(path))
@@ -201,23 +222,7 @@ def test_trust_update_failure_aborts_build(installer, isolated_trust, tmp_path, 
 @pytest.fixture
 def synthetic_chain(tmp_path):
     now = datetime.now(UTC)
-    ca_key = ec.generate_private_key(ec.SECP256R1())
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Synthetic test CA; never for deployment")])
-    ca = (
-        x509.CertificateBuilder()
-        .subject_name(ca_name)
-        .issuer_name(ca_name)
-        .public_key(ca_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now - timedelta(days=1))
-        .not_valid_after(now + timedelta(days=1))
-        .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
-        .add_extension(
-            x509.KeyUsage(True, False, False, False, False, True, True, False, False), critical=True
-        )
-        .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
-        .sign(ca_key, hashes.SHA256())
-    )
+    ca_key, ca = synthetic_ca("Synthetic test CA; never for deployment")
     leaf_key = ec.generate_private_key(ec.SECP256R1())
     leaf = (
         x509.CertificateBuilder()
