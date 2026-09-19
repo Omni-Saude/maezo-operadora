@@ -101,6 +101,17 @@ const finalAddedBindings = [
 
 const propagatedBindings = [...priorAddedBindings, ...finalAddedBindings] as const;
 
+// WP-J1-05: a decisao da pendencia expirada passou a viver no formData deployado
+// (UT_DecidirPendenciaExpirada em SP-OP-AUTH-001); as demais linhas propagadas continuam DRAFT/verify.
+function propagatedSource(
+  process: (typeof propagatedBindings)[number][0],
+  task: (typeof propagatedBindings)[number][1],
+) {
+  return process === "SP-OP-AUTH-001" && task === "UT_DecidirPendenciaExpirada"
+    ? "BPMN_FORMDATA"
+    : "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY";
+}
+
 function addedTaskResponse(
   process: (typeof propagatedBindings)[number][0],
   task: (typeof propagatedBindings)[number][1],
@@ -116,7 +127,7 @@ function addedTaskResponse(
       process_definition_key: process,
       task_definition_key: task,
       form_key: form,
-      form_source_status: "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY" as const,
+      form_source_status: propagatedSource(process, task),
       allowed_inputs: [...taskReadInputs[form]],
     },
   };
@@ -281,12 +292,12 @@ describe("validação fechada do snapshot público", () => {
     expect(taskReadBindings).toHaveLength(43);
     expect(Object.keys(taskReadInputs)).toHaveLength(31);
     expect(new Set(taskReadBindings.map(({ process, task }) => `${process}\u0000${task}`)).size).toBe(43);
-    expect(taskReadBindings.filter(({ source }) => source === "BPMN_FORMDATA")).toHaveLength(5);
+    expect(taskReadBindings.filter(({ source }) => source === "BPMN_FORMDATA")).toHaveLength(6);
     expect(
       taskReadBindings.filter(
         ({ source }) => source === "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
       ),
-    ).toHaveLength(38);
+    ).toHaveLength(37);
     for (const binding of taskReadBindings) {
       expect(taskReadInputs[binding.form]).toBeDefined();
     }
@@ -296,7 +307,7 @@ describe("validação fechada do snapshot público", () => {
         process,
         task,
         form,
-        source: "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY",
+        source: propagatedSource(process, task),
       });
     }
   });
