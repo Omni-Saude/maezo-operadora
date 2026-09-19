@@ -404,6 +404,11 @@ def test_repository_root_copy_and_narrow_ignore_exception_are_retained() -> None
         "!deploy/cibseven/secured/native-v2/",
         "!deploy/cibseven/secured/native-v2/WEB-INF/",
         "!deploy/cibseven/secured/native-v2/WEB-INF/web.xml",
+        # ADR-0049 D8 / WP-C076: unica outra excecao de deploy/ e o par
+        # instalador+bundle pinado das raizes RDS sa-east-1 (o README fica fora).
+        "!deploy/certificates/",
+        "!deploy/certificates/install_rds_roots.py",
+        "!deploy/certificates/sa-east-1-bundle.pem",
     ]
     assert {".env", ".env.*", "*.env"}.issubset(ignore)
     assert not (ROOT / "deploy/cibseven/Dockerfile.dockerignore").exists()
