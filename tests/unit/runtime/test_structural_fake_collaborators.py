@@ -517,3 +517,29 @@ def test_fixture_named_monkeypatch_is_a_shadow_not_an_injection():
 def test_unresolvable_project_reexport_proves_nothing():
     source = _REEXPORTED_URLLIB3.replace("kafka_client", "does_not_exist_module")
     assert fence._achados_estruturais_em_fonte(source, "arbitrary.py")
+
+
+_CURSOR_SPECIMEN = (
+    "class Cursor:\n"
+    "    def execute(self, op, params=None): pass\n"
+    "    def fetchone(self): pass\n"
+    "    def close(self): pass\n"
+)
+_CURSOR_REAL_FILE = "tests/unit/platform/engine_bootstrap/test_controller_postgres_storage.py"
+
+
+def test_declared_constructed_double_is_keyed_to_one_file_and_one_class():
+    """`_DUPLOS_CONSTRUIDOS_DECLARADOS` isenta EXATAMENTE (arquivo, classe): o mesmo `close`
+    sincrono continua acusado em qualquer outro arquivo, e em outra classe do mesmo arquivo. Sem
+    este teste a tabela poderia crescer em silencio ate' virar um `# noqa` global para `close`."""
+    assert fence._achados_estruturais_em_fonte(_CURSOR_SPECIMEN, _CURSOR_REAL_FILE) == []
+    windows_label = _CURSOR_REAL_FILE.replace("/", "\\")
+    assert fence._achados_estruturais_em_fonte(_CURSOR_SPECIMEN, windows_label) == []
+    assert fence._achados_estruturais_em_fonte(_CURSOR_SPECIMEN, "arbitrary.py")
+    sibling = _CURSOR_SPECIMEN.replace("Cursor", "Sibling")
+    assert fence._achados_estruturais_em_fonte(sibling, _CURSOR_REAL_FILE)
+
+
+def test_every_declared_constructed_double_carries_a_reason():
+    for chave, (metodos, razao) in fence._DUPLOS_CONSTRUIDOS_DECLARADOS.items():
+        assert metodos and razao.strip(), chave
