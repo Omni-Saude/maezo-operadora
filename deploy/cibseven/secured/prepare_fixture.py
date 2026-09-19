@@ -44,11 +44,67 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def secure_trace_boundary(tree: ET.ElementTree) -> None:
+    """Install terminal TRACE refusal without enabling connector TRACE execution."""
+    connectors = tree.findall(".//Connector")
+    engines = tree.findall(".//Engine")
+    if len(connectors) != 1 or connectors[0].get("SSLEnabled") != "true" or len(engines) != 1:
+        raise ValueError("one HTTPS connector and one Engine required")
+    name = "br.com.maezo.workload.TraceRefusalValve"
+    if any(valve.get("className") == name for valve in tree.findall(".//Valve")):
+        raise ValueError("TRACE boundary already configured")
+    connectors[0].set("allowTrace", "false")
+    engines[0].insert(0, ET.Element("Valve", {"className": name}))
+
+
+def secure_startup_boundary(tree: ET.ElementTree) -> None:
+    """Replace exactly the pinned vendor Server owner; never add a second bootstrap."""
+    root = tree.getroot()
+    vendor = "org.cibseven.bpm.container.impl.tomcat.TomcatBpmPlatformBootstrap"
+    replacement = "br.com.maezo.workload.SecuredBpmPlatformBootstrap"
+    listeners = root.findall("Listener")
+    matches = [node for node in listeners if node.get("className") == vendor]
+    if len(matches) != 1 or any(node.get("className") == replacement for node in listeners):
+        raise ValueError("exactly one original Server bootstrap required")
+    globals_ = [
+        node
+        for node in listeners
+        if node.get("className") == "org.apache.catalina.mbeans.GlobalResourcesLifecycleListener"
+    ]
+    jdbc = [
+        node
+        for node in root.findall("GlobalNamingResources/Resource")
+        if node.get("name") == "jdbc/ProcessEngine"
+    ]
+    if (
+        len(globals_) != 1
+        or len(jdbc) != 1
+        or jdbc[0].get("factory") != "org.apache.tomcat.jdbc.pool.DataSourceFactory"
+    ):
+        raise ValueError("exact original global owner and JDBC factory required")
+    matches[0].set("className", replacement)
+    globals_[0].set("className", "br.com.maezo.workload.SecuredGlobalResourcesLifecycleListener")
+    jdbc[0].set("factory", "br.com.maezo.workload.SecuredDataSourceFactory")
+    owners = [root, *root.findall("Service"), *root.findall("Service/Engine")]
+    if root.tag != "Server" or len(owners) != 3:
+        raise ValueError("one Server/Service/Engine required")
+    for owner in owners:
+        owner.set("throwOnFailure", "true")
+
+
 def prepare(args) -> None:
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", args.secured_image):
         raise ValueError("actual immutable secured image digest required")
-    if args.bootstrap_image != "sha256:9f0ba266d1c3f5712da455560883340451bb59c30bae0d10abc4f2d5f0116c5b":
-        raise ValueError("this fixture requires the qualified pinned bootstrap image")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", args.bootstrap_image):
+        raise ValueError("actual immutable candidate bootstrap image digest required")
+    receipt = json.loads(args.image_receipt.read_text())
+    if any(receipt.get(key) != getattr(args, key) for key in ("bootstrap_image", "secured_image")):
+        raise ValueError("candidate image receipt disagrees with requested images")
+    if receipt.get("source_sha") != args.sha or any(
+        not re.fullmatch(r"[0-9a-f]{64}", receipt.get(key, ""))
+        for key in ("bootstrap_jar_sha256", "secured_jar_sha256")
+    ):
+        raise ValueError("candidate source and both built JAR digests required")
     spec = importlib.util.spec_from_file_location(
         "human_fixture", args.checkout / "deploy/cibseven/package-test/prepare.py"
     )
@@ -150,23 +206,28 @@ def prepare(args) -> None:
             for connector in list(service.findall("Connector")):
                 if connector.get("SSLEnabled") != "true":
                     service.remove(connector)
+        secure_trace_boundary(tree)
+        secure_startup_boundary(tree)
         for host in tree.findall(".//Host"):
             host.set("autoDeploy", "false")
         tree.write(root / "secured-server.xml", encoding="utf-8", xml_declaration=True)
         files = []
         for source, remote in [
             (root / "secured-server.xml", "/camunda/conf/server.xml"),
-            (args.checkout / "deploy/cibseven/secured/descriptors/global-web.xml", "/camunda/conf/web.xml"),
+            (
+                args.checkout / "deploy/cibseven/secured/descriptors/startup-global-web.xml",
+                "/camunda/conf/web.xml",
+            ),
             (
                 args.checkout / "deploy/cibseven/secured/descriptors/bpm-platform.xml",
                 "/camunda/conf/bpm-platform.xml",
             ),
             (
-                args.checkout / "deploy/cibseven/secured/descriptors/engine-rest-web.xml",
+                args.checkout / "deploy/cibseven/secured/descriptors/startup-engine-rest-web.xml",
                 "/camunda/webapps/engine-rest/WEB-INF/web.xml",
             ),
             (
-                args.checkout / "deploy/cibseven/human-webapp/WEB-INF/web.xml",
+                args.checkout / "deploy/cibseven/secured/descriptors/human-web.xml",
                 "/camunda/webapps/maezo-human/WEB-INF/web.xml",
             ),
             (
@@ -174,6 +235,15 @@ def prepare(args) -> None:
                 "/camunda/webapps/camunda/WEB-INF/web.xml",
             ),
         ]:
+            files.append({"path": remote, "sha256": sha(source)})
+        for name, remote in [
+            ("context.xml", "/camunda/conf/context.xml"),
+            *(
+                (f"{app}-web.xml", f"/camunda/webapps/{app}/WEB-INF/web.xml")
+                for app in ("ROOT", "docs", "manager", "host-manager", "webapp", "examples")
+            ),
+        ]:
+            source = args.checkout / "deploy/cibseven/secured/descriptors" / name
             files.append({"path": remote, "sha256": sha(source)})
         policy = {
             "protocol": "maezo.engine-boundary.v1",
@@ -255,6 +325,7 @@ def prepare(args) -> None:
                 "tenant": tenant,
                 "checkout": str(args.checkout),
                 "base_files": str(args.base_files),
+                "image_receipt": receipt,
             },
         )
         print("Prepared private D7 fixture; policy binding requires explicit seed phase.")
@@ -549,7 +620,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     p = commands.add_parser("prepare")
-    for name in ("checkout", "base-files", "private-root", "evidence-root", "output"):
+    for name in ("checkout", "base-files", "private-root", "evidence-root", "output", "image-receipt"):
         p.add_argument("--" + name, type=Path, required=True)
     for name in ("sha", "bootstrap-image", "secured-image"):
         p.add_argument("--" + name, required=True)

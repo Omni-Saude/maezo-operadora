@@ -2,6 +2,8 @@
   <modelVersion>4.0.0</modelVersion><groupId>br.com.maezo</groupId><artifactId>human-command-engine</artifactId><version>1.0.0</version>
   <properties><maven.compiler.release>17</maven.compiler.release><project.build.sourceEncoding>UTF-8</project.build.sourceEncoding><project.build.outputTimestamp>2026-09-08T00:00:00Z</project.build.outputTimestamp></properties>
   <dependencies>
+    <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-jdbc</artifactId><version>10.1.47</version><scope>provided</scope></dependency>
+    <dependency><groupId>org.apache.tomcat</groupId><artifactId>tomcat-catalina</artifactId><version>10.1.47</version><scope>provided</scope></dependency>
     <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.1.0</version><scope>provided</scope></dependency>
     <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><version>6.0.0</version><scope>provided</scope></dependency>
     <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine-rest-core-jakarta</artifactId><version>2.1.0</version><scope>provided</scope><exclusions><exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion></exclusions></dependency>
@@ -12,8 +14,8 @@
   <build><plugins>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-resources-plugin</artifactId><version>3.3.1</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId><version>3.4.2</version><executions>
-      <execution><id>default-jar</id><configuration><excludes><exclude>br/com/maezo/workload/CertificateAuthenticationProvider.class</exclude></excludes></configuration></execution>
-      <execution><id>native-rest-spi</id><phase>package</phase><goals><goal>jar</goal></goals><configuration><classifier>rest-spi</classifier><includes><include>br/com/maezo/workload/CertificateAuthenticationProvider.class</include></includes></configuration></execution>
+      <execution><id>default-jar</id><configuration><excludes><exclude>br/com/maezo/workload/CertificateAuthenticationProvider.class</exclude><exclude>br/com/maezo/workload/SecuredFetchAndLockContextListener*.class</exclude></excludes></configuration></execution>
+      <execution><id>native-rest-spi</id><phase>package</phase><goals><goal>jar</goal></goals><configuration><classifier>rest-spi</classifier><includes><include>br/com/maezo/workload/CertificateAuthenticationProvider.class</include><include>br/com/maezo/workload/SecuredFetchAndLockContextListener*.class</include></includes></configuration></execution>
     </executions></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version><configuration><excludes><exclude>**/*EngineIT.java</exclude></excludes><failIfNoTests>true</failIfNoTests></configuration></plugin>

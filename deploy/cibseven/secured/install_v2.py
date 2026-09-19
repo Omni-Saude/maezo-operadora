@@ -247,6 +247,22 @@ def preparation_checks(selector):
 
 
 def render(binding):
+    return _render(binding)
+
+
+def qualification_checks(binding, *, manifest_bytes=None, template_bytes=None):
+    """Existing owner/preparation and installed-catalogue checks, same transaction.
+
+    No BEGIN/COMMIT, psql control flow or native installation DDL is returned.
+    This observes a prior native installation; it does not produce a receipt.
+    """
+    if (manifest_bytes is None) != (template_bytes is None):
+        raise ValueError("incomplete_source_bundle")
+    bundle = None if manifest_bytes is None else (manifest_bytes, template_bytes)
+    return _render(binding, qualification_readback=True, source_bundle=bundle)
+
+
+def _render(binding, *, qualification_readback=False, source_bundle=None):
     keys = (
         set(ROLES)
         | {r + "_oid" for r in ROLES}
@@ -290,11 +306,19 @@ def render(binding):
         if type(binding[key]) is not str or re.fullmatch(r"[0-9a-f]{64}", binding[key]) is None:
             raise ValueError("invalid_digest")
     preparation_selector = preparation(binding)
-    manifest = read_json(MANIFEST)
-    sql = SQL.read_text()
+    if source_bundle is None:
+        manifest = read_json(MANIFEST)
+        sql = SQL.read_text()
+        manifest_wire = MANIFEST.read_bytes()
+    else:
+        manifest_wire, template_wire = source_bundle
+        if type(manifest_wire) is not bytes or type(template_wire) is not bytes:
+            raise ValueError("invalid_source_bundle")
+        manifest = json.loads(manifest_wire, object_pairs_hook=pairs)
+        sql = template_wire.decode("utf8")
     if hashlib.sha256(sql.encode()).hexdigest() != manifest["sql_template_sha256"]:
         raise ValueError("template_drift")
-    digest = hashlib.sha256(MANIFEST.read_bytes()).hexdigest()
+    digest = hashlib.sha256(manifest_wire).hexdigest()
     declarations = re.findall(
         r"CREATE FUNCTION maezo_native_v2\.(\w+)\(([^)]*)\) RETURNS ([^\n]+?) LANGUAGE", sql
     )
@@ -582,6 +606,8 @@ def render(binding):
         + "::uuid AND event='PREPARED')"
         + " THEN RAISE EXCEPTION 'native_v2_migration_drift';END IF;END $native_replay$;\n"
     )
+    if qualification_readback:
+        return preflight + replacements["__VERIFY_NATIVE_ACL__"] + "\n" + verify
     return (
         "\\set ON_ERROR_STOP on\nBEGIN;\nSET LOCAL lock_timeout='1000ms';\n"
         "SET LOCAL statement_timeout='5000ms';\n"
