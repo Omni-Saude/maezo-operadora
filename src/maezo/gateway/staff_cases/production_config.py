@@ -96,6 +96,14 @@ class PortalProductionSettings(BaseSettings):
     #: a byte of vault material is parsed (`decision_materials.decision_manifest_matches`).
     decision_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
     decision_public_manifest_sha256: Digest | None = None
+    #: WP-J1-04. The document plane (concrete `DocumentAuthority` /
+    #: `ProtectedDocumentProvider` and the PHI byte route's provider) binds only when
+    #: this third fixed path is configured; without it the document routes keep refusing
+    #: exactly as `main` ships them. It may not be named without the human plane, and it
+    #: holds the PHI document key, so the same out-of-band anchor discipline applies.
+    document_material_directory: Literal["/run/maezo-document-materials/current"] | None = None
+    document_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
+    document_public_manifest_sha256: Digest | None = None
     staff_material_directory: Literal["/run/maezo-staff-materials/current"] | None = None
     staff_material_version_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9-]{32,64}$")
     staff_public_manifest_sha256: Digest | None = None
@@ -153,6 +161,37 @@ class PortalProductionSettings(BaseSettings):
                 }
             )
             != 3
+        ):
+            raise PortalStaffBootstrapError()
+        # The document plane (WP-J1-04) is also an addition to the human plane, and it
+        # is complete-or-absent in its own right: naming its directory without its anchor
+        # would start it pinned to nothing. Its version and digest are distinct from the
+        # other three planes'.
+        document = [getattr(self, n) for n in type(self).model_fields if n.startswith("document_")]
+        if any(v is not None for v in document) and any(v is None for v in document):
+            raise PortalStaffBootstrapError()
+        if any(v is not None for v in document) and (
+            self.document_material_directory is not None
+            and (
+                len(
+                    {
+                        self.document_material_version_id,
+                        self.decision_material_version_id,
+                        self.human_material_version_id,
+                        self.staff_material_version_id,
+                    }
+                )
+                != 4
+                or len(
+                    {
+                        self.document_public_manifest_sha256,
+                        self.decision_public_manifest_sha256,
+                        self.human_public_manifest_sha256,
+                        self.staff_public_manifest_sha256,
+                    }
+                )
+                != 4
+            )
         ):
             raise PortalStaffBootstrapError()
         if self.capabilities == "identity":

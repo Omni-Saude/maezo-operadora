@@ -389,6 +389,12 @@ class Preparation:
                 "restored default cache rejected an ONLINE command; cleaning it and repopulating once",
                 file=sys.stderr,
             )
+            # Anotacao no stdout (workflow commands so' sao lidos de stdout): sem isto um cache
+            # corrompido em TODO run custaria um redownload completo por run sem ninguem perceber.
+            print(
+                "::warning title=uv cache::restored default uv cache was corrupt; cleaned and "
+                "repopulated once (details in cache-recovery.json of the proof artifact)"
+            )
             self.record(
                 "cache-recovery.json",
                 {

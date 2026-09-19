@@ -448,6 +448,17 @@ class HelenaDispatcher:
             observadas=veredito.observadas,
             message_pseudonym=log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer),
         )
+        if not veredito.avisar:
+            # Ja' avisamos esta conversa nesta janela. Responder de novo a cada mensagem do laco
+            # seria pagar um envio por recusa e, com um bot do outro lado, fabricar um laco de
+            # ida e volta (security-reviewer, 18/09/2026). A recusa esta' contada acima.
+            return {
+                "limite_excedido": True,
+                "escopo_do_limite": veredito.escopo,
+                "conversation_id": conversation_id,
+                "aviso_enviado": False,
+                "aviso_suprimido": True,
+            }
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
             phone_hash=phone_hash,
@@ -467,6 +478,7 @@ class HelenaDispatcher:
             "escopo_do_limite": veredito.escopo,
             "conversation_id": conversation_id,
             "aviso_enviado": enviada,
+            "aviso_suprimido": False,
         }
 
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:

@@ -7,6 +7,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 
+from maezo.gateway.documents.materials import DocumentPlanePin
 from maezo.gateway.human.decision_materials import DecisionMaterialPin
 from maezo.gateway.human.production import human_runtime
 from maezo.gateway.human.production_materials import HumanMaterialPin
@@ -62,13 +63,16 @@ def create_production_app() -> FastAPI:
 
 @asynccontextmanager
 async def _human_slots(application: FastAPI, settings: PortalProductionSettings) -> AsyncIterator[None]:
-    """Bind the human read and command planes for the life of the application.
+    """Bind the human read, command and document planes for the life of the application.
 
     `human_runtime` starts the assignment relay before yielding, so the first gateway
     this app builds already has a running relay behind it; on the way out it awaits
-    the in-flight delivery before its own pools close. The document slot stays `None`
-    (WP-J1-04) and the communication slot stays `None` (its publication source is not
-    built yet) — the routes refuse rather than answer from a stub.
+    the in-flight delivery before its own pools close. The document slot (WP-J1-04)
+    binds the concrete `DocumentAuthority`/`ProtectedDocumentProvider` only when the
+    deployment names the document material plane; otherwise it stays `None` and the
+    routes refuse exactly as `main` ships them. The communication slot stays `None`
+    (its publication source is not built yet) — the routes refuse rather than answer
+    from a stub.
 
     `decision_material_directory` (WP-J1-06 Phase 0) decides whether the decision
     ports bind. Passing `None` through is the deployment saying "no decision plane":
@@ -76,19 +80,22 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
     but the same fail-closed refusal `main` ships.
     """
     pin = _human_material_pin(settings)
+    document = _document_material_pin(settings)
     async with AsyncExitStack() as resources:
         # The tenant cross-check travels INSIDE the pin, so a bundle for another tenant
         # is refused while parsing the manifest — before a pool is opened, before the
         # first query and before the command relay starts. The assertion below is the
         # cheap belt to that braces, not the control.
-        # The decision plane (WP-J1-06) rides the same call and is loaded only after
-        # that verification succeeds; `None` means no decision plane and the gateway
-        # keeps refusing decisions.
+        # The decision (WP-J1-06) and document (WP-J1-04) planes ride the same call and
+        # are loaded only after that verification succeeds; `None` means the plane is
+        # dark and the gateway keeps refusing those operations.
         runtime = await resources.enter_async_context(
             human_runtime(
                 pin,
                 decision_directory=settings.decision_material_directory,
                 decision_pin=_decision_material_pin(settings),
+                document_directory=None if document is None else settings.document_material_directory,
+                document_pin=document,
             )
         )
         if runtime.scope.tenant != settings.tenant:
@@ -103,11 +110,19 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
             raise PortalStaffBootstrapError()
         application.state.task_read_service_factory = runtime.read.build
         application.state.decision_service_factory = runtime.assignment.build
+        # WP-J1-04: the metadata authority and custody provider. Never a byte-serving
+        # stub — document bytes stay behind `/api/v1/phi/documents/{ref}/content`, served
+        # by the separately deployed PHI application `runtime.documents.phi_service` is
+        # the factory for.
+        application.state.document_service_factory = (
+            None if runtime.documents is None else runtime.documents.service
+        )
         try:
             yield
         finally:
             application.state.task_read_service_factory = None
             application.state.decision_service_factory = None
+            application.state.document_service_factory = None
 
 
 def _human_material_pin(settings: PortalProductionSettings) -> HumanMaterialPin:
@@ -145,4 +160,22 @@ def _decision_material_pin(settings: PortalProductionSettings) -> DecisionMateri
         tenant=settings.tenant,
         material_version_id=settings.decision_material_version_id,
         public_manifest_sha256=settings.decision_public_manifest_sha256,
+    )
+
+
+def _document_material_pin(settings: PortalProductionSettings) -> DocumentPlanePin | None:
+    """The document plane's out-of-band anchor (WP-J1-04).
+
+    `None` exactly when the plane is dark — the document routes then keep refusing.
+    `complete_profile` already refuses a half-configured document profile; this repeats
+    the narrowing so the pin can never be built from a partially present one.
+    """
+    if settings.document_material_directory is None:
+        return None
+    if settings.document_material_version_id is None or settings.document_public_manifest_sha256 is None:
+        raise PortalStaffBootstrapError()
+    return DocumentPlanePin(
+        tenant=settings.tenant,
+        plane_version_id=settings.document_material_version_id,
+        public_manifest_sha256=settings.document_public_manifest_sha256,
     )

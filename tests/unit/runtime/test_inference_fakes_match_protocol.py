@@ -978,7 +978,7 @@ def _checa_metodo_ambiguo(
 # proposito: outro arquivo, ou outra classe no mesmo arquivo, continua acusado — e'
 # `test_declared_constructed_double_is_keyed_to_one_file_and_one_class` em
 # test_structural_fake_collaborators.py que prova isso. Toda entrada exige razao nao-vazia
-# (asserido em import). Isto NAO e' um `# noqa`: e' o mesmo contrato de allowlist com justificativa
+# (asserido em import). Isto NAO e' um `noqa`: e' o mesmo contrato de allowlist com justificativa
 # que `.github/osv-allowlist.json` e `.gitleaksignore` seguem neste repo.
 _DUPLOS_CONSTRUIDOS_DECLARADOS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
     ("tests/unit/platform/engine_bootstrap/test_controller_postgres_storage.py", "Cursor"): (
@@ -1557,6 +1557,8 @@ def _achados_estruturais_em_fonte(fonte: str, rotulo: str) -> list[str]:
             for nome_secundario in _SECUNDARIOS_POR_FAMILIA.get(nome_familia, ()):
                 if nome_secundario not in metodos_classe:
                     continue
+                if nome_secundario in isentos_declarados:
+                    continue  # a isencao declarada vale tambem para secundarios (code-reviewer 18/09)
                 familia = _FAMILIA_POR_NOME[nome_familia]
                 if nome_secundario not in familia.metodos():
                     continue
