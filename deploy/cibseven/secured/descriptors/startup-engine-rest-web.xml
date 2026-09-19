@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<web-app xmlns="http://java.sun.com/xml/ns/javaee" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="3.0" xsi:schemaLocation="http://java.sun.com/xml/ns/javaee    http://java.sun.com/xml/ns/javaee/web-app_3_0.xsd">
+<web-app xmlns="http://java.sun.com/xml/ns/javaee" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="3.0" xsi:schemaLocation="http://java.sun.com/xml/ns/javaee    http://java.sun.com/xml/ns/javaee/web-app_3_0.xsd" metadata-complete="true">
 
   <!-- Fetch And Lock Handler (long polling): -->
 
@@ -23,7 +23,7 @@
   </listener>
 
   <listener>
-    <listener-class>org.cibseven.bpm.engine.rest.impl.FetchAndLockContextListener</listener-class>
+    <listener-class>br.com.maezo.workload.SecuredFetchAndLockContextListener</listener-class>
   </listener>
 
   <!-- Pseudo Authentication Filter through custom header (not for production)-->
@@ -69,4 +69,4 @@
     <url-pattern>/*</url-pattern>
   </servlet-mapping>
 
-<filter><filter-name>maezo-boundary</filter-name><filter-class>br.com.maezo.workload.BoundaryFilter</filter-class><async-supported>false</async-supported></filter><filter-mapping><filter-name>maezo-boundary</filter-name><url-pattern>/*</url-pattern><dispatcher>REQUEST</dispatcher><dispatcher>FORWARD</dispatcher><dispatcher>INCLUDE</dispatcher><dispatcher>ERROR</dispatcher><dispatcher>ASYNC</dispatcher></filter-mapping><filter><filter-name>maezo-native-auth</filter-name><filter-class>org.cibseven.bpm.engine.rest.security.auth.ProcessEngineAuthenticationFilter</filter-class><async-supported>false</async-supported><init-param><param-name>authentication-provider</param-name><param-value>br.com.maezo.workload.CertificateAuthenticationProvider</param-value></init-param></filter><filter-mapping><filter-name>maezo-native-auth</filter-name><url-pattern>/*</url-pattern><dispatcher>REQUEST</dispatcher><dispatcher>FORWARD</dispatcher><dispatcher>INCLUDE</dispatcher><dispatcher>ERROR</dispatcher><dispatcher>ASYNC</dispatcher></filter-mapping><servlet><servlet-name>maezo-workload</servlet-name><servlet-class>br.com.maezo.workload.WorkloadServlet</servlet-class><load-on-startup>1</load-on-startup></servlet><servlet-mapping><servlet-name>maezo-workload</servlet-name><url-pattern>/maezo/*</url-pattern></servlet-mapping></web-app>
+<filter><filter-name>maezo-boundary</filter-name><filter-class>br.com.maezo.workload.BoundaryFilter</filter-class><async-supported>false</async-supported></filter><filter-mapping><filter-name>maezo-boundary</filter-name><url-pattern>/*</url-pattern><dispatcher>REQUEST</dispatcher><dispatcher>FORWARD</dispatcher><dispatcher>INCLUDE</dispatcher><dispatcher>ERROR</dispatcher><dispatcher>ASYNC</dispatcher></filter-mapping><filter><filter-name>maezo-native-auth</filter-name><filter-class>org.cibseven.bpm.engine.rest.security.auth.ProcessEngineAuthenticationFilter</filter-class><async-supported>false</async-supported><init-param><param-name>authentication-provider</param-name><param-value>br.com.maezo.workload.CertificateAuthenticationProvider</param-value></init-param></filter><filter-mapping><filter-name>maezo-native-auth</filter-name><url-pattern>/*</url-pattern><dispatcher>REQUEST</dispatcher><dispatcher>FORWARD</dispatcher><dispatcher>INCLUDE</dispatcher><dispatcher>ERROR</dispatcher><dispatcher>ASYNC</dispatcher></filter-mapping><servlet><servlet-name>maezo-workload</servlet-name><servlet-class>br.com.maezo.workload.WorkloadServlet</servlet-class><load-on-startup>1</load-on-startup></servlet><servlet-mapping><servlet-name>maezo-workload</servlet-name><url-pattern>/maezo/*</url-pattern></servlet-mapping><absolute-ordering /></web-app>

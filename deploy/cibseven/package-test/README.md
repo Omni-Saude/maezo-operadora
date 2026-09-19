@@ -1,5 +1,10 @@
 # Prova local descartável do pacote D5
 
+Para qualificação do candidato com bootstrap humano e cutover D7, use
+[LIFECYCLE.md](LIFECYCLE.md): imagens do mesmo SHA, cinco testes humanos antes
+da remoção do listener HTTP, preflight vivo e teardown do projeto exclusivo.
+As observações históricas abaixo permanecem evidência do pacote D5 original.
+
 Contrato: ADR-0049 D5/D7, `docs/plan.md:231–244`, DL-0048. Esta prova cobre
 carregamento do plugin na imagem CIB Seven 2.1.0 e autenticação TLS direta.
 Não implementa D7 (migração de todos os callers/REST), deployment produtivo ou

@@ -5,18 +5,37 @@ COPY src/maezo/portal/engine/java/pom.xml ./pom.xml
 COPY src/maezo/portal/engine/java/src ./src
 RUN mvn -B -DskipTests package
 FROM cibseven/cibseven:tomcat-2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
+# Optional vendor sample/welcome apps are outside the closed StartupAdmission application set.
 RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war \
+    /camunda/webapps/cibseven-welcome /camunda/webapps/cibseven-welcome.war \
     && rm -f /camunda/lib/camunda-invoice*.jar \
-    && test ! -e /camunda/webapps/camunda-invoice
+    && test ! -e /camunda/webapps/camunda-invoice \
+    && test ! -e /camunda/webapps/cibseven-welcome \
+    && test ! -e /camunda/webapps/cibseven-welcome.war
 COPY --from=secured-build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar
 # SPI API is provided by engine-rest's WEB-INF dependencies. It cannot live in Tomcat's common-loader jar.
 COPY --from=secured-build /build/target/human-command-engine-1.0.0-rest-spi.jar /camunda/webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar
 COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
 # Reproducible XML patches of the inspected actual distribution; vendor servlet defaults retained.
-COPY deploy/cibseven/secured/descriptors/global-web.xml /camunda/conf/web.xml
+COPY deploy/cibseven/secured/descriptors/startup-global-web.xml /camunda/conf/web.xml
 COPY deploy/cibseven/secured/descriptors/bpm-platform.xml /camunda/conf/bpm-platform.xml
-COPY deploy/cibseven/secured/descriptors/engine-rest-web.xml /camunda/webapps/engine-rest/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/startup-engine-rest-web.xml /camunda/webapps/engine-rest/WEB-INF/web.xml
 RUN cp /camunda/webapps/camunda/WEB-INF/web.xml /camunda/camunda-web.legacy.xml
 COPY deploy/cibseven/secured/descriptors/camunda-web.xml /camunda/webapps/camunda/WEB-INF/web.xml
 # No default policy or TLS material: SecureLayout requires exactly one HTTPS/mTLS connector,
 # explicit mounted-file digests, auth/SPI/filter bindings and disabled autoDeploy before availability.
+
+# ADR-0053: static initializer admission applies before any context starts.
+COPY deploy/cibseven/secured/descriptors/context.xml /camunda/conf/context.xml
+COPY deploy/cibseven/secured/descriptors/ROOT-web.xml /camunda/webapps/ROOT/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/docs-web.xml /camunda/webapps/docs/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/manager-web.xml /camunda/webapps/manager/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/host-manager-web.xml /camunda/webapps/host-manager/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/webapp-web.xml /camunda/webapps/webapp/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/examples-web.xml /camunda/webapps/examples/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/human-web.xml /camunda/webapps/maezo-human/WEB-INF/web.xml
+# Fail the build if its actual application inventory differs from the reviewed runtime set.
+RUN test "$(find /camunda/webapps -mindepth 1 -maxdepth 1 | wc -l)" -eq 9 \
+    && for app in ROOT camunda docs engine-rest examples host-manager maezo-human manager webapp; do \
+        test -d "/camunda/webapps/$app" && test ! -L "/camunda/webapps/$app" || exit 1; \
+    done

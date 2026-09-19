@@ -17,6 +17,10 @@ import httpx
 import pytest
 
 from maezo.portal.contracts.queues import TaskQueuePage, TaskReadResponse
+from tests.support.tls_oracle import (
+    expect_pinned_jsse_missing_client_certificate_alert,
+    server_authenticated_tls13_context,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -85,17 +89,17 @@ def test_packaged_direct_mtls_native_task_and_purpose_separation() -> None:
 def test_no_forwarded_certificate_or_plaintext_admission() -> None:
     fixture = private_fixture()
     origin = required("MAEZO_PORTAL_READ_IT_ORIGIN").rstrip("/")
-    context = ssl.create_default_context(cafile=required("MAEZO_PORTAL_READ_IT_CA_FILE"))
-    with httpx.Client(verify=context, trust_env=False, follow_redirects=False, timeout=10) as client:
-        try:
-            response = client.post(
-                origin + "/maezo-human-read/v1/task",
-                content=Path(fixture["task_envelope_file"]).read_bytes(),
-                headers={"Content-Type": "application/json", "X-Forwarded-Client-Cert": "PUBLIC_SYNTHETIC"},
-            )
-        except httpx.TransportError:
-            return  # TLS handshake rejection is the expected boundary.
-        assert response.status_code == 403
+    assert origin.startswith("https://")
+    context = server_authenticated_tls13_context(required("MAEZO_PORTAL_READ_IT_CA_FILE"))
+    with (
+        httpx.Client(verify=context, trust_env=False, follow_redirects=False, timeout=10) as client,
+        expect_pinned_jsse_missing_client_certificate_alert(),
+    ):
+        client.post(
+            origin + "/maezo-human-read/v1/task",
+            content=Path(fixture["task_envelope_file"]).read_bytes(),
+            headers={"Content-Type": "application/json", "X-Forwarded-Client-Cert": "PUBLIC_SYNTHETIC"},
+        )
 
 
 def test_real_q1_bff_queue_and_detail_keep_private_continuity_out_of_browser() -> None:

@@ -23,6 +23,11 @@ import asyncpg
 import httpx
 import pytest
 
+from tests.support.d7_recovery import (
+    naive_utc_epoch_millis,
+    preserve_restoration_errors,
+    wait_authenticated_readiness,
+)
 from tests.support.tls_oracle import (
     expect_pinned_jsse_missing_client_certificate_alert,
     server_authenticated_tls13_context,
@@ -42,13 +47,17 @@ def fixture() -> Path:
     return root
 
 
-def client(purpose: str = "agent") -> httpx.Client:
+def client_tls_context(purpose: str) -> ssl.SSLContext:
     root = fixture()
     context = ssl.create_default_context(cafile=root / "ca.crt")
     context.load_cert_chain(root / f"{purpose}.crt", root / f"{purpose}.key")
+    return context
+
+
+def client(purpose: str = "agent") -> httpx.Client:
     return httpx.Client(
         base_url="https://localhost:18443",
-        verify=context,
+        verify=client_tls_context(purpose),
         trust_env=False,
         follow_redirects=False,
         timeout=15,
@@ -488,30 +497,46 @@ def test_scoped_start_read_and_worker_lifecycle_have_native_causal_effects() -> 
         async def observe():
             db = await database()
             try:
-                return dict(await db.fetchrow("SELECT * FROM act_ru_ext_task WHERE id_=$1", target["id"]))
+                assert await db.fetchval("SHOW TimeZone") in {"UTC", "Etc/UTC"}
+                row = dict(
+                    await db.fetchrow(
+                        "SELECT *, pg_typeof(lock_exp_time_)::text AS lock_type "
+                        "FROM act_ru_ext_task WHERE id_=$1",
+                        target["id"],
+                    )
+                )
+                assert row["lock_type"] == "timestamp without time zone"
+                return row
             finally:
                 await db.close()
 
-        assert asyncio.run(observe())["worker_id_"] == "fixture-worker"
+        observed = asyncio.run(observe())
+        assert observed["worker_id_"] == "fixture-worker"
+        # Actual native wire epoch and stored timestamp establish the UTC convention.
+        assert naive_utc_epoch_millis(observed["lock_exp_time_"]) == target["lock_expires_at"]
         for suffix in ("external_extend_lock", "external_failure", "external_unlock"):
             assert operation(connection, typed_request(base + "." + suffix, target["id"])) == {
                 "applied": True
             }
             observed = asyncio.run(observe())
             if suffix == "external_extend_lock":
-                assert observed["lock_exp_time_"].timestamp() * 1000 >= target["lock_expires_at"]
+                assert naive_utc_epoch_millis(observed["lock_exp_time_"]) >= target["lock_expires_at"]
             else:
                 if suffix == "external_failure":
                     assert observed["retries_"] == 1
                 assert (
                     observed["lock_exp_time_"] is None
-                    or observed["lock_exp_time_"].timestamp() <= time.time()
+                    or naive_utc_epoch_millis(observed["lock_exp_time_"]) <= time.time() * 1000
                 )
                 acquired = operation(connection, typed_request(base + ".fetch_lock", "d7-reacquire"))
                 # Other pending tasks can be returned: consume the returned real identity,
                 # never assume fetching a named task or complete a stale ID.
                 assert len(acquired) == 1
                 target = acquired[0]
+                assert (
+                    naive_utc_epoch_millis(asyncio.run(observe())["lock_exp_time_"])
+                    == target["lock_expires_at"]
+                )
         complete = typed_request(base, target["id"])
         assert operation(connection, complete) == {"applied": True}
 
@@ -712,18 +737,31 @@ def restart_owned_engine(document: dict) -> None:
 
 
 def wait_ready(purpose: str = "agent") -> None:
-    deadline = time.monotonic() + 90
-    while time.monotonic() < deadline:
-        try:
-            with client(purpose) as connection:
-                response = connection.get("/engine-rest/maezo/v1/readiness")
-            if response.status_code == 200:
-                assert response.json()["ready"] and response.json()["capabilities"]
-                return
-        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
-            pass
-        time.sleep(0.25)
-    pytest.fail("actual authenticated capability readiness did not recover")
+    evidence = recovery_evidence("readiness")
+
+    async def probe(phase_seconds: float) -> httpx.Response:
+        async with httpx.AsyncClient(
+            base_url="https://localhost:18443",
+            verify=client_tls_context(purpose),
+            trust_env=False,
+            follow_redirects=False,
+            timeout=phase_seconds,
+        ) as connection:
+            return await connection.get("/engine-rest/maezo/v1/readiness")
+
+    asyncio.run(
+        wait_authenticated_readiness(
+            probe,
+            lambda: hashlib.sha256((fixture() / "boundary.json").read_bytes()).hexdigest(),
+            evidence,
+        )
+    )
+
+
+def recovery_evidence(label: str) -> Path:
+    path = fixture() / ("recovery-" + label + "-" + uuid4().hex)
+    path.mkdir(mode=0o700)
+    return path
 
 
 def test_real_certificate_overlap_digest_restart_and_old_leaf_revocation() -> None:
@@ -736,7 +774,12 @@ def test_real_certificate_overlap_digest_restart_and_old_leaf_revocation() -> No
     new.update(json.loads((fixture() / "certificate-variants.json").read_text())["agent-next"])
     overlap["peers"].append(new)
     pending = operation_request()
-    try:
+
+    def restore() -> None:
+        restart_owned_engine(original)
+        wait_ready()
+
+    with preserve_restoration_errors(restore, recovery_evidence("rotation")):
         restart_owned_engine(overlap)
         wait_ready()
         wait_ready("agent-next")
@@ -760,9 +803,6 @@ def test_real_certificate_overlap_digest_restart_and_old_leaf_revocation() -> No
         assert snapshot() == before
         with client("agent-next") as new_connection:
             assert operation(new_connection, pending)["id"]
-    finally:
-        restart_owned_engine(original)
-        wait_ready()
 
 
 def test_actual_human_commit_lost_response_then_secured_engine_restart_reconciles_same_pending_identity() -> (
@@ -866,15 +906,17 @@ def test_known_leaf_metadata_mismatch_has_exact_refusal_and_restoration(field: s
             from maezo.gateway.engine_contracts import canonical_json
 
             binding["digest"] = hashlib.sha256(canonical_json(binding["document"])).hexdigest()
-    try:
+
+    def restore() -> None:
+        restart_owned_engine(original)
+        wait_ready()
+
+    with preserve_restoration_errors(restore, recovery_evidence("metadata")):
         restart_owned_engine(changed)
         wait_ready("worker")
         with client() as connection:
             denied(connection.post("/engine-rest/maezo/v1/operations", json=operation_request()))
         assert snapshot() == before
-    finally:
-        restart_owned_engine(original)
-        wait_ready()
 
 
 def record_response(evidence: Path, label: str, response: httpx.Response) -> None:
@@ -1073,7 +1115,13 @@ def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency
         (root / "secured-compose.json").write_text(json.dumps(compose))
     else:
         changed[dependency] = "foreign-tenant" if dependency == "tenant" else "foreign-environment"
-    try:
+
+    def restore() -> None:
+        (root / "secured-compose.json").write_bytes(saved_compose)
+        restart_owned_engine(original)
+        wait_ready()
+
+    with preserve_restoration_errors(restore, evidence):
         restart_owned_engine(changed)
         fault_context = owned_engine_context(evidence, "fault")
         assert fault_context["id"] != baseline_context["id"]
@@ -1114,10 +1162,6 @@ def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency
         assert_start_effect(pending, None)
         with pytest.raises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", 18080), timeout=3):
             pytest.fail("failed secured startup cannot reopen plaintext")
-    finally:
-        (root / "secured-compose.json").write_bytes(saved_compose)
-        restart_owned_engine(original)
-        wait_ready()
     readiness()
     restored_context = owned_engine_context(evidence, "restored")
     assert restored_context["id"] != fault_context["id"]

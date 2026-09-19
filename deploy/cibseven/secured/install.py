@@ -57,6 +57,9 @@ def install():
     for node in list(root):
         if node.tag in (ns + "filter", ns + "filter-mapping"):
             root.remove(node)
+    # Tomcat applies application mappings before defaults. Preserve the same name
+    # so the default boundary mapping is suppressed, not run a second time.
+    filter_nodes(root, ns, "maezo-boundary", "br.com.maezo.workload.BoundaryFilter")
     filter_nodes(
         root,
         ns,
@@ -64,6 +67,20 @@ def install():
         "org.cibseven.bpm.engine.rest.security.auth.ProcessEngineAuthenticationFilter",
         "br.com.maezo.workload.CertificateAuthenticationProvider",
     )
+    # Coyote inspects servlet methods before the Host binds the webapp TCCL.
+    # Initialize Resteasy during normal bound-context startup, not on first TRACE.
+    rest = [node for node in root.findall(ns + "servlet") if node.findtext(ns + "servlet-name") == "Resteasy"]
+    if len(rest) != 1 or rest[0].findtext(ns + "servlet-class") != (
+        "org.jboss.resteasy.plugins.server.servlet.HttpServletDispatcher"
+    ):
+        raise SystemExit("unexpected pinned Resteasy servlet layout")
+    existing = rest[0].findall(ns + "load-on-startup")
+    if len(existing) > 1:
+        raise SystemExit("ambiguous Resteasy startup order")
+    if existing:
+        existing[0].text = "0"
+    else:
+        child(rest[0], ns, "load-on-startup", "0")
     servlet = child(root, ns, "servlet")
     child(servlet, ns, "servlet-name", "maezo-workload")
     child(servlet, ns, "servlet-class", "br.com.maezo.workload.WorkloadServlet")
