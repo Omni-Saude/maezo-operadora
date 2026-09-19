@@ -486,7 +486,9 @@ jobs:
             range="HEAD~1..HEAD"
           fi
           echo "verificando ${range}"
-          hits="$(git log --format='%H%x09%B%x00' "${range}" | tr '\0' '\n' | grep -inE 'co-authored-by:.*(claude|anthropic)' || true)"
+          # Ancorado no INICIO da linha: trailer git e' sempre coluna 0. Sem a ancora, o commit que
+          # introduziu esta guarda foi pego por CITAR o trailer no corpo da mensagem (#426, 1a rodada).
+          hits="$(git log --format='%H%x09%B%x00' "${range}" | tr '\0' '\n' | grep -inE '^co-authored-by:.*(claude|anthropic)' || true)"
           if [ -n "${hits}" ]; then
             echo "::error::commit(s) neste PR assinados por IA (Co-Authored-By: ...claude|anthropic). Regra inviolavel do CLAUDE.md: remova o trailer (rebase/reword) antes de mergear."
             printf '%s\n' "${hits}"
