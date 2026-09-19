@@ -1930,12 +1930,20 @@ def register_auth_workers(
     # nunca corre. A ausencia do seam mantem o comportamento historico byte-a-byte.
     # A ordem de registo e' indiferente (topicos distintos), por isso um `append` basta
     # e evita aritmetica de indices que dependa do bloco acima.
-    if host is None:
-        workers.append(SendDenialNoticeWorker)
     for worker_cls in workers:
         harness.register_worker(worker_cls())
     harness.register_worker(ValidateAutoCriteriaWorker(dmn=seams.get("dmn")))
     harness.register(_NOTIFY_SLA_RISK_TOPIC, make_notify_sla_risk_handler(kafka))
+    # POR ULTIMO, e nao no `append` a lista (18/09/2026, bateria adversarial): se um `register_all_
+    # workers` anterior instalou o dono nativo e SELOU o topico, esta chamada sem o seam e' recusada
+    # pelo selo — correto. Mas quando isso acontecia no MEIO do laco, `ValidateAutoCriteriaWorker` e
+    # o handler cru de `notify_sla_risk` (que vinham depois) NUNCA eram registrados, e via
+    # `register_all_workers` o estrago era global: 21 de ~99 topicos, 4 de 17 dominios sem dono —
+    # exatamente o "STALL every authorization request" que o docstring acima diz existir para
+    # impedir. A ordem e' indiferente para os topicos (sao distintos); e' decisiva para o que a
+    # recusa do selo deixa de pe.
+    if host is None:
+        harness.register_worker(SendDenialNoticeWorker())
     if host is not None:
         # Re-assert exclusivity AFTER registration: the seam's own installation check
         # cannot see workers registered later on the same harness.
