@@ -20,7 +20,7 @@ prompt_versions:
   message: message-v1
   dossier: dossier-v1
   escalation_ack: escalation-ack-v1
-  recusa_de_saida: recusa-lucas-v1
+  recusa_de_saida: recusa-lucas-v2
 model:
   task_default: { tier: fast }
   reasoning:    { tier: frontier }
