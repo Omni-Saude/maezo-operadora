@@ -148,11 +148,20 @@ async def test_synthetic_or_in_memory_provider_is_refused(tmp_path):
     """T00-03 — there is no seam through which a fake provider can be installed."""
     parameters = inspect.signature(compose_human_plane).parameters
     # Materials + deployment resources only: no provider parameter exists at all.
-    # `decision` (WP-J1-06) is the second MATERIAL bundle, not a provider seam — it is
-    # a verified `DecisionMaterials`, and the providers it produces are built inside
-    # `compose_decision_ports` from those bytes, exactly as `material` is used here.
-    assert set(parameters) == {"material", "pool", "source_engine", "lifetime", "decision"}
+    # `decision` (WP-J1-06) and `document` (WP-J1-04) are MATERIAL bundles, not provider
+    # seams — they are verified bundles (`DecisionMaterials`, `DocumentPlane`), and the
+    # providers they carry are built inside their own compositions from those bytes,
+    # exactly as `material` is used here.
+    assert set(parameters) == {
+        "material",
+        "pool",
+        "source_engine",
+        "lifetime",
+        "decision",
+        "document",
+    }
     assert parameters["decision"].annotation == "DecisionMaterials | None"
+    assert parameters["document"].annotation == "DocumentPlane | None"
 
     _, runtime = _plane(tmp_path)
     bundle = runtime.read._new_bundle()
@@ -598,20 +607,31 @@ def test_human_plane_is_dark_without_the_new_capability_literal():
     assert complete.human_public_manifest_sha256 == "8" * 64
 
 
-def test_document_and_communication_slots_are_left_unbound():
-    """Documents are WP-J1-04 and the communication publication source is unbuilt.
+def test_document_slot_binds_the_plane_and_communication_slot_stays_unbound():
+    """WP-J1-04 owns the document slot; the communication publication source is unbuilt.
 
-    The composition root binds neither: the routes refuse rather than answer from a
-    stub, and this test fails the moment someone wires a placeholder into them.
+    The document slot binds ONLY the plane the human runtime composed — never a
+    placeholder, never a literal lambda — and is released on the way out. The
+    communication slot still has no production source at all, so it stays `None` and
+    its routes refuse rather than answer from a stub.
     """
     from maezo.portal.api import production as portal_production
 
     source = inspect.getsource(portal_production)
-    assert "document_service_factory = " not in source
+    # Bound from the composed plane only; this test fails the moment someone wires a
+    # placeholder literal into it.
+    assert (
+        "application.state.document_service_factory = (\n"
+        "            None if runtime.documents is None else runtime.documents.service\n"
+        "        )" in source
+    )
     assert "communication_service_factory = " not in source
-    # They are read only to refuse an ambiguous composition.
+    # Both are read first to refuse an ambiguous composition.
     assert "application.state.document_service_factory is not None" in source
     assert "application.state.communication_service_factory is not None" in source
+    # And the document plane arrives only through the runtime, by directory name and pin.
+    assert "_document_material_pin" in source
+    assert "document_directory=None if document is None else settings.document_material_directory" in source
 
 
 @pytest.mark.asyncio
@@ -676,16 +696,23 @@ async def test_tenant_cross_check_precedes_every_pool_query_and_relay(tmp_path, 
 def test_human_runtime_has_no_seam_that_skips_the_loader():
     """MINOR-5 — materials reach the runtime through the pinned loader or not at all.
 
-    WP-J1-06 added `decision_directory`, and it is NOT such a seam: it is a directory
-    NAME, not material, and `load_decision_materials` accepts exactly one literal path
-    (asserted below and in `test_decision_ports_composition.py`). The rule this test
-    defends — no object may arrive already "verified" — still admits no exception.
+    WP-J1-06 added `decision_directory` and WP-J1-04 added `document_directory`, and
+    NEITHER is such a seam: each is a directory NAME, not material, and its loader
+    accepts exactly one literal path plus its own out-of-band anchor. The rule this
+    test defends — no object may arrive already "verified" — still admits no exception.
     """
     signature = inspect.signature(production_module.human_runtime)
     # `pin` stays the only positional, and every additional parameter is keyword-only
     # material *locators* plus their own out-of-band anchors — never materials.
-    assert list(signature.parameters) == ["pin", "decision_directory", "decision_pin"]
+    assert list(signature.parameters) == [
+        "pin",
+        "decision_directory",
+        "decision_pin",
+        "document_directory",
+        "document_pin",
+    ]
     assert signature.parameters["decision_pin"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert signature.parameters["document_pin"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["pin"].default is inspect.Parameter.empty
     assert signature.parameters["pin"].annotation == "HumanMaterialPin"
     decision = signature.parameters["decision_directory"]
@@ -698,6 +725,13 @@ def test_human_runtime_has_no_seam_that_skips_the_loader():
     # The decision plane goes through its own loader, by name AND by its own
     # out-of-band anchor — naming the directory without the pin is refused (V14 MAJOR-2).
     assert "load_decision_materials(decision_directory, decision_pin)" in source
+    # WP-J1-04's document plane is held to the same discipline.
+    document = signature.parameters["document_directory"]
+    assert document.kind is inspect.Parameter.KEYWORD_ONLY
+    assert document.default is None
+    assert document.annotation == "str | None"
+    assert "load_document_materials(document_directory, document_pin)" in source
+    assert "compose_document_plane(load_document_materials(document_directory, document_pin))" in source
     assert "if decision_pin is None:" in source
     assert "decision is not None" not in source
 
