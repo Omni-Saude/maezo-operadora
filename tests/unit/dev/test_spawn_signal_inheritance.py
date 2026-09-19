@@ -292,9 +292,18 @@ def test_running_and_cleanup_signals_cancel_promptly(
     before_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
 
     def send() -> None:
-        os.kill(os.getpid(), signal.SIGINT)
+        # Para a THREAD PRINCIPAL, nao para o processo. `os.kill(getpid())` a partir desta Timer
+        # deixa o kernel escolher a thread receptora — e se ele escolhe a propria Timer, o CPython
+        # so' roda o handler no proximo bytecode da principal, que esta' bloqueada em `select()`
+        # dentro de `communicate()` sem EINTR. No engine o `timeout=5` acorda a principal; no
+        # floor (`_UNIT_TESTS_TIMEOUT_SECONDS=7200`) so' o EOF do filho acorda — 30 s, medido tres
+        # vezes em 18/09/2026. Um `kill -TERM` externo num runner de UMA thread so' pode ir para
+        # a principal; e' isso que este teste quer modelar.
+        main = threading.main_thread().ident
+        assert main is not None
+        signal.pthread_kill(main, signal.SIGINT)
         if not during_cleanup:
-            os.kill(os.getpid(), signal.SIGTERM)
+            signal.pthread_kill(main, signal.SIGTERM)
 
     def communicate(process, *args, **kwargs):
         nonlocal sender
