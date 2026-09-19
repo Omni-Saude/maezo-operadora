@@ -417,9 +417,20 @@ conjunto do harness generico (`DocumentRequestHost.assert_exclusive`).
 ### Destinatarios — decisao do dono #18 (2026-09-12)
 
 Os destinatarios do pedido de documentos sao o **prestador E o beneficiario**, cada um por uma
-`resource_authority` ATIVA de acao `auth.documents.respond` sobre o mesmo caso. E' a mesma acao
-que o comando documental do motor reconfere ao aceitar a resposta, de modo que o conjunto de
-quem recebe e o conjunto de quem pode responder sao o mesmo conjunto por construcao.
+`resource_authority` ATIVA de acao `auth.documents.respond` que nomeia EXATAMENTE este pedido.
+Uma autoridade de caso SEM `request_ref` (delegacao "case-wide") nao e' destinataria — e tambem
+nao pode responder. WP-J1-03b (2026-09-19): este era um defeito real, nao um detalhe de redacao.
+A selecao de destinatarios admitia a autoridade case-wide enquanto a admissao do respondedor a
+recusava (`NativeAuthReader.observation` e o motor, `AuthInputs.authority`, exigem igualdade
+EXATA com o `request_ref` da ocorrencia, que nunca e nulo): o principal recebia o aviso com
+documento em PHI e era recusado ao responder, e o beco sem saida so aparecia no prazo `P5D` de
+`ICE_PrazoPendencia`. Hoje os dois lados aplicam O MESMO predicado de escopo
+(`authority_covers`, embrulhado como `answers_document_request` em
+`src/maezo/gateway/document_requests/production.py`): o conjunto de quem recebe e o conjunto de
+quem pode responder coincidem por construcao desse unico predicado. Os guardas restantes de cada
+lado sao de outra altitude e nao reabrem o beco sem saida: o lado do destinatario exige
+audiencia `beneficiary`/`provider` e as referencias do vinculo; o lado do respondedor exige
+sessao/membership ativa e a custodia dos pins do comando.
 
 A decisao e aplicada como INVARIANTE DE CONSISTENCIA entre duas publicacoes atestadas, nunca
 como regra calculada em Python: a `document_policy` publicada declara
@@ -430,6 +441,7 @@ delegacao. A ponte recusa quando as duas discordam, nas DUAS direcoes:
 |---|---|---|
 | politica nomeia um principal sem autoridade ativa | RECUSA | receberia aviso de um caso que ninguem atestou que pode tratar |
 | beneficiario tem autoridade ativa e a politica o omite | RECUSA | e' exatamente assim que o beneficiario deixa de ser avisado em silencio |
+| autoridade case-wide (`request_ref` NULL) nomeada pela politica | RECUSA pela divergencia com a politica | autoridade de caso sem request nao entrega e nao pode responder (WP-J1-03b); manter o aviso seria um beco sem saida no prazo `P5D` |
 | nenhum destinatario prestador | RECUSA | `ST_SolicitarDocumentos` e' "solicitar documentacao ao prestador"; um pedido que nao chega a ninguem do lado do prestador nao e' este pedido |
 | ator de audiencia `staff` numa autoridade de resposta | RECUSA | staff nao tem vinculo; a linha e falha de instalacao, nao permissao mais fraca |
 | duas autoridades para o mesmo principal | RECUSA | ambiguidade nunca e resolvida por preferencia |

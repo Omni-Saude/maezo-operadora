@@ -403,11 +403,14 @@ AUTH_DOCUMENT_REQUEST_FETCH = EngineSchema(
     ),
     topic="operadora.auth.request_documents",
     audit_actor="operadora-auth-document-bridge",
-    # The classified inputs the producer context reads (`portal-auth-intake.v1`). `prestador_id`
-    # and `numero_guia_tiss` are business keys; `beneficiario_pseudo_id` is the ADR-0006
-    # pseudonym the recipient resolution needs to name the beneficiary's authority WITHOUT ever
-    # reading a document body. No PHI field is projected.
-    read_projection=("tenant_id", "numero_guia_tiss", "prestador_id", "beneficiario_pseudo_id"),
+    # Business keys only (`portal-auth-intake.v1`): the guide and the provider identity the
+    # producer context is built from. WP-J1-03b MINOR-1: `beneficiario_pseudo_id` used to be
+    # projected here on the rationale that recipient resolution needed the ADR-0006 pseudonym to
+    # name the beneficiary's authority — false, and now dropped. Recipients are resolved from the
+    # PUBLISHED `resource_authority` heads (`actor.principal_ref`), never from a fetch variable,
+    # so projecting the pseudonym would only have widened its exposure. No PHI field is
+    # projected, and no pseudonym is either.
+    read_projection=("tenant_id", "numero_guia_tiss", "prestador_id"),
 )
 AUTH_DOCUMENT_REQUEST_COMPLETE = EngineSchema(
     "auth.request_documents.bridge.complete.v2",
