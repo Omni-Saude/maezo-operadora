@@ -69,7 +69,7 @@ registra corretamente o estado do seu momento: "`AUTH` esta hoje classificado `N
 postura mais estrita adequada (`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar)". **ESTA
 emenda E' essa promocao.** (Correcao de ancora, achado V12: em `f954e8b0` a linha `:1211` e'
 `SP-OP-RECURSO-001`; a entrada de `SP-OP-AUTH-001` estava em `:1212` e, apos esta entrega,
-esta' em `transport.py:1259`. A citacao de E01-b erra por uma linha.)
+esta' em `transport.py:1212` (o numero de linha se move conforme o bloco de comentario cresce; a ancora estavel e' a propria chave no mapa). A citacao original de E01-b errava por uma linha e foi corrigida nesta entrega.)
 
 Onde as duas convivem no mesmo arquivo, a frase de E01-b passa a ser HISTORICA: a classificacao corrente e' `EXCLUSIVE`, declarada acima. O que E01-b chama de
 "postura-alvo a ratificar" continua ABERTO e e' exatamente o quadro desta secao — `PERMANENT`
@@ -212,12 +212,15 @@ por público. A business key permanece a contratual `AUTH-{tenant_id}-{numero_gu
 canal de agente compartilhem UM domínio de idempotência, e não criar um segundo.
 
 **Estado: caminho de intake INERTE nesta entrega.** O BPMN passa a admitir o start por
-mensagem, mas nenhum chamador o utiliza: o despachante ainda inicia por id/key com a chave
-legada, e `AUTH` está hoje classificado `NON_STRICT` em `_START_DEDUP_POLICY` (`transport.py:1211`) —
-habilitar o start por mensagem exige promovê-lo à postura mais estrita adequada
-(`EXCLUSIVE`/`PERMANENT`; postura-alvo a ratificar). Habilitar exige os dois
-juntos (WP-J1-01 / WP-J1-11) mais o teste "dois canais, uma guia → uma instância"; enquanto
-isso, **somente guias sintéticas**. A resposta documental não depende desta emenda: já
+mensagem, mas nenhum chamador o utiliza: o despachante ainda inicia por id/key. A classificação
+de `AUTH` em `_START_DEDUP_POLICY` **já foi promovida para `EXCLUSIVE`** (`transport.py:1212`;
+WP-J1-11, decisão do dono #16) — starts CONCORRENTES da mesma guia ficam mutuamente excluídos
+pela reivindicação durável, resolvida contra a evidência do engine, e uma guia cuja instância
+ENCERROU pode iniciar o próximo caso (nunca um portão permanente). A **postura-alvo `PERMANENT`
+fica a ratificar** (médico-auditor / ANS-regulatório): ver a emenda "UM domínio de idempotência
+por guia" acima para as duas razões independentes pelas quais `PERMANENT` seria errado hoje.
+Habilitar o start por mensagem depende agora só de WP-J1-01 mais o teste "dois canais, uma guia
+→ uma instância"; enquanto isso, **somente guias sintéticas**. A resposta documental não depende desta emenda: já
 correlacionava em `ICE_DocsRecebidos` por ocorrência/subscrição exata.
 
 **Sem `camunda:formKey`, por decisão.** O repositório não usa `camunda:formKey` em nenhum
