@@ -170,8 +170,9 @@ comportamento correto.
 ## 5. Fixture D7/pacote (contexto)
 
 `deploy/cibseven/secured/ACCEPTANCE.md` descreve a fixture descartável do lane D7
-(`prepare_fixture.py prepare|seed`, `MAEZO_D7_PACKAGE_FIXTURE`, `MAEZO_D7_COMPOSE_PROJECT`). Ela
-serve as suítes Python de integração do portal, não os `EngineIT` acima.
+(`prepare_fixture.py prepare|seed`, `MAEZO_D7_PACKAGE_FIXTURE`, `MAEZO_D7_COMPOSE_PROJECT`,
+amarras de observação de prontidão `MAEZO_D7_READINESS_RUN_ID`/`_SOURCE_SHA`/`_SOURCE_TREE`).
+Ela serve as suítes Python de integração do portal, não os `EngineIT` acima.
 
 ## 6. Reparo de landing deste PR (grupo B)
 

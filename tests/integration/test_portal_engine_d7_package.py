@@ -2,6 +2,13 @@
 
 Set MAEZO_D7_PACKAGE_FIXTURE to prepare_fixture.py's private, seeded, secured fixture.
 The database snapshot is read-only and emits hashes, never engine rows or credentials.
+
+wait_ready()'s readiness observation additionally requires three operator bindings, exported
+next to MAEZO_D7_PACKAGE_FIXTURE (procedure and derivations in
+deploy/cibseven/secured/ACCEPTANCE.md): MAEZO_D7_READINESS_RUN_ID names the run
+(`d7-[a-z0-9-]{8,64}`) and MAEZO_D7_READINESS_SOURCE_SHA / MAEZO_D7_READINESS_SOURCE_TREE are
+the 40-hex commit/tree of the observed source. They are written into readiness-attempts.json
+so every recorded attempt stays attributable; without them the observation fails closed.
 """
 
 from __future__ import annotations
@@ -730,9 +737,22 @@ def _new_readiness_observation(purpose: str) -> dict:
     source_sha = os.environ.get("MAEZO_D7_READINESS_SOURCE_SHA", "")
     source_tree = os.environ.get("MAEZO_D7_READINESS_SOURCE_TREE", "")
     assert purpose in _READINESS_PURPOSES, "invalid readiness observation purpose"
-    assert re.fullmatch(r"d7-[a-z0-9-]{8,64}", run_id), "invalid readiness observation run binding"
-    assert re.fullmatch(r"[0-9a-f]{40}", source_sha), "invalid readiness observation source binding"
-    assert re.fullmatch(r"[0-9a-f]{40}", source_tree), "invalid readiness observation tree binding"
+    assert re.fullmatch(r"d7-[a-z0-9-]{8,64}", run_id), (
+        "MAEZO_D7_READINESS_RUN_ID is required to attribute readiness-attempts.json to the run "
+        "that produced it: d7- prefix plus 8-64 of [a-z0-9-] (the D7_PROJECT compose name "
+        "qualifies); export it next to MAEZO_D7_PACKAGE_FIXTURE — "
+        "deploy/cibseven/secured/ACCEPTANCE.md"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", source_sha), (
+        "MAEZO_D7_READINESS_SOURCE_SHA is required to bind readiness-attempts.json to the exact "
+        "observed source revision: 40-hex `git -C \"$CANDIDATE\" rev-parse HEAD`; export it next "
+        "to MAEZO_D7_PACKAGE_FIXTURE — deploy/cibseven/secured/ACCEPTANCE.md"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", source_tree), (
+        "MAEZO_D7_READINESS_SOURCE_TREE is required to bind readiness-attempts.json to the exact "
+        "observed source tree: 40-hex `git -C \"$CANDIDATE\" rev-parse 'HEAD^{tree}'`; export it "
+        "next to MAEZO_D7_PACKAGE_FIXTURE — deploy/cibseven/secured/ACCEPTANCE.md"
+    )
     return {
         "schema": "maezo.d7.readiness-attempts.v1",
         "run_id": run_id,

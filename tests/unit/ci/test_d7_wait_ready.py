@@ -334,7 +334,11 @@ def test_pinned_transport_reports_connection_substage_without_trace_info(poll, m
         def read(self, max_bytes, timeout=None):
             return b'HTTP/1.1 200 OK\r\nContent-Length: 35\r\n\r\n{"ready":true,"capabilities":["x"]}'
 
-        def close(self):
+        # A cerca estrutural P-17 ancora `close(self)` no Protocol `DmnTransport.close`
+        # (`maezo/tools/workers/dmn_transport.py`: `async def close(self) -> None`); um `def`
+        # sincrono com a mesma forma e' acusado como drift. Manter o `async def` — o caminho
+        # sincrono do httpcore descarta o retorno e este falso nao concentra recurso em close.
+        async def close(self) -> None:
             pass
 
     class Backend:
