@@ -158,13 +158,13 @@ def test_a_janela_do_tenant_e_a_marca_de_aviso_tambem_sao_esquecidas() -> None:
     lim, relogio = _limitador(conversa=1)
     lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_a")
     lim.registrar(tenant_id="amh", conversation_id="wa:amh:hk1_a")  # recusada: marca o aviso
-    assert lim._tenants and lim._avisos  # noqa: SLF001 — o teste e' exatamente sobre a memoria interna
+    assert lim._tenants and lim._avisos
 
     relogio.avancar(JANELA_SEGUNDOS + 1)
     lim.esquecer_conversas_ociosas()
 
-    assert not lim._tenants  # noqa: SLF001
-    assert not lim._avisos  # noqa: SLF001
+    assert not lim._tenants
+    assert not lim._avisos
 
 
 def test_so_a_primeira_recusa_da_janela_pede_aviso() -> None:
