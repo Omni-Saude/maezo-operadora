@@ -332,7 +332,15 @@ class PostgresIntakeStore:
             raw = self._cipher.decrypt(bytes(row["nonce"]), bytes(row["ciphertext"]), aad)
             if hashlib.sha256(raw).hexdigest() != row["request_digest"]:
                 raise ExternalCaseError("conflict")
-            request = AuthIntakeSubmission.model_validate(strict_loads(raw), strict=True)
+            payload = strict_loads(raw)
+            # `request_bytes` (the sealer, this module) maps the public integer schema version to a
+            # DECIMAL before sealing, and the closed model is strict about the integer — even lax
+            # validation rejects the sealed form. The reader maps it back: the digest fence above
+            # already proved these bytes, and the re-serialization fence below proves the
+            # round-trip again, so the inversion cannot smuggle a different representation in.
+            request = AuthIntakeSubmission.model_validate(
+                {**payload, "schema_version": int(payload["schema_version"])}, strict=True
+            )
             if request_bytes(request) != raw or request.command_id != command_id:
                 # Re-serialisation must reproduce the sealed bytes exactly; anything else means
                 # the stored plaintext is not the admitted representation the digest attests.
