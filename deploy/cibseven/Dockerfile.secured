@@ -19,6 +19,13 @@ COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
 # Reproducible XML patches of the inspected actual distribution; vendor servlet defaults retained.
 COPY deploy/cibseven/secured/descriptors/startup-global-web.xml /camunda/conf/web.xml
 COPY deploy/cibseven/secured/descriptors/bpm-platform.xml /camunda/conf/bpm-platform.xml
+# DDL em runtime DESLIGADO (auditoria 18/09/2026): o descritor de origem traz `true` de proposito —
+# e o invariante que `install_v2.py::descriptor` e o `Dockerfile.secured-v2` consomem — e ESTA imagem
+# copiava o XML sem virar a chave, entao o engine executava CREATE/ALTER no startup do container
+# (contra o canone "migration roda como Job, nunca no startup") e o login de runtime precisava de DDL,
+# o que deixaria dropar os triggers de imutabilidade de MZO_HUMAN_RECEIPT/escalation_team_notice.
+# A linha abaixo e byte a byte a do secured-v2, com a mesma guarda de contagem.
+RUN test "$(grep -c 'name="databaseSchemaUpdate">true' /camunda/conf/bpm-platform.xml)" = 1 && sed -i 's/name="databaseSchemaUpdate">true/name="databaseSchemaUpdate">false/' /camunda/conf/bpm-platform.xml && test "$(grep -c 'name="databaseSchemaUpdate">false' /camunda/conf/bpm-platform.xml)" = 1
 COPY deploy/cibseven/secured/descriptors/startup-engine-rest-web.xml /camunda/webapps/engine-rest/WEB-INF/web.xml
 RUN cp /camunda/webapps/camunda/WEB-INF/web.xml /camunda/camunda-web.legacy.xml
 COPY deploy/cibseven/secured/descriptors/camunda-web.xml /camunda/webapps/camunda/WEB-INF/web.xml
