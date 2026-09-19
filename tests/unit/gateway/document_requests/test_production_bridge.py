@@ -6,12 +6,20 @@ methods, exercised for real by the integration tests listed in the PR body) and 
 admission transport. Everything the owner's decision #18 actually turns on —
 `resolve_document_recipients`, `PublishedDocumentPolicySource`, `NativeCompletionAuthority`,
 topic exclusivity — runs its real code here.
+
+WP-J1-03b additions: the recipient set and the responder set are ONE predicate
+(`authority_covers`, MAJOR-1), the recipient projection refuses a non-active authority itself
+(MAJOR-2), the exclusivity check derives its topic set from the live harness (MINOR-2), and
+absent AUTH rows raise the plane's own refusal type instead of a driver error (MINOR-3).
 """
 
+import inspect
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from maezo.gateway.document_requests import production as production_module
 from maezo.gateway.document_requests.models import require as models_require
@@ -22,6 +30,7 @@ from maezo.gateway.document_requests.production import (
     NativeCompletionAuthority,
     PublishedDocumentPolicySource,
     RespondAuthority,
+    answers_document_request,
     build_document_request_host,
     recipient_identity,
     resolve_document_recipients,
@@ -35,13 +44,17 @@ from maezo.gateway.human.auth_profile import (
     PublicationReceipt,
     ResourceAuthority,
     Scope,
+    authority_covers,
 )
 from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import ArtifactPin, SourceProvenance, digest, wire
+from maezo.gateway.intake.native_authority import NativeAuthReader, NativeDatabaseBinding
+from maezo.gateway.intake.native_source_lifecycle import RelationPin
 from maezo.gateway.native_fetch.models import FetchUnavailableError
 from maezo.gateway.native_fetch.transport import AdmissionLease, NativeAdmissionProvider
+from maezo.runtime.worker_runtime import document_requests as runtime_document_requests
 from maezo.runtime.worker_runtime.document_requests import TOPIC, DocumentRequestHost
-from maezo.runtime.worker_runtime.service import _expected_worker_topics
+from maezo.runtime.worker_runtime.service import _expected_worker_topics, register_default_workers
 
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)
 HOUR = NOW + timedelta(hours=1)
@@ -100,6 +113,7 @@ def authority(
     request_ref: str | None = REQUEST,
     resource_ref: str = CASE,
     membership_revision: int = 1,
+    action: str = RESPOND_ACTION,
 ) -> ResourceAuthority:
     return ResourceAuthority(
         authority_ref="authority-" + principal,
@@ -114,7 +128,7 @@ def authority(
         provider_ref=provider_ref,
         resource_kind="case",
         resource_ref=resource_ref,
-        action=RESPOND_ACTION,
+        action=action,
         request_ref=request_ref,
         relationship_revision=1,
         consent_revision=1,
@@ -240,6 +254,22 @@ def authorities_double(
 # --- topic exclusivity ---------------------------------------------------------------------
 
 
+class _Null:
+    """A `WorkerTransport`-shaped probe transport: never used, never fetched."""
+
+    async def fetch_and_lock(self, *a, **k):  # pragma: no cover - never called
+        raise AssertionError("probe transport must not be used")
+
+
+def live_harness(installed: bool):
+    """The REAL generic registration for one seam posture — the thing the bridge must not fight."""
+    from maezo.tools.workers.harness import WorkerHarness
+
+    harness = WorkerHarness(_Null(), worker_id="probe")
+    register_default_workers(harness, document_request_host_installed=installed)
+    return harness
+
+
 def test_generic_harness_serves_the_topic_only_while_the_bridge_is_absent():
     with_worker = _expected_worker_topics(False)
     with_bridge = _expected_worker_topics(True)
@@ -280,13 +310,21 @@ def test_host_refuses_to_install_while_the_generic_worker_still_holds_the_topic(
 
 @pytest.mark.asyncio
 async def test_builder_refuses_on_a_shared_topic_before_composing_anything(monkeypatch):
-    """The refusal must precede `compose`: composing opens native channels and DB pools."""
+    """The refusal must precede `compose`: composing opens native channels and DB pools.
+
+    The topic set is not caller-supplied any more (WP-J1-03b MINOR-2): the builder derives it
+    from a live harness registration, which here is the REAL one (`register_default_workers`
+    with the seam off) and therefore really holds the topic.
+    """
     composed: list[object] = []
 
     async def never(**kwargs):
         composed.append(kwargs)
         raise AssertionError("compose must not run on a shared topic")
 
+    harness = live_harness(False)
+    assert TOPIC in harness.registered_topics
+    assert TOPIC in harness.registered_topics
     monkeypatch.setattr(production_module, "compose", never)
     with pytest.raises(FetchUnavailableError):
         await build_document_request_host(
@@ -312,9 +350,63 @@ async def test_builder_refuses_on_a_shared_topic_before_composing_anything(monke
             provenance_key=b"\x00" * 32,
             journal_key_id="j",
             journal_key=b"\x01" * 32,
-            generic_topics=(TOPIC,),
+            harness=harness,
         )
     assert composed == []
+
+
+@pytest.mark.asyncio
+async def test_builder_derives_its_topic_set_from_the_live_harness(monkeypatch):
+    """MINOR-2: no caller-supplied topic tuple exists to go stale.
+
+    The set the bridge asserts against is read off the harness the daemon actually registered,
+    at install time — proved by comparing it with the canonical expectation derived from the
+    same registration path, and by capturing what the host is constructed with.
+    """
+    captured: dict[str, tuple[str, ...]] = {}
+
+    class Host:
+        assert_exclusive = staticmethod(DocumentRequestHost.assert_exclusive)
+
+        def __init__(self, *, generic_topics, **_rest):
+            captured["generic_topics"] = tuple(generic_topics)
+
+    async def compose(**_kwargs):
+        return object()
+
+    harness = live_harness(True)
+    assert TOPIC not in harness.registered_topics
+    monkeypatch.setattr(runtime_document_requests, "DocumentRequestHost", Host)
+    monkeypatch.setattr(production_module, "compose", compose)
+    await build_document_request_host(
+        placement=object(),
+        producer=object(),
+        tls=object(),
+        fetch_profile=object(),
+        designation_digest=HASH,
+        fetch_authority=object(),
+        # The two authorities the builder really constructs are real here; everything downstream
+        # of `compose` is the stub above.
+        outcome_authority=Provider(lease()),
+        completion_capability=b"{}",
+        completion_catalog=b"{}",
+        completion_catalog_digest=HASH,
+        authorities=authorities_double(()),
+        notice_template=PIN,
+        policy_publisher=object(),
+        phi_source=object(),
+        metadata_source=object(),
+        body_keys={},
+        active_body_key_id="k",
+        body_valid_until=HOUR,
+        provenance_key_id="p",
+        provenance_key=b"\x00" * 32,
+        journal_key_id="j",
+        journal_key=b"\x01" * 32,
+        harness=harness,
+    )
+    assert TOPIC not in captured["generic_topics"]
+    assert set(captured["generic_topics"]) == set(_expected_worker_topics(True))
 
 
 # --- decision #18: recipients from the active resource_authority -----------------------------
@@ -419,6 +511,129 @@ def test_two_authorities_for_one_principal_are_refused_never_preferred():
     )
     with pytest.raises(ExternalCaseError):
         resolve_document_recipients(entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW)
+
+
+# --- destinatario ⇔ respondedor: ONE scope predicate (WP-J1-03b MAJOR-1) ---------------------
+
+
+SCOPE_VARIANTS = {
+    "this-request": dict(),
+    "case-wide": dict(request_ref=None),
+    "another-request": dict(request_ref="other" * 4),
+    "another-case": dict(resource_ref="case" * 4),
+    "another-action": dict(action="auth.receipt.read"),
+    "revoked": dict(state="revoked"),
+}
+
+
+def test_recipient_selection_and_responder_admission_answer_identically():
+    """The recipient side and the responder side ask the SAME predicate the same question.
+
+    `NativeAuthReader.observation` (responder admission) calls `authority_covers` with exactly
+    the tuple `(action="auth.documents.respond", resource_kind="case", resource_ref=case_ref,
+    request_ref=request_ref)` for a document command; `answers_document_request` is that same
+    call bound to the bridge's scope. So for every published shape of authority, "would be
+    notified" and "would be admitted to answer" have to be the same boolean — including the
+    case-wide delegation that used to be notified and then refused (the WP-J1-03b defect).
+    """
+    for name, overrides in SCOPE_VARIANTS.items():
+        value = authority(PROVIDER_PRINCIPAL, "provider", **overrides)
+        recipient_side = answers_document_request(value, case_ref=CASE, request_ref=REQUEST)
+        responder_side = authority_covers(
+            value,
+            action=RESPOND_ACTION,
+            resource_kind="case",
+            resource_ref=CASE,
+            request_ref=REQUEST,
+        )
+        assert recipient_side == responder_side, name
+        assert recipient_side is (name == "this-request"), name
+
+
+def test_the_two_sides_cannot_grow_separate_scope_tests_again():
+    """Drift fence: the equivalence holds because both sides call one predicate.
+
+    The engine-side check is restated independently in `AuthInputs.authority`
+    (`Objects.equals(request, authority.get("request_ref"))`), which the two runtimes cannot
+    share; the Python sides CAN, so this fence fails the moment either of them reverts to a
+    hand-rolled comparison.
+    """
+    responder = inspect.getsource(NativeAuthReader.observation)
+    assert "authority_covers(" in responder
+    production = inspect.getsource(production_module)
+    assert "answers_document_request(" in production
+    # The old recipient-side escape hatch: "a case-wide authority is admitted anyway".
+    assert "(authority.request_ref is not None and authority.request_ref !=" not in production
+
+
+@pytest.mark.asyncio
+async def test_read_omits_every_authority_that_would_not_be_admitted_to_answer(monkeypatch):
+    """`read` is the selection that used to admit the case-wide authority (MAJOR-1, recipient half).
+
+    Real `CaseRespondAuthorities.read` and a real `NativeAuthReader`; the driver connection and
+    the `head` verification are the only stand-ins (`head` against PostgreSQL is the `[motor]`
+    lane, where this same selection is exercised end to end).
+    """
+    case_wide = authority(PROVIDER_PRINCIPAL, "provider", request_ref=None)
+    scoped = authority(BENEFICIARY_PRINCIPAL, "beneficiary", provider_ref=None)
+    payloads = {value.authority_ref: value for value in (case_wide, scoped)}
+
+    async def head(self, db, kind, resource):
+        return payloads[resource], {}, HOUR
+
+    async def qualified(self, db):
+        return {}, HOUR
+
+    monkeypatch.setattr(NativeAuthReader, "head", head)
+    monkeypatch.setattr(NativeAuthReader, "qualified", qualified)
+    reader = native_reader()
+    reader.engine = _Engine(_Db(refs=(scoped.authority_ref, case_wide.authority_ref)))
+    found = await CaseRespondAuthorities(reader).read(case_ref=CASE, request_ref=REQUEST)
+    # The case-wide row is NOT a candidate: it would have received the PHI notice and then been
+    # refused at answer time. The request-scoped one is, and carries the verified ceiling.
+    assert [found_entry.authority.authority_ref for found_entry in found] == [scoped.authority_ref]
+    assert found[0].ceiling == HOUR
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"state": "revoked"},
+        {"request_ref": None},
+        {"request_ref": "other" * 4},
+        {"resource_ref": "case" * 4},
+        {"action": "auth.receipt.read"},
+    ],
+    ids=["revoked-authority", "case-wide", "another-request", "another-case", "another-action"],
+)
+def test_the_recipient_projection_itself_refuses_an_authority_that_is_not_this_request(overrides):
+    """MAJOR-2 (and the recipient half of MAJOR-1): `_recipient` refuses, never softens.
+
+    `read()` already filters these shapes out, so a failure here means the caller projected a
+    set that is not this request's — the projection must refuse loudly instead of delivering PHI
+    to a revoked or out-of-scope delegate.
+    """
+    entries = (entry(authority(PROVIDER_PRINCIPAL, "provider", **overrides)),)
+    with pytest.raises(ExternalCaseError):
+        resolve_document_recipients(entries, scope=scope(), policy=policy(PROVIDER_PRINCIPAL), now=NOW)
+
+
+def test_a_policy_not_bound_to_this_case_and_request_cannot_project_recipients():
+    """Decision #18 is defined over a case-bound, request-named policy (`DocumentPolicy.bound`)."""
+    with pytest.raises(ExternalCaseError):
+        resolve_document_recipients(
+            (entry(authority(PROVIDER_PRINCIPAL, "provider")),),
+            scope=scope(),
+            policy=policy(PROVIDER_PRINCIPAL).model_copy(update={"request_ref": None}),
+            now=NOW,
+        )
+    with pytest.raises(ExternalCaseError):
+        resolve_document_recipients(
+            (entry(authority(PROVIDER_PRINCIPAL, "provider")),),
+            scope=scope(),
+            policy=policy(PROVIDER_PRINCIPAL).model_copy(update={"resource_kind": "intake"}),
+            now=NOW,
+        )
 
 
 def test_recipient_identity_separates_membership_revisions():
@@ -772,3 +987,103 @@ def test_the_module_refuses_rather_than_returning_an_empty_recipient_set():
     # And the guard used throughout is the package's own fail-closed `require`.
     with pytest.raises(ExternalCaseError):
         models_require(False, "denied")
+
+
+# --- absent rows refuse with the plane's own type (WP-J1-03b MINOR-3) ------------------------
+
+
+class _Rows:
+    def __init__(self, rows: tuple[Any, ...]) -> None:
+        self._rows = rows
+
+    def scalars(self) -> "_Rows":
+        return self
+
+    def all(self) -> list[Any]:
+        return list(self._rows)
+
+    def mappings(self) -> "_Rows":
+        return self
+
+    def one_or_none(self) -> Any:
+        return self._rows[0] if self._rows else None
+
+
+class _Db:
+    """The smallest driver stand-in the unit tier needs.
+
+    It answers the candidate query with `refs` and every other SELECT with `rows`; an empty
+    `rows` is exactly the absent-row case MINOR-3 is about.
+    """
+
+    def __init__(self, refs: tuple[str, ...] = (), rows: tuple[Any, ...] = ()) -> None:
+        self._refs, self._rows = refs, rows
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        sql = str(statement)
+        if sql.startswith("SET TRANSACTION"):
+            return None
+        if "SELECT resource_ FROM" in sql:
+            return _Rows(self._refs)
+        return _Rows(self._rows)
+
+    async def __aenter__(self) -> "_Db":
+        return self
+
+    async def __aexit__(self, *exc: Any) -> bool:
+        return False
+
+
+class _Engine:
+    def __init__(self, db: _Db) -> None:
+        self._db = db
+
+    def connect(self) -> _Db:
+        return self._db
+
+
+def native_reader() -> NativeAuthReader:
+    """A real `NativeAuthReader` on an unconnected engine (lazy: no query is issued here)."""
+    names = ("installation", "trust", "revoked_key", "input_head", "input_version")
+    binding = NativeDatabaseBinding(
+        scope=scope(),
+        database_name="native",
+        database_oid=1,
+        schema_name="mzo_auth",
+        schema_oid=2,
+        owner_role="mzo_owner",
+        reader_role="mzo_reader",
+        relations=tuple(
+            RelationPin(schema_name="mzo_auth", name="mzo_auth_" + name, oid=index + 10, owner="mzo_owner")
+            for index, name in enumerate(names)
+        ),
+        installed_binding_digest=HASH,
+        installed_qualification_digest=HASH,
+        valid_until=HOUR,
+    )
+    return NativeAuthReader(create_async_engine("postgresql+asyncpg://u:p@h/native"), binding)
+
+
+@pytest.mark.asyncio
+async def test_an_absent_head_row_raises_the_auth_refusal_type_not_a_driver_error():
+    """MINOR-3: `read()` refuses candidates on `AuthUnavailableError`; an absent `mzo_auth_input_head`
+    row must be that same refusal, or it escapes the AUTH plane's own failure contract."""
+    with pytest.raises(AuthUnavailableError):
+        await native_reader().head(_Db(), "resource_authority", "authority-" + PROVIDER_PRINCIPAL)
+
+
+@pytest.mark.asyncio
+async def test_an_absent_qualified_row_raises_the_auth_refusal_type_not_a_driver_error():
+    """Same species at `qualified()`: session, relation and installation probes refuse with the
+    AUTH plane's own type when their row is absent, never with a driver error."""
+    with pytest.raises(AuthUnavailableError):
+        await native_reader().qualified(_Db())
+
+
+@pytest.mark.asyncio
+async def test_an_absent_publication_version_row_raises_the_auth_refusal_type_not_a_driver_error():
+    """`CaseRespondAuthorities._publication_request` reads the version row behind the head."""
+    reader = native_reader()
+    reader.engine = _Engine(_Db())
+    with pytest.raises(AuthUnavailableError):
+        await CaseRespondAuthorities(reader)._publication_request(_Db(), {"generation_": 3}, CASE)
