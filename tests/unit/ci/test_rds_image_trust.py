@@ -73,6 +73,17 @@ def test_runtime_stage_wires_pinned_installation_before_unprivileged_execution()
     assert "    && rm -rf /tmp/maezo-rds-ca\n" in runtime
 
 
+def test_build_context_admits_only_the_installer_and_the_pinned_bundle():
+    # Nothing else from deploy/certificates (README included) reaches the image context.
+    ignore = (ROOT / ".dockerignore").read_text().splitlines()
+    assert [line for line in ignore if "deploy/certificates" in line] == [
+        "!deploy/certificates/",
+        "deploy/certificates/*",
+        "!deploy/certificates/install_rds_roots.py",
+        "!deploy/certificates/sa-east-1-bundle.pem",
+    ]
+
+
 def test_official_bundle_contains_exact_current_self_signed_regional_roots(installer):
     contents = BUNDLE.read_bytes()
     assert len(contents) == 4572
