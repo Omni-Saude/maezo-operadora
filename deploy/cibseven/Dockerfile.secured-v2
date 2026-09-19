@@ -1,0 +1,19 @@
+# Opt-in v2 native image. No runtime DDL, default policy, D issuer or credentials.
+FROM maven:3.9.9-eclipse-temurin-17@sha256:f58d59b6273e785ac0a4477f6e9b5ba1d7731c75b906c0f7b34076f1851318cc AS build
+WORKDIR /build
+COPY src/maezo/portal/engine/java/pom.xml ./pom.xml
+COPY src/maezo/portal/engine/java/src ./src
+RUN mvn -B -DskipTests package
+FROM cibseven/cibseven:tomcat-2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
+RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war && rm -f /camunda/lib/camunda-invoice*.jar
+COPY --from=build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar
+COPY --from=build /build/target/human-command-engine-1.0.0-rest-spi.jar /camunda/webapps/engine-rest/WEB-INF/lib/maezo-rest-spi.jar
+COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
+COPY deploy/cibseven/secured/descriptors/global-web.xml /camunda/conf/web.xml
+COPY deploy/cibseven/secured/descriptors/bpm-platform.xml /camunda/conf/bpm-platform.xml
+RUN test "$(grep -c 'name="databaseSchemaUpdate">true' /camunda/conf/bpm-platform.xml)" = 1 && sed -i 's/name="databaseSchemaUpdate">true/name="databaseSchemaUpdate">false/' /camunda/conf/bpm-platform.xml && test "$(grep -c 'name="databaseSchemaUpdate">false' /camunda/conf/bpm-platform.xml)" = 1
+COPY deploy/cibseven/secured/descriptors/engine-rest-web.xml /camunda/webapps/engine-rest/WEB-INF/web.xml
+COPY deploy/cibseven/secured/descriptors/camunda-web.xml /camunda/webapps/camunda/WEB-INF/web.xml
+COPY deploy/cibseven/secured/native-v2 /camunda/webapps/maezo-workload
+# Qualified D and native migrations + exact mounted v1/v2 trust/layout files are prerequisites.
+# No runtime authority derives from image startup, helper DTOs, metadata, or schema existence.

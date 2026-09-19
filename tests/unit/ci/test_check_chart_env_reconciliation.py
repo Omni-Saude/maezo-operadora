@@ -1046,14 +1046,16 @@ def test_a_required_name_outside_the_deferred_table_still_fails(monkeypatch: pyt
     assert result.deferred_required == []
 
 
-def test_deferred_required_entries_are_genuinely_required_and_undeclared_today() -> None:
-    """Non-vacuity, both ways: every deferred required name must (1) be a genuinely REQUIRED
-    `BaseSettings` name in today's src/ and (2) be declared NOWHERE in today's chart/TF. The
-    moment the portal deployer lands (PR-C `service-portal.tf`), (2) breaks and the entry must be
-    deleted — a deferral can never outlive its reason."""
-    _, required_names, _, _ = extract_settings_env_names(_SRC_DIR)
-    deferred = set(DEFERRED_UNDECLARED_REQUIRED)
-    assert deferred, "table unexpectedly empty — delete this test's premise, not the check"
-    assert deferred <= required_names, sorted(deferred - required_names)
-    assert deferred.isdisjoint(_real_declared_names()), sorted(deferred & _real_declared_names())
+def test_deferred_required_table_is_empty_now_that_the_portal_deployer_landed() -> None:
+    """Substitui `test_deferred_required_entries_are_genuinely_required_and_undeclared_today`,
+    que cobrava nao-vacuidade de uma tabela NAO-VAZIA e dizia, na propria mensagem de falha:
+    "table unexpectedly empty — delete this test's premise, not the check". A premissa acabou
+    neste PR (PR-C, S8): `service-portal.tf` declara os oito `MAEZO_PORTAL_*`, entao nenhum nome
+    e' mais required-and-undeclared e a tabela ficou vazia — que e' o desfecho que o teste antigo
+    pedia. O que sobra a provar e' o inverso: que ninguem volte a povoar a tabela sem restaurar
+    a cerca de nao-vacuidade nas duas direcoes."""
+    assert not DEFERRED_UNDECLARED_REQUIRED, (
+        "a tabela voltou a ter entradas; restaure a cerca de nao-vacuidade (deferred <= required "
+        "E deferred.isdisjoint(declared)) junto com elas — ver historico deste teste"
+    )
     _require_reasons(DEFERRED_UNDECLARED_REQUIRED, label="DEFERRED_UNDECLARED_REQUIRED")

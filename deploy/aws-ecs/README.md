@@ -4,6 +4,9 @@
 > na AWS.** Os dois antigos continuam no repositório enquanto a paridade não fecha; não
 > aplique os dois. Ver "Por que ECS" abaixo.
 
+O BFF humano tem composição dedicada, preparação desligada e pré-requisitos próprios:
+[portal ECS/Fargate](envs/dev-sa-east-1/portal.md). Ela não reutiliza o Canal de Teste.
+
 ## Por que ECS, e não o EKS que o repo assumia
 
 `deploy/terraform/envs/staging-sa-east-1/main.tf:5` declara *"EKS: references the existing
