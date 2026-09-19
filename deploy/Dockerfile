@@ -93,8 +93,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # python:3.12-slim NAO traz libpq5; sem isto o container falha no import ANTES de subir o health
 # server (CrashLoop), anulando o objetivo do W-R0. --no-install-recommends + limpeza p/ imagem enxuta.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 \
+    && apt-get install -y --no-install-recommends libpq5 ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# ADR-0049 D8 / PUOI-01: somente raízes regionais públicas e pinadas do Aurora.
+# O build verifica bytes, atualiza o trust store e exige as 3 CAs no contexto
+# padrão do Python; sem download em runtime ou relaxamento de TLS/hostname.
+COPY deploy/certificates/install_rds_roots.py deploy/certificates/sa-east-1-bundle.pem /tmp/maezo-rds-ca/
+RUN python /tmp/maezo-rds-ca/install_rds_roots.py \
+    && rm -rf /tmp/maezo-rds-ca
 
 # Usuário não-root (ADR-0006; Helm securityContext.runAsUser 1000)
 RUN groupadd --gid 1000 maezo \
