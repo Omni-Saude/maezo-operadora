@@ -171,5 +171,8 @@ def test_the_pod_is_declared_outside_the_phi_zone_and_drops_every_capability() -
 def test_enabling_the_daemon_puts_it_in_the_daemon_egress_policy() -> None:
     for doc in _helm_template(*_ENABLE):
         if doc.get("kind") == "NetworkPolicy" and "intake-dispatch" in yaml.safe_dump(doc):
+            # ... and the operator-facing annotation names it too: a stale member list is exactly
+            # what an auditor sharing this grant would read instead of the selector.
+            assert "intake-dispatch" in doc["metadata"]["annotations"]["maezo.io/note"]
             return
     raise AssertionError("intake-dispatch is not a member of any NetworkPolicy component selector")
