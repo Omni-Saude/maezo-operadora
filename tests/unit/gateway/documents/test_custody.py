@@ -45,8 +45,19 @@ POLICY = "d" * 32
 DOCTYPE = "e" * 32
 DOCUMENT = "f" * 32
 OTHER_DOCUMENT = "10" + "f" * 30
-UNTIL = datetime.now(UTC) + timedelta(minutes=5)
-DEADLINE = UNTIL + timedelta(minutes=5)
+
+
+#: Deadlines are computed at CALL time, never at import time: this suite runs inside a
+#: full-suite job that may reach these tests many minutes after collection, and a stale
+#: window would read as an expired session instead of a test defect.
+def _until() -> datetime:
+    return datetime.now(UTC) + timedelta(minutes=5)
+
+
+def _deadline() -> datetime:
+    return datetime.now(UTC) + timedelta(minutes=10)
+
+
 PHRASE = b"PRIVATE_CLINICAL_CANARY"
 
 pytestmark = pytest.mark.asyncio
@@ -80,7 +91,7 @@ def source(ref: str) -> SourceProvenance:
         source_digest=digest(payload),
         receipt_ref="receipt-1",
         observed_at=datetime.now(UTC),
-        valid_until=DEADLINE,
+        valid_until=_deadline(),
     )
 
 
@@ -108,7 +119,7 @@ def policy_head(
         document_set_digest=digest(documents),
         complete=complete,
         source=source("policy-source"),
-        valid_until=UNTIL,
+        valid_until=_until(),
     )
 
 
@@ -137,7 +148,7 @@ def custody_head(
         custody_state=custody_state,  # type: ignore[arg-type]
         key_custody_ref="key-custody-1",
         key_custody_revision=1,
-        valid_until=UNTIL,
+        valid_until=_until(),
     )
 
 
@@ -161,7 +172,7 @@ def respond_authority(
         consent_state="valid",
         state="active",
         valid_from=datetime.now(UTC) - timedelta(minutes=1),
-        valid_until=UNTIL,
+        valid_until=_until(),
         source=source("authority-source"),
     )
 
@@ -209,17 +220,17 @@ class NativeHeads:
             ),
             installed_binding_digest="3" * 64,
             installed_qualification_digest="4" * 64,
-            valid_until=DEADLINE,
+            valid_until=_deadline(),
         )
         self.heads = heads
         self.reader = NativeAuthReader(SimpleNamespace(dialect=SimpleNamespace(name="postgresql")), binding)
 
         async def qualified(db: object) -> tuple[dict[str, object], datetime]:
-            return {"installation": "synthetic"}, DEADLINE
+            return {"installation": "synthetic"}, _deadline()
 
         async def head(db: object, kind: str, ref: str) -> tuple[object, dict[str, object], datetime]:
             try:
-                return self.heads[(kind, ref)], {"resource_": ref}, DEADLINE
+                return self.heads[(kind, ref)], {"resource_": ref}, _deadline()
             except KeyError:
                 raise AuthUnavailableError() from None
 
@@ -457,8 +468,8 @@ class Resolver:
             public_origin="https://portal.example.test",
         )
         self.principal = principal_value
-        self.record = SimpleNamespace(expires_at=UNTIL, csrf_token="synthetic-csrf")
-        self.membership = SimpleNamespace(audience="provider", reviewed_until=UNTIL)
+        self.record = SimpleNamespace(expires_at=_until(), csrf_token="synthetic-csrf")
+        self.membership = SimpleNamespace(audience="provider", reviewed_until=_until())
 
     async def resolve(self, secret: str) -> SimpleNamespace:
         return SimpleNamespace(principal=self.principal, record=self.record, membership=self.membership)
@@ -469,7 +480,7 @@ def keys() -> PhiDocumentKeys:
         scope=DocumentScope(tenant=TENANT, environment="synthetic-env-0001"),
         active_key_id="doc-key-1",
         keys={"doc-key-1": os.urandom(32)},
-        valid_until=DEADLINE,
+        valid_until=_deadline(),
     )
 
 
