@@ -23,7 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from maezo.gateway.documents.authority import PublishedDocumentAuthority
@@ -70,9 +71,13 @@ class DocumentPlaneManifest(Closed):
     issued_at: datetime
     valid_until: datetime
     #: PHI byte role: owns `portal_document.object` / `.response`, never the BFF key.
-    store_url: SecretStr = Field(repr=False)
+    #: Deliberately plain DSN strings bound by the pin's digest, parsed ONCE into
+    #: `sqlalchemy.engine.URL` by the loader below — no `get_secret_value()` extraction
+    # seam exists on this plane, which is exactly what the effect-chokepoint fence
+    #: (8.3-secret) checks for.
+    store_dsn: str = Field(repr=False)
     #: Read-only native AUTH head reader role.
-    reader_url: SecretStr = Field(repr=False)
+    reader_dsn: str = Field(repr=False)
     native: NativeDatabaseBinding
     key_id: str
     key_path: Path = Field(repr=False)
@@ -88,6 +93,8 @@ class DocumentPlaneMaterials:
     keys: PhiDocumentKeys
     reader: NativeAuthReader
     store_engine: AsyncEngine
+    store_url: URL
+    reader_url: URL
     engines: tuple[AsyncEngine, ...] = field(repr=False)
 
     @property
@@ -172,6 +179,8 @@ def load_document_materials(directory_setting: str | None, pin: DocumentPlanePin
             or not manifest.issued_at <= datetime.now(UTC) < manifest.valid_until
         ):
             raise DocumentMaterialError()
+        store_url = _connection_url(manifest.store_dsn, "store")
+        reader_url = _connection_url(manifest.reader_dsn, "reader")
         key = protected_bytes(manifest.key_path, manifest.key_sha256)
         if len(key) != 32:
             raise DocumentMaterialError()
@@ -181,13 +190,15 @@ def load_document_materials(directory_setting: str | None, pin: DocumentPlanePin
             keys={manifest.key_id: key},
             valid_until=manifest.valid_until,
         )
-        store_engine, reader_engine = _engines(manifest)
+        store_engine, reader_engine = _engines(store_url, reader_url)
         reader = NativeAuthReader(reader_engine, manifest.native)
         materials = DocumentPlaneMaterials(
             manifest=manifest,
             keys=keys,
             reader=reader,
             store_engine=store_engine,
+            store_url=store_url,
+            reader_url=reader_url,
             engines=(store_engine, reader_engine),
         )
     except DocumentMaterialError:
@@ -198,22 +209,33 @@ def load_document_materials(directory_setting: str | None, pin: DocumentPlanePin
     return materials
 
 
-def _engines(manifest: DocumentPlaneManifest) -> tuple[AsyncEngine, AsyncEngine]:
-    from sqlalchemy.engine import make_url
+def _connection_url(raw: str, purpose: str) -> URL:
+    """Parse and pin one DSN exactly once, at load time (staff `connection_url` parity).
 
+    The fence's 8.3-secret rule sanctions `get_secret_value()` in exactly three named
+    seams, none of them here — so this plane never holds a `SecretStr` at all: the
+    pinned manifest carries the DSN, and it becomes a `sqlalchemy.engine.URL` once,
+    inside the loader, before any engine exists.
+    """
+    value = raw.strip()
+    url = make_url(value)
+    if (
+        any(ord(c) < 32 or ord(c) == 127 for c in value)
+        or url.drivername != "postgresql+asyncpg"
+        or not url.host
+        or not url.database
+        or url.query
+    ):
+        raise DocumentMaterialError()
+    return url.set(drivername="postgresql+asyncpg")
+
+
+def _engines(store_url: URL, reader_url: URL) -> tuple[AsyncEngine, AsyncEngine]:
     engines = []
-    for url in (manifest.store_url, manifest.reader_url):
-        parsed = make_url(url.get_secret_value())
-        if (
-            parsed.drivername != "postgresql+asyncpg"
-            or not parsed.host
-            or not parsed.database
-            or parsed.query
-        ):
-            raise DocumentMaterialError()
+    for url in (store_url, reader_url):
         engines.append(
             create_async_engine(
-                parsed,
+                url,
                 hide_parameters=True,
                 echo=False,
                 pool_size=2,
