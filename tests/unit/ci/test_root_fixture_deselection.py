@@ -80,6 +80,39 @@ _ROOT_FIXTURE_SUITES: Final[dict[str, str]] = {
         "a dedicated PHI PostgreSQL + mTLS custody fixture (TLS-pinned decision custody); the "
         "pin is landed as code by PR-A and activated later — it must not be loosened to run."
     ),
+    # PR-C (109e0ac3) and Q7 (fadeed00), 2026-09-18, landed five more ROOT-only suites carrying only
+    # `integration`: the global lane collected them, and on main's first completed run
+    # (2026-09-19, 6b5b4493) they produced 1139 of the lane's 1139 failures plus 23 unverified
+    # skips. Their fail-closed bodies are the authors' intent and are kept untouched; what was
+    # missing was the marker this allowlist exists for.
+    "tests/integration/test_portal_engine_d7_package.py": (
+        "MAEZO_D7_PACKAGE_FIXTURE — the private, seeded, secured fixture that prepare_fixture.py "
+        "builds for ROOT (d7-fixture.json, boundary.json, client certs) against the ACTUAL "
+        "secured Tomcat image on localhost:18443; `fixture()` ASSERTS instead of skipping, on "
+        "purpose. 1119 parametrized cases: unmarked, it alone painted main's lane red on "
+        "2026-09-19."
+    ),
+    "tests/integration/test_native_acquisition_v2.py": (
+        "MAEZO_NATIVE_V2_IT_FIXTURE — owner-prepared native v2 fixture (native-v2-fixture.json, "
+        "protocol maezo.native-v2-real-fixture.v1, ca.crt, client TLS, synthetic process "
+        "instances); `real_client()` ASSERTS on absence by design (see "
+        "deploy/cibseven/secured/NATIVE-V2.md)."
+    ),
+    "tests/integration/test_portal_engine_package.py": (
+        "MAEZO_HUMAN_PACKAGE_HTTPS_URL / MAEZO_HUMAN_PACKAGE_CA_FILE and siblings — an isolated "
+        "RUNNING secured image with the human SQL, tenant row and explicit trust file installed "
+        "(deploy/cibseven/package-test/prepare.py); the module forbids any missing-config skip."
+    ),
+    "tests/integration/test_portal_engine_reads.py": (
+        "MAEZO_PORTAL_READ_PACKAGED_FIXTURE_FILE — a private packaged Q2 fixture with signed "
+        "envelopes prepared inside the gateway boundary plus a ROOT-issued browser session; "
+        "`required()` fails (pytrace=False) instead of skipping."
+    ),
+    "tests/integration/platform/test_d7_control_storage_live.py": (
+        "the `d7_live_storage_lane` fixture — real PostgreSQL 16 owner connections and the actual "
+        "qualified DynamoDB adapter, supplied only by ROOT; without it the module skips with "
+        "NOT_RUN, which the live-pytest verifier rightly counts as an unverified body."
+    ),
 }
 
 

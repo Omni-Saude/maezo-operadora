@@ -13,7 +13,10 @@ import pytest
 
 from maezo.platform.engine_bootstrap import controller_storage as s
 
-pytestmark = pytest.mark.integration
+# `root_fixture`: PRIVATE ROOT-supplied materials; deselected from the global `-m integration`
+# lane unless MAEZO_ROOT_FIXTURES=1 (tests/integration/conftest.py). Allowlisted with its reason
+# in tests/unit/ci/test_root_fixture_deselection.py.
+pytestmark = [pytest.mark.integration, pytest.mark.root_fixture]
 
 
 @pytest.fixture

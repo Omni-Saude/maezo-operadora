@@ -17,7 +17,10 @@ from tests.support.tls_oracle import (
     server_authenticated_tls13_context,
 )
 
-pytestmark = pytest.mark.integration
+# `root_fixture`: PRIVATE ROOT-supplied materials; deselected from the global `-m integration`
+# lane unless MAEZO_ROOT_FIXTURES=1 (tests/integration/conftest.py). Allowlisted with its reason
+# in tests/unit/ci/test_root_fixture_deselection.py.
+pytestmark = [pytest.mark.integration, pytest.mark.root_fixture]
 
 
 def required(name: str) -> str:
