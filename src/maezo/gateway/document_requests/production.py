@@ -26,10 +26,11 @@ OWNER DECISION #18 (2026-09-12) — document-request recipients are the provider
 beneficiary, via an active `resource_authority`. Option (B) of `J1-DESIGN.md` §4.3. This module
 is where that decision becomes enforceable: `PublishedDocumentPolicySource` refuses to plan a
 request whose published policy does not name *exactly* the principals that currently hold an
-active `auth.documents.respond` authority over the case. A policy that omits a beneficiary who
-holds one is refused just as loudly as a policy that names a principal who holds none — the
-former is how the beneficiary silently stops receiving the request, and silence is the failure
-mode this bridge exists to prevent.
+active `auth.documents.respond` authority answering exactly that case AND that request (WP-J1-03b:
+one shared scope predicate with responder admission, so nobody is notified who could not answer).
+A policy that omits a beneficiary who holds one is refused just as loudly as a policy that names
+a principal who holds none — the former is how the beneficiary silently stops receiving the
+request, and silence is the failure mode this bridge exists to prevent.
 
 The decision is enforced as a *consistency invariant between two attested publications*, not as
 a rule computed here. Nothing in this file decides who may respond to a document request; the
@@ -38,10 +39,10 @@ published authority heads are that decision, and the published policy must agree
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -52,6 +53,7 @@ from maezo.gateway.human.auth_profile import (
     PublicationReceipt,
     ResourceAuthority,
     Scope,
+    authority_covers,
 )
 from maezo.gateway.human.auth_publisher import AuthInputPublisher, AuthPublicationSnapshot
 from maezo.gateway.human.auth_transport import AuthUnavailableError
@@ -74,14 +76,40 @@ if TYPE_CHECKING:  # pragma: no cover - import kept out of the runtime layer bou
     from maezo.runtime.worker_runtime.document_requests import DocumentRequestHost
 
 # The one action that authorises a party to answer a document request. It is also the action
-# the engine-side document command re-checks (`HumanAuthDocumentCommand`), so the recipient set
-# and the set of parties whose response will be accepted are the same set by construction.
+# the engine-side document command re-checks (`HumanAuthDocumentCommand` -> `AuthInputs.authority`
+# refuses unless `authority.request_ref` equals the occurrence's request), and the SAME scope
+# predicate (`authority_covers`, wrapped below as `answers_document_request`) gates recipient
+# selection here and responder admission in `NativeAuthReader.observation`. WP-J1-03b: the
+# recipient set and the set of parties whose response will be accepted are therefore the same set
+# BY CONSTRUCTION OF THAT ONE PREDICATE — not by convention. An authority that does not name THIS
+# exact request (in particular a case-wide one, `request_ref` NULL) delivers nothing and answers
+# nothing.
 RESPOND_ACTION = "auth.documents.respond"
 
 # Decision #18 names two audiences. `staff` is structurally excluded: a staff principal holds no
 # vínculo, and a published `auth.documents.respond` authority naming one is an installation
 # fault, never a weaker permission (see `_recipient`).
 RecipientAudience = Literal["beneficiary", "provider"]
+
+
+def answers_document_request(authority: ResourceAuthority, *, case_ref: str, request_ref: str | None) -> bool:
+    """The recipient-side half of the ONE admission-scope predicate (WP-J1-03b MAJOR-1).
+
+    This is `authority_covers` bound to the document-request scope: the `auth.documents.respond`
+    action over one case and one named request. `NativeAuthReader.observation` calls the same
+    predicate with the same scope when a principal answers, so a principal is a recipient exactly
+    when their answer would be admitted — a case-wide authority (`request_ref` NULL) is neither,
+    and a request-scoped authority for another request is neither. A `None` `request_ref` can only
+    ever refuse here (`DocumentOccurrence.request_ref` is non-nullable, so the responder side
+    always names one); it is accepted as an argument, never as a match.
+    """
+    return authority_covers(
+        authority,
+        action=RESPOND_ACTION,
+        resource_kind="case",
+        resource_ref=case_ref,
+        request_ref=request_ref,
+    )
 
 
 def _unavailable() -> AuthUnavailableError:
@@ -142,10 +170,13 @@ class CaseRespondAuthorities:
         return self.reader.binding.scope.tenant
 
     async def read(self, *, case_ref: str, request_ref: str) -> tuple[RespondAuthority, ...]:
-        """Every verified active respond-authority over this exact case.
+        """Every verified active respond-authority answering THIS exact request.
 
-        `request_ref` narrows the selection the way the published contract allows: an authority
-        that names a request answers only that request; one that names none answers the case.
+        The scope test is `answers_document_request`, the same predicate responder admission
+        applies (`NativeAuthReader.observation`, and the engine's `AuthInputs.authority`). WP-J1-03b:
+        an authority that names no request (a case-wide delegation) used to be admitted here and
+        then refused at answer time, which made its principal a dead-end recipient of the PHI
+        notice; it is now simply not a candidate, exactly as it would not be a responder.
         """
         if type(case_ref) is not str or not case_ref or type(request_ref) is not str or not request_ref:
             raise _unavailable()
@@ -176,13 +207,8 @@ class CaseRespondAuthorities:
                     authority, _row, deadline = await reader.head(db, "resource_authority", ref)
                 except AuthUnavailableError:
                     continue
-                if (
-                    type(authority) is not ResourceAuthority
-                    or authority.action != RESPOND_ACTION
-                    or authority.state != "active"
-                    or authority.resource_kind != "case"
-                    or authority.resource_ref != case_ref
-                    or (authority.request_ref is not None and authority.request_ref != request_ref)
+                if type(authority) is not ResourceAuthority or not answers_document_request(
+                    authority, case_ref=case_ref, request_ref=request_ref
                 ):
                     continue
                 found.append(RespondAuthority(authority, min(until, deadline)))
@@ -227,8 +253,12 @@ class CaseRespondAuthorities:
                 )
             )
             .mappings()
-            .one()
+            .one_or_none()
         )
+        if version is None:
+            # Absent rows refuse with the AUTH plane's own type (WP-J1-03b MINOR-3): every caller
+            # of `publication()` refuses on `AuthUnavailableError`, never on a driver error.
+            raise _unavailable()
         publication = parse_model(InputPublication, strict_loads(version["request_"]))
         if (
             digest(publication) != version["digest_"]
@@ -243,15 +273,40 @@ class CaseRespondAuthorities:
 
 
 def _recipient(
-    entry: RespondAuthority, *, scope: Scope, policy_digest: str, now: datetime
+    entry: RespondAuthority,
+    *,
+    scope: Scope,
+    policy_digest: str,
+    now: datetime,
+    case_ref: str,
+    request_ref: str | None,
 ) -> SystemRecipient:
-    """One verified authority projected into one inbox recipient. Never a decision."""
+    """One verified authority projected into one inbox recipient. Never a decision.
+
+    Every condition here is a loud refusal, never a silent drop: the set this function projects
+    is asserted, further out, to equal the published policy's own recipient list, so a dropped
+    row would leave the surviving set looking self-consistent while no longer being the policy's.
+    WP-J1-03b MAJOR-2: the authority's own `state` is re-checked here. `read()` filters
+    non-active rows in SQL and again after `head`, but this projection is the last gate before a
+    PHI-bearing inbox row is planned — an authority that is not active must be refused by the
+    gate that would use it, not merely by the query that happened to feed it.
+    """
     authority = entry.authority
     audience = authority.actor.audience
     # Decision #18 names provider and beneficiary. A staff actor on a respond-authority means
     # the publisher wrote a row this plane must never honour — refuse loudly rather than drop
     # it silently, because a dropped row would leave the remaining set looking self-consistent.
     require(audience in ("beneficiary", "provider"), "denied")
+    # A request nobody named can never be answered, so it can never be notified either: an
+    # unnamed request refuses here rather than silently widening the recipient scope to the case.
+    require(type(request_ref) is str and bool(request_ref), "denied")
+    # The SAME scope predicate the responder side applies (WP-J1-03b MAJOR-1): this authority
+    # must name exactly this case and this request, and be active. `read()` already selected on
+    # it, so a failure here means the caller resolved a set that is not this request's.
+    require(
+        answers_document_request(authority, case_ref=case_ref, request_ref=request_ref),
+        "denied",
+    )
     require(
         authority.consent_state != "revoked"
         and not (authority.legal_basis == "consent" and authority.consent_state != "valid")
@@ -289,12 +344,27 @@ def resolve_document_recipients(
     * a principal holding an active respond-authority who is **not** named by the policy would
       never be told the documents were requested — the beneficiary half of decision #18.
 
+    Recipients and responders are ONE set by construction of the shared scope predicate
+    (`answers_document_request`, WP-J1-03b MAJOR-1): every entry is required to answer exactly
+    the request the policy itself is bound to, so a case-wide authority (`request_ref` NULL) or
+    one for another request can be neither recipient nor responder. `policy()` already refuses a
+    `document_policy` head that is not bound to this case and this request; the same requirement
+    is restated here because this function is the public entrypoint of decision #18.
+
     A provider recipient is mandatory: the BPMN service task is "Solicitar documentacao ao
     prestador" and a request that reaches nobody on the provider side is not this request.
     Ambiguity (two authorities for one principal) is refused, never resolved by preference.
     """
+    require(policy.resource_kind == "case", "denied")
+    require(type(policy.request_ref) is str and bool(policy.request_ref), "denied")
+    case_ref, request_ref = policy.resource_ref, policy.request_ref
     bound = digest(policy)
-    recipients = tuple(_recipient(entry, scope=scope, policy_digest=bound, now=now) for entry in authorities)
+    recipients = tuple(
+        _recipient(
+            entry, scope=scope, policy_digest=bound, now=now, case_ref=case_ref, request_ref=request_ref
+        )
+        for entry in authorities
+    )
     principals = [r.principal_ref for r in recipients]
     require(len(set(principals)) == len(principals), "denied")
     require(set(principals) == set(policy.recipient_principal_refs), "denied")
@@ -457,6 +527,22 @@ class PublishedDocumentPolicySource(DocumentRequestPolicySource):
         return NoticePlan(template=self.template, recipients=recipients, prior_commands=())
 
 
+class GenericTopics(Protocol):
+    """The LIVE topic registration of the daemon's generic harness, read at install time.
+
+    WP-J1-03b MINOR-2: `build_document_request_host` used to take a caller-supplied
+    `generic_topics` tuple and assert on that — a caller holding a stale or partial snapshot
+    (most easily `()`) could install the dedicated host while the generic worker still served
+    `TOPIC`, and both would fetch-and-lock the same external task. The builder now derives the
+    set itself, by reading `registered_topics` off the registration the daemon will actually run,
+    at the moment it installs. `WorkerHarness` satisfies this structurally; gateway never imports
+    the harness class.
+    """
+
+    @property
+    def registered_topics(self) -> Sequence[str]: ...
+
+
 class NativeCompletionAuthority(CompletionAuthority):
     """`CompletionAuthority` over the installed native admission provider, outcome purpose.
 
@@ -529,7 +615,7 @@ async def build_document_request_host(
     provenance_key: bytes,
     journal_key_id: str,
     journal_key: bytes,
-    generic_topics: Iterable[str],
+    harness: GenericTopics,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> DocumentRequestHost:
     """Compose the bridge and install the dedicated host. The only constructor of either.
@@ -539,14 +625,17 @@ async def build_document_request_host(
     `phi_source` / `metadata_source` are the separate system-grant source, which this package
     does not and must not implement (module docstring).
 
-    `generic_topics` is the *live* topic set of the generic worker harness. Exclusivity is
-    checked here, before anything is composed, and again inside `DocumentRequestHost.__init__`:
-    two consumers of `operadora.auth.request_documents` would both fetch-and-lock the same
-    external task, and the one without PHI custody would complete it with an empty body.
+    `harness` is the daemon's generic worker registration. Exclusivity is DERIVED from it
+    (`registered_topics`, read live — WP-J1-03b MINOR-2: a caller-supplied topic tuple could be
+    stale or empty and would have installed the bridge over a generic worker still holding the
+    topic), checked here before anything is composed, and checked again inside
+    `DocumentRequestHost.__init__`: two consumers of `operadora.auth.request_documents` would
+    both fetch-and-lock the same external task, and the one without PHI custody would complete
+    it with an empty body.
     """
     from maezo.runtime.worker_runtime.document_requests import DocumentRequestHost
 
-    topics = tuple(generic_topics)
+    topics = tuple(harness.registered_topics)
     # Refuse before composing: composing opens native channels and DB connections, and a
     # refusal after that point would leave them to be unwound on an error path.
     DocumentRequestHost.assert_exclusive(topics)

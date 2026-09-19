@@ -206,6 +206,11 @@ Todos os casos abaixo estao implementados em
 #### test_builder_refuses_on_a_shared_topic_before_composing_anything
 - **Then** a recusa precede `compose` (canais nativos e pools de banco nunca chegam a abrir)
 
+#### test_builder_derives_its_topic_set_from_the_live_harness
+- **Given** o harness generico REAL registrado com a ponte ligada (WP-J1-03b MINOR-2)
+- **Then** o conjunto de topicos nao e' argumento do chamador: e' lido do harness vivo na
+  instalacao, e e' exatamente esse conjunto derivado que o host recebe
+
 ### Destinatarios (decisao #18)
 
 #### test_provider_and_beneficiary_both_become_recipients_when_both_hold_authority
@@ -229,6 +234,40 @@ Todos os casos abaixo estao implementados em
 #### test_an_observation_ceiling_already_passed_refuses_the_recipient
 #### test_recipient_identity_separates_membership_revisions
 #### test_recipient_valid_until_never_outlives_its_authority_or_source
+
+### Destinatario ⇔ respondedor — UM predicado (WP-J1-03b, 2026-09-19)
+
+Quem recebe e quem pode responder passam pelo MESMO predicado de escopo (`authority_covers`,
+em `gateway/human/auth_profile.py`; o lado da ponte o embrulha como
+`answers_document_request`). Uma autoridade que nao nomeia ESTE pedido (em particular a
+case-wide, `request_ref` NULL) nao e' destinataria e tambem nao pode responder — o beco sem
+saida do aviso sem resposta desapareceu, nos dois sentidos.
+
+#### test_recipient_selection_and_responder_admission_answer_identically
+- **Given** as seis formas publicadas de `resource_authority` (este pedido, case-wide, outro
+  pedido, outro caso, outra acao, revogada)
+- **Then** o lado do destinatario e o lado do respondedor dao a MESMA resposta para cada forma,
+  e so' a autoridade que nomeia este pedido e' `True` em ambos
+
+#### test_the_two_sides_cannot_grow_separate_scope_tests_again
+- **Then** cerca de derivacao (`NativeAuthReader.observation` tem de chamar `authority_covers`;
+  `production.py` tem de chamar `answers_document_request`; o antigo escape case-wide do lado
+  do destinatario nao pode voltar)
+
+#### test_read_omits_every_authority_that_would_not_be_admitted_to_answer
+- **Given** heads publicadas: uma case-wide e uma que nomeia o pedido
+- **When** `CaseRespondAuthorities.read`
+- **Then** a case-wide NAO e' candidata (antes era: recebia o aviso e era recusada ao responder);
+  a outra volta com o teto verificado
+
+#### test_the_recipient_projection_itself_refuses_an_authority_that_is_not_this_request
+- **Given** uma autoridade revogada / case-wide / de outro pedido / de outro caso / de outra acao
+- **Then** a projecao do destinatario RECUSA (MAJOR-2 inclusive: o proprio `_recipient` recusa
+  estado nao ativo, nao so' o SQL de `read`)
+
+#### test_a_policy_not_bound_to_this_case_and_request_cannot_project_recipients
+- **Then** uma `document_policy` sem `request_ref` (ou `resource_kind != "case"`) nao projeta
+  destinatarios — decisao #18 so' e' definida sobre uma politica de caso com pedido nomeado
 
 ### Fonte de politica (nunca autora)
 
@@ -257,12 +296,31 @@ Todos os casos abaixo estao implementados em
 - **Then** o modulo de autoridade nao nomeia nenhum simbolo nem tabela do plano de corpo PHI;
   as unicas relacoes citadas sao `mzo_auth_input_head` e `mzo_auth_input_version`
 
+### Linha ausente = recusa do plano AUTH (WP-J1-03b MINOR-3)
+
+#### test_an_absent_head_row_raises_the_auth_refusal_type_not_a_driver_error
+#### test_an_absent_qualified_row_raises_the_auth_refusal_type_not_a_driver_error
+#### test_an_absent_publication_version_row_raises_the_auth_refusal_type_not_a_driver_error
+- **Then** `mzo_auth_input_head` / `mzo_auth_input_version` / sonda de instalacao ausentes
+  levantam `AuthUnavailableError` — o tipo que os chamadores recusam — nunca
+  `sqlalchemy.exc.NoResultFound`
+
 ### Motor real (nao cobertos pelo nivel unitario)
 
 #### [motor] test_case_respond_authorities_selects_by_resource_over_published_heads
 - **Given** heads `resource_authority` publicadas para o mesmo caso, uma delas revogada
 - **When** `CaseRespondAuthorities.read`
 - **Then** so' as verificadas por `NativeAuthReader.head` voltam; a revogada e' omitida
+
+#### [motor] test_case_respond_authorities_omits_a_case_wide_authority
+- **Given** uma head `auth.documents.respond` do caso com `request_ref` NULL (case-wide)
+- **When** `CaseRespondAuthorities.read`
+- **Then** a head NAO volta (WP-J1-03b MAJOR-1): ela nem entrega, nem poderia responder
+
+#### [motor] test_document_answer_refuses_a_case_wide_authority
+- **Given** a mesma head case-wide e um comando documental da ocorrencia
+- **When** a admissao do respondedor (`NativeAuthReader.observation`)
+- **Then** `AuthUnavailableError` — o MESMO predicado que a omitiu do lado do destinatario
 
 #### [motor] test_document_policy_publication_request_round_trips_from_the_version_row
 - **Then** a `InputPublication` lida de `mzo_auth_input_version` bate digest com a head
