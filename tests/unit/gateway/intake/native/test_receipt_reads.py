@@ -29,7 +29,9 @@ from tests.unit.gateway.intake.native.test_wire_transport import NOW, command, r
 def sealed_row(monkeypatch, *, state: str = "admitted", with_receipt: bool = False, corrupt: bool = False):
     """A REAL store over ONE scripted row; the command is sealed into it only on request."""
     now = [NOW]
-    store = PostgresAuthDispatchStore(None, tenant="tenant", key_id="key", key=b"k" * 32, clock=lambda: now[0])
+    store = PostgresAuthDispatchStore(
+        None, tenant="tenant", key_id="key", key=b"k" * 32, clock=lambda: now[0]
+    )
     c = command()
     row = dict(
         command_id=c.command_id,
@@ -69,7 +71,7 @@ def sealed_row(monkeypatch, *, state: str = "admitted", with_receipt: bool = Fal
 
 @pytest.mark.asyncio
 async def test_completed_fails_closed_for_a_row_nothing_sealed_yet(monkeypatch):
-    """The landed strict contract, unpinned until now: an unsealed row is NOT a readable `None`."""
+    """The strict contract, unpinned until now: an unsealed row is NOT a readable `None`."""
     store, _db, c = sealed_row(monkeypatch)
     with pytest.raises(AuthUnavailableError):
         await store.completed(c)
