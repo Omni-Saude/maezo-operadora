@@ -232,10 +232,11 @@ BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
     ),
     "src/maezo/runtime/intake_dispatch/service.py::IntakeDispatchService::_handle": (
         3,
-        "fronteira do daemon: as três leituras de porto (command.prepared, receipts.completed "
-        "antes e depois do envio) falham para token limitado (`unavailable`/`awaiting_receipt`) "
-        "em vez de derrubar a varredura; a primeira clausula re-levanta PROGRAMMING_ERRORS, "
-        "então nenhum bug vira recusa silenciosa nem `awaiting_receipt` inventado",
+        "fronteira do daemon: as três leituras de porto (command.prepared, receipts.settled "
+        "ANTES do envio e receipts.completed DEPOIS) falham para token limitado "
+        "(`unavailable`/`awaiting_receipt`) em vez de derrubar a varredura; a primeira clausula "
+        "re-levanta PROGRAMMING_ERRORS, então nenhum bug vira recusa silenciosa nem "
+        "`awaiting_receipt` inventado",
     ),
 }
 

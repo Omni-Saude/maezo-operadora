@@ -36,8 +36,10 @@ Never twice, and never two for one business key
 =================================================================================================
 Two independent fences, both BEFORE any send:
 
-1. per command: `completed(command)` is consulted first; a command that already carries a receipt
-   is reported `already_executed` and no send is attempted. The store's own state machine
+1. per command: the durable receipt is consulted first — `settled(command)` BEFORE the send, a
+   read that answers for a row nothing sealed yet (no seal, no receipt possible), and
+   `completed(command)` after it; a command that already carries a receipt is reported
+   `already_executed` and no send is attempted. The store's own state machine
    (`claim`, `native_store.py:385`, refusing `state in ('executed','rejected')` and live leases)
    is the durable half of the same guarantee.
 2. per business key: a sweep dispatches AT MOST ONE item per business-key domain — the guide
@@ -310,7 +312,14 @@ class DispatchTarget(Protocol):
 
 
 class ReceiptAuthority(Protocol):
-    """The durable receipt read — satisfied by `PostgresAuthDispatchStore` (`native_store.py:833`)."""
+    """The durable receipt read — satisfied by `PostgresAuthDispatchStore` (`native_store.py`).
+
+    `settled` answers BEFORE any send and must tolerate a row that carries no sealed command yet —
+    no seal, no receipt possible (`PostgresAuthDispatchStore.settled`); `completed` is the strict
+    read that guards the send, binding the receipt to the row's sealed command.
+    """
+
+    async def settled(self, command: EffectCommand) -> NativeEffectReceipt | None: ...
 
     async def completed(self, command: EffectCommand) -> NativeEffectReceipt | None: ...
 
@@ -492,11 +501,17 @@ class IntakeDispatchService:
             )
             return self._refuse(item, "unavailable", "command_unassembled")
         try:
-            settled = await self.receipts.completed(prepared.command)
+            # BEFORE any send, via `settled` — the read that can answer for a row nothing sealed
+            # yet. `completed` would demand the row's sealed command, and the seal (`prepare`)
+            # only happens inside `_send` below: demanding it here would refuse EVERY fresh row
+            # as `receipt_unreadable`, forever, and nothing would ever drain.
+            settled = await self.receipts.settled(prepared.command)
         except PROGRAMMING_ERRORS:
             # A receipt read cannot be allowed to swallow a bug either: `PostgresAuthDispatchStore.
-            # completed` translates every internal failure it owns into `AuthUnavailableError`
-            # (RuntimeError) precisely so this boundary can tell a refusal from a defect.
+            # settled`/`completed` translate every internal failure they own into
+            # `AuthUnavailableError` (RuntimeError) precisely so this boundary can tell a refusal
+            # from a defect — including a SEALED row that cannot prove its receipt, which still
+            # refuses below instead of being read as "no receipt".
             raise
         except Exception as exc:
             logger.info(

@@ -39,6 +39,7 @@ from maezo.gateway.human.auth_profile import (
     Scope,
     StartFacts,
 )
+from maezo.gateway.human.auth_transport import AuthUnavailableError
 from maezo.gateway.human.read_profile import ArtifactPin, SourceProvenance, digest
 from maezo.gateway.intake.native_dispatch import AuthIntakeGuideNumberUnavailableError
 from maezo.runtime.intake_dispatch.service import (
@@ -266,6 +267,84 @@ class FakeReceipts:
         script = self.answers.get(cmd.command_id, [])
         return script.pop(0) if script else None
 
+    async def settled(self, cmd: HumanStartCommand) -> NativeEffectReceipt | None:
+        """The pre-send read: the drain's FIRST receipt call, before any send."""
+        return await self.completed(cmd)
+
+
+class StoreShapedReceipts:
+    """The REAL `PostgresAuthDispatchStore` receipt semantics, replayed on a row model.
+
+    `completed` is the real adapter verbatim: it compares the sealed command for EVERY state
+    (`native_store.py`, "if self._command(row) != command") and a fresh `admitted` row carries no
+    sealed command — `stage_intake`'s INSERT writes none — so `_command` unseals a NULL triple and
+    `completed`'s own boundary translates the failure into `AuthUnavailableError`
+    (`native_store.py`, "except Exception: raise AuthUnavailableError() from None"). That raise is
+    what the real authority answers for every row the daemon has not sent yet. `settled` is the
+    pre-send read AFTER the repair: it answers `None` for a row that cannot carry a receipt yet
+    and behaves exactly like `completed` for every sealed row — including failing closed when a
+    sealed row cannot prove its own receipt.
+    """
+
+    def __init__(self) -> None:
+        self.sealed: set[str] = set()
+        self.executed: dict[str, NativeEffectReceipt] = {}
+        self.corrupt: set[str] = set()
+        self.completed_calls: list[str] = []
+        self.settled_calls: list[str] = []
+
+    def seal(self, command_id: str) -> None:
+        """`prepare`: the row now carries a sealed command (no receipt yet)."""
+        self.sealed.add(command_id)
+
+    def commit(self, cmd: HumanStartCommand, r: NativeEffectReceipt) -> None:
+        """The engine effect committed its durable receipt; the row is `executed`."""
+        self.seal(cmd.command_id)
+        self.executed[cmd.command_id] = r
+
+    def _readable(self, command_id: str) -> None:
+        if command_id in self.corrupt:
+            raise AuthUnavailableError()
+        if command_id not in self.sealed:
+            # The real adapter's translation of the NULL-command unseal.
+            raise AuthUnavailableError()
+
+    async def completed(self, cmd: HumanStartCommand) -> NativeEffectReceipt | None:
+        self.completed_calls.append(cmd.command_id)
+        self._readable(cmd.command_id)
+        return self.executed.get(cmd.command_id)
+
+    async def settled(self, cmd: HumanStartCommand) -> NativeEffectReceipt | None:
+        self.settled_calls.append(cmd.command_id)
+        if cmd.command_id in self.corrupt:
+            raise AuthUnavailableError()
+        if cmd.command_id not in self.sealed:
+            # Nothing is sealed yet: no receipt can exist (schema: `state='executed'` coincide com
+            # `receipt_digest IS NOT NULL`, e executado exige comando selado). Responder None e'
+            # o fato, nao um fallback.
+            return None
+        return self.executed.get(cmd.command_id)
+
+
+class StoreBackedTarget:
+    """The seam as production composes it: `prepare` seals the row, the effect commits a receipt.
+
+    (`dispatch_prepared_start` chama `native_store.prepare` antes do transporte; o recibo dura'el
+    e' commitado dentro do proprio seam. Quando `_send` retorna, a linha esta' selada e executada.)
+    """
+
+    def __init__(self, store: StoreShapedReceipts) -> None:
+        self.store, self.sent = store, []
+
+    async def dispatch_prepared_start(self, cmd: HumanStartCommand, start_facts: StartFacts, **_: Any):
+        self.sent.append(cmd.command_id)
+        self.store.commit(cmd, receipt(cmd))
+        return instance()
+
+    async def dispatch_prepared_documents(self, cmd: Any, **_: Any) -> NativeEffectReceipt:
+        self.sent.append(cmd.command_id)
+        raise AssertionError("the document path must not be reachable in these tests")
+
 
 def build(
     items: tuple[PendingDispatch, ...],
@@ -339,6 +418,42 @@ async def test_an_existing_native_instance_is_reported_existing_not_started():
     service, *_ = build((item(),), receipts=FakeReceipts({"command": [None, receipt(c, outcome="existing")]}))
     outcome = only(await service.drain_once())
     assert (outcome.disposition, outcome.executed) == ("existing", True)
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_admitted_row_drains_instead_of_refusing_a_receipt_it_cannot_have():
+    """MAJOR-1: the ONLY real `ReceiptAuthority` cannot answer the pre-send read for a fresh row.
+
+    `PostgresAuthDispatchStore.completed` compares the sealed command for every state, and a fresh
+    `admitted` row carries none — the seal (`prepare`) happens only inside the send this read
+    precedes. Replayed here with the real adapter's semantics (unsealed -> `AuthUnavailableError`),
+    the drain must still dispatch: the pre-send read answers the receipt question without
+    demanding a seal that cannot exist yet, and the strict post-send read still guards the send.
+    """
+    store_receipts = StoreShapedReceipts()
+    target = StoreBackedTarget(store_receipts)
+    service, *_ = build((item(),), target=target, receipts=store_receipts)
+    outcome = only(await service.drain_once())
+    assert target.sent == ["command"]
+    assert outcome.disposition == "started"
+    assert outcome.executed
+    # The pre-send read answered before the send; the strict `completed` still read after it.
+    assert store_receipts.settled_calls == ["command"]
+    assert store_receipts.completed_calls == ["command"]
+
+
+@pytest.mark.asyncio
+async def test_a_sealed_row_that_cannot_prove_its_receipt_still_fails_closed():
+    """Genuine receipt unreadability is not the fresh-row case: it still refuses, never sends."""
+    store_receipts = StoreShapedReceipts()
+    store_receipts.seal("command")
+    store_receipts.corrupt.add("command")
+    target = StoreBackedTarget(store_receipts)
+    service, *_ = build((item(),), target=target, receipts=store_receipts)
+    outcome = only(await service.drain_once())
+    assert target.sent == []
+    assert (outcome.disposition, outcome.reason) == ("unavailable", "receipt_unreadable")
+    assert not outcome.executed
 
 
 # --------------------------------------------------------------------------------------------
