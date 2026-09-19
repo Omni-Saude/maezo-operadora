@@ -711,18 +711,209 @@ def restart_owned_engine(document: dict) -> None:
     assert process.returncode == 0, "owned engine recreation failed; see private lifecycle streams"
 
 
+_READINESS_TAIL_LIMIT = 32
+_READINESS_PURPOSES = {"agent", "agent-next", "worker"}
+_READINESS_TRANSPORT_CLASSES = (
+    (httpx.ConnectTimeout, "connect_timeout"),
+    (httpx.ReadTimeout, "read_timeout"),
+    (httpx.WriteTimeout, "write_timeout"),
+    (httpx.PoolTimeout, "pool_timeout"),
+    (httpx.TimeoutException, "timeout"),
+    (httpx.ConnectError, "connect_error"),
+    (httpx.ReadError, "read_error"),
+    (httpx.RemoteProtocolError, "remote_protocol_error"),
+)
+
+
+def _new_readiness_observation(purpose: str) -> dict:
+    run_id = os.environ.get("MAEZO_D7_READINESS_RUN_ID", "")
+    source_sha = os.environ.get("MAEZO_D7_READINESS_SOURCE_SHA", "")
+    source_tree = os.environ.get("MAEZO_D7_READINESS_SOURCE_TREE", "")
+    assert purpose in _READINESS_PURPOSES, "invalid readiness observation purpose"
+    assert re.fullmatch(r"d7-[a-z0-9-]{8,64}", run_id), "invalid readiness observation run binding"
+    assert re.fullmatch(r"[0-9a-f]{40}", source_sha), "invalid readiness observation source binding"
+    assert re.fullmatch(r"[0-9a-f]{40}", source_tree), "invalid readiness observation tree binding"
+    return {
+        "schema": "maezo.d7.readiness-attempts.v1",
+        "run_id": run_id,
+        "source_sha": source_sha,
+        "source_tree": source_tree,
+        "purpose": purpose,
+        "budget_ms": 90_000,
+        "request_cap_ms": 15_000,
+        "backoff_cap_ms": 250,
+        "attempt_count": 0,
+        "tail_limit": _READINESS_TAIL_LIMIT,
+        "attempt_tail": [],
+        "completion": "polling",
+    }
+
+
+def _write_readiness_observation(observation: dict) -> None:
+    path = fixture() / "readiness-attempts.json"
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise OSError("unsafe readiness observation target")
+    encoded = (json.dumps(observation, separators=(",", ":"), sort_keys=True) + "\n").encode()
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600, follow_symlinks=False)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def _readiness_transport_class(error: Exception) -> str:
+    for error_type, category in _READINESS_TRANSPORT_CLASSES:
+        if isinstance(error, error_type):
+            return category
+    raise AssertionError("unclassified readiness transport error")
+
+
+def _readiness_milliseconds(started_at: float) -> int:
+    return max(0, int(round((time.monotonic() - started_at) * 1000)))
+
+
+def _readiness_connection_trace(started_at: float) -> tuple[dict, object]:
+    """Observe six pinned httpcore events only; never inspect trace info."""
+    trace = {"events": [], "overflow": False, "unavailable": False}
+    names = {
+        f"connection.{stage}.{outcome}": (stage, outcome)
+        for stage in ("connect_tcp", "start_tls")
+        for outcome in ("started", "complete", "failed")
+    }
+
+    def observe(name: str, info: object) -> None:
+        del info
+        if type(name) is not str or name not in names:
+            return
+        if len(trace["events"]) >= 8:
+            trace["overflow"] = True
+            return
+        try:
+            elapsed = _readiness_milliseconds(started_at)
+            stage, outcome = names[name]
+            event = {
+                "stage": stage,
+                "outcome": outcome,
+                "elapsed_ms": min(elapsed, 86_400_000),
+            }
+            if elapsed > 86_400_000:
+                event["elapsed_ms_saturated"] = True
+            trace["events"].append(event)
+        except Exception:
+            trace["unavailable"] = True
+
+    return trace, observe
+
+
 def wait_ready(purpose: str = "agent") -> None:
-    deadline = time.monotonic() + 90
+    started_at = time.monotonic()
+    deadline = started_at + 90
+    observation = _new_readiness_observation(purpose)
+    recording_failed = False
+
+    def record(completion: str | None = None) -> bool:
+        nonlocal recording_failed
+        if completion is not None:
+            observation["completion"] = completion
+        try:
+            _write_readiness_observation(observation)
+        except Exception:
+            recording_failed = True
+            return False
+        return True
+
+    def append_attempt(item: dict) -> None:
+        if connection_trace["events"] or connection_trace["overflow"] or connection_trace["unavailable"]:
+            item["connection_trace"] = connection_trace
+        # v1 elapsed extension: exact rounded milliseconds through one day;
+        # beyond this representation cap, explicitly mark a saturated value.
+        # This is diagnostic only and never extends the 90-second deadline.
+        if item["ended_ms"] > 86_400_000:
+            item["ended_ms"] = 86_400_000
+            item["ended_ms_saturated"] = True
+        observation["attempt_count"] += 1
+        item["index"] = observation["attempt_count"]
+        observation["attempt_tail"].append(item)
+        del observation["attempt_tail"][:-_READINESS_TAIL_LIMIT]
+        record()
+
+    record()
     while time.monotonic() < deadline:
+        request_started_ms = _readiness_milliseconds(started_at)
+        connection_trace, observe_connection = _readiness_connection_trace(started_at)
         try:
             with client(purpose) as connection:
-                response = connection.get("/engine-rest/maezo/v1/readiness")
-            if response.status_code == 200:
-                assert response.json()["ready"] and response.json()["capabilities"]
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                response = connection.get(
+                    "/engine-rest/maezo/v1/readiness",
+                    timeout=min(15, remaining),
+                    extensions={"trace": observe_connection},
+                )
+            status = response.status_code
+            assert type(status) is int and 100 <= status <= 599, "invalid readiness HTTP status"
+            append_attempt(
+                {
+                    "started_ms": request_started_ms,
+                    "ended_ms": _readiness_milliseconds(started_at),
+                    "kind": "http",
+                    "status": status,
+                }
+            )
+            if time.monotonic() >= deadline:
+                break
+            if status == 200:
+                try:
+                    body = response.json()
+                    assert body["ready"] and body["capabilities"]
+                except Exception:
+                    record("malformed_success")
+                    raise AssertionError("malformed readiness success response") from None
+                if recording_failed or not record("ready"):
+                    record("recording_failed")
+                    pytest.fail("readiness observation recording failed")
+                if time.monotonic() >= deadline:
+                    if not record("deadline_exhausted"):
+                        record("recording_failed")
+                    break
                 return
-        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
-            pass
-        time.sleep(0.25)
+        except (
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.RemoteProtocolError,
+            httpx.TimeoutException,
+        ) as error:
+            append_attempt(
+                {
+                    "started_ms": request_started_ms,
+                    "ended_ms": _readiness_milliseconds(started_at),
+                    "kind": "transport",
+                    "transport_class": _readiness_transport_class(error),
+                }
+            )
+        except (KeyboardInterrupt, SystemExit):
+            record("interrupted")
+            raise
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.25, remaining))
+    if not record("recording_failed" if recording_failed else "deadline_exhausted"):
+        record("recording_failed")
+    if recording_failed:
+        pytest.fail("readiness observation recording failed")
     pytest.fail("actual authenticated capability readiness did not recover")
 
 
