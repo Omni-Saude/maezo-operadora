@@ -1,4 +1,10 @@
-"""Offline packaging fences and actual shell RUN controls; no engine/UID claim."""
+"""Offline packaging fences and actual shell RUN controls; no engine claim.
+
+The runtime UID is not left to inheritance: the cibseven images declare
+`USER camunda` (uid/gid 1000 in the pinned base) and carry a fail-closed
+build-time assertion for it. The tests below pin that declaration so a
+revert to root — or to an undeclared user — fails here.
+"""
 
 import os
 import re
@@ -66,7 +72,7 @@ def test_root_read_and_native_exceptions_keep_every_sibling_excluded() -> None:
     assert {".env", ".env.*", "*.env"}.issubset(lines)
 
 
-def test_staged_read_webapp_copy_is_owned_by_inherited_nonroot_user() -> None:
+def test_staged_read_webapp_copy_is_owned_by_declared_nonroot_user() -> None:
     """Keep both mv and recursive removal usable beneath the image's sticky /tmp.
 
     Docker COPY defaults to root ownership. This source fence complements the
@@ -88,7 +94,16 @@ def test_staged_read_webapp_copy_is_owned_by_inherited_nonroot_user() -> None:
             "/tmp/maezo-human-read",
         ]
     ]
-    assert not any(line.startswith("USER ") for line in logical)
+    # DS-0002 fence (owner decision D2, 19/09/2026): the runtime user is DECLARED,
+    # not inherited — exactly `USER camunda` (uid/gid 1000 in the pinned base), as
+    # the LAST user directive, with the fail-closed build assertion that pins uid
+    # 1000 still present. This fails if the directive is removed (the trivy
+    # DS-0002 finding returns and non-root stops being enforced by this repo),
+    # demoted to root (`USER root` / `USER 0`), renamed to another user, or if the
+    # build-time assertion is stripped.
+    users = [line for line in logical if line.startswith("USER ")]
+    assert users == ["USER camunda"]
+    assert any(line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line for line in logical)
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="RUN requires Linux sed -i; image UID remains unverified")
@@ -103,7 +118,12 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str) -
         if line.startswith("RUN test -f /camunda/conf") or line.startswith("RUN case ")
     ]
     assert len(steps) == 2
-    assert not any(line.startswith("USER ") for line in logical)
+    # Same DS-0002 fence as above: the declared runtime user is exactly `USER
+    # camunda` (never root, never absent — absence re-hides the trivy finding),
+    # and the fail-closed build assertion pinning uid 1000 is still there.
+    users = [line for line in logical if line.startswith("USER ")]
+    assert users == ["USER camunda"]
+    assert any(line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line for line in logical)
     camunda = tmp_path / "camunda"
     stage = tmp_path / "tmp/maezo-human-read"
     (camunda / "conf").mkdir(parents=True)

@@ -9,6 +9,22 @@
 # Replica unica de proposito: o engine faz job acquisition com lock em banco, e
 # duas replicas em dev so multiplicam contencao sem ganho.
 
+# ---------------------------------------------------------------------------
+# DIGEST DA IMAGEM DO ENGINE (19/09/2026, decisao do dono — pacote trivy/IaC D2)
+# O repositorio `amh/cibseven-maezo` ficou IMMUTABLE (ecs.tf), entao a task def
+# consome DIGEST, nao tag — mesmo padrao da sonda (`diagnostics_image_digest`) e
+# do portal: variavel obrigatoria, sem default, sem "digest inventado". O digest
+# sai da saida do CodeBuild (que imprime `describe-images ... imageDigest` no fim).
+# ---------------------------------------------------------------------------
+variable "engine_image_digest" {
+  description = "Digest sha256 completo da imagem ECR do engine (`amh/cibseven-maezo`) que o servico cibseven executa; obrigatorio no deploy (o repo e' IMMUTABLE), sem tag mutavel ou digest inventado."
+  type        = string
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.engine_image_digest))
+    error_message = "Forneca o digest sha256 completo de uma imagem do engine qualificada."
+  }
+}
+
 resource "aws_cloudwatch_log_group" "cibseven" {
   name              = "/ecs/${local.name}/cibseven"
   retention_in_days = var.log_retention_days
@@ -57,7 +73,9 @@ resource "aws_ecs_task_definition" "cibseven" {
     # recria a cada boot — o que dava administracao do motor a quem passasse pelo Access.
     #
     # 2.1.0 e nao 2.1.3 na base: a 2.1.3 nao tem imagem publicada (DL-0006).
-    image     = "${aws_ecr_repository.engine.repository_url}:${var.engine_image_tag}"
+    # DIGEST, nao tag (19/09/2026, decisao do dono — pacote trivy/IaC D2): o repo do
+    # engine ficou IMMUTABLE (ecs.tf) e o que roda fica amarrado ao artefato provado.
+    image     = "${aws_ecr_repository.engine.repository_url}@${var.engine_image_digest}"
     essential = true
 
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]

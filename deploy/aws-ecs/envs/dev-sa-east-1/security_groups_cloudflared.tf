@@ -17,7 +17,13 @@
 # Destino 0.0.0.0/0 porque os endpoints do Cloudflare sao anycast globais
 # (region1/region2.v2.argotunnel.com) e a lista de IPs muda sem aviso. Fixar CIDR
 # aqui seria trocar uma regra larga por uma regra que quebra em silencio.
-
+#
+# AWS-0104 (trivy) — IGNORE com justificativa, decidido pelo dono no pacote trivy/IaC
+# D2 (19/09/2026): o achado pede estreitar o egress, e o proprio cabecalho acima e' a
+# medicao que mostra por que NAO — o tunel nao registrava com so' 443 liberado, e a
+# borda anycast muda de IP sem aviso. "Consertar" aqui e' o modo de falha documentado:
+# um tunel que nao sobe, sem aviso. EXPIRA 2026-12-19 (o dono pode emendar/revisar).
+# trivy:ignore:AWS-0104 exp:2026-12-19
 resource "aws_vpc_security_group_egress_rule" "cloudflared_quic" {
   security_group_id = aws_security_group.tasks.id
   description       = "Tunel Cloudflare: QUIC (protocolo preferido)"
@@ -27,6 +33,11 @@ resource "aws_vpc_security_group_egress_rule" "cloudflared_quic" {
   cidr_ipv4         = "0.0.0.0/0"
 }
 
+# AWS-0104 (trivy) — IGNORE, mesmo dispacho do QUIC acima (pacote trivy/IaC D2,
+# 19/09/2026): este e' o fallback HTTP/2 do MESMO tunel; se a borda UDP cair sob
+# endurecimento de rede, o TCP/7844 e' o que mantem o tunel de pe. Mesma medicao,
+# mesmo motivo, mesma validade (2026-12-19; o dono pode emendar/revisar).
+# trivy:ignore:AWS-0104 exp:2026-12-19
 resource "aws_vpc_security_group_egress_rule" "cloudflared_http2" {
   security_group_id = aws_security_group.tasks.id
   description       = "Tunel Cloudflare: fallback HTTP/2 sobre TCP"

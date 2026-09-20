@@ -26,6 +26,21 @@
 # pode assina-la.
 
 # ---------------------------------------------------------------------------
+# DIGEST DA IMAGEM DOS AGENTES (19/09/2026, decisao do dono — pacote trivy/IaC D2)
+# Repositorio app IMMUTABLE (ecs.tf) ⇒ task def consome digest. Mesmo padrao da
+# sonda (`diagnostics_image_digest`): variavel obrigatoria, sem default, sem
+# "digest inventado". O digest sai da saida do CodeBuild.
+# ---------------------------------------------------------------------------
+variable "agents_image_digest" {
+  description = "Digest sha256 completo da imagem ECR app que os agentes executam; obrigatorio no deploy (o repo e' IMMUTABLE), sem tag mutavel ou digest inventado."
+  type        = string
+  validation {
+    condition     = can(regex("^sha256:[0-9a-f]{64}$", var.agents_image_digest))
+    error_message = "Forneca o digest sha256 completo de uma imagem app qualificada."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # O MESMO PORTAO DO RUNTIME, APLICADO NA INFRA
 # ---------------------------------------------------------------------------
 # `platform/privacy/dossier_zone.py` decide em tempo de execucao se a narrativa do
@@ -165,8 +180,13 @@ resource "aws_ecs_task_definition" "agente" {
   }
 
   container_definitions = jsonencode([{
-    name      = "agent-${each.key}"
-    image     = "${aws_ecr_repository.app.repository_url}:${var.image_tag}"
+    name = "agent-${each.key}"
+    # DIGEST, nao tag (19/09/2026, decisao do dono — pacote trivy/IaC D2): o repositorio
+    # app ficou IMMUTABLE (ecs.tf) e a promocao passa por digest, mesmo padrao do portal
+    # e da sonda de diagnostico. Variavel unica para os agentes de proposito: eles sao a
+    # MESMA imagem com AGENT_ID diferente — promover um agente isolado do outro segue
+    # possivel via `-var agents_image_digest=` em apply com `-target`.
+    image     = "${aws_ecr_repository.app.repository_url}@${var.agents_image_digest}"
     essential = true
 
     command = ["sh", "-c", "set -eu\n${local.dsn_export_app}\nexec python -m maezo.runtime.agent_runtime"]
