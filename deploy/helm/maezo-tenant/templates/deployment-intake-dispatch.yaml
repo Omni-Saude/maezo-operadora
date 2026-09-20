@@ -1,0 +1,146 @@
+{{- /*
+AUTH intake dispatch daemon (WP-J1-01) — drena `portal_intake.native_outbox` para o seam
+auditado de start/resposta. Roda `python -m maezo.runtime.intake_dispatch` SEM `--once`: o modulo
+faz poll ate SIGTERM/SIGINT por padrao (ver `src/maezo/runtime/intake_dispatch/service.py` e
+`__main__.py`).
+
+POR QUE ISTO EXISTE. Ate' este Deployment, NADA no repo drenava o outbox de intake:
+`AuthIntakeComponents.dispatch_prepared_start`/`dispatch_prepared_documents`
+(`gateway/intake/native_composition.py`) nao tinham chamador em `src/`. Uma solicitacao admitida
+pelo portal ficava em `state='admitted'` para sempre — o navegador recebia o `IntakeReceipt` e
+nenhum processo era iniciado. O daemon e' o dreno que faltava.
+
+DARK POR PADRAO (`enabled: false`). Drenar uma admissao e' um EFEITO no motor, e quem decide
+quando a instalacao AUTH de um tenant pode executa-lo e' o deployment, nunca um composition root.
+Alem disso, hoje o start do portal RECUSA antes de qualquer efeito: `dispatch_prepared_start` le
+`numero_guia_tiss` dos fatos publicados e levanta `AuthIntakeGuideNumberUnavailableError` quando
+a fonte nao o publica (`native_composition.py:43-61`) — que e' o caso de hoje. Ligar este
+Deployment antes disso rende varreduras que recusam por nome, nunca um start errado.
+
+MATERIAIS PROTEGIDOS. O daemon nao le DSN do ambiente: ele carrega a instalacao AUTH inteira do
+MESMO arquivo protegido que o portal usa (`AuthLifecycleConfiguration`) e o pin da definition
+implantada. Os dois vem de um Secret montado somente-leitura; `protected_bytes`
+(`gateway/intake/native_authority.py:670`) exige caminho absoluto, arquivo regular, sem symlink,
+modo sem bits para grupo/outros e (para o pin) digest sha256 declarado. `defaultMode: 0400` +
+propriedade root satisfaz isso (o loader aceita `st_uid` 0 ou o proprio euid).
+
+PROBE. O daemon nao expoe /healthz e a imagem de runtime (`python:3.12-slim` + `libpq5`,
+`deploy/Dockerfile`) nao tem `procps`, entao `pgrep` sairia 127 e o kubelet reiniciaria o pod para
+sempre (o mesmo achado F3 do a2a-outbox-relay). Liveness por heartbeat: `run_dispatch_loop` toca o
+arquivo no arranque, a cada sweep COMPLETO e a cada LINHA concluida (recusada inclusive) — o
+silencio legitimo mais longo e' de UMA linha, nunca um sweep inteiro de `batchSize` linhas; o que
+envelhece e' um processo que nao termina nem uma linha. A probe calcula
+`max(3 * pollIntervalS, 5) + rowBudgetS` EM PYTHON a partir dos proprios env vars do container —
+zero aritmetica Helm (`mul`/`int` truncaria um `pollIntervalS` fracionario para 0 e a probe
+falharia sempre, achado G1 do irmao). `rowBudgetS` e' o teto DECLARADO para drenar UMA linha,
+derivado dos tetos que a composicao JA' impoe — ida e volta no engine limitada a 10s
+(`gateway/human/auth_transport.py` recusa `timeout_seconds` acima de 10) e statement protegido a
+5s (`asyncpg command_timeout`, `gateway/intake/native_authority.py:842`) — vezes a cadeia limitada
+que despachar uma linha e' (uma duzia de transacoes de loja + a ida e volta), com folga; e
+consumida SO' pela probe (o daemon nao impoe timeout proprio). Reiniciar no meio de um sweep e' a
+falha que este limiar nao pode causar: a linha interrompida fica `sending` e, sem autoridade de
+leitura head-less (disclosure no docstring do servico), fica permanentemente
+`awaiting_receipt`.
+*/ -}}
+{{- if .Values.intakeDispatch.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intake-dispatch
+  namespace: {{ include "maezo-tenant.namespace" . }}
+  labels:
+    {{- include "maezo-tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/component: intake-dispatch
+spec:
+  # UMA replica por desenho: a lease do outbox (`native_store.claim`) ja' serializa linha a linha,
+  # e a cerca por chave de negocio ("no maximo um item por dominio de chave por varredura") e' por
+  # PROCESSO. Duas replicas nao corrompem nada — a lease e a unicidade nativa continuam valendo —
+  # mas tambem nao aceleram nada, porque as duas competem pela mesma lease.
+  replicas: {{ .Values.intakeDispatch.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "maezo-tenant.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: intake-dispatch
+  template:
+    metadata:
+      labels:
+        {{- include "maezo-tenant.labels" . | nindent 8 }}
+        app.kubernetes.io/component: intake-dispatch
+        # O daemon manipula refs opacas de admissao, recibos e digests — nunca corpo clinico. Os
+        # fatos que entram na projecao vem selados do banco protegido e nao sao logados.
+        maezo.io/phi-zone: "false"
+    spec:
+      serviceAccountName: {{ include "maezo-tenant.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intake-dispatch
+          image: {{ include "maezo-tenant.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "-m", "maezo.runtime.intake_dispatch"]
+          env:
+            # `IntakeDispatchSettings.materials()` recusa por NOME sem cada um destes cinco.
+            - name: MAEZO_INTAKE_DISPATCH_TENANT
+              value: {{ .Values.tenant.id | quote }}
+            - name: MAEZO_INTAKE_DISPATCH_LIFECYCLE_PATH
+              value: "/etc/maezo/auth/lifecycle.json"
+            - name: MAEZO_INTAKE_DISPATCH_IDENTITY_WRITER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.intakeDispatch.materialsSecretName }}
+                  key: identity-writer-url
+            - name: MAEZO_INTAKE_DISPATCH_DEFINITION_PATH
+              value: "/etc/maezo/auth/definition.json"
+            - name: MAEZO_INTAKE_DISPATCH_DEFINITION_DIGEST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.intakeDispatch.materialsSecretName }}
+                  key: definition-digest
+            - name: MAEZO_INTAKE_DISPATCH_BATCH_SIZE
+              value: {{ .Values.intakeDispatch.batchSize | quote }}
+            - name: MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S
+              value: {{ .Values.intakeDispatch.pollIntervalS | quote }}
+            - name: MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S
+              value: {{ .Values.intakeDispatch.rowBudgetS | quote }}
+            - name: MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH
+              value: "/tmp/maezo-intake-dispatch.heartbeat"
+            {{- include "maezo-tenant.otelEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.intakeDispatch.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import os,sys,time; p=os.environ.get('MAEZO_INTAKE_DISPATCH_HEARTBEAT_PATH',''); poll=float(os.environ.get('MAEZO_INTAKE_DISPATCH_POLL_INTERVAL_S','2')); budget=float(os.environ.get('MAEZO_INTAKE_DISPATCH_ROW_BUDGET_S','120')); threshold=max(3.0*poll,5.0)+budget; sys.exit(0 if p and os.path.exists(p) and (time.time()-os.stat(p).st_mtime)<threshold else 1)"
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: auth-materials
+              mountPath: /etc/maezo/auth
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: auth-materials
+          secret:
+            secretName: {{ .Values.intakeDispatch.materialsSecretName }}
+            # 0400: `protected_bytes` recusa qualquer bit de grupo/outros.
+            defaultMode: 0400
+            items:
+              - key: lifecycle.json
+                path: lifecycle.json
+              - key: definition.json
+                path: definition.json
+{{- end }}
