@@ -88,8 +88,14 @@ module "aurora" {
 module "ecr" {
   source = "../../modules/ecr"
 
-  repository_name      = "maezo-agent"
-  image_tag_mutability = "MUTABLE" # staging: allow overwrite for iteration
+  repository_name = "maezo-agent"
+  # IMMUTABLE desde 19/09/2026 (decisao do dono, pacote trivy/IaC D2) — staging deixa de
+  # ser o unico caller mutavel do modulo (o default do modulo ja' e' IMMUTABLE e prod
+  # sobrescreve para IMMUTABLE). O consumidor da imagem e' o deploy EKS do cd.yml, que
+  # passa tag por commit (`--set image.tag=<sha curto>`), entao a promocao normal nao
+  # muda; o que muda e' que REENVIAR a mesma tag (re-run do CD do mesmo commit) falha
+  # alto no push em vez de sobrescrever a imagem que staging esta rodando.
+  image_tag_mutability = "IMMUTABLE"
   push_role_arns       = [module.github_oidc.deploy_role_arn]
   pull_role_arns       = var.eks_node_role_arns
 

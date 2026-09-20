@@ -34,6 +34,7 @@ from maezo.tools.workers.credenciamento import register_credenciamento_workers
 from maezo.tools.workers.escalation import register_escalation_workers
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.fraude import register_fraude_workers
+from maezo.tools.workers.harness import TopicSealError
 from maezo.tools.workers.inadimplencia import register_inadimplencia_workers
 from maezo.tools.workers.lgpd import register_lgpd_workers
 from maezo.tools.workers.nip import register_nip_workers
@@ -78,5 +79,20 @@ def register_all_workers(
     Idempotent (`WorkerHarness.register_worker`/`.register` replace on re-registration, same
     topic) — safe to call more than once against the same harness.
     """
+    # UMA recusa de selo nao pode deixar os outros modulos sem registro (18/09/2026, bateria
+    # adversarial). Cenario: um `register_all_workers` anterior instalou o dono nativo de um topico
+    # e o SELOU; a chamada seguinte, sem o seam, tenta registrar o generico e o selo recusa —
+    # correto, e a recusa CONTINUA sendo levantada (quem chamou precisa saber). O que nao pode
+    # acontecer e' o que acontecia: o `TopicSealError` no meio do laco parava os bootstraps
+    # seguintes, e o processo subia com 4 de 17 dominios servidos. So' `TopicSealError` e'
+    # adiado: qualquer outra excecao continua fail-fast, porque um bootstrap genuinamente
+    # quebrado nao e' um estado que valha registrar pela metade.
+    primeira_recusa: TopicSealError | None = None
     for bootstrap in ALL_WORKER_BOOTSTRAPS:
-        bootstrap(harness, kafka, **seams)
+        try:
+            bootstrap(harness, kafka, **seams)
+        except TopicSealError as recusa:
+            if primeira_recusa is None:
+                primeira_recusa = recusa
+    if primeira_recusa is not None:
+        raise primeira_recusa

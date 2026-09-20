@@ -11,8 +11,10 @@ public final class BoundaryFilter implements Filter {
   private BoundaryPolicyV2 v2;
   static final ThreadLocal<BoundaryPolicy.Peer> REQUEST_PEER=new ThreadLocal<>();
   @Override public void init(FilterConfig config) {
+    if(!BoundaryPolicyV2.configured())SecuredBpmPlatformBootstrap.filterStart(config);
     policy=BoundaryPolicy.environment();SecureLayout.verify(policy);
     if(BoundaryPolicyV2.configured()){v2=BoundaryPolicyV2.environment();SecureLayout.verifyV2(v2);}
+    else SecuredBpmPlatformBootstrap.filterCompleted(config);
   }
   @Override public void doFilter(ServletRequest req,ServletResponse res,FilterChain chain) throws IOException,ServletException {
     if(!(req instanceof HttpServletRequest request)||!(res instanceof HttpServletResponse response))throw new ServletException("engine_operation_denied");

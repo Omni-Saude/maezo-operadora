@@ -2,6 +2,13 @@
 
 Set MAEZO_D7_PACKAGE_FIXTURE to prepare_fixture.py's private, seeded, secured fixture.
 The database snapshot is read-only and emits hashes, never engine rows or credentials.
+
+wait_ready()'s readiness observation additionally requires three operator bindings, exported
+next to MAEZO_D7_PACKAGE_FIXTURE (procedure and derivations in
+deploy/cibseven/secured/ACCEPTANCE.md): MAEZO_D7_READINESS_RUN_ID names the run
+(`d7-[a-z0-9-]{8,64}`) and MAEZO_D7_READINESS_SOURCE_SHA / MAEZO_D7_READINESS_SOURCE_TREE are
+the 40-hex commit/tree of the observed source. They are written into readiness-attempts.json
+so every recorded attempt stays attributable; without them the observation fails closed.
 """
 
 from __future__ import annotations
@@ -23,12 +30,19 @@ import asyncpg
 import httpx
 import pytest
 
+from tests.support.d7_recovery import (
+    naive_utc_epoch_millis,
+    preserve_restoration_errors,
+)
 from tests.support.tls_oracle import (
     expect_pinned_jsse_missing_client_certificate_alert,
     server_authenticated_tls13_context,
 )
 
-pytestmark = pytest.mark.integration
+# `root_fixture`: PRIVATE ROOT-supplied materials; deselected from the global `-m integration`
+# lane unless MAEZO_ROOT_FIXTURES=1 (tests/integration/conftest.py). Allowlisted with its reason
+# in tests/unit/ci/test_root_fixture_deselection.py.
+pytestmark = [pytest.mark.integration, pytest.mark.root_fixture]
 
 
 def fixture() -> Path:
@@ -42,13 +56,17 @@ def fixture() -> Path:
     return root
 
 
-def client(purpose: str = "agent") -> httpx.Client:
+def client_tls_context(purpose: str) -> ssl.SSLContext:
     root = fixture()
     context = ssl.create_default_context(cafile=root / "ca.crt")
     context.load_cert_chain(root / f"{purpose}.crt", root / f"{purpose}.key")
+    return context
+
+
+def client(purpose: str = "agent") -> httpx.Client:
     return httpx.Client(
         base_url="https://localhost:18443",
-        verify=context,
+        verify=client_tls_context(purpose),
         trust_env=False,
         follow_redirects=False,
         timeout=15,
@@ -488,30 +506,46 @@ def test_scoped_start_read_and_worker_lifecycle_have_native_causal_effects() -> 
         async def observe():
             db = await database()
             try:
-                return dict(await db.fetchrow("SELECT * FROM act_ru_ext_task WHERE id_=$1", target["id"]))
+                assert await db.fetchval("SHOW TimeZone") in {"UTC", "Etc/UTC"}
+                row = dict(
+                    await db.fetchrow(
+                        "SELECT *, pg_typeof(lock_exp_time_)::text AS lock_type "
+                        "FROM act_ru_ext_task WHERE id_=$1",
+                        target["id"],
+                    )
+                )
+                assert row["lock_type"] == "timestamp without time zone"
+                return row
             finally:
                 await db.close()
 
-        assert asyncio.run(observe())["worker_id_"] == "fixture-worker"
+        observed = asyncio.run(observe())
+        assert observed["worker_id_"] == "fixture-worker"
+        # Actual native wire epoch and stored timestamp establish the UTC convention.
+        assert naive_utc_epoch_millis(observed["lock_exp_time_"]) == target["lock_expires_at"]
         for suffix in ("external_extend_lock", "external_failure", "external_unlock"):
             assert operation(connection, typed_request(base + "." + suffix, target["id"])) == {
                 "applied": True
             }
             observed = asyncio.run(observe())
             if suffix == "external_extend_lock":
-                assert observed["lock_exp_time_"].timestamp() * 1000 >= target["lock_expires_at"]
+                assert naive_utc_epoch_millis(observed["lock_exp_time_"]) >= target["lock_expires_at"]
             else:
                 if suffix == "external_failure":
                     assert observed["retries_"] == 1
                 assert (
                     observed["lock_exp_time_"] is None
-                    or observed["lock_exp_time_"].timestamp() <= time.time()
+                    or naive_utc_epoch_millis(observed["lock_exp_time_"]) <= time.time() * 1000
                 )
                 acquired = operation(connection, typed_request(base + ".fetch_lock", "d7-reacquire"))
                 # Other pending tasks can be returned: consume the returned real identity,
                 # never assume fetching a named task or complete a stale ID.
                 assert len(acquired) == 1
                 target = acquired[0]
+                assert (
+                    naive_utc_epoch_millis(asyncio.run(observe())["lock_exp_time_"])
+                    == target["lock_expires_at"]
+                )
         complete = typed_request(base, target["id"])
         assert operation(connection, complete) == {"applied": True}
 
@@ -711,19 +745,229 @@ def restart_owned_engine(document: dict) -> None:
     assert process.returncode == 0, "owned engine recreation failed; see private lifecycle streams"
 
 
+_READINESS_TAIL_LIMIT = 32
+_READINESS_PURPOSES = {"agent", "agent-next", "worker"}
+_READINESS_TRANSPORT_CLASSES = (
+    (httpx.ConnectTimeout, "connect_timeout"),
+    (httpx.ReadTimeout, "read_timeout"),
+    (httpx.WriteTimeout, "write_timeout"),
+    (httpx.PoolTimeout, "pool_timeout"),
+    (httpx.TimeoutException, "timeout"),
+    (httpx.ConnectError, "connect_error"),
+    (httpx.ReadError, "read_error"),
+    (httpx.RemoteProtocolError, "remote_protocol_error"),
+)
+
+
+def _new_readiness_observation(purpose: str) -> dict:
+    run_id = os.environ.get("MAEZO_D7_READINESS_RUN_ID", "")
+    source_sha = os.environ.get("MAEZO_D7_READINESS_SOURCE_SHA", "")
+    source_tree = os.environ.get("MAEZO_D7_READINESS_SOURCE_TREE", "")
+    assert purpose in _READINESS_PURPOSES, "invalid readiness observation purpose"
+    assert re.fullmatch(r"d7-[a-z0-9-]{8,64}", run_id), (
+        "MAEZO_D7_READINESS_RUN_ID is required to attribute readiness-attempts.json to the run "
+        "that produced it: d7- prefix plus 8-64 of [a-z0-9-] (the D7_PROJECT compose name "
+        "qualifies); export it next to MAEZO_D7_PACKAGE_FIXTURE — "
+        "deploy/cibseven/secured/ACCEPTANCE.md"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", source_sha), (
+        "MAEZO_D7_READINESS_SOURCE_SHA is required to bind readiness-attempts.json to the exact "
+        'observed source revision: 40-hex `git -C "$CANDIDATE" rev-parse HEAD`; export it next '
+        "to MAEZO_D7_PACKAGE_FIXTURE — deploy/cibseven/secured/ACCEPTANCE.md"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", source_tree), (
+        "MAEZO_D7_READINESS_SOURCE_TREE is required to bind readiness-attempts.json to the exact "
+        "observed source tree: 40-hex `git -C \"$CANDIDATE\" rev-parse 'HEAD^{tree}'`; export it "
+        "next to MAEZO_D7_PACKAGE_FIXTURE — deploy/cibseven/secured/ACCEPTANCE.md"
+    )
+    return {
+        "schema": "maezo.d7.readiness-attempts.v1",
+        "run_id": run_id,
+        "source_sha": source_sha,
+        "source_tree": source_tree,
+        "purpose": purpose,
+        "budget_ms": 90_000,
+        "request_cap_ms": 15_000,
+        "backoff_cap_ms": 250,
+        "attempt_count": 0,
+        "tail_limit": _READINESS_TAIL_LIMIT,
+        "attempt_tail": [],
+        "completion": "polling",
+    }
+
+
+def _write_readiness_observation(observation: dict) -> None:
+    path = fixture() / "readiness-attempts.json"
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise OSError("unsafe readiness observation target")
+    encoded = (json.dumps(observation, separators=(",", ":"), sort_keys=True) + "\n").encode()
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            descriptor = -1
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600, follow_symlinks=False)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def _readiness_transport_class(error: Exception) -> str:
+    for error_type, category in _READINESS_TRANSPORT_CLASSES:
+        if isinstance(error, error_type):
+            return category
+    raise AssertionError("unclassified readiness transport error")
+
+
+def _readiness_milliseconds(started_at: float) -> int:
+    return max(0, int(round((time.monotonic() - started_at) * 1000)))
+
+
+def _readiness_connection_trace(started_at: float) -> tuple[dict, object]:
+    """Observe six pinned httpcore events only; never inspect trace info."""
+    trace = {"events": [], "overflow": False, "unavailable": False}
+    names = {
+        f"connection.{stage}.{outcome}": (stage, outcome)
+        for stage in ("connect_tcp", "start_tls")
+        for outcome in ("started", "complete", "failed")
+    }
+
+    def observe(name: str, info: object) -> None:
+        del info
+        if type(name) is not str or name not in names:
+            return
+        if len(trace["events"]) >= 8:
+            trace["overflow"] = True
+            return
+        try:
+            elapsed = _readiness_milliseconds(started_at)
+            stage, outcome = names[name]
+            event = {
+                "stage": stage,
+                "outcome": outcome,
+                "elapsed_ms": min(elapsed, 86_400_000),
+            }
+            if elapsed > 86_400_000:
+                event["elapsed_ms_saturated"] = True
+            trace["events"].append(event)
+        except Exception:
+            trace["unavailable"] = True
+
+    return trace, observe
+
+
 def wait_ready(purpose: str = "agent") -> None:
-    deadline = time.monotonic() + 90
+    started_at = time.monotonic()
+    deadline = started_at + 90
+    observation = _new_readiness_observation(purpose)
+    recording_failed = False
+
+    def record(completion: str | None = None) -> bool:
+        nonlocal recording_failed
+        if completion is not None:
+            observation["completion"] = completion
+        try:
+            _write_readiness_observation(observation)
+        except Exception:
+            recording_failed = True
+            return False
+        return True
+
+    def append_attempt(item: dict) -> None:
+        if connection_trace["events"] or connection_trace["overflow"] or connection_trace["unavailable"]:
+            item["connection_trace"] = connection_trace
+        # v1 elapsed extension: exact rounded milliseconds through one day;
+        # beyond this representation cap, explicitly mark a saturated value.
+        # This is diagnostic only and never extends the 90-second deadline.
+        if item["ended_ms"] > 86_400_000:
+            item["ended_ms"] = 86_400_000
+            item["ended_ms_saturated"] = True
+        observation["attempt_count"] += 1
+        item["index"] = observation["attempt_count"]
+        observation["attempt_tail"].append(item)
+        del observation["attempt_tail"][:-_READINESS_TAIL_LIMIT]
+        record()
+
+    record()
     while time.monotonic() < deadline:
+        request_started_ms = _readiness_milliseconds(started_at)
+        connection_trace, observe_connection = _readiness_connection_trace(started_at)
         try:
             with client(purpose) as connection:
-                response = connection.get("/engine-rest/maezo/v1/readiness")
-            if response.status_code == 200:
-                assert response.json()["ready"] and response.json()["capabilities"]
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                response = connection.get(
+                    "/engine-rest/maezo/v1/readiness",
+                    timeout=min(15, remaining),
+                    extensions={"trace": observe_connection},
+                )
+            status = response.status_code
+            assert type(status) is int and 100 <= status <= 599, "invalid readiness HTTP status"
+            append_attempt(
+                {
+                    "started_ms": request_started_ms,
+                    "ended_ms": _readiness_milliseconds(started_at),
+                    "kind": "http",
+                    "status": status,
+                }
+            )
+            if time.monotonic() >= deadline:
+                break
+            if status == 200:
+                try:
+                    body = response.json()
+                    assert body["ready"] and body["capabilities"]
+                except Exception:
+                    record("malformed_success")
+                    raise AssertionError("malformed readiness success response") from None
+                if recording_failed or not record("ready"):
+                    record("recording_failed")
+                    pytest.fail("readiness observation recording failed")
+                if time.monotonic() >= deadline:
+                    if not record("deadline_exhausted"):
+                        record("recording_failed")
+                    break
                 return
-        except (httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError):
-            pass
-        time.sleep(0.25)
+        except (
+            httpx.ConnectError,
+            httpx.ReadError,
+            httpx.RemoteProtocolError,
+            httpx.TimeoutException,
+        ) as error:
+            append_attempt(
+                {
+                    "started_ms": request_started_ms,
+                    "ended_ms": _readiness_milliseconds(started_at),
+                    "kind": "transport",
+                    "transport_class": _readiness_transport_class(error),
+                }
+            )
+        except (KeyboardInterrupt, SystemExit):
+            record("interrupted")
+            raise
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.25, remaining))
+    if not record("recording_failed" if recording_failed else "deadline_exhausted"):
+        record("recording_failed")
+    if recording_failed:
+        pytest.fail("readiness observation recording failed")
     pytest.fail("actual authenticated capability readiness did not recover")
+
+
+def recovery_evidence(label: str) -> Path:
+    path = fixture() / ("recovery-" + label + "-" + uuid4().hex)
+    path.mkdir(mode=0o700)
+    return path
 
 
 def test_real_certificate_overlap_digest_restart_and_old_leaf_revocation() -> None:
@@ -736,7 +980,12 @@ def test_real_certificate_overlap_digest_restart_and_old_leaf_revocation() -> No
     new.update(json.loads((fixture() / "certificate-variants.json").read_text())["agent-next"])
     overlap["peers"].append(new)
     pending = operation_request()
-    try:
+
+    def restore() -> None:
+        restart_owned_engine(original)
+        wait_ready()
+
+    with preserve_restoration_errors(restore, recovery_evidence("rotation")):
         restart_owned_engine(overlap)
         wait_ready()
         wait_ready("agent-next")
@@ -760,9 +1009,6 @@ def test_real_certificate_overlap_digest_restart_and_old_leaf_revocation() -> No
         assert snapshot() == before
         with client("agent-next") as new_connection:
             assert operation(new_connection, pending)["id"]
-    finally:
-        restart_owned_engine(original)
-        wait_ready()
 
 
 def test_actual_human_commit_lost_response_then_secured_engine_restart_reconciles_same_pending_identity() -> (
@@ -866,15 +1112,17 @@ def test_known_leaf_metadata_mismatch_has_exact_refusal_and_restoration(field: s
             from maezo.gateway.engine_contracts import canonical_json
 
             binding["digest"] = hashlib.sha256(canonical_json(binding["document"])).hexdigest()
-    try:
+
+    def restore() -> None:
+        restart_owned_engine(original)
+        wait_ready()
+
+    with preserve_restoration_errors(restore, recovery_evidence("metadata")):
         restart_owned_engine(changed)
         wait_ready("worker")
         with client() as connection:
             denied(connection.post("/engine-rest/maezo/v1/operations", json=operation_request()))
         assert snapshot() == before
-    finally:
-        restart_owned_engine(original)
-        wait_ready()
 
 
 def record_response(evidence: Path, label: str, response: httpx.Response) -> None:
@@ -1073,7 +1321,13 @@ def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency
         (root / "secured-compose.json").write_text(json.dumps(compose))
     else:
         changed[dependency] = "foreign-tenant" if dependency == "tenant" else "foreign-environment"
-    try:
+
+    def restore() -> None:
+        (root / "secured-compose.json").write_bytes(saved_compose)
+        restart_owned_engine(original)
+        wait_ready()
+
+    with preserve_restoration_errors(restore, evidence):
         restart_owned_engine(changed)
         fault_context = owned_engine_context(evidence, "fault")
         assert fault_context["id"] != baseline_context["id"]
@@ -1114,10 +1368,6 @@ def test_missing_dependency_or_inconsistent_identity_prevents_startup(dependency
         assert_start_effect(pending, None)
         with pytest.raises(ConnectionRefusedError), socket.create_connection(("127.0.0.1", 18080), timeout=3):
             pytest.fail("failed secured startup cannot reopen plaintext")
-    finally:
-        (root / "secured-compose.json").write_bytes(saved_compose)
-        restart_owned_engine(original)
-        wait_ready()
     readiness()
     restored_context = owned_engine_context(evidence, "restored")
     assert restored_context["id"] != fault_context["id"]

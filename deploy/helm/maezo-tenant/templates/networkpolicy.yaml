@@ -272,7 +272,7 @@ spec:
 
 {{- /* ------------------------------------------------------------------- */}}
 {{- /* 5. W-R2 daemon egress (worker-daemon R7 + notifications-bridge R8 +  */}}
-{{- /*    a2a-outbox-relay SC-01)                                           */}}
+{{- /*    a2a-outbox-relay SC-01 + intake-dispatch WP-J1-01)                */}}
 {{- /*                                                                       */}}
 {{- /* These daemons are general-zone NON-agents that must reach the CIB    */}}
 {{- /* Seven engine (fetch-and-lock / start_process) + Kafka (publish/       */}}
@@ -293,6 +293,9 @@ spec:
 {{- if .Values.workerDaemon.enabled }}{{- $components = append $components "worker-daemon" }}{{- end }}
 {{- if .Values.notificationsBridge.enabled }}{{- $components = append $components "notifications-bridge" }}{{- end }}
 {{- if .Values.a2aOutboxRelay.enabled }}{{- $components = append $components "a2a-outbox-relay" }}{{- end }}
+{{- /* WP-J1-01: o daemon de intake fala com o MESMO plano que os demais daemons W-R2 (CIB */}}
+{{- /* Seven + Postgres protegido). Sem esta linha o pod subiria sem egress e recusaria tudo. */}}
+{{- if .Values.intakeDispatch.enabled }}{{- $components = append $components "intake-dispatch" }}{{- end }}
 {{- if $components }}
 ---
 apiVersion: networking.k8s.io/v1
@@ -303,7 +306,7 @@ metadata:
   labels:
     {{- include "maezo-tenant.labels" . | nindent 4 }}
   annotations:
-    maezo.io/note: "W-R2 daemons (worker-daemon/notifications-bridge/a2a-outbox-relay) egress -> CIB Seven + Kafka. Concrete CIDRs only (FIX 1)."
+    maezo.io/note: "W-R2 daemons (worker-daemon/notifications-bridge/a2a-outbox-relay/intake-dispatch) egress -> CIB Seven + Kafka. Concrete CIDRs only (FIX 1)."
 spec:
   podSelector:
     matchExpressions:

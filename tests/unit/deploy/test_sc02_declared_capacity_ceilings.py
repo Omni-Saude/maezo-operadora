@@ -50,6 +50,7 @@ _TEMPLATE_TO_VALUES_KEY: Final[dict[str, str]] = {
     "deployment-bridge.yaml": "notificationsBridge",
     "deployment-fhir-sync.yaml": "fhirSync",
     "deployment-gateway.yaml": "gateway",
+    "deployment-intake-dispatch.yaml": "intakeDispatch",
     "deployment-webhook-receiver.yaml": "webhookReceiver",
     "deployment-worker-daemon.yaml": "workerDaemon",
 }

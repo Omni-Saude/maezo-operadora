@@ -277,3 +277,84 @@ class PostgresIntakeStore:
         if result is None:
             raise IntakeError("resource_unavailable")
         return result
+
+    async def admitted_submission(self, principal_ref: str, command_id: str) -> AuthIntakeSubmission:
+        """The committed submission itself, decrypted under the SAME binding `admit` sealed it with.
+
+        The dispatcher (`runtime/intake_dispatch`) starts a process from an admission committed
+        minutes earlier by a browser that is long gone; `build_start_command`
+        (`gateway/human/auth_projection.py:102`) re-derives the admitted digest from the ORIGINAL
+        submission, so the submission has to be readable again. `read` above deliberately returns
+        only the `IntakeReceipt`, and until now nothing could recover the request.
+
+        The unsealer belongs with the sealer: the AAD (`admit`, this file, `:141`) is the row's own
+        identifying columns, and reconstructing it in a second module would let the two drift into
+        a decryption that no longer proves which row the plaintext came from. Every column of that
+        AAD is read back from the row, so a request moved to another tenant, principal, command,
+        intake or guide does not decrypt at all — AES-GCM fails closed, and the `request_digest`
+        re-check below is a second, independent fence over the same bytes.
+        """
+        if not principal_ref or not command_id:
+            raise IntakeError("invalid_request")
+        try:
+            async with transaction(self.engine, self.seconds) as connection:
+                row = (
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT * FROM portal_intake.intake WHERE tenant=:tenant "
+                                "AND principal_ref=:principal AND command_id=:command"
+                            ),
+                            {"tenant": self.tenant, "principal": principal_ref, "command": command_id},
+                        )
+                    )
+                    .mappings()
+                    .one()
+                )
+            if row["key_id"] != self.key_id:
+                # A row sealed under a different key is not "unreadable for now": this store
+                # cannot prove anything about it. Key rotation is an owner procedure, never an
+                # inference here.
+                raise IntakeError("dependency_unavailable")
+            aad = canonicalize(
+                {
+                    "tenant": self.tenant,
+                    "principal": row["principal_ref"],
+                    "command": row["command_id"],
+                    "intake": row["intake_ref"],
+                    "guide": row["guide_identity_ref"],
+                    "digest": row["request_digest"],
+                    "authority_ref": row["authority_receipt_ref"],
+                    "authority_digest": row["authority_digest"],
+                    "key_id": row["key_id"],
+                }
+            )
+            raw = self._cipher.decrypt(bytes(row["nonce"]), bytes(row["ciphertext"]), aad)
+            if hashlib.sha256(raw).hexdigest() != row["request_digest"]:
+                raise ExternalCaseError("conflict")
+            payload = strict_loads(raw)
+            # `request_bytes` (the sealer, this module) maps the public integer schema version to a
+            # DECIMAL before sealing, and the closed model is strict about the integer — even lax
+            # validation rejects the sealed form. The reader maps it back: the digest fence above
+            # already proved these bytes, and the re-serialization fence below proves the
+            # round-trip again, so the inversion cannot smuggle a different representation in.
+            request = AuthIntakeSubmission.model_validate(
+                {**payload, "schema_version": int(payload["schema_version"])}, strict=True
+            )
+            if request_bytes(request) != raw or request.command_id != command_id:
+                # Re-serialisation must reproduce the sealed bytes exactly; anything else means
+                # the stored plaintext is not the admitted representation the digest attests.
+                raise ExternalCaseError("conflict")
+            return request
+        except IntakeError:
+            raise
+        except ExternalCaseError as exc:
+            # MESMA tradução por código do `admit` (este módulo, acima): as cercas deste leitor
+            # levantam `ExternalCaseError("conflict")` — texto adulterado que não cumpre o digest
+            # atestado, ou submission selada de outro comando — e `ExternalCaseError(ValueError)`
+            # não é `IntakeError`, então sem esta cláusula ambas caíam no broad clause abaixo e
+            # uma linha adulterada/trocada virava "indisponibilidade de dependência", retried para
+            # sempre, com o conflito que o leitor escreveu inobservável.
+            raise IntakeError("conflict" if exc.code == "conflict" else "dependency_unavailable") from None
+        except Exception:
+            raise IntakeError("dependency_unavailable") from None

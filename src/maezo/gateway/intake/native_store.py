@@ -832,27 +832,60 @@ class PostgresAuthDispatchStore:
 
     async def completed(self, command: EffectCommand) -> NativeEffectReceipt | None:
         try:
-            result = None
             async with transaction(self.engine, self.seconds) as c:
                 await self.qualify(c)
                 row = await self._lock(c, command.command_id)
-                if self._command(row) != command:
-                    raise ExternalCaseError("conflict")
-                if row["state"] == "executed":
-                    result = parse_model(
-                        NativeEffectReceipt,
-                        self.unseal(
-                            "receipt",
-                            command.command_id,
-                            row["key_id"],
-                            row["receipt_nonce"],
-                            row["receipt_ciphertext"],
-                        ),
-                    )
-                    if row["receipt_digest"] != digest(result):
-                        raise ExternalCaseError("conflict")
-                    bind_receipt(result, command)
-            return result
+                return self._receipt(row, command)
+        except Exception:
+            raise AuthUnavailableError() from None
+
+    def _receipt(self, row: Any, command: EffectCommand) -> NativeEffectReceipt | None:
+        """The durable receipt of a SEALED row, bound to the command presented.
+
+        Expects the caller's transaction and row lock. Raises `ExternalCaseError("conflict")` when
+        the sealed command is not the one presented, or when the unsealed receipt fails its own
+        digest — never an interpretation of either.
+        """
+        if self._command(row) != command:
+            raise ExternalCaseError("conflict")
+        if row["state"] != "executed":
+            return None
+        result = parse_model(
+            NativeEffectReceipt,
+            self.unseal(
+                "receipt",
+                command.command_id,
+                row["key_id"],
+                row["receipt_nonce"],
+                row["receipt_ciphertext"],
+            ),
+        )
+        if row["receipt_digest"] != digest(result):
+            raise ExternalCaseError("conflict")
+        bind_receipt(result, command)
+        return result
+
+    async def settled(self, command: EffectCommand) -> NativeEffectReceipt | None:
+        """Receipt-first answer for a row that may not carry a sealed command YET.
+
+        The drain (`runtime/intake_dispatch/service.py`) consults the durable receipt BEFORE any
+        send, and at that point a fresh `admitted` row has nothing sealed: `stage_intake` writes no
+        command column, and the schema (`native_schema.sql`) ties `state='executed'` to
+        `receipt_digest IS NOT NULL` while requiring every claimed/sent/executed state to be sealed
+        — so an unsealed row CANNOT carry a receipt, and `None` here is the fact, not a fallback.
+        The seal (`prepare`) happens only inside the send that follows this read, which is why
+        `completed` — which must compare the sealed command — is unanswerable for exactly the rows
+        the drain reads first. A SEALED row is answered exactly like `completed`: the sealed
+        command must match the one presented and a receipt that fails to unseal or to meet its
+        digest fails closed.
+        """
+        try:
+            async with transaction(self.engine, self.seconds) as c:
+                await self.qualify(c)
+                row = await self._lock(c, command.command_id)
+                if row["command_digest"] is None:
+                    return None
+                return self._receipt(row, command)
         except Exception:
             raise AuthUnavailableError() from None
 

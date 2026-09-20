@@ -30,7 +30,7 @@ Java passaram em A; B falhava pelo cap de leitura, reparado neste PR — ver §6
 ```sh
 export MAEZO_HUMAN_IT_JDBC_URL='jdbc:postgresql://localhost:5433/maezo'   # sem currentSchema/options
 export MAEZO_HUMAN_IT_DB_USER='maezo'
-export MAEZO_HUMAN_IT_DB_PASSWORD="${MAEZO_PG_PASSWORD:-maezo}"
+export MAEZO_HUMAN_IT_DB_PASSWORD="${MAEZO_PG_PASSWORD:?defina MAEZO_PG_PASSWORD antes de rodar a IT}"
 export MAEZO_PORTAL_READ_IT_REPO="$PWD"
 mvn -B -o -f src/maezo/portal/engine/java/pom.xml test \
     -Dmaezo.repo.root="$PWD" -DfailIfNoSpecifiedTests=false \
@@ -102,7 +102,7 @@ openssl req -new -x509 -days 1 -nodes -subj '/CN=localhost' \
 chmod 600 "$FIXTURE/server.key"; sudo chown 999:999 "$FIXTURE/server.key" "$FIXTURE/server.crt"
 
 docker run -d --name maezo-consumer-it-pg -p 5434:5432 \
-  -e POSTGRES_USER=maezo -e POSTGRES_PASSWORD="${MAEZO_PG_PASSWORD:-maezo}" -e POSTGRES_DB=maezo \
+  -e POSTGRES_USER=maezo -e POSTGRES_PASSWORD="${MAEZO_PG_PASSWORD:?defina MAEZO_PG_PASSWORD antes de rodar a IT}" -e POSTGRES_DB=maezo \
   -v "$FIXTURE":/tls:ro postgres:16 \
   -c ssl=on -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/tls/server.key
 ```
@@ -142,7 +142,7 @@ O JDBC precisa de `sslmode=require`, senão a sessão volta a ser não-TLS e o i
 ```sh
 export MAEZO_HUMAN_IT_JDBC_URL='jdbc:postgresql://localhost:5434/maezo?sslmode=require'
 export MAEZO_HUMAN_IT_DB_USER='maezo'
-export MAEZO_HUMAN_IT_DB_PASSWORD="${MAEZO_PG_PASSWORD:-maezo}"
+export MAEZO_HUMAN_IT_DB_PASSWORD="${MAEZO_PG_PASSWORD:?defina MAEZO_PG_PASSWORD antes de rodar a IT}"
 export MAEZO_CONSUMER_IT_RUNTIME_USER='consumer_runtime'
 export MAEZO_CONSUMER_IT_RUNTIME_PASSWORD='…'      # fora do shell history
 mvn -B -o -f src/maezo/portal/engine/java/pom.xml verify -Pphi-consumer-engine-it \
@@ -170,8 +170,9 @@ comportamento correto.
 ## 5. Fixture D7/pacote (contexto)
 
 `deploy/cibseven/secured/ACCEPTANCE.md` descreve a fixture descartável do lane D7
-(`prepare_fixture.py prepare|seed`, `MAEZO_D7_PACKAGE_FIXTURE`, `MAEZO_D7_COMPOSE_PROJECT`). Ela
-serve as suítes Python de integração do portal, não os `EngineIT` acima.
+(`prepare_fixture.py prepare|seed`, `MAEZO_D7_PACKAGE_FIXTURE`, `MAEZO_D7_COMPOSE_PROJECT`,
+amarras de observação de prontidão `MAEZO_D7_READINESS_RUN_ID`/`_SOURCE_SHA`/`_SOURCE_TREE`).
+Ela serve as suítes Python de integração do portal, não os `EngineIT` acima.
 
 ## 6. Reparo de landing deste PR (grupo B)
 

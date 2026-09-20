@@ -59,11 +59,28 @@ deploy/cibseven/secured/descriptors/*
 !deploy/cibseven/secured/descriptors/bpm-platform.xml
 !deploy/cibseven/secured/descriptors/engine-rest-web.xml
 !deploy/cibseven/secured/descriptors/camunda-web.xml
+!deploy/cibseven/secured/descriptors/startup-global-web.xml
+!deploy/cibseven/secured/descriptors/startup-engine-rest-web.xml
+!deploy/cibseven/secured/descriptors/context.xml
+!deploy/cibseven/secured/descriptors/ROOT-web.xml
+!deploy/cibseven/secured/descriptors/docs-web.xml
+!deploy/cibseven/secured/descriptors/manager-web.xml
+!deploy/cibseven/secured/descriptors/host-manager-web.xml
+!deploy/cibseven/secured/descriptors/webapp-web.xml
+!deploy/cibseven/secured/descriptors/examples-web.xml
+!deploy/cibseven/secured/descriptors/human-web.xml
 !deploy/cibseven/secured/native-v2/
 deploy/cibseven/secured/native-v2/*
 !deploy/cibseven/secured/native-v2/WEB-INF/
 deploy/cibseven/secured/native-v2/WEB-INF/*
 !deploy/cibseven/secured/native-v2/WEB-INF/web.xml
+
+# Somente o instalador e o bundle pinado das raizes RDS sa-east-1 entram no
+# contexto (ADR-0049 D8); o README permanece fora da imagem.
+!deploy/certificates/
+deploy/certificates/*
+!deploy/certificates/install_rds_roots.py
+!deploy/certificates/sa-east-1-bundle.pem
 
 # Variáveis de ambiente locais (nunca empacotar segredos)
 .env
