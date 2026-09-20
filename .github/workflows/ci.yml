@@ -30,6 +30,22 @@ jobs:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
 
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
+        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
+        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
+        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
+        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
+        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
+        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
+        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
+        # limpeza nao toca em nenhum caminho usado por este job.
+        run: |
+          set -e
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h / | tail -1
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -113,6 +129,12 @@ jobs:
 
       - name: Type check
         run: make type
+
+      - name: Disk headroom checkpoint before the unit suite
+        # Post-mortem 2026-09-20: registra no log o espaco livre no momento exato em
+        # que a suite comeca — se o esgotamento de disco voltar, o checkpoint nomeia o
+        # consumidor entre "fim do setup" e "durante o pytest".
+        run: df -h / | tail -1
 
       # T2.3 (B9 CI surgery): folded the coverage gate into the unit-test step itself
       # instead of a second pytest invocation, so the suite runs exactly once.
@@ -555,6 +577,17 @@ jobs:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
 
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # Mesma causa e mesma prova do passo igual no job `quality`: cache evictado no
+        # flip privado -> reconstrucao fria -> disco esgotado no meio da suite (floor
+        # mediu 3.4-3.5k falhas + 3.0-3.4k erros em 28 min com 0-61 MB livres). Remove
+        # apenas SDKs da imagem que este job nao usa; df antes/depois audita.
+        run: |
+          set -e
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h / | tail -1
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -613,6 +646,12 @@ jobs:
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
             scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
             --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
+      - name: Disk headroom checkpoint before the floor gate
+        # Post-mortem 2026-09-20: espaco livre registrado no momento em que o gate
+        # comeca (fences + suite de medicao) — mesmo proposito do checkpoint do job
+        # `quality`.
+        run: df -h / | tail -1
 
       - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
         env:
