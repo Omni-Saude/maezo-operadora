@@ -1,0 +1,25 @@
+{
+  "schema": "portal-journey-fixture.v1",
+  "tenant": "journey-tenant",
+  "audience": "staff",
+  "roles": ["staff"],
+  "groups": ["medico-auditor"],
+  "principal_ref": "synthetic-staff-1",
+  "expectations": {
+    "signed_out_heading": "Sua sessão não está ativa",
+    "signed_in_heading": "Área de colaboradores",
+    "sign_in_label": "Entrar no portal",
+    "sign_out_label": "Sair com segurança",
+    "signed_out_again_heading": "Sessão encerrada"
+  },
+  "privacy": {
+    "storage_must_be_empty": true,
+    "browser_cookie_must_be_empty": true,
+    "final_url_query_must_be_empty": true
+  },
+  "synthetic_phi_markers": {
+    "guia": "0000000000000000",
+    "beneficiary_token": "BENEFICIARIO-SINTETICO",
+    "document_ref": "doc-synthetic-0000"
+  }
+}
