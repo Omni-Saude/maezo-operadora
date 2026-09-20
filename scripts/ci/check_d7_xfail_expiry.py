@@ -20,7 +20,9 @@ This mirrors the SAME discipline `scripts/ci/check_deviation_expiry.py` and
 only in a `pytest.mark.xfail` reason string has no mechanism to notice it went by. This gate is
 that mechanism, scoped to these two tests.
 
-THERE IS NO SILENT RENEWAL. Once `2026-11-11` passes, nothing merges green until a human does one
+THERE IS NO SILENT RENEWAL. Once `2027-02-09` passes (renovado pelo dono em 2026-09-20 a partir do
+prazo original `2026-11-11` — o mesmo PR que alinha as tres cercas same-date: desvios Q-2/Q-10,
+marcador de ciclo de vida, catalogo D7), nothing merges green until a human does one
 of exactly two things:
 
   1. a main-derived D7 catalogue lands (the measurable exit criterion both xfail reasons name) and
@@ -50,7 +52,7 @@ For every entry in the code-frozen `TRACKED_XFAILS` table below:
 Usage
 -----
     python scripts/ci/check_d7_xfail_expiry.py                    # CI gate (system date)
-    python scripts/ci/check_d7_xfail_expiry.py --today 2026-11-12  # what CI does then
+    python scripts/ci/check_d7_xfail_expiry.py --today 2027-02-10  # what CI does then
 """
 
 from __future__ import annotations
@@ -97,12 +99,14 @@ class TrackedXfail:
     what_expiry_means: str
 
 
-#: THE TRACKED SET. Both entries are the owner's 2026-09-12 ratification (BRIEF-R6b-Q6).
+#: THE TRACKED SET. Both entries are the owner's 2026-09-12 ratification (BRIEF-R6b-Q6), renewed
+#: to 2027-02-09 by the owner's 2026-09-20 decision (D7-RENEW; checkpoint de revisao sugerido
+#: 2026-12-15) — the same data PR that aligns the other two same-date fences.
 TRACKED_XFAILS: Final[tuple[TrackedXfail, ...]] = (
     TrackedXfail(
         path="tests/unit/dev/test_historical_async_recipe.py",
         test_name="test_explicit_cli_preflight_reads_only_closed_d7_source",
-        deadline=date(2026, 11, 11),
+        deadline=date(2027, 2, 9),
         what_expiry_means=(
             "R1 — preflighta a entrada 'D7unit802' de D7_CATALOG, cujo source_commit "
             "(80206e29ab4b...) e' exclusivo da linhagem do train e nunca sera ancestral de main."
@@ -111,7 +115,7 @@ TRACKED_XFAILS: Final[tuple[TrackedXfail, ...]] = (
     TrackedXfail(
         path="tests/unit/ci/test_ledger_invalid_declarations.py",
         test_name="test_exact_test_bodies_and_ledger_history_unchanged",
-        deadline=date(2026, 11, 11),
+        deadline=date(2027, 2, 9),
         what_expiry_means=(
             "R2 — afirma que o ledger de main comeca com o ledger integralmente qualificado do "
             "train; medido insatisfazivel em main por construcao (main ja diverge dentro do "

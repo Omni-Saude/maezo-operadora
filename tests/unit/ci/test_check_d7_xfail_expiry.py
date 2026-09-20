@@ -7,9 +7,10 @@ Two layers:
    non-strict xfail, a `reason=` whose date drifted from the tracked deadline, and an expired
    deadline; GREEN when everything agrees and today is before the deadline.
 2. **Real-tree** tests run the comparator against the SHIPPED `TRACKED_XFAILS` registry and the two
-   real test files it names, and assert PASS as of a pinned "today" well before 2026-11-11 — the
+   real test files it names, and assert PASS as of a pinned "today" well before 2027-02-09 (the
+   renewed deadline — owner decision 2026-09-20, original 2026-11-11) — the
    regression proof that both markers actually carry the shape this gate expects. A second real-tree
-   assertion simulates `--today 2026-11-12` (one day past the deadline) and expects FAIL, proving the
+   assertion simulates `--today 2027-02-10` (one day past the deadline) and expects FAIL, proving the
    gate is not vacuously green.
 """
 
@@ -24,8 +25,8 @@ from scripts.ci.check_d7_xfail_expiry import TRACKED_XFAILS, TrackedXfail, evalu
 # tests/unit/ci/<file> -> parents[3] == repo root.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _BEFORE_DEADLINE = date(2026, 9, 12)
-_ON_DEADLINE = date(2026, 11, 11)
-_AFTER_DEADLINE = date(2026, 11, 12)
+_ON_DEADLINE = date(2027, 2, 9)
+_AFTER_DEADLINE = date(2027, 2, 10)
 
 
 def _write(tmp_path: Path, relative: str, body: str) -> None:
@@ -47,7 +48,7 @@ def _entry(**overrides: object) -> TrackedXfail:
 
 _VALID_BODY = (
     "import pytest\n\n"
-    "@pytest.mark.xfail(strict=True, reason='owner decision, expected-fail-until=2026-11-11')\n"
+    "@pytest.mark.xfail(strict=True, reason='owner decision, expected-fail-until=2027-02-09')\n"
     "def test_thing() -> None:\n"
     "    assert False\n"
 )
@@ -86,7 +87,7 @@ def test_fail_when_xfail_marker_is_absent(tmp_path: Path) -> None:
 def test_fail_when_xfail_is_not_strict(tmp_path: Path) -> None:
     body = (
         "import pytest\n\n"
-        "@pytest.mark.xfail(strict=False, reason='owner decision, expected-fail-until=2026-11-11')\n"
+        "@pytest.mark.xfail(strict=False, reason='owner decision, expected-fail-until=2027-02-09')\n"
         "def test_thing() -> None:\n"
         "    assert False\n"
     )
@@ -147,9 +148,10 @@ def test_two_independent_entries_report_two_independent_findings(tmp_path: Path)
 # ---------------------------------------------------------------------------------------------
 
 
-def test_real_tracked_registry_is_exactly_two_entries_both_due_2026_11_11() -> None:
+def test_real_tracked_registry_is_exactly_two_entries_both_due_2027_02_09() -> None:
+    """Both tracked xfails share the renewed wall (owner 2026-09-20; original 2026-11-11)."""
     assert len(TRACKED_XFAILS) == 2
-    assert {entry.deadline for entry in TRACKED_XFAILS} == {date(2026, 11, 11)}
+    assert {entry.deadline for entry in TRACKED_XFAILS} == {date(2027, 2, 9)}
     assert {entry.test_name for entry in TRACKED_XFAILS} == {
         "test_explicit_cli_preflight_reads_only_closed_d7_source",
         "test_exact_test_bodies_and_ledger_history_unchanged",
@@ -172,7 +174,7 @@ def test_main_returns_zero_before_deadline(argv: list[str]) -> None:
 
 
 def test_main_returns_nonzero_after_deadline() -> None:
-    assert main(["--today", "2026-11-12"]) == 1
+    assert main(["--today", "2027-02-10"]) == 1
 
 
 def test_main_rejects_unparseable_today() -> None:

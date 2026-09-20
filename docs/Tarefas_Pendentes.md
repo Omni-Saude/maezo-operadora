@@ -91,7 +91,7 @@
 >   a DECISÃO, **não** a revisão nomeada de Security/crypto; a tabela de aprovadores segue
 >   `_(pending)_` e continua vedada a agentes.
 > - **Security-R1 (interino: dono) + Diretor(a) Médico(a) (interino: dono) — critérios dos desvios de
->   sombra** (ver §3.6): os PRAZOS já são DADO merge-bloqueante (unmapped `expires 2026-11-11`; C2
+>   sombra** (ver §3.6): os PRAZOS já são DADO merge-bloqueante (unmapped `expires 2027-02-09`; C2
 >   `leitura_phi_clinica` `review_by 2027-02-09`). Falta NOMEAR o dono real de cada um e ratificar os
 >   critérios mensuráveis de flip (censo de unmapped = 0; ≥30 dias sem `WOULD_DENY` em sombra; etc.).
 > - **DBA/MZO-060 — número de retenção do `a2a_idempotency`** (ver §3.3): o **piso ≥ 7 dias** agora é
@@ -356,7 +356,7 @@
 |---|---|---|
 | **Desenvolvedores / DevOps / Plataforma** | Deploy, segredos, migrations, features *gated*, `terraform apply`, revisão pré-lançamento · **NOVO:** ativar proteção de `main`/`flip-path-review-gate` (§1.7), hardening da infra ECS viva + dep externa amh PR #160 (§1.8) | 🔴 sim |
 | **Médicos / Médico-auditor** | Conteúdo clínico DRAFT (DMN DUT×4/ROL/carência), personas, atestação de segurança clínica · **NOVO:** dono + critérios do desvio C2 `leitura_phi_clinica` (§3.6, prazo `review_by 2027-02-09`) | 🔴 sim |
-| **Jurídico / Compliance / Security / DPO** | DPA do endpoint BR, ratificação do apagamento LGPD, 2 ADRs de retenção de auditoria, atestação ANS · **NOVO:** revisão nomeada R1 de Security/crypto do ADR-0039 (§3.5), dono+critérios do desvio unmapped (§3.6, prazo `expires 2026-11-11`), número de retenção do `a2a_idempotency` (§3.3) | 🔴 sim |
+| **Jurídico / Compliance / Security / DPO** | DPA do endpoint BR, ratificação do apagamento LGPD, 2 ADRs de retenção de auditoria, atestação ANS · **NOVO:** revisão nomeada R1 de Security/crypto do ADR-0039 (§3.5), dono+critérios do desvio unmapped (§3.6, prazo `expires 2027-02-09`), número de retenção do `a2a_idempotency` (§3.3) | 🔴 sim |
 | **Finanças / Procurement** | Contratos: endpoint LLM BR-resident, acesso Tasy/Oracle, provedor LLM + token-metering, billing AWS | 🔴 sim |
 | **PO / Regulatório / Outros** | **Determinação ANVISA SaMD (GAP-C10, §3.7)**, datas de competência ANS, confirmação do mapa de personas, decisão de lançamento | 🔴 sim |
 
@@ -826,12 +826,15 @@ O dono ratificou (2026-08-12) que dois desvios de política ficam em **sombra** 
 e o gate `check_deviation_expiry.py` (#248) tornou os **PRAZOS** DADO merge-bloqueante em
 `spec/policies/autonomy/action-approvals.yaml` (bloco `deviation:` aditivo, aprovações intactas):
 - **Q-2 — `enforcement_padrao_nao_mapeado`** (o default dos ~80 tópicos não-mapeados): `owner_role`
-  "Security/crypto R1 reviewer (interino: dono)", **`expires: 2026-11-11`**, checkpoint 2026-09-12.
+  "Security/crypto R1 reviewer (interino: dono)", **`expires: 2027-02-09`** (renovado pelo dono em
+  2026-09-20; original 2026-11-11), checkpoint 2026-09-12.
 - **Q-10 — classe C2 `leitura_phi_clinica`** (leitura PHI via FHIR): `owner_role` "Diretor(a)
   Médico(a) (interino, deadline-enforcement only: dono)", **`review_by: 2027-02-09`**, checkpoint
-  2026-11-11.
+  2027-02-09 (renovado em 2026-09-20; original 2026-11-11).
 
-Em **2026-11-12** (Q-2) e **2027-02-10** (Q-10), sem ação humana, **nenhum PR passa no CI** (o PR de
+Em **2027-02-10** — agora um único muro para Q-2 e Q-10, após a renovação de 2026-09-20 que também
+realinhou o marcador de ciclo de vida e os xfails do catálogo D7 —, sem ação humana, **nenhum PR
+passa no CI** (o PR de
 renovação/flip é verde porque sua árvore carrega a data nova — renovação silenciosa é impossível por
 design). **Ações humanas devidas:** (a) **nomear o dono real** de cada desvio (o R1 de Security p/ Q-2;
 o(a) Diretor(a) Médico(a) p/ Q-10) no lugar do interino; (b) **ratificar os critérios mensuráveis** de
@@ -1126,8 +1129,8 @@ A = 86 · B = 189 · C = 12 (total 287).
 | R-033 | PR do dono regulatório reordenando r_conforme em adequacao_gap.dmn | 2026-09-19 |
 | R-137 | despacho dos 6 pacotes SME (roster nomeado pelo dono) | 2026-09-19 |
 | R-163 | sessão conjunta médico auditor + jurídico/regulatório + finanças (AUTH-CRITERIA-RATIFICACAO-MANIFESTO) | 2026-09-19 |
-| R-040 | anotação maezo.io/expected-fail-until nos 3 CronJobs LGPD (SC-07) | 2026-11-11 |
-| R-054 | desvio Q-2 vira enforcing (MERGE-GATE-OWNER-REVIEW) | 2026-11-11 |
+| R-040 | anotação maezo.io/expected-fail-until nos 3 CronJobs LGPD (SC-07) — data renovada pelo dono em 2026-09-20 | 2027-02-09 |
+| R-054 | desvio Q-2 vira enforcing (MERGE-GATE-OWNER-REVIEW) — prazo renovado pelo dono em 2026-09-20 | 2027-02-09 |
 | R-131 | ratificação registro legal-hold + re-anchor checkpoint assinado (LEGAL-HOLD-REGISTRY-REANCHOR) | 2026-11-11 |
 | R-083 | handoff ENCAMINHAR_CREDENCIAMENTO permanece ANALISE_HUMANA, ratchet (ADEQ-CRED-PRESTADOR-CANDIDATO) | 2026-12-03 |
 | R-110 | vigilância automatizada Renovate/Dependabot nos 3 sítios de pin (HX-15) | 2027-03-04 |

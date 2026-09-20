@@ -13,8 +13,11 @@ same window turns 3 by-design failures into a daily page, which is exactly the a
 defect D12-01-b's own justification names (`alert-rules.yml:159` in the pre-R-056 tree).
 
 An exclusion that never expires is that same normalisation by another name. The owner's ratified
-answer is explicit: the annotation carries the CALENDAR DATE `2026-11-11` (never the literal
-`AF-07`), and lands in the SAME PR as a CI fence that turns red the day that date passes — the same
+answer is explicit: the annotation carries the CALENDAR DATE (never the literal `AF-07`) —
+`2026-11-11` as ratified on 2026-09-04, RENEWED to `2027-02-09` by the owner on 2026-09-20 (one
+owner data-PR aligning the three same-date fences: deviation Q-2/Q-10, this marker, and the D7
+catalogue xfails; suggested review checkpoint 2026-12-15) — and lands in the SAME PR as a CI fence
+that turns red the day that date passes — the same
 discipline `scripts/ci/check_deviation_expiry.py` already applies to the two ratified `shadow`
 deviations (PLANS.md Sec.0.8). This is that fence, scoped to the single R-040 marker.
 
@@ -58,7 +61,7 @@ keeps finding.
 Usage
 -----
     python scripts/ci/check_lifecycle_expected_fail_expiry.py                    # CI gate
-    python scripts/ci/check_lifecycle_expected_fail_expiry.py --today 2026-11-12 # what CI does then
+    python scripts/ci/check_lifecycle_expected_fail_expiry.py --today 2027-02-10 # what CI does then
 """
 
 from __future__ import annotations

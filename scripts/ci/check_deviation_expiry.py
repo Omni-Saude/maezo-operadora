@@ -58,7 +58,7 @@ posture `generate_release_floor.py` takes.
 Usage
 -----
     python scripts/ci/check_deviation_expiry.py                    # CI gate (system date)
-    python scripts/ci/check_deviation_expiry.py --today 2026-11-12  # what CI does on that date
+    python scripts/ci/check_deviation_expiry.py --today 2027-02-10  # what CI does on that date
     python scripts/ci/check_deviation_expiry.py --manifest PATH     # against another manifest
 """
 

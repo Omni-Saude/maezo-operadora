@@ -420,7 +420,7 @@ delegação + idempotência durável p/ A2A não-local.
   `shadow`, `status` segue `DRAFT` e os 45 blocos de aprovação seguem `PENDENTE` byte a byte;
   declarar prazo não é aprovar):
   - **Q-2 — `enforcement_padrao_nao_mapeado: shadow`** (o default de refs não mapeadas).
-    `owner_role`: *Security/crypto R1 reviewer (interim: dono)* · **`expires: 2026-11-11`** ·
+    `owner_role`: *Security/crypto R1 reviewer (interim: dono)* · **`expires: 2027-02-09`** ·
     `checkpoint: 2026-09-12`. Critérios de saída (referenciados pelo `criteria_ref`, não
     duplicados no YAML): censo de não-mapeados = 0 (gerado por máquina) + ≥30 dias consecutivos de
     zero `WOULD_DENY` em refs não mapeadas (ou SLA de triagem de 7 dias) + sampler/ReviewQueue
@@ -429,11 +429,17 @@ delegação + idempotência durável p/ A2A não-local.
     pergunta da Médica realmente endereça: o design §10 Q-10 ancora em "a denied FHIR read
     degrades to a dossier gap note (`rafael/graph.py:44-48`)", que é o `SHAPE_LACUNA_DECLARADA`
     dessa classe e de nenhuma outra C2). `owner_role`: *Diretor(a) Médico(a) (interim,
-    deadline-enforcement only: dono)* · **`review_by: 2027-02-09`** · `checkpoint: 2026-11-11`.
+    deadline-enforcement only: dono)* · **`review_by: 2027-02-09`** · `checkpoint: 2027-02-09`.
     Critérios: aprovador Médico nomeado existe + um trimestre de telemetria de sombra C2 + triagem
     clínica de todo `WOULD_DENY` + limiar de carga que a Médica ratifique + interação com
     consentimento resolvida (nenhum flip de C2 com `consentimento_exigido` enquanto o adapter de
     consentimento estiver desfiado — Q-5).
+  - **RENOVAÇÃO (decisão do dono 2026-09-20, PR `fix/d7-exception-renewal-2027`).** O `expires` de
+    Q-2 (original 2026-11-11) e o `checkpoint` de Q-10 passaram a **2027-02-09** (= `review_by` de
+    Q-10), alinhando as TRÊS cercas same-date (desvios Q-2/Q-10, marcador de ciclo de vida
+    `lifecycle.expectedFailUntil`, xfails do catálogo D7) num ÚNICO momento de revisão do dono em
+    vez de três muros no mesmo dia — a saída do catálogo D7 depende do programa D7 secured-startup
+    (#438 Slice A pousou 2026-09-20); checkpoint de revisão sugerido: 2026-12-15.
   - **AUTO-COBRÁVEL, sem renovação silenciosa.** `scripts/ci/check_deviation_expiry.py`
     (`make deviation-expiry-check`) roda no job `artifact-validation`, que reporta como o check
     **obrigatório** `validate-artifacts` — logo o prazo é bloqueante de merge desde já. A partir do
