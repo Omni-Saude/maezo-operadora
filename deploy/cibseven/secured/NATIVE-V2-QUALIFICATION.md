@@ -1,10 +1,23 @@
 # Native-v2 qualification source
 
-This package prepares technical synthetic descriptors and artifact inspection. It
+This package prepares technical synthetic descriptors; the artifact inspection
+described below is future-slice material, absent from this tree. It
 does not install, admit or start an engine. The default packaged registry remains
 empty, controller-D remains unwired, and production is not enabled.
 
 ## Explicit artifact
+
+> **FUTURE SLICE — absent from this tree.** The `native-v2-qualification` Maven
+> profile (declared in no `pom.xml` here), the qualification descriptor
+> packaging, the `NativeV2QualificationArtifactTest` invocation and the
+> `qualification_artifact.py` inspector do not exist in this package. They were
+> cut from the slice that transplanted this document and registered as the next
+> slice of the `build/pr-c-infra` carve (engine-qualification material). This
+> section is retained as that future slice's specification; do not run the
+> command below against this tree. The registry paragraphs at the end of this
+> section are also ahead of this tree: the checked-in `engine-schemas-v2.json`
+> is still the prior 51-byte `d8e72419` resource — the LF-restored `4167a195`
+> bytes recorded by the historical migration manifest are not restored here.
 
 The `native-v2-qualification` Maven profile packages the same production classes
 with one explicit `engine-schemas-v2.json`. Its resource inputs exclude the default
