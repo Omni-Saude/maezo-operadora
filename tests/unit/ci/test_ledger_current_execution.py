@@ -326,7 +326,8 @@ def test_real_interruption_is_not_acceptance(repo: Any, tmp_path: Path) -> None:
     previous = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     try:
-        root, occurrence, _ = repo("import os, signal\ndef test_case(): os.kill(os.getpid(), signal.SIGINT)\n")
+        sigint_case = "import os, signal\ndef test_case(): os.kill(os.getpid(), signal.SIGINT)\n"
+        root, occurrence, _ = repo(sigint_case)
         _, verdict, receipt = execute(root, occurrence, tmp_path / "proof")
     finally:
         signal.signal(signal.SIGINT, previous)
