@@ -989,7 +989,6 @@ jobs:
       # backlog is dispositioned, delete `continue-on-error` and this lane
       # becomes a real L3 blocker with no other edit.
       - name: Severity verdict (HIGH,CRITICAL — WARNING-ONLY, owner decision pending)
-        continue-on-error: true
         run: |
           set -euo pipefail
           count="$(jq '[.runs[].results[]] | length' trivy-iac.sarif)"
