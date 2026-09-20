@@ -385,6 +385,12 @@ def test_repository_root_copy_and_narrow_ignore_exception_are_retained() -> None
     ignore = (ROOT / ".dockerignore").read_text().splitlines()
     assert "deploy/" in ignore
     assert "!deploy/cibseven/configure-group-whitelist.sh" in ignore
+    # The startup-*/context/ROOT/docs/manager/host-manager/webapp/examples/human
+    # descriptors are the ADR-0053 secured-startup application set COPYed by
+    # Dockerfile.secured (:20,21,29,31,36-43); global-web/engine-rest-web remain
+    # consumed by Dockerfile.secured-v2 (:12,:15). Every `!deploy` exception must
+    # map to one of those COPY lines — this exact-list fence fails on any
+    # unexplained exception.
     assert [line for line in ignore if line.startswith("!deploy")] == [
         "!deploy/",
         "!deploy/cibseven/",
@@ -401,6 +407,16 @@ def test_repository_root_copy_and_narrow_ignore_exception_are_retained() -> None
         "!deploy/cibseven/secured/descriptors/bpm-platform.xml",
         "!deploy/cibseven/secured/descriptors/engine-rest-web.xml",
         "!deploy/cibseven/secured/descriptors/camunda-web.xml",
+        "!deploy/cibseven/secured/descriptors/startup-global-web.xml",
+        "!deploy/cibseven/secured/descriptors/startup-engine-rest-web.xml",
+        "!deploy/cibseven/secured/descriptors/context.xml",
+        "!deploy/cibseven/secured/descriptors/ROOT-web.xml",
+        "!deploy/cibseven/secured/descriptors/docs-web.xml",
+        "!deploy/cibseven/secured/descriptors/manager-web.xml",
+        "!deploy/cibseven/secured/descriptors/host-manager-web.xml",
+        "!deploy/cibseven/secured/descriptors/webapp-web.xml",
+        "!deploy/cibseven/secured/descriptors/examples-web.xml",
+        "!deploy/cibseven/secured/descriptors/human-web.xml",
         "!deploy/cibseven/secured/native-v2/",
         "!deploy/cibseven/secured/native-v2/WEB-INF/",
         "!deploy/cibseven/secured/native-v2/WEB-INF/web.xml",

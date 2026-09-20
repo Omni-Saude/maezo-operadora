@@ -17,6 +17,18 @@ the one exact tenant. It has no Basic/JWT/pseudo or anonymous fallback.
 `BoundaryFilter` is installed in actual Tomcat `conf/web.xml` for REQUEST, FORWARD, INCLUDE,
 ERROR and ASYNC, including other webapps and native authentication whitelist routes. It
 accepts only REQUEST. Every native raw mutation and alternate engine alias is denied.
+`TraceRefusalValve` is the first Engine valve in the pinned secured `server.xml`.
+The sole mTLS connector explicitly keeps `allowTrace="false"`. Tomcat 10.1.47's
+[CoyoteAdapter](https://github.com/apache/tomcat/blob/10.1.47/java/org/apache/catalina/connector/CoyoteAdapter.java#L756-L780)
+sets a suspended 405 response before filters, then invokes the Engine pipeline. This
+terminal valve replaces that TRACE refusal with the same finite 403 JSON boundary
+response; it never dispatches TRACE to a servlet or echoes request data. Earlier parser
+errors and absent-context 404s retain their original status/handling. Other methods use
+the unchanged pipeline. `SecureLayout` requires the explicit disabled connector and
+first-valve placement before availability. The Tomcat API is a pinned provided dependency,
+never shaded into the engine JAR. This is the ADR-0049 D7 transport refusal implementation;
+TLS, authentication, method permissions and legacy-image configuration are unchanged.
+
 The camunda webapp's old local filter/servlet stack is replaced by `ClosedServlet` in this
 opt-in image (original descriptor retained outside webapps). Its Tasklist/Cockpit/Admin and
 `/api/engine/*` routes cannot preempt the global filter via legacy login/session handlers.

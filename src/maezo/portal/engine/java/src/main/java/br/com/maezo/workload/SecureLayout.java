@@ -27,8 +27,12 @@ final class SecureLayout {
     verify(policy,Path.of(base));
   }
   static void verify(BoundaryPolicy policy,Path root) {
+    verifyArtifacts(policy.files,policy.port,root);
+  }
+  /** Custody/transport only: this never admits the boundary document's peers or capabilities. */
+  static void verifyArtifacts(List<Map<String,Object>> files,int port,Path root) {
     Set<String> pinned=new HashSet<>();
-    policy.files.forEach(f->pinned.add(Json.string(f,"path")));
+    files.forEach(f->pinned.add(Json.string(f,"path")));
     List<String> required=List.of("conf/server.xml","conf/web.xml","conf/bpm-platform.xml",
         "webapps/engine-rest/WEB-INF/web.xml","webapps/maezo-human/WEB-INF/web.xml","webapps/camunda/WEB-INF/web.xml");
     for (String relative:required) if (!pinned.contains(root.resolve(relative).toString())) throw Refused.unavailable();
@@ -37,8 +41,19 @@ final class SecureLayout {
     if (connectors.getLength()!=1) throw Refused.unavailable();
     Element connector=(Element)connectors.item(0);
     if (!"true".equals(connector.getAttribute("SSLEnabled")) || !"https".equals(connector.getAttribute("scheme"))
-        || !"true".equals(connector.getAttribute("secure")) || !Integer.toString(policy.port).equals(connector.getAttribute("port"))
+        || !"true".equals(connector.getAttribute("secure")) || !Integer.toString(port).equals(connector.getAttribute("port"))
+        || !"false".equals(connector.getAttribute("allowTrace"))
         || connector.hasAttribute("proxyPort") || connector.hasAttribute("proxyName")) throw Refused.unavailable();
+    var engines=server.getElementsByTagName("Engine");
+    if(engines.getLength()!=1)throw Refused.unavailable();
+    Element firstValve=null;int traceValves=0;
+    var children=engines.item(0).getChildNodes();
+    for(int i=0;i<children.getLength();i++)if(children.item(i) instanceof Element e && "Valve".equals(e.getTagName())) {
+      if(firstValve==null)firstValve=e;
+      if("br.com.maezo.workload.TraceRefusalValve".equals(e.getAttribute("className")))traceValves++;
+    }
+    if(firstValve==null || traceValves!=1 || firstValve.getAttributes().getLength()!=1
+        || !"br.com.maezo.workload.TraceRefusalValve".equals(firstValve.getAttribute("className")))throw Refused.unavailable();
     var ssl=connector.getElementsByTagName("SSLHostConfig");
     if (ssl.getLength()!=1 || !"required".equals(((Element)ssl.item(0)).getAttribute("certificateVerification"))) throw Refused.unavailable();
     Element host=(Element)server.getElementsByTagName("Host").item(0);
@@ -46,8 +61,24 @@ final class SecureLayout {
     var global=parse(root.resolve("conf/web.xml"));
     requireFilter(global,"maezo-boundary","br.com.maezo.workload.BoundaryFilter","/*",true);
     var nativeXml=parse(root.resolve("webapps/engine-rest/WEB-INF/web.xml"));
+    requireFilter(nativeXml,"maezo-boundary","br.com.maezo.workload.BoundaryFilter","/*",true);
+    var nativeMappings=nativeXml.getElementsByTagName("filter-mapping");
+    if(nativeMappings.getLength()!=2
+        || !"maezo-boundary".equals(text((Element)nativeMappings.item(0),"filter-name"))
+        || !"maezo-native-auth".equals(text((Element)nativeMappings.item(1),"filter-name")))throw Refused.unavailable();
     Element filter=requireFilter(nativeXml,"maezo-native-auth","org.cibseven.bpm.engine.rest.security.auth.ProcessEngineAuthenticationFilter","/*",true);
     if (!hasPair(filter,"init-param","param-name","authentication-provider","param-value","br.com.maezo.workload.CertificateAuthenticationProvider")) throw Refused.unavailable();
+    var servlets=nativeXml.getElementsByTagName("servlet");int restServlets=0;
+    for(int i=0;i<servlets.getLength();i++) {
+      Element servlet=(Element)servlets.item(i);
+      if(!"Resteasy".equals(text(servlet,"servlet-name")))continue;
+      restServlets++;
+      if(!"org.jboss.resteasy.plugins.server.servlet.HttpServletDispatcher".equals(text(servlet,"servlet-class"))
+          || !"0".equals(text(servlet,"load-on-startup"))
+          || !hasPair(servlet,"init-param","param-name","jakarta.ws.rs.Application","param-value",
+              "org.cibseven.bpm.engine.rest.impl.application.DefaultApplication"))throw Refused.unavailable();
+    }
+    if(restServlets!=1)throw Refused.unavailable();
     var legacy=parse(root.resolve("webapps/camunda/WEB-INF/web.xml"));
     if(!"true".equals(legacy.getDocumentElement().getAttribute("metadata-complete"))
         || legacy.getElementsByTagName("absolute-ordering").getLength()!=1
@@ -86,7 +117,7 @@ final class SecureLayout {
     }
     return matches==1;
   }
-  private static Document parse(Path path) {
+  static Document parse(Path path) {
     try {
       var factory=DocumentBuilderFactory.newInstance();
       factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);

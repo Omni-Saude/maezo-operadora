@@ -79,9 +79,25 @@ public final class Capability {
     } catch (IOException e) { throw Refused.unavailable(); }
   }
 
-  Map<String,Object> validate(Map<String,Object> request) {
+  /** Capability-independent wire shape: malformed bodies never become a capability lookup. */
+  static void validateEnvelope(Map<String,Object> request) {
     Json.keys(request,"protocol","capability_digest","operation","process_key","resource_ref","variables","correlation",
         "all_matching","error_code","topic","message","worker_id","parameters","source_ref");
+    for (String field : List.of("protocol","capability_digest","operation","process_key","resource_ref",
+        "error_code","topic","message","worker_id","source_ref")) Json.string(request,field);
+    Json.bool(request,"all_matching");
+    for (String field : List.of("variables","correlation","parameters")) Json.object(request.get(field));
+  }
+
+  /** Called only after current peer/native authentication; this does not grant execution. */
+  static Capability forRequest(List<Capability> capabilities,Map<String,Object> request) {
+    validateEnvelope(request);
+    return capabilities.stream().filter(c->c.digest.equals(request.get("capability_digest")))
+        .findFirst().orElseThrow(Refused::denied);
+  }
+
+  Map<String,Object> validate(Map<String,Object> request) {
+    validateEnvelope(request);
     if (!"maezo.engine-operation.v1".equals(request.get("protocol")) || !digest.equals(request.get("capability_digest"))) throw Refused.denied();
     for (String field : List.of("operation","process_key","topic","message","all_matching")) {
       if (!schema.get(field).equals(request.get(field))) throw Refused.denied();
