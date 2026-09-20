@@ -79,9 +79,7 @@ def test_stub_authenticator_satisfies_the_human_authenticator_protocol() -> None
     assert {"exchange", "close"} <= protocol_methods
     for name in ("exchange", "close"):
         stub_parameters = set(inspect.signature(getattr(stub, name)).parameters)
-        protocol_parameters = set(
-            inspect.signature(getattr(HumanAuthenticator, name)).parameters
-        ) - {"self"}
+        protocol_parameters = set(inspect.signature(getattr(HumanAuthenticator, name)).parameters) - {"self"}
         # The Protocol binds `self`; the concrete method must accept the same call shape.
         assert protocol_parameters <= stub_parameters, (name, protocol_parameters, stub_parameters)
     # The service binds it as the real port: no isinstance shortcut, structural conformance.
@@ -137,11 +135,7 @@ def test_deployed_entry_point_never_passes_identity_overrides() -> None:
     source = (ROOT / "src/maezo/portal/api/production.py").read_text()
     assert "create_app(identity)" in source
     for override in ("store=", "oidc_client=", "authenticator="):
-        calls = [
-            line
-            for line in source.splitlines()
-            if "create_app(" in line and override in line
-        ]
+        calls = [line for line in source.splitlines() if "create_app(" in line and override in line]
         assert calls == [], (override, calls)
     # ...and the factory it calls requires `mode == "production"` before composing anything.
     assert 'identity.mode != "production"' in source
