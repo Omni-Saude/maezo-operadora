@@ -836,7 +836,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       Map.entry("SP-OP-PAGTO-001/UT_CoordenacaoAlcada",
           List.of("pagto_coordenacao", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_coordenacao", "decisao_pagamento", "valor_aprovado_cents", "justificativa_aprovacao", "justificativa_recusa")),
       Map.entry("SP-OP-AUTH-001/UT_DecidirPendenciaExpirada",
-          List.of("auth_pendencia", "BPMN_TASK_DOCUMENTATION_DRAFT_VERIFY", "decisao_pendencia")),
+          List.of("auth_pendencia", "BPMN_FORMDATA", "decisao_pendencia")),
       Map.entry("SP-OP-AUTH-001/UT_AnaliseMedicoAuditor",
           List.of("auth_decisao", "BPMN_FORMDATA", "decisao_auditor", "justificativa_clinica",
               "cid10_referencia", "fundamentacao_dut")),

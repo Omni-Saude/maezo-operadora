@@ -67,9 +67,19 @@ D5 and D7 plugins into the same CIB 2.1 engine and the same JDBC transactions. T
 "$MAVEN" -o -B -f src/maezo/portal/engine/java/pom.xml -Dtest=WorkloadEngineIT test
 export MAEZO_D7_PACKAGE_FIXTURE="$FIXTURE"
 export MAEZO_D7_COMPOSE_PROJECT="$D7_PROJECT"
+export MAEZO_D7_READINESS_RUN_ID="$D7_PROJECT"
+export MAEZO_D7_READINESS_SOURCE_SHA="$(git -C "$CANDIDATE" rev-parse HEAD)"
+export MAEZO_D7_READINESS_SOURCE_TREE="$(git -C "$CANDIDATE" rev-parse 'HEAD^{tree}')"
 PYTHONPATH=src:. python -m pytest -x -q tests/integration/test_portal_engine_d7_package.py \
   --junitxml="$EVIDENCE_ROOT/d7-real-resource.xml"
 ```
+
+The readiness observation that `wait_ready()` writes (`readiness-attempts.json`) is attributed
+to the operator's run: `MAEZO_D7_READINESS_RUN_ID` names it (`d7-[a-z0-9-]{8,64}`; the run's
+unique owned `$D7_PROJECT` name qualifies) and `MAEZO_D7_READINESS_SOURCE_SHA`/
+`MAEZO_D7_READINESS_SOURCE_TREE` pin the exact `CANDIDATE` revision under observation. Like
+`MAEZO_D7_PACKAGE_FIXTURE`, they are explicit ROOT inputs with no default: the D7 cases fail
+closed if any of them is missing or malformed.
 
 The HTTP matrix requires all seeded resources and nonempty native runtime/history/detail/
 variable/task/identity-link/receipt and actual tenant `audit_chain`, `human_command_outbox`,

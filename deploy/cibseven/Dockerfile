@@ -19,11 +19,28 @@
 # Quem alcanca a porta 8080 dirige o motor. A fronteira hoje e' o Cloudflare Access na
 # borda e o Security Group na rede. Exigir credencial no engine-rest atinge worker,
 # agentes e canal (todos chamam sem credencial) — trabalho proprio, no plano de acesso.
-FROM cibseven/cibseven:2.1.0
+# FROM por TAG virou TAG+DIGEST em 19/09/2026 (pacote trivy/IaC D2). Prova local, feita
+# na mesma data com `docker buildx imagetools inspect`: `cibseven/cibseven:2.1.0` e
+# `cibseven/cibseven:tomcat-2.1.0` resolvem para O MESMO index digest
+# sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169 (resolvido
+# 2026-09-19T14:08:26Z) — ou seja, este fold nao troca um byte do artefato; so' torna o
+# FROM imutavel como os tres Dockerfiles irmaos ja' eram.
+FROM cibseven/cibseven:2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
 
-# NAO troco de USER de proposito: nao sei o uid da imagem base e um `USER` errado
-# quebraria o entrypoint dela. Se a remocao exigir privilegio, a ASSERCAO abaixo falha o
-# build — que e' o resultado certo, em vez de publicar uma imagem identica a base.
+# O comentario antigo dizia "nao sei o uid da imagem base" e por isso nao declarava USER.
+# O uid agora E' SABIDO — provado em 19/09/2026 na propria base (Alpine 3.22.2, index
+# sha256:20a2135b…) com `docker image inspect` + `docker run`:
+#
+#   .config.User      = "camunda"      (a base JA' roda como camunda por default)
+#   .config.WorkingDir = "/camunda"    (entrypoint /sbin/tini -- ./cibseven.sh)
+#   getent passwd camunda = camunda:x:1000:1000::/camunda:/bin/bash
+#   /camunda = camunda:camunda 2755 (com escrita)  /tmp = 1777 (sticky)
+#   NAO existe /usr/local/tomcat nesta base — o layout "tomcat" do nome do tag nao se
+#   aplica; os caminhos runtime reais sao /camunda e /tmp.
+#
+# O USER abaixo entao NAO muda quem executa o container (ja' era camunda) — ele torna o
+# fato explicito no Dockerfile (trivy DS-0002 avaliava a AUSENCIA da diretiva como root)
+# e a ASSERCAO do fim do arquivo falha o build se a base vier a mudar sob nos.
 RUN rm -rf /camunda/webapps/camunda-invoice \
            /camunda/webapps/camunda-invoice.war \
     && rm -f /camunda/lib/camunda-invoice*.jar 2>/dev/null || true
@@ -92,3 +109,24 @@ COPY deploy/cibseven/configure-group-whitelist.sh /camunda/configure-group-white
 RUN sh /camunda/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml \
     && rm /camunda/configure-group-whitelist.sh \
     && echo "OK: groupResourceWhitelistPattern presente uma vez"
+
+# ---------------------------------------------------------------------------
+# DS-0002 (trivy "Least Privilege User") — ultimo USER explicito nao-root, com
+# ASSERCAO fail-closed no build. Os RUNs acima ja' rodavam como o usuario default
+# da base (camunda, provado acima); o USER abaixo so' o declara — e, a partir dele,
+# a assersao roda COMO camunda, entao o `test -w` e' prova real de escrita do
+# usuario de runtime, nao de root. Se a base mudar (usuario ausente, uid diferente,
+# caminho runtime fora do controle do camunda), o build FALHA em vez de publicar
+# uma imagem root — a mesma disciplina dos blocos "OK:" acima.
+# ---------------------------------------------------------------------------
+USER camunda
+RUN set -eu; \
+    die() { echo "FATAL (DS-0002): $*" >&2; exit 1; }; \
+    getent passwd camunda >/dev/null || die "usuario 'camunda' ausente na base (getent passwd falhou)"; \
+    [ "$(id -u)" = "1000" ] || die "uid efetivo $(id -u) != 1000 — USER camunda nao resolveu para o uid provado da base"; \
+    [ "$(id -g)" = "1000" ] || die "gid efetivo $(id -g) != 1000"; \
+    for d in /camunda /tmp; do \
+        [ -d "$d" ] || die "caminho runtime ausente na base: $d"; \
+        [ -w "$d" ] || die "camunda(1000:1000) sem escrita em $d — o entrypoint ./cibseven.sh vai quebrar"; \
+    done; \
+    echo "OK (DS-0002): USER camunda 1000:1000 ativo; camunda escreve em /camunda e /tmp"

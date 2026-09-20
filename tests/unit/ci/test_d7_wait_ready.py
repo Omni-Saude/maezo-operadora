@@ -1,0 +1,497 @@
+"""Offline transport/clock controls of the actual integration startup helper; no engine."""
+
+import json
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from tests.integration import test_portal_engine_d7_package as package
+
+
+@pytest.fixture
+def poll(monkeypatch, tmp_path):
+    root = tmp_path / "fixture"
+    root.mkdir(mode=0o700)
+    (root / "d7-fixture.json").write_text(json.dumps({"fixture_only": True, "tenant": "relay_" + "a" * 24}))
+    (root / "boundary.json").write_text("{}")
+    monkeypatch.setenv("MAEZO_D7_PACKAGE_FIXTURE", str(root))
+    monkeypatch.setenv("MAEZO_D7_READINESS_RUN_ID", "d7-observer-12345678")
+    monkeypatch.setenv("MAEZO_D7_READINESS_SOURCE_SHA", "1" * 40)
+    monkeypatch.setenv("MAEZO_D7_READINESS_SOURCE_TREE", "2" * 40)
+    clock = SimpleNamespace(
+        now=0.0,
+        sleeps=[],
+        requests=[],
+        replies=[],
+        durations=[],
+        root=root,
+        observation=root / "readiness-attempts.json",
+    )
+
+    def sleep(seconds):
+        clock.sleeps.append(seconds)
+        clock.now += seconds
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, path, **kwargs):
+            clock.requests.append((path, kwargs))
+            clock.now += clock.durations.pop(0) if clock.durations else 0
+            item = clock.replies.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            return item
+
+    monkeypatch.setattr(package, "time", SimpleNamespace(monotonic=lambda: clock.now, sleep=sleep))
+    monkeypatch.setattr(package, "client", lambda purpose: Connection())
+    return clock
+
+
+def ready():
+    return httpx.Response(200, json={"ready": True, "capabilities": ["synthetic"]})
+
+
+def observation(poll):
+    return json.loads(poll.observation.read_text())
+
+
+def assert_closed_attempt(item):
+    assert set(item) in (
+        {"index", "started_ms", "ended_ms", "kind", "status"},
+        {"index", "started_ms", "ended_ms", "kind", "transport_class"},
+    )
+    assert type(item["index"]) is int and item["index"] >= 1
+    assert type(item["started_ms"]) is int and item["started_ms"] >= 0
+    assert type(item["ended_ms"]) is int and item["ended_ms"] >= item["started_ms"]
+
+
+@pytest.mark.parametrize(
+    "exception", [httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout]
+)
+def test_transient_timeout_recovers_via_real_wait_ready(poll, exception):
+    secret = "PRIVATE-EXCEPTION-TEXT"
+    poll.replies = [exception(secret), ready()]
+    package.wait_ready()
+    assert len(poll.requests) == 2 and poll.sleeps == [0.25]
+    assert all(path == "/engine-rest/maezo/v1/readiness" for path, _ in poll.requests)
+    raw = poll.observation.read_text()
+    assert secret not in raw
+    report = json.loads(raw)
+    assert report["completion"] == "ready"
+    assert [item["kind"] for item in report["attempt_tail"]] == ["transport", "http"]
+    assert report["attempt_tail"][-1]["status"] == 200
+
+
+@pytest.mark.parametrize("exception", [httpx.ConnectError, httpx.ReadError, httpx.RemoteProtocolError])
+def test_existing_transient_network_errors_recover(poll, exception):
+    poll.replies = [exception("synthetic"), ready()]
+    package.wait_ready()
+    assert len(poll.requests) == 2
+
+
+def test_deadline_remains_ninety_seconds_and_late_response_cannot_pass(poll):
+    poll.replies = [httpx.ConnectTimeout("synthetic"), ready()]
+    poll.durations = [89.5, 0.25]
+    with pytest.raises(pytest.fail.Exception, match="readiness did not recover"):
+        package.wait_ready()
+    assert poll.now == 90
+    assert [options["timeout"] for _, options in poll.requests] == [15, 0.25]
+    assert observation(poll)["completion"] == "deadline_exhausted"
+
+
+def test_persistent_timeouts_expire_without_extra_request(poll):
+    poll.replies = [httpx.ConnectTimeout("synthetic")] * 6
+    poll.durations = [15] * 5 + [13.75]
+    with pytest.raises(pytest.fail.Exception, match="readiness did not recover"):
+        package.wait_ready()
+    assert poll.now == 90 and len(poll.requests) == 6
+    assert max(poll.sleeps) <= 0.25
+    report = observation(poll)
+    assert report["attempt_count"] == 6
+    assert all(item["transport_class"] == "connect_timeout" for item in report["attempt_tail"])
+
+
+@pytest.mark.parametrize(
+    "body", [{"ready": False, "capabilities": ["x"]}, {"ready": True, "capabilities": []}, {}]
+)
+def test_success_status_does_not_hide_invalid_readiness_body(poll, body):
+    poll.replies = [httpx.Response(200, json=body)]
+    with pytest.raises((AssertionError, KeyError)):
+        package.wait_ready()
+    assert len(poll.requests) == 1 and poll.sleeps == []
+    report = observation(poll)
+    assert report["completion"] == "malformed_success"
+    assert report["attempt_tail"][0]["status"] == 200
+
+
+@pytest.mark.parametrize("status", [301, 401, 403, 503])
+def test_non_success_status_never_counts_as_ready(poll, status):
+    poll.replies = [httpx.Response(status, json={"ready": True, "capabilities": ["x"]})] * 6
+    poll.durations = [15] * 5 + [13.75]
+    with pytest.raises(pytest.fail.Exception):
+        package.wait_ready()
+    assert len(poll.requests) == 6
+    report = observation(poll)
+    assert report["attempt_count"] == 6
+    assert {item["status"] for item in report["attempt_tail"]} == {status}
+
+
+def test_unrelated_failure_is_not_retried(poll):
+    poll.replies = [RuntimeError("programming failure")]
+    with pytest.raises(RuntimeError):
+        package.wait_ready()
+    assert len(poll.requests) == 1 and poll.sleeps == []
+
+
+def test_report_has_exact_closed_shape_and_run_source_binding(poll):
+    poll.replies = [httpx.Response(503), ready()]
+    package.wait_ready("worker")
+    report = observation(poll)
+    assert set(report) == {
+        "schema",
+        "run_id",
+        "source_sha",
+        "source_tree",
+        "purpose",
+        "budget_ms",
+        "request_cap_ms",
+        "backoff_cap_ms",
+        "attempt_count",
+        "tail_limit",
+        "attempt_tail",
+        "completion",
+    }
+    assert report == {
+        **report,
+        "schema": "maezo.d7.readiness-attempts.v1",
+        "run_id": "d7-observer-12345678",
+        "source_sha": "1" * 40,
+        "source_tree": "2" * 40,
+        "purpose": "worker",
+        "budget_ms": 90_000,
+        "request_cap_ms": 15_000,
+        "backoff_cap_ms": 250,
+        "attempt_count": 2,
+        "tail_limit": 32,
+        "completion": "ready",
+    }
+    assert [item["index"] for item in report["attempt_tail"]] == [1, 2]
+    for item in report["attempt_tail"]:
+        assert_closed_attempt(item)
+    assert poll.observation.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize(
+    "exception,category",
+    [
+        (httpx.ConnectTimeout("secret"), "connect_timeout"),
+        (httpx.ReadTimeout("secret"), "read_timeout"),
+        (httpx.WriteTimeout("secret"), "write_timeout"),
+        (httpx.PoolTimeout("secret"), "pool_timeout"),
+        (httpx.TimeoutException("secret"), "timeout"),
+        (httpx.ConnectError("secret"), "connect_error"),
+        (httpx.ReadError("secret"), "read_error"),
+        (httpx.RemoteProtocolError("secret"), "remote_protocol_error"),
+    ],
+)
+def test_transport_family_has_closed_class_without_exception_text(poll, exception, category):
+    poll.replies = [exception, ready()]
+    package.wait_ready()
+    raw = poll.observation.read_text()
+    assert "secret" not in raw
+    assert observation(poll)["attempt_tail"][0]["transport_class"] == category
+
+
+def test_attempt_tail_is_finite_and_retains_monotonic_indices(poll):
+    poll.replies = [httpx.Response(503)] * 40 + [ready()]
+    package.wait_ready()
+    report = observation(poll)
+    assert report["attempt_count"] == 41 and len(report["attempt_tail"]) == 32
+    assert [item["index"] for item in report["attempt_tail"]] == list(range(10, 42))
+    assert [item["started_ms"] for item in report["attempt_tail"]] == sorted(
+        item["started_ms"] for item in report["attempt_tail"]
+    )
+
+
+def test_malicious_success_body_cannot_escape_and_fails_directly(poll):
+    secret = "PRIVATE-BODY-VALUE"
+    poll.replies = [httpx.Response(200, content=secret)]
+    with pytest.raises(AssertionError, match="malformed readiness success") as failure:
+        package.wait_ready()
+    assert secret not in str(failure.value)
+    assert secret not in poll.observation.read_text()
+    assert len(poll.requests) == 1 and poll.sleeps == []
+
+
+def test_interruption_is_recorded_without_being_swallowed(poll):
+    poll.replies = [KeyboardInterrupt("PRIVATE-INTERRUPT-TEXT")]
+    with pytest.raises(KeyboardInterrupt):
+        package.wait_ready()
+    raw = poll.observation.read_text()
+    assert "PRIVATE-INTERRUPT-TEXT" not in raw
+    report = json.loads(raw)
+    assert report["completion"] == "interrupted" and report["attempt_count"] == 0
+
+
+def test_recording_failure_cannot_promote_valid_readiness(poll, monkeypatch):
+    poll.replies = [ready()]
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("PRIVATE-WRITE-FAILURE")
+
+    monkeypatch.setattr(package, "_write_readiness_observation", fail_write)
+    with pytest.raises(pytest.fail.Exception, match="readiness observation recording failed") as failure:
+        package.wait_ready()
+    assert "PRIVATE-WRITE-FAILURE" not in str(failure.value)
+    assert len(poll.requests) == 1
+
+
+def test_intermittent_recording_failure_persists_failed_completion(poll, monkeypatch):
+    poll.replies = [ready()]
+    actual_write = package._write_readiness_observation
+    calls = 0
+
+    def fail_once(value):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OSError("PRIVATE-FIRST-WRITE-FAILURE")
+        actual_write(value)
+
+    monkeypatch.setattr(package, "_write_readiness_observation", fail_once)
+    with pytest.raises(pytest.fail.Exception, match="readiness observation recording failed"):
+        package.wait_ready()
+    assert observation(poll)["completion"] == "recording_failed"
+
+
+def test_final_ready_record_cannot_cross_global_deadline(poll, monkeypatch):
+    poll.replies = [ready()]
+    poll.durations = [89.5]
+    actual_write = package._write_readiness_observation
+
+    def slow_final_write(value):
+        if value["completion"] == "ready":
+            poll.now += 1
+        actual_write(value)
+
+    monkeypatch.setattr(package, "_write_readiness_observation", slow_final_write)
+    with pytest.raises(pytest.fail.Exception, match="readiness did not recover"):
+        package.wait_ready()
+    assert poll.now == 90.5
+    assert observation(poll)["completion"] == "deadline_exhausted"
+
+
+def test_symlink_observation_path_is_refused_without_touching_target(poll):
+    outside = poll.root.parent / "outside"
+    outside.write_text("preserve")
+    poll.observation.symlink_to(outside)
+    poll.replies = [ready()]
+    with pytest.raises(pytest.fail.Exception, match="readiness observation recording failed"):
+        package.wait_ready()
+    assert outside.read_text() == "preserve"
+
+
+@pytest.mark.parametrize("duration", [90.01, 86_400, 86_400.001])
+def test_elapsed_overrun_is_exact_or_explicitly_saturated_without_success(poll, duration):
+    poll.replies = [ready()]
+    poll.durations = [duration]
+    with pytest.raises(pytest.fail.Exception, match="readiness did not recover"):
+        package.wait_ready()
+    report = observation(poll)
+    item = report["attempt_tail"][-1]
+    assert report["completion"] == "deadline_exhausted"
+    assert item["ended_ms"] == min(round(duration * 1000), 86_400_000)
+    assert item.get("ended_ms_saturated") is (True if duration > 86_400 else None)
+    assert poll.sleeps == [] and len(poll.requests) == 1
+
+
+@pytest.mark.parametrize("failure_stage", ["tcp_timeout", "tls_timeout", "tls_error"])
+def test_pinned_transport_reports_connection_substage_without_trace_info(poll, monkeypatch, failure_stage):
+    """Real HTTPX/httpcore Trace and exception mapping; synthetic backend only."""
+    import httpcore
+
+    class Stream:
+        def start_tls(self, **kwargs):
+            poll.now += 0.01
+            if failure_stage == "tls_timeout" and not poll.requests:
+                raise httpcore.ConnectTimeout("PRIVATE TLS MATERIAL")
+            if failure_stage == "tls_error" and not poll.requests:
+                raise httpcore.ConnectError("PRIVATE CERTIFICATE MATERIAL")
+            return self
+
+        def get_extra_info(self, name):
+            return None
+
+        def write(self, buffer, timeout=None):
+            pass
+
+        def read(self, max_bytes, timeout=None):
+            return b'HTTP/1.1 200 OK\r\nContent-Length: 35\r\n\r\n{"ready":true,"capabilities":["x"]}'
+
+        # A cerca estrutural P-17 ancora `close(self)` no Protocol `DmnTransport.close`
+        # (`maezo/tools/workers/dmn_transport.py`: `async def close(self) -> None`); um `def`
+        # sincrono com a mesma forma e' acusado como drift. Manter o `async def` — o caminho
+        # sincrono do httpcore descarta o retorno e este falso nao concentra recurso em close.
+        async def close(self) -> None:
+            pass
+
+    class Backend:
+        def connect_tcp(self, **kwargs):
+            poll.now += 0.01
+            if failure_stage == "tcp_timeout" and not poll.requests:
+                raise httpcore.ConnectTimeout("PRIVATE ADDRESS MATERIAL")
+            return Stream()
+
+    def connection(purpose):
+        transport = httpx.HTTPTransport(retries=0, trust_env=False)
+        transport._pool._network_backend = Backend()
+        return httpx.Client(base_url="https://synthetic.invalid", transport=transport, trust_env=False)
+
+    original_sleep = package.time.sleep
+
+    def sleep(seconds):
+        poll.requests.append("attempt-ended")
+        original_sleep(seconds)
+
+    monkeypatch.setattr(package, "client", connection)
+    monkeypatch.setattr(package.time, "sleep", sleep)
+    package.wait_ready()
+    report = observation(poll)
+    first, second = report["attempt_tail"]
+    trace = first["connection_trace"]
+    expected = [("connect_tcp", "started")]
+    if failure_stage != "tcp_timeout":
+        expected += [("connect_tcp", "complete"), ("start_tls", "started")]
+    expected += [("connect_tcp" if failure_stage == "tcp_timeout" else "start_tls", "failed")]
+    assert [(x["stage"], x["outcome"]) for x in trace["events"]] == expected
+    assert trace["overflow"] is False and trace["unavailable"] is False
+    assert [x["outcome"] for x in second["connection_trace"]["events"]] == [
+        "started",
+        "complete",
+        "started",
+        "complete",
+    ]
+    assert report["completion"] == "ready"
+    assert all(first["started_ms"] <= x["elapsed_ms"] <= first["ended_ms"] for x in trace["events"])
+    assert (
+        "PRIVATE" not in poll.observation.read_text()
+        and "synthetic.invalid" not in poll.observation.read_text()
+    )
+
+
+def test_connection_trace_ignores_unknown_events_and_never_touches_info(poll):
+    class Untouchable:
+        def __getattribute__(self, name):
+            raise AssertionError("trace info inspected")
+
+    trace, callback = package._readiness_connection_trace(0.0)
+    for name in ["http11.send_request_headers.started", "connection.start_tls.mystery", None, {}, 3]:
+        callback(name, Untouchable())
+    assert trace == {"events": [], "overflow": False, "unavailable": False}
+    callback("connection.connect_tcp.started", Untouchable())
+    assert trace["events"] == [{"stage": "connect_tcp", "outcome": "started", "elapsed_ms": 0}]
+
+
+def test_connection_trace_has_finite_event_cap(poll):
+    trace, callback = package._readiness_connection_trace(0.0)
+    for _ in range(1000):
+        callback("connection.connect_tcp.started", object())
+    assert len(trace["events"]) == 8 and trace["overflow"] is True
+
+
+@pytest.mark.parametrize("elapsed", [90.005, 86400.0, 86400.001])
+def test_connection_trace_saturates_explicitly_without_budget_change(poll, elapsed):
+    trace, callback = package._readiness_connection_trace(0.0)
+    poll.now = elapsed
+    callback("connection.start_tls.failed", object())
+    event = trace["events"][0]
+    assert event["elapsed_ms"] == min(round(elapsed * 1000), 86400000)
+    assert ("elapsed_ms_saturated" in event) is (elapsed > 86400)
+
+
+def test_connection_trace_optional_failure_is_unknown_and_interruption_propagates(poll, monkeypatch):
+    trace, callback = package._readiness_connection_trace(0.0)
+
+    def failed_clock(started):
+        raise ValueError("PRIVATE")
+
+    monkeypatch.setattr(package, "_readiness_milliseconds", failed_clock)
+    callback("connection.start_tls.failed", object())
+    assert trace == {"events": [], "overflow": False, "unavailable": True}
+
+    def interrupted_clock(started):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(package, "_readiness_milliseconds", interrupted_clock)
+    with pytest.raises(KeyboardInterrupt):
+        callback("connection.start_tls.failed", object())
+
+
+def test_no_connection_event_remains_unknown_with_original_positive_oracle(poll):
+    poll.replies = [ready()]
+    package.wait_ready()
+    assert "connection_trace" not in observation(poll)["attempt_tail"][0]
+    assert callable(poll.requests[0][1]["extensions"]["trace"])
+
+
+@pytest.mark.parametrize(
+    "case", ["deadline", "overrun", "saturation", "writer", "interruption", "invalid_body"]
+)
+def test_connection_observation_never_changes_readiness_or_failure_semantics(poll, monkeypatch, case):
+    original = package.client
+
+    class TracedConnection:
+        def __enter__(self):
+            self.inner = original("agent")
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, path, **kwargs):
+            trace = kwargs["extensions"]["trace"]
+            trace("connection.connect_tcp.started", {"private": object()})
+            if case == "interruption":
+                raise KeyboardInterrupt
+            response = self.inner.get(path, **kwargs)
+            trace("connection.connect_tcp.complete", object())
+            trace("connection.start_tls.started", object())
+            trace("connection.start_tls.complete", object())
+            return response
+
+    monkeypatch.setattr(package, "client", lambda purpose: TracedConnection())
+    poll.replies = [httpx.Response(200, json={}) if case == "invalid_body" else ready()]
+    poll.durations = [{"deadline": 90, "overrun": 90.005, "saturation": 86400.001}.get(case, 0)]
+    if case == "writer":
+        original_write = package._write_readiness_observation
+
+        def failed_write(value):
+            if value["completion"] == "ready":
+                raise OSError("PRIVATE WRITER MATERIAL")
+            original_write(value)
+
+        monkeypatch.setattr(package, "_write_readiness_observation", failed_write)
+    exception = (
+        KeyboardInterrupt
+        if case == "interruption"
+        else AssertionError
+        if case == "invalid_body"
+        else pytest.fail.Exception
+    )
+    with pytest.raises(exception):
+        package.wait_ready()
+    report = observation(poll)
+    assert report["completion"] == {
+        "writer": "recording_failed",
+        "interruption": "interrupted",
+        "invalid_body": "malformed_success",
+    }.get(case, "deadline_exhausted")
+    if case != "interruption":
+        assert report["attempt_tail"][0]["connection_trace"]["events"]
+    assert "PRIVATE" not in poll.observation.read_text()
