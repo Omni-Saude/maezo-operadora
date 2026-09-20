@@ -337,6 +337,15 @@ _HTTPX_CLIENT_ADDITIONAL_MODULES: Final[frozenset[str]] = frozenset(
         # disparou. O caminho REST dele foi trocado pelo transporte sancionado no mesmo commit,
         # entao o cliente que resta aqui e' so' o que o transporte constroi por dentro.
         "platform/evidence/dmn_sweep.py",
+        # ADICAO DO CARVE B (2026-09-20, transplantada de `build/pr-c-infra`): `OwnerEnrollmentClient`
+        # — verificador FINITO do desafio/resposta mTLS do ENROLMENT do dono externo do D
+        # (protocolo `maezo.d7-owner-qualification-request.v1`, ADR-0056/0057; so' roda no
+        # bootstrap/qualificacao inicial da instalacao, por instalador, NUNCA por pedido de
+        # beneficiario ou turno de agente; nao produz efeito de negocio — le/grava somente os
+        # recibos do proprio enrolment). Categoria identica a `engine_deploy.py`/`bootstrap.py`
+        # acima. NAO entra em `REST_PATH_SANCTIONED_MODULES`: literal de rota de efeito aqui
+        # continua recusado pelo gate.
+        "gateway/d7_external_owner.py",
     }
 )
 
