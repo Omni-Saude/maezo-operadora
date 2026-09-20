@@ -1,0 +1,153 @@
+# === DOCUMENT-CUSTODY-LIFECYCLE — ciclo de vida de custódia de documento PHI (WP-J1-04 §3) ===
+#
+# O QUE ESTE ARQUIVO É
+# --------------------
+# A ratificação, pelo dono do repositório, do contrato de custódia de documentos PHI que o
+# plano de documentos do portal (`src/maezo/gateway/documents/`, PR #431) já executa em código
+# e em schema. Ele nasce da proposta §3 do relatório de build do WP-J1-04 (2026-09-19) —
+# "OWNER-DECISION-REQUIRED (`/spec/policies/phi/` — NOT touched)" — e foi RATIFICADO COMO
+# PROPOSTO pelo dono em 2026-09-20. Nenhuma declaração aqui introduz comportamento novo:
+# cada uma converte em política ratificável um invariante que o código já impõe de forma
+# fail-closed. O que muda é o RETORNO: hoje o contrato só existe em código; com este arquivo
+# ele passa a ser ratificável por DPO/jurídico/security-team em vez de code-enforced-only.
+#
+# QUEM RATIFICOU — E QUEM NÃO RATIFICOU
+# -------------------------------------
+# O dono do repositório (`@rodaquino-OMNI`) ratificou as QUATRO declarações de ciclo de vida
+# abaixo. O DPO e o jurídico NÃO ratificaram nada aqui — em particular, a RETENÇÃO de
+# `portal_document.object` NÃO é decidida neste arquivo (ver a seção `retencao`, no fim):
+# o número "5+ anos" continua DRAFT em `docs/adr/0020-custody-chain.md:84-96` e a decisão
+# segue o curso da emenda `docs/compliance/ADR-0020-amendment-draft.md`. Este arquivo é
+# CODEOWNED (`/spec/policies/phi/  @rodaquino-OMNI @Omni-Saude/security-team`) e a revisão
+# deste PR é o exercício do item de registro `SPEC-POLICIES-PHI-DPO-HANDLE-OWNER-DECISION`.
+#
+# O QUE ESTE ARQUIVO NÃO FAZ (honestidade de gate — sem modo degradado)
+# ---------------------------------------------------------------------
+# NENHUM carregador lê este arquivo hoje. Ele não é consumido por `make validate-artifacts`
+# (que só valida `phi-dispositions-migration.yaml` neste diretório —
+# `src/maezo/platform/validation/policy.py::validate_phi_dispositions_dir`) nem por loader
+# algum em runtime. A aplicação das regras continua sendo, byte a byte, a que os
+# `criteria_ref` abaixo apontam. Qualquer consumidor futuro deve ANCORAR nestas mesmas
+# âncoras (e recusar-se a rodar sobre arquivo DRAFT), nunca re-implementar a regra.
+#
+# REGRAS DE LEITURA
+# -----------------
+# `criteria_ref` APONTA, não repete (mesma disciplina de
+# `spec/policies/autonomy/action-approvals.yaml`): a âncora `arquivo:linha` é a definição
+# operável da regra; o texto aqui é a ratificação de que aquilo é POLÍTICA, não detalhe de
+# implementação. Linhas citadas verificadas em `origin/main` `8216c99e` (base deste PR),
+# que contém o PR #431 merged (2026-09-19T16:15:55Z).
+
+meta:
+  artefato: document-custody-lifecycle
+  escopo: >
+    Ciclo de vida de custódia dos documentos PHI do portal — as tabelas
+    `portal_document.document` / `portal_document.custody` (owner migration
+    `src/maezo/gateway/documents/schema.sql`) e os cabeças publicados
+    `document_custody` / `document_policy` que o plano lê via `NativeAuthReader`.
+  codigo_governado: "PR #431 (merged 2026-09-19) — DocumentAuthority + PostgresProtectedDocumentProvider + rota de bytes PHI"
+  base_de_verificacao: "origin/main 8216c99e364773ca4ab5e38a16cae3b02d43b7d3"
+  origem_da_proposta: "WP-J1-04 BUILD REPORT §3 (OWNER-DECISION-REQUIRED), 2026-09-19"
+  status: RATIFICADO-PELO-DONO-2026-09-20
+  ratificado_em: "2026-09-20"
+  ratificado_por: "@rodaquino-OMNI (dono do repositório)"
+  nao_ratificado_aqui:
+    - "retenção de `portal_document.object` (DPO/jurídico — ver seção `retencao`)"
+
+# (a) QUEM PODE PUBLICAR uma cabeça `document_custody`
+declaracao_1_publicador:
+  pergunta: "quem pode publicar uma cabeça `document_custody`?"
+  resposta: >
+    Exatamente UM papel: o publicador de custódia do lado do motor ("engine-side document
+    custody publisher", entregável row e do plano de jornadas). Ele APPENDE as cabeças
+    `document_custody` de entrada de AUTH a partir de `portal_document.document` +
+    `portal_document.custody`, e NUNCA escreve `portal_document.object` (divisão de papéis
+    declarada na própria owner migration). NENHUMA escrita Python existe: todo acesso Python
+    a `mzo_auth_input_head` é LEITURA via `NativeAuthReader` — o próprio plano de documentos
+    só publica o estado `pending` (a cabeça de triagem NUNCA nasce neste plano).
+  criteria_ref:
+    divisao_de_papeis: "src/maezo/gateway/documents/schema.sql:85-86"
+    unica_escrita_do_plano_e_pending: "src/maezo/gateway/documents/postgres.py:465-480"
+    verificacao_do_publicador_na_leitura: "src/maezo/gateway/intake/native_authority.py:304-313"
+    publicador_declarado_no_motor: "src/maezo/portal/engine/java/src/main/java/br/com/maezo/human/AuthModels.java:27"
+
+# (b) O VOCABULÁRIO FECHADO de `screening_result` — e quem atribui cada valor
+declaracao_2_vocabulario_screening_result:
+  pergunta: "quais valores `screening_result` existem e quem atribui cada um?"
+  valores: [pending, clean, quarantined, rejected]
+  atribuicao:
+    pending: >
+      ÚNICO valor que o plano humano de documentos escreve por conta própria — é o estado
+      de todo documento completado cuja cabeça de triagem ainda não foi publicada. A CHECK
+      da owner migration amarra `pending` à AUSÊNCIA de publicação
+      (`(screening_result='pending')=(publication_digest IS NULL)` e a gêmea sobre
+      `screening_ref`).
+    clean_quarantined_rejected: >
+      SOMENTE o publicador do lado do motor (declaração 1) atribui — e nunca como invenção
+      deste plano: cada par `screening_result`/`custody_state` diferente de `pending` é
+      COPIADO VERBATIM de uma cabeça `document_custody` publicada e VERIFICADA, ligada a ela
+      por `head_generation` + `publication_digest`. A triagem em si é decidida do lado do
+      motor e publicada; nada aqui a infere.
+  criteria_ref:
+    vocabulario_fechado: "src/maezo/gateway/documents/schema.sql:54"
+    unico_estado_auto_escrito_e_amarras: "src/maezo/gateway/documents/schema.sql:45-48,58-61"
+    copia_verbatim_da_cabeca_publicada: "src/maezo/gateway/documents/postgres.py:465-480"
+    triagem_decidida_no_motor: "src/maezo/gateway/documents/postgres.py:8-10"
+    vocabulario_fechado_dos_recibos: "src/maezo/gateway/documents/postgres.py:200-213"
+
+# (c) PUBLICACAO `clean` DEVE REFERENCIAR o `content_sha256` da linha `portal_document.document`
+declaracao_3_clean_referencia_conteudo:
+  pergunta: "o que uma publicação `clean` referencia?"
+  resposta: >
+    A publicação `clean` referencia a linha `portal_document.document` — é DELA que o
+    publicador do motor cunha o `DocumentRef` (revisão de custódia, `content_sha256`,
+    `storage_version_ref`, `policy_digest`), e o `content_sha256` que ela carrega é o MESMO
+    digest selado em `portal_document.object` na única escrita de bytes deste plano
+    (`store`, com AAD que amarra todo fato não-secreto da admissão). A cabeça publicada é
+    verificada contra o `document_ref` exato a cada uso — uma cabeça de outro documento não
+    concede nada.
+  criteria_ref:
+    linha_fonte_da_cunhagem: "src/maezo/gateway/documents/schema.sql:29-44"
+    content_sha256_da_linha_document: "src/maezo/gateway/documents/schema.sql:36"
+    content_sha256_selado_no_objeto: "src/maezo/gateway/documents/schema.sql:25"
+    escrita_unica_de_bytes_e_conflito: "src/maezo/gateway/documents/postgres.py:244"
+    verificacao_contra_o_document_ref_exato: "src/maezo/gateway/documents/authority.py:252-259"
+
+# (d) `revoked` / `deleted` são TERMINAIS para download
+declaracao_4_estados_terminais:
+  pergunta: "o que acontece com `custody_state` `revoked` e `deleted`?"
+  valores_terminais: [revoked, deleted]
+  resposta: >
+    São TERMINAIS para download: nenhum grant de download nasce sem cabeça `document_custody`
+    publicada e verificada com `custody_state='available'` E `screening_result='clean'` E
+    dentro da validade — e a rota de bytes PHI RE-autoriza contra as MESMAS cabeças depois da
+    leitura, de modo que uma revogação ou re-triagem acontecida durante o decripto recusa a
+    resposta. `revoked`/`deleted` nunca são escritos por este plano (só copiados de cabeça
+    publicada, declaração 2) e nunca retroagem em recibo: `custody_state != 'available'`
+    reclassifica o recibo para `rejected`, e um documento assim nunca satisfaz uma resposta
+    de solicitação (não há admissão de subconjunto).
+  criteria_ref:
+    predicado_de_download: "src/maezo/gateway/documents/authority.py:243-260"
+    download_no_mapa_de_operacoes: "src/maezo/gateway/documents/authority.py:297-300"
+    re_autorizacao_pos_leitura_na_rota_de_bytes: "src/maezo/portal/api/document_phi.py:112-120"
+    recibo_reclassificado: "src/maezo/gateway/documents/postgres.py:204-206"
+    resposta_exige_available_e_clean: "src/maezo/gateway/documents/postgres.py:593-604"
+
+# RETENÇÃO — NÃO DECIDIDA NESTE ARQUIVO (fold ADR-0020 item 6)
+retencao:
+  decidido_aqui: false
+  pergunta_aberta: >
+    Se a retenção de `portal_document.object` segue o item 6 da ADR-0020 (5+ anos,
+    Object-Lock, precedência de legal-hold). A owner migration NÃO define retenção nenhuma —
+    não há coluna nem job de retenção neste schema — e, enquanto a emenda não for ratificada,
+    o padrão de fato é reter por tempo indefinido, exatamente a tensão LGPD Art. 16 que a
+    emenda analisa.
+  porque_nao_aqui: >
+    O número "5+ anos" é DRAFT/verify pendente de sign-off jurídico/regulatório/DPO em
+    `docs/adr/0020-custody-chain.md:84-96`; ratificá-lo aqui criaria uma SEGUNDA casa para a
+    mesma decisão (este arquivo vs. a emenda), o padrão de divergência que a disciplina
+    `criteria_ref` deste repositório proíbe.
+  criteria_ref:
+    clausula_draft_da_adr: "docs/adr/0020-custody-chain.md:84-96"
+    emenda_onde_a_decisao_segue: "docs/compliance/ADR-0020-amendment-draft.md (locus 3 — §1 e §4.2)"
+    ausencia_de_retencao_no_schema: "src/maezo/gateway/documents/schema.sql:21-28"
