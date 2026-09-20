@@ -227,8 +227,8 @@ def lifecycle_jobs_from_documents(documents: Iterable[Any], *, overlay: str) -> 
         name = str((document.get("metadata") or {}).get("name", ""))
         if not name.startswith(LIFECYCLE_CRONJOB_PREFIX):
             continue
-        job_template = ((document.get("spec") or {}).get("jobTemplate") or {})
-        annotations = ((job_template.get("metadata") or {}).get("annotations") or {})
+        job_template = (document.get("spec") or {}).get("jobTemplate") or {}
+        annotations = (job_template.get("metadata") or {}).get("annotations") or {}
         raw = annotations.get(MARKER_ANNOTATION, None)
         jobs.append(
             RenderedLifecycleJob(
@@ -424,8 +424,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"{job.overlay}:{job.name}={job.expected_fail_until}" for job in rendered_jobs
     )
     print(
-        f"[lifecycle-expected-fail-expiry] PASS @ {today.isoformat()} "
-        f"(chart renderizado: {rendered_summary})"
+        f"[lifecycle-expected-fail-expiry] PASS @ {today.isoformat()} (chart renderizado: {rendered_summary})"
     )
     return 0
 
