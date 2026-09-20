@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" targetNamespace="urn:maezo:qualification:native-v2">
+  <process id="MAEZO-NATIVE-V2-QUALIFICATION-ABA" isExecutable="true" camunda:historyTimeToLive="1">
+    <startEvent id="aba_start"/>
+    <sequenceFlow id="aba_enter" sourceRef="aba_start" targetRef="aba_task"/>
+    <serviceTask id="aba_task" camunda:type="external" camunda:topic="qualification.native-v2.aba"/>
+    <sequenceFlow id="aba_leave" sourceRef="aba_task" targetRef="aba_end"/>
+    <endEvent id="aba_end"/>
+  </process>
+  <process id="MAEZO-NATIVE-V2-QUALIFICATION-RENEW" isExecutable="true" camunda:historyTimeToLive="1">
+    <startEvent id="renew_start"/>
+    <sequenceFlow id="renew_enter" sourceRef="renew_start" targetRef="renew_task"/>
+    <serviceTask id="renew_task" camunda:type="external" camunda:topic="qualification.native-v2.renew"/>
+    <sequenceFlow id="renew_leave" sourceRef="renew_task" targetRef="renew_end"/>
+    <endEvent id="renew_end"/>
+  </process>
+  <process id="MAEZO-NATIVE-V2-QUALIFICATION-RECEIPT" isExecutable="true" camunda:historyTimeToLive="1">
+    <startEvent id="receipt_start"/>
+    <sequenceFlow id="receipt_enter" sourceRef="receipt_start" targetRef="receipt_task"/>
+    <serviceTask id="receipt_task" camunda:type="external" camunda:topic="qualification.native-v2.receipt"/>
+    <sequenceFlow id="receipt_leave" sourceRef="receipt_task" targetRef="receipt_end"/>
+    <endEvent id="receipt_end"/>
+  </process>
+  <process id="MAEZO-NATIVE-V2-QUALIFICATION-CONFLICT" isExecutable="true" camunda:historyTimeToLive="1">
+    <startEvent id="conflict_start"/>
+    <sequenceFlow id="conflict_enter" sourceRef="conflict_start" targetRef="conflict_task"/>
+    <serviceTask id="conflict_task" camunda:type="external" camunda:topic="qualification.native-v2.conflict"/>
+    <sequenceFlow id="conflict_leave" sourceRef="conflict_task" targetRef="conflict_end"/>
+    <endEvent id="conflict_end"/>
+  </process>
+</definitions>

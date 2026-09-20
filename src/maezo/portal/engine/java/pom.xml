@@ -26,5 +26,22 @@
       <classesDirectory>${project.build.directory}/${project.build.finalName}.jar</classesDirectory>
       <systemPropertyVariables><maezo.consumer.jar>${project.build.directory}/${project.build.finalName}.jar</maezo.consumer.jar></systemPropertyVariables>
     </configuration></plugin>
-  </plugins></build></profile></profiles>
+  </plugins></build></profile>
+  <profile><id>native-v2-qualification</id><build>
+    <!-- An isolated artifact, never a test-classpath overlay of the default JAR. -->
+    <directory>${project.basedir}/target/native-v2-qualification</directory>
+    <finalName>human-command-engine-${project.version}-native-v2-qualification</finalName>
+    <resources combine.self="override">
+      <resource><directory>src/main/resources</directory><excludes><exclude>engine-schemas-v2.json</exclude></excludes></resource>
+      <resource><directory>src/qualification/native-v2/resources</directory><includes><include>engine-schemas-v2.json</include></includes></resource>
+    </resources>
+    <plugins><plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-antrun-plugin</artifactId><version>3.1.0</version>
+      <executions><execution><id>require-explicit-qualified-registry</id><phase>validate</phase><goals><goal>run</goal></goals><configuration><target>
+        <checksum file="${project.basedir}/src/qualification/native-v2/resources/engine-schemas-v2.json" algorithm="SHA-256" property="native.registry.actual.sha256"/>
+        <fail message="Explicit reviewed maezo.nativeQualification.registrySha256 must match the qualification registry bytes">
+          <condition><not><equals arg1="${native.registry.actual.sha256}" arg2="${maezo.nativeQualification.registrySha256}"/></not></condition>
+        </fail>
+      </target></configuration></execution></executions>
+    </plugin></plugins>
+  </build></profile></profiles>
 </project>
