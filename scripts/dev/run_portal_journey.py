@@ -37,6 +37,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = REPO_ROOT / "src/maezo/portal/web"
@@ -46,7 +47,13 @@ FIXTURE = E2E_DIR / "fixtures/journey-fixture.json"
 if str(REPO_ROOT / "src") not in sys.path:  # pragma: no cover - import bootstrap
     sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from fastapi import FastAPI  # noqa: E402
+from starlette.types import ASGIApp, Receive, Scope, Send  # noqa: E402
+
 from maezo.portal.api.app import create_app  # noqa: E402
+
+if TYPE_CHECKING:  # pragma: no cover - annotations only
+    import uvicorn
 from maezo.portal.api.config import PortalSettings  # noqa: E402
 from maezo.portal.api.local_auth import STUB_AUTHORIZATION_CODE, StubAuthenticator  # noqa: E402
 from maezo.portal.api.records import MembershipRecord  # noqa: E402
@@ -108,8 +115,9 @@ def seeded_store(identity: JourneyIdentity) -> LocalTestIdentityStore:
     return store
 
 
-def build_app(store: LocalTestIdentityStore, settings: PortalSettings):
+def build_app(store: LocalTestIdentityStore, settings: PortalSettings) -> FastAPI:
     return create_app(settings, store=store, authenticator=StubAuthenticator(settings))
+
 
 
 def free_port() -> int:
@@ -118,7 +126,9 @@ def free_port() -> int:
         return int(listener.getsockname()[1])
 
 
-async def serve(app, port: int):
+async def serve(
+    app: ASGIApp, port: int
+) -> tuple[uvicorn.Server, asyncio.Task[None]]:
     import uvicorn
 
     configuration = uvicorn.Config(
@@ -161,9 +171,10 @@ def run_playwright(arguments: list[str], artifacts: Path, dist: Path, bff_origin
     }
     environment.update(
         {
-            "MAEZO_PORTAL_E2E_RUNTIME": str(artifacts),
-            "MAEZO_PORTAL_E2E_ARTIFACTS": str(artifacts),
-            "MAEZO_PORTAL_E2E_DIST": str(dist),
+            # Absolute paths: the Playwright process runs with the web package as cwd.
+            "MAEZO_PORTAL_E2E_RUNTIME": str(artifacts.resolve()),
+            "MAEZO_PORTAL_E2E_ARTIFACTS": str(artifacts.resolve()),
+            "MAEZO_PORTAL_E2E_DIST": str(dist.resolve()),
             "MAEZO_PORTAL_E2E_ORIGIN": bff_origin,
             "npm_config_yes": "false",
         }
@@ -190,7 +201,7 @@ class StaticOrigin:
     every auth/session/cookie decision stays in the BFF.
     """
 
-    def __init__(self, app, dist: Path, overlay: dict[str, Path] | None = None) -> None:
+    def __init__(self, app: ASGIApp, dist: Path, overlay: dict[str, Path] | None = None) -> None:
         self.app = app
         self.dist = dist
         self._overlay = overlay or {}
@@ -219,7 +230,7 @@ class StaticOrigin:
             ".ico": "image/x-icon",
         }.get(PurePosixPath(path).suffix, "application/octet-stream")
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -330,7 +341,9 @@ def journey_leg_refusal() -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("--leg", choices=("session", "journey"), default="session")
     parser.add_argument("--artifacts", type=Path, default=None)
     parser.add_argument("--web-dist", type=Path, default=WEB_DIR / "dist")

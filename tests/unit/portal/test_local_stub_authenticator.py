@@ -10,6 +10,7 @@ from __future__ import annotations
 import inspect
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
@@ -155,12 +156,8 @@ async def test_browser_login_slice_with_the_stub_sets_a_server_session() -> None
     async with httpx.AsyncClient(transport=transport, base_url="https://localhost") as client:
         login = await client.get(f"{PREFIX}/auth/login", follow_redirects=False)
         assert login.status_code == 303
-        authorize = login.headers["location"]
-        callback = authorize.replace(
-            "https://humans.auth.sa-east-1.amazoncognito.com/oauth2/authorize",
-            f"https://localhost{PREFIX}/auth/callback",
-        )
-        state = next(v for k, v in (pair.split("=", 1) for pair in authorize.split("?")[1].split("&")) if k == "state")
+        authorize = urlsplit(login.headers["location"])
+        state = dict(pair.split("=", 1) for pair in authorize.query.split("&"))["state"]
         completed = await client.get(
             f"{PREFIX}/auth/callback",
             params={"state": state, "code": STUB_AUTHORIZATION_CODE},
