@@ -987,6 +987,22 @@ _DUPLOS_CONSTRUIDOS_DECLARADOS: dict[tuple[str, str], tuple[frozenset[str], str]
         "que `cursor.close()` em controller_postgres_storage.py consome e cujo `close_error` o teste "
         "`failure == 'close'` exercita. Nao e' DmnTransport: o unico nome em comum e' `close`.",
     ),
+    ("tests/unit/gateway/test_d7_owner_bootstrap.py", "SameConnectionProtocol"): (
+        frozenset({"close"}),
+        "duplo SINCRONO de conexao psycopg do instalador D: `cursor.close()` em "
+        "deploy/cibseven/secured/migrations/d7_control_install.py:1458 (bloco finally) grava "
+        "('close', ()) em `calls`, que o proprio teste assera em test_d7_owner_bootstrap.py:459 "
+        "(em todas as linhas de falha parametrizadas) — `close` async deixaria de gravar e a "
+        "assercao quebraria. Nao e' DmnTransport: o unico nome em comum e' `close`.",
+    ),
+    ("tests/unit/gateway/test_native_owner_qualification.py", "OperationConnection"): (
+        frozenset({"close"}),
+        "duplo SINCRONO de conexao psycopg consumida por `cursor.close()` em "
+        "src/maezo/gateway/native_owner_qualification.py:236 e :319 (blocos finally); o teste "
+        "assera `conn.calls[-1] == 'close'` e `[-2:] == ['rollback', 'close']` "
+        "(test_native_owner_qualification.py:118/126/138) — `close` async quebraria as assercoes. "
+        "Nao e' DmnTransport: o unico nome em comum e' `close`.",
+    ),
 }
 for _chave, (_metodos, _razao) in _DUPLOS_CONSTRUIDOS_DECLARADOS.items():
     assert _metodos and _razao.strip(), f"entrada sem metodos ou sem razao: {_chave}"
