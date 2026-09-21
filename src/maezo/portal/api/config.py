@@ -28,6 +28,21 @@ class PortalSettings(BaseSettings):
     mode: Literal["production", "local-test"] = "production"
     session_seconds: int = Field(default=1800, ge=60, le=3600)
     transaction_seconds: int = Field(default=300, ge=30, le=300)
+    #: INTERIM (`docs/decisions-log.md` DL-0049). Turns on
+    #: `POST /api/v1/portal/tasks/{id}/completion`, which closes an ESCALATION task over the
+    #: engine's REST surface instead of the signed durable relay ADR-0049 D5/D6/D7 designs.
+    #: OFF by default, and `scripts/ci/check_portal_direct_completion.py` reproves any
+    #: `deploy/**` that turns it on outside `dev-sa-east-1`. Deleting this flag — with the
+    #: relay of #427 in its place — is the intended end state.
+    direct_completion: bool = False
+    #: INTERIM (DL-0049). Exact HTTPS origins, comma separated, that may call this BFF with
+    #: credentials. EMPTY by default, which is "no cross-origin caller at all": the portal is
+    #: same-origin software and the declared-demo test channel
+    #: (`platform/testchannel/paginas/escalonamento.html`) is the only reason this exists.
+    #: Same CI fence as the flag above. Never a wildcard: `Access-Control-Allow-Origin: *`
+    #: and credentials are mutually exclusive in the browser, and an echoed Origin would make
+    #: any site a caller.
+    cors_origins: str = ""
 
     @model_validator(mode="after")
     def _deployment_boundaries(self) -> Self:
@@ -65,7 +80,46 @@ class PortalSettings(BaseSettings):
             and not self.auth_lifecycle_binding_path.is_absolute()
         ):
             raise ValueError("absolute protected AUTH binding path required")
+        # Fail at boot, not at the first preflight: a malformed allowlist is a deployment
+        # defect, and a portal that starts with an unreadable one would be a portal whose
+        # cross-origin policy nobody can state.
+        self.allowed_cross_origins()
         return self
+
+    def allowed_cross_origins(self) -> tuple[str, ...]:
+        """The parsed `cors_origins` allowlist, in declaration order, or `()`.
+
+        Every entry is held to the SAME shape as `public_origin` (HTTPS, DNS only, no path,
+        port, query, fragment or credential), must be distinct, must not be the portal's own
+        origin (that one is always allowed and does not need CORS) and must not be the Cognito
+        origin (the IdP does not call this BFF). A wildcard, a scheme-only value, `null` or an
+        empty element is a configuration error, not an "allow everything".
+        """
+        raw = self.cors_origins.strip()
+        if not raw:
+            return ()
+        entries = tuple(part.strip() for part in raw.split(","))
+        if len(entries) > 4 or len(set(entries)) != len(entries):
+            raise ValueError("invalid portal CORS allowlist")
+        for origin in entries:
+            parsed = urlsplit(origin)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or "*" in origin
+                or parsed.path
+                or parsed.query
+                or parsed.fragment
+                or parsed.username
+                or parsed.password
+                or parsed.port not in (None, 443)
+                or origin != f"https://{parsed.netloc}"
+                or any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in origin)
+                or any(c in origin for c in "?#\\")
+                or origin in (self.public_origin, self.cognito_origin)
+            ):
+                raise ValueError("invalid portal CORS allowlist")
+        return entries
 
     @property
     def callback_url(self) -> str:

@@ -44,6 +44,10 @@ EXPECTED_PATHS = {
     "/api/v1/portal/session",
     "/api/v1/portal/tasks",
     "/api/v1/portal/tasks/{task_id}",
+    # INTERIM (`docs/decisions-log.md` DL-0049). The path is always published in the schema —
+    # the gate decides whether it ANSWERS (501 when off), not whether it is documented, so a
+    # reader of the contract can see what the interim path is before deciding to enable it.
+    "/api/v1/portal/tasks/{task_id}/completion",
     "/api/v1/portal/tasks/{task_id}/assignment-candidates",
     "/api/v1/portal/tasks/{task_id}/assignment-context",
     "/api/v1/portal/tasks/{task_id}/assignments",

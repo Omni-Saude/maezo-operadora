@@ -16,6 +16,13 @@ from maezo.portal.contracts.models import HumanPrincipal
 from maezo.portal.contracts.queues import TaskQueueRequest
 from maezo.portal.engine.profile import canonicalize
 
+from .completion import (
+    CompletionAck,
+    CompletionAuditSink,
+    CompletionOutcome,
+    DirectTaskCompletion,
+    PseudonymizedNotes,
+)
 from .credentials import HumanCommandCredentialPartition
 from .gateway import HumanGateway
 from .models import AuthoritativeTask, CurrentTaskAuthority
@@ -75,6 +82,9 @@ class EngineReadBundle:
         self._tasks: dict[str, _TaskEntry | None] = {}
         self._authorities: dict[str, _AuthorityEntry | None] = {}
         self._disclosed: set[str] = set()
+        # INTERIM completion (DL-0049): at most one completion per task per bundle, and a
+        # bundle is one BFF request. A retry is a new request, a new read and a new authority.
+        self._completed: set[str] = set()
         self._closed = False
 
     def guard(self) -> None:
@@ -87,6 +97,7 @@ class EngineReadBundle:
         self._tasks.clear()
         self._authorities.clear()
         self._disclosed.clear()
+        self._completed.clear()
         self.client.partition.close()
 
     def catalog(self, value: CatalogValue, result: ReadResult) -> CatalogExpectation:
@@ -224,8 +235,11 @@ class EngineHumanTaskQuery(HumanTaskQuery):
 
 
 class EngineHumanTaskTransport(HumanTaskTransport):
-    def __init__(self, bundle: EngineReadBundle) -> None:
+    def __init__(self, bundle: EngineReadBundle, completion: DirectTaskCompletion | None = None) -> None:
         self._b, self.scope = bundle, bundle.scope
+        # INTERIM (DL-0049). `None` is the shipped state: `complete_task` then refuses through
+        # the base class, exactly as this transport did before the interim path existed.
+        self._completion = completion
 
     async def read_task(self, task_id: str) -> AuthoritativeTask:
         try:
@@ -249,6 +263,62 @@ class EngineHumanTaskTransport(HumanTaskTransport):
                 value.task, canonicalize(wire(value.task)), value.task_continuity
             )
             return value.task
+        except BaseException:
+            self._b.poison()
+            raise
+
+    async def complete_task(
+        self,
+        task_id: str,
+        *,
+        resultado: CompletionOutcome,
+        notes: PseudonymizedNotes,
+        expected_task_revision: int,
+    ) -> CompletionAck:
+        """INTERIM (DL-0049): the one write this Q2 read transport performs.
+
+        It rides the read bundle on purpose, and the bundle is what makes it safe to exist at
+        all: a completion is admitted ONLY for a task whose authoritative snapshot this same
+        request already read through `read_task` (CT chain verified, tenant checked, catalog
+        pinned) and ONLY at that snapshot's revision. A `task_id` the bundle never read, a
+        revision that drifted, a second completion of the same task, an expired read partition
+        or a missing capability all refuse — and any failure poisons the bundle, so no later
+        port in this request answers from state a failed write touched.
+
+        It does NOT borrow the read signing partition: `PortalReadClient` signs
+        `purpose=portal-task-read` envelopes for the six read routes and nothing here changes
+        that. The completion travels on its own explicitly composed client. What it lacks — a
+        signed envelope, a receipt, an outbox row, an engine-side optimistic fence — is the
+        debt DL-0049 registers and the D6 relay of #427 pays.
+        """
+        try:
+            if self._completion is None or self._completion.scope != self.scope:
+                raise unavailable()
+            entry = self._b._tasks.get(task_id)
+            if (
+                entry is None
+                or entry.task.snapshot.task_id != task_id
+                or entry.task.snapshot.task_revision != expected_task_revision
+                or task_id in self._b._completed
+                or canonicalize(wire(entry.task)) != entry.canonical
+            ):
+                raise unavailable()
+            self._b.guard()
+            self._b._completed.add(task_id)  # reserve before the first await
+            ack = await self._completion.complete(
+                task_id=task_id,
+                resultado=resultado,
+                notes=notes,
+                expected_task_revision=expected_task_revision,
+            )
+            if (
+                type(ack) is not CompletionAck
+                or ack.task_id != task_id
+                or ack.resultado != resultado
+                or ack.consumed_task_revision != expected_task_revision
+            ):
+                raise unavailable()
+            return ack
         except BaseException:
             self._b.poison()
             raise
@@ -361,12 +431,21 @@ class EngineReadComposition:
         command_credentials: HumanCommandCredentialPartition,
         command_admission: DurableAdmission,
         transport_pool: httpx.AsyncBaseTransport,
+        direct_completion: DirectTaskCompletion | None = None,
+        completion_audit: CompletionAuditSink | None = None,
     ) -> None:
         self._new_bundle = new_bundle
         self._transport_pool = transport_pool
         self._closed = False
         self._command_credentials = command_credentials
         self._command_admission = command_admission
+        # INTERIM (DL-0049). Both halves are required together or the path stays dark: a
+        # completion with no audit link would be exactly the untraceable shortcut §2.5 of the
+        # mandate refuses, and an audit sink with no client would claim a trail for nothing.
+        if (direct_completion is None) != (completion_audit is None):
+            raise unavailable()
+        self._direct_completion = direct_completion
+        self._completion_audit = completion_audit
 
     def build(self, resolver: HumanSessionResolver) -> HumanGateway:
         from .ports import BoundHumanPorts
@@ -380,19 +459,23 @@ class EngineReadComposition:
             or bundle._composed
             or bundle._tasks
             or bundle._authorities
+            or bundle._completed
             or bundle.client._transport is not self._transport_pool
             or bundle.client._owns_transport
         ):
+            raise unavailable()
+        if self._direct_completion is not None and self._direct_completion.scope != bundle.scope:
             raise unavailable()
         bundle._composed = True
         return HumanGateway(
             resolver=resolver,
             scope=bundle.scope,
             ports=BoundHumanPorts(
-                task=EngineHumanTaskTransport(bundle),
+                task=EngineHumanTaskTransport(bundle, self._direct_completion),
                 authority=EngineTaskAuthority(bundle),
                 admission=self._command_admission,
             ),
+            completion_audit=self._completion_audit,
             credentials=self._command_credentials,
             query=EngineHumanTaskQuery(bundle),
             catalog_anchor=bundle.anchor,
@@ -404,6 +487,10 @@ class EngineReadComposition:
     async def close(self) -> None:
         self._closed = True
         try:
-            await self._transport_pool.aclose()
-        except Exception:
-            raise unavailable() from None
+            if self._direct_completion is not None:
+                await self._direct_completion.close()
+        finally:
+            try:
+                await self._transport_pool.aclose()
+            except Exception:
+                raise unavailable() from None

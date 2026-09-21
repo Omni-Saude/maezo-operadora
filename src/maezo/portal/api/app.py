@@ -12,6 +12,7 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
@@ -42,7 +43,16 @@ from maezo.portal.api.intakes import IntakeServiceFactory, intake_error, intake_
 from maezo.portal.api.records import SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
-from maezo.portal.api.tasks import ReadServiceFactory, is_task_read, read_error, task_router
+from maezo.portal.api.tasks import (
+    CompletionPolicy,
+    ReadServiceFactory,
+    completion_error,
+    completion_router,
+    is_task_completion,
+    is_task_read,
+    read_error,
+    task_router,
+)
 
 _SESSION = "__Host-maezo-session"
 _BROWSER = "__Host-maezo-login"
@@ -225,6 +235,16 @@ def create_app(
     app.state.human_session_resolver = resolver
     app.state.task_read_service_factory = task_read_service_factory
     app.include_router(task_router)
+    # INTERIM (DL-0049). Both halves ship off: `direct_completion` is false unless the
+    # deployment sets it, and `cors_origins` is empty, so the only caller the route would ever
+    # accept is the portal's own origin. `scripts/ci/check_portal_direct_completion.py` is what
+    # keeps either of them from being turned on outside `dev-sa-east-1`.
+    cross_origins = config.allowed_cross_origins()
+    app.state.completion_policy = CompletionPolicy(
+        enabled=config.direct_completion,
+        origins=frozenset((config.public_origin, *cross_origins)),
+    )
+    app.include_router(completion_router)
     app.state.decision_service_factory = decision_service_factory
     app.include_router(decision_router)
     app.state.case_service_factory = case_service_factory
@@ -238,6 +258,21 @@ def create_app(
     app.include_router(document_router)
     app.state.communication_service_factory = communication_service_factory
     app.include_router(communication_router)
+
+    # Added BEFORE `deployment_host` on purpose. `add_middleware` inserts at position 0, so
+    # the LAST call is the outermost: registering CORS first leaves it INSIDE the host check,
+    # and a preflight for a foreign Host is refused by that check instead of being answered.
+    # Nothing is installed when the allowlist is empty, which is the shipped state — there is
+    # no code path in a default deployment that can emit an `Access-Control-Allow-*` header.
+    if cross_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(cross_origins),  # exact strings; never a regex or an echo
+            allow_credentials=True,
+            allow_methods=["GET", "POST"],
+            allow_headers=["content-type", "x-csrf-token"],
+            max_age=600,
+        )
 
     @app.middleware("http")
     async def deployment_host(
@@ -255,6 +290,10 @@ def create_app(
                 return intake_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
+            # Completion first: its path lives under the read prefix, so `is_task_read` also
+            # matches it and would answer with the read schema.
+            if is_task_completion(request):
+                return completion_error("invalid_request")
             return read_error("invalid_request") if is_task_read(request) else _refused(400)
         return await call_next(request)
 
@@ -272,6 +311,10 @@ def create_app(
             return intake_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
+        # 422 with this route's own schema: a body whose `resultado` is absent or outside the
+        # BPMN's three values is a rejected completion, not a malformed read.
+        if is_task_completion(request):
+            return completion_error("invalid_completion")
         return read_error("invalid_request") if is_task_read(request) else _refused(400)
 
     @app.get(f"{_PREFIX}/auth/login")

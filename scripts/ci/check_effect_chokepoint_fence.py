@@ -409,6 +409,21 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "gateway/staff_cases/publisher.py",
         "StaffNativeClient.__init__",
     ): "httpx.AsyncClient(verify=tls, timeout=seconds, trust_env=False, follow_redirects=False)",
+    # INTERIM (`docs/decisions-log.md` DL-0049): the direct ESCALATION completion client. It is
+    # the ONE seam here with no pinned TLS context or peer SPKI, and that is not an omission —
+    # it talks to the engine's own REST surface, which in this distribution has no
+    # authentication at all (`platform/engine_bootstrap/bootstrap.py` says so), so its boundary
+    # is the network, not a certificate. The client itself refuses `http` to anything but a
+    # private name (loopback, single label, `.internal`/`.local`) and requires the origin to end
+    # in `/engine-rest`. Registered here rather than added to HTTPX_SANCTIONED_MODULES precisely
+    # so this paragraph has to be deleted with the seam when the durable D6 relay (#427) lands.
+    (
+        "gateway/human/completion_engine.py",
+        "EngineRestTaskCompletion.__init__",
+    ): (
+        "httpx.AsyncClient(verify=True, transport=transport, follow_redirects=False, "
+        "trust_env=False, timeout=timeout_seconds)"
+    ),
 }
 _SECRET_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
     (

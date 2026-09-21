@@ -116,6 +116,19 @@ class PortalProductionSettings(BaseSettings):
     staff_read_key_sha256: Digest | None = None
     staff_witness_key_sha256: Digest | None = None
     staff_maximum_seconds: int | None = Field(default=None, ge=1, le=10)
+    #: INTERIM (`docs/decisions-log.md` DL-0049). The same env var
+    #: (`MAEZO_PORTAL_DIRECT_COMPLETION`) that opens the route in `PortalSettings` also
+    #: installs the engine completion capability here. The two gates are INDEPENDENT on
+    #: purpose: one is the HTTP surface, the other is the capability behind it, and neither
+    #: reads the other. Both default off; `scripts/ci/check_portal_direct_completion.py`
+    #: reproves turning them on outside `dev-sa-east-1`.
+    direct_completion: bool = False
+    #: Complete-or-absent with the flag. `{engine}/task/{id}/complete` is where the interim
+    #: completion goes, so this is the engine REST base — deployment-owned, never derived.
+    direct_completion_engine_origin: str | None = None
+    #: An explicit positive operational interval. No default: an invented timeout on a call
+    #: that changes engine state is an invented promise about how long a case may hang.
+    direct_completion_timeout_seconds: int | None = Field(default=None, ge=1, le=120)
 
     @model_validator(mode="after")
     def complete_profile(self) -> Self:
@@ -137,6 +150,19 @@ class PortalProductionSettings(BaseSettings):
         # The decision plane is an addition to the human plane, never a substitute for
         # it: there is no deployment in which decisions bind while reads do not.
         if self.decision_material_directory is not None and self.human_material_directory is None:
+            raise PortalStaffBootstrapError()
+        # INTERIM (DL-0049), same discipline as every plane above: complete-or-absent, and an
+        # addition to a trusted human plane, never a way to reach one. A deployment that sets
+        # the flag without the engine origin and the timeout does not start — better a portal
+        # that refuses to boot than a portal whose completion button fails at the first click.
+        interim = (
+            self.direct_completion,
+            self.direct_completion_engine_origin is not None,
+            self.direct_completion_timeout_seconds is not None,
+        )
+        if len(set(interim)) != 1:
+            raise PortalStaffBootstrapError()
+        if self.direct_completion and self.human_material_directory is None:
             raise PortalStaffBootstrapError()
         # And it is complete-or-absent in its own right: naming the directory without
         # the anchor would start the plane pinned to nothing, which is the whole of

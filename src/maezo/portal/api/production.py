@@ -8,6 +8,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI
 
 from maezo.gateway.documents.materials import DocumentPlanePin
+from maezo.gateway.human.completion_engine import InterimCompletionConfig
 from maezo.gateway.human.decision_materials import DecisionMaterialPin
 from maezo.gateway.human.production import human_runtime
 from maezo.gateway.human.production_materials import HumanMaterialPin
@@ -96,6 +97,7 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
                 decision_pin=_decision_material_pin(settings),
                 document_directory=None if document is None else settings.document_material_directory,
                 document_pin=document,
+                interim_completion=_interim_completion(settings),
             )
         )
         if runtime.scope.tenant != settings.tenant:
@@ -123,6 +125,25 @@ async def _human_slots(application: FastAPI, settings: PortalProductionSettings)
             application.state.task_read_service_factory = None
             application.state.decision_service_factory = None
             application.state.document_service_factory = None
+
+
+def _interim_completion(settings: PortalProductionSettings) -> InterimCompletionConfig | None:
+    """The INTERIM completion capability (DL-0049), or `None` when the plane is dark.
+
+    `None` is the shipped state and it is not a stub: the read composition then installs no
+    completion capability and `HumanTaskTransport.complete_task` refuses through the base
+    port, while the HTTP route independently answers 501. `complete_profile` already refuses a
+    half-configured interim profile; this repeats the narrowing so the config can never be
+    built from a partially present one and the type checker sees two non-optional facts.
+    """
+    if not settings.direct_completion:
+        return None
+    if settings.direct_completion_engine_origin is None or settings.direct_completion_timeout_seconds is None:
+        raise PortalStaffBootstrapError()
+    return InterimCompletionConfig(
+        engine_origin=settings.direct_completion_engine_origin,
+        timeout_seconds=settings.direct_completion_timeout_seconds,
+    )
 
 
 def _human_material_pin(settings: PortalProductionSettings) -> HumanMaterialPin:

@@ -24,6 +24,17 @@ from maezo.portal.contracts.queues import (
     utc,
 )
 
+from .completion import (
+    COMPLETION_FORM_KEY,
+    COMPLETION_OUTCOMES,
+    COMPLETION_VARIABLES,
+    CompletedTask,
+    CompletionAck,
+    CompletionAuditEntry,
+    CompletionAuditSink,
+    CompletionOutcome,
+    pseudonymize_notes,
+)
 from .credentials import HumanCommandCredentialPartition
 from .decision import (
     AuthorizedDecision,
@@ -109,6 +120,7 @@ class HumanGateway:
         catalog_source: CatalogExpectationSource | None = None,
         cursor_custody: CursorCustody | None = None,
         disclosure_source: TaskDisclosureSource | None = None,
+        completion_audit: CompletionAuditSink | None = None,
     ) -> None:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
@@ -122,6 +134,8 @@ class HumanGateway:
         self._disclosure_source = disclosure_source
         self._receipt_ports = receipt_ports
         self._decision_ports = decision_ports
+        # INTERIM (DL-0049): `None` keeps `complete_task` refusing, which is `main`'s behaviour.
+        self._completion_audit = completion_audit
         self._check_scope()
 
     def _check_scope(self) -> None:
@@ -665,6 +679,152 @@ class HumanGateway:
             raise
         except Exception:
             raise ReadRefusalError("read_dependency_unavailable") from None
+
+    async def complete_task(
+        self, *, session_secret: str, csrf_token: str, task_id: str, resultado: str, notas_resolucao: str
+    ) -> CompletedTask:
+        """INTERIM (DL-0049): authorize a human, scrub the note, claim the revision, complete.
+
+        The authorization is the EXISTING one, not a cheaper copy of it. `_read_session` proves
+        the opaque session, the `staff` audience and both identity deadlines; `_authorized`
+        reads the authoritative task through the trusted transport, refuses an inactive,
+        stale-snapshot or unresolved-JUEL task, requires the caller's REQUIRED ROLES AND a
+        candidate group to coincide in the SAME membership, checks subject bindings, then reads
+        the independent authority projection and compares every pin/revision against the
+        snapshot. Nothing here reads a group, a role or a revision from the request.
+
+        Order is the contract, and it is `submit_assignment`'s order:
+
+        1. session + CSRF (double-submit against the server-side token; the ORIGIN allowlist is
+           the route's job, because CORS policy is deployment configuration, not authorization);
+        2. the two remote reads (task, authority);
+        3. the session AGAIN — after the remote calls, before the effect. A membership that
+           moved under us is a revision conflict, and refusing here costs nothing because
+           nothing has happened yet;
+        4. the audit INTENT link. Its dedup claim is keyed on task + consumed revision, so two
+           callers racing the same completion produce one claim and the loser is refused;
+        5. the completion itself, LAST — the only step that changes the world;
+        6. the audit RESULT link.
+
+        After step 5 this method never vetoes: a deadline that lapsed during the engine call
+        does not unmake a committed completion (`portal/engine/README.md`: a transport timeout
+        "is uncertain, not evidence of rollback"). If step 6 fails the caller sees a refusal
+        with the effect UNCERTAIN, and the committed intent link plus the engine's own state
+        are what reconcile it — the same posture `HumanCommandRelay` documents.
+        """
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        if resultado not in COMPLETION_OUTCOMES or not notas_resolucao.strip():
+            # Belt: the route's closed contract already refused this with 422.
+            raise ReadRefusalError("invalid_request")
+        outcome: CompletionOutcome = resultado  # type: ignore[assignment]
+        first = await self._read_session(session_secret)
+        if not csrf_token or not secrets.compare_digest(csrf_token, first.record.csrf_token):
+            raise ReadRefusalError("session_unavailable")
+        audit = self._completion_audit
+        if audit is None or audit.scope != self._scope:
+            raise GatewayRefusalError("production_capabilities_unavailable")
+        notes = pseudonymize_notes(notas_resolucao)
+        task, authority = await self._authorized(first, task_id)
+        self._completion_contract(task, first)
+        current = await self._read_session(session_secret)
+        if current.principal != first.principal:
+            raise GatewayRefusalError("revision_conflict")
+        snap = task.snapshot
+        if min(task.valid_until, authority.valid_until, current.record.expires_at) <= datetime.now(
+            UTC
+        ) or current.membership.reviewed_until <= datetime.now(UTC):
+            raise GatewayRefusalError("authority_unavailable")
+        entry = CompletionAuditEntry(
+            scope=self._scope,
+            phase="intent",
+            principal_ref=current.principal.principal_ref,
+            session_ref=current.record.session_ref,
+            membership_revision=current.principal.membership_revision,
+            snapshot=snap,
+            authority_revision=task.authority_revision,
+            resultado=outcome,
+            notes_digest=notes.digest,
+        )
+        try:
+            intent_ref, deduped = await audit.record(entry)
+        except GatewayRefusalError:
+            raise
+        except Exception:
+            raise GatewayRefusalError("admission_unavailable") from None
+        if deduped:
+            # Someone already committed to completing THIS revision. Never complete twice.
+            raise GatewayRefusalError("revision_conflict")
+        acknowledgement = await self._legacy_ports().task.complete_task(
+            task_id,
+            resultado=outcome,
+            notes=notes,
+            expected_task_revision=snap.task_revision,
+        )
+        if (
+            type(acknowledgement) is not CompletionAck
+            or acknowledgement.task_id != task_id
+            or acknowledgement.resultado != outcome
+            or acknowledgement.consumed_task_revision != snap.task_revision
+        ):
+            raise GatewayRefusalError("admission_unavailable")
+        try:
+            result_ref, result_deduped = await audit.record(
+                CompletionAuditEntry(
+                    scope=self._scope,
+                    phase="result",
+                    principal_ref=current.principal.principal_ref,
+                    session_ref=current.record.session_ref,
+                    membership_revision=current.principal.membership_revision,
+                    snapshot=snap,
+                    authority_revision=task.authority_revision,
+                    resultado=outcome,
+                    notes_digest=notes.digest,
+                    outcome="completed",
+                )
+            )
+            if result_deduped:
+                raise ValueError("orphaned completion result")
+        except GatewayRefusalError:
+            raise
+        except Exception:
+            # The completion IS committed; only its result link is missing. Say "uncertain".
+            raise GatewayRefusalError("admission_unavailable") from None
+        return CompletedTask(
+            snapshot=snap,
+            resultado=outcome,
+            authority_revision=task.authority_revision,
+            consumed_task_revision=acknowledgement.consumed_task_revision,
+            completed_at=acknowledgement.completed_at,
+            audit_intent_ref=intent_ref,
+            audit_result_ref=result_ref,
+        )
+
+    @staticmethod
+    def _completion_contract(task: AuthoritativeTask, resolved: ResolvedHumanSession) -> None:
+        """Only an ESCALATION human task whose form contract declares these two outputs.
+
+        The form key and `allowed_inputs` come from the authoritative snapshot, which
+        `portal/contracts/models.py::_INPUTS_BY_FORM` maps to exactly
+        `("resultado", "notas_resolucao")` for `escalation`. A task with another contract is
+        refused instead of being completed with variables it never declared — there is no
+        free-variable map on this path.
+
+        The assignment check is NOT in the mandate's list and is deliberately stricter than it:
+        a task already held by another colleague is not closed by a candidate-group peer. It
+        cannot narrow the mandate's scenario (the battery opens unassigned tasks) and it closes
+        the obvious way a portal completion could steal someone else's case.
+        """
+        snap = task.snapshot
+        if (
+            snap.form_key != COMPLETION_FORM_KEY
+            or snap.form_source_status != "BPMN_FORMDATA"
+            or not set(COMPLETION_VARIABLES).issubset(snap.allowed_inputs)
+            or (snap.assignee_ref is not None and snap.assignee_ref != resolved.principal.principal_ref)
+        ):
+            raise GatewayRefusalError("operation_forbidden")
 
     @staticmethod
     def _expectations(
