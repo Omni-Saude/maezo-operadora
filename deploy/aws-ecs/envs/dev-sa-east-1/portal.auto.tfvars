@@ -21,7 +21,26 @@
 //
 // Medido na conta 203312548462 / sa-east-1 em 21/09/2026.
 
-portal_enabled = true
+// REPOSTO EM false EM 21/09/2026, pelo review do dono (P1): o portao de imagem de
+// `portal.md`/1.4 exige SBOM E ASSINATURA do digest antes de aceita-lo, e o proprio runbook
+// desta entrega declara que `8b014a60` nao tem nenhum dos dois (os passos de syft/cosign do
+// `cd.yml` estao atras do gate `AWS_ENABLED`, ausente por desenho). Ligar antes disso e' pular
+// um portao de cadeia de suprimentos, e o fato de ter FUNCIONADO nao o satisfaz.
+//
+// O QUE FICOU PROVADO ENQUANTO ESTEVE LIGADO (21/09/2026, ~19:40Z, e nao se perde ao desligar):
+//   - servico 1/1, rolloutState=COMPLETED, steady state;
+//   - GET https://portal-maezo-dev.austa.com.br/api/v1/portal/session -> HTTP 401 com
+//     {"erro":"Nao foi possivel validar a sessao."}, TLS verificado (ssl_verify_result=0),
+//     certificado servido CN=portal-maezo-dev.austa.com.br, emissor Amazon RSA 2048 M01;
+//   - GET /api/v1/portal/auth/login -> 303 para /oauth2/authorize do pool, com
+//     client_id=61gml104sr5nc8jskrptstua0u, response_type=code, scope=openid, redirect_uri no
+//     hostname real, code_challenge_method=S256 (challenge de 43 chars), state e nonce, e
+//     cookie __Host-maezo-login; HttpOnly; Secure; SameSite=lax; Max-Age=300;
+//   - verificacao 1.7 #7: log do boot com 4 linhas de uvicorn e ZERO ocorrencias de
+//     postgresql://|password|secret|__Host-|set-cookie|code_verifier|Bearer |eyJ.
+//
+// PARA LIGAR DE NOVO falta UMA coisa: publicar e verificar SBOM + assinatura do digest.
+portal_enabled = false
 
 portal = {
   // Tenant desta instancia; tem de ser igual a `tenant_id` do ambiente.
