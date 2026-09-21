@@ -1,0 +1,20 @@
+{
+  "protocol": "maezo.native-owner-migration-package.v1",
+  "component": "maezo-native-owner",
+  "version": 1,
+  "predecessor": null,
+  "execution_authorized": false,
+  "schema": "maezo_native_owner_v1",
+  "sql_template_sha256": "db650c669cbb0fa5d536f35e77eb98607e4fa20cc0e635c9e4c6dbebacf1f2e3",
+  "relations": [
+    "installation",
+    "principal_qualification_receipt"
+  ],
+  "functions": [
+    "deny_mutation()",
+    "stamp_creator()"
+  ],
+  "operation": "qualify_initial_installation",
+  "adr": "ADR-0051",
+  "runtime_admission": false
+}
