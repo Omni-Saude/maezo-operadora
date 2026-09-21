@@ -29,7 +29,12 @@ def scan(tmp_path, path, source):
 def test_exact_production_seams_and_credential_read_are_nonvacuous():
     result = scan_tree(ROOT / "src/maezo")
     assert result.ok, result.render()
-    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 9
+    # 10 since `docs/decisions-log.md` DL-0049 registered the INTERIM engine-REST completion
+    # client (`gateway/human/completion_engine.py::EngineRestTaskCompletion.__init__`). It is the
+    # one scoped seam without a pinned TLS context — `engine-rest` has no authentication in this
+    # distribution, so its boundary is the network, and the client refuses plaintext to anything
+    # but a private name. Removing it with the durable D6 relay must bring this count back to 9.
+    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 10
     # portal_identity.build_human_identity_adapters, staff_cases.production.staff_runtime and
     # intake.native_authority._engine (the E04 installation DSNs) — exact scopes, nothing else.
     assert result.counters["8.3_secret_scoped_seam_sanctioned"] == 3
