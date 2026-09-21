@@ -619,3 +619,24 @@ async def test_a_pergunta_conforme_sai_intacta_da_coleta() -> None:
     saida = await g.collect(_state(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))  # type: ignore[arg-type]
 
     assert saida["response_text"] == redigida
+
+
+@pytest.mark.asyncio
+async def test_a_recusa_na_coleta_loga_o_no_certo() -> None:
+    """O log tem DOIS chamadores desde 21/09/2026, e o campo `node` tem de dizer qual foi.
+
+    Um `node="_respond_llm"` num texto barrado dentro do no' `collect` manda quem depura para o
+    lugar errado — e o custo de um log que mente e' o tempo de quem esta de plantao.
+    """
+    rascunho = "A dor esta forte? Veja no aplicativo do plano, o CODIGO_DO_RASCUNHO fica lá."
+    g = _graph(_FakeInference([rascunho]), _dmn(), coleta=True)
+
+    with capture_logs() as registros:
+        await g.collect(_state(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))  # type: ignore[arg-type]
+
+    evento = next(r for r in registros if r["event"] == "helena_resposta_recusada")
+    assert evento["node"] == "collect"
+    assert evento["response_kind"] == "collect"
+    # O PADRAO vai para o log (e' literal da cerca, nao texto de ninguem); o TEXTO nao vai.
+    assert evento["padrao"] == "aplicativo do plano"
+    assert "CODIGO_DO_RASCUNHO" not in json.dumps(registros), "o TEXTO do modelo vazou para o log"

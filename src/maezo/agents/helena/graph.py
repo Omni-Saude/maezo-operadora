@@ -2077,7 +2077,7 @@ class HelenaGraph:
         except EXTERNAL_DEPENDENCY_FAILURES:
             text = _PERGUNTA_FALLBACK.get(pergunta, _PERGUNTA_FALLBACK["default"])
         try:
-            text = self._cercar_saida(text, "collect")
+            text = self._cercar_saida(text, "collect", node="collect")
         except RespostaRecusadaError:
             # A recusa ja foi logada e contada em `_cercar_saida`. A pergunta generica e' a saida
             # honesta desta rota (ver docstring), e ela mesma NAO e' recercada: seria um laco, e a
@@ -2898,7 +2898,7 @@ class HelenaGraph:
         return self._cercar_saida(texto, response_kind)
 
     @staticmethod
-    def _cercar_saida(texto: str, response_kind: ResponseKind) -> str:
+    def _cercar_saida(texto: str, response_kind: ResponseKind, *, node: str = "_respond_llm") -> str:
         """As duas cercas de saida sobre UM texto, ou `RespostaRecusadaError`.
 
         EXTRAIDA DE `_respond_llm` EM 21/09/2026 (segunda rodada) por uma razao medida: aquele
@@ -2908,6 +2908,10 @@ class HelenaGraph:
         `respond` a unica verificacao do turno e' a TEXTO x FATO, que nao consulta a cerca de
         canal. Resultado: na rota de coleta o canal inventado chegava ao beneficiario. Com a cerca
         num metodo, a afirmacao do docstring passa a ser verdade para as duas rotas.
+
+        `node` e' explicito porque o log passou a ter DOIS chamadores: um campo que diz
+        `_respond_llm` num texto barrado dentro do no' `collect` manda quem depura para o lugar
+        errado, e o custo de um log que mente e' exatamente o tempo de quem esta de plantao.
         """
         recusa = motivo_de_canal_nao_confirmado(texto) or motivo_de_recusa(texto, response_kind)
         if recusa is None:
@@ -2918,7 +2922,7 @@ class HelenaGraph:
         # beneficiario, e um log nao e' lugar de ampliar o alcance dela.
         logger.error(
             "helena_resposta_recusada",
-            node="_respond_llm",
+            node=node,
             grupo=grupo,
             padrao=padrao,
             response_kind=response_kind,
