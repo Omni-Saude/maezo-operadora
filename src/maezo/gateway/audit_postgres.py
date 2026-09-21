@@ -202,6 +202,30 @@ class PostgresAuditSink:
         # `self._schema` was validated by schema_for_tenant() in __init__ (anti-injection).
         await conn.execute(f'SET search_path TO "{self._schema}"')
 
+    async def _bind_schema(self, conn: asyncpg.Connection) -> None:
+        """Pin this transaction to the tenant schema when the pool is SOMEONE ELSE'S.
+
+        DL-0049 review (rodaquino, 21/09/2026), P1: `setup=` in `_ensure_pool` is the only place
+        that applied the search_path, and it runs ONLY on a pool this sink created. Since the
+        portal's completion audit hands in the human-plane pool (`PostgresCompletionAudit`
+        constructs `PostgresAuditSink("", tenant, pool=pool)`), that hook never ran — and every
+        statement in this class names its table UNQUALIFIED (`INSERT INTO audit_chain`,
+        `SELECT ... FROM audit_emit_dedup`). The chain would then resolve against whatever
+        search_path the lending pool happened to carry: a missing-table error if it carries none,
+        or — worse — a DIFFERENT tenant's schema, or `public`, if it carries one.
+
+        `SET LOCAL`, not `SET`: the connection goes back to a pool that other code is using, and
+        transaction scope is what makes this safe to do on a borrowed connection. It is the same
+        primitive the RLS convention uses for `app.tenant_id`. When this sink owns the pool the
+        `setup=` hook already applied the search_path on every acquire, so binding again would be
+        a redundant round trip — hence the guard.
+
+        MUST be called inside an open transaction. `SET LOCAL` outside one is a no-op that only
+        emits a warning, which is precisely the silent failure this fix exists to remove.
+        """
+        if not self._owns_pool:
+            await conn.execute(f'SET LOCAL search_path TO "{self._schema}"')
+
     async def _ensure_pool(self) -> asyncpg.Pool:
         if self._pool is None:
             self._pool = await asyncpg.create_pool(
@@ -239,7 +263,11 @@ class PostgresAuditSink:
         """
         try:
             pool = await self._ensure_pool()
-            async with pool.acquire() as conn:
+            # A transacao existe SO' para o `SET LOCAL` do `_bind_schema` valer (ele e' no-op fora
+            # de uma). `to_regclass` e' leitura de metadado: envolver nao muda o que ela mede, e
+            # sem o bind ela mediria o schema de quem emprestou o pool.
+            async with pool.acquire() as conn, conn.transaction():
+                await self._bind_schema(conn)
                 table = await conn.fetchval("SELECT to_regclass('audit_chain')")
         except Exception as exc:  # deliberately broad: FAIL CLOSED, always re-raise
             raise AuditPersistenceError(
@@ -270,6 +298,7 @@ class PostgresAuditSink:
         try:
             pool = await self._ensure_pool()
             async with pool.acquire() as conn, conn.transaction():
+                await self._bind_schema(conn)
                 await conn.execute(_ADVISORY_LOCK_SQL, self._tenant_id)
                 tail = await self._fetch_tail(conn)
 
@@ -365,6 +394,7 @@ class PostgresAuditSink:
         try:
             pool = await self._ensure_pool()
             async with pool.acquire() as conn, conn.transaction():
+                await self._bind_schema(conn)
                 outcome = await self._emit_once_chained(conn, record, dedup_key=dedup_key)
         except AuditPersistenceError:
             raise

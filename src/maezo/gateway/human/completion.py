@@ -129,6 +129,14 @@ class CompletedTask:
     audit_result_ref: str
 
 
+#: O desfecho do elo de `result`. `completed` e' o motor confirmando; os dois de recusa sao a
+#: revalidacao imediatamente antes do efeito barrando, com NADA enviado (DL-0049 review, P1).
+#: Sao DOIS e nao um porque quem audita precisa separar governanca (alguem perdeu o direito no
+#: meio do caminho) de relogio (o prazo da tarefa ou da projecao venceu).
+CompletionRefusal = Literal["refused_membership_revoked", "refused_deadline_lapsed"]
+CompletionPhaseOutcome = Literal["completed"] | CompletionRefusal
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class CompletionAuditEntry:
     """One link of the human completion trail: WHO closed it, on WHAT basis, at WHICH revision.
@@ -148,7 +156,14 @@ class CompletionAuditEntry:
     authority_revision: int
     resultado: CompletionOutcome
     notes_digest: str
-    outcome: Literal["completed"] | None = None
+    #: `None` no elo de intent. No elo de result: `"completed"` quando o motor confirmou, ou um
+    #: dos dois de RECUSA quando a revalidacao imediatamente antes do efeito barrou e NADA foi
+    #: enviado (DL-0049 review, P1). Eles existem para a claim de intent nao ficar pendurada:
+    #: sem elo de result, a unica leitura possivel de um intent solitario e' 'o efeito e'
+    #: incerto' — e aqui ele e' CERTO, nao aconteceu. E sao DOIS, nao um: `revoked` e' alguem
+    #: perdendo o direito no meio do caminho, `lapsed` e' o prazo da tarefa/projecao vencendo;
+    #: quem audita precisa distinguir governanca de relogio, e um log nao sobrevive ao mes.
+    outcome: CompletionPhaseOutcome | None = None
 
     @property
     def dedup_key(self) -> str:

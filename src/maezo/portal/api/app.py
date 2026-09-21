@@ -6,6 +6,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any, Final
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
@@ -146,6 +147,50 @@ def _delete_cookie(response: Response, name: str) -> None:
     response.delete_cookie(name, secure=True, httponly=True, samesite="lax", path="/")
 
 
+#: As UNICAS rotas que a pagina de demonstracao do canal de teste chama de outra origem
+#: (`platform/testchannel/paginas/escalonamento.html`): ler a sessao, listar a fila, ler uma
+#: tarefa e concluir. O login nao entra — ele e' um redirect que o navegador segue numa aba, e
+#: redirect nao e' requisicao cross-origin com credencial.
+CROSS_ORIGIN_PATHS: Final[tuple[str, ...]] = (
+    "/api/v1/portal/session",
+    "/api/v1/portal/tasks",
+)
+
+
+class PathScopedCORS:
+    """`CORSMiddleware` aplicado SO' num prefixo de caminho.
+
+    DL-0049 review (rodaquino, 21/09/2026), P2: o middleware global dava a origem do canal
+    acesso CREDENCIADO a todo o BFF — inclusive rotas que nao verificam `Origin` por conta
+    propria, porque nunca precisaram (sao same-origin por desenho). O canal precisa de quatro
+    caminhos; conceder o resto era alcance que ninguem pediu.
+
+    Por que envolver em vez de reimplementar: preflight, `Vary`, credencial e a lista exata de
+    metodos/cabecalhos sao detalhes que o Starlette ja acerta. Aqui so' se decide QUANDO ele
+    entra. Fora do prefixo a requisicao segue para o app sem passar por ele, entao nenhuma
+    resposta de outra rota pode ganhar `Access-Control-Allow-*` — nem no caminho felizmente
+    nem num erro.
+    """
+
+    def __init__(self, app: ASGIApp, /, **options: Any) -> None:
+        # `paths` vem por `**options` e nao como keyword-only proprio: o protocolo de middleware
+        # do Starlette (`_MiddlewareFactory`) exige exatamente `(app, **kwargs)`, e um parametro
+        # nomeado antes do `**` quebra a compatibilidade estrutural (medido com mypy).
+        self._app = app
+        self._paths: tuple[str, ...] = options.pop("paths")
+        self._cors = CORSMiddleware(app, **options)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        caminho = scope.get("path", "")
+        if any(caminho == p or caminho.startswith(p + "/") for p in self._paths):
+            await self._cors(scope, receive, send)
+            return
+        await self._app(scope, receive, send)
+
+
 def create_app(
     settings: PortalSettings | None = None,
     *,
@@ -266,7 +311,8 @@ def create_app(
     # no code path in a default deployment that can emit an `Access-Control-Allow-*` header.
     if cross_origins:
         app.add_middleware(
-            CORSMiddleware,
+            PathScopedCORS,
+            paths=CROSS_ORIGIN_PATHS,
             allow_origins=list(cross_origins),  # exact strings; never a regex or an echo
             allow_credentials=True,
             allow_methods=["GET", "POST"],

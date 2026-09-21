@@ -35,6 +35,11 @@ CLINICAL_GROUP = "plantao-clinico"
 HUMAN_GROUP = "atendimento-humano"
 
 
+def real_now():
+    """`datetime.now(UTC)` sem o stub de relogio dos testes desta secao."""
+    return datetime.now(UTC)
+
+
 def escalation_snapshot(**changes):
     """A real ESCALATION user task: the closed binding in `models.py` allows nothing else.
 
@@ -393,6 +398,110 @@ async def test_a_lapsed_authority_refuses_before_the_effect():
         await close(g)
     assert refusal.value.code in ("authority_unavailable", "task_unavailable")
     assert completion.calls == []
+
+
+# ---------------------------------------------------------------------------------------
+# A cerca ENTRE a claim de intent e o efeito (review DL-0049, rodaquino, 21/09/2026).
+#
+# O passo 3 (resolver a sessao de novo) acontecia antes do passo 4 (gravar o intent), e o passo 4
+# e' um INSERT sob `pg_advisory_xact_lock` por tenant: sob contencao ele ESPERA. Uma autoridade
+# revogada ou um prazo lapsado nessa espera ainda produziam o efeito no motor — e este caminho e'
+# o REST cru, sem a cerca otimista do rele duravel. Os dois testes abaixo exercitam exatamente a
+# janela: eles mudam o mundo DENTRO do `record` do elo de intent.
+# ---------------------------------------------------------------------------------------
+async def test_membership_revogada_entre_a_claim_e_o_efeito_recusa_e_fecha_a_claim(monkeypatch):
+    """Revogacao durante a gravacao do intent: nada vai ao motor, e a claim nao fica pendurada."""
+    completion = RecordingCompletion()
+    g, _, audit = await harness(completion=completion)
+    original = await g._resolver.resolve(SECRET)
+    movido = replace(original, principal=original.principal.model_copy(update={"membership_revision": 99}))
+    chamadas = {"n": 0}
+
+    async def resolve(secret):
+        chamadas["n"] += 1
+        # 1 e 2 sao os passos 1 e 3 (autorizacao normal); a revogacao aparece SO' na terceira,
+        # que e' a leitura nova, imediatamente antes do efeito.
+        return original if chamadas["n"] <= 2 else movido
+
+    monkeypatch.setattr(g._resolver, "resolve", resolve)
+
+    with pytest.raises(GatewayRefusalError) as recusa:
+        await close(g)
+
+    assert recusa.value.code == "authority_unavailable"
+    assert completion.calls == [], "o efeito foi enviado com autoridade revogada"
+    assert chamadas["n"] == 3, "a terceira leitura (antes do efeito) nao aconteceu"
+    fases = [(e.phase, e.outcome) for e in audit.entries]
+    assert fases == [("intent", None), ("result", "refused_membership_revoked")], fases
+
+
+async def test_prazo_lapsado_entre_a_claim_e_o_efeito_recusa_e_diz_que_foi_relogio(monkeypatch):
+    """O outro motivo, com o outro desfecho: quem audita separa governanca de relogio."""
+    import maezo.gateway.human.gateway as modulo
+
+    completion = RecordingCompletion()
+    g, _, audit = await harness(completion=completion)
+    real = modulo.datetime
+    estado = {"depois_do_intent": False}
+
+    class _Relogio:
+        """`now()` salta para o futuro assim que o elo de intent e' gravado."""
+
+        @staticmethod
+        def now(tz=None):
+            agora = real.now(tz)
+            return agora + timedelta(hours=2) if estado["depois_do_intent"] else agora
+
+    monkeypatch.setattr(modulo, "datetime", _Relogio)
+    registrar = audit.record
+
+    async def record(entry):
+        resultado = await registrar(entry)
+        if entry.phase == "intent":
+            estado["depois_do_intent"] = True
+        return resultado
+
+    monkeypatch.setattr(audit, "record", record)
+
+    with pytest.raises(GatewayRefusalError) as recusa:
+        await close(g)
+
+    assert recusa.value.code == "authority_unavailable"
+    assert completion.calls == [], "o efeito foi enviado com o prazo vencido"
+    fases = [(e.phase, e.outcome) for e in audit.entries]
+    assert fases == [("intent", None), ("result", "refused_deadline_lapsed")], fases
+
+
+async def test_o_cookie_expirando_nessa_janela_nao_recusa(monkeypatch):
+    """A assimetria declarada: `record.expires_at` nao entra na cerca pre-efeito.
+
+    A pessoa clicou com sessao valida. Um cookie que expira durante um INSERT nao torna a decisao
+    dela invalida — e recusar ali travaria a revisao para todo mundo, porque a claim de intent
+    tem `dedup_key` de tarefa + revisao e nao inclui quem pediu.
+    """
+    completion = RecordingCompletion()
+    g, _, audit = await harness(completion=completion)
+    original = await g._resolver.resolve(SECRET)
+    expirado = replace(
+        original,
+        record=original.record.model_copy(update={"expires_at": real_now() - timedelta(seconds=1)}),
+    )
+    chamadas = {"n": 0}
+
+    async def resolve(secret):
+        chamadas["n"] += 1
+        return original if chamadas["n"] <= 2 else expirado
+
+    monkeypatch.setattr(g._resolver, "resolve", resolve)
+
+    resultado = await close(g)
+
+    assert completion.calls, "a conclusao foi barrada por um cookie expirado, e nao deveria"
+    assert resultado.resultado == "resolvido_humano"
+    assert [(e.phase, e.outcome) for e in audit.entries] == [
+        ("intent", None),
+        ("result", "completed"),
+    ]
 
 
 async def test_a_proven_engine_conflict_surfaces_as_409_after_the_intent_claim():
