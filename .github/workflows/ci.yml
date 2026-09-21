@@ -233,6 +233,81 @@ jobs:
         run: |
           PATH="$GITHUB_WORKSPACE/.venv/bin:$PATH" npm run verify
 
+  # WP-J1-10: prova sintetica de browser da fatia do portal (J1-DESIGN §3 passo 5).
+  # REAL: bundle construido do portal-web + BFF FastAPI (rotas de producao de login/callback/
+  # sessao). SINTETICO: apenas a fonte de identidade (stub OIDC local-test, jamais construivel
+  # sob create_production_app) — nenhum IdP, nenhuma rede de terceiros (qualquer origem
+  # estranha e abortada e reprovada). Assertions: ADR-0049 D3 (nada em localStorage/
+  # sessionStorage/IndexedDB/service-worker, document.cookie ilegivel, URL sem query) e D10
+  # (varredura axe WCAG 2.2 AA + teclado + foco visivel). NAO e' provado aqui: o trecho com
+  # efeito no engine (intake -> claim -> APROVAR -> outcome no fixture seguro), que exige os
+  # materiais de custodia da ROOT (postura `root_fixture`), e o passo humano de VoiceOver.
+  portal-e2e:
+    name: portal-e2e
+    runs-on: ubuntu-latest
+    needs: [portal-web]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        working-directory: .
+        run: uv sync --locked --all-groups --all-extras
+
+      - name: npm ci
+        working-directory: src/maezo/portal/web
+        run: npm ci
+
+      - name: Install the Playwright browser
+        working-directory: src/maezo/portal/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the portal browser journey
+        env:
+          MAEZO_PORTAL_E2E_ARTIFACTS: ${{ runner.temp }}/portal-journey
+        run: |
+          set -e
+          cd src/maezo/portal/web
+          PATH="$GITHUB_WORKSPACE/.venv/bin:$PATH" npm run build
+          cd - >/dev/null
+          env -u VIRTUAL_ENV .venv/bin/python scripts/dev/run_portal_journey.py \
+            --artifacts "$MAEZO_PORTAL_E2E_ARTIFACTS" --web-dist src/maezo/portal/web/dist
+
+      - name: Retain journey evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: portal-journey-evidence
+          path: ${{ runner.temp }}/portal-journey
+          if-no-files-found: error
+
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). Os artefatos BPMN/DMN/policy em spec/ são validados.
   # ✅ Passa em CI (make validate-artifacts exit 0).
