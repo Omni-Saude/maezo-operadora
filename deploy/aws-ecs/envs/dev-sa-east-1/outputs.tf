@@ -13,6 +13,15 @@ output "ecr_repository_url" {
   value       = aws_ecr_repository.app.repository_url
 }
 
+output "github_supply_chain_role_arn" {
+  description = <<-EOT
+    ARN da role OIDC assumida por `.github/workflows/supply-chain.yml` para publicar
+    SBOM + assinatura cosign. E' o valor da Actions variable `AWS_SUPPLY_CHAIN_ROLE_ARN`.
+    NAO e' role de deploy: so' le e escreve no repositorio ECR da aplicacao.
+  EOT
+  value       = aws_iam_role.github_supply_chain.arn
+}
+
 output "ecs_cluster_name" {
   description = "Cluster onde rodam os componentes do maezo-operadora."
   value       = aws_ecs_cluster.this.name
