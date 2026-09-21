@@ -10,16 +10,16 @@
 #   concreto do repositorio; declara-la aqui mantem dono e recurso no mesmo state
 #   e evita um `data` cross-state so' para descobrir o ARN.
 #
-# RAIZ DE CONFIANCA: keyless (Sigstore/Fulcio + OIDC do GitHub), a MESMA que o
-# `cd.yml` ja declara nos passos `Sign image (cosign keyless / Sigstore OIDC)` e
-# `Attest SBOM`. Esta role NAO assina nada — ela so' da ao runner o direito de
-# escrever os artefatos `sha256-<digest>.sig` / `.att` no ECR. Nenhuma chave de
-# assinatura existe nesta conta, e de proposito: uma chave KMS criaria uma
-# SEGUNDA raiz de confianca, diferente da declarada.
+# RAIZ DE CONFIANCA: a chave KMS assimetrica de `kms-image-signing.tf` (alias
+# fixo). Esta e' a UNICA identidade autorizada a chamar `kms:Sign` com ela — o
+# deny explicito da policy da chave fecha o resto da conta, inclusive
+# administrador. O motivo de ser chave e nao keyless esta escrito la: o portao e'
+# VERIFICAR NO DEPLOY, e verificacao keyless dependeria de alcancar Fulcio/Rekor
+# num ambiente cujo egresso e' allowlist de /32.
 #
-# ESCOPO: ler e escrever no repositorio `amh/maezo-operadora`, nada mais. Sem
-# `ecr:DeleteImage`, sem `ecs:*`, sem `secretsmanager:*`, sem `iam:*`. Publicar
-# assinatura nao e' implantar.
+# ESCOPO: ler e escrever no repositorio `amh/maezo-operadora` e usar a chave de
+# assinatura. Nada mais. Sem `ecr:DeleteImage`, sem `ecs:*`, sem
+# `secretsmanager:*`, sem `iam:*`. Publicar assinatura nao e' implantar.
 # ---------------------------------------------------------------------------
 
 # O provider OIDC do GitHub ja existe nesta conta (criado pelo amh-data-platform).
@@ -39,9 +39,19 @@ locals {
   #      GitHub so' aceita `workflow_dispatch` de um workflow que ja esteja no
   #      branch default, entao a PRIMEIRA execucao (a que prova o portao antes do
   #      merge) so' pode vir por `push` neste branch. Remover depois do merge.
+  # `pull_request` NAO entra aqui de proposito: num PR o workflow que roda e' o do
+  # HEAD do PR, entao qualquer um que abrisse um PR editando `supply-chain.yml`
+  # estaria assinando com a chave. Quem roda em PR e' a role VERIFY-ONLY abaixo.
   github_supply_chain_subs = [
     "${local.github_repo_sub}:ref:refs/heads/main",
     "${local.github_repo_sub}:ref:refs/heads/ci/supply-chain-sbom-assinatura",
+  ]
+
+  # Role de VERIFICACAO: roda em PR e em main, nao assina nada.
+  github_verify_subs = [
+    "${local.github_repo_sub}:ref:refs/heads/main",
+    "${local.github_repo_sub}:ref:refs/heads/ci/supply-chain-sbom-assinatura",
+    "${local.github_repo_sub}:pull_request",
   ]
 }
 
@@ -71,7 +81,7 @@ data "aws_iam_policy_document" "github_supply_chain_trust" {
 }
 
 resource "aws_iam_role" "github_supply_chain" {
-  name        = "${local.name}-github-supply-chain"
+  name = "${local.name}-github-supply-chain"
   # ASCII puro de proposito: o IAM recusa `description` com caractere fora de
   # [\u0009\u000A\u000D -~¡-ÿ] — um travessao aqui derruba o
   # CreateRole com ValidationError (medido).
@@ -127,6 +137,20 @@ data "aws_iam_policy_document" "github_supply_chain" {
     ]
     resources = [aws_ecr_repository.app.arn]
   }
+
+  # A chave de assinatura. `kms:Sign` aqui e' metade da historia: a outra metade
+  # e' o deny da policy da propria chave, que fecha o resto da conta.
+  statement {
+    sid    = "KmsSignImages"
+    effect = "Allow"
+    actions = [
+      "kms:Sign",
+      "kms:Verify",
+      "kms:GetPublicKey",
+      "kms:DescribeKey",
+    ]
+    resources = [aws_kms_key.image_signing.arn]
+  }
 }
 
 resource "aws_iam_policy" "github_supply_chain" {
@@ -139,4 +163,91 @@ resource "aws_iam_policy" "github_supply_chain" {
 resource "aws_iam_role_policy_attachment" "github_supply_chain" {
   role       = aws_iam_role.github_supply_chain.name
   policy_arn = aws_iam_policy.github_supply_chain.arn
+}
+
+# ---------------------------------------------------------------------------
+# Role VERIFY-ONLY — o portao no caminho de entrega.
+#
+# "Assinatura que ninguem confere nao e' portao": o job `verificar-digest-do-portal`
+# roda em PULL REQUEST e confere o digest declarado em `portal.auto.tfvars`. Num PR
+# quem roda e' o workflow do HEAD do PR, entao este caminho NAO PODE ter `kms:Sign`
+# nem `ecr:PutImage` — se tivesse, abrir um PR seria o bastante para assinar
+# qualquer coisa. Esta role so' LE o registro e chama `kms:Verify`.
+# ---------------------------------------------------------------------------
+data "aws_iam_policy_document" "github_verify_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [data.aws_iam_openid_connect_provider.github.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = local.github_verify_subs
+    }
+  }
+}
+
+resource "aws_iam_role" "github_verify" {
+  name        = "${local.name}-github-verify"
+  description = "GitHub Actions (Omni-Saude/maezo-operadora): VERIFICA assinatura/SBOM de um digest. Sem assinar, sem publicar, sem deploy."
+
+  assume_role_policy   = data.aws_iam_policy_document.github_verify_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.base_tags, { Name = "${local.name}-github-verify" })
+}
+
+data "aws_iam_policy_document" "github_verify" {
+  statement {
+    sid       = "EcrLogin"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "EcrReadAppRepository"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:DescribeImages",
+    ]
+    resources = [aws_ecr_repository.app.arn]
+  }
+
+  statement {
+    sid    = "KmsVerifyOnly"
+    effect = "Allow"
+    actions = [
+      "kms:Verify",
+      "kms:GetPublicKey",
+      "kms:DescribeKey",
+    ]
+    resources = [aws_kms_key.image_signing.arn]
+  }
+}
+
+resource "aws_iam_policy" "github_verify" {
+  name        = "${local.name}-github-verify"
+  description = "Menor privilegio para VERIFICAR assinatura/SBOM de imagem. Sem Sign, sem PutImage."
+  policy      = data.aws_iam_policy_document.github_verify.json
+  tags        = local.base_tags
+}
+
+resource "aws_iam_role_policy_attachment" "github_verify" {
+  role       = aws_iam_role.github_verify.name
+  policy_arn = aws_iam_policy.github_verify.arn
 }

@@ -77,12 +77,19 @@ portal = {
   // -> 52.67.211.205 / 54.232.19.187.
   public_origin = "https://portal-maezo-dev.austa.com.br"
 
-  // Artefato `8b014a60`, verificado DENTRO da imagem como uid 1000 em 21/09/2026: modulo
-  // do portal presente, `portal.api.production:create_production_app` presente, migration
-  // 0012 no wheel, e as 3 raizes publicas do RDS sa-east-1 no contexto TLS padrao do
-  // Python com check_hostname ligado. SBOM/assinatura desta imagem NAO existem (o job de
-  // syft/cosign do cd.yml esta' atras do gate AWS_ENABLED, ausente) — pendencia declarada.
-  image_digest = "sha256:685ddb6d80c89f713ac776700bb7b759cb56253d85ab1b273cc7946ecdf12c3c"
+  // REPINADO EM 21/09/2026 para `e857e284` (main com o PR #455, as correcoes da Helena da
+  // bateria de 21/09) — o MESMO artefato que o resto da frota ja roda em dev. Antes daqui
+  // apontava para `8b014a60` (sha256:685ddb6d...), de 20/09: religar o portal naquele digest
+  // seria testar o portal contra um build atrasado, e deixar o portal numa imagem diferente
+  // da frota e' a divergencia que ninguem lembra de conferir quando algo quebra.
+  //
+  // SBOM e ASSINATURA DESTE digest existem e foram VERIFICADOS — e' o portao 1.4, agora
+  // fechado: `cosign verify`/`verify-attestation` com a chave KMS
+  // `alias/maezo-operadora-dev-image-signing`, artefatos `sha256-d29ce828....sig`/`.att` no
+  // proprio ECR. Comando exato e o que ele prova: `docs/runbooks/supply-chain-imagem.md`.
+  // Trocar este digest sem assinar o novo REPROVA o job `verificar` do workflow
+  // `supply-chain.yml` no proprio PR.
+  image_digest = "sha256:d29ce828272cb6b34ab5f2ec7c452fed1663d903f5cb3c958b02e13354d16fb6"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role

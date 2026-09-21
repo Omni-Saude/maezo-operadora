@@ -22,6 +22,14 @@ output "github_supply_chain_role_arn" {
   value       = aws_iam_role.github_supply_chain.arn
 }
 
+output "github_verify_role_arn" {
+  description = <<-EOT
+    ARN da role OIDC verify-only usada pelo job que confere, em PULL REQUEST, o digest
+    declarado em `portal.auto.tfvars`. Sem `kms:Sign` e sem `ecr:PutImage` de proposito.
+  EOT
+  value       = aws_iam_role.github_verify.arn
+}
+
 output "ecs_cluster_name" {
   description = "Cluster onde rodam os componentes do maezo-operadora."
   value       = aws_ecs_cluster.this.name

@@ -1,41 +1,44 @@
 name: Supply chain (SBOM + assinatura)
 
 # ---------------------------------------------------------------------------
-# PUBLICA e VERIFICA o SBOM e a assinatura de UM digest da imagem de aplicacao
+# PUBLICA e VERIFICA SBOM + assinatura de um digest da imagem de aplicacao
 # (`amh/maezo-operadora`), fechando o portao de imagem de
-# `deploy/aws-ecs/envs/dev-sa-east-1/portal.md` (item 1.4): o digest do portal so'
-# e' aceitavel com SBOM e assinatura verificados.
+# `deploy/aws-ecs/envs/dev-sa-east-1/portal.md` (item 1.4).
 #
-# POR QUE ESTE WORKFLOW EXISTE, se o `cd.yml` ja tem os passos de syft/cosign:
-#   os passos do `cd.yml` estao atras de `if: vars.AWS_ENABLED == 'true'`, o mesmo
-#   gate do build/push e do deploy — e o cabecalho daquele arquivo e' explicito:
-#   ligar `AWS_ENABLED` habilita o CAMINHO DE DEPLOY INTEIRO. Trocar um portao de
-#   cadeia de suprimentos por um deploy automatico nao e' troca aceitavel. Aqui a
-#   imagem NAO e' construida nem implantada: ela ja existe no ECR (quem constroi e'
-#   o CodeBuild, `deploy/aws-ecs/envs/dev-sa-east-1/codebuild.tf`), e este workflow
-#   so' acrescenta PROVA sobre um digest que ja esta la.
-#   Consequencia direta: este workflow NAO le nem define `vars.AWS_ENABLED`.
+# DOIS JOBS, e a diferenca entre eles E' o portao:
+#   `assinar`   — publica SBOM (syft) e assina com `cosign --key awskms://...`.
+#                 Nunca roda em pull_request.
+#   `verificar` — confere o digest que `portal.auto.tfvars` declara, com uma role
+#                 SEM `kms:Sign` e SEM `ecr:PutImage`. Roda em PULL REQUEST: um PR
+#                 que troca o digest do portal REPROVA enquanto aquele artefato
+#                 nao estiver assinado. Assinatura que ninguem confere nao e'
+#                 portao.
 #
-# RAIZ DE CONFIANCA: keyless — Sigstore (Fulcio/Rekor) com o OIDC do proprio
-# GitHub Actions, a MESMA raiz que o `cd.yml` declara. Nao ha chave de assinatura
-# em lugar nenhum (nem KMS, nem secret): a identidade que assina e' a URI deste
-# workflow, e e' contra ela que o `cosign verify` confere. Uma chave KMS criaria
-# uma SEGUNDA raiz de confianca, diferente da declarada, so' para satisfazer a
-# letra do portao.
+# POR QUE CHAVE KMS, e nao keyless (Sigstore/Fulcio), que e' o que o `cd.yml`
+# declara: porque o portao e' VERIFICAR NO DEPLOY. A verificacao keyless precisa
+# alcancar Fulcio/Rekor NO MINUTO DA VERIFICACAO, e o egresso deste ambiente e'
+# allowlist de /32 (o SG do portal tem 14 regras nominais; nao ha internet
+# generica). Com KMS, verificar e' uma chamada `kms:Verify` na propria conta.
+# E o caminho keyless do `cd.yml` nunca rodou — esta atras do gate `AWS_ENABLED`,
+# ausente por desenho; "declarado" la e' aspiracao, nao operacao.
+# Consequencia: assina-se e verifica-se com `--tlog-upload=false` /
+# `--insecure-ignore-tlog`, porque NAO HA transparencia publica envolvida: a
+# confianca e' a chave da conta, nao o Rekor.
 #
-# PERMISSAO NA AWS: role dedicada `maezo-operadora-dev-github-supply-chain`
-# (`deploy/aws-ecs/envs/dev-sa-east-1/iam-github-supply-chain.tf`), que so' le e
-# escreve no repositorio ECR da aplicacao. Sem `ecs:*`, sem `ecr:DeleteImage`.
+# POR QUE ESTE WORKFLOW E NAO O `cd.yml`: os passos de syft/cosign de la estao
+# atras de `if: vars.AWS_ENABLED == 'true'`, o MESMO gate do build/push e do
+# deploy — ligar aquele gate para obter SBOM habilitaria o caminho de deploy
+# inteiro. Aqui nada e' construido nem implantado: a imagem ja existe no ECR
+# (quem constroi e' o CodeBuild, `deploy/aws-ecs/envs/dev-sa-east-1/codebuild.tf`)
+# e este workflow so' acrescenta e confere PROVA. Ele NAO le nem define
+# `vars.AWS_ENABLED`.
 #
-# ALVO: o digest da entrada `image` (dispatch) ou, sem entrada (o caso do `push`),
-# o `image_digest` declarado em `deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars`
-# — o artefato que o portal de fato consome. Assim, trocar o digest do portal passa
-# a exigir, no mesmo push, SBOM e assinatura verificados do digest NOVO.
+# ALVO: a entrada `image` (dispatch) ou, sem entrada, o `image_digest` declarado
+# em `deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars` — o artefato que o
+# portal de fato consome.
 #
-# ASSINAR SEM VERIFICAR E' METADE DO PORTAO: o job so' fica verde depois que
-# `cosign verify` e `cosign verify-attestation` confirmam assinatura e SBOM com a
-# identidade e o issuer esperados. O comando de verificacao para qualquer pessoa
-# esta em `docs/runbooks/supply-chain-imagem.md`.
+# Comando de verificacao para humanos, identidade da chave e rotacao:
+# `docs/runbooks/supply-chain-imagem.md`.
 # ---------------------------------------------------------------------------
 
 on:
@@ -53,39 +56,60 @@ on:
       # que ja esteja no branch default, entao a primeira execucao real — a que
       # prova o portao ANTES do merge — precisa vir por push aqui.
       - ci/supply-chain-sbom-assinatura
+  pull_request:
+    paths:
+      - "deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars"
+      - ".github/workflows/supply-chain.yml"
 
 permissions:
   contents: read
-  # Identidade OIDC: serve ao `configure-aws-credentials` E ao fluxo keyless do
-  # cosign (Fulcio emite o certificado efemero contra este mesmo token).
+  # Identidade OIDC para assumir as roles da AWS. Nao ha chave de acesso estatica.
   id-token: write
 
 env:
   AWS_REGION: "sa-east-1"
   ECR_REPOSITORY: "amh/maezo-operadora"
-  # Default auditavel no proprio arquivo; `vars.AWS_SUPPLY_CHAIN_ROLE_ARN`
-  # sobrescreve se um dia o ambiente mudar. Nao e' segredo: e' um ARN de role cuja
-  # confianca esta restrita a este repositorio.
+  PORTAL_TFVARS: "deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars"
+  # Roles auditaveis no proprio arquivo (nao sao segredo: sao ARNs de roles cuja
+  # confianca esta restrita a este repositorio). `vars.*` sobrescreve se o
+  # ambiente mudar.
   SUPPLY_CHAIN_ROLE_ARN: "arn:aws:iam::203312548462:role/maezo-operadora-dev-github-supply-chain"
-  # NENHUMA destas variaveis se chama `COSIGN_*`, e isso NAO e' estilo: o cosign le
-  # o ambiente como se fossem flags suas. Um `COSIGN_OIDC_ISSUER` definido aqui vira
-  # `--oidc-issuer` no `cosign sign`, e o cosign 3.x recusa com
-  # `cannot specify service URLs and use signing config` (medido: run 35663398939) —
-  # falha que nao tem nada a ver com permissao nem com a imagem.
+  VERIFY_ROLE_ARN: "arn:aws:iam::203312548462:role/maezo-operadora-dev-github-verify"
+  # ALIAS, nunca o key id: o alias e' o ponto estavel, e rotacionar a chave e'
+  # repontar o alias (ver o runbook). `///` e' a sintaxe do cosign para "sem
+  # endpoint explicito".
+  KMS_KEY_URI: "awskms:///alias/maezo-operadora-dev-image-signing"
+  # NENHUMA variavel abaixo se chama `COSIGN_*`, e isso NAO e' estilo: o cosign le
+  # o ambiente como se fossem flags suas. Um `COSIGN_OIDC_ISSUER` definido aqui
+  # vira `--oidc-issuer` no `cosign sign` e o cosign 3.x recusa com
+  # `cannot specify service URLs and use signing config` (medido: run 35663398939).
   SIGSTORE_CLI_VERSION: "v3.0.6"
-  # Identidade esperada do certificado efemero: a URI DESTE workflow. Se alguem
-  # assinar a imagem por outro caminho, a verificacao abaixo reprova.
-  VERIFY_IDENTITY_REGEXP: "^https://github\\.com/Omni-Saude/maezo-operadora/\\.github/workflows/supply-chain\\.yml@refs/heads/.+$"
-  VERIFY_OIDC_ISSUER: "https://token.actions.githubusercontent.com"
+  # Os artefatos do cosign vao para TAGS `sha256-<digest>.sig`/`.att` (modo
+  # legacy) e nao para a API de referrers do OCI 1.1, que e' o default do cosign
+  # 3.x. Motivo medido (run 35663558132): pela API de referrers o ECR guarda os
+  # bundles como imagens SEM TAG — e a regra 1 do lifecycle deste repositorio
+  # expira imagem sem tag em 1 dia. A assinatura se apagaria sozinha em 24h, e um
+  # portao que se apaga sozinho nao e' portao. Como tag, ela cai na regra de
+  # retencao dedicada (`ecs.tf`, prioridade 2) e e' legivel por `describe-images`.
+  REFERRERS_MODE: "legacy"
 
 concurrency:
-  group: supply-chain-${{ github.event.inputs.image || github.sha }}
+  group: supply-chain-${{ github.event.inputs.image || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  sign-and-verify:
-    name: SBOM + assinatura (cosign keyless)
+  # ---------------------------------------------------------------------------
+  # 1) ASSINAR. Nunca em pull_request: num PR o workflow que roda e' o do HEAD do
+  #    PR, e abrir um PR nao pode ser o bastante para usar a chave.
+  # ---------------------------------------------------------------------------
+  assinar:
+    name: SBOM + assinatura (cosign / KMS)
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 30
+    outputs:
+      digest: ${{ steps.target.outputs.digest }}
+      skip: ${{ steps.target.outputs.skip }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -94,79 +118,21 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_SUPPLY_CHAIN_ROLE_ARN || env.SUPPLY_CHAIN_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-          role-session-name: supply-chain-${{ github.run_id }}
+          role-session-name: supply-chain-sign-${{ github.run_id }}
 
       - name: Login to Amazon ECR
         id: ecr-login
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
-      # -------------------------------------------------------------------
-      # Resolve o DIGEST. Assinar por tag e' um erro de cadeia de suprimentos
-      # (a tag pode apontar para outro artefato depois); daqui para baixo tudo
-      # usa `repo@sha256:...`.
-      # -------------------------------------------------------------------
+      # Assinar por TAG seria assinar um alvo movel: daqui para baixo tudo usa
+      # `repo@sha256:...`.
       - name: Resolve image digest
         id: target
         env:
           REGISTRY: ${{ steps.ecr-login.outputs.registry }}
           REQUESTED: ${{ github.event.inputs.image }}
-          PORTAL_TFVARS: deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars
-        run: |
-          set -euo pipefail
-          requested="${REQUESTED:-}"
-          if [ -z "${requested}" ]; then
-            # SEM ENTRADA (o caso do `push`): o alvo e' o digest que o PORTAL
-            # consome, declarado em `portal.auto.tfvars`. E' de proposito que a
-            # fonte seja essa e nao a tag do commit: o portao de `portal.md` 1.4
-            # e' sobre o artefato que o portal aceita, entao trocar aquele digest
-            # passa a EXIGIR, no mesmo push, SBOM e assinatura verificados dele.
-            requested="$(grep -Eo 'image_digest[[:space:]]*=[[:space:]]*"sha256:[0-9a-f]{64}"' \
-                          "${PORTAL_TFVARS}" | grep -Eo 'sha256:[0-9a-f]{64}' | head -n 1 || true)"
-            if [ -z "${requested}" ]; then
-              echo "::notice title=Sem digest declarado::Nenhum image_digest em ${PORTAL_TFVARS}; nada a assinar."
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "Nenhuma entrada: usando o digest do portal (${requested})."
-          fi
+        run: ./scripts/ci/resolve_image_digest.sh
 
-          if printf '%s' "${requested}" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
-            digest="${requested}"
-            if ! aws ecr describe-images --repository-name "${ECR_REPOSITORY}" \
-                 --image-ids imageDigest="${digest}" --region "${AWS_REGION}" >/dev/null 2>&1; then
-              echo "::error title=Digest inexistente::${ECR_REPOSITORY}@${digest} nao existe no ECR."
-              exit 1
-            fi
-          else
-            if ! digest="$(aws ecr describe-images --repository-name "${ECR_REPOSITORY}" \
-                 --image-ids imageTag="${requested}" --region "${AWS_REGION}" \
-                 --query 'imageDetails[0].imageDigest' --output text 2>/dev/null)"; then
-              digest=""
-            fi
-            if [ -z "${digest}" ] || [ "${digest}" = "None" ]; then
-              if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-                # Nem todo commit gera imagem (o build e' do CodeBuild, sob demanda).
-                # Falhar aqui pintaria a main de vermelho por um artefato que
-                # ninguem pediu; o portao de verdade e' a VERIFICACAO na aceitacao
-                # do digest, nao a existencia de um build por commit.
-                echo "::notice title=Sem imagem para este commit::Tag '${requested}' nao existe em ${ECR_REPOSITORY}; nada a assinar."
-                echo "skip=true" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              echo "::error title=Tag inexistente::Tag '${requested}' nao existe em ${ECR_REPOSITORY}."
-              exit 1
-            fi
-          fi
-
-          echo "skip=false" >> "$GITHUB_OUTPUT"
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-          echo "digest_hex=${digest#sha256:}" >> "$GITHUB_OUTPUT"
-          echo "image_ref=${REGISTRY}/${ECR_REPOSITORY}@${digest}" >> "$GITHUB_OUTPUT"
-          echo "sbom_file=sbom-${digest#sha256:}.spdx.json" >> "$GITHUB_OUTPUT"
-          echo "Alvo: ${REGISTRY}/${ECR_REPOSITORY}@${digest}"
-
-      # Mesma versao pinada do `cd.yml`: o formato do SBOM que o portao aceita nao
-      # pode mudar por bump silencioso de action.
       - name: Generate SBOM (syft)
         if: steps.target.outputs.skip != 'true'
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
@@ -182,45 +148,40 @@ jobs:
         with:
           cosign-release: ${{ env.SIGSTORE_CLI_VERSION }}
 
-      - name: Sign image (cosign keyless / Sigstore OIDC)
+      - name: Sign image (cosign / KMS)
         if: steps.target.outputs.skip != 'true'
         env:
           IMAGE_REF: ${{ steps.target.outputs.image_ref }}
-        run: cosign sign --yes "${IMAGE_REF}"
+        run: |
+          set -euo pipefail
+          cosign sign --yes \
+            --key "${KMS_KEY_URI}" \
+            --tlog-upload=false \
+            --registry-referrers-mode="${REFERRERS_MODE}" \
+            "${IMAGE_REF}"
 
-      - name: Attest SBOM (cosign keyless / Sigstore OIDC)
+      - name: Attest SBOM (cosign / KMS)
         if: steps.target.outputs.skip != 'true'
         env:
           IMAGE_REF: ${{ steps.target.outputs.image_ref }}
           SBOM_FILE: ${{ steps.target.outputs.sbom_file }}
-        run: cosign attest --yes --type spdxjson --predicate "${SBOM_FILE}" "${IMAGE_REF}"
-
-      # -------------------------------------------------------------------
-      # O PORTAO. Sem estes dois comandos verdes o job reprova — e o digest
-      # continua inaceitavel para `portal.md` 1.4.
-      # -------------------------------------------------------------------
-      - name: Verify signature (cosign verify)
-        if: steps.target.outputs.skip != 'true'
-        env:
-          IMAGE_REF: ${{ steps.target.outputs.image_ref }}
         run: |
           set -euo pipefail
-          cosign verify \
-            --certificate-identity-regexp "${VERIFY_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \
-            "${IMAGE_REF}" | tee cosign-verify.json
-
-      - name: Verify SBOM attestation (cosign verify-attestation)
-        if: steps.target.outputs.skip != 'true'
-        env:
-          IMAGE_REF: ${{ steps.target.outputs.image_ref }}
-        run: |
-          set -euo pipefail
-          cosign verify-attestation \
+          cosign attest --yes \
+            --key "${KMS_KEY_URI}" \
+            --tlog-upload=false \
+            --registry-referrers-mode="${REFERRERS_MODE}" \
             --type spdxjson \
-            --certificate-identity-regexp "${VERIFY_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \
-            "${IMAGE_REF}" | tee cosign-verify-attestation.json
+            --predicate "${SBOM_FILE}" \
+            "${IMAGE_REF}"
+
+      # O job so' fica verde se a verificacao passar. Assinar sem verificar e'
+      # metade do portao.
+      - name: Verify (assinatura + SBOM)
+        if: steps.target.outputs.skip != 'true'
+        env:
+          IMAGE_REF: ${{ steps.target.outputs.image_ref }}
+        run: ./scripts/ci/verify_image_signature.sh "${IMAGE_REF}"
 
       - name: Evidence — artefatos publicados no ECR
         if: steps.target.outputs.skip != 'true'
@@ -231,36 +192,73 @@ jobs:
           set -euo pipefail
           prefix="sha256-${DIGEST#sha256:}"
           aws ecr describe-images --repository-name "${ECR_REPOSITORY}" --region "${AWS_REGION}" \
-            --query "imageDetails[?imageTags!=null] | [?contains(to_string(imageTags), '${prefix}')].{tag:imageTags[0],digest:imageDigest,pushed:imagePushedAt}" \
-            --output table | tee ecr-signature-tags.txt
+            --query "imageDetails[].imageTags[]" --output text \
+            | tr '\t' '\n' | grep "^${prefix}" | tee ecr-signature-tags.txt
 
-          if ! grep -q "${prefix}.sig" ecr-signature-tags.txt; then
-            echo "::error title=Assinatura ausente no ECR::tag ${prefix}.sig nao encontrada."
-            exit 1
-          fi
-          if ! grep -q "${prefix}.att" ecr-signature-tags.txt; then
-            echo "::error title=Atestacao ausente no ECR::tag ${prefix}.att nao encontrada."
-            exit 1
-          fi
+          grep -q "${prefix}.sig" ecr-signature-tags.txt || {
+            echo "::error title=Assinatura ausente no ECR::tag ${prefix}.sig nao encontrada."; exit 1; }
+          grep -q "${prefix}.att" ecr-signature-tags.txt || {
+            echo "::error title=Atestacao ausente no ECR::tag ${prefix}.att nao encontrada."; exit 1; }
 
           {
-            echo "## Cadeia de suprimentos — ${IMAGE_REF}"
+            echo "## Assinado e verificado — ${IMAGE_REF}"
             echo
             echo '```'
             cat ecr-signature-tags.txt
             echo '```'
-            echo
-            echo "Assinatura e atestacao SPDX verificadas contra \`${VERIFY_OIDC_ISSUER}\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verification evidence
         if: steps.target.outputs.skip != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          # Sem `sha256:` no nome: dois-pontos e' caractere invalido em nome de artefato.
+          # Sem `sha256:` no nome: dois-pontos e' invalido em nome de artefato.
           name: supply-chain-evidence-${{ steps.target.outputs.digest_hex }}
           path: |
-            cosign-verify.json
-            cosign-verify-attestation.json
+            cosign-verify.txt
+            cosign-verify-attestation.txt
             ecr-signature-tags.txt
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 2) VERIFICAR — o portao propriamente dito, no caminho de entrega.
+  #    Role verify-only: sem `kms:Sign`, sem `ecr:PutImage`.
+  # ---------------------------------------------------------------------------
+  verificar:
+    name: Verificar o digest do portal
+    runs-on: ubuntu-latest
+    needs: [assinar]
+    if: ${{ !cancelled() && (needs.assinar.result == 'success' || needs.assinar.result == 'skipped') }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure AWS credentials (OIDC, verify-only)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_VERIFY_ROLE_ARN || env.VERIFY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: supply-chain-verify-${{ github.run_id }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Resolve image digest (o que o portal consome)
+        id: target
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REQUESTED: ""
+        run: ./scripts/ci/resolve_image_digest.sh
+
+      - name: Install cosign
+        if: steps.target.outputs.skip != 'true'
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.SIGSTORE_CLI_VERSION }}
+
+      - name: Verify (assinatura + SBOM)
+        if: steps.target.outputs.skip != 'true'
+        env:
+          IMAGE_REF: ${{ steps.target.outputs.image_ref }}
+        run: ./scripts/ci/verify_image_signature.sh "${IMAGE_REF}"
