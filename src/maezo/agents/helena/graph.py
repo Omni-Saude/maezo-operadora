@@ -294,6 +294,34 @@ RESPOSTA_FALHA_TECNICA_START: str = (
     "emergencia mais proximo."
 )
 
+#: 21/09/2026 (segunda rodada, achado CRITICO): o texto quando a REDACAO nao aconteceu — o
+#: provedor de inferencia caiu na chamada de `_respond_llm` (`except EXTERNAL_DEPENDENCY_FAILURES`).
+#:
+#: O QUE ELA SUBSTITUI, e por que aquilo era um defeito e nao um detalhe. O fallback anterior era
+#: *"Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."* — uma
+#: PROMESSA DE HUMANO, devolvida por um `return` que ficava ANTES do bloco de recusa. Nem a cerca
+#: de saida nem a de canal a viam, e num turno `inform` (onde ninguem foi acionado, nenhuma fila
+#: existe e ninguem vai ligar) ela e' exatamente o dano do `C1`: uma pessoa esperando um telefonema
+#: que ninguem ia dar. Com a diferenca de que aqui nao havia modelo no meio — a frase era do
+#: repositorio.
+#:
+#: ALCANCE, medido e nao suposto: uma queda TOTAL do provedor falha primeiro no `classify` (mesma
+#: porta, `phi=True`) e o turno vira gatilho 4 -> escalate, que e' correto. Este caminho e' a falha
+#: da SEGUNDA chamada depois de a primeira ter passado — timeout, 429 ou recusa de zona na redacao,
+#: que e' uma requisicao separada e muito maior (prefixo cacheavel + bloco nao confiavel).
+#:
+#: O QUE ELA DIZ, e o que ela NAO diz: diz que a resposta nao foi preparada e pede a mensagem de
+#: novo. Nao promete humano, nao promete prazo e nao cita canal nenhum — passa nas quatro cercas
+#: (negativa clinica, capacidade, promessa de humano em qualquer rota COM `start_aconteceu=False`,
+#: e canal nao confirmado), o que a torna segura por construcao em vez de por sorte. Nas rotas que
+#: ABREM processo ela nao e' a ultima palavra: `respond` ve' que um humano foi acionado e que o
+#: texto nao menciona o encaminhamento, e a troca por `RESPOSTA_HANDOFF_RECUSADA` acontece la'.
+RESPOSTA_FALHA_DE_REDACAO: str = (
+    "Recebemos sua mensagem. Nao consegui preparar a resposta agora por uma falha tecnica. "
+    "Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por "
+    "uma emergencia, procure o servico de emergencia mais proximo."
+)
+
 #: RECUSA DE SAIDA (13/09/2026): o texto de handoff quando o proprio rascunho de `escalate` foi
 #: barrado. CONSTANTE, nunca um segundo rascunho: um humano FOI acionado neste ponto (o processo
 #: esta' sendo aberto), entao a promessa aqui e' verdadeira, e a frase nao contem nenhum dos
@@ -2223,17 +2251,23 @@ class HelenaGraph:
         escolha de CC-01 e da recusa de saida, pela mesma razao: o mesmo prompt com a mesma
         mensagem tende ao mesmo texto, e um laco de tentativas transforma uma cerca num atraso.
 
-          1. `ja_ativo` — a escalacao desta conversa JA estava aberta (o C1 da bateria). O
-             rascunho anuncia um encaminhamento novo que nao houve, entao ele e' trocado
-             INCONDICIONALMENTE: aqui nao se trata de "o modelo errou a frase", e' que a frase
-             certa depende de um fato que o modelo nao tinha quando redigiu.
+          1. `ja_ativo` — a escalacao desta conversa JA estava aberta (o C1 da bateria). So' o
+             ANUNCIO DE UM HANDOFF NOVO e' falso aqui, e e' ele que a cerca troca
+             (`menciona_encaminhamento`); um rascunho que nao anuncia handoff recebe a constante
+             como PREFIXO e segue atras dela, porque a `memoria_a_confirmar` e a orientacao do
+             turno nao tem nada de errado — descartar as duas trocava um defeito por outro.
           2. START ACONTECEU e o texto NAO MENCIONA o encaminhamento (o E4). O texto e' trocado
              pela constante de handoff, que menciona.
-          3. START NAO ACONTECEU e o texto PROMETE um humano. Trocado pela constante que diz o que
-             nao aconteceu. Inalcancavel pela rota `escalate`/`schedule` (as duas sempre passam por
-             `_start_escalation`, que grava o desfecho) — e' o backstop ESTRUTURAL para as rotas
-             que nao abrem processo, incluindo o fallback canned de `_respond_llm` num turno
-             `inform`, que promete "um profissional humano vai continuar" sem passar pela cerca.
+          3. START NAO ACONTECEU e o texto ANUNCIA um humano. Trocado pela constante que diz o que
+             nao aconteceu. O gatilho e' UMA definicao para os dois sentidos — a mesma
+             `menciona_encaminhamento` do item 2, agora consultada por `motivo_de_recusa` com
+             `start_aconteceu=False` —, porque as duas listas antigas (a positiva e a de literais
+             proibidos) foram escritas para textos diferentes e a diferenca entre elas era um
+             conjunto de rascunhos plausiveis que saiam intactos. Inalcancavel pela rota
+             `escalate`/`schedule` (as duas sempre passam por `_start_escalation`, que grava o
+             desfecho) — e' o backstop ESTRUTURAL para as rotas que nao abrem processo. O fallback
+             canned de `_respond_llm`, que era o caminho REAL deste item, deixou de prometer
+             humano na origem (`RESPOSTA_FALHA_DE_REDACAO`): o backstop fica, a promessa sai.
 
         O QUE ELA NAO FAZ: nao muda `response_kind` nem `escalation_*`. A rota e o efeito
         aconteceram; o que esta' errado e' a NARRACAO deles, e e' so' a narracao que se corrige.
@@ -2253,12 +2287,34 @@ class HelenaGraph:
         acionado = _humano_acionado(state)
 
         if start_desfecho == START_DESFECHO_JA_ATIVO:
-            return RESPOSTA_HANDOFF_JA_ABERTO, self._registrar_troca(
+            # 21/09/2026, SEGUNDA RODADA: a troca deixou de ser INCONDICIONAL. O que e' falso num
+            # `ja_ativo` e' o anuncio de um encaminhamento NOVO — nao o resto do rascunho. Descartar
+            # tudo custava duas coisas medidas: a `memoria_a_confirmar` (a pergunta que o
+            # `response_prompt` obriga a fazer antes de usar um dado LEMBRADO, e que existe PARA a
+            # pessoa poder corrigir a populacao que decidiu a tabela) e a orientacao do turno. Num
+            # turno em que a escalacao ja' estava aberta, perder a confirmacao do dado clinico e'
+            # trocar um defeito por outro.
+            #
+            # Entao: se o rascunho ANUNCIA handoff (`menciona_encaminhamento`), ele e' trocado —
+            # aquela frase depende de um fato que o modelo nao tinha quando redigiu. Se nao anuncia,
+            # o texto honesto entra como PREFIXO e o rascunho segue atras. O rastro e' emitido nos
+            # dois caminhos, com o mesmo grupo: o que a operacao conta e' "houve nao-start", e isso
+            # aconteceu igual nos dois.
+            if menciona_encaminhamento(texto):
+                return RESPOSTA_HANDOFF_JA_ABERTO, self._registrar_troca(
+                    state,
+                    grupo=RECUSA_ESCALONAMENTO_JA_ABERTO,
+                    response_kind=response_kind,
+                    start_desfecho=start_desfecho,
+                    texto=RESPOSTA_HANDOFF_JA_ABERTO,
+                )
+            com_prefixo = f"{RESPOSTA_HANDOFF_JA_ABERTO} {texto.strip()}"
+            return com_prefixo, self._registrar_troca(
                 state,
                 grupo=RECUSA_ESCALONAMENTO_JA_ABERTO,
                 response_kind=response_kind,
                 start_desfecho=start_desfecho,
-                texto=RESPOSTA_HANDOFF_JA_ABERTO,
+                texto=com_prefixo,
             )
 
         if acionado and not menciona_encaminhamento(texto):
@@ -2309,8 +2365,25 @@ class HelenaGraph:
         funcionou —, e escrever um `error` ali sujaria o sufixo `[falha tecnica: ...]` do handoff
         do turno seguinte com um fato que nao e' falha. O rastro daquele caso e' o `desfecho`
         proprio, o log e o contador.
+
+        E UM `error` QUE O TURNO JA' TINHA NAO E' SOBRESCRITO (21/09/2026, segunda rodada). O caso
+        que expos isto: uma falha do provedor de inferencia faz `classify` escrever
+        `error="classify LLM call failed: ..."`, que e' a CAUSA do escalonamento e e' o que o
+        atendente le' no `[falha tecnica: ...]` do handoff; a mesma falha faz o rascunho cair na
+        constante de falha de redacao, que nao menciona o encaminhamento, e a troca do item 2
+        gravava `handoff sem mencao` em cima. A narracao do texto nao pode apagar o motivo tecnico
+        do turno — e o rastro da troca nao se perde, porque ele esta' no log e no contador, os
+        dois emitidos aqui (exatamente o argumento que o `ja_ativo` acima ja' fazia).
+
+        O NIVEL SEGUE A MESMA DISTINCAO (21/09/2026, segunda rodada). `escalonamento_ja_aberto` sai
+        em `warning`: a idempotencia funcionou, ninguem precisa ser acordado, e um `error` ali
+        treina a operacao a ignorar o canal. Os dois de TEXTO x FATO (`promessa_sem_start` e
+        `handoff_sem_mencao`) saem em `error`: os dois significam que a Helena ia dizer ao
+        beneficiario algo que nao corresponde ao que aconteceu. Emitir tudo no mesmo nivel apagava
+        justamente a diferenca que o `error` opcional acima ja' registrava no estado.
         """
-        logger.error(
+        emitir = logger.warning if grupo == RECUSA_ESCALONAMENTO_JA_ABERTO else logger.error
+        emitir(
             "helena_texto_nao_bate_com_o_fato",
             node="respond",
             grupo=grupo,
@@ -2323,7 +2396,7 @@ class HelenaGraph:
         )
         record_resposta_recusada(agent_id="helena", motivo=grupo, response_kind=response_kind)
         saida: dict[str, Any] = {"response_text": texto}
-        if error:
+        if error and not state.get("error"):
             saida["error"] = error
         return saida
 
@@ -2568,12 +2641,20 @@ class HelenaGraph:
             )
         except PROGRAMMING_ERRORS:
             raise
-        except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
-            return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            # fail-safe: nunca deixar o beneficiario sem nada — e nunca com uma PROMESSA. Ate
+            # 21/09/2026 este ramo tinha um `return` proprio, ANTES do bloco de cerca, com o texto
+            # "um profissional humano vai continuar o atendimento em breve": a unica frase deste
+            # modulo que prometia um humano sem passar por cerca nenhuma. Agora o fallback e' a
+            # constante honesta e ele SEGUE PELO MESMO CAMINHO do rascunho do modelo — se um dia
+            # ela violar uma das cercas, e' recusada, logada e contada como qualquer outro texto,
+            # em vez de sair pela porta de tras.
+            texto = RESPOSTA_FALHA_DE_REDACAO
 
         # RECUSA DE SAIDA (13/09/2026). ESTE e' o unico ponto por onde passa todo texto que chega
-        # ao beneficiario — `inform` (1x), `_start_escalation` (escalate e schedule) e o fallback
-        # de `respond`. Cercar aqui cobre as tres rotas com uma verificacao so'.
+        # ao beneficiario — `inform` (1x), `collect` (via `_cercar_saida`), `_start_escalation`
+        # (escalate e schedule) e o fallback de `respond`. Cercar aqui cobre as rotas com uma
+        # verificacao so'.
         #
         # POR QUE A CERCA EXISTE MESMO COM A PROIBICAO NO PROMPT. O `response-v3` proibiu a
         # negativa clinica em maiusculas e com o raciocinio inteiro, e o modelo passou por cima
@@ -2583,25 +2664,39 @@ class HelenaGraph:
         # nao tinha nenhuma. Pedir e' instrucao; isto e' cerca.
         # F7 (21/09/2026): a cerca de CANAL vem antes e vale em toda rota — um canal que nao existe
         # nao e' verdade em rota nenhuma. As duas devolvem a mesma forma `(grupo, padrao)`, entao o
-        # log, o contador e a excecao abaixo servem as duas sem ramo novo.
+        # log, o contador e a excecao servem as duas sem ramo novo.
+        return self._cercar_saida(texto, response_kind)
+
+    @staticmethod
+    def _cercar_saida(texto: str, response_kind: ResponseKind) -> str:
+        """As duas cercas de saida sobre UM texto, ou `RespostaRecusadaError`.
+
+        EXTRAIDA DE `_respond_llm` EM 21/09/2026 (segunda rodada) por uma razao medida: aquele
+        docstring afirmava ser "o unico ponto por onde passa todo texto que chega ao
+        beneficiario", e a enumeracao nao tinha `collect`. O no' `collect` monta prompt proprio,
+        chama `generate` direto e devolvia `response_text` sem passar por cerca nenhuma — e em
+        `respond` a unica verificacao do turno e' a TEXTO x FATO, que nao consulta a cerca de
+        canal. Resultado: na rota de coleta o canal inventado chegava ao beneficiario. Com a cerca
+        num metodo, a afirmacao do docstring passa a ser verdade para as duas rotas.
+        """
         recusa = motivo_de_canal_nao_confirmado(texto) or motivo_de_recusa(texto, response_kind)
-        if recusa is not None:
-            grupo, padrao = recusa
-            # O PADRAO no log (onde alguem depura), o GRUPO no contador (onde alguem conta). O
-            # TEXTO nao vai para nenhum dos dois: e' saida de modelo sobre a mensagem do
-            # beneficiario, e um log nao e' lugar de ampliar o alcance dela.
-            logger.error(
-                "helena_resposta_recusada",
-                node="_respond_llm",
-                grupo=grupo,
-                padrao=padrao,
-                response_kind=response_kind,
-                recusa_version=RECUSA_DE_SAIDA_VERSION,
-                prompt_version=RESPONSE_PROMPT_VERSION,
-            )
-            record_resposta_recusada(agent_id="helena", motivo=grupo, response_kind=response_kind)
-            raise RespostaRecusadaError(grupo, padrao, response_kind)
-        return texto
+        if recusa is None:
+            return texto
+        grupo, padrao = recusa
+        # O PADRAO no log (onde alguem depura), o GRUPO no contador (onde alguem conta). O
+        # TEXTO nao vai para nenhum dos dois: e' saida de modelo sobre a mensagem do
+        # beneficiario, e um log nao e' lugar de ampliar o alcance dela.
+        logger.error(
+            "helena_resposta_recusada",
+            node="_respond_llm",
+            grupo=grupo,
+            padrao=padrao,
+            response_kind=response_kind,
+            recusa_version=RECUSA_DE_SAIDA_VERSION,
+            prompt_version=RESPONSE_PROMPT_VERSION,
+        )
+        record_resposta_recusada(agent_id="helena", motivo=grupo, response_kind=response_kind)
+        raise RespostaRecusadaError(grupo, padrao, response_kind)
 
     async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
         # Token somente de exibicao; motivo_categoria continua None na ausencia.

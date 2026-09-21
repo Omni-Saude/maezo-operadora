@@ -544,7 +544,17 @@ async def test_helena_respond_inform_emits_resolvido_automatico(monkeypatch: pyt
 
 
 async def test_helena_respond_escalated_emits_escalado_humano(monkeypatch: pytest.MonkeyPatch) -> None:
-    from maezo.agents.helena.graph import HelenaGraph
+    """21/09/2026 (segunda rodada): o estado montado a mao ganhou `start_desfecho="novo"`.
+
+    Nao e' um afrouxamento — e' o estado que um `escalate` REAL tem. `_start_escalation` estampa
+    esse campo em todo retorno, e `_humano_acionado` e' fail-closed por omissao de proposito
+    (`escalation_started=True` nunca volta a valer como prova de humano — era o sinal que o `C1`
+    tinha ligado com a promessa falsa). Sem o campo, este estado diz "um humano assumiu" pelo
+    `escalation_started` e "ninguem assumiu" pela cerca, e o texto `"um humano vai continuar"` e'
+    corretamente barrado — o que mediria a cerca, e nao a telemetria que este teste existe para
+    medir.
+    """
+    from maezo.agents.helena.graph import START_DESFECHO_NOVO, HelenaGraph
 
     calls = _spy(monkeypatch)
     graph = HelenaGraph(
@@ -560,6 +570,7 @@ async def test_helena_respond_escalated_emits_escalado_humano(monkeypatch: pytes
         "response_text": "um humano vai continuar",
         "response_kind": "escalate",
         "escalation_started": True,
+        "start_desfecho": START_DESFECHO_NOVO,
         "escalation_motivo": "solicitacao_humano",
     }
     saida = await graph.respond(state)

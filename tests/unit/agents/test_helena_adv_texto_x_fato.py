@@ -29,6 +29,7 @@ import pytest
 
 from maezo.agents.helena.graph import (
     ERRO_PROMESSA_SEM_START,
+    RESPOSTA_FALHA_DE_REDACAO,
     RESPOSTA_FALHA_TECNICA_START,
     RESPOSTA_HANDOFF_JA_ABERTO,
     RESPOSTA_HANDOFF_RECUSADA,
@@ -195,31 +196,58 @@ def test_bug_o_fallback_de_transporte_promete_humano_e_a_cerca_nao_o_recusa() ->
     assert achado[0] == RECUSA_PROMESSA_SEM_START
 
 
-async def test_bug_o_fallback_de_transporte_chega_ao_beneficiario_num_turno_inform() -> None:
-    """REPROVA — o mesmo bug ponta a ponta, pelos nos reais e sem tocar em nenhuma constante.
+async def test_o_fallback_de_transporte_nao_promete_humano_num_turno_inform() -> None:
+    """O mesmo bug ponta a ponta, pelos nos reais — e o conserto nas DUAS camadas.
 
     Reproducao minima: provedor de inferencia fora do ar + rota `inform`. `inform` degrada para o
-    canned (o `except` declarado), `respond` chama a cerca TEXTO x FATO, `start_desfecho` e'
-    `nao_tentado` (`_humano_acionado` -> False) e o texto sai INTACTO para o `send`.
+    canned (o `except` declarado), `respond` chama a cerca TEXTO x FATO e `start_desfecho` e'
+    `nao_tentado` (`_humano_acionado` -> False).
+
+    O QUE MUDOU NA PREMISSA, e por que ela nao podia continuar como estava. A versao vermelha deste
+    teste afirmava "este e' o texto que o no' `inform` produz quando a inferencia cai" e apontava
+    para `FALLBACK_DE_TRANSPORTE` — a promessa de humano. O conserto do achado e' exatamente
+    remover a promessa DA ORIGEM (`graph.py::RESPOSTA_FALHA_DE_REDACAO`), entao uma premissa que
+    fixa a promessa na origem impediria o conserto: ela cobrava a permanencia do defeito.
+
+    O que este teste cobra agora e' o par completo:
+
+      1. CAMADA 1 (origem) — o texto que o `inform` produz sem modelo nao promete humano, nao
+         promete prazo e nao cita canal; ele SAI, porque nao ha nada de errado nele;
+      2. CAMADA 2 (backstop) — a promessa antiga, se voltar por qualquer caminho, continua sendo
+         trocada com `error=ERRO_PROMESSA_SEM_START`. E' a unica forma de a camada 1 nao ser a
+         unica defesa, e e' `FALLBACK_DE_TRANSPORTE` (a constante literal, copiada da versao
+         anterior) que faz esse papel aqui.
     """
     whatsapp = _WhatsApp()
     graph = _graph(_InferenciaForaDoAr(), whatsapp=whatsapp)
 
     do_inform = await graph.inform(_estado())
-    assert do_inform["response_text"] == FALLBACK_DE_TRANSPORTE, (
-        "premissa: este e' o texto que o no' `inform` produz quando a inferencia cai"
+    assert do_inform["response_text"] == RESPOSTA_FALHA_DE_REDACAO, (
+        "o no' `inform` com a inferencia fora do ar tem de cair na constante HONESTA"
     )
+    assert menciona_encaminhamento(RESPOSTA_FALHA_DE_REDACAO) is False
+    assert motivo_de_recusa(RESPOSTA_FALHA_DE_REDACAO, "inform", start_aconteceu=False) is None
+    assert motivo_de_canal_nao_confirmado(RESPOSTA_FALHA_DE_REDACAO) is None
 
     saida = await graph.respond(_estado(**do_inform))
 
     assert _humano_acionado(_estado(**do_inform)) is False, "premissa: nenhum humano foi acionado"
-    assert whatsapp.enviados, "premissa: o turno envia alguma coisa"
-    enviado = whatsapp.enviados[0][1]
-    assert enviado != FALLBACK_DE_TRANSPORTE, (
-        "a promessa de humano do fallback de transporte chegou ao beneficiario com ZERO processos "
-        f"abertos (desfecho={saida.get('desfecho')!r}, error={saida.get('error')!r})"
+    assert whatsapp.enviados == [("adv_c1", RESPOSTA_FALHA_DE_REDACAO)], (
+        "o texto honesto nao tem por que ser trocado: ele bate com o fato"
     )
-    assert saida.get("error") == ERRO_PROMESSA_SEM_START
+    assert saida.get("error") is None
+
+    # CAMADA 2: a promessa antiga, plantada como rascunho, continua sendo barrada.
+    whatsapp_backstop = _WhatsApp()
+    saida_backstop = await _graph(whatsapp=whatsapp_backstop).respond(
+        _estado(response_text=FALLBACK_DE_TRANSPORTE, response_kind="inform")
+    )
+
+    assert whatsapp_backstop.enviados[0][1] == RESPOSTA_SEM_ENCAMINHAMENTO, (
+        "a promessa de humano do fallback antigo chegou ao beneficiario com ZERO processos "
+        f"abertos (desfecho={saida_backstop.get('desfecho')!r})"
+    )
+    assert saida_backstop.get("error") == ERRO_PROMESSA_SEM_START
 
 
 def test_bug_texto_que_a_entrega_reconhece_como_handoff_nao_e_recusado_sem_start() -> None:
@@ -311,7 +339,20 @@ async def test_a_promessa_do_c1_nunca_sai_em_desfecho_sem_humano(desfecho: str) 
 
 @pytest.mark.parametrize("desfecho", (START_DESFECHO_NOVO, START_DESFECHO_JA_ATIVO))
 async def test_com_humano_o_texto_sem_mencao_nunca_sai(desfecho: str) -> None:
-    """O avesso (F2), nos dois desfechos que tem humano: um texto informativo puro e' trocado."""
+    """O avesso (F2), nos dois desfechos que tem humano: um texto informativo puro nunca sai SO'.
+
+    O QUE MUDOU EM 21/09/2026 (segunda rodada), no ramo `ja_ativo`. Este teste cobrava igualdade
+    com a constante nos dois desfechos, e no `ja_ativo` essa igualdade era o proprio defeito:
+    descartar o rascunho inteiro jogava fora a `memoria_a_confirmar` (a pergunta que o
+    `response_prompt` OBRIGA antes de usar um dado LEMBRADO, e que existe para a pessoa poder
+    corrigir a populacao que decidiu a tabela) junto com a orientacao do turno. So' o anuncio de um
+    handoff NOVO e' falso num `ja_ativo`; um texto que nao anuncia nada nao precisa desaparecer.
+
+    O invariante cobrado continua o mesmo e nao afrouxou: o texto que SAI menciona o encaminhamento,
+    e o beneficiario nunca le' um informativo puro num turno em que um humano esta' com o caso. No
+    `ja_ativo` a constante entra como PREFIXO — e o teste cobra tambem que a orientacao sobreviveu,
+    que e' a metade que nao existia antes.
+    """
     whatsapp = _WhatsApp()
     graph = _graph(whatsapp=whatsapp)
 
@@ -319,12 +360,14 @@ async def test_com_humano_o_texto_sem_mencao_nunca_sai(desfecho: str) -> None:
         _estado(response_text=INFORM_HONESTO, response_kind="escalate", start_desfecho=desfecho)
     )
 
-    esperado = (
-        RESPOSTA_HANDOFF_JA_ABERTO if desfecho == START_DESFECHO_JA_ATIVO else RESPOSTA_HANDOFF_RECUSADA
-    )
-    assert whatsapp.enviados[0][1] == esperado
-    assert menciona_encaminhamento(whatsapp.enviados[0][1]) is True
-    assert saida["response_text"] == esperado
+    enviado = whatsapp.enviados[0][1]
+    assert menciona_encaminhamento(enviado) is True
+    assert saida["response_text"] == enviado
+    if desfecho == START_DESFECHO_JA_ATIVO:
+        assert enviado.startswith(RESPOSTA_HANDOFF_JA_ABERTO)
+        assert INFORM_HONESTO in enviado, "a orientacao do turno nao tinha nada de errado"
+    else:
+        assert enviado == RESPOSTA_HANDOFF_RECUSADA
 
 
 async def test_o_ja_ativo_ganha_de_um_texto_que_ja_menciona_corretamente() -> None:

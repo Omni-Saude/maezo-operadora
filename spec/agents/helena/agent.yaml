@@ -46,11 +46,20 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # atribuido sem o qualificador na mensagem ("estou com
                                      # dor de cabeca" nao e' cefaleia_subita_intensa), e
                                      # `intensidade` nunca e' inferida do sintoma.
-  response: response-v7               # 21/09/2026 (F3b/F6/F7): nao citar o beneficiario
-                                     # entre aspas (ela confirmou uma fala que a pessoa nunca
-                                     # teve); as duas frases fixas da abertura (sou um sistema
-                                     # automatizado / nao consigo te identificar); nao afirmar
-                                     # vinculo nao verificado ("do seu plano"); e a LISTA
+  response: response-v8               # 21/09/2026, SEGUNDA RODADA (gates em lote): o cartao sem
+                                     # bandeira deixa de usar o vocabulario da MENCAO de
+                                     # encaminhamento (ele disparava a cerca que existe para
+                                     # pegar promessa sem lastro); a apresentacao, quando
+                                     # acontece, se identifica pelo NOME ("Sou Helena"), que e'
+                                     # a marca que faz `apresentacao_ja_feita` acender so' em
+                                     # turno que mostrou o cartao; e ela NAO consulta status do
+                                     # proprio caso — diz isso e oferece a rota humana (item 7
+                                     # do diretor).
+                                     # v7 — 21/09/2026, primeira rodada (F3b/F6/F7): nao citar o
+                                     # beneficiario entre aspas (ela confirmou uma fala que a
+                                     # pessoa nunca teve); as duas frases fixas da abertura (sou
+                                     # um sistema automatizado / nao consigo te identificar); nao
+                                     # afirmar vinculo nao verificado ("do seu plano"); e a LISTA
                                      # FECHADA de tres canais.
                                      # v6 — 17/09/2026: o texto mergeado tem AS DUAS entregas — a
                                      # proibicao de prometer capacidade (v5, #395) e a confirmacao
@@ -58,12 +67,23 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v4          # 21/09/2026 (bateria do diretor, F1/F2/F7): a cerca de
-                                      # SAIDA passou a olhar o FATO do start (novo / ja ativo /
-                                      # falhou / nao tentado), nao a ROTA pretendida; a mencao ao
-                                      # encaminhamento virou OBRIGATORIA quando o start aconteceu;
-                                      # e canal fora de `CANAIS_CONFIRMADOS` e' recusado em toda
-                                      # rota. v3 (13/09/2026): negativa
+  recusa_de_saida: recusa-v5          # 21/09/2026, SEGUNDA RODADA (gates em lote): a MENCAO ao
+                                      # encaminhamento virou lista de FRASES com polaridade (uma
+                                      # oracao negada nao e' mencao) e passou a valer tambem do
+                                      # lado PROIBIDO — anunciar handoff sem start e' recusado em
+                                      # toda rota, com UMA definicao para os dois sentidos; a
+                                      # cerca de CANAL passou a normalizar caractere de formato
+                                      # (um zero-width a desligava), a ver telefone em qualquer
+                                      # forma, a cobrar o nome da central, a cobrir plural de
+                                      # app/website e a aceitar QUALQUER nome confirmado como
+                                      # referencia do termo generico; e a de CAPACIDADE ganhou os
+                                      # padroes de status inventado do proprio caso (item 7).
+                                      # v4 (21/09/2026, F1/F2/F7): a cerca de SAIDA passou a olhar
+                                      # o FATO do start (novo / ja ativo / falhou / nao tentado),
+                                      # nao a ROTA pretendida; a mencao ao encaminhamento virou
+                                      # OBRIGATORIA quando o start aconteceu; e canal fora de
+                                      # `CANAIS_CONFIRMADOS` e' recusado em toda rota.
+                                      # v3 (13/09/2026): negativa
                                      # clinica, promessa de humano e de capacidade (PR #395).
 
 model:

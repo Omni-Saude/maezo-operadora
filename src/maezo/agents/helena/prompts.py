@@ -46,14 +46,33 @@ CLASSIFY_PROMPT_VERSION = "classify-v4"  # 21/09/2026: a REGRA DO QUALIFICADOR (
 # medido em 13/09 e outra vez em 21/09 foi um codigo DE DENTRO da lista atribuido a uma mensagem
 # que nao tinha a palavra que o justifica ("estou com dor de cabeca" -> `cefaleia_subita_intensa`,
 # P1 com prazo de cinco minutos).
-RESPONSE_PROMPT_VERSION = "response-v7"  # 21/09/2026: F3(b) + F6 + F7 da bateria do diretor —
-# proibicao de CITAR o beneficiario entre aspas (ela confirmou uma fala que a pessoa nunca teve),
-# as duas frases fixas da abertura ("sou um sistema automatizado" / "nao consigo te identificar"),
-# a proibicao de afirmar vinculo nao verificado ("do seu plano") e a LISTA FECHADA de canais.
-# ATENCAO A QUEM MERGEAR: a frente F1/F2 (cerca que liga o texto ao fato do start) tambem edita
-# este prompt. Se as duas entregas entrarem separadas, o numero final e' v8 e o comentario tem de
-# dizer que ele contem AS DUAS — foi exatamente o que o v6 teve de reconciliar em 17/09.
+RESPONSE_PROMPT_VERSION = "response-v8"  # 21/09/2026, SEGUNDA RODADA (os tres gates rodados em
+# lote sobre a entrega da bateria). O TEXTO mudou em tres pontos, e cada um tem contraparte
+# executavel neste modulo ou em `graph.py`:
+#   1. o cartao sem bandeira deixa de usar o VOCABULARIO DA MENCAO ("orientar e encaminhar para um
+#      profissional" -> "orientar e, quando for o caso, levar seu relato a uma pessoa da equipe").
+#      A razao e' mecanica: `menciona_encaminhamento` e' agora o gatilho da substituicao quando
+#      NINGUEM foi acionado, e a frase de abertura nao pode disparar a cerca que existe para pegar
+#      promessa sem lastro;
+#   2. a apresentacao, quando acontece, se IDENTIFICA PELO NOME ("Sou Helena"). O sinal
+#      `apresentacao_ja_feita` so' acende quando o texto enviado contem essa marca
+#      (`graph.py::MARCAS_DE_APRESENTACAO`) — sem uma marca estavel, o sinal acendia em turnos que
+#      nunca mostraram cartao nenhum e a Helena nunca mais se apresentava naquela conversa;
+#   3. STATUS DO PROPRIO CASO (item 7 do diretor): ela NAO consulta status, diz isso e oferece a
+#      rota humana. A contraparte sao os padroes de status inventado em
+#      `PROMESSA_DE_CAPACIDADE_PROIBIDA`.
+# POR QUE O v7 ESTAVA CERTO, e nao havia v8 a reconciliar: o aviso que morava aqui dizia que a
+# frente F1/F2 (cerca texto x fato) tambem editava este prompt e que, entrando separada, o numero
+# final seria v8 "contendo AS DUAS". As duas frentes entraram JUNTAS (merges `8e1d1171` e
+# `3e6e1620`) e a F1/F2 nao mudou o TEXTO deste prompt — ela mudou a assinatura de
+# `motivo_de_recusa` e o no' `respond`. Um v8 naquele momento apontaria um auditor para um texto
+# que nao existiu. Este v8 e' outro: e' a segunda rodada do MESMO dia, e o que mudou esta' nos tres
+# itens acima.
 # HISTORICO DO NUMERO, preservado porque e' o que um auditor le'.
+# v7 — 21/09/2026, PRIMEIRA rodada (F3b + F6 + F7 da bateria do diretor): proibicao de CITAR o
+#      beneficiario entre aspas (ela confirmou uma fala que a pessoa nunca teve), as duas frases
+#      fixas da abertura ("sou um sistema automatizado" / "nao consigo te identificar"), a
+#      proibicao de afirmar vinculo nao verificado ("do seu plano") e a LISTA FECHADA de canais.
 # v6 — 17/09/2026: a RECONCILIACAO que o comentario do `response-v4-memoria` prometia a quem
 # chegasse depois. Duas entregas mudaram o TEXTO deste prompt
 # em paralelo e nenhuma das duas pode perder o numero:
@@ -417,8 +436,9 @@ encaminhamento humano, nunca prometa prazos que voce nao controla.
 NUNCA AFIRME QUE O BENEFICIARIO NAO TEM SINAIS DE ALERTA, que o quadro nao e grave, ou que nao
 precisa procurar atendimento. A tabela avalia REGRAS sobre o que a MENSAGEM trouxe, nunca a
 pessoa: nao ter casado uma regra nao e a mesma coisa que a pessoa estar bem, e voce nao sabe o
-que ela nao contou. Quando nao houver bandeira, diga o que este canal PODE fazer (orientar e
-encaminhar para um profissional) e convide-a a descrever melhor o sintoma — UMA frase, nunca uma
+que ela nao contou. Quando nao houver bandeira, diga o que este canal PODE fazer (orientar e,
+quando for o caso, levar seu relato a uma pessoa da equipe) e convide-a a descrever melhor o
+sintoma — UMA frase, nunca uma
 sequencia de perguntas, e valendo a regra RESPONDA A PERGUNTA ANTES DE SE APRESENTAR mais abaixo:
 se a mensagem trouxe uma pergunta, ela e' respondida primeiro e essa frase pode nem entrar. Nao
 emita juizo sobre a gravidade em nenhuma direcao.
@@ -513,9 +533,21 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v4"  # 21/09/2026: a cerca olha o FATO do start (F1/F2) + a
-# categoria CANAL NAO CONFIRMADO (F7). As duas frentes da bateria de 21/09 entraram JUNTAS neste
-# numero — nao ha v5 separado. v3 — 13/09/2026: + formas que escaparam na bateria.
+RECUSA_DE_SAIDA_VERSION = "recusa-v5"  # 21/09/2026, SEGUNDA RODADA (os tres gates rodados em lote
+# sobre a entrega da bateria). O que mudou nas listas:
+#   * a MENCAO deixou de ser lista de substrings e passou a ser lista de FRASES com polaridade
+#     (ver `MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA`), e passou a ser consultada TAMBEM pelo lado
+#     proibido (`motivo_de_recusa` com `start_aconteceu=False`) — uma definicao para os dois
+#     sentidos do invariante;
+#   * CANAL: `_normalizar` descarta caractere de FORMATO (um zero-width desligava a cerca inteira),
+#     telefone em qualquer forma, `central` com cerca de nome, plural de `app`/`website`, e o termo
+#     generico passa com QUALQUER nome confirmado no texto (referencia de volta);
+#   * CAPACIDADE: + status inventado do proprio caso (item 7 do diretor).
+# O v4 dizia "as duas frentes da bateria de 21/09 entraram JUNTAS neste numero — nao ha v5
+# separado", e estava certo NAQUELE dia: F1/F2 e F7 entraram no mesmo numero. Este v5 e' outra
+# rodada, com outras mudancas, e a frase anterior nao e' mais a ultima palavra.
+# v4 — 21/09/2026: a cerca olha o FATO do start (F1/F2) + a categoria CANAL NAO CONFIRMADO (F7).
+# v3 — 13/09/2026: + formas que escaparam na bateria.
 
 #: Afirmar a AUSENCIA de alerta. Proibido em TODA rota: "a tabela nao casou nenhuma regra" e
 #: "voce nao tem sinais de alerta" nao sao a mesma frase, e a segunda e' parecer clinico sobre uma
@@ -629,28 +661,72 @@ PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
 #: A DIRECAO DO ERRO E' DELIBERADA. Um falso NEGATIVO aqui (um texto que menciona o
 #: encaminhamento com palavras que a lista nao tem) troca o rascunho do modelo pela constante
 #: honesta: a pessoa le' uma frase mais seca, e nada mais. Um falso POSITIVO deixaria passar
-#: exatamente o E4. Entao a lista e' CURTA e ASSERTIVA — "um profissional", "atendente",
-#: "encaminh" —, e de proposito NAO contem "atendimento" nem "contato" soltos: os dois aparecem
-#: no texto REAL do E4 ("central de atendimento", "entrando em contato com a central"), que e'
-#: orientacao para a pessoa se resolver sozinha, o oposto de avisar que um humano assumiu.
-MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
-    "encaminh",  # encaminhamos / encaminhei / vou encaminhar / encaminhado / encaminhamento
-    "um profissional",
-    "uma profissional",
-    "profissional de saude",
-    "profissional humano",
-    "profissional da",
-    "atendente",
-    "um humano",
-    "equipe de saude",
-    "plantao clinico",
-    "enfermagem",
-    # O caso `already_existed`: nao ha encaminhamento NOVO a anunciar, e o que a pessoa precisa
-    # saber e' que o antigo esta' de pe'.
-    "atendimento ja esta aberto",
-    "atendimento esta aberto",
-    "ja esta com a equipe",
+#: exatamente o E4. E de proposito a lista NAO contem "atendimento" nem "contato" soltos: os dois
+#: aparecem no texto REAL do E4 ("central de atendimento", "entrando em contato com a central"),
+#: que e' orientacao para a pessoa se resolver sozinha, o oposto de avisar que um humano assumiu.
+#:
+#: 21/09/2026, SEGUNDA RODADA — A LISTA DEIXOU DE SER DE SUBSTRINGS E PASSOU A SER DE FRASES, e o
+#: motivo e' que esta funcao ganhou um SEGUNDO emprego. Na primeira rodada ela so' respondia "o
+#: texto deixou de dizer o que o fato obriga?" (F2), e ali um falso positivo era barato: trocava o
+#: rascunho por uma constante que TAMBEM mencionava. Agora ela responde tambem o avesso — "o texto
+#: DIZ que um humano assumiu quando ninguem assumiu?" (`motivo_de_recusa` com
+#: `start_aconteceu=False`) —, e nessa direcao um falso positivo troca uma orientacao correta por
+#: "nao abri atendimento", que e' pior que o rascunho.
+#:
+#: As tres mudancas, cada uma com o texto que a motivou:
+#:
+#:   1. POLARIDADE. "Nao acionei nenhum atendente" e "Por isso nenhum atendente foi acionado ainda"
+#:      (esta e' a propria `RESPOSTA_FALHA_TECNICA_START`) diziam o CONTRARIO de uma mencao e
+#:      casavam o substring "atendente". A leitura passa a ser por ORACAO, e uma oracao com
+#:      marcador de negacao (`_MARCADORES_DE_NEGACAO`) nao conta.
+#:   2. SUJEITO + ACAO DE ASSUNCAO, em vez do sujeito solto. "um profissional", "uma profissional"
+#:      e "profissional da" serviam igualmente a ORIENTACAO ("este canal pode orientar e encaminhar
+#:      para um profissional", que e' o proprio cartao de abertura) e ao AVISO ("um profissional vai
+#:      dar continuidade"). Sem a acao, a frase de abertura da Helena era lida como anuncio de
+#:      handoff. Mesma razao para "atendimento esta aberto", que casava "a central de atendimento
+#:      esta aberta das 8h as 18h".
+#:   3. "encaminh" cru virou VERBO COM OBJETO/PESSOA. "encaminhar" no infinitivo e' capacidade
+#:      ("posso te encaminhar"), nao fato; "encaminhamos seu caso" e' fato.
+#:
+#: Os padroes sao REGEX de oracao, com a distancia entre sujeito e acao LIMITADA (`{0,40}`) e sem
+#: alternancia aninhada — a cerca roda em todo texto que sai, e um padrao com backtracking
+#: exponencial transformaria uma resposta longa numa indisponibilidade da agente
+#: (`test_helena_adv_canal.py::test_a_cerca_nao_tem_backtracking_catastrofico_em_texto_longo` mede
+#: a irma pelo mesmo motivo).
+
+#: QUEM pode assumir um caso. Lista fechada: "pessoa", "time" e "central clinica" ficam FORA de
+#: proposito — sao os falsos negativos DECLARADOS ("Uma pessoa da nossa central clinica vai te
+#: chamar"), e o efeito deles e' a troca pela constante, nunca um texto mentiroso.
+_SUJEITO_QUE_ASSUME = r"(?:profissional|atendente|enfermeir\w+|enfermagem|medic[oa]|humano|equipe|plantao)"
+#: A ACAO de assumir. "avisar", "chamar" e "pedir" ficam fora pela mesma razao acima.
+_ACAO_DE_ASSUNCAO = (
+    r"(?:(?:vai|vao|ira|irao)\s+(?:continuar|dar\s+continuidade|assumir|atender|avaliar|retornar"
+    r"|ligar|falar|entrar\s+em\s+contato)|entrarao?\s+em\s+contato|assumiu|assumira)"
 )
+
+MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
+    # 1. ENCAMINHAR COMO FATO — conjugado, com objeto ou com destino.
+    r"\bencaminhamos\b",
+    r"\bencaminhei\b",
+    r"\bvou\s+encaminhar\b",
+    r"\bencaminhad[oa]s?\b",
+    # 2. SUJEITO QUE ASSUME + ACAO DE ASSUNCAO, na mesma oracao.
+    rf"\b{_SUJEITO_QUE_ASSUME}\b[^.;!?]{{0,40}}\b{_ACAO_DE_ASSUNCAO}",
+    # 3. O caso `already_existed`: nao ha encaminhamento NOVO a anunciar, e o que a pessoa precisa
+    #    saber e' que o antigo esta' de pe'.
+    r"\b(?:seu|o)\s+atendimento\b[^.;!?]{0,60}\bja\s+esta\s+aberto\b",
+    r"\bja\s+esta\s+com\s+(?:a\s+)?(?:nossa\s+)?equipe\b",
+)
+
+#: O que transforma uma oracao em NEGACAO do handoff. Palavra inteira: "sem" e' o unico que
+#: poderia casar dentro de outra ("semana"), e casar assim reprovaria "de 33 semanas".
+_MARCADORES_DE_NEGACAO: tuple[str, ...] = ("nao", "nenhum", "nenhuma", "ninguem", "sem")
+
+#: Fim de ORACAO. A virgula NAO entra: a distancia entre sujeito e acao (`{0,40}`) atravessa
+#: aposto ("Um profissional de saude, do plantao, vai continuar"), e quebrar em virgulas
+#: desligaria justamente os padroes de assuncao.
+_FIM_DE_ORACAO = re.compile(r"[.;!?\n]+")
+_PALAVRA = re.compile(r"[a-z]+")
 
 #: CANAL NAO CONFIRMADO (21/09/2026, F7). Quarta categoria, e' irma da promessa de capacidade sem
 #: ser ela: alem de prometer o que nao faz, a Helena mandava a pessoa para lugares que nao existem
@@ -739,15 +815,48 @@ def _normalizar(texto: str) -> str:
     return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
 
 
+def padrao_de_encaminhamento(texto: str) -> str | None:
+    """O padrao de mencao que o texto casa, ou `None`. A forma `(padrao)` existe pelo mesmo motivo
+    das cercas irmas: o PADRAO vai para o log (onde alguem depura) e o GRUPO para o contador (onde
+    alguem conta), e sem ele a recusa de "handoff anunciado sem start" seria a unica deste modulo
+    sem rastro do que a disparou.
+
+    UMA oracao por vez, e e' isso que da' polaridade a leitura: uma oracao com marcador de negacao
+    nao anuncia handoff nenhum, ainda que contenha as palavras de uma ("Por isso nenhum atendente
+    foi acionado ainda").
+    """
+    plano = _normalizar(texto)
+    for oracao in _FIM_DE_ORACAO.split(plano):
+        if not oracao.strip():
+            continue
+        if any(p in _MARCADORES_DE_NEGACAO for p in _PALAVRA.findall(oracao)):
+            continue
+        for padrao in MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA:
+            if re.search(padrao, oracao) is not None:
+                return padrao
+    return None
+
+
 def menciona_encaminhamento(texto: str) -> bool:
     """O texto AVISA o beneficiario de que um humano assumiu? (F2, 21/09/2026)
 
     PURA, como `motivo_de_recusa`, e pela mesma razao: e' testavel com os textos REAIS que
     vazaram, sem subir grafo nenhum. Quem decide se a mencao e' OBRIGATORIA neste turno nao e'
     esta funcao — e' o FATO do start (`HelenaGraph.respond`). Aqui so' se le' o texto.
+
+    UMA DEFINICAO, OS DOIS SENTIDOS (21/09/2026, segunda rodada). Esta funcao e' o gatilho dos
+    dois lados do invariante, e nao mais de um:
+
+        menciona_encaminhamento(texto) XOR _humano_acionado(estado)  ->  substituir o texto
+
+    O lado que faltava era o "nao acionado": ele consultava apenas os literais de
+    `PROMESSA_DE_HUMANO_PROIBIDA`, escritos a partir das frases do `C1`, e SETE rascunhos de
+    handoff plausiveis (inclusive o fallback canned do proprio `_respond_llm`) passavam. Duas
+    listas para lados opostos do mesmo fato nao sao complementares — e' por isso que agora ha uma
+    so' definicao de "este texto avisa que um humano assumiu", usada nas duas direcoes
+    (`motivo_de_recusa` com `start_aconteceu=False`).
     """
-    plano = _normalizar(texto)
-    return any(padrao in plano for padrao in MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA)
+    return padrao_de_encaminhamento(texto) is not None
 
 
 def motivo_de_recusa(
@@ -779,6 +888,17 @@ def motivo_de_recusa(
         `RECUSA_PROMESSA_SEM_START` — rotulo proprio, para o contador nao confundir "rota errada"
         com "fato ausente".
 
+    COM `start_aconteceu=False` A CERCA CONSULTA `menciona_encaminhamento` (21/09/2026, segunda
+    rodada), e nao apenas os literais proibidos. Os literais foram escritos a partir das frases do
+    `C1` ("entrara em contato", "aguarde nosso contato") e a lista positiva da mencao foi escrita
+    para o `E4`; sao duas listas para lados opostos do MESMO fato, e a diferenca entre elas era um
+    conjunto de textos que a propria entrega reconhecia como aviso de handoff e que saiam inteiros
+    sem handoff nenhum — inclusive o fallback canned de `_respond_llm`. Com uma definicao so', a
+    diferenca deixa de existir por construcao.
+    Note que isto vale SO' para `False`: com `None` (o rascunho, antes de o start ser tentado) a
+    decisao continua sendo pela ROTA, porque ali o fato ainda nao existe — e em `escalate` a
+    mencao e' obrigatoria, nao proibida.
+
     Ordem: negativa, capacidade, promessa de humano. Quando um texto viola mais de uma, o achado
     reportado e' o mais grave — e a negativa clinica e' a unica que fala sobre o CORPO de alguem.
     """
@@ -798,6 +918,10 @@ def motivo_de_recusa(
     for padrao in PROMESSA_DE_HUMANO_PROIBIDA:
         if padrao in plano:
             return (grupo, padrao)
+    if start_aconteceu is False:
+        mencao = padrao_de_encaminhamento(texto)
+        if mencao is not None:
+            return (grupo, mencao)
     return None
 
 

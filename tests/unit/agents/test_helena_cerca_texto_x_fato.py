@@ -38,15 +38,19 @@ O QUE ESTE ARQUIVO PROVA, em ordem de importancia:
 
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 import pytest
+from structlog.testing import capture_logs
 
+from maezo.agents.helena import graph as helena_graph
 from maezo.agents.helena.graph import (
     DESFECHO_ESCALONAMENTO_JA_ABERTO,
     ERRO_HANDOFF_SEM_MENCAO,
     ERRO_PROMESSA_SEM_START,
     PROCESS_KEY,
+    RESPOSTA_FALHA_DE_REDACAO,
     RESPOSTA_FALHA_TECNICA_START,
     RESPOSTA_HANDOFF_JA_ABERTO,
     RESPOSTA_HANDOFF_RECUSADA,
@@ -63,11 +67,13 @@ from maezo.agents.helena.graph import (
     _start_desfecho_de,
 )
 from maezo.agents.helena.prompts import (
+    RECUSA_DE_SAIDA_VERSION,
     RECUSA_ESCALONAMENTO_JA_ABERTO,
     RECUSA_HANDOFF_SEM_MENCAO,
     RECUSA_PROMESSA_DE_HUMANO,
     RECUSA_PROMESSA_SEM_START,
     menciona_encaminhamento,
+    motivo_de_canal_nao_confirmado,
     motivo_de_recusa,
 )
 from maezo.gateway.engine_contracts import EngineRefusalCode
@@ -249,14 +255,34 @@ def test_as_duas_constantes_de_handoff_passam_na_propria_cerca_e_mencionam() -> 
 
     Se a constante violasse a lista de padroes proibidos, a troca enviaria o que acabou de barrar;
     se ela nao mencionasse o encaminhamento, a troca da mencao obrigatoria seria um laco.
+
+    O FATO COBRADO E' `start_aconteceu=True`, E ISSO MUDOU EM 21/09/2026 (segunda rodada). Este
+    teste cobrava `False` tambem, e essa metade estava ERRADA por duas razoes:
+
+      * SEMANTICA. As duas constantes ANUNCIAM um handoff ("encaminhamos seu caso", "seu
+        atendimento (...) ja esta aberto"). Sem start, esse anuncio e' falso — e' o `C1`. Exigir
+        que a cerca as aprove naquele fato e' exigir que ela aprove uma mentira.
+      * ALCANCE. Nenhuma das duas e' alcancavel com `start_aconteceu=False`.
+        `RESPOSTA_HANDOFF_RECUSADA` sai em dois pontos, e nos dois um humano FOI acionado: o
+        `except RespostaRecusadaError` de `_start_escalation` (o processo esta' sendo aberto ali) e
+        o ramo `acionado and not menciona_encaminhamento` de `_texto_bate_com_o_fato`.
+        `RESPOSTA_HANDOFF_JA_ABERTO` sai so' no ramo `ja_ativo`, que e' um dos dois desfechos COM
+        humano. A constante do ramo "ninguem foi acionado" e' outra
+        (`RESPOSTA_SEM_ENCAMINHAMENTO`), e e' o teste seguinte que a cobra.
+
+    A troca nao afrouxa nada: o `False` passou a ser cobrado no sentido CERTO (as duas TEM de ser
+    recusadas), que e' o invariante `menciona XOR humano_acionado` do
+    `test_helena_adv_texto_x_fato.py`.
     """
     for constante in (RESPOSTA_HANDOFF_RECUSADA, RESPOSTA_HANDOFF_JA_ABERTO):
         assert menciona_encaminhamento(constante) is True
         for rota in ("inform", "escalate", "schedule", "collect"):
             assert motivo_de_recusa(constante, rota, start_aconteceu=True) is None
-            assert motivo_de_recusa(constante, rota, start_aconteceu=False) is None, (
-                f"{constante[:40]!r} contem padrao proibido em {rota} sem start"
+            achado = motivo_de_recusa(constante, rota, start_aconteceu=False)
+            assert achado is not None, (
+                f"{constante[:40]!r} anuncia handoff e a cerca a aprova em {rota} SEM start"
             )
+            assert achado[0] == RECUSA_PROMESSA_SEM_START
 
 
 @pytest.mark.parametrize(
@@ -684,3 +710,237 @@ def test_o_grupo_do_ja_ativo_e_fechado_e_distinto_dos_outros() -> None:
         RECUSA_ESCALONAMENTO_JA_ABERTO,
     }
     assert len(grupos) == 4
+
+
+# =================================================================================================
+# 5. O RASTRO (item 3 do diretor, 21/09/2026 — segunda rodada): log, nivel e contador
+# =================================================================================================
+
+
+def _contador_espiao(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Registra as chamadas a `record_resposta_recusada` FEITAS PELO GRAFO.
+
+    Espiona o nome no namespace de `graph` (onde ele foi importado), nao no modulo de
+    observabilidade: e' o call site que este arquivo prova, e um espiao na origem passaria mesmo
+    se o grafo parasse de chamar.
+    """
+    chamadas: list[dict[str, Any]] = []
+
+    def _spy(*, agent_id: str, motivo: str, response_kind: str) -> None:
+        chamadas.append({"agent_id": agent_id, "motivo": motivo, "response_kind": response_kind})
+
+    monkeypatch.setattr(helena_graph, "record_resposta_recusada", _spy)
+    return chamadas
+
+
+@pytest.mark.parametrize(
+    ("rotulo", "estado", "grupo"),
+    [
+        (
+            "promessa sem start",
+            {"response_text": C1_PROMESSA, "response_kind": "inform"},
+            RECUSA_PROMESSA_SEM_START,
+        ),
+        (
+            "handoff sem mencao",
+            {
+                "response_text": E4_SEM_MENCAO,
+                "response_kind": "escalate",
+                "escalation_started": True,
+                "start_desfecho": START_DESFECHO_NOVO,
+            },
+            RECUSA_HANDOFF_SEM_MENCAO,
+        ),
+        (
+            "escalonamento ja aberto",
+            {
+                "response_text": C1_PROMESSA,
+                "response_kind": "escalate",
+                "escalation_started": True,
+                "start_desfecho": START_DESFECHO_JA_ATIVO,
+            },
+            RECUSA_ESCALONAMENTO_JA_ABERTO,
+        ),
+    ],
+)
+async def test_cada_troca_emite_log_e_contador_com_o_grupo(
+    monkeypatch: pytest.MonkeyPatch, rotulo: str, estado: dict[str, Any], grupo: str
+) -> None:
+    """Os TRES grupos, um a um, nos dois canais de rastro — e a razao de existirem separados.
+
+    O `error` de estado nao aparece nos tres (`ja_ativo` nao e' falha de ninguem), entao o log e o
+    contador sao o UNICO rastro comum. Sem este teste, um `_registrar_troca` que deixasse de emitir
+    passaria: as substituicoes continuariam corretas e o nao-start voltaria a ser invisivel — que
+    e' exatamente como 27 escalonamentos reusados atravessaram uma bateria inteira.
+    """
+    chamadas = _contador_espiao(monkeypatch)
+    graph = _graph()
+
+    with capture_logs() as registros:
+        await graph.respond(_estado(**estado))
+
+    evento = next(r for r in registros if r["event"] == "helena_texto_nao_bate_com_o_fato")
+    assert evento["grupo"] == grupo
+    assert evento["node"] == "respond"
+    assert evento["recusa_version"] == RECUSA_DE_SAIDA_VERSION
+    assert chamadas == [{"agent_id": "helena", "motivo": grupo, "response_kind": estado["response_kind"]}]
+
+
+async def test_o_nivel_do_log_separa_a_idempotencia_do_texto_mentiroso() -> None:
+    """21/09/2026 (segunda rodada): `escalonamento_ja_aberto` sai em `warning`, os dois de TEXTO x
+    FATO em `error`.
+
+    A distincao nao e' estetica: num `ja_ativo` a idempotencia FUNCIONOU e ninguem precisa ser
+    acordado — o mesmo raciocinio que ja mantinha o `error` de estado fora daquele ramo. Emitir
+    tudo como `error` treina a operacao a ignorar o canal em que os outros dois aparecem, e esses
+    dois significam que a Helena ia dizer ao beneficiario algo que nao aconteceu.
+    """
+    graph = _graph()
+
+    with capture_logs() as ja_aberto:
+        await graph.respond(
+            _estado(
+                response_text=C1_PROMESSA,
+                response_kind="escalate",
+                escalation_started=True,
+                start_desfecho=START_DESFECHO_JA_ATIVO,
+            )
+        )
+    with capture_logs() as sem_start:
+        await graph.respond(_estado(response_text=C1_PROMESSA, response_kind="inform"))
+
+    def _nivel(registros: list[dict[str, Any]]) -> str:
+        evento = next(r for r in registros if r["event"] == "helena_texto_nao_bate_com_o_fato")
+        return str(evento["log_level"])
+
+    assert _nivel(ja_aberto) == "warning"
+    assert _nivel(sem_start) == "error"
+
+
+async def test_o_start_sobre_instancia_viva_deixa_rastro_no_proprio_start() -> None:
+    """O OUTRO sinal do item 3, e ele nasce um no' antes: `helena_escalonamento_nao_aberto`.
+
+    Antes dele um nao-start SEM erro era completamente silencioso — nenhuma excecao, nenhum
+    contador, nenhum campo. O log carrega a `business_key` (que o proprio engine ja ve) e o
+    desfecho; nada ali e' texto de beneficiario, e o teste cobra as duas coisas.
+    """
+    graph = _graph(C1_PROMESSA, cibseven=_com_instancia_viva())
+
+    with capture_logs() as registros:
+        await graph.escalate(_estado(escalation_motivo="red_flag_clinico", escalation_severidade="grave"))
+
+    evento = next(r for r in registros if r["event"] == "helena_escalonamento_nao_aberto")
+    assert evento["log_level"] == "warning"
+    assert evento["start_desfecho"] == START_DESFECHO_JA_ATIVO
+    assert evento["business_key"] == BUSINESS_KEY
+    assert evento["process_key"] == PROCESS_KEY
+    assert "dor de cabeca" not in json.dumps(registros), "texto do beneficiario num log estruturado"
+
+
+# =================================================================================================
+# 6. O `ja_ativo` nao e' mais uma borracha (21/09/2026, segunda rodada)
+# =================================================================================================
+
+
+async def test_o_ja_ativo_preserva_a_confirmacao_de_memoria_e_a_orientacao() -> None:
+    """O rascunho que NAO anuncia handoff novo sobrevive atras da constante.
+
+    O QUE A TROCA INCONDICIONAL CUSTAVA, e por que isto nao e' preferencia de redacao: a
+    `memoria_a_confirmar` e' a pergunta que o `response_prompt` OBRIGA a Helena a fazer antes de
+    usar um dado LEMBRADO ("entendi que voce esta falando sobre sua crianca de 3 anos, certo?"), e
+    ela existe porque o custo de uma populacao errada lembrada e' a tabela errada consultada em
+    silencio. Num turno `ja_ativo` a pessoa perdia a chance de corrigir o dado clinico — e o motivo
+    era um fato (a escalacao ja' estava aberta) que nada tem a ver com aquele dado.
+    """
+    confirmacao = "entendi que voce esta falando sobre sua crianca de 3 anos, certo?"
+    rascunho = f"{confirmacao} Enquanto isso, se a febre subir, procure emergencia."
+    whatsapp = _WhatsApp()
+    graph = _graph(whatsapp=whatsapp)
+
+    saida = await graph.respond(
+        _estado(
+            response_text=rascunho,
+            response_kind="escalate",
+            escalation_started=True,
+            start_desfecho=START_DESFECHO_JA_ATIVO,
+        )
+    )
+
+    enviado = whatsapp.enviados[0][1]
+    assert enviado.startswith(RESPOSTA_HANDOFF_JA_ABERTO), "o fato vem primeiro, sempre"
+    assert confirmacao in enviado, "a pergunta de confirmacao do dado lembrado nao pode desaparecer"
+    assert "procure emergencia" in enviado
+    assert saida["response_text"] == enviado
+    assert saida.get("error") is None, "a idempotencia funcionou; nada falhou"
+
+
+async def test_o_ja_ativo_continua_descartando_o_anuncio_de_handoff_novo() -> None:
+    """O RED do teste acima: o prefixo NAO e' a regra geral. Um rascunho que anuncia um
+    encaminhamento NOVO continua sendo descartado inteiro — prefixar a constante nele produziria
+    "nao abri outro atendimento. Um profissional vai entrar em contato", que e' pior que os dois
+    textos separados."""
+    whatsapp = _WhatsApp()
+    graph = _graph(whatsapp=whatsapp)
+
+    await graph.respond(
+        _estado(
+            response_text=C1_PROMESSA,
+            response_kind="escalate",
+            escalation_started=True,
+            start_desfecho=START_DESFECHO_JA_ATIVO,
+        )
+    )
+
+    assert whatsapp.enviados == [("c1_deadbeef", RESPOSTA_HANDOFF_JA_ABERTO)]
+
+
+# =================================================================================================
+# 7. O texto que o codigo envia quando a REDACAO cai (21/09/2026, segunda rodada)
+# =================================================================================================
+
+
+def test_o_fallback_de_redacao_nao_promete_nada_e_passa_nas_quatro_cercas() -> None:
+    """A constante que substituiu a promessa canned de `_respond_llm`.
+
+    Ela e' o unico texto do modulo que sai SEM ter passado por modelo nenhum num turno normal, e
+    por isso e' cobrada nas quatro cercas de uma vez — inclusive com `start_aconteceu=False`, que
+    e' o fato do turno `inform` em que ela e' alcancada. A regua de clareza entra pela mesma razao
+    do bloco 1: uma constante e' o unico texto que ninguem revisa a cada turno.
+    """
+    from tests.evals._harness import score_clarity
+
+    assert menciona_encaminhamento(RESPOSTA_FALHA_DE_REDACAO) is False
+    assert motivo_de_canal_nao_confirmado(RESPOSTA_FALHA_DE_REDACAO) is None
+    for rota in ("inform", "escalate", "schedule", "collect"):
+        assert motivo_de_recusa(RESPOSTA_FALHA_DE_REDACAO, rota, start_aconteceu=False) is None
+        assert motivo_de_recusa(RESPOSTA_FALHA_DE_REDACAO, rota, start_aconteceu=None) is None
+
+    relatorio = score_clarity(RESPOSTA_FALHA_DE_REDACAO, max_words_per_sentence=20)
+    assert not relatorio.long_sentences, f"oracao acima de 20 palavras -> {relatorio.long_sentences}"
+
+
+async def test_a_troca_da_cerca_nao_apaga_o_motivo_tecnico_do_turno() -> None:
+    """`error` que o turno JA tinha nao e' sobrescrito pela cerca.
+
+    O caso que expos isto: o provedor de inferencia cai, `classify` escreve o motivo tecnico em
+    `error` (que e' o que o atendente le' no `[falha tecnica: ...]` do handoff) e o rascunho vira a
+    constante de falha de redacao — que nao menciona o encaminhamento. A troca do item 2 gravava
+    `handoff sem mencao` em cima do motivo. A narracao do texto nao pode apagar a causa do turno; o
+    rastro da troca continua no log e no contador.
+    """
+    motivo_tecnico = "classify LLM call failed: RuntimeError"
+    graph = _graph()
+
+    saida = await graph.respond(
+        _estado(
+            response_text=RESPOSTA_FALHA_DE_REDACAO,
+            response_kind="escalate",
+            escalation_started=True,
+            start_desfecho=START_DESFECHO_NOVO,
+            error=motivo_tecnico,
+        )
+    )
+
+    assert saida["response_text"] == RESPOSTA_HANDOFF_RECUSADA, "a troca acontece de qualquer forma"
+    assert saida.get("error") in (None, motivo_tecnico)
+    assert saida.get("error") != ERRO_HANDOFF_SEM_MENCAO
