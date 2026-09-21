@@ -130,6 +130,12 @@ CODIGO_RECUSA = "completion_unavailable"
 FUNCAO_ROTA = "complete_task"
 MIDDLEWARE_CORS = "CORSMiddleware"
 CURINGAS_PROIBIDOS = ("allow_origin_regex",)
+#: O envoltorio que RECORTA o CORS por caminho (review DL-0049, P2). Quando ele aparece no
+#: lugar do `CORSMiddleware` cru em `add_middleware`, a cerca exige que ele traga `paths`:
+#: sem isso o recorte desapareceria em silencio e o CORS credenciado voltaria a valer para o
+#: BFF inteiro — que e' exatamente o achado que criou este envoltorio.
+ENVOLTORIO_CORS = "PathScopedCORS"
+PALAVRA_DO_RECORTE = "paths"
 
 
 # ---------------------------------------------------------------------------------------
@@ -274,20 +280,56 @@ def checar_defaults_desligados(raiz: Path = REPO_ROOT) -> list[str]:
 # Cerca 6 — CORS condicional, sem curinga.
 # ---------------------------------------------------------------------------------------
 def checar_cors_condicional(raiz: Path = REPO_ROOT) -> list[str]:
+    """O CORS do portal: condicional, sem curinga, e — desde o review de 21/09 — RECORTADO.
+
+    DUAS COISAS DIFERENTES, e confundi-las produzia falso positivo. A INSTALACAO e' a chamada a
+    `add_middleware`: e' ela que liga o middleware ao app, e e' ELA que tem de morar dentro de um
+    `if`, porque a allowlist nasce vazia. A CONSTRUCAO e' `CORSMiddleware(...)` chamado
+    diretamente — hoje isso acontece dentro do `__init__` do envoltorio que recorta por caminho,
+    onde exigir um `if` nao faz sentido nenhum. A cerca olha as duas: a instalacao para cobrar a
+    condicional e o recorte, a construcao para nao ficar CEGA se o CORS passar a ser embrulhado
+    por outro nome.
+    """
     achados: list[str] = []
     arvore = _arvore(raiz, APP)
     if arvore is None:
         achados.append(f"{APP}: nao foi possivel analisar — a cerca precisa deste arquivo.")
         return achados
+
+    # As classes DESTE modulo que constroem `CORSMiddleware` — resolvidas, nao fixadas por nome.
+    # E' o que torna a cerca imune a um RENAME do envoltorio: se alguem trocar `PathScopedCORS`
+    # por outro nome, a classe nova continua sendo reconhecida como CORS e cobrada igual.
+    envoltorios = {
+        no.name
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.ClassDef)
+        and any(
+            isinstance(f, ast.Call) and isinstance(f.func, ast.Name) and f.func.id == MIDDLEWARE_CORS
+            for f in ast.walk(no)
+        )
+    }
+    reconhecidos = {MIDDLEWARE_CORS, ENVOLTORIO_CORS} | envoltorios
     instalacoes = [
         no
         for no in ast.walk(arvore)
         if isinstance(no, ast.Call)
-        and any(isinstance(a, ast.Name) and a.id == MIDDLEWARE_CORS for a in no.args)
+        and isinstance(no.func, ast.Attribute)
+        and no.func.attr == "add_middleware"
+        and any(isinstance(a, ast.Name) and a.id in reconhecidos for a in no.args)
     ]
-    if not instalacoes:
-        # Nenhum CORS: e' o estado mais seguro possivel, nada a cobrar.
+    construcoes = [
+        no
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.Call) and isinstance(no.func, ast.Name) and no.func.id == MIDDLEWARE_CORS
+    ]
+    if not instalacoes and not construcoes:
+        # Nenhum CORS: continua sendo o estado mais seguro possivel e nao ha nada a cobrar
+        # (`test_nenhum_cors_no_app_nao_e_achado` fixa isso de proposito).
         return achados
+    # Construcao sem instalacao NAO e' achado: e' codigo morto, e codigo morto nao serve
+    # requisicao nenhuma. O risco que esta cerca cobre e' o inverso — CORS INSTALADO sob um nome
+    # que ela nao reconheca —, e quem cobre isso e' o conjunto `envoltorios` acima.
+
     dentro_de_if: set[int] = set()
     for no in ast.walk(arvore):
         if not isinstance(no, ast.If):
@@ -297,15 +339,27 @@ def checar_cors_condicional(raiz: Path = REPO_ROOT) -> list[str]:
                 dentro_de_if.add(id(filho))
     if any(id(chamada) not in dentro_de_if for chamada in instalacoes):
         achados.append(
-            f"{APP}: `{MIDDLEWARE_CORS}` instalado FORA de um `if` — o CORS do portal so' pode "
-            f"existir quando a allowlist estiver preenchida, e ela ja' nasce vazia (DL-0049)."
+            f"{APP}: CORS instalado FORA de um `if` — ele so' pode existir quando a allowlist "
+            f"estiver preenchida, e ela ja' nasce vazia (DL-0049)."
         )
+
     for chamada in instalacoes:
+        envolvido = any(
+            isinstance(a, ast.Name) and a.id != MIDDLEWARE_CORS and a.id in reconhecidos for a in chamada.args
+        )
+        if envolvido and not any(pal.arg == PALAVRA_DO_RECORTE for pal in chamada.keywords):
+            achados.append(
+                f"{APP}: `{ENVOLTORIO_CORS}` instalado sem `{PALAVRA_DO_RECORTE}` — sem a lista de "
+                f"caminhos ele nao recorta nada, e o CORS credenciado volta a valer para o BFF "
+                f"inteiro (o achado P2 do review de DL-0049)."
+            )
+
+    for chamada in instalacoes + construcoes:
         for palavra in chamada.keywords:
             if palavra.arg in CURINGAS_PROIBIDOS:
                 achados.append(
-                    f"{APP}: `{palavra.arg}` em `{MIDDLEWARE_CORS}` — uma expressao casa origens "
-                    f"que ninguem declarou; a allowlist e' uma lista de strings exatas."
+                    f"{APP}: `{palavra.arg}` em CORS — uma expressao casa origens que ninguem "
+                    f"declarou; a allowlist e' uma lista de strings exatas."
                 )
             if palavra.arg == "allow_origins":
                 for elemento in ast.walk(palavra.value):

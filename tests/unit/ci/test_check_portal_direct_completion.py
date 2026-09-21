@@ -48,11 +48,12 @@ _ARQUIVOS_DE_CODIGO = (
 # falham em `_trocar` com a âncora ausente em vez de passarem a testar outra coisa.
 _DEFAULT_FLAG = "    direct_completion: bool = False"
 _DEFAULT_CORS = '    cors_origins: str = ""'
-_CORS_CONDICIONAL = "    if cross_origins:\n        app.add_middleware(\n            CORSMiddleware,"
+_CORS_CONDICIONAL = "    if cross_origins:\n        app.add_middleware(\n            PathScopedCORS,"
 _BLOCO_CORS = (
     "    if cross_origins:\n"
     "        app.add_middleware(\n"
-    "            CORSMiddleware,\n"
+    "            PathScopedCORS,\n"
+    "            paths=CROSS_ORIGIN_PATHS,\n"
     "            allow_origins=list(cross_origins),  # exact strings; never a regex or an echo\n"
     "            allow_credentials=True,\n"
     '            allow_methods=["GET", "POST"],\n'
@@ -271,7 +272,7 @@ def test_cors_instalado_incondicionalmente_reprova(tmp_path: Path) -> None:
         lambda t: _trocar(
             t,
             _CORS_CONDICIONAL,
-            "    app.add_middleware(\n        CORSMiddleware,",
+            "    app.add_middleware(\n        PathScopedCORS,\n        paths=CROSS_ORIGIN_PATHS,",
         ),
     )
     achados = checar_cors_condicional(raiz)
