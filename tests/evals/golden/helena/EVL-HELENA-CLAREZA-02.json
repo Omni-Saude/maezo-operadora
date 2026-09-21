@@ -3,7 +3,7 @@
   "agent": "helena",
   "class": "CL",
   "tier": ["A"],
-  "description": "Clarity/legibility (gap 10.3, WP-EVALS): administrative inform response (same intent shape as EVL-HELENA-02) -- checks that the plain-language answer stays short-sentenced and free of leaked internal/engine jargon. No mandatory disclaimer applies to a non-escalation informational reply. Synthetic data only (tenant amh, pseudo id).",
+  "description": "Clarity/legibility (gap 10.3, WP-EVALS): administrative inform response (same intent shape as EVL-HELENA-02) -- checks that the plain-language answer stays short-sentenced and free of leaked internal/engine jargon. No mandatory disclaimer applies to a non-escalation informational reply. Synthetic data only (tenant amh, pseudo id). Texto do `recorded_llm` atualizado em 21/09/2026 (F7): a resposta citava \"o aplicativo\", que nao e' um dos nomes de `prompts.py::CANAIS_CONFIRMADOS` — e carencia e' duvida administrativa, resolvida pela central de atendimento do plano, nao pelo app.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -15,7 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Voce pode consultar os prazos de carencia no aplicativo ou falando com um atendente. Qualquer duvida, estamos por aqui."
+    "Voce pode consultar os prazos de carencia com a central de atendimento do plano. Qualquer duvida, estamos por aqui."
   ],
   "expect": {
     "next_kind": "inform",

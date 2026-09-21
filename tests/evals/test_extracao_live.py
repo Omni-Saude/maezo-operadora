@@ -160,7 +160,7 @@ def _pontuar(obtido: dict[str, Any], esperado: dict[str, Any]) -> tuple[float, d
 @pytest.mark.llm_live
 @pytest.mark.eval
 async def test_extracao_ao_vivo_contra_o_corpus_rotulado() -> None:
-    """Roda o `classify` REAL contra os 116 casos e publica a nota por campo e por regra.
+    """Roda o `classify` REAL contra os 126 casos e publica a nota por campo e por regra.
 
     A SAIDA IMPORTA TANTO QUANTO O VEREDITO: um numero agregado nao diz o que consertar. O relatorio
     abaixo sai no stdout do teste e e' o que se leva para a conversa com quem assina a regua —
