@@ -67,7 +67,21 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v5          # 21/09/2026, SEGUNDA RODADA (gates em lote): a MENCAO ao
+  recusa_de_saida: recusa-v6          # 21/09/2026, TERCEIRA RODADA (achados do code-reviewer
+                                      # sobre o delta da rodada 2): quatro ESTREITAMENTOS do que
+                                      # a rodada 2 alargou demais. A MENCAO perdeu o filtro de
+                                      # negacao por oracao (uma negacao em qualquer ponto da
+                                      # oracao desligava a cerca da frase seguinte) e ganhou o
+                                      # CLITICO no padrao de assuncao ("vai TE ligar"); a cerca de
+                                      # CANAL passou a aceitar a referencia de volta SO' no termo
+                                      # NU — no termo QUALIFICADO ela legitimava nome INVENTADO por
+                                      # vizinhanca ("aplicativo Austa Saude" ao lado de um canal
+                                      # confirmado) — e o telefone passou a exigir PISTA na
+                                      # vizinhanca, porque sem ela recusava faixa de ano, codigo
+                                      # TUSS e prazo, e em `inform` recusar e' fila humana.
+                                      # O veredito de cada texto medido nas tres rodadas esta'
+                                      # fixado em tests/unit/agents/corpus_cercas_de_saida.json.
+                                      # v5 (21/09/2026, segunda rodada): a MENCAO ao
                                       # encaminhamento virou lista de FRASES com polaridade (uma
                                       # oracao negada nao e' mencao) e passou a valer tambem do
                                       # lado PROIBIDO — anunciar handoff sem start e' recusado em

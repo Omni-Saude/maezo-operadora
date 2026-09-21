@@ -611,7 +611,25 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v5"  # 21/09/2026, SEGUNDA RODADA (os tres gates rodados em lote
+RECUSA_DE_SAIDA_VERSION = "recusa-v6"  # 21/09/2026, TERCEIRA RODADA (os dois CRITICOS e os dois
+# IMPORTANTES de cerca achados pelo code-reviewer no delta da rodada 2). As quatro mudancas, e as
+# quatro sao ESTREITAMENTOS de algo que a rodada 2 alargou demais:
+#   * MENCAO — o filtro de negacao por ORACAO saiu. Ele descartava a oracao inteira ao ver
+#     `nao/sem/nenhum/ninguem`, e virgula nao separa oracao: qualquer frase com uma negacao em
+#     qualquer ponto perdia a cerca ("Sem mais detalhes eu nao consigo avaliar, entao a equipe vai
+#     te ligar ainda hoje"). Os cinco textos que o motivaram seguem sem mencao SEM ele, porque a
+#     polaridade ja' mora nos padroes de sujeito+acao;
+#   * MENCAO — o CLITICO entrou no padrao de assuncao ("vai TE ligar", "vai LHE retornar");
+#   * CANAL — a referencia de volta passou a valer SO' para o termo NU. No termo QUALIFICADO ela
+#     legitimava nome INVENTADO por vizinhanca ("aplicativo Austa Saude" ao lado de um canal
+#     confirmado), que e' o F7 reaberto;
+#   * CANAL — o telefone passou a exigir PISTA na vizinhanca. Sem ela o padrao recusava faixa de
+#     ano, codigo TUSS e prazo ("2024-2025", "31602096", "1080 1200 dias"), e em `inform` recusar
+#     e' escalonamento humano.
+# A partir deste numero existe um CORPUS versionado com o veredito de cada texto medido nas tres
+# rodadas (`tests/unit/agents/corpus_cercas_de_saida.json`): trocar o veredito de qualquer um deles
+# exige editar o corpus, que e' a cerca que faltou para pegar o CRITICO 2 automaticamente.
+# v5 — 21/09/2026, SEGUNDA RODADA (os tres gates rodados em lote
 # sobre a entrega da bateria). O que mudou nas listas:
 #   * a MENCAO deixou de ser lista de substrings e passou a ser lista de FRASES com polaridade
 #     (ver `MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA`), e passou a ser consultada TAMBEM pelo lado
@@ -776,8 +794,13 @@ PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
 #:
 #:   1. POLARIDADE. "Nao acionei nenhum atendente" e "Por isso nenhum atendente foi acionado ainda"
 #:      (esta e' a propria `RESPOSTA_FALHA_TECNICA_START`) diziam o CONTRARIO de uma mencao e
-#:      casavam o substring "atendente". A leitura passa a ser por ORACAO, e uma oracao com
-#:      marcador de negacao (`_MARCADORES_DE_NEGACAO`) nao conta.
+#:      casavam o substring "atendente". A polaridade passou a vir do PADRAO: sujeito + ACAO DE
+#:      ASSUNCAO (item 2), e nenhum daqueles textos tem a acao. NOTA DE 21/09/2026, TERCEIRA
+#:      RODADA: esta rodada tambem acrescentou um filtro que descartava a oracao inteira quando
+#:      ela continha uma palavra de negacao, e ele foi REMOVIDO no mesmo dia por ser um
+#:      interruptor que o modelo acionava sem querer (uma negacao em qualquer ponto da oracao
+#:      desligava a cerca da frase seguinte). O raciocinio completo esta' em
+#:      `padrao_de_encaminhamento`.
 #:   2. SUJEITO + ACAO DE ASSUNCAO, em vez do sujeito solto. "um profissional", "uma profissional"
 #:      e "profissional da" serviam igualmente a ORIENTACAO ("este canal pode orientar e encaminhar
 #:      para um profissional", que e' o proprio cartao de abertura) e ao AVISO ("um profissional vai
@@ -798,8 +821,15 @@ PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
 #: chamar"), e o efeito deles e' a troca pela constante, nunca um texto mentiroso.
 _SUJEITO_QUE_ASSUME = r"(?:profissional|atendente|enfermeir\w+|enfermagem|medic[oa]|humano|equipe|plantao)"
 #: A ACAO de assumir. "avisar", "chamar" e "pedir" ficam fora pela mesma razao acima.
+#:
+#: O CLITICO E' OPCIONAL NO MEIO (21/09/2026, terceira rodada). `(?:vai|vao|ira|irao)\s+verbo`
+#: exigia adjacencia entre o auxiliar e o verbo, e o pronome oblicuo em portugues mora exatamente
+#: ali: "vai TE ligar", "vai LHE retornar", "vao TE avaliar". Medido no review: *"Uma profissional
+#: vai lhe retornar em breve"* passava inteiro num turno sem start. A forma mais natural de
+#: anunciar um handoff era a que escapava — o pior lugar para um buraco de cobertura.
 _ACAO_DE_ASSUNCAO = (
-    r"(?:(?:vai|vao|ira|irao)\s+(?:continuar|dar\s+continuidade|assumir|atender|avaliar|retornar"
+    r"(?:(?:vai|vao|ira|irao)\s+(?:(?:te|lhe|me|nos|voce)\s+)?"
+    r"(?:continuar|dar\s+continuidade|assumir|atender|avaliar|retornar"
     r"|ligar|falar|entrar\s+em\s+contato)|entrarao?\s+em\s+contato|assumiu|assumira)"
 )
 
@@ -817,15 +847,14 @@ MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
     r"\bja\s+esta\s+com\s+(?:a\s+)?(?:nossa\s+)?equipe\b",
 )
 
-#: O que transforma uma oracao em NEGACAO do handoff. Palavra inteira: "sem" e' o unico que
-#: poderia casar dentro de outra ("semana"), e casar assim reprovaria "de 33 semanas".
-_MARCADORES_DE_NEGACAO: tuple[str, ...] = ("nao", "nenhum", "nenhuma", "ninguem", "sem")
-
 #: Fim de ORACAO. A virgula NAO entra: a distancia entre sujeito e acao (`{0,40}`) atravessa
 #: aposto ("Um profissional de saude, do plantao, vai continuar"), e quebrar em virgulas
 #: desligaria justamente os padroes de assuncao.
+#:
+#: O QUE ELE FAZ HOJE, depois de 21/09/2026 (terceira rodada): ele apenas LIMITA A JANELA dos
+#: padroes (o `[^.;!?]{0,40}` entre sujeito e acao tambem nao atravessa `\n`). O FILTRO DE
+#: NEGACAO POR ORACAO QUE MORAVA AQUI FOI REMOVIDO — ver `padrao_de_encaminhamento`.
 _FIM_DE_ORACAO = re.compile(r"[.;!?\n]+")
-_PALAVRA = re.compile(r"[a-z]+")
 
 #: CANAL NAO CONFIRMADO (21/09/2026, F7). Quarta categoria, e' irma da promessa de capacidade sem
 #: ser ela: alem de prometer o que nao faz, a Helena mandava a pessoa para lugares que nao existem
@@ -872,9 +901,14 @@ class TermoDeCanal(NamedTuple):
     #: literalmente fala — e "site" e' substring de "visite". Casar cru reprovaria texto correto, e
     #: uma cerca que reprova o certo e' desligada na semana seguinte.
     padrao: str
-    #: O nome confirmado que precisa aparecer no MESMO texto. `None` = nunca legitimo;
-    #: `QUALQUER_CANAL_CONFIRMADO` = basta QUALQUER um dos nomes de `CANAIS_CONFIRMADOS`.
+    #: O nome confirmado que precisa aparecer no MESMO texto quando o termo vem QUALIFICADO (algo
+    #: que pode ser nome logo depois dele: "aplicativo Austa Saude", "portal do plano"). `None` =
+    #: nunca legitimo.
     exige: str | None
+    #: O mesmo, para quando o termo vem NU (nada que possa ser nome depois dele: "...e tambem pelo
+    #: aplicativo."). `QUALQUER_CANAL_CONFIRMADO` = basta QUALQUER um dos nomes de
+    #: `CANAIS_CONFIRMADOS` — a REFERENCIA DE VOLTA, que so' vale AQUI.
+    exige_nu: str | None
 
 
 #: `exige` que aceita qualquer nome confirmado no MESMO texto — a REFERENCIA DE VOLTA.
@@ -889,7 +923,61 @@ class TermoDeCanal(NamedTuple):
 #: O que a cerca precisa garantir e' que a pessoa saiba PARA ONDE ir; um texto que nomeia o portal
 #: do plano e depois diz "no aplicativo" nao deixa ninguem perdido. Exigir o par exato era
 #: confundir "o texto diz onde" com "o texto diz onde na ordem que a cerca espera".
+#:
+#: 21/09/2026, TERCEIRA RODADA — ELA VALE SO' PARA O TERMO NU, e esse recorte e' o conserto de um
+#: defeito CRITICO. Aplicada tambem ao termo QUALIFICADO, a referencia de volta legitima um nome
+#: INVENTADO por vizinhanca: bastava o texto citar qualquer canal confirmado em qualquer outro
+#: lugar. Os tres casos medidos no review, todos recusados na rodada 1 e aprovados na rodada 2:
+#:
+#:     "Baixe o aplicativo Austa Saude ... ou fale com a central de atendimento do plano."
+#:     "Voce encontra no portal Unimed, e tambem no aplicativo Austa Clinicas."
+#:     "Consulte no aplicativo Meu Convenio; o portal do plano tem a mesma informacao."
+#:
+#: O dano e' o F7 inteiro de volta, e pior do que ele: a pessoa baixa um aplicativo que nao existe
+#: num texto que parece mais confiavel justamente por citar um canal que existe.
 QUALQUER_CANAL_CONFIRMADO: str = "*qualquer canal confirmado*"
+
+#: O que pode seguir um termo generico de canal SEM qualifica-lo. Lista FECHADA de palavras
+#: funcionais, e o desenho e' FAIL-CLOSED: qualquer palavra fora desta lista conta como possivel
+#: NOME, e ai a cerca cobra o nome da familia.
+#:
+#: POR QUE LEXICAL, e nao por maiuscula: `_normalizar` minuscula o texto antes de qualquer padrao
+#: rodar (tem de fazer isso — o modelo varia a caixa), entao "Austa Saude" e "austa saude" sao a
+#: mesma coisa aqui. Um teste de qualificador por letra maiuscula seria vacuo.
+#:
+#: O QUE FICA DE FORA, de proposito, com o texto que motivou cada exclusao:
+#:   * `de/do/da/dos/das` — sao exatamente o que INICIA o dono do canal ("portal DO plano",
+#:     "aplicativo DA operadora"), a familia de nomes que o F7 mediu em cinco casos;
+#:   * POSSESSIVOS (`meu/minha/nosso/nossa/seu/sua`) — podem ENCABECAR um nome de marca:
+#:     "aplicativo Meu Convenio" foi um dos tres textos medidos no review;
+#:   * VERBOS. "o portal MOSTRA a mesma lista" fica, portanto, do lado QUALIFICADO e e' recusado
+#:     sem o nome da familia. E' uma troca DECLARADA de veredito (ver o corpus de nao-regressao,
+#:     `tests/unit/agents/corpus_cercas_de_saida.json`): separar um verbo lexical de um nome de
+#:     marca exige dicionario, e sem ele a escolha e' entre reprovar "o portal mostra" e aprovar
+#:     "o portal Unimed". Reprovar um texto correto custa um escalonamento; aprovar um canal
+#:     inventado custa uma pessoa indo para um lugar que nao existe — e o nome da familia esta' a
+#:     uma palavra de distancia ("o portal do plano mostra a mesma lista").
+_CONTINUACAO_QUE_NAO_QUALIFICA: frozenset[str] = frozenset(
+    # conjuncoes e adverbios de ligacao
+    ("e", "ou", "mas", "tambem", "entao", "porque", "ainda", "ja", "so", "mesmo", "tampouco")
+    # preposicoes e contracoes que NAO iniciam o dono do canal
+    + ("para", "por", "pelo", "pela", "com", "em", "no", "na", "nos", "nas", "sem", "ate")
+    + ("desde", "sobre", "conforme")
+    # pronomes, interrogativos e adverbios de frase
+    + ("voce", "eu", "ele", "ela", "eles", "elas", "isso", "isto", "aquilo", "que", "quem")
+    + ("onde", "quando", "como", "qual", "quais", "se", "aqui", "la", "ai", "nao", "sim")
+)
+
+#: A primeira palavra depois do termo generico, se houver alguma antes de pontuacao. `None`
+#: (pontuacao ou fim de texto logo depois) e' o caso NU mais claro que existe.
+_PRIMEIRA_PALAVRA_SEGUINTE = re.compile(r"\s*([a-z0-9]+)")
+
+#: As PISTAS DE TELEFONE na vizinhanca do numero (21/09/2026, terceira rodada). Ver
+#: `CANAL_TERMO_QUE_EXIGE_O_NOME`.
+_PISTA_DE_TELEFONE = r"(?:ligue|ligar|liga|ligamos|telefone|telefonar|disque|disca|fone|numero|0800|whatsapp)"
+#: A janela entre a pista e o numero, em qualquer ordem. Limitada e sem alternancia aninhada, pelo
+#: mesmo motivo dos padroes de mencao: a cerca roda em todo texto que sai.
+_TELEFONE_NU = r"\d{4,5}[\s.-]?\d{4}"
 
 #: "No aplicativo" nao e' menos vago que "aplicativo do plano": a pessoa continua sem saber qual
 #: baixar. O termo generico so' passa acompanhado de um nome que existe.
@@ -919,18 +1007,56 @@ QUALQUER_CANAL_CONFIRMADO: str = "*qualquer canal confirmado*"
 #:     admitir um canal que ninguem confirmou — que e' precisamente o F7. Se o dono quiser que a
 #:     Helena possa citar o site da ANS, o caminho e' o site entrar em `CANAIS_CONFIRMADOS`, e a
 #:     cerca passa a aceita-lo de graca. A decisao e' do dono, nao do padrao.
+#:   * 21/09/2026 (TERCEIRA RODADA), O QUALIFICADO VOLTOU A EXIGIR O NOME DA FAMILIA. `exige` e
+#:     `exige_nu` passaram a ser duas colunas porque sao duas perguntas: com qualificador, o texto
+#:     esta' NOMEANDO um canal e o nome tem de ser o da familia ("aplicativo Austa Clinicas",
+#:     "portal do plano"); nu, o texto esta' APONTANDO para algo que ele nomeia em outro lugar, e
+#:     ai qualquer nome confirmado serve. A `central` nao ganha folga nenhuma nas duas colunas: ela
+#:     tem um dono so', e "ligue na central. Veja no portal do plano." continua mandando a pessoa
+#:     para uma central que ninguem confirmou.
+#:   * 21/09/2026 (TERCEIRA RODADA), O TELEFONE PASSOU A EXIGIR PISTA. Ver o comentario no proprio
+#:     par de padroes abaixo.
 CANAL_TERMO_QUE_EXIGE_O_NOME: tuple[TermoDeCanal, ...] = (
-    TermoDeCanal(padrao=r"\baplicativos?\b", exige=QUALQUER_CANAL_CONFIRMADO),
-    TermoDeCanal(padrao=r"\bapps?\b", exige=QUALQUER_CANAL_CONFIRMADO),
-    TermoDeCanal(padrao=r"\bportais?\b", exige=QUALQUER_CANAL_CONFIRMADO),
-    TermoDeCanal(padrao=r"\bportal\b", exige=QUALQUER_CANAL_CONFIRMADO),
-    TermoDeCanal(padrao=r"\bcentral\b", exige="central de atendimento do plano"),
-    TermoDeCanal(padrao=r"\b(?:web)?sites?\b", exige=None),
+    TermoDeCanal(
+        padrao=r"\baplicativos?\b",
+        exige="aplicativo austa clinicas",
+        exige_nu=QUALQUER_CANAL_CONFIRMADO,
+    ),
+    TermoDeCanal(padrao=r"\bapps?\b", exige="aplicativo austa clinicas", exige_nu=QUALQUER_CANAL_CONFIRMADO),
+    TermoDeCanal(padrao=r"\bportais?\b", exige="portal do plano", exige_nu=QUALQUER_CANAL_CONFIRMADO),
+    TermoDeCanal(padrao=r"\bportal\b", exige="portal do plano", exige_nu=QUALQUER_CANAL_CONFIRMADO),
+    TermoDeCanal(
+        padrao=r"\bcentral\b",
+        exige="central de atendimento do plano",
+        exige_nu="central de atendimento do plano",
+    ),
+    TermoDeCanal(padrao=r"\b(?:web)?sites?\b", exige=None, exige_nu=None),
     # Numero de telefone em QUALQUER forma: DDD entre parenteses, ou 4-5 digitos + 4 digitos com
-    # separador opcional (espaco, ponto ou hifen). O `\b` nas duas pontas e' o que mantem "24
-    # horas" e "33 semanas" fora.
-    TermoDeCanal(padrao=r"\(\d{2}\)", exige=None),
-    TermoDeCanal(padrao=r"\b\d{4,5}[\s.-]?\d{4}\b", exige=None),
+    # separador opcional (espaco, ponto ou hifen).
+    #
+    # A PISTA ENTROU EM 21/09/2026 (TERCEIRA RODADA), e ela e' o que separa telefone de numero. O
+    # `\b` nas duas pontas mantinha "24 horas" e "33 semanas" fora, e nao mantinha fora nada que
+    # tenha 8 ou 9 digitos em dois blocos — os QUATRO textos medidos no review, todos recusados
+    # (4/4), sao duvida administrativa legitima:
+    #
+    #     "O Rol de Procedimentos 2024-2025 da ANS lista esse exame."   (faixa de ano)
+    #     "O codigo do procedimento e 31602096."                        (codigo TUSS, 8 digitos)
+    #     "A carencia e de 1080 1200 dias..."                           (dois prazos lado a lado)
+    #     "Seu plano cobre desde 2023-2024."                            (faixa de ano)
+    #
+    # E em `inform` recusar nao produz outro texto: produz `falha_tecnica` e fila de gente. Entao o
+    # padrao passou a exigir uma PISTA DE TELEFONE na vizinhanca (`_PISTA_DE_TELEFONE`), antes ou
+    # depois do numero, dentro da mesma oracao e a no maximo 40 caracteres. O DDD entre parenteses
+    # continua sem pista: `(11)` nao e' ambiguo em portugues administrativo.
+    TermoDeCanal(padrao=r"\(\d{2}\)", exige=None, exige_nu=None),
+    TermoDeCanal(
+        padrao=(
+            rf"{_PISTA_DE_TELEFONE}[^.;!?\n]{{0,40}}\b{_TELEFONE_NU}\b"
+            rf"|\b{_TELEFONE_NU}\b[^.;!?\n]{{0,40}}{_PISTA_DE_TELEFONE}"
+        ),
+        exige=None,
+        exige_nu=None,
+    ),
 )
 
 #: Rotulos dos grupos (promessa/negativa/capacidade/canal + os tres de texto x fato). Fechados,
@@ -999,21 +1125,61 @@ def _nome_confirmado_presente(plano: str, exige: str | None) -> bool:
     return exige in plano
 
 
+def _termo_generico_esta_nu(plano: str, fim_do_termo: int) -> bool:
+    """O termo generico que termina em `fim_do_termo` esta' NU, isto e' sem nada que possa ser um
+    NOME depois dele? (21/09/2026, terceira rodada)
+
+    NU = pontuacao ou fim de texto logo depois ("...e tambem pelo aplicativo."), ou uma palavra da
+    lista FECHADA `_CONTINUACAO_QUE_NAO_QUALIFICA` ("no aplicativo voce ve a carteirinha").
+
+    Tudo o mais e' QUALIFICADO — inclusive verbo, inclusive possessivo —, e a direcao do erro e'
+    deliberada: o termo qualificado cobra o nome da FAMILIA, que e' a cerca estreita. Fail-closed
+    aqui significa que uma palavra nova na lingua portuguesa custa um falso positivo (um
+    escalonamento), nunca um canal inventado chegando ao beneficiario.
+    """
+    seguinte = _PRIMEIRA_PALAVRA_SEGUINTE.match(plano, fim_do_termo)
+    if seguinte is None:
+        return True
+    return seguinte.group(1) in _CONTINUACAO_QUE_NAO_QUALIFICA
+
+
 def padrao_de_encaminhamento(texto: str) -> str | None:
     """O padrao de mencao que o texto casa, ou `None`. A forma `(padrao)` existe pelo mesmo motivo
     das cercas irmas: o PADRAO vai para o log (onde alguem depura) e o GRUPO para o contador (onde
     alguem conta), e sem ele a recusa de "handoff anunciado sem start" seria a unica deste modulo
     sem rastro do que a disparou.
 
-    UMA oracao por vez, e e' isso que da' polaridade a leitura: uma oracao com marcador de negacao
-    nao anuncia handoff nenhum, ainda que contenha as palavras de uma ("Por isso nenhum atendente
-    foi acionado ainda").
+    UMA oracao por vez, e o motivo passou a ser SO' a JANELA: o `[^.;!?]{0,40}` entre sujeito e
+    acao nao pode atravessar quebra de linha, e `_FIM_DE_ORACAO` e' o que garante isso.
+
+    O FILTRO DE NEGACAO POR ORACAO FOI REMOVIDO EM 21/09/2026 (TERCEIRA RODADA), e a remocao e' o
+    conserto de um defeito CRITICO. A rodada 2 descartava a oracao INTEIRA quando ela continha
+    `nao/sem/nenhum/nenhuma/ninguem`, e virgula e dois-pontos nao separam oracao (de proposito,
+    para o aposto caber na janela). Somadas, as duas decisoes fazem QUALQUER frase com uma negacao
+    em qualquer ponto perder a cerca — e a negacao esta' no comeco de metade das frases honestas
+    que um modelo escreve. Os tres textos medidos no review, todos saindo inteiros num turno
+    `inform` com ZERO processos:
+
+        "Sem mais detalhes eu nao consigo avaliar, entao a equipe vai te ligar ainda hoje."
+        "Ninguem precisa repetir isso: um profissional vai retornar para voce em breve."
+        "Nao tenho acesso ao seu historico, mas encaminhamos seu relato para a enfermagem."
+
+    POR QUE REMOVER E NAO ESTREITAR A JANELA: o filtro nao era load-bearing. Os CINCO textos que o
+    motivaram — "Nao acionei nenhum atendente", "Por isso nenhum atendente foi acionado ainda",
+    `RESPOSTA_FALHA_TECNICA_START`, `RESPOSTA_FALHA_DE_REDACAO` e `RESPOSTA_SEM_ENCAMINHAMENTO` —
+    continuam sem mencao sem ele, porque a polaridade ja' esta' nos PADROES: eles exigem a ACAO de
+    assuncao (`vai assumir`, `entrara em contato`, `encaminhamos`), e o que aqueles cinco textos
+    tem e' "foi acionado", "nao consegui registrar", "nao abri". Um filtro de polaridade por
+    palavra solta, aplicado por cima de padroes que ja' resolvem polaridade, so' podia subtrair
+    cobertura. A prova esta em
+    `test_helena_adv_rodada3.py::test_os_textos_que_motivaram_o_filtro_seguem_sem_mencao_sem_ele`,
+    e ela e' a condicao da remocao: se um daqueles cinco passar a mencionar, a cerca TEXTO x FATO
+    entra em contradicao consigo mesma (dois deles sao os textos que ela ENVIA para dizer que
+    ninguem foi acionado).
     """
     plano = _normalizar(texto)
     for oracao in _FIM_DE_ORACAO.split(plano):
         if not oracao.strip():
-            continue
-        if any(p in _MARCADORES_DE_NEGACAO for p in _PALAVRA.findall(oracao)):
             continue
         for padrao in MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA:
             if re.search(padrao, oracao) is not None:
@@ -1131,6 +1297,16 @@ def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
     nome inventado. As duas listas moram ao lado de `CANAIS_CONFIRMADOS`, que e' a fonte do texto
     do prompt — a cerca e a instrucao nao podem divergir sem que isso apareca no diff.
 
+    A SEGUNDA PASSAGEM FAZ DUAS PERGUNTAS DESDE 21/09/2026 (TERCEIRA RODADA), e a distincao e' o
+    conserto de um CRITICO. Para cada OCORRENCIA do termo generico ela decide primeiro se ele esta'
+    NU ou QUALIFICADO (`_termo_generico_esta_nu`) e so' depois o que exigir:
+
+      * QUALIFICADO ("aplicativo Austa Saude", "portal Unimed") — o texto esta' NOMEANDO um canal,
+        e o nome tem de ser o da FAMILIA (`termo.exige`). Foi aqui que a referencia de volta da
+        rodada 2 legitimava nome inventado por vizinhanca;
+      * NU ("...e tambem pelo aplicativo.") — o texto esta' APONTANDO para algo que ele nomeia em
+        outro lugar, e ai qualquer nome confirmado serve (`termo.exige_nu`).
+
     WIRING (LIGADO — este comentario envelheceu no merge e foi reescrito em 21/09/2026, segunda
     rodada): o ponto de chamada e' `graph.py::_cercar_saida`, ao lado de `motivo_de_recusa`, e esse
     metodo e' usado pelo chokepoint de redacao (`_respond_llm`) E pelo no' `collect`. A pendencia
@@ -1144,9 +1320,13 @@ def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
         if padrao in plano:
             return (RECUSA_CANAL_NAO_CONFIRMADO, padrao)
     for termo in CANAL_TERMO_QUE_EXIGE_O_NOME:
-        if re.search(termo.padrao, plano) is None:
-            continue
-        if _nome_confirmado_presente(plano, termo.exige):
-            continue
-        return (RECUSA_CANAL_NAO_CONFIRMADO, termo.padrao)
+        # TODA ocorrencia, nao a primeira (21/09/2026, terceira rodada). `re.search` julgava so' a
+        # primeira, e com o veredito dependendo de o termo estar NU ou QUALIFICADO isso abria uma
+        # porta mecanica: "Veja no portal do plano ou no aplicativo. Baixe o aplicativo Unimed."
+        # seria julgado pela ocorrencia NUA e o nome inventado sairia de graca.
+        for achado in re.finditer(termo.padrao, plano):
+            nu = _termo_generico_esta_nu(plano, achado.end())
+            if _nome_confirmado_presente(plano, termo.exige_nu if nu else termo.exige):
+                continue
+            return (RECUSA_CANAL_NAO_CONFIRMADO, termo.padrao)
     return None

@@ -167,7 +167,7 @@ def test_bug_o_fallback_de_transporte_promete_humano_e_a_cerca_nao_o_recusa() ->
          continuar' sem passar pela cerca."
 
     Nao e'. `PROMESSA_DE_HUMANO_PROIBIDA` tem "um profissional humano entrara" e o canned diz "um
-    profissional humano VAI CONTINUAR" — nenhum dos 22 padroes casa, entao `motivo_de_recusa`
+    profissional humano VAI CONTINUAR" — nenhum literal daquela lista casa, entao `motivo_de_recusa`
     devolve `None` e o texto sai inteiro num turno em que ZERO processos existem. E' exatamente o
     dano do C1 ("uma pessoa ficou esperando um telefonema que ninguem ia dar"), agora sem modelo
     no meio.
@@ -253,8 +253,8 @@ async def test_o_fallback_de_transporte_nao_promete_humano_num_turno_inform() ->
 def test_bug_texto_que_a_entrega_reconhece_como_handoff_nao_e_recusado_sem_start() -> None:
     """REPROVA — a classe inteira, e a contradicao interna que a torna objetiva.
 
-    `MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA` (13 padroes, lista POSITIVA) e
-    `PROMESSA_DE_HUMANO_PROIBIDA` (22 padroes, lista NEGATIVA) foram escritas para lados opostos
+    `MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA` (regex de FRASE, lista POSITIVA) e
+    `PROMESSA_DE_HUMANO_PROIBIDA` (literais, lista NEGATIVA) foram escritas para lados opostos
     do mesmo fato, e nao sao complementares: a primeira e' larga (casa "um profissional",
     "atendente", "equipe de saude", "enfermagem", "plantao clinico") e a segunda e' estreita e
     colada nas frases do `C1` ("entrara em contato", "aguarde nosso contato").

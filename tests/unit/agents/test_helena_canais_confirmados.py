@@ -42,6 +42,13 @@ SEGUNDA RODADA DE 21/09/2026 (blocos 5 em diante): auto-consistencia (todo nome 
 propria cerca, sozinho), a cerca de nome da CENTRAL, telefone em qualquer forma, plural do termo
 generico, caractere invisivel e a REFERENCIA DE VOLTA (o termo generico passa com qualquer nome
 confirmado no texto, nao so' o pareado).
+
+TERCEIRA RODADA DE 21/09/2026: a referencia de volta foi RECORTADA para o termo NU. No termo
+QUALIFICADO ela legitimava nome INVENTADO por vizinhanca ("Baixe o aplicativo Austa Saude ... ou
+fale com a central de atendimento do plano" passava), entao `exige` voltou a ser o nome da FAMILIA
+e `exige_nu` ficou com a referencia de volta. Um dos quatro textos da referencia de volta mudou de
+veredito por causa disso, e a troca esta' declarada num teste proprio; o corpus de nao-regressao
+(`test_helena_corpus_cercas_de_saida.py`) e' o que impede a proxima troca de passar sem declaracao.
 """
 
 from __future__ import annotations
@@ -56,7 +63,10 @@ from maezo.agents.helena.graph import (
     RESPOSTA_SEM_ENCAMINHAMENTO,
 )
 from maezo.agents.helena.prompts import (
+    _NOMES_CONFIRMADOS,
     CANAIS_CONFIRMADOS,
+    CANAL_TERMO_QUE_EXIGE_O_NOME,
+    QUALQUER_CANAL_CONFIRMADO,
     RECUSA_CANAL_NAO_CONFIRMADO,
     RECUSA_DE_SAIDA_VERSION,
     RECUSA_NEGATIVA_CLINICA,
@@ -405,7 +415,6 @@ def test_o_numero_que_nao_e_telefone_continua_passando(texto: str) -> None:
         # O nome confirmado e o termo generico em oracoes diferentes: a REFERENCIA DE VOLTA.
         "O valor da mensalidade fica no portal do plano — voce tambem consegue pelo aplicativo.",
         "Baixe o aplicativo Austa Clinicas. No aplicativo voce ve a carteirinha digital.",
-        "A rede credenciada esta no aplicativo Austa Clinicas; o portal mostra a mesma lista.",
         "A central de atendimento do plano tambem atende; no aplicativo voce resolve sozinho.",
     ],
 )
@@ -417,8 +426,69 @@ def test_o_termo_generico_passa_com_qualquer_nome_confirmado_no_texto(texto: str
     `inform` uma recusa nao vira outro texto, vira `_start_escalation(motivo="falha_tecnica")`.
     O que a cerca precisa garantir e' que a pessoa saiba para onde ir; um texto que nomeia um canal
     confirmado nao deixa ninguem perdido.
+
+    O RECORTE DE 21/09/2026 (TERCEIRA RODADA): a referencia de volta vale SO' para o termo NU
+    (seguido de pontuacao ou de palavra funcional). Aplicada tambem ao termo QUALIFICADO, ela
+    legitimava um nome INVENTADO por vizinhanca — "Baixe o aplicativo Austa Saude ... ou fale com a
+    central de atendimento do plano" passava, que e' o F7 reaberto. Um dos quatro textos desta
+    lista mudou de veredito por causa do recorte e esta' declarado no teste abaixo.
     """
     assert motivo_de_canal_nao_confirmado(texto) is None, f"texto correto reprovado: {texto!r}"
+
+
+def test_todo_nome_exigido_pela_cerca_existe_na_lista_do_dono() -> None:
+    """A COPIA QUE NINGUEM CONFERE, fechada por cerca (21/09/2026, terceira rodada).
+
+    `termo.exige` voltou a ser o nome da FAMILIA, e esse nome esta' escrito A MAO no padrao — uma
+    segunda copia do que `CANAIS_CONFIRMADOS` declara. Se o dono renomear um canal, a copia fica
+    parada e a cerca passa a cobrar um nome que nao existe mais: TODO texto com "aplicativo" viraria
+    `falha_tecnica`, ou seja a cerca se transformaria num gerador de fila humana em silencio.
+
+    A licao das Frentes 6 e 3 (citada no docstring do modulo) e' que "uma copia que ninguem confere
+    deriva em dois dias". Derivar o valor de `CANAIS_CONFIRMADOS` dentro do padrao nao e' possivel
+    sem inverter a ordem de declaracao do modulo (`_normalizar` mora depois); esta cerca e' o preco
+    disso, e ela falha no minuto do rename.
+    """
+    exigidos = {
+        exigencia
+        for termo in CANAL_TERMO_QUE_EXIGE_O_NOME
+        for exigencia in (termo.exige, termo.exige_nu)
+        if exigencia is not None and exigencia != QUALQUER_CANAL_CONFIRMADO
+    }
+
+    assert exigidos, "nenhum termo exige nome — a cerca ficaria vacua"
+
+    fora_da_lista = sorted(e for e in exigidos if e not in _NOMES_CONFIRMADOS)
+    assert not fora_da_lista, (
+        "a cerca de canal exige um nome que NAO esta em `CANAIS_CONFIRMADOS` (a lista do dono): "
+        f"{fora_da_lista} — nomes declarados: {sorted(_NOMES_CONFIRMADOS)}"
+    )
+
+
+def test_o_termo_generico_seguido_de_verbo_conta_como_qualificado() -> None:
+    """TROCA DE VEREDITO DECLARADA (21/09/2026, terceira rodada) — este texto passava e agora e'
+    recusado, e a declaracao e' o ponto.
+
+    `_termo_generico_esta_nu` decide pela palavra seguinte, contra uma lista FECHADA de palavras
+    funcionais; "mostra" nao esta' nela (nem podia estar sem um dicionario que separe verbo lexical
+    de nome de marca), entao "o portal mostra" conta como QUALIFICADO e a cerca cobra "portal do
+    plano".
+
+    POR QUE ESTE LADO: a alternativa e' admitir "o portal Unimed" pela mesma regra. Reprovar um
+    texto correto custa um escalonamento; aprovar um canal inventado custa uma pessoa indo para um
+    lugar que nao existe — e aqui o nome da familia esta' a uma palavra de distancia ("o portal do
+    plano mostra a mesma lista"), que e' exatamente o que o `response_prompt` manda escrever.
+    """
+    com_verbo = "A rede credenciada esta no aplicativo Austa Clinicas; o portal mostra a mesma lista."
+    com_o_nome = (
+        "A rede credenciada esta no aplicativo Austa Clinicas; o portal do plano mostra a mesma lista."
+    )
+
+    achado = motivo_de_canal_nao_confirmado(com_verbo)
+    assert achado is not None and achado[0] == RECUSA_CANAL_NAO_CONFIRMADO
+    assert motivo_de_canal_nao_confirmado(com_o_nome) is None, (
+        "o conserto do texto e' uma palavra, e ele tem de passar"
+    )
 
 
 def test_o_termo_generico_sozinho_continua_sendo_recusado() -> None:

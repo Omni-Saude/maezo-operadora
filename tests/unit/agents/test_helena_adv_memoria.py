@@ -143,7 +143,7 @@ def test_zero_semanas_e_zero_anos_tambem_atravessam() -> None:
     ("meses", "esperado"),
     [
         (0, "seu recem-nascido"),
-        (1, "seu bebe de 1 meses"),
+        (1, "seu bebe de 1 mes"),
         (11, "seu bebe de 11 meses"),
         (24, "seu bebe de 24 meses"),
         (25, "sua crianca de 2 anos"),
@@ -162,9 +162,11 @@ def test_a_frase_de_confirmacao_no_limiar_exato(meses: int, esperado: str) -> No
     O ZERO TEM RAMO PROPRIO desde 21/09/2026 (segunda rodada): "seu recem-nascido", nao "seu bebe
     de 0 meses". Mesmo argumento, e o paciente com mais red flag na tabela pediatrica.
 
-    PENDENCIA DECLARADA, nao corrigida aqui: `(1, "seu bebe de 1 meses")` continua com o plural
-    errado ("1 mes"). E' a mesma familia de defeito de redacao, nao foi pedida nesta rodada, e
-    trocar o texto sem pedido esconderia a decisao — fica registrada no relatorio.
+    O SINGULAR ENTROU EM 21/09/2026 (TERCEIRA RODADA). A versao anterior deste teste fixava
+    `(1, "seu bebe de 1 meses")` e declarava a pendencia no docstring — isto e', congelava o
+    defeito como se fosse o comportamento esperado, que e' a pior forma de registrar um pendente:
+    quem lesse o spec concluiria que "1 meses" era intencional. O plural concorda agora, e a
+    assercao virou a prova do conserto.
     """
     frase = _frase_de_confirmacao({"idade_meses": meses})
 
@@ -321,9 +323,10 @@ def test_toda_idade_que_a_memoria_aceita_a_extracao_tambem_aceitaria(valor: int)
     conseguiria. A recíproca nao vale de proposito — `_coerce_age` aceita `"36"` (JSON de modelo
     manda numero entre aspas) e a memoria nao, o que e' o lado seguro.
 
-    `287` e `288` sao os dois lados do TETO novo (24 anos em meses): a direcao cobrada aqui
-    continua valendo, porque um teto SO' na memoria a torna mais estrita — que e' exatamente o
-    lado seguro da relacao "memoria ⊆ extracao".
+    `287` e `288` sao os dois lados do TETO (24 anos em meses). Desde 21/09/2026 (terceira rodada)
+    o MESMO `_TETO_DE_IDADE` vale nas duas fronteiras, entao a direcao cobrada aqui deixou de
+    depender de "a memoria e' a mais estrita" e passa a valer por CONSTRUCAO: 288 passa nas duas,
+    289 e' recusado nas duas.
     """
     valida = _memoria_clinica_valida(_memoria(population="pediatric", idade_meses=valor), agora=AGORA)
     assert valida is not None and valida["idade_meses"] == valor
@@ -350,9 +353,14 @@ def test_a_memoria_recusa_idade_acima_do_teto_sano(campo: str, valor: int) -> No
     plantado, e a leitura honesta e' "isto nao e' idade".
 
     A recusa e' da MEMORIA INTEIRA, como toda recusa desta fronteira: um paciente parcialmente
-    lembrado e' o modo de falha que esta frente existe para acabar. E ela vale SO' na memoria — a
-    extracao continua entregando o que a pessoa disse NESTE turno (`_coerce_age(1200)` segue
-    aceitando), o que mantem a direcao "memoria ⊆ extracao" do teste acima.
+    lembrado e' o modo de falha que esta frente existe para acabar.
+
+    21/09/2026, TERCEIRA RODADA: o teto deixou de valer SO' aqui. O comentario anterior dizia que a
+    extracao "continua entregando o que a pessoa disse NESTE turno", e o review mostrou que essa
+    era justamente a fronteira que importava — e' ela que alimenta a DMN, e `idade_meses=1200`
+    chegava a tabela PEDIATRICA. `_coerce_age(1200)` continua aceitando (a funcao e' generica sobre
+    um valor e nao sabe qual campo); quem recusa e' `_validate_extraction`, com o mesmo dict.
+    A cobertura daquele lado esta' em `test_helena_adv_rodada3.py`.
 
     `idade_gestacional_semanas` fica FORA por decisao declarada em `graph.py::_TETO_DE_IDADE`: qual
     semana deixa de ser uma gestacao possivel e' julgamento clinico, e inventar o numero aqui seria
