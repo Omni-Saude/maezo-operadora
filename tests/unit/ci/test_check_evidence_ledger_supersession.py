@@ -526,7 +526,11 @@ def test_release_floor_timeout_reaps_the_pytest_descendant_group(
         "pathlib.Path('owned-pgid').write_text(str(os.getpgrp()))\n"
         "time.sleep(30)\n"
     )
-    monkeypatch.setattr(generate_release_floor, "_UNIT_TESTS_TIMEOUT_SECONDS", 0.5)
+    # The budget must exceed the payload tree's startup (parent exec+init, its
+    # child spawn, the marker write), not just the sleep that forces the timeout.
+    # Warm tree startup measures ~0.08s; 5s keeps ~60x headroom under CI load
+    # while `time.sleep(30)` below still guarantees the timeout fires.
+    monkeypatch.setattr(generate_release_floor, "_UNIT_TESTS_TIMEOUT_SECONDS", 5.0)
     counts, returncode, raw = generate_release_floor.measure_unit_tests(
         tmp_path, measurement_python(tmp_path)
     )
