@@ -30,16 +30,31 @@ cru; "site" nao, porque e' substring de "visite", e "app" e' substring de "whats
 canal em que a Helena literalmente fala. Casar os dois por substring reprovaria texto correto, e
 uma cerca que reprova o certo e' desligada na semana seguinte.
 
-WIRING: a funcao pura `motivo_de_canal_nao_confirmado` e' consumida no UNICO ponto por onde passa
-todo texto que chega ao beneficiario (`graph.py::_respond_llm`, ao lado de `motivo_de_recusa`).
-Ver a pendencia declarada no relatorio desta entrega — `graph.py` pertence a outra frente em voo
-(F1/F2, que muda a assinatura de `motivo_de_recusa` nessa mesma linha).
+WIRING (LIGADO, e o comentario anterior envelheceu no merge): a funcao pura
+`motivo_de_canal_nao_confirmado` e' consumida em `graph.py::_cercar_saida`, ao lado de
+`motivo_de_recusa` — o ponto por onde passa todo texto que chega ao beneficiario, hoje incluindo a
+rota `collect`. A pendencia que morava aqui ("graph.py pertence a outra frente em voo, F1/F2") foi
+fechada pelo merge `3e6e1620`, e a prova esta em
+`tests/unit/agents/test_helena_wiring_canal_e_apresentacao.py` (o chokepoint) e em
+`test_helena_adv_canal.py` (a rota de coleta). Este arquivo segue cobrindo a LISTA e a FUNCAO.
+
+SEGUNDA RODADA DE 21/09/2026 (blocos 5 em diante): auto-consistencia (todo nome confirmado passa na
+propria cerca, sozinho), a cerca de nome da CENTRAL, telefone em qualquer forma, plural do termo
+generico, caractere invisivel e a REFERENCIA DE VOLTA (o termo generico passa com qualquer nome
+confirmado no texto, nao so' o pareado).
 """
 
 from __future__ import annotations
 
 import pytest
 
+from maezo.agents.helena.graph import (
+    RESPOSTA_FALHA_DE_REDACAO,
+    RESPOSTA_FALHA_TECNICA_START,
+    RESPOSTA_HANDOFF_JA_ABERTO,
+    RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_SEM_ENCAMINHAMENTO,
+)
 from maezo.agents.helena.prompts import (
     CANAIS_CONFIRMADOS,
     RECUSA_CANAL_NAO_CONFIRMADO,
@@ -47,6 +62,8 @@ from maezo.agents.helena.prompts import (
     RECUSA_NEGATIVA_CLINICA,
     RECUSA_PROMESSA_DE_CAPACIDADE,
     RECUSA_PROMESSA_DE_HUMANO,
+    RESPOSTA_NAO_CONSIGO_IDENTIFICAR,
+    RESPOSTA_SOU_ASSISTENTE_VIRTUAL,
     motivo_de_canal_nao_confirmado,
     response_prompt,
 )
@@ -265,3 +282,182 @@ def test_a_versao_da_cerca_subiu_com_a_categoria_nova() -> None:
     recusado (ou deixado passar). Uma categoria nova sem bump aponta para a cerca antiga."""
     assert RECUSA_DE_SAIDA_VERSION.startswith("recusa-v")
     assert RECUSA_DE_SAIDA_VERSION != "recusa-v3", "a categoria de canal entrou; a versao tem de subir"
+
+
+# =================================================================================================
+# 5. AUTO-CONSISTENCIA: a lista e a cerca sao o MESMO artefato (21/09/2026, segunda rodada)
+# =================================================================================================
+
+
+def test_todo_nome_confirmado_passa_na_cerca_sozinho() -> None:
+    """A cerca de auto-consistencia que faltava, e a diferenca para o teste do bloco 3.
+
+    `test_os_textos_com_os_nomes_certos_passam` usa FRASES em que o nome aparece junto de contexto;
+    aqui o nome vai SOZINHO, que e' a forma minima em que ele pode chegar ao beneficiario. E' o que
+    pega um par `(padrao, exige)` novo escrito ao contrario: um termo generico cujo `exige` nao
+    esteja contido no proprio nome confirmado tornaria o prompt e a cerca inimigos, e o turno
+    CORRETO viraria escalonamento humano (`graph.py::inform` ->
+    `_start_escalation(motivo="falha_tecnica")`).
+    """
+    for canal in CANAIS_CONFIRMADOS:
+        assert motivo_de_canal_nao_confirmado(canal.nome) is None, (
+            f"a cerca reprova o nome confirmado, sozinho: {canal.nome!r}"
+        )
+
+
+def test_as_constantes_que_o_grafo_envia_passam_na_cerca_de_canal() -> None:
+    """Os textos do modulo que chegam ao beneficiario SEM passar por modelo nenhum.
+
+    A cerca de canal so' e' chamada no chokepoint de redacao (`_respond_llm`/`_cercar_saida`), e as
+    substituicoes da cerca TEXTO x FATO acontecem DEPOIS dele, em `respond`. Ou seja: um canal
+    inventado dentro de uma destas constantes sairia sem ninguem olhar. Vale tambem para as duas
+    frases fixas de conformidade, que vao LITERALMENTE ao prompt e portanto ao beneficiario.
+    """
+    for constante in (
+        RESPOSTA_HANDOFF_RECUSADA,
+        RESPOSTA_HANDOFF_JA_ABERTO,
+        RESPOSTA_SEM_ENCAMINHAMENTO,
+        RESPOSTA_FALHA_TECNICA_START,
+        RESPOSTA_FALHA_DE_REDACAO,
+        RESPOSTA_SOU_ASSISTENTE_VIRTUAL,
+        RESPOSTA_NAO_CONSIGO_IDENTIFICAR,
+    ):
+        assert motivo_de_canal_nao_confirmado(constante) is None, f"canal nao confirmado em {constante!r}"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "fale com a central de atendimento da operadora",
+        "fale com a central de atendimento do convenio",
+        "fale com a central do beneficiario",
+        "ligue na central",
+        "a central resolve isso",
+    ],
+)
+def test_a_central_tambem_tem_cerca_de_nome(texto: str) -> None:
+    """O TERCEIRO canal confirmado ficou sem cerca nenhuma ate' 21/09/2026 (segunda rodada).
+
+    O aplicativo e o portal tinham as duas (nome errado proibido + termo generico exigindo o nome);
+    a central, nenhuma. Entao "a central de atendimento da operadora" — exatamente a familia de
+    nomes que o F7 mediu em CINCO casos — saia intacta ao lado de "portal da operadora", que era
+    recusado. E' o descompasso que a propria lista existe para tornar visivel.
+    """
+    achado = motivo_de_canal_nao_confirmado(texto)
+
+    assert achado is not None, f"nome de central que ninguem confirmou passou: {texto!r}"
+    assert achado[0] == RECUSA_CANAL_NAO_CONFIRMADO
+
+
+def test_a_central_com_o_nome_do_dono_continua_passando() -> None:
+    """O RED do teste acima: a cerca da central nao pode proibir a palavra, so' o dono errado."""
+    assert motivo_de_canal_nao_confirmado("A central de atendimento do plano atende essa duvida.") is None
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "ligue 4004 4000",
+        "ligue 4004.4000",
+        "ligue 32114000",
+        "ligue 11 3211-4000",
+        "ligue +55 11 3211 4000",
+        "baixe um dos nossos apps",
+        "acesse nosso website",
+        "acesse nossos websites",
+    ],
+)
+def test_o_telefone_em_qualquer_forma_e_o_plural_do_termo_generico(texto: str) -> None:
+    """ "Qualquer forma" era a INTENCAO do comentario; os padroes cobriam duas.
+
+    Telefone com espaco, com ponto ou sem separador nenhum saia inteiro, contra um `response_prompt`
+    categorico. E a assimetria do plural estava visivel na propria lista — `aplicativos?` tinha o
+    `s?` e `app` nao, entao "apps" passava; "website" passava sendo o MESMO canal que "site"
+    proibe.
+    """
+    achado = motivo_de_canal_nao_confirmado(texto)
+
+    assert achado is not None, f"passou: {texto!r}"
+    assert achado[0] == RECUSA_CANAL_NAO_CONFIRMADO
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "O prazo de resposta e' de 24 horas.",
+        "Voce esta de 33 semanas.",
+        "Sao 3 dias uteis.",
+        "A carencia e' de 180 dias.",
+        "Pode continuar por aqui mesmo, no WhatsApp.",
+        "Se quiser, visite uma unidade proxima.",
+    ],
+)
+def test_o_numero_que_nao_e_telefone_continua_passando(texto: str) -> None:
+    """O preco do padrao de telefone mais largo: cada falso positivo aqui e' uma pessoa do
+    atendimento recebendo um caso que nao existe. O `\\b` nas duas pontas e' o que separa
+    "3211 4000" de "24 horas"."""
+    assert motivo_de_canal_nao_confirmado(texto) is None, f"texto legitimo reprovado: {texto!r}"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # O nome confirmado e o termo generico em oracoes diferentes: a REFERENCIA DE VOLTA.
+        "O valor da mensalidade fica no portal do plano — voce tambem consegue pelo aplicativo.",
+        "Baixe o aplicativo Austa Clinicas. No aplicativo voce ve a carteirinha digital.",
+        "A rede credenciada esta no aplicativo Austa Clinicas; o portal mostra a mesma lista.",
+        "A central de atendimento do plano tambem atende; no aplicativo voce resolve sozinho.",
+    ],
+)
+def test_o_termo_generico_passa_com_qualquer_nome_confirmado_no_texto(texto: str) -> None:
+    """A segunda passagem REPROVAVA texto correto, e o preco era fila de gente.
+
+    Ela exigia o nome PAREADO: `\\baplicativos?\\b` cobrava "austa clinicas" na mesma frase, entao
+    um texto que nomeava o PORTAL DO PLANO e depois dizia "no aplicativo" era recusado — e em
+    `inform` uma recusa nao vira outro texto, vira `_start_escalation(motivo="falha_tecnica")`.
+    O que a cerca precisa garantir e' que a pessoa saiba para onde ir; um texto que nomeia um canal
+    confirmado nao deixa ninguem perdido.
+    """
+    assert motivo_de_canal_nao_confirmado(texto) is None, f"texto correto reprovado: {texto!r}"
+
+
+def test_o_termo_generico_sozinho_continua_sendo_recusado() -> None:
+    """O RED do teste acima: a referencia de volta exige um nome NO TEXTO, nao a boa vontade."""
+    for texto in ("Isso voce resolve no aplicativo.", "Da' para ver no portal.", "Veja nos aplicativos."):
+        achado = motivo_de_canal_nao_confirmado(texto)
+        assert achado is not None, f"passou sem nome nenhum: {texto!r}"
+
+
+@pytest.mark.parametrize(
+    ("rotulo", "texto"),
+    [
+        ("zero width space", "apli​cativo do plano"),
+        ("zero width non-joiner", "apli‌cativo do plano"),
+        ("word joiner", "por⁠tal da operadora"),
+        ("soft hyphen", "app­ do plano"),
+        ("RLM", "aplicativo‏ do plano"),
+    ],
+)
+def test_um_caractere_invisivel_nao_desliga_mais_a_cerca(rotulo: str, texto: str) -> None:
+    """`_normalizar` passou a descartar categoria `Cf` (21/09/2026, segunda rodada).
+
+    `NFKD` + descarte de combinantes resolvia caixa e acento e nao tocava em caractere de FORMATO:
+    um unico `\\u200b` no meio de "aplicativo" derrubava as DUAS passagens (a substring nao casava e
+    o `\\b...\\b` tambem nao). O texto cercado e' saida de MODELO sobre a mensagem do beneficiario,
+    que o proprio grafo trata como conteudo de terceiro — a cerca e' a ultima linha, e nao pode ser
+    a mais fragil.
+    """
+    achado = motivo_de_canal_nao_confirmado(texto)
+
+    assert achado is not None, f"{rotulo} atravessou a normalizacao e desligou a cerca"
+
+
+def test_o_homoglifo_continua_passando_e_esta_declarado() -> None:
+    """LIMITE CONHECIDO, medido em vez de suposto: um "a" cirilico em "aplicativo" atravessa.
+
+    `NFKD` nao converte homoglifo, e nenhuma normalizacao padrao o faz — fechar isso exige tabela
+    de confundiveis, que e' outra decisao e outro custo de falso positivo. Este teste existe para
+    o limite estar EXECUTAVEL: se alguem fechar o homoglifo, ele fica vermelho e a declaracao em
+    `_normalizar` e' atualizada junto.
+    """
+    assert motivo_de_canal_nao_confirmado("аplicativo do plano") is None

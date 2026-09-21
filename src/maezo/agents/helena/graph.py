@@ -1875,6 +1875,26 @@ class HelenaGraph:
         (`coleta_prompt`, versao `COLETA_PROMPT_VERSION`) para nao mexer no `response_prompt`
         que os goldens da Helena pinam. Se o modelo falhar, a pergunta generica de fallback
         continua sendo uma PERGUNTA — o turno nunca vira resposta clinica por acidente.
+
+        AS CERCAS DE SAIDA RODAM AQUI TAMBEM (21/09/2026, segunda rodada). Este no' montava prompt
+        proprio, chamava `generate` direto e devolvia `response_text` sem passar por cerca nenhuma
+        — e em `respond` a unica verificacao do turno e' a TEXTO x FATO, que nao consulta a cerca de
+        canal. Resultado medido: na rota de coleta o canal inventado chegava ao beneficiario
+        ("Antes de continuar: a dor esta' leve, moderada ou forte? Se preferir, veja no aplicativo
+        do plano."). O docstring de `_respond_llm` prometia ser "o unico ponto por onde passa todo
+        texto que chega ao beneficiario" e a enumeracao nao tinha `collect`; agora a promessa e'
+        verdade, pelo metodo compartilhado `_cercar_saida`.
+
+        ALCANCE HONESTO: a rota so' e' escolhida com `coleta_enabled=True` (default `False`,
+        dependente de `triage_sufficiency` no motor). O no' JA existia e ja era chamavel, e a cerca
+        e' de uma entrega posterior a ele — quando a feature ligar, o F7 voltava por esta porta.
+
+        RECUSA AQUI NAO ESCALA, ao contrario de `inform`, e a assimetria e' deliberada: o turno de
+        coleta tem uma saida honesta que `inform` nao tem — a PERGUNTA generica. Escalar cada texto
+        barrado transformaria um defeito de redacao em fila humana, e a coleta existe justamente
+        para nao escalar antes de saber. A pergunta de fallback e' segura POR CONSTRUCAO, nao por
+        sorte: `test_helena_coleta.py` fixa que toda entrada de `_PERGUNTA_FALLBACK` passa nas duas
+        cercas, o que e' o que impede um laco aqui.
         """
         pergunta = str(state.get("coleta_pergunta") or "")
         contexto = {
@@ -1897,6 +1917,13 @@ class HelenaGraph:
         except PROGRAMMING_ERRORS:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
+            text = _PERGUNTA_FALLBACK.get(pergunta, _PERGUNTA_FALLBACK["default"])
+        try:
+            text = self._cercar_saida(text, "collect")
+        except RespostaRecusadaError:
+            # A recusa ja foi logada e contada em `_cercar_saida`. A pergunta generica e' a saida
+            # honesta desta rota (ver docstring), e ela mesma NAO e' recercada: seria um laco, e a
+            # cerca de teste que fixa as constantes e' o que torna isso desnecessario.
             text = _PERGUNTA_FALLBACK.get(pergunta, _PERGUNTA_FALLBACK["default"])
         return {"response_text": text, "response_kind": "collect"}
 

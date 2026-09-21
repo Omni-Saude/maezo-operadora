@@ -773,20 +773,65 @@ class TermoDeCanal(NamedTuple):
     #: literalmente fala — e "site" e' substring de "visite". Casar cru reprovaria texto correto, e
     #: uma cerca que reprova o certo e' desligada na semana seguinte.
     padrao: str
-    #: O nome confirmado que precisa aparecer no MESMO texto; `None` = nunca legitimo.
+    #: O nome confirmado que precisa aparecer no MESMO texto. `None` = nunca legitimo;
+    #: `QUALQUER_CANAL_CONFIRMADO` = basta QUALQUER um dos nomes de `CANAIS_CONFIRMADOS`.
     exige: str | None
 
 
+#: `exige` que aceita qualquer nome confirmado no MESMO texto — a REFERENCIA DE VOLTA.
+#:
+#: O DEFEITO QUE ISTO FECHA (21/09/2026, segunda rodada). A segunda passagem exigia o nome PAREADO,
+#: e por isso reprovava texto CORRETO: *"O valor da mensalidade fica no portal do plano — voce
+#: tambem consegue pelo aplicativo."* casa `\baplicativos?\b`, cujo par e' "austa clinicas", que
+#: nao esta' na frase — embora a frase nomeie um canal confirmado. E o preco de um falso positivo
+#: aqui nao e' estetico: em `inform` um texto recusado nao vira outro texto, vira
+#: `_start_escalation(motivo="falha_tecnica")`, ou seja fila de gente.
+#:
+#: O que a cerca precisa garantir e' que a pessoa saiba PARA ONDE ir; um texto que nomeia o portal
+#: do plano e depois diz "no aplicativo" nao deixa ninguem perdido. Exigir o par exato era
+#: confundir "o texto diz onde" com "o texto diz onde na ordem que a cerca espera".
+QUALQUER_CANAL_CONFIRMADO: str = "*qualquer canal confirmado*"
+
 #: "No aplicativo" nao e' menos vago que "aplicativo do plano": a pessoa continua sem saber qual
-#: baixar. O termo generico so' passa acompanhado do nome que existe.
+#: baixar. O termo generico so' passa acompanhado de um nome que existe.
+#:
+#: 21/09/2026 (segunda rodada) — QUATRO CONSERTOS, cada um com o texto que o motivou:
+#:
+#:   * PLURAL E COMPOSTO. `\baplicativos?\b` tinha o plural e `\bapp\b` nao: "baixe um dos nossos
+#:     apps" passava. "website"/"websites" passavam inteiros, sendo o MESMO canal que "site"
+#:     proibe. A assimetria era visivel na propria lista — dois dos quatro termos levavam `s?`.
+#:   * A CENTRAL nao tinha cerca NENHUMA. Ela e' o TERCEIRO canal confirmado ("a central de
+#:     atendimento do plano") e o unico sem as duas cercas dos irmaos, entao "a central de
+#:     atendimento da operadora" e "a central do beneficiario" — exatamente a familia de nomes que
+#:     o F7 mediu em CINCO casos — saiam intactas ao lado de "portal da operadora", que era
+#:     recusado. O termo generico e' `central`, e ele exige o nome COMPLETO e nao
+#:     `QUALQUER_CANAL_CONFIRMADO`: a central tem um dono so', e "a central da operadora, ou veja
+#:     no portal do plano" continua mandando a pessoa para uma central que ninguem confirmou.
+#:   * TELEFONE EM QUALQUER FORMA. O comentario prometia "qualquer forma" e a implementacao cobria
+#:     duas: DDD entre parenteses e local com hifen. "4004 4000", "4004.4000" e "32114000" saiam
+#:     inteiros, contra um `response_prompt` categorico ("NUNCA escreva ... nem numero de telefone,
+#:     nem 0800"). O separador virou classe OPCIONAL. Continua nao casando o que nao e' telefone —
+#:     "24 horas", "33 semanas", "3 dias uteis" —, e ha bateria de falso positivo nos testes.
+#:   * SITE continua `exige=None`, e a DECISAO E' DELIBERADA. O argumento contra era "citar o site
+#:     da ANS e' legitimo". E' — e nao e' desta cerca que essa legitimidade vem: `CANAIS_CONFIRMADOS`
+#:     e' a LISTA DO DONO, e nao ha site nenhum nela. As outras tres palavras (`aplicativo`,
+#:     `portal`, `central`) tem um canal confirmado correspondente, e por isso o termo generico
+#:     delas pode ser resgatado por um nome; "site" nao tem par nenhum, entao admiti-lo seria
+#:     admitir um canal que ninguem confirmou — que e' precisamente o F7. Se o dono quiser que a
+#:     Helena possa citar o site da ANS, o caminho e' o site entrar em `CANAIS_CONFIRMADOS`, e a
+#:     cerca passa a aceita-lo de graca. A decisao e' do dono, nao do padrao.
 CANAL_TERMO_QUE_EXIGE_O_NOME: tuple[TermoDeCanal, ...] = (
-    TermoDeCanal(padrao=r"\baplicativos?\b", exige="austa clinicas"),
-    TermoDeCanal(padrao=r"\bapp\b", exige="austa clinicas"),
-    TermoDeCanal(padrao=r"\bportal\b", exige="portal do plano"),
-    TermoDeCanal(padrao=r"\bsites?\b", exige=None),
-    # Numero de telefone em qualquer forma: DDD entre parenteses ou numero local com hifen.
+    TermoDeCanal(padrao=r"\baplicativos?\b", exige=QUALQUER_CANAL_CONFIRMADO),
+    TermoDeCanal(padrao=r"\bapps?\b", exige=QUALQUER_CANAL_CONFIRMADO),
+    TermoDeCanal(padrao=r"\bportais?\b", exige=QUALQUER_CANAL_CONFIRMADO),
+    TermoDeCanal(padrao=r"\bportal\b", exige=QUALQUER_CANAL_CONFIRMADO),
+    TermoDeCanal(padrao=r"\bcentral\b", exige="central de atendimento do plano"),
+    TermoDeCanal(padrao=r"\b(?:web)?sites?\b", exige=None),
+    # Numero de telefone em QUALQUER forma: DDD entre parenteses, ou 4-5 digitos + 4 digitos com
+    # separador opcional (espaco, ponto ou hifen). O `\b` nas duas pontas e' o que mantem "24
+    # horas" e "33 semanas" fora.
     TermoDeCanal(padrao=r"\(\d{2}\)", exige=None),
-    TermoDeCanal(padrao=r"\b\d{4,5}-\d{4}\b", exige=None),
+    TermoDeCanal(padrao=r"\b\d{4,5}[\s.-]?\d{4}\b", exige=None),
 )
 
 #: Rotulos dos grupos (promessa/negativa/capacidade/canal + os tres de texto x fato). Fechados,
@@ -810,9 +855,49 @@ RECUSA_CANAL_NAO_CONFIRMADO: str = "canal_nao_confirmado"
 
 
 def _normalizar(texto: str) -> str:
-    """Minuscula e sem acento — a forma em que os padroes acima estao escritos."""
+    """Minuscula, sem acento e SEM CARACTERE DE FORMATO — a forma em que os padroes estao escritos.
+
+    O `Cf` ENTROU EM 21/09/2026 (segunda rodada), e o achado e' de uma linha: `NFKD` + descarte de
+    combinantes resolve caixa, acento e forma unicode, e nao toca em caractere de FORMATO
+    (zero-width space/joiner, soft hyphen, RLM — categoria `Cf`). Um unico `\\u200b` no meio de
+    "aplicativo" desligava as DUAS passagens da cerca de canal: a substring nao casava e o
+    `\\b...\\b` tambem nao.
+
+    POR QUE ISSO IMPORTA NUM AGENTE, e nao e' paranoia de unicode: o texto cercado e' SAIDA DE
+    MODELO redigida sobre a mensagem do beneficiario, que este proprio modulo trata como conteudo
+    de TERCEIRO (HEL-06, `render_untrusted_block`). A cerca e' a ultima linha entre aquele conteudo
+    e o beneficiario; se ela e' a unica defesa, ela nao pode ser a mais fragil.
+
+    O QUE CONTINUA FORA, declarado: o HOMOGLIFO (um "а" cirilico em "aplicativo") atravessa. `NFKD`
+    nao o converte, e nenhuma normalizacao padrao o faz — fechar isso exige uma tabela de
+    confundiveis, que e' outra decisao e outro custo de falso positivo. Registrado como limite
+    conhecido, nao como esquecimento.
+    """
     decomposto = unicodedata.normalize("NFKD", texto)
-    return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
+    return "".join(
+        c for c in decomposto if not unicodedata.combining(c) and unicodedata.category(c) != "Cf"
+    ).lower()
+
+
+#: Os nomes confirmados na forma NORMALIZADA e sem o artigo, GERADOS de `CANAIS_CONFIRMADOS` — a
+#: fonte unica continua sendo aquela lista. O artigo sai porque o nome aparece no texto precedido
+#: da preposicao ("**no** aplicativo Austa Clinicas"), e um `in` com o artigo casaria por acidente.
+_NOMES_CONFIRMADOS: tuple[str, ...] = tuple(
+    _normalizar(canal.nome).removeprefix("o ").removeprefix("a ") for canal in CANAIS_CONFIRMADOS
+)
+
+
+def _nome_confirmado_presente(plano: str, exige: str | None) -> bool:
+    """O texto (JA normalizado) traz o nome que este termo generico exige?
+
+    `None` -> nunca; `QUALQUER_CANAL_CONFIRMADO` -> basta um dos nomes de `CANAIS_CONFIRMADOS`
+    (a REFERENCIA DE VOLTA); qualquer outro valor -> aquele nome exato.
+    """
+    if exige is None:
+        return False
+    if exige == QUALQUER_CANAL_CONFIRMADO:
+        return any(nome in plano for nome in _NOMES_CONFIRMADOS)
+    return exige in plano
 
 
 def padrao_de_encaminhamento(texto: str) -> str | None:
@@ -959,6 +1044,7 @@ def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
     for termo in CANAL_TERMO_QUE_EXIGE_O_NOME:
         if re.search(termo.padrao, plano) is None:
             continue
-        if termo.exige is None or termo.exige not in plano:
-            return (RECUSA_CANAL_NAO_CONFIRMADO, termo.padrao)
+        if _nome_confirmado_presente(plano, termo.exige):
+            continue
+        return (RECUSA_CANAL_NAO_CONFIRMADO, termo.padrao)
     return None

@@ -12,7 +12,9 @@ O que estes testes travam (e' a parte deterministica — o conteudo da tabela e'
   5. FAIL-CLOSED: tabela indisponivel ou veredito fora do vocabulario -> `falha_tecnica`;
   6. memoria entre turnos sobrevive ao `receive` somente com a feature ligada, saturada no maximo;
   7. `_route` recusa `collect` sem veredito de pergunta (backstop estrutural);
-  8. o desfecho do turno de pergunta e' `pergunta_coleta`, presente no vocabulario de telemetria.
+  8. o desfecho do turno de pergunta e' `pergunta_coleta`, presente no vocabulario de telemetria;
+  9. AS CERCAS DE SAIDA rodam nesta rota tambem (21/09/2026, segunda rodada) — o no' devolvia
+     `response_text` sem passar por cerca nenhuma, e a de canal nao e' chamada em `respond`.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ from maezo.agents.helena import graph as helena_graph
 from maezo.agents.helena.graph import (
     _HELENA_MEMORIA_DE_CONVERSA,
     _HELENA_NEUTRAL_OUTPUTS,
+    _PERGUNTA_FALLBACK,
     COLETA_MAX_RODADAS,
     DESFECHO_PERGUNTA_COLETA,
     MOTIVO_COLETA_ESGOTADA,
@@ -34,7 +37,11 @@ from maezo.agents.helena.graph import (
     HelenaGraph,
     HelenaState,
 )
-from maezo.agents.helena.prompts import coleta_prompt
+from maezo.agents.helena.prompts import (
+    coleta_prompt,
+    motivo_de_canal_nao_confirmado,
+    motivo_de_recusa,
+)
 from maezo.runtime.turn_telemetry import _DESFECHO_VOCAB
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
@@ -518,3 +525,76 @@ def test_route_preserva_rodadas_validas(rodadas: int) -> None:
         )
         == "collect"
     )  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------------------------
+# 8. AS CERCAS DE SAIDA TAMBEM RODAM NA COLETA (21/09/2026, segunda rodada)
+# ---------------------------------------------------------------------------------------------
+#
+# O no' `collect` montava prompt proprio, chamava `generate` direto e devolvia `response_text` sem
+# passar por cerca nenhuma; em `respond` a unica verificacao do turno e' a TEXTO x FATO, que nao
+# consulta a cerca de canal. Resultado: na rota de coleta o canal inventado chegava ao
+# beneficiario, e o docstring de `_respond_llm` prometia ser "o unico ponto por onde passa todo
+# texto que chega ao beneficiario".
+
+
+@pytest.mark.parametrize("veredito", sorted(_PERGUNTA_FALLBACK))
+def test_toda_pergunta_de_fallback_passa_nas_duas_cercas(veredito: str) -> None:
+    """A pergunta generica e' a saida honesta de uma recusa na coleta — e e' o que impede um LACO.
+
+    `collect` nao escala quando o texto e' barrado (ao contrario de `inform`), porque esta rota tem
+    uma saida que `inform` nao tem: perguntar. Isso so' e' seguro se a propria pergunta de fallback
+    passar nas cercas — senao a recusa cairia num texto que a cerca tambem recusa. Aqui isso e'
+    POR CONSTRUCAO, nao por sorte.
+    """
+    pergunta = _PERGUNTA_FALLBACK[veredito]
+
+    assert motivo_de_canal_nao_confirmado(pergunta) is None
+    assert motivo_de_recusa(pergunta, "collect") is None
+    assert motivo_de_recusa(pergunta, "collect", start_aconteceu=False) is None
+
+
+@pytest.mark.asyncio
+async def test_a_pergunta_com_canal_inventado_nao_chega_ao_beneficiario() -> None:
+    """A cerca de CANAL na rota de coleta, pelo no' real: o nome que nao existe nao e' enviado, e
+    o turno continua sendo uma PERGUNTA (nao vira fila humana)."""
+    g = _graph(
+        _FakeInference(["A dor esta leve, moderada ou forte? Se preferir, veja no aplicativo do plano."]),
+        _dmn(),
+        coleta=True,
+    )
+
+    saida = await g.collect(_state(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))  # type: ignore[arg-type]
+
+    assert "aplicativo do plano" not in saida["response_text"].lower()
+    assert saida["response_text"] == _PERGUNTA_FALLBACK["PERGUNTAR_INTENSIDADE"]
+    assert saida["response_kind"] == "collect"
+
+
+@pytest.mark.asyncio
+async def test_a_pergunta_que_promete_humano_tambem_e_barrada_na_coleta() -> None:
+    """A OUTRA cerca (recusa de saida) na mesma rota: a coleta nao abre processo nenhum, entao uma
+    pergunta que promete contato humano e' falsa ali — e era `collect` a unica rota em que nem a
+    lista de padroes proibidos rodava."""
+    g = _graph(
+        _FakeInference(["Qual a intensidade? Enquanto isso, alguem da equipe entrara em contato."]),
+        _dmn(),
+        coleta=True,
+    )
+
+    saida = await g.collect(_state(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))  # type: ignore[arg-type]
+
+    assert "entrara em contato" not in saida["response_text"]
+    assert saida["response_text"] == _PERGUNTA_FALLBACK["PERGUNTAR_INTENSIDADE"]
+
+
+@pytest.mark.asyncio
+async def test_a_pergunta_conforme_sai_intacta_da_coleta() -> None:
+    """NAO-VACUIDADE: uma cerca que trocasse toda pergunta pela generica apagaria a coleta
+    inteira — a pergunta redigida sobre o contexto e' o ponto da feature."""
+    redigida = "Entendi. Essa dor esta leve, moderada ou forte agora?"
+    g = _graph(_FakeInference([redigida]), _dmn(), coleta=True)
+
+    saida = await g.collect(_state(coleta_pergunta="PERGUNTAR_INTENSIDADE", coleta_rodadas=1))  # type: ignore[arg-type]
+
+    assert saida["response_text"] == redigida
