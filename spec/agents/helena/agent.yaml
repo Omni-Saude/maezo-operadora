@@ -46,7 +46,16 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # atribuido sem o qualificador na mensagem ("estou com
                                      # dor de cabeca" nao e' cefaleia_subita_intensa), e
                                      # `intensidade` nunca e' inferida do sintoma.
-  response: response-v8               # 21/09/2026, SEGUNDA RODADA (gates em lote): o cartao sem
+  response: response-v9               # 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
+                                     # O NOME DO CANAL EM CADA MENCAO ("o portal do plano
+                                     # mostra a mesma lista", nunca "o portal mostra"). E' a
+                                     # contraparte de instrucao de um veredito de cerca que NAO
+                                     # muda: o termo generico seguido de verbo conta como
+                                     # QUALIFICADO e e' recusado sem o nome da familia, porque
+                                     # separar verbo de nome de marca exigiria dicionario — e
+                                     # em `inform` recusar e' fila humana. O conserto esta' a
+                                     # uma palavra, e agora o prompt manda escreve-la.
+                                     # v8 — 21/09/2026, SEGUNDA RODADA (gates em lote): o cartao sem
                                      # bandeira deixa de usar o vocabulario da MENCAO de
                                      # encaminhamento (ele disparava a cerca que existe para
                                      # pegar promessa sem lastro); a apresentacao, quando
@@ -67,7 +76,20 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v6          # 21/09/2026, TERCEIRA RODADA (achados do code-reviewer
+  recusa_de_saida: recusa-v7          # 21/09/2026, QUARTA RODADA (achados do code-reviewer
+                                      # sobre o delta da rodada 3): tres RECORTES de veredito,
+                                      # nenhuma cerca nova. CANAL/CRITICO — o nome exigido pelo
+                                      # termo QUALIFICADO passou a ter de COMECAR NA OCORRENCIA
+                                      # julgada; procura-lo no texto inteiro deixava um nome
+                                      # INVENTADO passar por vizinhanca do nome certo ("Baixe o
+                                      # aplicativo Austa Saude; o aplicativo Austa Clinicas tem
+                                      # a mesma informacao" — cinco textos medidos).
+                                      # CANAL/IMPORTANTE — `numero` saiu da pista de telefone:
+                                      # ele e' pista de NUMERO, e "o numero do protocolo" era a
+                                      # classe que a pista existia para nao recusar.
+                                      # MENCAO — a janela sujeito->acao deixou de atravessar
+                                      # `nao` ("a equipe NAO vai assumir" contava como mencao).
+                                      # v6 — 21/09/2026, TERCEIRA RODADA (achados do code-reviewer
                                       # sobre o delta da rodada 2): quatro ESTREITAMENTOS do que
                                       # a rodada 2 alargou demais. A MENCAO perdeu o filtro de
                                       # negacao por oracao (uma negacao em qualquer ponto da

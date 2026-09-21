@@ -1044,6 +1044,259 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Baixe o aplicativo Austa Saude; o aplicativo Austa Clinicas tem a mesma informacao.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): nome inventado ao lado do nome certo — medido PASSANDO",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Veja no portal Unimed e tambem no portal do plano.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): nome inventado ao lado do nome certo — medido PASSANDO",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "A carteirinha fica no aplicativo Austa Clinicas e no aplicativo Meu Convenio.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): nome inventado ao lado do nome certo — medido PASSANDO",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Voce pode usar o app Austa Saude ou o aplicativo Austa Clinicas.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): nome inventado ao lado do nome certo — medido PASSANDO",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Ligue na central Austa 24h ou na central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): nome inventado ao lado do nome certo — medido PASSANDO",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "A rede credenciada esta no aplicativo Austa Clinicas; o portal do plano mostra a mesma lista.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: a metade que nao pode regredir (termo nu / nome da familia na ocorrencia)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Visite a rede credenciada no aplicativo Austa Clinicas.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: a metade que nao pode regredir (termo nu / nome da familia na ocorrencia)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "No aplicativo Austa Clinicas voce ve a carteirinha.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: a metade que nao pode regredir (termo nu / nome da familia na ocorrencia)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O portal do plano mostra a mesma lista.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: a metade que nao pode regredir (termo nu / nome da familia na ocorrencia)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "A rede credenciada esta no portal do plano; o portal mostra a mesma lista.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: troca de veredito DECLARADA — qualificado por verbo, com o nome so' em outro ponto",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O portal mostra a mesma lista.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: troca de veredito DECLARADA — qualificado por verbo, com o nome so' em outro ponto",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O numero do protocolo e 2026 0921.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): `numero` nao e' pista de telefone — medido RECUSADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O numero do pedido e 31602096, e a autorizacao sai em 5 dias uteis.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): `numero` nao e' pista de telefone — medido RECUSADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O numero do procedimento e 31602096.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4 (reviewer): `numero` nao e' pista de telefone — medido RECUSADO",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O telefone e 3003 1234.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: nao-vacuidade da pista de telefone",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Atendimento 0800 123 4567.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: nao-vacuidade da pista de telefone",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Chame no whatsapp 99999 8888.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: nao-vacuidade da pista de telefone",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Nosso atendimento e pelo 3003 1234.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 4: residual DECLARADO — telefone sem palavra-pista passa",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "A equipe nao vai assumir o seu caso.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "rodada 4 (reviewer): negacao INTERPOSTA entre sujeito e acao — medido menciona=True",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Nao, um atendente nao vai te ligar hoje.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "rodada 4 (reviewer): negacao INTERPOSTA entre sujeito e acao — medido menciona=True",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Nao consigo adiantar mais, mas um profissional vai assumir o seu caso agora",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "rodada 4: o C1 nao pode reabrir — negacao FORA da janela sujeito->acao",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Nenhum atendente vai te ligar.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "rodada 4: residual DECLARADO — negacao ANTES do sujeito conta como mencao",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Ninguem da equipe vai assumir o seu caso.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "rodada 4: residual DECLARADO — negacao ANTES do sujeito conta como mencao",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
     }
   ]
 }

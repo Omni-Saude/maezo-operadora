@@ -477,17 +477,34 @@ def test_o_termo_generico_seguido_de_verbo_conta_como_qualificado() -> None:
     POR QUE ESTE LADO: a alternativa e' admitir "o portal Unimed" pela mesma regra. Reprovar um
     texto correto custa um escalonamento; aprovar um canal inventado custa uma pessoa indo para um
     lugar que nao existe — e aqui o nome da familia esta' a uma palavra de distancia ("o portal do
-    plano mostra a mesma lista"), que e' exatamente o que o `response_prompt` manda escrever.
+    plano mostra a mesma lista"), que e' exatamente o que o `response_prompt` manda escrever (e
+    manda com todas as letras desde o `response-v9`: "REPITA O NOME DO CANAL EM CADA MENCAO").
+
+    21/09/2026, QUARTA RODADA — A DECLARACAO FICOU MAIS LARGA, e o terceiro caso e' a novidade.
+    Ate' aqui a recusa dependia de o nome da familia nao aparecer em nenhum outro ponto do texto:
+    o ramo qualificado procurava `termo.exige` com `in`, no texto INTEIRO. Isso era o CRITICO da
+    quarta rodada (nome INVENTADO passando por vizinhanca do nome certo), e o conserto foi exigir
+    que o nome COMECE na ocorrencia julgada. Consequencia direta, declarada aqui e no corpus: o
+    termo qualificado por verbo e' recusado MESMO com o nome da familia na frase anterior.
     """
     com_verbo = "A rede credenciada esta no aplicativo Austa Clinicas; o portal mostra a mesma lista."
     com_o_nome = (
         "A rede credenciada esta no aplicativo Austa Clinicas; o portal do plano mostra a mesma lista."
+    )
+    com_o_nome_so_na_frase_anterior = (
+        "A rede credenciada esta no portal do plano; o portal mostra a mesma lista."
     )
 
     achado = motivo_de_canal_nao_confirmado(com_verbo)
     assert achado is not None and achado[0] == RECUSA_CANAL_NAO_CONFIRMADO
     assert motivo_de_canal_nao_confirmado(com_o_nome) is None, (
         "o conserto do texto e' uma palavra, e ele tem de passar"
+    )
+
+    vizinhanca = motivo_de_canal_nao_confirmado(com_o_nome_so_na_frase_anterior)
+    assert vizinhanca is not None and vizinhanca[0] == RECUSA_CANAL_NAO_CONFIRMADO, (
+        "o nome da familia em outro ponto do texto nao legitima a ocorrencia qualificada — foi por "
+        "essa porta que cinco nomes INVENTADOS passaram na terceira rodada"
     )
 
 

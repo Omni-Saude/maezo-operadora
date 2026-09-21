@@ -810,6 +810,39 @@ def _apresentou_se(texto: str) -> bool:
     return any(re.search(marca, plano) is not None for marca in MARCAS_DE_APRESENTACAO)
 
 
+def _confirmacao_chegou(texto: str, frase: object) -> bool:
+    """O texto ENVIADO trouxe a frase de confirmacao do dado lembrado? (21/09/2026, quarta rodada)
+
+    O DEFEITO QUE ISTO FECHA. `memoria_clinica.confirmada` era gravada em `classify`, no mesmo
+    `update` que CRIA a frase — isto e', quando ela e' GERADA. Entre gerar e enviar existe a cerca
+    TEXTO x FATO (`_texto_bate_com_o_fato`), e ela troca o rascunho por uma constante em tres
+    casos; num `ja_ativo` com rascunho que anuncia handoff a troca e' INTEGRAL. O resultado
+    medido: a pessoa nunca le' a pergunta, `confirmada` fica `True` para sempre, e a unica
+    confirmacao que a conversa tinha (`confirmar_agora` exige `not ja_confirmada`) nunca mais e'
+    feita. O dado lembrado passa a decidir a tabela de red flag sem que ninguem possa corrigi-lo,
+    que e' exatamente o que "MOSTRAR ANTES DE USAR" existe para impedir.
+
+    POR QUE ESTE LADO DO CONSERTO, e nao devolver `memoria_a_confirmar` ao proximo turno: o SPLIT
+    INPUT/OUTPUT de `HelenaState`. `memoria_a_confirmar` e' campo de OUTPUT com default neutro, ou
+    seja `receive` o zera em todo turno; faze-lo atravessar exigiria promove-lo a
+    `_HELENA_MEMORIA_DE_CONVERSA` e passar a limpa-lo a mao nos turnos que nao confirmam — campo
+    novo na excecao do reset, por um fato que ja' tem casa. `memoria_clinica` JA e' memoria de
+    conversa, JA atravessa o reset pela excecao declarada e JA carrega `confirmada` pela fronteira
+    validada (`_memoria_clinica_valida`). O fato "a pergunta saiu" mora onde a memoria mora.
+
+    SUBSTRING NORMALIZADA, pela mesma razao de `_apresentou_se`: caixa, acento e caractere
+    invisivel nao podem decidir se a Helena volta a confirmar. A frase entra no prompt com ordem
+    de ser copiada como veio ("comece a resposta por essa frase, exatamente como ela veio").
+
+    RESIDUAL DECLARADO: se o modelo PARAFRASEAR a frase, `confirmada` fica `False` e a pergunta
+    volta no proximo turno clinico. E' ruido, e e' o lado certo do erro — o avesso (dar por
+    confirmado o que a pessoa nunca leu) e' o defeito que esta funcao conserta.
+    """
+    if not isinstance(frase, str) or not frase.strip():
+        return False
+    return _normalizar_texto(frase) in _normalizar_texto(texto)
+
+
 #: MEMORIA DE CONVERSA — a UNICA excecao ao reset de `receive`, e por que ela e' segura.
 #:
 #: O reset existe para que valor plantado por quem chama nao seja lido a jusante. Estes tres
@@ -1309,13 +1342,20 @@ def _frase_de_confirmacao(lembrados: dict[str, Any]) -> str:
         else:
             # 21/09/2026 (terceira rodada): "seu bebe de 1 meses". Mesmo argumento das duas
             # adicoes acima — a frase existe PARA a pessoa corrigir, e uma frase que soa a sistema
-            # quebrado e' uma frase que ela para de ler. O mes e' o unico numero desta funcao que
-            # chega a 1 (`anos` vem de divisao inteira sobre >24, entao comeca em 2).
+            # quebrado e' uma frase que ela para de ler.
             quem = f"seu bebe de {meses} {'mes' if meses == 1 else 'meses'}"
     elif lembrados.get("idade_anos") is not None:
-        quem = f"a pessoa de {lembrados['idade_anos']} anos"
+        # 21/09/2026 (QUARTA RODADA): "a pessoa de 1 anos" e "a gestacao de 1 semanas". O
+        # comentario do ramo do mes afirmava que "o mes e' o unico numero desta funcao que chega a
+        # 1", e a afirmacao era FALSA nos dois ramos seguintes: `idade_anos` vem da EXTRACAO (uma
+        # pessoa de 1 ano e' um paciente pediatrico comum, e o teto e' o unico limite) e
+        # `idade_gestacional_semanas` tambem ("estou de 1 semana"). Divisao inteira so' explica o
+        # ramo `meses > 24`, que nao e' nenhum destes dois.
+        anos = lembrados["idade_anos"]
+        quem = f"a pessoa de {anos} {'ano' if anos == 1 else 'anos'}"
     elif lembrados.get("idade_gestacional_semanas") is not None:
-        quem = f"a gestacao de {lembrados['idade_gestacional_semanas']} semanas"
+        semanas = lembrados["idade_gestacional_semanas"]
+        quem = f"a gestacao de {semanas} {'semana' if semanas == 1 else 'semanas'}"
     elif lembrados.get("population") == "pediatric":
         quem = "sua crianca"
     elif lembrados.get("population") == "gestante":
@@ -1826,8 +1866,9 @@ class HelenaGraph:
         #      dizer seria papagaio, nao transparencia;
         #   2. o turno e' CLINICO (`symptom` ou risco psicossocial) — e' onde o dado lembrado muda
         #      a tabela e a orientacao; num turno administrativo ele nao decide nada;
-        #   3. a confirmacao ainda nao foi feita NESTA conversa — uma vez, nao a cada mensagem,
-        #      senao vira ruido e a pessoa para de ler.
+        #   3. a confirmacao ainda nao CHEGOU A PESSOA nesta conversa — uma vez, nao a cada
+        #      mensagem, senao vira ruido e a pessoa para de ler. "Chegou" e' literal desde a
+        #      quarta rodada: `confirmada` e' escrita em `respond`, contra o texto enviado.
         ja_confirmada = bool(memoria and memoria.get(_MEMORIA_CONFIRMADA))
         turno_clinico = psychosocial or intent == "symptom"
         confirmar_agora = bool(veio_da_memoria) and turno_clinico and not ja_confirmada
@@ -1838,11 +1879,19 @@ class HelenaGraph:
                 node="classify",
                 campos=sorted(veio_da_memoria),  # so' os NOMES dos campos, nunca os valores
             )
+        # `confirmada` NAO ACENDE AQUI (21/09/2026, QUARTA RODADA). Ate' esta rodada a linha era
+        # `confirmada=ja_confirmada or confirmar_agora`, ou seja o flag acendia quando a frase era
+        # GERADA. Entre gerar e enviar esta' a cerca TEXTO x FATO, que troca o rascunho por
+        # constante — e num `ja_ativo` com rascunho que anuncia handoff a troca e' integral. A
+        # pessoa nunca lia a pergunta e ela nunca mais era feita, porque `confirmar_agora` exige
+        # `not ja_confirmada`. Quem acende o flag agora e' `respond`, contra o texto EFETIVAMENTE
+        # ENVIADO (`_confirmacao_chegou`) — o mesmo ponto e o mesmo criterio de
+        # `apresentacao_ja_feita`, que tem exatamente este modo de falha.
         update["memoria_clinica"] = _memoria_a_gravar(
             extraction,
             memoria,
             agora=datetime.now(UTC),
-            confirmada=ja_confirmada or confirmar_agora,
+            confirmada=ja_confirmada,
         )
 
         # SAUDACAO COM PEDIDO NAO E' SAUDACAO (11/09/2026). A regra do prompt ja' diz isso, mas a
@@ -2557,6 +2606,22 @@ class HelenaGraph:
                 # certo assim: o texto daquele ramo e' `RESPOSTA_FALHA_TECNICA_START`, que nao tem
                 # cartao — o sinal ficaria apagado de qualquer forma.
                 saida["apresentacao_ja_feita"] = True
+            if enviada and _confirmacao_chegou(text, state.get("memoria_a_confirmar")):
+                # QUARTA RODADA, 21/09/2026 — IRMA EXATA DA LINHA ACIMA, e pelo mesmo defeito.
+                # `memoria_clinica.confirmada` era gravada em `classify`, quando a frase e'
+                # GERADA; a cerca TEXTO x FATO troca o rascunho por constante depois disso, e num
+                # `ja_ativo` a troca e' integral. A pessoa nunca lia a pergunta, `confirmada`
+                # ficava `True` e a confirmacao nunca mais acontecia (`confirmar_agora` exige
+                # `not ja_confirmada`) — o dado lembrado seguia decidindo a tabela de red flag sem
+                # ninguem poder corrigi-lo. Ver `_confirmacao_chegou`.
+                #
+                # A GRAVACAO E' SOBRE A MEMORIA DESTE TURNO (`state["memoria_clinica"]`, ja'
+                # escrita por `classify` neste mesmo turno), nunca sobre a do turno anterior: e' a
+                # que vai ao checkpointer. E so' acrescenta o flag — o resto da memoria (quem e' o
+                # paciente, a marca da avaliacao, o carimbo) e' preservado por copia.
+                memoria_do_turno = state.get("memoria_clinica")
+                if isinstance(memoria_do_turno, dict):
+                    saida["memoria_clinica"] = {**memoria_do_turno, _MEMORIA_CONFIRMADA: True}
         return saida
 
     def _texto_bate_com_o_fato(self, state: HelenaState, texto: str) -> tuple[str, dict[str, Any]]:
