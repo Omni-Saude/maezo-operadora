@@ -7,13 +7,21 @@
 // SO' no Secrets Manager (`maezo-operadora/dev/portal/amh/session-dsn`), e o Terraform le
 // apenas os metadados dela.
 //
-// `portal_enabled` fica FALSO aqui. Ligar e' um segundo passo, depois das 7 verificacoes
-// de `portal.md`/1.7 — e hoje ele esta' bloqueado no DNS externo (ver
-// docs/runbooks/portal-dev-provisionamento.md).
+// `portal_enabled` passou a TRUE em 21/09/2026, depois das verificacoes de `portal.md`/1.7 e
+// depois que os dois pre-requisitos fora desta conta cairam no mesmo dia: o CNAME de validacao
+// do ACM + o hostname na zona Cloudflare de `austa.com.br`, e o ingress 5432 do Aurora para o
+// SG dedicado do portal (`Omni-Saude/amh-data-platform#175`, aplicado com -target).
+//
+// O DEFAULT DESCREVE O QUE RODA: se isto voltar a `false` num apply futuro, o servico do
+// portal e' escalado para zero sem erro nenhum, e quem perceber vai perceber pelo 502.
+//
+// O que este `true` NAO entrega: o perfil `staff` continua `null` (ver o fim deste arquivo),
+// entao o portal AUTENTICA e nao tem FILA DE CASOS — `MAEZO_PORTAL_CAPABILITIES=identity`.
+// Os criterios 3 a 6 do mandato de 21/09 dependem da autoridade nativa, que nao existe em dev.
 //
 // Medido na conta 203312548462 / sa-east-1 em 21/09/2026.
 
-portal_enabled = false
+portal_enabled = true
 
 portal = {
   // Tenant desta instancia; tem de ser igual a `tenant_id` do ambiente.
@@ -43,9 +51,11 @@ portal = {
   // a task definition VIVA de agent-rafael (FHIR_CLIENT_ID), nao contra o default do repo.
   machine_client_id = "3kr6l4lq5mgq84rta88a2ugpd"
 
-  // Hostname publico decidido pelo dono. A zona `austa.com.br` e' EXTERNA a esta conta
-  // (nao existe hosted zone publica no Route53 daqui): o dono do DNS aponta este nome para
-  // o alias do NLB e cria o CNAME de validacao do ACM.
+  // Hostname publico decidido pelo dono. A zona `austa.com.br` e' EXTERNA a esta conta —
+  // ela vive no Cloudflare, e os dois registros (validacao do ACM + este hostname para o
+  // NLB) foram criados la' em 21/09/2026, DNS-only. Resolucao publica conferida:
+  // portal-maezo-dev.austa.com.br -> portal-cceba8c66318e03e-...elb.sa-east-1.amazonaws.com
+  // -> 52.67.211.205 / 54.232.19.187.
   public_origin = "https://portal-maezo-dev.austa.com.br"
 
   // Artefato `8b014a60`, verificado DENTRO da imagem como uid 1000 em 21/09/2026: modulo
@@ -61,26 +71,29 @@ portal = {
   // master.
   database_secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/session-dsn-e3YgbH"
 
-  // BOOTSTRAP, TEMPORARIO — trocar pelo certificado real assim que ele emitir.
+  // Certificado REAL, emitido pelo ACM por validacao DNS em 21/09/2026 e valido ate'
+  // 2027-04-06 (`Status=ISSUED`, `ValidationStatus=SUCCESS`, medido).
   //
-  // O certificado REAL de `portal-maezo-dev.austa.com.br` (validacao DNS) existe e e'
-  //   arn:aws:acm:sa-east-1:203312548462:certificate/34be6754-441c-4ab5-add0-67037d628c72
-  // mas fica `PENDING_VALIDATION` ate' o dono do DNS externo criar o CNAME de validacao
-  // (valores no runbook). MEDIDO em 21/09/2026, nao presumido: o listener TLS do NLB
-  // RECUSA certificado pendente —
-  //   CreateListener 400 UnsupportedCertificate: "The certificate '...34be6754...' must have
-  //   a fully-qualified domain name, a supported signature, and a supported key size."
-  // Sem certificado utilizavel nao existe listener, e sem listener o `aws_ecs_service` do
-  // portal nem e' criado (`depends_on`) — ou seja, o passo 1.5 inteiro travaria esperando
-  // um DNS que nao esta nesta conta.
+  // HISTORIA, porque ela explica o self-signed que aparece no historico deste arquivo: a
+  // zona `austa.com.br` e' do Cloudflare (`austin/crystal.ns.cloudflare.com`), nao ha hosted
+  // zone publica no Route53 desta conta, e enquanto o CNAME de validacao nao existia o
+  // certificado ficava `PENDING_VALIDATION`. O listener TLS do NLB RECUSA certificado
+  // pendente (medido: `CreateListener 400 UnsupportedCertificate`), e sem listener o
+  // `aws_ecs_service` do portal nem e' criado (`depends_on`) — entao o passo 1.5 foi
+  // materializado com um self-signed importado
+  // (`...certificate/46784e0d-4ab0-4f4b-8932-c544b0aa3871`) enquanto o servico estava em
+  // ZERO tasks. Nada serviu trafego por ele.
   //
-  // Por isso o valor ativo abaixo e' um self-signed importado no ACM em 21/09/2026, com
-  // `notBefore` um dia no passado (clock skew no import ja custou uma volta antes), emitido
-  // SO' para materializar o listener enquanto o servico esta em ZERO tasks. Nada serve
-  // trafego por ele. Trocar para o real e' update in-place do `certificate_arn`.
-  // NAO ative o portal (`portal_enabled=true`) com este certificado: navegador nenhum confia
-  // nele e o login PKCE nao fecha.
-  certificate_arn = "arn:aws:acm:sa-east-1:203312548462:certificate/46784e0d-4ab0-4f4b-8932-c544b0aa3871"
+  // Os dois registros foram criados em 21/09/2026 na zona do Cloudflare, ambos DNS-ONLY:
+  //   _a97abaa85b2ea90dec7850f381c79512.portal-maezo-dev -> _1d34fdfc01d78f0ba2abe5e7a19f0039.wzccmgtwzk.acm-validations.aws
+  //   portal-maezo-dev -> portal-cceba8c66318e03e-da82ba413a53e0d5.elb.sa-east-1.amazonaws.com
+  // O proxy do Cloudflare ficaria ERRADO nos dois: no primeiro ele reescreveria o CNAME que
+  // a AWS consulta; no segundo ele terminaria o TLS nele mesmo, e o navegador veria o
+  // certificado do Cloudflare em vez deste — e o callback do Cognito exige este.
+  //
+  // O self-signed continua importado no ACM (nao apagado de proposito: apagar um certificado
+  // que ja esteve num listener nao ajuda ninguem a entender o historico). Ele nao esta em uso.
+  certificate_arn = "arn:aws:acm:sa-east-1:203312548462:certificate/34be6754-441c-4ab5-add0-67037d628c72"
 
   // Subnets do NLB: Tier=public do mesmo VPC (vpc-0a850a9d40b36ac5b), AZs distintas
   // (1a e 1b), com rota 0.0.0.0/0 para o IGW. As TASKS nao usam estas: o service roda em
