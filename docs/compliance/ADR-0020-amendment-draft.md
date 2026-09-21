@@ -33,12 +33,20 @@ code** relative to ADR-0020's stated intent:
 So the code today implements "**retention wins, destructively**," directly contradicting ADR-0020 item 6
 ("hold wins"). Deleting held evidence during pending/anticipated litigation is a **spoliation** risk.
 
-**Two loci of the same conflict (both must be covered):**
+**Three loci of the same conflict (all must be covered):**
 1. `audit_chain` hash records (deleted by `retention.py`) — the substrate a sealed `bundle_root` needs to
    be reconstructable/verifiable. Even though a hash "isoladamente não é dado pessoal apagável"
    (ADR-0020:89), deleting it breaks the custody projection.
 2. Raw evidence in the S3 PHI-zone under Object-Lock (ADR-0020 item 4) — the personal data itself, subject
    both to LGPD erasure AND to litigation-hold preservation.
+3. `portal_document.object` — the sealed PHI document ciphertext of the portal document plane
+   (`src/maezo/gateway/documents/schema.sql:21-28`), added 2026-09-20 by the owner's ratification of the
+   WP-J1-04 §3 item-2 fold. The owner migration sets **no retention** (no retention column, no lifecycle
+   job), so the plane's de-facto default is retain-indefinitely — the same LGPD Art. 16 tension this
+   amendment analyses, now with a code locus of its own. Its retention decision is **not** ratified
+   anywhere: `spec/policies/phi/document-custody-lifecycle.yaml` declares `retencao.decidido_aqui: false`
+   and points here instead of restating a number, and ADR-0020 item 6's "5+ anos" stays **DRAFT/verify**
+   pending jurídico/regulatório/DPO sign-off (`docs/adr/0020-custody-chain.md:84-96`).
 
 ## 2. Options considered
 
@@ -166,8 +174,10 @@ already commits to**. Concretely, for ratification:
 1. Ratify that **legal-hold takes precedence over the routine 5-year DELETE** (preservation floor beats
    retention ceiling) — but **only until the hold lifts**, then reconcile (delete) once the 5-year floor is
    also met.
-2. Ratify that the same holds gate **both** the `audit_chain` DELETE **and** the S3 Object-Lock release,
-   and the `mpi_id<->fhir_patient_id` surrogate drop (ADR-0020:93).
+2. Ratify that the same holds gate **all** of: the `audit_chain` DELETE, the S3 Object-Lock release, the
+   `mpi_id<->fhir_patient_id` surrogate drop (ADR-0020:93), **and the retention/lifecycle of
+   `portal_document.object`** (locus 3, §1 — added by the 2026-09-20 WP-J1-04 §3 item-2 fold; the plane
+   currently sets no retention, `src/maezo/gateway/documents/schema.sql:21-28`).
 3. Require a **legal-hold registry** (net-new; absent on `main`) as a precondition before the scheduled
    DELETE may run in production. The scheduler is already wired and the decision ratified
    (CronJob `lifecycle-audit-retention`, `cronjob-lifecycle.yaml:7,54` + `values.yaml:556-559`;
