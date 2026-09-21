@@ -269,6 +269,27 @@ _VALID_INTENTS: frozenset[str] = frozenset(
 _VALID_POPULATIONS: frozenset[str] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _VALID_INTENSIDADES: frozenset[str] = frozenset({"leve", "moderada", "grave", "desconhecida"})
 
+
+def _em_dominio(valor: object, dominio: frozenset[str]) -> bool:
+    """`valor` pertence a este vocabulario FECHADO? Recusa tudo que nao for `str`.
+
+    POR QUE O `isinstance` NAO E' REDUNDANTE (21/09/2026, segunda rodada). Todo `x in frozenset`
+    deste modulo le' valor de JSON de modelo ou de memoria checkpointada — valor NAO validado, que
+    e' justamente o que estas fronteiras existem para julgar. Um valor nao-hashavel (`"intensidade":
+    {"valor": "grave"}`, `"sintoma_codigo": ["febre", "dispneia"]` para quem relatou dois sintomas)
+    levanta `TypeError: unhashable type` no proprio teste de pertinencia; `TypeError` esta' em
+    `PROGRAMMING_ERRORS` e PROPAGA DE PROPOSITO, entao o no' morria alto: o beneficiario nao recebia
+    nada, nenhuma escalacao nascia e nenhum desfecho era contado — o oposto exato da postura
+    declarada ("schema-invalid JSON -> escalate `falha_tecnica`, NEVER a silent inform default").
+    E' a mesma guarda que `_coerce_age` (que devolve `(False, None)` para lista/dict) ja fazia nos
+    tres campos de IDADE do mesmo validador, agora nos campos de dominio fechado.
+
+    UMA FUNCAO, e nao o `isinstance` repetido em cada sitio, porque a lista de sitios cresce: cada
+    campo de vocabulario fechado que nascer neste modulo tem de passar por aqui.
+    """
+    return isinstance(valor, str) and valor in dominio
+
+
 MotivoCategoria = Literal[
     "red_flag_clinico",
     "risco_psicossocial",
@@ -865,7 +886,7 @@ def _memoria_clinica_valida(
     limpa: dict[str, Any] = {}
     populacao = bruta.get("population")
     if populacao is not None:
-        if populacao not in _VALID_POPULATIONS:
+        if not _em_dominio(populacao, _VALID_POPULATIONS):
             return None
         limpa["population"] = populacao
     for campo in ("idade_anos", "idade_meses", "idade_gestacional_semanas"):
@@ -891,7 +912,14 @@ def _memoria_clinica_valida(
         limpa[_MEMORIA_SINTOMA_AVALIADO] = avaliado
         intensidade_avaliada = bruta.get(_MEMORIA_INTENSIDADE_AVALIADA)
         if intensidade_avaliada is not None:
-            if intensidade_avaliada not in _VALID_INTENSIDADES:
+            # `isinstance(..., str)` ANTES do `in`, como a linha do `sintoma_avaliado` logo acima
+            # (21/09/2026, segunda rodada). Sem ela, um valor nao-hashavel (`["grave"]`,
+            # `{"valor": "grave"}`) levanta `TypeError` no teste de pertinencia ao frozenset — e
+            # `TypeError` esta' em `PROGRAMMING_ERRORS`, ou seja PROPAGA: esta fronteira, cujo
+            # docstring promete "FALHA PARA `None`, NUNCA PARA UM VALOR PARCIAL", derrubava o turno
+            # inteiro em vez de recusar a memoria. E ela e' chamada em `receive` sobre
+            # `state["memoria_clinica"]`, que e' exatamente o valor em que nao se confia (T1.11).
+            if not _em_dominio(intensidade_avaliada, _VALID_INTENSIDADES):
                 return None
             limpa[_MEMORIA_INTENSIDADE_AVALIADA] = intensidade_avaliada
     limpa[_MEMORIA_GRAVADA_EM] = gravado.isoformat()
@@ -1012,7 +1040,7 @@ def _marcar_avaliacao(
     marcada = dict(memoria)
     marcada[_MEMORIA_SINTOMA_AVALIADO] = sintoma_codigo
     marcada[_MEMORIA_INTENSIDADE_AVALIADA] = (
-        intensidade if intensidade in _VALID_INTENSIDADES else "desconhecida"
+        intensidade if _em_dominio(intensidade, _VALID_INTENSIDADES) else "desconhecida"
     )
     return marcada
 
@@ -1065,7 +1093,7 @@ def _correcao_de_dado_avaliado(
     intensidade = memoria.get(_MEMORIA_INTENSIDADE_AVALIADA)
     return {
         "sintoma_codigo": avaliado,
-        "intensidade": intensidade if intensidade in _VALID_INTENSIDADES else "desconhecida",
+        "intensidade": intensidade if _em_dominio(intensidade, _VALID_INTENSIDADES) else "desconhecida",
         "corrigidos": corrigidos,
     }
 
@@ -1398,17 +1426,17 @@ def _validate_extraction(data: dict[str, Any]) -> str | None:
       engine FEEL/400 error — this makes the escalation EXPLICIT and DETERMINISTIC). Valid ages
       are COERCED IN PLACE (a quoted `"5"` -> `5`) so the DMN receives the correct integer type.
     """
-    if data.get("intent") not in _VALID_INTENTS:
+    if not _em_dominio(data.get("intent"), _VALID_INTENTS):
         return "invalid_intent"
-    if data.get("population") not in _VALID_POPULATIONS:
+    if not _em_dominio(data.get("population"), _VALID_POPULATIONS):
         return "invalid_population"
     if not isinstance(data.get("psychosocial_risk"), bool):
         return "missing_or_invalid_psychosocial_risk"
     codigo = data.get("sintoma_codigo")
-    if codigo is not None and codigo not in ALLOWED_SINTOMA_CODIGOS:
+    if codigo is not None and not _em_dominio(codigo, ALLOWED_SINTOMA_CODIGOS):
         return "non_allowlisted_sintoma_codigo"
     intensidade = data.get("intensidade")
-    if intensidade is not None and intensidade not in _VALID_INTENSIDADES:
+    if intensidade is not None and not _em_dominio(intensidade, _VALID_INTENSIDADES):
         return "invalid_intensidade"
     for field in _AGE_FIELDS:
         ok, coerced = _coerce_age(data.get(field))
