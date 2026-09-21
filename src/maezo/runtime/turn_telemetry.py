@@ -168,6 +168,15 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             # perguntas. Literal duplicado de `agents/helena/graph.py::DESFECHO_PERGUNTA_COLETA`
             # (este modulo nao importa grafos); `test_helena_coleta.py` impede a divergencia.
             "pergunta_coleta",
+            # CERCA TEXTO x FATO (21/09/2026, F1): o start foi idempotente sobre uma instancia
+            # VIVA desta conversa — nenhuma escalacao NOVA nasceu e um humano ja' esta' com o
+            # caso. Token proprio porque contado como `escalado_humano` este turno inflaria a taxa
+            # de escalonamento com fila que ele nao criou; foi exatamente essa invisibilidade que
+            # deixou 27 escalonamentos reusados atravessarem a bateria de 21/09 sem aparecer em
+            # numero nenhum. Literal duplicado de
+            # `agents/helena/graph.py::DESFECHO_ESCALONAMENTO_JA_ABERTO` (este modulo nao importa
+            # grafos); `test_helena_cerca_texto_x_fato.py` impede a divergencia.
+            "escalonamento_ja_aberto",
         }
     ),
     "lucas": frozenset(

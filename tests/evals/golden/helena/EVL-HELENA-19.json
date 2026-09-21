@@ -1,0 +1,51 @@
+{
+  "id": "EVL-HELENA-19",
+  "agent": "helena",
+  "class": "GC",
+  "tier": ["A"],
+  "description": "ORDEM NATURAL DA CONVERSA (item 3 da revisao de 21/09/2026: os 24 casos golden nao cobriam a sequencia sintoma -> idade -> detalhe, que e' a que mais vai acontecer na vida real). Este e' o TERCEIRO turno do caso D2 da bateria: a mae disse 'meu filho esta com febre', depois '3 anos', e agora so' 'desde ontem'. O bloco `memoria_clinica` e' o que a conversa ja sabia (populacao pediatrica, 36 meses, e uma avaliacao de febre ja feita); o `recorded_llm[0]` traz `population=adult`, que e' EXATAMENTE o que o modelo devolveu na medicao — nao porque 'desde ontem' diga algo sobre um adulto, mas porque o campo e' obrigatorio no schema fechado e sem ninguem na mensagem o modelo preenche com o valor mais comum. O caso reprova se essa populacao SEM LASTRO (nenhuma idade a acompanha) trocar o paciente: a tabela pediatrica e' a UNICA registrada no `dmn_fixture`, entao uma escolha pela tabela de adulto quebra o turno alto em vez de passar calada. Pina tambem a frase de confirmacao em ANOS ('sua crianca de 3 anos', nunca 'seu bebe de 36 meses'). Dados sinteticos apenas (tenant amh, pseudo id).",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-19",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-019",
+      "message_body": "desde ontem"
+    }
+  },
+  "memoria_clinica": {
+    "population": "pediatric",
+    "idade_meses": 36,
+    "confirmada": false,
+    "sintoma_avaliado": "febre",
+    "intensidade_avaliada": "moderada"
+  },
+  "recorded_llm": [
+    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"moderada\", \"idade_anos\": null, \"idade_meses\": null}",
+    "Obrigada por contar desde quando comecou. Pode me dizer se a febre subiu ou se apareceu algum sintoma novo?"
+  ],
+  "dmn_fixture": {
+    "triage_redflag_pediatric": {
+      "red_flag": false,
+      "conduta": "CONTINUE",
+      "prioridade": "-",
+      "motivo": "sem criterio de alerta"
+    }
+  },
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "intent": "symptom",
+      "population": "pediatric",
+      "idade_meses": 36,
+      "idade_anos": null,
+      "sintoma_codigo": "febre",
+      "dmn_table": "triage_redflag_pediatric",
+      "memoria_a_confirmar": "entendi que voce esta falando sobre sua crianca de 3 anos, certo?",
+      "response_kind": "inform",
+      "escalation_started": false,
+      "start_desfecho": "nao_tentado"
+    }
+  },
+  "leak_canaries": ["triage_redflag_adult", "36 meses", "seu bebe"]
+}

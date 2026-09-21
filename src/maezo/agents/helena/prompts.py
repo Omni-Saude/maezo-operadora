@@ -246,7 +246,7 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v3"  # 13/09/2026: + formas que escaparam na bateria
+RECUSA_DE_SAIDA_VERSION = "recusa-v4"  # 21/09/2026: a cerca passou a olhar o FATO, nao a intencao
 
 #: Afirmar a AUSENCIA de alerta. Proibido em TODA rota: "a tabela nao casou nenhuma regra" e
 #: "voce nao tem sinais de alerta" nao sao a mesma frase, e a segunda e' parecer clinico sobre uma
@@ -345,12 +345,60 @@ PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
     "pode solicitar por aqui",
 )
 
-#: Rotulos dos tres grupos. Fechados, porque viram rotulo de metrica: o padrao exato vai para o
+#: MENCAO OBRIGATORIA (21/09/2026, F2 da bateria do diretor) — o AVESSO da promessa proibida.
+#:
+#: O QUE FOI MEDIDO, caso `E4`: "quanto eu devo de mensalidade?" abriu SP-OP-ESCALATION-001
+#: (`solicitacao_humano`, P3, fila `atendimento-humano`) e a resposta mandou a pessoa consultar o
+#: aplicativo, o portal ou a central. Escalar estava CERTO — cobranca esta' fora do escopo da
+#: Helena. O erro foi alguem do atendimento receber um caso enquanto o beneficiario ia procurar
+#: sozinho, sem saber que ja' tinha atendimento a caminho.
+#:
+#: POR QUE UMA LISTA POSITIVA, e nao uma proibicao. As tres listas acima respondem "o texto disse
+#: algo que nao pode"; esta responde "o texto DEIXOU DE DIZER algo que o fato obriga". Nao ha como
+#: expressar a segunda como padrao proibido, porque o que falta nao tem forma.
+#:
+#: A DIRECAO DO ERRO E' DELIBERADA. Um falso NEGATIVO aqui (um texto que menciona o
+#: encaminhamento com palavras que a lista nao tem) troca o rascunho do modelo pela constante
+#: honesta: a pessoa le' uma frase mais seca, e nada mais. Um falso POSITIVO deixaria passar
+#: exatamente o E4. Entao a lista e' CURTA e ASSERTIVA — "um profissional", "atendente",
+#: "encaminh" —, e de proposito NAO contem "atendimento" nem "contato" soltos: os dois aparecem
+#: no texto REAL do E4 ("central de atendimento", "entrando em contato com a central"), que e'
+#: orientacao para a pessoa se resolver sozinha, o oposto de avisar que um humano assumiu.
+MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
+    "encaminh",  # encaminhamos / encaminhei / vou encaminhar / encaminhado / encaminhamento
+    "um profissional",
+    "uma profissional",
+    "profissional de saude",
+    "profissional humano",
+    "profissional da",
+    "atendente",
+    "um humano",
+    "equipe de saude",
+    "plantao clinico",
+    "enfermagem",
+    # O caso `already_existed`: nao ha encaminhamento NOVO a anunciar, e o que a pessoa precisa
+    # saber e' que o antigo esta' de pe'.
+    "atendimento ja esta aberto",
+    "atendimento esta aberto",
+    "ja esta com a equipe",
+)
+
+#: Rotulos dos grupos. Fechados, porque viram rotulo de metrica: o padrao exato vai para o
 #: log (onde alguem depura) e o GRUPO vai para o contador (onde alguem conta), de modo que a
 #: cardinalidade nao cresce quando a lista cresce.
 RECUSA_NEGATIVA_CLINICA: str = "negativa_clinica"
 RECUSA_PROMESSA_DE_HUMANO: str = "promessa_de_humano"
 RECUSA_PROMESSA_DE_CAPACIDADE: str = "promessa_de_capacidade"
+#: 21/09/2026, F1. Rotulo PROPRIO, e a separacao e' o achado: `promessa_de_humano` significa
+#: "rota errada para essa frase"; este significa "rota certa, FATO ausente" — o texto prometeu um
+#: humano numa rota que normalmente promete, e o start nao aconteceu. Contar os dois juntos
+#: apagaria justamente a distincao que o C1 da bateria expos.
+RECUSA_PROMESSA_SEM_START: str = "promessa_sem_start"
+#: 21/09/2026, F2. O avesso: o start ACONTECEU e o texto nao mencionou o encaminhamento.
+RECUSA_HANDOFF_SEM_MENCAO: str = "handoff_sem_mencao"
+#: 21/09/2026, F1. O rascunho foi trocado porque a escalacao desta conversa JA estava aberta —
+#: nenhuma outra foi iniciada, e o texto que anunciava uma nova nao era verdade.
+RECUSA_ESCALONAMENTO_JA_ABERTO: str = "escalonamento_ja_aberto"
 
 
 def _normalizar(texto: str) -> str:
@@ -359,18 +407,45 @@ def _normalizar(texto: str) -> str:
     return "".join(c for c in decomposto if not unicodedata.combining(c)).lower()
 
 
-def motivo_de_recusa(texto: str, response_kind: str) -> tuple[str, str] | None:
+def menciona_encaminhamento(texto: str) -> bool:
+    """O texto AVISA o beneficiario de que um humano assumiu? (F2, 21/09/2026)
+
+    PURA, como `motivo_de_recusa`, e pela mesma razao: e' testavel com os textos REAIS que
+    vazaram, sem subir grafo nenhum. Quem decide se a mencao e' OBRIGATORIA neste turno nao e'
+    esta funcao — e' o FATO do start (`HelenaGraph.respond`). Aqui so' se le' o texto.
+    """
+    plano = _normalizar(texto)
+    return any(padrao in plano for padrao in MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA)
+
+
+def motivo_de_recusa(
+    texto: str, response_kind: str, *, start_aconteceu: bool | None = None
+) -> tuple[str, str] | None:
     """`(grupo, padrao)` do primeiro padrao proibido encontrado em `texto`, ou `None`.
 
-    PURA e sem efeito: decide olhando o texto e o `response_kind`, nada mais. E' o que permite
-    testa-la com os textos REAIS que vazaram, sem subir grafo nenhum.
+    PURA e sem efeito: decide olhando o texto, o `response_kind` e o FATO do start, nada mais.
+    E' o que permite testa-la com os textos REAIS que vazaram, sem subir grafo nenhum.
 
-    A NEGATIVA CLINICA e a PROMESSA DE CAPACIDADE sao proibidas em TODA rota. A PROMESSA DE
-    HUMANO so' fora de `escalate`/`schedule` — e essa condicao e' o ponto delicado desta funcao:
-    nessas duas um humano foi mesmo acionado e prometer e' OBRIGATORIO (`response_prompt` manda),
-    entao uma cerca incondicional reprovaria justamente o caminho certo. `schedule` esta' entre as
-    permitidas porque ele TAMBEM abre escalonamento (ver `HelenaGraph.schedule`, que delega a
-    `_start_escalation`).
+    A NEGATIVA CLINICA e a PROMESSA DE CAPACIDADE sao proibidas em TODA rota, com qualquer fato.
+
+    A PROMESSA DE HUMANO depende de DUAS coisas, e a segunda entrou em 21/09/2026 (F1 da bateria
+    do diretor). Ate' `recusa-v3` bastava a ROTA: `escalate`/`schedule` liberavam a frase porque
+    "nessas duas um humano foi mesmo acionado". O caso `C1` derrubou a premissa — rota `escalate`,
+    promessa entregue, ZERO processo, zero erro registrado. A rota e' a INTENCAO do grafo; ela nao
+    prova que o start aconteceu.
+
+    `start_aconteceu` e' esse fato, com TRES valores e nao dois:
+
+      * `None` — "ainda nao se sabe". E' o valor do rascunho: `_respond_llm` redige o texto ANTES
+        de o start ser tentado, entao naquele ponto nao existe fato nenhum para consultar. Vale a
+        regra da rota, exatamente como em `recusa-v3` — esta chamada e' um PRE-FILTRO, nao a
+        cerca final.
+      * `True` — o start aconteceu (instancia nova OU uma ja' ativa desta conversa). A promessa e'
+        verdadeira; vale a regra da rota.
+      * `False` — o start NAO aconteceu (nao foi tentado, falhou, ou nada resta ativo). A promessa
+        e' proibida em TODA rota, `escalate` e `schedule` incluidas, e o grupo devolvido e'
+        `RECUSA_PROMESSA_SEM_START` — rotulo proprio, para o contador nao confundir "rota errada"
+        com "fato ausente".
 
     Ordem: negativa, capacidade, promessa de humano. Quando um texto viola mais de uma, o achado
     reportado e' o mais grave — e a negativa clinica e' a unica que fala sobre o CORPO de alguem.
@@ -382,10 +457,15 @@ def motivo_de_recusa(texto: str, response_kind: str) -> tuple[str, str] | None:
     for padrao in PROMESSA_DE_CAPACIDADE_PROIBIDA:
         if padrao in plano:
             return (RECUSA_PROMESSA_DE_CAPACIDADE, padrao)
-    if response_kind not in _ROTAS_QUE_PODEM_PROMETER_HUMANO:
-        for padrao in PROMESSA_DE_HUMANO_PROIBIDA:
-            if padrao in plano:
-                return (RECUSA_PROMESSA_DE_HUMANO, padrao)
+    if start_aconteceu is False:
+        grupo = RECUSA_PROMESSA_SEM_START
+    elif response_kind not in _ROTAS_QUE_PODEM_PROMETER_HUMANO:
+        grupo = RECUSA_PROMESSA_DE_HUMANO
+    else:
+        return None
+    for padrao in PROMESSA_DE_HUMANO_PROIBIDA:
+        if padrao in plano:
+            return (grupo, padrao)
     return None
 
 

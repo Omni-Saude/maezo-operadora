@@ -48,7 +48,11 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v3          # 13/09/2026: a cerca de SAIDA em `_respond_llm` — negativa
+  recusa_de_saida: recusa-v4          # 21/09/2026: a cerca de SAIDA passou a olhar o FATO do
+                                      # start (novo / ja ativo / falhou / nao tentado), nao a
+                                      # ROTA pretendida, e a mencao ao encaminhamento virou
+                                      # OBRIGATORIA quando o start aconteceu (F1/F2 da bateria
+                                      # de 21/09). v3 (13/09/2026): negativa
                                      # clinica, promessa de humano e de capacidade (PR #395).
 
 model:
