@@ -159,10 +159,19 @@ jobs:
           # `--tlog-upload=false` e' recusado (medido: run 35665215302). Desligar a
           # signing config e' o que diz, explicitamente, que esta cadeia nao usa
           # Rekor: a confianca e' a chave da conta.
+          # `--new-bundle-format=false`: com o bundle novo (default do cosign 3.x) o
+          # artefato vai para o ECR como imagem SEM TAG, anexada pela API de
+          # referrers — e a regra 1 do lifecycle deste repositorio expira imagem sem
+          # tag em 1 dia (medido: runs 35663558132 e 35665588796, que deixaram 5
+          # bundles sem tag). A assinatura se apagaria sozinha em 24h. No formato
+          # antigo ela e' a tag `sha256-<digest>.sig`, protegida pela regra de
+          # retencao dedicada de `ecs.tf`. `--registry-referrers-mode=legacy`
+          # sozinho NAO resolve: ele muda a DESCOBERTA, nao o formato publicado.
           cosign sign --yes \
             --key "${KMS_KEY_URI}" \
             --use-signing-config=false \
             --tlog-upload=false \
+            --new-bundle-format=false \
             --registry-referrers-mode="${REFERRERS_MODE}" \
             "${IMAGE_REF}"
 
@@ -180,6 +189,7 @@ jobs:
             --key "${KMS_KEY_URI}" \
             --use-signing-config=false \
             --tlog-upload=false \
+            --new-bundle-format=false \
             --type spdxjson \
             --predicate "${SBOM_FILE}" \
             "${IMAGE_REF}"
