@@ -1131,10 +1131,13 @@ def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
     nome inventado. As duas listas moram ao lado de `CANAIS_CONFIRMADOS`, que e' a fonte do texto
     do prompt — a cerca e a instrucao nao podem divergir sem que isso apareca no diff.
 
-    WIRING: o ponto de chamada e' `graph.py::_respond_llm`, ao lado de `motivo_de_recusa`. Ver a
-    pendencia declarada no relatorio da entrega de 21/09 — aquele arquivo estava em edicao pela
-    frente F1/F2 (a cerca que liga o texto ao FATO do start), que muda a assinatura da irma nessa
-    mesma linha.
+    WIRING (LIGADO — este comentario envelheceu no merge e foi reescrito em 21/09/2026, segunda
+    rodada): o ponto de chamada e' `graph.py::_cercar_saida`, ao lado de `motivo_de_recusa`, e esse
+    metodo e' usado pelo chokepoint de redacao (`_respond_llm`) E pelo no' `collect`. A pendencia
+    que morava aqui ("aquele arquivo estava em edicao pela frente F1/F2, que muda a assinatura da
+    irma nessa mesma linha") foi fechada pelo merge `3e6e1620`, que entrou junto com a F1/F2: a
+    assinatura da irma mudou, as duas cercas ficaram lado a lado, e a prova esta em
+    `tests/unit/agents/test_helena_wiring_canal_e_apresentacao.py`.
     """
     plano = _normalizar(texto)
     for padrao in CANAL_NAO_CONFIRMADO_PROIBIDO:

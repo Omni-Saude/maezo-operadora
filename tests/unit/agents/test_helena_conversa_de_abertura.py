@@ -22,11 +22,18 @@ AS FRASES SAO DECISAO DO DONO (21/09/2026), nao escolha de redacao: elas moram e
 LITERALMENTE para o prompt, porque uma resposta de conformidade que o modelo reformula a cada turno
 nao e' uma resposta de conformidade.
 
-O QUE ESTE ARQUIVO NAO CONSEGUE PROVAR, e esta' declarado no relatorio: que o cartao aparece no
-MAXIMO uma vez por conversa. A instrucao esta no prompt e depende de um sinal de estado
-(`apresentacao_ja_feita`) que so' `graph.py` pode acender — e `graph.py` pertence a outra frente em
-voo. Enquanto ele nao acender, o que o prompt garante e' o mais importante dos dois: responder a
-pergunta ANTES de se apresentar, que e' o que fez tres turnos seguidos sairem iguais.
+O QUE ESTE ARQUIVO PROVA E O QUE PROVA OUTRO (atualizado em 21/09/2026, segunda rodada — o
+comentario anterior envelheceu no merge). Aqui vivem as DUAS FRASES e as instrucoes do prompt.
+Que o cartao aparece no MAXIMO uma vez por conversa depende do sinal `apresentacao_ja_feita`, que
+`graph.py` acende: aquilo ESTA LIGADO desde o merge `3e6e1620` e e' provado em
+`test_helena_wiring_canal_e_apresentacao.py` (o sinal nasce no envio, sobrevive ao `receive` do
+turno seguinte e chega ao contexto do prompt) e em `test_helena_adv_extracao_e_wiring.py` (ele so'
+acende quando o texto ENVIADO traz a apresentacao — um turno cujo texto foi trocado pela cerca nao
+conta como "ja se apresentou").
+
+A frase de abertura passou a se identificar PELO NOME em `response-v8` ("Sou Helena"), e isso nao e'
+estilo tampouco: e' a marca que torna o sinal acima verificavel, alem de responder "quem e' voce?"
+com o nome.
 """
 
 from __future__ import annotations
