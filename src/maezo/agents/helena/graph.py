@@ -179,6 +179,7 @@ from .prompts import (
     classify_prompt,
     coleta_prompt,
     menciona_encaminhamento,
+    motivo_de_canal_nao_confirmado,
     motivo_de_recusa,
     response_prompt,
 )
@@ -583,6 +584,10 @@ class HelenaState(TypedDict, total=False):
     #: `escalation_started` e' `True` e nenhum erro existe, mas so' num deles ha' um
     #: encaminhamento novo para anunciar.
     start_desfecho: str
+    #: F6 (21/09/2026): o cartao de apresentacao ja foi enviado NESTA conversa. Preservado entre
+    #: turnos por `receive` (como `memoria_clinica`) e lido por `response_prompt` via contexto —
+    #: com ele ligado, repetir a apresentacao esta' PROIBIDO no prompt.
+    apresentacao_ja_feita: bool
 
     # Turn output.
     response_text: str
@@ -674,6 +679,7 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     # (`escalation_started is False` querendo dizer "falhou" OU "nem tentei") que CC-01 ja teve de
     # desfazer uma vez com `start_failed`. Aqui a ausencia tem NOME.
     "start_desfecho": START_DESFECHO_NAO_TENTADO,
+    "apresentacao_ja_feita": False,
     "response_text": None,
     "response_kind": None,
     "desfecho": "",
@@ -1457,6 +1463,11 @@ class HelenaGraph:
                     reset[chave] = state[chave]  # type: ignore[literal-required]
             if "coleta_rodadas" in state:
                 reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"])
+        # F6 (21/09/2026): o cartao de apresentacao e' uma vez por CONVERSA. Preservado sem portao
+        # de feature — e' um bool que so' anda para True, e o unico efeito e' o prompt nao repetir
+        # "Sou Helena..." no segundo turno.
+        if state.get("apresentacao_ja_feita") is True:
+            reset["apresentacao_ja_feita"] = True
         # MEMORIA CLINICA (Frente 2.1): preservada por uma chave PROPRIA, independente da coleta.
         # As duas memorias respondem a perguntas diferentes — "que pergunta ficou em aberto" e
         # "quem e' o paciente" — e amarrar a segunda ao portao da primeira deixaria a crianca
@@ -2193,6 +2204,8 @@ class HelenaGraph:
                 enviada=enviada,
             )
             saida = {**saida, "desfecho": desfecho}
+            if enviada:
+                saida["apresentacao_ja_feita"] = True
         return saida
 
     def _texto_bate_com_o_fato(self, state: HelenaState, texto: str) -> tuple[str, dict[str, Any]]:
@@ -2520,6 +2533,8 @@ class HelenaGraph:
             "response_kind": response_kind,
             "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
             "escalation_severidade": state.get("escalation_severidade"),
+            # F6: o prompt proibe repetir o cartao quando isto e' True (ver `response_prompt`).
+            "apresentacao_ja_feita": state.get("apresentacao_ja_feita") is True,
         }
         # MEMORIA CLINICA (Frente 2.1, decisao 5 do documento): a populacao vale TAMBEM para o
         # texto, nao so' para a tabela. O defeito medido em 13/09 nao foi apenas triar um bebe pela
@@ -2566,7 +2581,10 @@ class HelenaGraph:
         # a DMN decide em vez do modelo, a negativa so' nasce de User Task, o provedor recusa
         # construir sem atestacao — e o texto, que e' a unica coisa que a pessoa do outro lado le',
         # nao tinha nenhuma. Pedir e' instrucao; isto e' cerca.
-        recusa = motivo_de_recusa(texto, response_kind)
+        # F7 (21/09/2026): a cerca de CANAL vem antes e vale em toda rota — um canal que nao existe
+        # nao e' verdade em rota nenhuma. As duas devolvem a mesma forma `(grupo, padrao)`, entao o
+        # log, o contador e a excecao abaixo servem as duas sem ramo novo.
+        recusa = motivo_de_canal_nao_confirmado(texto) or motivo_de_recusa(texto, response_kind)
         if recusa is not None:
             grupo, padrao = recusa
             # O PADRAO no log (onde alguem depura), o GRUPO no contador (onde alguem conta). O

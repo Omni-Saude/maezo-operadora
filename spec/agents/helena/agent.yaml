@@ -41,18 +41,29 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v3
-  response: response-v6               # 17/09/2026: o texto mergeado tem AS DUAS entregas — a
+  classify: classify-v4               # 21/09/2026 (F3): a REGRA DO QUALIFICADOR — nenhum
+                                     # codigo com qualificador clinico no nome pode ser
+                                     # atribuido sem o qualificador na mensagem ("estou com
+                                     # dor de cabeca" nao e' cefaleia_subita_intensa), e
+                                     # `intensidade` nunca e' inferida do sintoma.
+  response: response-v7               # 21/09/2026 (F3b/F6/F7): nao citar o beneficiario
+                                     # entre aspas (ela confirmou uma fala que a pessoa nunca
+                                     # teve); as duas frases fixas da abertura (sou um sistema
+                                     # automatizado / nao consigo te identificar); nao afirmar
+                                     # vinculo nao verificado ("do seu plano"); e a LISTA
+                                     # FECHADA de tres canais.
+                                     # v6 — 17/09/2026: o texto mergeado tem AS DUAS entregas — a
                                      # proibicao de prometer capacidade (v5, #395) e a confirmacao
                                      # do dado lembrado + orientacao por populacao (v4-memoria).
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v4          # 21/09/2026: a cerca de SAIDA passou a olhar o FATO do
-                                      # start (novo / ja ativo / falhou / nao tentado), nao a
-                                      # ROTA pretendida, e a mencao ao encaminhamento virou
-                                      # OBRIGATORIA quando o start aconteceu (F1/F2 da bateria
-                                      # de 21/09). v3 (13/09/2026): negativa
+  recusa_de_saida: recusa-v4          # 21/09/2026 (bateria do diretor, F1/F2/F7): a cerca de
+                                      # SAIDA passou a olhar o FATO do start (novo / ja ativo /
+                                      # falhou / nao tentado), nao a ROTA pretendida; a mencao ao
+                                      # encaminhamento virou OBRIGATORIA quando o start aconteceu;
+                                      # e canal fora de `CANAIS_CONFIRMADOS` e' recusado em toda
+                                      # rota. v3 (13/09/2026): negativa
                                      # clinica, promessa de humano e de capacidade (PR #395).
 
 model:
