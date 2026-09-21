@@ -173,11 +173,13 @@ jobs:
           SBOM_FILE: ${{ steps.target.outputs.sbom_file }}
         run: |
           set -euo pipefail
+          # Sem `--registry-referrers-mode` aqui: a flag existe no `cosign sign` e
+          # NAO no `cosign attest` nem no `verify` (medido: `unknown flag`, run
+          # 35665373792). O attest publica na tag `.att`, que e' o que se quer.
           cosign attest --yes \
             --key "${KMS_KEY_URI}" \
             --use-signing-config=false \
             --tlog-upload=false \
-            --registry-referrers-mode="${REFERRERS_MODE}" \
             --type spdxjson \
             --predicate "${SBOM_FILE}" \
             "${IMAGE_REF}"

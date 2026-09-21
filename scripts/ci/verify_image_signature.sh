@@ -27,7 +27,9 @@ case "${IMAGE_REF}" in
 esac
 
 KMS_KEY_URI="${KMS_KEY_URI:-awskms:///alias/maezo-operadora-dev-image-signing}"
-REFERRERS_MODE="${REFERRERS_MODE:-legacy}"
+# Nao ha `--registry-referrers-mode` nos comandos de verificacao: a flag so'
+# existe no `cosign sign` (medido: `unknown flag` no `attest`, run 35665373792).
+# A descoberta pelas tags `sha256-*.sig`/`.att` e' o caminho default aqui.
 # O cosign ja terminou a verificacao e mesmo assim demora a ENCERRAR (bug
 # conhecido do proprio cosign). O veredito vem do marcador no stderr, nao do
 # tempo: se o bloco de checagens apareceu, passou; se nao apareceu ate o timeout,
@@ -55,14 +57,12 @@ _run "cosign verify (assinatura)" cosign-verify.txt \
   cosign verify \
     --key "${KMS_KEY_URI}" \
     --insecure-ignore-tlog=true \
-    --registry-referrers-mode="${REFERRERS_MODE}" \
     "${IMAGE_REF}"
 
 _run "cosign verify-attestation (SBOM SPDX)" cosign-verify-attestation.txt \
   cosign verify-attestation \
     --key "${KMS_KEY_URI}" \
     --insecure-ignore-tlog=true \
-    --registry-referrers-mode="${REFERRERS_MODE}" \
     --type spdxjson \
     "${IMAGE_REF}"
 
