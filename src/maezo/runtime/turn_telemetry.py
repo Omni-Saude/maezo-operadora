@@ -168,6 +168,15 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             # perguntas. Literal duplicado de `agents/helena/graph.py::DESFECHO_PERGUNTA_COLETA`
             # (este modulo nao importa grafos); `test_helena_coleta.py` impede a divergencia.
             "pergunta_coleta",
+            # CERCA TEXTO x FATO (21/09/2026, F1): o start foi idempotente sobre uma instancia
+            # VIVA desta conversa — nenhuma escalacao NOVA nasceu e um humano ja' esta' com o
+            # caso. Token proprio porque contado como `escalado_humano` este turno inflaria a taxa
+            # de escalonamento com fila que ele nao criou; foi exatamente essa invisibilidade que
+            # deixou 27 escalonamentos reusados atravessarem a bateria de 21/09 sem aparecer em
+            # numero nenhum. Literal duplicado de
+            # `agents/helena/graph.py::DESFECHO_ESCALONAMENTO_JA_ABERTO` (este modulo nao importa
+            # grafos); `test_helena_cerca_texto_x_fato.py` impede a divergencia.
+            "escalonamento_ja_aberto",
         }
     ),
     "lucas": frozenset(
@@ -243,7 +252,15 @@ _ROUTE_VOCAB: Final[dict[str, frozenset[str]]] = {
     "gustavo": frozenset({"review_submission", "instruct_nip"}),
     # HELENA nao tem `route` no estado — o call site passa `response_kind` (`ResponseKindOut`)
     # no lugar, via override; o mesmo campo do label cobre os dois conceitos (rota terminal).
-    "helena": frozenset({"inform", "schedule", "escalate", "falha_tecnica_start"}),
+    # `collect` entrou em 21/09/2026: o conjunto tinha QUATRO dos CINCO valores do `Literal`, e
+    # todo turno de coleta caia em `_normalize` -> `"outro"` emitindo
+    # `agent_desfecho_label_out_of_vocab`. E' a mesma classe de defeito que o `desfecho` da mesma
+    # agente teve de consertar um campo ao lado (`escalonamento_ja_aberto`): um valor fora do
+    # vocabulario apaga exatamente a distincao que o campo existe para criar — aqui, a rota que
+    # PERGUNTA ficava indistinguivel de qualquer valor desconhecido. A cerca que impede a
+    # reincidencia compara com o proprio `Literal`
+    # (`test_helena_adv_extracao_e_wiring.py`), nao com uma lista copiada.
+    "helena": frozenset({"inform", "schedule", "escalate", "collect", "falha_tecnica_start"}),
     "lucas": frozenset({"respond_member", "escalate_human"}),
     "marina": frozenset({"auto_route", "human_review"}),
     "rafael": frozenset({"auto_approve", "human_auditor"}),

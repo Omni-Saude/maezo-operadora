@@ -72,8 +72,10 @@ provider (`phi_zone_mock` in dev; a real BR-resident endpoint is blocked(externa
 charter). A non-PHI-capable provider raises `PhiZoneRoutingError` — this graph does NOT catch
 that error specially: in `_classify_llm` it is a classify failure -> escalate `falha_tecnica`
 (trigger 4, human takes over); in `_respond_llm`/`_resumo_contexto` (pure text drafting, the
-route is already decided) it degrades to a safe canned text. Neither path ever silently
-downgrades to a general-zone provider.
+route is already decided) it degrades to a safe canned text — which since 21/09/2026 means
+`RESPOSTA_FALHA_DE_REDACAO`, an honest constant that promises NOTHING and goes through the same
+output fences as a model draft (the previous canned text promised a human and bypassed them).
+Neither path ever silently downgrades to a general-zone provider.
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - FHIR patient/coverage enrichment is NOT wired in this graph, and since the WP
@@ -156,6 +158,7 @@ from maezo.tools.mcp_cibseven.transport import (
     AuditStartSink,
     CibSevenError,
     CibSevenTransport,
+    StartOutcome,
     start_process_idempotent,
 )
 from maezo.tools.workers.dmn_transport import (
@@ -171,12 +174,21 @@ from .prompts import (
     CLASSIFY_PROMPT_VERSION,
     COLETA_PROMPT_VERSION,
     RECUSA_DE_SAIDA_VERSION,
+    RECUSA_ESCALONAMENTO_JA_ABERTO,
+    RECUSA_HANDOFF_SEM_MENCAO,
+    RECUSA_NEGATIVA_CLINICA,
     RESPONSE_PROMPT_VERSION,
     SYSTEM_PROMPT_VERSION,
     classify_prompt,
     coleta_prompt,
+    menciona_encaminhamento,
+    motivo_de_canal_nao_confirmado,
     motivo_de_recusa,
     response_prompt,
+    sintoma_em_palavras,
+)
+from .prompts import (
+    _normalizar as _normalizar_texto,
 )
 
 logger = structlog.get_logger(__name__)
@@ -264,6 +276,27 @@ _VALID_INTENTS: frozenset[str] = frozenset(
 _VALID_POPULATIONS: frozenset[str] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _VALID_INTENSIDADES: frozenset[str] = frozenset({"leve", "moderada", "grave", "desconhecida"})
 
+
+def _em_dominio(valor: object, dominio: frozenset[str]) -> bool:
+    """`valor` pertence a este vocabulario FECHADO? Recusa tudo que nao for `str`.
+
+    POR QUE O `isinstance` NAO E' REDUNDANTE (21/09/2026, segunda rodada). Todo `x in frozenset`
+    deste modulo le' valor de JSON de modelo ou de memoria checkpointada — valor NAO validado, que
+    e' justamente o que estas fronteiras existem para julgar. Um valor nao-hashavel (`"intensidade":
+    {"valor": "grave"}`, `"sintoma_codigo": ["febre", "dispneia"]` para quem relatou dois sintomas)
+    levanta `TypeError: unhashable type` no proprio teste de pertinencia; `TypeError` esta' em
+    `PROGRAMMING_ERRORS` e PROPAGA DE PROPOSITO, entao o no' morria alto: o beneficiario nao recebia
+    nada, nenhuma escalacao nascia e nenhum desfecho era contado — o oposto exato da postura
+    declarada ("schema-invalid JSON -> escalate `falha_tecnica`, NEVER a silent inform default").
+    E' a mesma guarda que `_coerce_age` (que devolve `(False, None)` para lista/dict) ja fazia nos
+    tres campos de IDADE do mesmo validador, agora nos campos de dominio fechado.
+
+    UMA FUNCAO, e nao o `isinstance` repetido em cada sitio, porque a lista de sitios cresce: cada
+    campo de vocabulario fechado que nascer neste modulo tem de passar por aqui.
+    """
+    return isinstance(valor, str) and valor in dominio
+
+
 MotivoCategoria = Literal[
     "red_flag_clinico",
     "risco_psicossocial",
@@ -279,20 +312,56 @@ PROCESS_KEY = "SP-OP-ESCALATION-001"
 #: CC-01: a resposta HONESTA quando a escalacao nao pode ser aberta. Constante, nunca um draft de
 #: LLM (ver `_respond_start_failure`). Nao promete atendente, nao promete prazo, nao cita
 #: identificador nenhum — diz o que houve e o que o beneficiario pode fazer agora.
+#: 21/09/2026: a primeira oracao tinha 21 palavras contra o limite de 20 da propria regua de
+#: clareza da Helena (`EVL-HELENA-CLAREZA-*.clarity.max_words_per_sentence`) — quebrada em duas,
+#: sem mudar o conteudo. Ver a nota igual em `RESPOSTA_HANDOFF_RECUSADA`.
 RESPOSTA_FALHA_TECNICA_START: str = (
-    "Nao consegui registrar seu atendimento agora por uma falha tecnica no nosso sistema, "
-    "e por isso nenhum atendente foi acionado ainda. Por favor, envie sua mensagem novamente "
+    "Nao consegui registrar seu atendimento agora por uma falha tecnica no nosso sistema. "
+    "Por isso nenhum atendente foi acionado ainda. Por favor, envie sua mensagem novamente "
     "em alguns minutos. Se voce estiver passando por uma emergencia, procure o servico de "
     "emergencia mais proximo."
+)
+
+#: 21/09/2026 (segunda rodada, achado CRITICO): o texto quando a REDACAO nao aconteceu — o
+#: provedor de inferencia caiu na chamada de `_respond_llm` (`except EXTERNAL_DEPENDENCY_FAILURES`).
+#:
+#: O QUE ELA SUBSTITUI, e por que aquilo era um defeito e nao um detalhe. O fallback anterior era
+#: *"Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."* — uma
+#: PROMESSA DE HUMANO, devolvida por um `return` que ficava ANTES do bloco de recusa. Nem a cerca
+#: de saida nem a de canal a viam, e num turno `inform` (onde ninguem foi acionado, nenhuma fila
+#: existe e ninguem vai ligar) ela e' exatamente o dano do `C1`: uma pessoa esperando um telefonema
+#: que ninguem ia dar. Com a diferenca de que aqui nao havia modelo no meio — a frase era do
+#: repositorio.
+#:
+#: ALCANCE, medido e nao suposto: uma queda TOTAL do provedor falha primeiro no `classify` (mesma
+#: porta, `phi=True`) e o turno vira gatilho 4 -> escalate, que e' correto. Este caminho e' a falha
+#: da SEGUNDA chamada depois de a primeira ter passado — timeout, 429 ou recusa de zona na redacao,
+#: que e' uma requisicao separada e muito maior (prefixo cacheavel + bloco nao confiavel).
+#:
+#: O QUE ELA DIZ, e o que ela NAO diz: diz que a resposta nao foi preparada e pede a mensagem de
+#: novo. Nao promete humano, nao promete prazo e nao cita canal nenhum — passa nas quatro cercas
+#: (negativa clinica, capacidade, promessa de humano em qualquer rota COM `start_aconteceu=False`,
+#: e canal nao confirmado), o que a torna segura por construcao em vez de por sorte. Nas rotas que
+#: ABREM processo ela nao e' a ultima palavra: `respond` ve' que um humano foi acionado e que o
+#: texto nao menciona o encaminhamento, e a troca por `RESPOSTA_HANDOFF_RECUSADA` acontece la'.
+RESPOSTA_FALHA_DE_REDACAO: str = (
+    "Recebemos sua mensagem. Nao consegui preparar a resposta agora por uma falha tecnica. "
+    "Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por "
+    "uma emergencia, procure o servico de emergencia mais proximo."
 )
 
 #: RECUSA DE SAIDA (13/09/2026): o texto de handoff quando o proprio rascunho de `escalate` foi
 #: barrado. CONSTANTE, nunca um segundo rascunho: um humano FOI acionado neste ponto (o processo
 #: esta' sendo aberto), entao a promessa aqui e' verdadeira, e a frase nao contem nenhum dos
 #: padroes proibidos — o que a torna a saida segura por construcao, nao por sorte do modelo.
+#: 21/09/2026 — A FRASE FOI QUEBRADA EM TRES, e a razao e' uma medicao, nao estilo. A cerca TEXTO
+#: x FATO tornou esta constante um substituto ALCANCAVEL na rota que os goldens de CLAREZA medem, e
+#: la' ela reprovou: a primeira oracao tinha 22 palavras contra o limite de 20 declarado por
+#: `EVL-HELENA-CLAREZA-0{1,3}.clarity.max_words_per_sentence`. Uma constante que a propria regua da
+#: Helena reprova nao pode ser a saida honesta dela. O CONTEUDO nao mudou.
 RESPOSTA_HANDOFF_RECUSADA: str = (
-    "Recebemos sua mensagem e encaminhamos seu caso para um profissional da nossa equipe de "
-    "saude, que vai dar continuidade ao seu atendimento. Se voce estiver passando por uma "
+    "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saude. "
+    "Um profissional vai dar continuidade ao seu atendimento. Se voce estiver passando por uma "
     "emergencia, procure o servico de emergencia mais proximo."
 )
 
@@ -301,6 +370,147 @@ RESPOSTA_HANDOFF_RECUSADA: str = (
 #: `promessa_de_humano`), nunca o texto recusado — que e' output de modelo sobre a mensagem do
 #: beneficiario e nao tem por que entrar num campo que viaja para o handoff.
 ERRO_RESPOSTA_RECUSADA: str = "resposta recusada na saida"
+
+# --- CERCA TEXTO x FATO (21/09/2026 — F1/F2 da bateria do diretor) --------------------------
+#
+# O ACHADO, e por que ele e' UM achado e nao dois. Dois casos da bateria, opostos na aparencia:
+#
+#   C1  "estou com dor de cabeca"      -> "Um profissional de saude entrara em contato (...)
+#                                          Aguarde nosso contato."  E NENHUM processo novo.
+#   E4  "quanto eu devo de mensalidade?" -> processo ABERTO (`solicitacao_humano`, P3, fila
+#                                          `atendimento-humano`) e a resposta mandou a pessoa
+#                                          procurar no aplicativo, sem citar o encaminhamento.
+#
+# Os dois sao a MESMA ausencia: nada no repositorio verificava que o que a Helena DIZ bate com o
+# que ela FEZ. A cerca de saida (`prompts.py::motivo_de_recusa`) liberava a promessa de humano
+# pela ROTA — `escalate`/`schedule` —, e a rota e' a INTENCAO do grafo, nao o fato.
+#
+# A CAUSA DO C1, e a razao de `start_failed` nao ter pego. A business key e'
+# `ESC-{tenant}-{conversation_id}` e o canal de teste reusa uma faixa de 99 telefones; havia 27
+# escalonamentos ABERTOS de baterias anteriores. Com a conversa colidindo numa dessas chaves,
+# `start_process_idempotent` faz o que foi desenhado para fazer: `find_active_instance` encontra a
+# instancia VIVA e a devolve com `start_outcome=ALREADY_ACTIVE`, sem abrir outra e SEM ERRO. Nada
+# falhou — entao `except CibSevenError` nunca correu, `start_failed` ficou `False`, e o grafo,
+# que ignorava `start_outcome`, anunciou um encaminhamento novo que nao existiu.
+#
+# O QUE MUDA: o estado passa a carregar o DESFECHO REAL do start, derivado do `StartOutcome` que
+# o chokepoint ja' devolvia e que ninguem lia, e `respond` decide o texto pelo FATO.
+
+#: O start de SP-OP-ESCALATION-001 nem foi tentado neste turno (rota `inform`/`collect`). Valor
+#: NEUTRO do campo — e' por isso que ele nao pode ser confundido com `falhou`.
+START_DESFECHO_NAO_TENTADO: str = "nao_tentado"
+#: ESTE turno abriu a instancia (`StartOutcome.STARTED`). Um humano foi acionado AGORA.
+START_DESFECHO_NOVO: str = "novo"
+#: Ja' havia instancia VIVA para esta conversa (`StartOutcome.ALREADY_ACTIVE`): nada foi aberto, e
+#: um humano esta' com o caso. A promessa de atendimento e' verdadeira; a de um encaminhamento
+#: NOVO nao e'.
+START_DESFECHO_JA_ATIVO: str = "ja_ativo"
+#: Uma instancia desta chave ja' RODOU e terminou (`StartOutcome.ALREADY_COMPLETED`): nada foi
+#: aberto e ninguem esta' com o caso agora. Inalcancavel para esta agente hoje —
+#: `SP-OP-ESCALATION-001` e' `NON_STRICT` em `_START_DEDUP_POLICY`, e so' as posturas GATED
+#: produzem este veredito —, declarado assim mesmo porque a alternativa e' um `.get()` sem
+#: resposta no dia em que a postura mudar. Fica FORA de `_START_DESFECHOS_COM_HUMANO`.
+START_DESFECHO_JA_CONCLUIDO: str = "ja_concluido"
+#: O chokepoint devolveu instancia sem veredito (`StartOutcome.UNREPORTED`). Tambem inalcancavel
+#: por construcao — `start_process_idempotent` ESTAMPA um dos tres valores acima em todo retorno,
+#: a partir do proprio fluxo de controle. Leitura fail-closed de um valor que nao se reconhece:
+#: sem veredito nao se afirma que um humano foi acionado.
+START_DESFECHO_NAO_REPORTADO: str = "nao_reportado"
+#: O start foi tentado e FALHOU (`except CibSevenError`). Espelha `start_failed=True`, que segue
+#: sendo o marcador que roteia o ramo de falha (CC-01); este campo diz a MESMA coisa no
+#: vocabulario unico do desfecho de start, para que `respond` tenha UMA fonte para consultar.
+START_DESFECHO_FALHOU: str = "falhou"
+
+#: Traducao do veredito do chokepoint. DICIONARIO e nao `if`/`elif` de proposito: `StartOutcome`
+#: e' um enum fechado, e um membro novo la' vira `START_DESFECHO_NAO_REPORTADO` aqui (fail-closed)
+#: em vez de cair silenciosamente no ramo do sucesso.
+_START_DESFECHO_POR_OUTCOME: dict[str, str] = {
+    StartOutcome.STARTED.value: START_DESFECHO_NOVO,
+    StartOutcome.ALREADY_ACTIVE.value: START_DESFECHO_JA_ATIVO,
+    StartOutcome.ALREADY_COMPLETED.value: START_DESFECHO_JA_CONCLUIDO,
+    StartOutcome.UNREPORTED.value: START_DESFECHO_NAO_REPORTADO,
+}
+
+#: Os UNICOS desfechos em que ha' um humano com o caso — e portanto os unicos em que a promessa de
+#: atendimento humano e' verdadeira. Allowlist FECHADA: um desfecho novo (ou desconhecido) e'
+#: recusado por OMISSAO, que e' o lado seguro.
+_START_DESFECHOS_COM_HUMANO: frozenset[str] = frozenset({START_DESFECHO_NOVO, START_DESFECHO_JA_ATIVO})
+
+
+def _start_desfecho_de(outcome: object) -> str:
+    """O desfecho de start a partir do `StartOutcome` que o chokepoint devolveu.
+
+    Le' o `.value` quando ha' um (o enum) e a propria string caso contrario, porque `StartOutcome`
+    e' um `StrEnum` e um duplo de transporte pode devolver o literal. Valor desconhecido ->
+    `START_DESFECHO_NAO_REPORTADO`, nunca o ramo do sucesso.
+    """
+    bruto = getattr(outcome, "value", outcome)
+    return _START_DESFECHO_POR_OUTCOME.get(str(bruto), START_DESFECHO_NAO_REPORTADO)
+
+
+def _texto_tem_negativa_clinica(texto: str) -> bool:
+    """O texto afirma AUSENCIA de alerta clinico? (21/09/2026, terceira rodada)
+
+    A pergunta existe para o no' `collect` decidir entre perguntar de novo e escalar, e ela e'
+    feita ao TEXTO em vez de ao grupo da excecao — ver o comentario no proprio `except` de
+    `collect`, que e' onde o porque importa.
+
+    `response_kind` e' irrelevante para esta categoria (a negativa clinica e' proibida em TODA
+    rota, com qualquer fato), e por isso a chamada usa `"collect"` sem que a rota influencie o
+    resultado: a lista e' consultada antes de qualquer ramo por rota em `motivo_de_recusa`.
+    """
+    recusa = motivo_de_recusa(texto, "collect")
+    return recusa is not None and recusa[0] == RECUSA_NEGATIVA_CLINICA
+
+
+def _humano_acionado(estado: Mapping[str, Any]) -> bool:
+    """HA' um humano com este caso? A pergunta que a cerca TEXTO x FATO responde.
+
+    FAIL-CLOSED POR OMISSAO, e a escolha e' o coracao desta cerca: um estado que nao declara
+    `start_desfecho` NAO afirma que um humano foi acionado. Nunca se le' `escalation_started` como
+    substituto — era exatamente o sinal que o C1 tinha ligado (uma instancia existia, so' que nao
+    era desta conversa-turno) enquanto a promessa era falsa.
+
+    Quem escreve o campo e' `_start_escalation`, no MESMO turno em que `respond` o le' — os dois
+    nos correm na mesma invocacao do grafo, entao nao existe janela em que o campo esteja atrasado.
+    """
+    return str(estado.get("start_desfecho") or "") in _START_DESFECHOS_COM_HUMANO
+
+
+#: F1: o texto honesto quando a escalacao desta conversa JA estava aberta. CONSTANTE, e nunca um
+#: segundo rascunho — pelo mesmo motivo de `RESPOSTA_FALHA_TECNICA_START`: pedir a um modelo para
+#: "explicar que nada foi aberto porque ja' havia" convida a inventar um protocolo, um prazo ou um
+#: encaminhamento novo. Ela nao cita identificador nenhum e nao promete prazo (o SLA vive na
+#: instancia que ja' existe, e este turno nao sabe quanto dela ja' correu).
+RESPOSTA_HANDOFF_JA_ABERTO: str = (
+    "Recebemos sua mensagem. Seu atendimento com a nossa equipe de saude ja esta aberto e "
+    "continua em andamento. Por isso nao abri outro atendimento. Se voce estiver passando por "
+    "uma emergencia, procure o servico de emergencia mais proximo."
+)
+
+#: F1, o outro lado: o texto quando o rascunho prometeu um humano e NINGUEM foi acionado neste
+#: turno. Nao ha como escalar daqui — `respond` e' o no' terminal —, entao o que resta e' nao
+#: mentir: diz o que NAO aconteceu e como a pessoa consegue um humano na proxima mensagem (que e'
+#: verdade: `intent=human_request` e' o gatilho 3 de `classify`).
+RESPOSTA_SEM_ENCAMINHAMENTO: str = (
+    "Recebemos sua mensagem. Nao abri atendimento com a nossa equipe neste momento. Se voce "
+    "quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por "
+    "uma emergencia, procure o servico de emergencia mais proximo."
+)
+
+#: F1: o `error` do turno em que o texto prometia um humano que este turno nao acionou. TOKEN DE
+#: CLASSE, como todos os `error` deste modulo (LUC-06/NEW-01) — o padrao exato fica no log.
+ERRO_PROMESSA_SEM_START: str = "promessa de humano sem start"
+#: F2: o `error` do turno em que o start aconteceu e o texto nao mencionou o encaminhamento.
+ERRO_HANDOFF_SEM_MENCAO: str = "handoff sem mencao ao encaminhamento"
+
+#: F1, item 3 do diretor ("toda recusa/nao-start deixa rastro"): o desfecho do turno em que a
+#: escalacao JA estava aberta. Token PROPRIO, e a razao e' a mesma de `DESFECHO_RESPOSTA_VAZIA`:
+#: contado como `escalado_humano` este turno ficaria indistinguivel de um encaminhamento novo, e a
+#: taxa de escalonamento da Helena contaria como trabalho criado uma fila que ela nao criou — que
+#: e' precisamente o que tornou os 27 escalonamentos reusados da bateria INVISIVEIS. Precisa estar
+#: em `turn_telemetry._DESFECHO_VOCAB["helena"]`, senao e' normalizado para `"outro"`.
+DESFECHO_ESCALONAMENTO_JA_ABERTO: str = "escalonamento_ja_aberto"
 
 
 class RespostaRecusadaError(RuntimeError):
@@ -438,6 +648,17 @@ class HelenaState(TypedDict, total=False):
     #: (`_start_escalation`'s `except CibSevenError`). Distinto de `escalation_started is False`,
     #: que tambem e o valor NEUTRO de um turno informativo que nunca tentou escalar.
     start_failed: bool
+    #: CERCA TEXTO x FATO (21/09/2026, F1): o DESFECHO REAL do start deste turno, no vocabulario
+    #: fechado `START_DESFECHO_*`, derivado do `StartOutcome` que `start_process_idempotent`
+    #: devolve. `start_failed` responde "falhou?" (um booleano); este responde "o que ACONTECEU?"
+    #: — e e' a diferenca entre `novo` e `ja_ativo` que o C1 da bateria expos: nos dois
+    #: `escalation_started` e' `True` e nenhum erro existe, mas so' num deles ha' um
+    #: encaminhamento novo para anunciar.
+    start_desfecho: str
+    #: F6 (21/09/2026): o cartao de apresentacao ja foi enviado NESTA conversa. Preservado entre
+    #: turnos por `receive` (como `memoria_clinica`) e lido por `response_prompt` via contexto —
+    #: com ele ligado, repetir a apresentacao esta' PROIBIDO no prompt.
+    apresentacao_ja_feita: bool
 
     # Turn output.
     response_text: str
@@ -524,6 +745,12 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "escalation_business_key": None,
     "escalation_process_ref": None,
     "start_failed": False,
+    # CERCA TEXTO x FATO: o neutro e' `nao_tentado`, NUNCA `""` nem `None`. Uma string vazia
+    # obrigaria cada leitor a decidir o que a ausencia significa, e foi essa ambiguidade
+    # (`escalation_started is False` querendo dizer "falhou" OU "nem tentei") que CC-01 ja teve de
+    # desfazer uma vez com `start_failed`. Aqui a ausencia tem NOME.
+    "start_desfecho": START_DESFECHO_NAO_TENTADO,
+    "apresentacao_ja_feita": False,
     "response_text": None,
     "response_kind": None,
     "desfecho": "",
@@ -531,6 +758,90 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
 }
 
 _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
+
+#: F6 (21/09/2026, segunda rodada): A MARCA DA APRESENTACAO no texto enviado.
+#:
+#: POR QUE ELA EXISTE. `apresentacao_ja_feita` significa "a pessoa JA LEU o cartao", e o efeito de
+#: liga-lo e' PROIBIR a apresentacao no prompt pelo resto da conversa. Ate' aqui ele acendia em
+#: QUALQUER envio bem-sucedido — inclusive nos turnos em que a cerca TEXTO x FATO trocou o texto
+#: por uma constante que nao tem cartao nenhum ("Recebemos sua mensagem. Seu atendimento (...) ja
+#: esta aberto"). Nesses turnos a pessoa leu uma mensagem, nao o cartao, e a Helena nunca mais se
+#: apresentaria naquela conversa — o oposto do F6, que existe para ela nao REPETIR o cartao.
+#:
+#: POR QUE UMA MARCA, E POR QUE ELA E' O NOME. O cartao e' redigido pelo modelo, entao nao ha texto
+#: fixo para comparar. O `response-v8` passou a mandar que a apresentacao, quando acontece, se
+#: IDENTIFIQUE PELO NOME ("Sou Helena") — que e' uma boa ideia por si (quem pergunta "quem e' voce?"
+#: merece o nome) e e' o que torna o sinal verificavel. A cerca e' `_apresentou_se`, e o
+#: `response_prompt` e a lista aqui sao as duas metades: editar uma sem a outra e' o descompasso
+#: que o teste torna visivel.
+#:
+#: A MARCA E' O NOME, E NAO A FRASE (21/09/2026, TERCEIRA RODADA). Ate' aqui a lista tinha duas
+#: frases LITERAIS ("sou helena" / "sou a helena") contra um cartao que o modelo redige — e
+#: parafrase nao e' excecao, e' o caso comum: *"Oi, aqui e a Helena"*, *"Eu me chamo Helena"*,
+#: *"Helena falando"*. Nenhuma das tres acendia o sinal, entao `apresentacao_ja_feita` ficava
+#: apagado e o F6 voltava SEM TETO — a Helena repetindo o cartao a cada turno, que e' o defeito
+#: medido em 21/09 (tres turnos seguidos iguais).
+#:
+#: A marca passou a ser `\bhelena\b` no texto normalizado ENVIADO, e a premissa e' verificavel: a
+#: Helena so' escreve o proprio nome quando se identifica. Nenhuma das nove constantes que este
+#: modulo e o `prompts` enviam ao beneficiario contem o nome dela
+#: (`test_helena_adv_rodada3.py::test_o_texto_sem_o_nome_nao_acende_a_flag` fixa as nove).
+#:
+#: A CORRECAO DO CUSTO, que o comentario anterior errava: ele dizia que um falso negativo "no
+#: maximo repete a apresentacao uma vez", e isso e' FALSO — o sinal e' consultado a cada turno, e
+#: enquanto nenhum texto o acender ele fica apagado para sempre; a repeticao e' de TODOS os turnos,
+#: nao de um. Os dois lados custam, e por isso o lado escolhido nao e' "o seguro", e' o
+#: VERIFICAVEL: o falso positivo (um texto com o nome dela sem cartao nenhum) exigiria que o prompt
+#: pedisse assinatura, e ele nao pede — se um dia pedir, esta lista e' o lugar de reagir.
+MARCAS_DE_APRESENTACAO: tuple[str, ...] = (r"\bhelena\b",)
+
+
+def _apresentou_se(texto: str) -> bool:
+    """O texto ENVIADO contem a apresentacao? (F6, 21/09/2026 segunda rodada)
+
+    Comparacao normalizada pela mesma funcao das cercas de saida (`prompts._normalizar`): caixa,
+    acento e caractere invisivel nao podem decidir se a Helena volta a se apresentar.
+
+    REGEX de palavra inteira, e nao substring, pela mesma razao que a cerca de canal usa `\\b`:
+    "helena" solto casaria dentro de outra palavra, e a lista existe para ser ampliada por quem
+    for preciso sem reabrir esse buraco.
+    """
+    plano = _normalizar_texto(texto)
+    return any(re.search(marca, plano) is not None for marca in MARCAS_DE_APRESENTACAO)
+
+
+def _confirmacao_chegou(texto: str, frase: object) -> bool:
+    """O texto ENVIADO trouxe a frase de confirmacao do dado lembrado? (21/09/2026, quarta rodada)
+
+    O DEFEITO QUE ISTO FECHA. `memoria_clinica.confirmada` era gravada em `classify`, no mesmo
+    `update` que CRIA a frase — isto e', quando ela e' GERADA. Entre gerar e enviar existe a cerca
+    TEXTO x FATO (`_texto_bate_com_o_fato`), e ela troca o rascunho por uma constante em tres
+    casos; num `ja_ativo` com rascunho que anuncia handoff a troca e' INTEGRAL. O resultado
+    medido: a pessoa nunca le' a pergunta, `confirmada` fica `True` para sempre, e a unica
+    confirmacao que a conversa tinha (`confirmar_agora` exige `not ja_confirmada`) nunca mais e'
+    feita. O dado lembrado passa a decidir a tabela de red flag sem que ninguem possa corrigi-lo,
+    que e' exatamente o que "MOSTRAR ANTES DE USAR" existe para impedir.
+
+    POR QUE ESTE LADO DO CONSERTO, e nao devolver `memoria_a_confirmar` ao proximo turno: o SPLIT
+    INPUT/OUTPUT de `HelenaState`. `memoria_a_confirmar` e' campo de OUTPUT com default neutro, ou
+    seja `receive` o zera em todo turno; faze-lo atravessar exigiria promove-lo a
+    `_HELENA_MEMORIA_DE_CONVERSA` e passar a limpa-lo a mao nos turnos que nao confirmam — campo
+    novo na excecao do reset, por um fato que ja' tem casa. `memoria_clinica` JA e' memoria de
+    conversa, JA atravessa o reset pela excecao declarada e JA carrega `confirmada` pela fronteira
+    validada (`_memoria_clinica_valida`). O fato "a pergunta saiu" mora onde a memoria mora.
+
+    SUBSTRING NORMALIZADA, pela mesma razao de `_apresentou_se`: caixa, acento e caractere
+    invisivel nao podem decidir se a Helena volta a confirmar. A frase entra no prompt com ordem
+    de ser copiada como veio ("comece a resposta por essa frase, exatamente como ela veio").
+
+    RESIDUAL DECLARADO: se o modelo PARAFRASEAR a frase, `confirmada` fica `False` e a pergunta
+    volta no proximo turno clinico. E' ruido, e e' o lado certo do erro — o avesso (dar por
+    confirmado o que a pessoa nunca leu) e' o defeito que esta funcao conserta.
+    """
+    if not isinstance(frase, str) or not frase.strip():
+        return False
+    return _normalizar_texto(frase) in _normalizar_texto(texto)
+
 
 #: MEMORIA DE CONVERSA — a UNICA excecao ao reset de `receive`, e por que ela e' segura.
 #:
@@ -545,9 +856,37 @@ _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
 #: do bloco NAO CONFIAVEL do prompt, que ja' e' onde a mensagem do beneficiario vive. Nenhum
 #: deles suprime uma red flag, forja um `dmn_decision_ref` ou desvia um escalonamento — os
 #: campos que fazem isso continuam zerados em todo turno.
+#:
+#: `apresentacao_ja_feita` ENTROU NO CONJUNTO EM 21/09/2026 (segunda rodada), e a declaracao e' a
+#: correcao: `receive` ja' o preservava desde a entrega do F6, mas ele nao estava DECLARADO aqui —
+#: entao a cerca que prova "so' a memoria de conversa sobrevive ao reset"
+#: (`test_helena_coleta.py::test_receive_preserva_so_a_memoria_de_conversa_e_zera_o_resto`) nao o
+#: enxergava, e um campo preservado sem declaracao e' exatamente o tipo de excecao que a defesa
+#: T1.11 existe para nao ter.
+#:
+#: NOTA IMPORTANTE, que e' a razao de `_MEMORIA_DE_COLETA` existir logo abaixo: este campo e'
+#: preservado SEM o portao de coleta, ao contrario dos tres primeiros. Ele e' um bool que so' anda
+#: para True e o unico efeito dele e' o prompt nao repetir a apresentacao; amarra-lo ao portao da
+#: tabela de suficiencia faria a Helena repetir o cartao a cada turno ate' aquela tabela ser
+#: ratificada, que e' um prazo sem relacao nenhuma com o defeito. E `receive` o le' com `is True`,
+#: entao um valor plantado truthy nao-bool nao atravessa.
 _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
-    {"coleta_rodadas", "coleta_pendente", "coleta_contexto", "memoria_clinica"}
+    {
+        "coleta_rodadas",
+        "coleta_pendente",
+        "coleta_contexto",
+        "memoria_clinica",
+        "apresentacao_ja_feita",
+    }
 )
+
+#: Os campos de memoria que o PORTAO DA COLETA governa. Subconjunto explicito de
+#: `_HELENA_MEMORIA_DE_CONVERSA` porque os outros dois membros daquele conjunto tem cada um a sua
+#: propria condicao de preservacao (`memoria_clinica` -> portao da memoria clinica;
+#: `apresentacao_ja_feita` -> nenhum portao, ver a nota acima). Derivar este conjunto por
+#: subtracao, como era antes, fazia todo membro NOVO do conjunto maior herdar silenciosamente o
+#: portao da coleta.
+_MEMORIA_DE_COLETA: frozenset[str] = frozenset({"coleta_rodadas", "coleta_pendente", "coleta_contexto"})
 
 #: MEMORIA CLINICA ENTRE TURNOS (Frente 2.1) — os campos que dizem QUEM E' O PACIENTE.
 #:
@@ -582,6 +921,108 @@ _MEMORIA_GRAVADA_EM: str = "gravado_em"
 #: por turno: repeti-la a cada mensagem viraria ruido e a pessoa pararia de ler.
 _MEMORIA_CONFIRMADA: str = "confirmada"
 
+#: F5 (21/09/2026): o sintoma que uma avaliacao de red flag DESTA conversa efetivamente usou, e a
+#: intensidade com que o usou.
+#:
+#: POR QUE ISTO NAO CONTRADIZ `_MEMORIA_CLINICA_CAMPOS`. Aquele bloco registra, com razao, que
+#: lembrar `sintoma_codigo` seria PIOR que nao lembrar: o sintoma e' o que a pessoa esta dizendo
+#: AGORA, e carregar o anterior faria a Helena responder a mensagem errada — com a agravante de
+#: disparar a DMN num turno em que ninguem o mencionou. Estas duas chaves nao fazem isso, e a
+#: diferenca e' o GATILHO, nao o dado: elas sao lidas SO' quando a mensagem CORRIGE um dado que
+#: aquela avaliacao usou (`_correcao_de_dado_avaliado`). Fora desse caso nenhum turno as consulta,
+#: e nenhum turno vira sintoma por causa delas.
+#:
+#: O DEFEITO QUE FECHAM, caso `D3` de 21/09/2026: "tenho 30 anos e estou com febre" avaliou a
+#: tabela de adulto; "me enganei, tenho 70 anos" terminou SEM TABELA e com o sintoma perdido — e
+#: 70 anos + febre e' exatamente o limiar da regra `r8`. A pessoa corrigiu o dado que decidia a
+#: regra, e ninguem reavaliou.
+_MEMORIA_SINTOMA_AVALIADO: str = "sintoma_avaliado"
+_MEMORIA_INTENSIDADE_AVALIADA: str = "intensidade_avaliada"
+
+#: F4 (21/09/2026): a POPULACAO a que cada campo de idade pertence — o que permite dizer que
+#: `population="adult"` ao lado de `idade_meses=36` e' um par INCOERENTE, e nao dois fatos.
+#:
+#: E' o par que a bateria mediu no turno 3 do `D2`: a resposta disse "seu bebe de 36 meses"
+#: (`_frase_de_confirmacao` le' `idade_meses` primeiro) enquanto a consulta foi a
+#: `triage_redflag_adult` com `idade_anos=None` (a tabela de adulto nem le' `idade_meses`). Uma
+#: crianca de 3 anos triada pela tabela de adulto, com a frase provando que a memoria sabia.
+_POPULACAO_DA_IDADE: dict[str, str] = {
+    "idade_anos": "adult",
+    "idade_meses": "pediatric",
+    "idade_gestacional_semanas": "gestante",
+}
+
+#: As populacoes que TEM um campo de idade proprio. `none` nao e' populacao nenhuma e
+#: `mental_health` decide por `risco_imediato` (a tabela dela nao le' idade), entao em nenhuma das
+#: duas uma idade lembrada conflita com a populacao final.
+_POPULACOES_COM_IDADE: frozenset[str] = frozenset(_POPULACAO_DA_IDADE.values())
+
+#: O caminho inverso: qual campo de idade uma populacao PRECISA para ser uma afirmacao, e nao um
+#: campo obrigatorio preenchido por falta de opcao.
+_IDADE_DA_POPULACAO: dict[str, str] = {v: k for k, v in _POPULACAO_DA_IDADE.items()}
+
+#: TETO SANO DE IDADE nas fronteiras de idade (21/09/2026, segunda rodada; estendido a extracao na
+#: terceira).
+#:
+#: O QUE ELE FECHA: a fronteira recusava negativo, `bool`, float e string, e nao tinha limite
+#: SUPERIOR nenhum. `idade_meses=1200` (100 anos em meses) era uma memoria valida, atravessava a
+#: fusao e ia para a tabela PEDIATRICA — que le' `idade_meses` — como se fosse um lactente. E
+#: `idade_anos=900` idem na de adulto. Um valor desses nao vem de ninguem falando da propria
+#: idade; vem de extracao torta ou de valor plantado, e a leitura honesta e' "isto nao e' idade".
+#:
+#: OS NUMEROS, e por que eles NAO sao conteudo clinico: 120 anos e' o limite demografico (o recorde
+#: humano documentado e' 122), e 288 meses e' 24 anos — o proprio limiar que a frase de confirmacao
+#: ja' usa para deixar de falar em meses. Nenhum dos dois decide conduta: decidem se um valor E'
+#: uma idade.
+#:
+#: `idade_gestacional_semanas` fica FORA, e isso e' declarado e nao esquecido: qual semana deixa de
+#: ser uma gestacao possivel e' julgamento clinico (pos-termo existe, e o numero exato pertence ao
+#: medico revisor), e inventar o teto aqui seria a unica afirmacao clinica deste bloco. A ausencia
+#: esta' registrada em `docs/review-queue.md` (dono: medico auditor), e
+#: `test_helena_adv_rodada3.py::test_a_pendencia_clinica_esta_registrada_na_fila_de_revisao` e' o
+#: que impede a prosa de prometer um registro que nao existe.
+#:
+#: AS DUAS FRONTEIRAS, DESDE 21/09/2026 (TERCEIRA RODADA), e a correcao e' do raciocinio anterior.
+#: Este teto nasceu SO' na memoria, com o argumento de que "a extracao entrega o dado que a pessoa
+#: DISSE neste turno" e de que um teto so' na memoria mantem `memoria ⊆ extracao`. O argumento
+#: estava errado na premissa: a extracao NAO e' uma fronteira mais fraca que pode ser larga — ela
+#: e' a que ALIMENTA A DMN. `_validate_extraction` aceitava `idade_meses=1200` e a tabela
+#: PEDIATRICA (que le' `idade_meses`) triava um lactente de 100 anos, enquanto a memoria recusava
+#: o mesmo valor: duas reguas para o mesmo conceito, e a permissiva era a que decide.
+#:
+#: O mesmo dict serve as duas, entao `memoria ⊆ extracao` deixa de depender de coincidencia (288
+#: passa nas duas, 289 e' recusado nas duas). E ele NAO desceu para `_coerce_age`: aquela funcao e'
+#: generica sobre um valor (nao sabe QUAL campo), e o teto e' por campo. A recusa mora no laco de
+#: `_validate_extraction`, que ja' e' onde a decisao por campo acontece.
+_TETO_DE_IDADE: dict[str, int] = {"idade_anos": 120, "idade_meses": 24 * 12}
+
+
+def _populacao_tem_lastro(extraction: Mapping[str, Any], nova: object, lembrada: object) -> bool:
+    """A `population` que a mensagem trouxe e' uma AFIRMACAO de que o paciente mudou? (F4)
+
+    A REGRA, e o defeito que ela fecha. A decisao 3 do documento da memoria clinica diz "a
+    informacao NOVA vence, EXCETO quando a nova e' AUSENCIA", e definiu ausencia como `None` (para
+    as idades) ou o literal `"none"` (para a populacao). No turno 3 do `D2` o modelo devolveu
+    `population="adult"` para a mensagem "desde ontem" — que nao e' `"none"`, e portanto contava
+    como afirmacao, mas tambem nao diz absolutamente nada sobre um adulto. O campo e' obrigatorio
+    no schema fechado; sem ninguem na mensagem, o modelo preenche com o valor mais comum.
+
+    LASTRO e' o campo de idade que aquela populacao usa para decidir (`_IDADE_DA_POPULACAO`). Com
+    ele na mensagem, a troca e' uma afirmacao real ("na verdade e' pra mim mesma, tenho 34 anos") e
+    continua vencendo — que e' o caso que `test_informacao_nova_vence_a_lembrada` ja' fixava. Sem
+    ele, a populacao lembrada permanece.
+
+    `mental_health` e' a excecao DELIBERADA: ela nao tem campo de idade, entao exigir lastro seria
+    exigir o impossivel. E ela nao chega sozinha — vem junto do `psychosocial_risk` que `classify`
+    ja' trata como gatilho de prioridade maxima, forcando a tabela por outro caminho.
+    """
+    if nova == lembrada:
+        return True
+    campo = _IDADE_DA_POPULACAO.get(str(nova))
+    if campo is None:
+        return True
+    return extraction.get(campo) is not None
+
 
 def _memoria_clinica_valida(
     bruta: Any, *, agora: datetime, janela_horas: float = MEMORIA_CLINICA_JANELA_HORAS
@@ -614,7 +1055,7 @@ def _memoria_clinica_valida(
     limpa: dict[str, Any] = {}
     populacao = bruta.get("population")
     if populacao is not None:
-        if populacao not in _VALID_POPULATIONS:
+        if not _em_dominio(populacao, _VALID_POPULATIONS):
             return None
         limpa["population"] = populacao
     for campo in ("idade_anos", "idade_meses", "idade_gestacional_semanas"):
@@ -625,9 +1066,34 @@ def _memoria_clinica_valida(
         # viraria idade 1. Recusado explicitamente, como o helper de rodadas de coleta ja' faz.
         if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
             return None
+        teto = _TETO_DE_IDADE.get(campo)
+        if teto is not None and valor > teto:
+            return None
         limpa[campo] = valor
     if not limpa:
         return None
+    # F5: a marca da avaliacao passa pela MESMA fronteira, com o mesmo fail-closed para `None`.
+    # `sintoma_avaliado` nao e' texto livre — e' um codigo da allowlist que as tabelas de red flag
+    # casam (`ALLOWED_SINTOMA_CODIGOS`), e um codigo fora dela nao casaria regra nenhuma: aceitar
+    # um valor invalido aqui reabriria a triagem com um sintoma que a DMN nunca reconhece, o que e'
+    # pior que nao reabrir.
+    avaliado = bruta.get(_MEMORIA_SINTOMA_AVALIADO)
+    if avaliado is not None:
+        if not isinstance(avaliado, str) or avaliado not in ALLOWED_SINTOMA_CODIGOS:
+            return None
+        limpa[_MEMORIA_SINTOMA_AVALIADO] = avaliado
+        intensidade_avaliada = bruta.get(_MEMORIA_INTENSIDADE_AVALIADA)
+        if intensidade_avaliada is not None:
+            # `isinstance(..., str)` ANTES do `in`, como a linha do `sintoma_avaliado` logo acima
+            # (21/09/2026, segunda rodada). Sem ela, um valor nao-hashavel (`["grave"]`,
+            # `{"valor": "grave"}`) levanta `TypeError` no teste de pertinencia ao frozenset — e
+            # `TypeError` esta' em `PROGRAMMING_ERRORS`, ou seja PROPAGA: esta fronteira, cujo
+            # docstring promete "FALHA PARA `None`, NUNCA PARA UM VALOR PARCIAL", derrubava o turno
+            # inteiro em vez de recusar a memoria. E ela e' chamada em `receive` sobre
+            # `state["memoria_clinica"]`, que e' exatamente o valor em que nao se confia (T1.11).
+            if not _em_dominio(intensidade_avaliada, _VALID_INTENSIDADES):
+                return None
+            limpa[_MEMORIA_INTENSIDADE_AVALIADA] = intensidade_avaliada
     limpa[_MEMORIA_GRAVADA_EM] = gravado.isoformat()
     limpa[_MEMORIA_CONFIRMADA] = bruta.get(_MEMORIA_CONFIRMADA) is True
     return limpa
@@ -651,21 +1117,82 @@ def _fundir_memoria_clinica(
     `"none"` tanto para "nao consegui determinar" quanto para "a mensagem nao e' sobre ninguem em
     particular". As duas leituras levam a mesma conduta aqui: nenhuma delas e' uma afirmacao de
     que o paciente MUDOU, entao nenhuma das duas apaga o que ja' se sabia.
+
+    F4 (21/09/2026) — DUAS REGRAS NOVAS, e as duas nascem do MESMO turno medido (`D2`, turno 3,
+    "desde ontem" -> `population="adult"` + `idade_meses=36` lembrado -> tabela de ADULTO com
+    `idade_anos=None`, e a resposta dizendo "seu bebe de 36 meses"):
+
+      1. LASTRO (`_populacao_tem_lastro`). A definicao de ausencia acima era estreita: cobria
+         `"none"` e nao cobria `"adult"` sem idade nenhuma, que e' o campo obrigatorio preenchido
+         por falta de opcao, nao uma afirmacao. Uma populacao sem o campo de idade que ela usa nao
+         troca a populacao lembrada. COM lastro, a informacao nova continua vencendo.
+      2. COERENCIA. Uma idade lembrada so' atravessa se pertencer a populacao FINAL. Carregar
+         `idade_meses` para um turno adulto produzia um par que nenhuma das duas leituras sabia
+         interpretar: a tabela de adulto nao le' `idade_meses` (triava com idade vazia) e
+         `_frase_de_confirmacao` le' `idade_meses` PRIMEIRO (falava de um bebe). Foi essa
+         incoerencia, e nao "um caminho que ignora a memoria", a causa do que a bateria mediu.
+
+    A ORDEM IMPORTA: a populacao e' decidida ANTES das idades, porque e' ela que diz qual idade e'
+    coerente. Inverter faria a coerencia ser avaliada contra uma populacao que ainda ia mudar.
     """
     if not memoria:
         return extraction, {}
 
     fundida = dict(extraction)
     veio_da_memoria: dict[str, Any] = {}
-    for campo in _MEMORIA_CLINICA_CAMPOS:
+
+    # PASSO 1 — QUEM E' O PACIENTE.
+    lembrada = memoria.get("population")
+    atual = fundida.get("population")
+    if lembrada is not None:
+        ausente = atual is None or atual == "none"
+        if ausente or not _populacao_tem_lastro(fundida, atual, lembrada):
+            fundida["population"] = lembrada
+            veio_da_memoria["population"] = lembrada
+    populacao_final = str(fundida.get("population") or "none")
+
+    # PASSO 2 — A IDADE DELE, e SO' a que combina com a populacao acima.
+    #
+    # A MENSAGEM FALOU DE IDADE? Calculado ANTES do laco de proposito: o laco escreve em `fundida`,
+    # e ler a pergunta dentro dele faria a idade que a memoria acabou de inserir contar como "a
+    # mensagem trouxe".
+    mensagem_falou_de_idade = any(extraction.get(c) is not None for c in _POPULACAO_DA_IDADE)
+    for campo in _POPULACAO_DA_IDADE:
         lembrado = memoria.get(campo)
-        if lembrado is None:
+        if lembrado is None or fundida.get(campo) is not None:
             continue
-        atual = fundida.get(campo)
-        ausente = atual is None or (campo == "population" and atual == "none")
-        if ausente:
-            fundida[campo] = lembrado
-            veio_da_memoria[campo] = lembrado
+        if populacao_final in _POPULACOES_COM_IDADE and _POPULACAO_DA_IDADE[campo] != populacao_final:
+            continue
+        if mensagem_falou_de_idade:
+            # COERENCIA NOS DOIS SENTIDOS (21/09/2026, segunda rodada). A regra de coerencia acima
+            # e' de mao unica: ela filtra a idade que vem da MEMORIA contra a populacao final, e
+            # nunca pergunta se a mensagem ja' trouxe aquela idade em OUTRO campo.
+            #
+            # O TURNO QUE EXPOS ISSO e' o `D2` um passo adiante. A conversa lembra
+            # `population=pediatric` + `idade_meses=36`; a mae escreve "na verdade ele tem 5 anos"
+            # e o modelo devolve `population=pediatric` com a idade em `idade_anos=5` (o
+            # `classify_prompt` pede `idade_meses` para pediatric, mas "5 anos" e' como a frase
+            # chega, e `_validate_extraction` valida cada campo ISOLADAMENTE, sem cruzar idade com
+            # populacao). `idade_meses` da mensagem e' `None`, entao a idade LEMBRADA atravessava:
+            # a extracao fundida ficava com 5 anos E 36 meses ao mesmo tempo, `_evaluate_dmn` na
+            # tabela pediatrica le' `idade_meses` — a idade de dois turnos atras decidia a regra —,
+            # e a frase de confirmacao ainda dizia "sua crianca de 3 anos", contradizendo o que a
+            # pessoa escreveu no mesmo turno.
+            #
+            # A REGRA, e por que ela e' a de menor superficie: quando a pessoa esta' FALANDO DE
+            # IDADE agora, nenhuma idade lembrada atravessa. Nao ha como saber qual campo o modelo
+            # deveria ter usado — isso e' julgamento clinico sobre a frase —, e o lado seguro e'
+            # a tabela decidir com o dado que a pessoa acabou de dar (ou com idade ausente, que o
+            # catch-all das tabelas trata) em vez de com um dado velho que ela acabou de corrigir.
+            logger.info(
+                "helena_idade_lembrada_descartada",
+                node="classify",
+                campo=campo,  # so' o NOME do campo, nunca o valor
+                motivo="mensagem_trouxe_idade_em_outro_campo",
+            )
+            continue
+        fundida[campo] = lembrado
+        veio_da_memoria[campo] = lembrado
     return fundida, veio_da_memoria
 
 
@@ -690,9 +1217,90 @@ def _memoria_a_gravar(
         # NADA A LEMBRAR nao apaga o que ja' se lembrava: um turno administrativo no meio de uma
         # conversa clinica ("qual o telefone da central?") nao pode fazer a Helena esquecer o bebe.
         return memoria
+    # F5: a marca da avaliacao atravessa o turno junto de quem e' o paciente. Sem esta linha ela
+    # morreria no turno seguinte — o mesmo modo de falha que a gravacao da extracao JA' FUNDIDA
+    # fechou para as idades ("a diferenca entre lembrar e ter memoria de um turno so'").
+    for chave in (_MEMORIA_SINTOMA_AVALIADO, _MEMORIA_INTENSIDADE_AVALIADA):
+        if memoria and memoria.get(chave) is not None:
+            lembravel[chave] = memoria[chave]
     lembravel[_MEMORIA_GRAVADA_EM] = agora.isoformat()
     lembravel[_MEMORIA_CONFIRMADA] = confirmada
     return lembravel
+
+
+def _marcar_avaliacao(
+    memoria: dict[str, Any] | None, *, sintoma_codigo: object, intensidade: object
+) -> dict[str, Any] | None:
+    """Registra na memoria que uma avaliacao de red flag ACONTECEU, e com que dado (F5).
+
+    Chamada em `classify` DEPOIS de a DMN responder — e' o unico momento em que "houve avaliacao"
+    e' um fato, e nao uma intencao. NAO muta a memoria recebida: devolve copia, pela mesma razao
+    que `_fundir_memoria_clinica` nao muta a extracao.
+
+    `None` entra e `None` sai: uma conversa que nao sabe quem e' o paciente nao tem dado que possa
+    ser corrigido depois, entao nao ha o que marcar.
+    """
+    if not memoria or not isinstance(sintoma_codigo, str) or not sintoma_codigo:
+        return memoria
+    marcada = dict(memoria)
+    marcada[_MEMORIA_SINTOMA_AVALIADO] = sintoma_codigo
+    marcada[_MEMORIA_INTENSIDADE_AVALIADA] = (
+        intensidade if _em_dominio(intensidade, _VALID_INTENSIDADES) else "desconhecida"
+    )
+    return marcada
+
+
+def _correcao_de_dado_avaliado(
+    extraction: Mapping[str, Any], memoria: Mapping[str, Any] | None
+) -> dict[str, Any] | None:
+    """A mensagem CORRIGE um dado que uma avaliacao desta conversa ja' usou? (F5)
+
+    Devolve o que a reavaliacao precisa (`sintoma_codigo`, `intensidade` e QUAIS campos foram
+    corrigidos) ou `None` quando nao ha correcao.
+
+    O SINAL E' DETERMINISTICO, e isso e' o ponto: nao depende de o modelo rotular a intencao como
+    "correcao" — nao existe esse rotulo no schema fechado, e inventar um seria dar ao LLM mais uma
+    decisao de rota. As tres condicoes sao todas necessarias:
+
+      1. uma AVALIACAO aconteceu nesta conversa (`sintoma_avaliado` na memoria). Sem ela nao ha o
+         que refazer, e nenhuma mensagem vira sintoma;
+      2. a mensagem NAO traz sintoma proprio. Se traz, o caminho normal ja' resolve, e usar o
+         lembrado seria responder a mensagem errada — exatamente o que a decisao de nao lembrar
+         sintoma existe para evitar;
+      3. a mensagem traz, para um campo que a avaliacao usou, um valor DIFERENTE do lembrado.
+         Ausencia nao conta (a mesma regra 3 do documento, do outro lado), e repetir o mesmo dado
+         nao e' correcao.
+
+    A DIRECAO DO ERRO. Um gatilho largo aqui faria cada pergunta de cadastro no meio de uma
+    conversa clinica reabrir a triagem, com a DMN consultada sobre um sintoma que a pessoa nao
+    mencionou naquele turno. Um gatilho estreito deixa a correcao passar como turno administrativo
+    — que e' o comportamento de hoje, medido e conhecido. Por isso as tres condicoes, e nao uma.
+    """
+    if not memoria:
+        return None
+    avaliado = memoria.get(_MEMORIA_SINTOMA_AVALIADO)
+    if not avaliado:
+        return None
+    if extraction.get("sintoma_codigo") is not None:
+        return None
+    corrigidos: dict[str, Any] = {}
+    for campo in _MEMORIA_CLINICA_CAMPOS:
+        novo = extraction.get(campo)
+        antigo = memoria.get(campo)
+        if novo is None or antigo is None:
+            continue
+        if campo == "population" and novo == "none":
+            continue
+        if novo != antigo:
+            corrigidos[campo] = novo
+    if not corrigidos:
+        return None
+    intensidade = memoria.get(_MEMORIA_INTENSIDADE_AVALIADA)
+    return {
+        "sintoma_codigo": avaliado,
+        "intensidade": intensidade if _em_dominio(intensidade, _VALID_INTENSIDADES) else "desconhecida",
+        "corrigidos": corrigidos,
+    }
 
 
 def _frase_de_confirmacao(lembrados: dict[str, Any]) -> str:
@@ -701,13 +1309,53 @@ def _frase_de_confirmacao(lembrados: dict[str, Any]) -> str:
     UMA FRASE, NAO UM FORMULARIO — a decisao 4 do documento e' explicita. E ela e' uma PERGUNTA,
     nao um aviso: a pessoa precisa poder corrigir, porque o custo de uma populacao errada lembrada
     e' a tabela errada consultada em silencio.
+
+    F4, defeito de redacao medido em 21/09/2026: *"seu bebe de 36 meses"* para uma crianca de 3
+    anos. Nenhuma mae fala assim, e chamar de bebe quem ja anda soa a erro — o que importa porque
+    esta frase existe PARA a pessoa corrigir, e uma frase que soa errada e' uma frase que ela para
+    de ler. Acima de 24 meses a idade e' dita em ANOS, com divisao inteira (e' como se fala: 30
+    meses e' "2 anos", nao "2 anos e meio"). O limiar e' INCLUSIVE em 24: dois anos ainda e' idade
+    de bebe no uso comum, e a `idade_meses` continua sendo o que a DMN pediatrica le' em todos os
+    casos — a conversao e' so' da FRASE.
+
+    21/09/2026 (segunda rodada), DUAS ADICOES:
+
+      * `idade_meses=0` sai "seu RECEM-NASCIDO", nao "seu bebe de 0 meses". Ninguem fala assim, e
+        vale o mesmo argumento do "bebe de 36 meses": a frase existe para a pessoa corrigir, e uma
+        frase que soa como sistema quebrado e' uma frase que ela para de ler. O zero continua
+        atravessando toda a cadeia (validacao, fusao, gravacao) — o que muda e' so' a FRASE, e e'
+        exatamente o paciente com mais red flag na tabela pediatrica.
+      * O RAMO DO SINTOMA (F5). Quando a reavaliacao acontece com o sintoma LEMBRADO, o que a
+        pessoa precisa poder corrigir nao e' quem e' o paciente — e' SOBRE O QUE ela esta' falando.
+        A frase e' outra ("entendi que ainda e' sobre ..."), e por isso este ramo vem PRIMEIRO: num
+        turno de correcao ele e' a confirmacao que importa.
     """
+    if lembrados.get(_MEMORIA_SINTOMA_AVALIADO) is not None:
+        sobre = sintoma_em_palavras(lembrados[_MEMORIA_SINTOMA_AVALIADO])
+        return f"entendi que ainda e' sobre {sobre} que voce contou, certo?"
     if lembrados.get("idade_meses") is not None:
-        quem = f"seu bebe de {lembrados['idade_meses']} meses"
+        meses = int(lembrados["idade_meses"])
+        if meses == 0:
+            quem = "seu recem-nascido"
+        elif meses > 24:
+            quem = f"sua crianca de {meses // 12} anos"
+        else:
+            # 21/09/2026 (terceira rodada): "seu bebe de 1 meses". Mesmo argumento das duas
+            # adicoes acima — a frase existe PARA a pessoa corrigir, e uma frase que soa a sistema
+            # quebrado e' uma frase que ela para de ler.
+            quem = f"seu bebe de {meses} {'mes' if meses == 1 else 'meses'}"
     elif lembrados.get("idade_anos") is not None:
-        quem = f"a pessoa de {lembrados['idade_anos']} anos"
+        # 21/09/2026 (QUARTA RODADA): "a pessoa de 1 anos" e "a gestacao de 1 semanas". O
+        # comentario do ramo do mes afirmava que "o mes e' o unico numero desta funcao que chega a
+        # 1", e a afirmacao era FALSA nos dois ramos seguintes: `idade_anos` vem da EXTRACAO (uma
+        # pessoa de 1 ano e' um paciente pediatrico comum, e o teto e' o unico limite) e
+        # `idade_gestacional_semanas` tambem ("estou de 1 semana"). Divisao inteira so' explica o
+        # ramo `meses > 24`, que nao e' nenhum destes dois.
+        anos = lembrados["idade_anos"]
+        quem = f"a pessoa de {anos} {'ano' if anos == 1 else 'anos'}"
     elif lembrados.get("idade_gestacional_semanas") is not None:
-        quem = f"a gestacao de {lembrados['idade_gestacional_semanas']} semanas"
+        semanas = lembrados["idade_gestacional_semanas"]
+        quem = f"a gestacao de {semanas} {'semana' if semanas == 1 else 'semanas'}"
     elif lembrados.get("population") == "pediatric":
         quem = "sua crianca"
     elif lembrados.get("population") == "gestante":
@@ -1013,22 +1661,34 @@ def _validate_extraction(data: dict[str, Any]) -> str | None:
       never reach the DMN (previously a bad value only failed INCIDENTALLY via a downstream
       engine FEEL/400 error — this makes the escalation EXPLICIT and DETERMINISTIC). Valid ages
       are COERCED IN PLACE (a quoted `"5"` -> `5`) so the DMN receives the correct integer type.
+      An age ABOVE the sane per-field ceiling (`_TETO_DE_IDADE`: 120 years / 288 months) is the
+      same class of failure, added 21/09/2026 (third round): `idade_meses=1200` is not somebody
+      talking about their own age, it is a skewed extraction, and the pediatric table reads
+      `idade_meses`. `idade_gestacional_semanas` has no ceiling BY DECLARED DECISION (clinical
+      judgement — see `_TETO_DE_IDADE`).
     """
-    if data.get("intent") not in _VALID_INTENTS:
+    if not _em_dominio(data.get("intent"), _VALID_INTENTS):
         return "invalid_intent"
-    if data.get("population") not in _VALID_POPULATIONS:
+    if not _em_dominio(data.get("population"), _VALID_POPULATIONS):
         return "invalid_population"
     if not isinstance(data.get("psychosocial_risk"), bool):
         return "missing_or_invalid_psychosocial_risk"
     codigo = data.get("sintoma_codigo")
-    if codigo is not None and codigo not in ALLOWED_SINTOMA_CODIGOS:
+    if codigo is not None and not _em_dominio(codigo, ALLOWED_SINTOMA_CODIGOS):
         return "non_allowlisted_sintoma_codigo"
     intensidade = data.get("intensidade")
-    if intensidade is not None and intensidade not in _VALID_INTENSIDADES:
+    if intensidade is not None and not _em_dominio(intensidade, _VALID_INTENSIDADES):
         return "invalid_intensidade"
     for field in _AGE_FIELDS:
         ok, coerced = _coerce_age(data.get(field))
         if not ok:
+            return "invalid_age"
+        # TETO SANO POR CAMPO (21/09/2026, terceira rodada): o mesmo `_TETO_DE_IDADE` da fronteira
+        # da memoria, aplicado aqui — que e' a fronteira que ALIMENTA A DMN. Sem ele,
+        # `idade_meses=1200` era uma extracao valida e a tabela pediatrica triava um lactente de
+        # 100 anos. Ver o raciocinio completo na declaracao de `_TETO_DE_IDADE`.
+        teto = _TETO_DE_IDADE.get(field)
+        if coerced is not None and teto is not None and coerced > teto:
             return "invalid_age"
         # Coerce in place (e.g. "5" -> 5) so `_evaluate_dmn` reads the same dict and hands the
         # DMN a correctly typed integer. Absent fields (coerced None) are left as-is.
@@ -1102,11 +1762,16 @@ class HelenaGraph:
         # Memoria de coleta so' e' preservada com a feature ligada. O helper estrito
         # recusa bool, negativos e valores malformados como rodadas esgotadas.
         if self._coleta_enabled:
-            for chave in _HELENA_MEMORIA_DE_CONVERSA - {"memoria_clinica"}:
+            for chave in _MEMORIA_DE_COLETA:
                 if chave in state:
                     reset[chave] = state[chave]  # type: ignore[literal-required]
             if "coleta_rodadas" in state:
                 reset["coleta_rodadas"] = _rodadas_de_coleta(state["coleta_rodadas"])
+        # F6 (21/09/2026): o cartao de apresentacao e' uma vez por CONVERSA. Preservado sem portao
+        # de feature — e' um bool que so' anda para True, e o unico efeito e' o prompt nao repetir
+        # "Sou Helena..." no segundo turno.
+        if state.get("apresentacao_ja_feita") is True:
+            reset["apresentacao_ja_feita"] = True
         # MEMORIA CLINICA (Frente 2.1): preservada por uma chave PROPRIA, independente da coleta.
         # As duas memorias respondem a perguntas diferentes — "que pergunta ficou em aberto" e
         # "quem e' o paciente" — e amarrar a segunda ao portao da primeira deixaria a crianca
@@ -1201,8 +1866,9 @@ class HelenaGraph:
         #      dizer seria papagaio, nao transparencia;
         #   2. o turno e' CLINICO (`symptom` ou risco psicossocial) — e' onde o dado lembrado muda
         #      a tabela e a orientacao; num turno administrativo ele nao decide nada;
-        #   3. a confirmacao ainda nao foi feita NESTA conversa — uma vez, nao a cada mensagem,
-        #      senao vira ruido e a pessoa para de ler.
+        #   3. a confirmacao ainda nao CHEGOU A PESSOA nesta conversa — uma vez, nao a cada
+        #      mensagem, senao vira ruido e a pessoa para de ler. "Chegou" e' literal desde a
+        #      quarta rodada: `confirmada` e' escrita em `respond`, contra o texto enviado.
         ja_confirmada = bool(memoria and memoria.get(_MEMORIA_CONFIRMADA))
         turno_clinico = psychosocial or intent == "symptom"
         confirmar_agora = bool(veio_da_memoria) and turno_clinico and not ja_confirmada
@@ -1213,11 +1879,19 @@ class HelenaGraph:
                 node="classify",
                 campos=sorted(veio_da_memoria),  # so' os NOMES dos campos, nunca os valores
             )
+        # `confirmada` NAO ACENDE AQUI (21/09/2026, QUARTA RODADA). Ate' esta rodada a linha era
+        # `confirmada=ja_confirmada or confirmar_agora`, ou seja o flag acendia quando a frase era
+        # GERADA. Entre gerar e enviar esta' a cerca TEXTO x FATO, que troca o rascunho por
+        # constante — e num `ja_ativo` com rascunho que anuncia handoff a troca e' integral. A
+        # pessoa nunca lia a pergunta e ela nunca mais era feita, porque `confirmar_agora` exige
+        # `not ja_confirmada`. Quem acende o flag agora e' `respond`, contra o texto EFETIVAMENTE
+        # ENVIADO (`_confirmacao_chegou`) — o mesmo ponto e o mesmo criterio de
+        # `apresentacao_ja_feita`, que tem exatamente este modo de falha.
         update["memoria_clinica"] = _memoria_a_gravar(
             extraction,
             memoria,
             agora=datetime.now(UTC),
-            confirmada=ja_confirmada or confirmar_agora,
+            confirmada=ja_confirmada,
         )
 
         # SAUDACAO COM PEDIDO NAO E' SAUDACAO (11/09/2026). A regra do prompt ja' diz isso, mas a
@@ -1230,6 +1904,54 @@ class HelenaGraph:
             logger.info("helena_saudacao_com_sintoma", node="classify")
             intent = "symptom"
             update["intent"] = intent
+
+        # F5 (21/09/2026): CORRECAO DE UM DADO JA' AVALIADO RE-DISPARA A AVALIACAO.
+        #
+        # O caso `D3`: "tenho 30 anos e estou com febre" avaliou a tabela de adulto; "me enganei,
+        # tenho 70 anos" saiu `intent=information`, SEM TABELA, sintoma perdido — e voltou ao
+        # cartao administrativo para alguem que acabou de dizer febre e 70 anos, o limiar exato da
+        # regra `r8`. A pessoa corrigiu o dado que decidia a regra e ninguem reavaliou.
+        #
+        # A CONVERSAO ACONTECE AQUI, ANTES dos gatilhos, e a posicao e' o ponto: `intent` e'
+        # justamente o que decide se a DMN e' consultada, entao corrigir o `intent` depois de o
+        # despacho ter acontecido nao consultaria tabela nenhuma.
+        #
+        # E ELA NAO ATROPELA GATILHO NENHUM. `psychosocial_risk` (gatilho 5, prioridade maxima)
+        # exclui este caminho, e os intents que JA escalam por conta propria — `clinical_question`,
+        # `human_request`, `scheduling` — ficam fora por construcao: a allowlist reutilizada e'
+        # `_INTENTS_ADMISSIVEIS_INFORM`, ou seja EXATAMENTE os intents que poderiam terminar numa
+        # resposta automatica. E' esse o risco que esta regra existe para remover: uma correcao de
+        # dado clinico que termina em cartao administrativo.
+        correcao = _correcao_de_dado_avaliado(extraction, memoria)
+        if correcao is not None and not psychosocial and intent in _INTENTS_ADMISSIVEIS_INFORM:
+            logger.info(
+                "helena_reavaliacao_por_correcao",
+                node="classify",
+                # So' os NOMES dos campos corrigidos, nunca os valores — a mesma disciplina de
+                # `helena_memoria_clinica_usada` logo acima.
+                campos=sorted(correcao["corrigidos"]),
+            )
+            intent = "symptom"
+            extraction["sintoma_codigo"] = correcao["sintoma_codigo"]
+            extraction["intensidade"] = correcao["intensidade"]
+            update["intent"] = intent
+            update["sintoma_codigo"] = correcao["sintoma_codigo"]
+            update["intensidade"] = correcao["intensidade"]
+            # MOSTRAR ANTES DE USAR, TAMBEM AQUI (21/09/2026, segunda rodada). O `confirmar_agora`
+            # acima e' calculado ANTES desta conversao e olha `veio_da_memoria`, que sao os campos
+            # de QUEM E' O PACIENTE. Neste ramo o dado lembrado que entra na decisao clinica e'
+            # outro — o SINTOMA (`sintoma_avaliado`) — e ele entrava sem ninguem dizer a pessoa: o
+            # turno reabria a triagem com um sintoma que ela nao mencionou naquela mensagem, e a
+            # unica coisa que ela leria seria o resultado.
+            #
+            # SOBRESCREVE a confirmacao de populacao quando as duas caem no mesmo turno, e a ordem
+            # e' deliberada: `response_prompt` usa UMA frase de confirmacao, e num turno de
+            # CORRECAO o que a pessoa precisa poder corrigir e' sobre o que ainda se esta' falando.
+            # Nao mexe no `confirmada` gravado na memoria: aquele flag e' da confirmacao de
+            # paciente, que acontece uma vez por conversa, e esta e' por reavaliacao.
+            update["memoria_a_confirmar"] = _frase_de_confirmacao(
+                {_MEMORIA_SINTOMA_AVALIADO: correcao["sintoma_codigo"]}
+            )
 
         # Gatilho 5 (always evaluated, highest priority): psychosocial risk in ANY message.
         if psychosocial:
@@ -1280,6 +2002,16 @@ class HelenaGraph:
                 # DMN cair —, entao a severidade DERIVA dela em vez de ser um literal.
                 update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
                 return update
+            # F5: a avaliacao ACONTECEU — so' AQUI, depois de a tabela responder, "houve avaliacao"
+            # e' fato e nao intencao. A conversa passa a lembrar QUAL dado ela usou, que e' a unica
+            # informacao que permite refaze-la se a pessoa corrigir esse dado
+            # (`_correcao_de_dado_avaliado`). NAO e' lembrar o sintoma da mensagem anterior — ver a
+            # nota em `_MEMORIA_SINTOMA_AVALIADO` para a diferenca e por que ela importa.
+            update["memoria_clinica"] = _marcar_avaliacao(
+                update.get("memoria_clinica"),
+                sintoma_codigo=extraction.get("sintoma_codigo"),
+                intensidade=update.get("intensidade"),
+            )
             decision = dmn_out.get("dmn_decision", {})
             conduta = str(decision.get("conduta", "CONTINUE"))
             if decision.get("red_flag") is True or conduta.startswith("ESCALATE"):
@@ -1415,6 +2147,36 @@ class HelenaGraph:
         (`coleta_prompt`, versao `COLETA_PROMPT_VERSION`) para nao mexer no `response_prompt`
         que os goldens da Helena pinam. Se o modelo falhar, a pergunta generica de fallback
         continua sendo uma PERGUNTA — o turno nunca vira resposta clinica por acidente.
+
+        AS CERCAS DE SAIDA RODAM AQUI TAMBEM (21/09/2026, segunda rodada). Este no' montava prompt
+        proprio, chamava `generate` direto e devolvia `response_text` sem passar por cerca nenhuma
+        — e em `respond` a unica verificacao do turno e' a TEXTO x FATO, que nao consulta a cerca de
+        canal. Resultado medido: na rota de coleta o canal inventado chegava ao beneficiario
+        ("Antes de continuar: a dor esta' leve, moderada ou forte? Se preferir, veja no aplicativo
+        do plano."). O docstring de `_respond_llm` prometia ser "o unico ponto por onde passa todo
+        texto que chega ao beneficiario" e a enumeracao nao tinha `collect`; agora a promessa e'
+        verdade, pelo metodo compartilhado `_cercar_saida`.
+
+        ALCANCE HONESTO: a rota so' e' escolhida com `coleta_enabled=True` (default `False`,
+        dependente de `triage_sufficiency` no motor). O no' JA existia e ja era chamavel, e a cerca
+        e' de uma entrega posterior a ele — quando a feature ligar, o F7 voltava por esta porta.
+
+        RECUSA AQUI QUASE NUNCA ESCALA, ao contrario de `inform`, e a assimetria e' deliberada: o
+        turno de coleta tem uma saida honesta que `inform` nao tem — a PERGUNTA generica. Escalar
+        cada texto barrado transformaria um defeito de redacao em fila humana, e a coleta existe
+        justamente para nao escalar antes de saber. A pergunta de fallback e' segura POR
+        CONSTRUCAO, nao por sorte: `test_helena_coleta.py` fixa que toda entrada de
+        `_PERGUNTA_FALLBACK` passa nas duas cercas, o que e' o que impede um laco aqui.
+
+        A EXCECAO E' A NEGATIVA CLINICA (21/09/2026, terceira rodada), e ela e' por GRUPO e nao por
+        rota. "Perguntar de novo" e' uma saida honesta para um canal inventado ou uma promessa de
+        capacidade: o modelo errou a redacao de uma pergunta. Nao e' saida honesta para o unico
+        grupo que fala sobre o CORPO de alguem: um texto que afirma "nao ha sinais de alerta" no
+        meio de um turno cuja unica tarefa era PERGUNTAR nao e' um defeito de redacao — e' o modelo
+        saindo do roteiro para dar parecer clinico sobre quem ele nem acabou de ouvir, e a pergunta
+        generica descartaria isso em silencio. O mesmo texto em `inform` escala; escalar aqui
+        tambem e' o que torna a regra "negativa clinica nunca vira pergunta" verdadeira em toda
+        rota, em vez de depender de por qual no' o turno passou.
         """
         pergunta = str(state.get("coleta_pergunta") or "")
         contexto = {
@@ -1437,6 +2199,37 @@ class HelenaGraph:
         except PROGRAMMING_ERRORS:
             raise
         except EXTERNAL_DEPENDENCY_FAILURES:
+            text = _PERGUNTA_FALLBACK.get(pergunta, _PERGUNTA_FALLBACK["default"])
+        try:
+            text = self._cercar_saida(text, "collect", node="collect")
+        except RespostaRecusadaError:
+            # A PERGUNTA E' RE-DERIVADA DO TEXTO, e NAO lida da excecao ligada. Duas razoes, e as
+            # duas importam:
+            #
+            #   * `recusa.grupo` e' um atributo de excecao ligada, e a cerca LUC-06/NEW-01
+            #     (`test_error_field_no_raw_exception.py`) recusa qualquer leitura assim — ela esta'
+            #     certa mesmo com um valor que por acaso e' seguro, porque um ramo de hoje e' um
+            #     campo de estado amanha. O mesmo argumento ja' esta' escrito em `inform`;
+            #   * o grupo da excecao depende da ORDEM das duas cercas (`_cercar_saida` consulta a de
+            #     canal primeiro), e um texto que cita um canal inventado E afirma ausencia de
+            #     alerta clinico tem de escalar pelo segundo motivo, nao virar pergunta porque o
+            #     primeiro venceu o log. `motivo_de_recusa` e' PURA, entao re-perguntar e' barato e
+            #     responde a pergunta CERTA: "este texto afirma algo sobre o corpo de alguem?"
+            #
+            # O veredito da cerca nao e' refeito: ele ja' aconteceu, foi logado e contado la'.
+            if _texto_tem_negativa_clinica(text):
+                return await self._start_escalation(
+                    state,
+                    motivo="falha_tecnica",
+                    # HEL-04: a severidade DERIVA da classificacao ja feita, nunca de um literal.
+                    severidade=_severidade_de_intensidade(state.get("intensidade")),
+                    response_kind="escalate",
+                    error=ERRO_RESPOSTA_RECUSADA,
+                )
+            # A recusa ja foi logada e contada em `_cercar_saida`. A pergunta generica e' a saida
+            # honesta desta rota para os outros grupos (ver docstring), e ela mesma NAO e'
+            # recercada: seria um laco, e a cerca de teste que fixa as constantes e' o que torna
+            # isso desnecessario.
             text = _PERGUNTA_FALLBACK.get(pergunta, _PERGUNTA_FALLBACK["default"])
         return {"response_text": text, "response_kind": "collect"}
 
@@ -1636,6 +2429,7 @@ class HelenaGraph:
                 # acionou. `escalation_started is False` sozinho nao serve: e tambem o neutro de
                 # um turno informativo, que nunca tentou escalar coisa nenhuma.
                 "start_failed": True,
+                "start_desfecho": START_DESFECHO_FALHOU,
                 "escalation_motivo": motivo,
                 "escalation_severidade": severidade,
                 "escalation_business_key": business_key,
@@ -1647,8 +2441,31 @@ class HelenaGraph:
                 "response_kind": response_kind,
             }
 
+        # CERCA TEXTO x FATO (F1): o veredito que o chokepoint ja' ASSERTAVA do proprio fluxo de
+        # controle (`StartOutcome`, F3 MAJOR-2) e que este grafo ignorava. `already_existed` sozinho
+        # nao serve — e' um booleano REPORTADO PELO TRANSPORTE, e nao distingue "instancia viva" de
+        # "instancia que ja' rodou e terminou"; o proprio docstring de `StartOutcome` registra que
+        # e' por isso que o campo tipado existe.
+        start_desfecho = _start_desfecho_de(instance.start_outcome)
+        if start_desfecho != START_DESFECHO_NOVO:
+            # ITEM 3 DO DIRETOR ("toda recusa/nao-start deixa rastro"). Antes deste log um
+            # nao-start SEM erro era completamente silencioso: nenhuma excecao, nenhum contador,
+            # nenhum campo — foi assim que 27 escalonamentos reusados atravessaram uma bateria
+            # inteira sem aparecer. `business_key` e' a chave idempotente que o proprio engine ja
+            # ve; nada aqui e' texto de beneficiario.
+            logger.warning(
+                "helena_escalonamento_nao_aberto",
+                node="_start_escalation",
+                start_desfecho=start_desfecho,
+                process_key=PROCESS_KEY,
+                business_key=business_key,
+                instance_id=instance.instance_id,
+                engine_state=instance.state,
+                motivo_categoria=motivo,
+            )
         saida_ok: dict[str, Any] = {
             "escalation_started": True,
+            "start_desfecho": start_desfecho,
             "escalation_motivo": motivo,
             "escalation_severidade": severidade,
             "escalation_business_key": business_key,
@@ -1656,6 +2473,9 @@ class HelenaGraph:
                 "instance_id": instance.instance_id,
                 "state": instance.state,
                 "already_existed": instance.already_existed,
+                # O veredito do chokepoint, verbatim, ao lado do booleano que ele corrige — quem
+                # le' o handoff no painel precisa saber se a instancia citada nasceu AGORA.
+                "start_outcome": str(getattr(instance.start_outcome, "value", instance.start_outcome)),
             },
             "response_text": response_text,
             "response_kind": response_kind,
@@ -1681,6 +2501,13 @@ class HelenaGraph:
         escalacao existe; caso contrario o texto e SUBSTITUIDO pela mensagem honesta de falha
         tecnica e o turno declara `desfecho=erro_inicio_processo`.
 
+        CERCA TEXTO x FATO (21/09/2026, F1+F2) — CC-01 cobriu a FALHA de start, e a bateria do
+        diretor mostrou que faltavam os outros dois lados. `_texto_bate_com_o_fato` (chamado no
+        ramo de sucesso, logo abaixo) fecha os tres: promessa de humano so' sai quando o start
+        ACONTECEU (`start_desfecho` in `_START_DESFECHOS_COM_HUMANO`), o texto e' OBRIGADO a
+        mencionar o encaminhamento quando aconteceu, e um `already_existed` diz a verdade — o
+        atendimento ja' estava aberto e nenhum outro foi iniciado.
+
         CC-09: emite UM `maezo_agent_desfecho_total` para este turno. O `desfecho` do label e'
         DERIVADO aqui, via override, de `escalation_started`/`response_kind`/`escalation_motivo`
         — os sinais reais desta agente — nunca lido de volta de `state.get("desfecho")` (o valor
@@ -1701,12 +2528,14 @@ class HelenaGraph:
             text = RESPOSTA_FALHA_TECNICA_START
         else:
             saida = {}
-            text = state.get("response_text") or ""
+            text, cerca = self._texto_bate_com_o_fato(state, state.get("response_text") or "")
+            saida.update(cerca)
         if not text.strip():
             # HEL-07: NADA e' enviado. Uma mensagem em branco no WhatsApp nao informa e ainda
-            # parece um sistema quebrado; e o canned de handoff ("um profissional vai continuar")
-            # NAO serve de substituto num turno `inform`, onde ninguem foi acionado — seria a
-            # promessa sem lastro que CC-01 acabou de remover do ramo de falha de start. Entao a
+            # parece um sistema quebrado; e a constante de handoff (`RESPOSTA_HANDOFF_RECUSADA`,
+            # "um profissional vai dar continuidade") NAO serve de substituto num turno `inform`,
+            # onde ninguem foi acionado — seria a promessa sem lastro que CC-01 removeu do ramo de
+            # falha de start e que 21/09/2026 removeu tambem do fallback de redacao. Entao a
             # postura e' fail-closed e OBSERVAVEL: sem envio, `error` com token de classe,
             # `desfecho` proprio e um contador com `enviada=False`.
             #
@@ -1744,7 +2573,11 @@ class HelenaGraph:
             # bem-sucedido (self-disclosed como campo morto no comentario que citava esta linha).
             # Agora o mesmo valor rotulado na telemetria tambem e' gravado no estado — o campo
             # deixa de ser so-as-vezes-verdadeiro.
-            if state.get("escalation_started") is True:
+            if str(state.get("start_desfecho") or "") == START_DESFECHO_JA_ATIVO:
+                # ITEM 3: rastro PROPRIO para o nao-start silencioso. Antes desta linha o turno
+                # contava como `escalado_humano` — trabalho criado numa fila que ele nao criou.
+                desfecho = DESFECHO_ESCALONAMENTO_JA_ABERTO
+            elif state.get("escalation_started") is True:
                 desfecho = "escalado_humano"
             elif (saida.get("response_kind") or state.get("response_kind")) == "collect":
                 # COLETA: nem resolvido nem escalado — a conversa continua. Rotular como
@@ -1761,6 +2594,219 @@ class HelenaGraph:
                 enviada=enviada,
             )
             saida = {**saida, "desfecho": desfecho}
+            if enviada and _apresentou_se(text):
+                # F6, 21/09/2026 (segunda rodada): o sinal acende SO' quando o texto ENVIADO trouxe
+                # a apresentacao. Ele acendia em qualquer envio, inclusive nos turnos em que a cerca
+                # TEXTO x FATO trocou o rascunho por uma constante que nao tem cartao nenhum — e o
+                # efeito de liga-lo e' PROIBIR a apresentacao pelo resto da conversa. A pessoa lia
+                # uma mensagem, nao o cartao, e a Helena nunca mais se apresentava: o oposto do F6,
+                # que existe para ela nao REPETIR o cartao. Ver `MARCAS_DE_APRESENTACAO`.
+                #
+                # O ramo `start_failed=True` nao alcanca esta linha (ele retorna antes), e esta'
+                # certo assim: o texto daquele ramo e' `RESPOSTA_FALHA_TECNICA_START`, que nao tem
+                # cartao — o sinal ficaria apagado de qualquer forma.
+                saida["apresentacao_ja_feita"] = True
+            if enviada and _confirmacao_chegou(text, state.get("memoria_a_confirmar")):
+                # QUARTA RODADA, 21/09/2026 — IRMA EXATA DA LINHA ACIMA, e pelo mesmo defeito.
+                # `memoria_clinica.confirmada` era gravada em `classify`, quando a frase e'
+                # GERADA; a cerca TEXTO x FATO troca o rascunho por constante depois disso, e num
+                # `ja_ativo` a troca e' integral. A pessoa nunca lia a pergunta, `confirmada`
+                # ficava `True` e a confirmacao nunca mais acontecia (`confirmar_agora` exige
+                # `not ja_confirmada`) — o dado lembrado seguia decidindo a tabela de red flag sem
+                # ninguem poder corrigi-lo. Ver `_confirmacao_chegou`.
+                #
+                # A GRAVACAO E' SOBRE A MEMORIA DESTE TURNO (`state["memoria_clinica"]`, ja'
+                # escrita por `classify` neste mesmo turno), nunca sobre a do turno anterior: e' a
+                # que vai ao checkpointer. E so' acrescenta o flag — o resto da memoria (quem e' o
+                # paciente, a marca da avaliacao, o carimbo) e' preservado por copia.
+                memoria_do_turno = state.get("memoria_clinica")
+                if isinstance(memoria_do_turno, dict):
+                    saida["memoria_clinica"] = {**memoria_do_turno, _MEMORIA_CONFIRMADA: True}
+        return saida
+
+    def _texto_bate_com_o_fato(self, state: HelenaState, texto: str) -> tuple[str, dict[str, Any]]:
+        """CERCA TEXTO x FATO (21/09/2026, F1+F2): o texto que sai tem de corresponder ao que
+        ACONTECEU. Devolve `(texto_a_enviar, atualizacao_de_estado)`.
+
+        POR QUE AQUI, E NAO EM `_respond_llm`. A cerca de 13/09 mora em `_respond_llm`, que redige
+        o rascunho — e o rascunho e' escrito ANTES de o start ser tentado (`_start_escalation`
+        chama `_respond_llm` e so' depois `start_process_idempotent`). Naquele ponto o fato ainda
+        nao existe: e' por isso que `motivo_de_recusa` recebe la' `start_aconteceu=None` e decide
+        pela ROTA. `respond` e' o UNICO lugar do grafo em que o fato ja' esta' decidido e o texto
+        ainda nao saiu — e' o ponto onde a verificacao e' possivel, e o unico.
+
+        TRES SUBSTITUICOES, e todas por CONSTANTE — nunca uma segunda chamada ao modelo. E' a mesma
+        escolha de CC-01 e da recusa de saida, pela mesma razao: o mesmo prompt com a mesma
+        mensagem tende ao mesmo texto, e um laco de tentativas transforma uma cerca num atraso.
+
+          1. `ja_ativo` — a escalacao desta conversa JA estava aberta (o C1 da bateria). So' a
+             AFIRMACAO DE ASSUNCAO e' falsa aqui, e e' ela que a cerca troca
+             (`motivo_de_recusa(..., start_aconteceu=False)`, a mesma definicao do item 3); um
+             rascunho que nao afirma nada sobre humano recebe a constante como PREFIXO e segue
+             atras dela, porque a `memoria_a_confirmar` e a orientacao do turno nao tem nada de
+             errado — descartar as duas trocava um defeito por outro.
+          2. START ACONTECEU e o texto NAO MENCIONA o encaminhamento (o E4). O texto e' trocado
+             pela constante de handoff, que menciona.
+          3. START NAO ACONTECEU e o texto ANUNCIA um humano. Trocado pela constante que diz o que
+             nao aconteceu. O gatilho e' UMA definicao para os dois sentidos — a mesma
+             `menciona_encaminhamento` do item 2, agora consultada por `motivo_de_recusa` com
+             `start_aconteceu=False` —, porque as duas listas antigas (a positiva e a de literais
+             proibidos) foram escritas para textos diferentes e a diferenca entre elas era um
+             conjunto de rascunhos plausiveis que saiam intactos. Inalcancavel pela rota
+             `escalate`/`schedule` (as duas sempre passam por `_start_escalation`, que grava o
+             desfecho) — e' o backstop ESTRUTURAL para as rotas que nao abrem processo. O fallback
+             canned de `_respond_llm`, que era o caminho REAL deste item, deixou de prometer
+             humano na origem (`RESPOSTA_FALHA_DE_REDACAO`): o backstop fica, a promessa sai.
+
+        O QUE ELA NAO FAZ: nao muda `response_kind` nem `escalation_*`. A rota e o efeito
+        aconteceram; o que esta' errado e' a NARRACAO deles, e e' so' a narracao que se corrige.
+
+        RESIDUAL DIVULGADO: uma falha de ENVIO logo depois sobrescreve o `error` que esta cerca
+        acaba de gravar (`respond` prefere o `whatsapp send failed`, que e' o mais acionavel). O
+        rastro da troca nao se perde — ele esta' na linha de log e no contador, os dois emitidos
+        por `_registrar_troca` ANTES de qualquer tentativa de envio.
+        """
+        if not texto.strip():
+            # Turno sem rascunho nenhum: quem trata e' a guarda HEL-07 de `respond`, com desfecho
+            # e contador proprios. Substituir aqui esconderia um "nada foi enviado" atras de uma
+            # frase plausivel.
+            return texto, {}
+        response_kind = str(state.get("response_kind") or "")
+        start_desfecho = str(state.get("start_desfecho") or START_DESFECHO_NAO_TENTADO)
+        acionado = _humano_acionado(state)
+
+        if start_desfecho == START_DESFECHO_JA_ATIVO:
+            # 21/09/2026, SEGUNDA RODADA: a troca deixou de ser INCONDICIONAL. O que e' falso num
+            # `ja_ativo` e' o anuncio de um encaminhamento NOVO — nao o resto do rascunho. Descartar
+            # tudo custava duas coisas medidas: a `memoria_a_confirmar` (a pergunta que o
+            # `response_prompt` obriga a fazer antes de usar um dado LEMBRADO, e que existe PARA a
+            # pessoa poder corrigir a populacao que decidiu a tabela) e a orientacao do turno. Num
+            # turno em que a escalacao ja' estava aberta, perder a confirmacao do dado clinico e'
+            # trocar um defeito por outro.
+            #
+            # Entao: se o rascunho faz QUALQUER AFIRMACAO DE ASSUNCAO, ele e' trocado por inteiro —
+            # aquela frase depende de um fato que o modelo nao tinha quando redigiu. Se nao faz, o
+            # texto honesto entra como PREFIXO e o rascunho segue atras. O rastro e' emitido nos
+            # dois caminhos, com o mesmo grupo: o que a operacao conta e' "houve nao-start", e isso
+            # aconteceu igual nos dois.
+            #
+            # "QUALQUER AFIRMACAO DE ASSUNCAO" E' `motivo_de_recusa(..., start_aconteceu=False)`, E
+            # NAO SO' `menciona_encaminhamento` (21/09/2026, TERCEIRA RODADA). O gatilho anterior
+            # era a lista POSITIVA de mencao, e o sufixo sobrevivente contradizia o proprio prefixo:
+            #
+            #     "(...) Por isso nao abri outro atendimento. (...) Nao se preocupe, um atendente
+            #      vai assumir o seu caso agora."
+            #
+            # A causa raiz daquele texto era o filtro de negacao da cerca de mencao (removido em
+            # `prompts.py::padrao_de_encaminhamento`), e consertar a causa raiz basta para ESTE
+            # texto. O que muda aqui e' a CLASSE: a decisao passa a usar a MESMA definicao do item
+            # 3 logo abaixo — a de "este texto afirma que um humano assumiu" —, que e' mais larga
+            # que a lista positiva (soma os literais de `PROMESSA_DE_HUMANO_PROIBIDA`). O custo e'
+            # declarado e pequeno: um rascunho que diga "aguarde nosso contato" num `ja_ativo`
+            # perde a `memoria_a_confirmar`, e a constante ja' diz tudo o que e' verdade sobre a
+            # acao humana neste turno. O prefixo existe para preservar a confirmacao clinica e a
+            # orientacao, nao uma segunda afirmacao sobre o handoff.
+            #
+            # POR QUE NAO RECERCAR O TEXTO MONTADO: `RESPOSTA_HANDOFF_JA_ABERTO` casa a propria
+            # cerca de mencao de proposito ("seu atendimento ... ja esta aberto" e' a frase honesta
+            # que o item 2 envia). Cercar `com_prefixo` daria True SEMPRE e mataria o caminho do
+            # prefixo inteiro — a cerca tem de ler o RASCUNHO, nao a montagem.
+            recusa = motivo_de_recusa(texto, response_kind, start_aconteceu=False)
+            enviar = (
+                RESPOSTA_HANDOFF_JA_ABERTO
+                if recusa is not None
+                else f"{RESPOSTA_HANDOFF_JA_ABERTO} {texto.strip()}"
+            )
+            return enviar, self._registrar_troca(
+                state,
+                grupo=RECUSA_ESCALONAMENTO_JA_ABERTO,
+                response_kind=response_kind,
+                start_desfecho=start_desfecho,
+                texto=enviar,
+                padrao=recusa[1] if recusa is not None else None,
+            )
+
+        if acionado and not menciona_encaminhamento(texto):
+            # F2: um humano recebeu o caso e o beneficiario nao foi avisado. A constante de handoff
+            # da recusa de saida serve exatamente aqui — ela JA e' a frase honesta para "um humano
+            # foi acionado neste ponto", e passa na propria cerca (teste fixa as duas coisas).
+            return RESPOSTA_HANDOFF_RECUSADA, self._registrar_troca(
+                state,
+                grupo=RECUSA_HANDOFF_SEM_MENCAO,
+                response_kind=response_kind,
+                start_desfecho=start_desfecho,
+                texto=RESPOSTA_HANDOFF_RECUSADA,
+                error=ERRO_HANDOFF_SEM_MENCAO,
+            )
+
+        if not acionado:
+            recusa = motivo_de_recusa(texto, response_kind, start_aconteceu=False)
+            if recusa is not None:
+                return RESPOSTA_SEM_ENCAMINHAMENTO, self._registrar_troca(
+                    state,
+                    grupo=recusa[0],
+                    response_kind=response_kind,
+                    start_desfecho=start_desfecho,
+                    texto=RESPOSTA_SEM_ENCAMINHAMENTO,
+                    error=ERRO_PROMESSA_SEM_START,
+                    padrao=recusa[1],
+                )
+        return texto, {}
+
+    @staticmethod
+    def _registrar_troca(
+        state: HelenaState,
+        *,
+        grupo: str,
+        response_kind: str,
+        start_desfecho: str,
+        texto: str,
+        error: str | None = None,
+        padrao: str | None = None,
+    ) -> dict[str, Any]:
+        """O RASTRO de uma troca de texto pela cerca TEXTO x FATO: log + contador + estado.
+
+        O PADRAO no log (onde alguem depura) e o GRUPO no contador (onde alguem conta) — a mesma
+        disciplina de `_respond_llm`, pela mesma razao de cardinalidade. O TEXTO nao vai para
+        nenhum dos dois: e' saida de modelo sobre a mensagem do beneficiario.
+
+        `error` e' OPCIONAL de proposito. `ja_ativo` nao e' falha de ninguem — a idempotencia
+        funcionou —, e escrever um `error` ali sujaria o sufixo `[falha tecnica: ...]` do handoff
+        do turno seguinte com um fato que nao e' falha. O rastro daquele caso e' o `desfecho`
+        proprio, o log e o contador.
+
+        E UM `error` QUE O TURNO JA' TINHA NAO E' SOBRESCRITO (21/09/2026, segunda rodada). O caso
+        que expos isto: uma falha do provedor de inferencia faz `classify` escrever
+        `error="classify LLM call failed: ..."`, que e' a CAUSA do escalonamento e e' o que o
+        atendente le' no `[falha tecnica: ...]` do handoff; a mesma falha faz o rascunho cair na
+        constante de falha de redacao, que nao menciona o encaminhamento, e a troca do item 2
+        gravava `handoff sem mencao` em cima. A narracao do texto nao pode apagar o motivo tecnico
+        do turno — e o rastro da troca nao se perde, porque ele esta' no log e no contador, os
+        dois emitidos aqui (exatamente o argumento que o `ja_ativo` acima ja' fazia).
+
+        O NIVEL SEGUE A MESMA DISTINCAO (21/09/2026, segunda rodada). `escalonamento_ja_aberto` sai
+        em `warning`: a idempotencia funcionou, ninguem precisa ser acordado, e um `error` ali
+        treina a operacao a ignorar o canal. Os dois de TEXTO x FATO (`promessa_sem_start` e
+        `handoff_sem_mencao`) saem em `error`: os dois significam que a Helena ia dizer ao
+        beneficiario algo que nao corresponde ao que aconteceu. Emitir tudo no mesmo nivel apagava
+        justamente a diferenca que o `error` opcional acima ja' registrava no estado.
+        """
+        emitir = logger.warning if grupo == RECUSA_ESCALONAMENTO_JA_ABERTO else logger.error
+        emitir(
+            "helena_texto_nao_bate_com_o_fato",
+            node="respond",
+            grupo=grupo,
+            padrao=padrao,
+            response_kind=response_kind,
+            start_desfecho=start_desfecho,
+            escalation_business_key=str(state.get("escalation_business_key") or ""),
+            recusa_version=RECUSA_DE_SAIDA_VERSION,
+            prompt_version=RESPONSE_PROMPT_VERSION,
+        )
+        record_resposta_recusada(agent_id="helena", motivo=grupo, response_kind=response_kind)
+        saida: dict[str, Any] = {"response_text": texto}
+        if error and not state.get("error"):
+            saida["error"] = error
         return saida
 
     def _start_failure_outcome(self, state: HelenaState) -> dict[str, Any]:
@@ -1772,6 +2818,31 @@ class HelenaGraph:
         handoff que `_start_escalation` ja havia redigido ANTES de tentar o start.
 
         O desfecho e o alerta vem do helper compartilhado (uma definicao para os 9 agentes).
+
+        ITEM 2 DA REVISAO DE 21/09/2026 — "ele parece cobrir so' uma forma de falha". Cobre, e a
+        auditoria abaixo e' a razao de estar CERTO assim. Este ramo e' alcancado por UM caminho:
+        `start_failed=True`, escrito por EXATAMENTE um `except CibSevenError` (`_start_escalation`).
+        O que mais `start_process_idempotent` pode levantar, e por que nao entra aqui:
+
+          * `AuditPersistenceError`, `StartVariableRedactionError`, `StartClaimWithoutInstanceError`
+            e `StartDedupGateUnavailableError` NAO sao `CibSevenError`, e cada uma declara no
+            proprio docstring que isso e' DELIBERADO: um scrub de PHI que nao roda, um audit que
+            nao persiste ou um portao de dedup nao avaliavel nao sao indisponibilidade de
+            fornecedor — sao defeito do proprio controle. Elas PROPAGAM e derrubam o turno alto,
+            que e' a postura correta, e nunca degradam para "uma falha tecnica a mais".
+          * `CibSevenStartAuthorizationError` E' subclasse de `CibSevenError` (D7-A) e portanto
+            CAI aqui, como toda indisponibilidade/recusa do engine no momento do start.
+          * A RECUSA DE CONTRATO DO WORKER (`tools/workers/escalation.py::_exigir_severidade`, a
+            hipotese do relatorio) nao pode chegar a este `except` por construcao, e nao por
+            sorte: o worker e' uma EXTERNAL TASK que o engine entrega DEPOIS de a instancia
+            existir, num processo separado. Se ele recusar, a instancia ja' nasceu — o start
+            SUCEDEU. A prova esta' em `test_helena_cerca_texto_x_fato.py`
+            (`test_falha_nao_cibseven_no_start_propaga_em_vez_de_virar_falha_tecnica` e o teste
+            irmao que fixa o caminho da subclasse).
+
+        E o C1 da bateria NAO era esta classe de falha: nada falhou la'. O start foi idempotente
+        sobre uma instancia viva — silencio sem excecao —, que e' exatamente o que
+        `start_desfecho`/`_humano_acionado` passaram a tornar visivel.
 
         F1 (VERIFY-CC09): `HelenaState` nao tem chave `route` (usa `response_kind`), entao o
         `state.get("route")` generico do helper devolveria `None` — passamos
@@ -1945,6 +3016,14 @@ class HelenaGraph:
             "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
             "escalation_severidade": state.get("escalation_severidade"),
         }
+        # F6: o prompt proibe repetir o cartao quando isto vem no contexto (ver `response_prompt`).
+        # SO' QUANDO TRUE (21/09/2026, segunda rodada), como as chaves irmas `population` e
+        # `memoria_a_confirmar`: o prompt inteiro e' escrito no idioma "QUANDO O CONTEXTO TROUXER
+        # X", e mandar `apresentacao_ja_feita: False` pede ao modelo que interprete uma negacao
+        # explicita num texto que so' fala de presenca. Um `False` presente e' ruido no unico lugar
+        # em que a ausencia ja' era a informacao.
+        if state.get("apresentacao_ja_feita") is True:
+            context["apresentacao_ja_feita"] = True
         # MEMORIA CLINICA (Frente 2.1, decisao 5 do documento): a populacao vale TAMBEM para o
         # texto, nao so' para a tabela. O defeito medido em 13/09 nao foi apenas triar um bebe pela
         # tabela de adulto — foi a Helena listar sinais de alerta de ADULTO para a mae de um bebe
@@ -1977,12 +3056,20 @@ class HelenaGraph:
             )
         except PROGRAMMING_ERRORS:
             raise
-        except EXTERNAL_DEPENDENCY_FAILURES:  # fail-safe default: never leave the beneficiary with nothing.
-            return "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
+        except EXTERNAL_DEPENDENCY_FAILURES:
+            # fail-safe: nunca deixar o beneficiario sem nada — e nunca com uma PROMESSA. Ate
+            # 21/09/2026 este ramo tinha um `return` proprio, ANTES do bloco de cerca, com o texto
+            # "um profissional humano vai continuar o atendimento em breve": a unica frase deste
+            # modulo que prometia um humano sem passar por cerca nenhuma. Agora o fallback e' a
+            # constante honesta e ele SEGUE PELO MESMO CAMINHO do rascunho do modelo — se um dia
+            # ela violar uma das cercas, e' recusada, logada e contada como qualquer outro texto,
+            # em vez de sair pela porta de tras.
+            texto = RESPOSTA_FALHA_DE_REDACAO
 
         # RECUSA DE SAIDA (13/09/2026). ESTE e' o unico ponto por onde passa todo texto que chega
-        # ao beneficiario — `inform` (1x), `_start_escalation` (escalate e schedule) e o fallback
-        # de `respond`. Cercar aqui cobre as tres rotas com uma verificacao so'.
+        # ao beneficiario — `inform` (1x), `collect` (via `_cercar_saida`), `_start_escalation`
+        # (escalate e schedule) e o fallback de `respond`. Cercar aqui cobre as rotas com uma
+        # verificacao so'.
         #
         # POR QUE A CERCA EXISTE MESMO COM A PROIBICAO NO PROMPT. O `response-v3` proibiu a
         # negativa clinica em maiusculas e com o raciocinio inteiro, e o modelo passou por cima
@@ -1990,24 +3077,45 @@ class HelenaGraph:
         # a DMN decide em vez do modelo, a negativa so' nasce de User Task, o provedor recusa
         # construir sem atestacao — e o texto, que e' a unica coisa que a pessoa do outro lado le',
         # nao tinha nenhuma. Pedir e' instrucao; isto e' cerca.
-        recusa = motivo_de_recusa(texto, response_kind)
-        if recusa is not None:
-            grupo, padrao = recusa
-            # O PADRAO no log (onde alguem depura), o GRUPO no contador (onde alguem conta). O
-            # TEXTO nao vai para nenhum dos dois: e' saida de modelo sobre a mensagem do
-            # beneficiario, e um log nao e' lugar de ampliar o alcance dela.
-            logger.error(
-                "helena_resposta_recusada",
-                node="_respond_llm",
-                grupo=grupo,
-                padrao=padrao,
-                response_kind=response_kind,
-                recusa_version=RECUSA_DE_SAIDA_VERSION,
-                prompt_version=RESPONSE_PROMPT_VERSION,
-            )
-            record_resposta_recusada(agent_id="helena", motivo=grupo, response_kind=response_kind)
-            raise RespostaRecusadaError(grupo, padrao, response_kind)
-        return texto
+        # F7 (21/09/2026): a cerca de CANAL vem antes e vale em toda rota — um canal que nao existe
+        # nao e' verdade em rota nenhuma. As duas devolvem a mesma forma `(grupo, padrao)`, entao o
+        # log, o contador e a excecao servem as duas sem ramo novo.
+        return self._cercar_saida(texto, response_kind)
+
+    @staticmethod
+    def _cercar_saida(texto: str, response_kind: ResponseKind, *, node: str = "_respond_llm") -> str:
+        """As duas cercas de saida sobre UM texto, ou `RespostaRecusadaError`.
+
+        EXTRAIDA DE `_respond_llm` EM 21/09/2026 (segunda rodada) por uma razao medida: aquele
+        docstring afirmava ser "o unico ponto por onde passa todo texto que chega ao
+        beneficiario", e a enumeracao nao tinha `collect`. O no' `collect` monta prompt proprio,
+        chama `generate` direto e devolvia `response_text` sem passar por cerca nenhuma — e em
+        `respond` a unica verificacao do turno e' a TEXTO x FATO, que nao consulta a cerca de
+        canal. Resultado: na rota de coleta o canal inventado chegava ao beneficiario. Com a cerca
+        num metodo, a afirmacao do docstring passa a ser verdade para as duas rotas.
+
+        `node` e' explicito porque o log passou a ter DOIS chamadores: um campo que diz
+        `_respond_llm` num texto barrado dentro do no' `collect` manda quem depura para o lugar
+        errado, e o custo de um log que mente e' exatamente o tempo de quem esta de plantao.
+        """
+        recusa = motivo_de_canal_nao_confirmado(texto) or motivo_de_recusa(texto, response_kind)
+        if recusa is None:
+            return texto
+        grupo, padrao = recusa
+        # O PADRAO no log (onde alguem depura), o GRUPO no contador (onde alguem conta). O
+        # TEXTO nao vai para nenhum dos dois: e' saida de modelo sobre a mensagem do
+        # beneficiario, e um log nao e' lugar de ampliar o alcance dela.
+        logger.error(
+            "helena_resposta_recusada",
+            node=node,
+            grupo=grupo,
+            padrao=padrao,
+            response_kind=response_kind,
+            recusa_version=RECUSA_DE_SAIDA_VERSION,
+            prompt_version=RESPONSE_PROMPT_VERSION,
+        )
+        record_resposta_recusada(agent_id="helena", motivo=grupo, response_kind=response_kind)
+        raise RespostaRecusadaError(grupo, padrao, response_kind)
 
     async def _resumo_contexto(self, state: HelenaState, motivo: MotivoCategoria | None) -> str:
         # Token somente de exibicao; motivo_categoria continua None na ausencia.

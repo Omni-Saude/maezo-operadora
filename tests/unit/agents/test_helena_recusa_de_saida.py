@@ -31,7 +31,11 @@ from maezo.agents.helena.graph import (
     RESPOSTA_HANDOFF_RECUSADA,
     HelenaGraph,
 )
-from maezo.agents.helena.prompts import motivo_de_recusa
+from maezo.agents.helena.prompts import (
+    motivo_de_canal_nao_confirmado,
+    motivo_de_recusa,
+    response_prompt,
+)
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
@@ -312,3 +316,65 @@ def test_orientar_a_procurar_a_central_continua_passando() -> None:
     """O sujeito e' parte do padrao: "a equipe entre em contato" e' promessa, "voce pode entrar em
     contato com a central" e' orientacao — e a segunda aparece nas respostas administrativas boas."""
     assert motivo_de_recusa(CONSELHO_LEGITIMO, "inform") is None
+
+
+# ---------------------------------------------------------------------------------------------
+# ITEM 7 DO DIRETOR (21/09/2026): o STATUS DO PROPRIO CASO
+# ---------------------------------------------------------------------------------------------
+# O QUE FOI MEDIDO: perguntada em que pe' estava o atendimento dela, a Helena respondeu com o
+# andamento — e ela nao le' sistema de acompanhamento nenhum. Nao ha ferramenta de leitura de
+# instancia neste grafo; `escalation_process_ref` e' do TURNO que abriu o processo e nem sobrevive
+# ao `receive` do turno seguinte; e o SLA vive na instancia, nao no turno. Toda frase de status e'
+# INVENCAO, e uma invencao cara: ela faz a pessoa ESPERAR em vez de insistir.
+#
+# A FERRAMENTA DE STATUS FICA FORA — decisao de CONTRATO, nao omissao: exigiria uma ferramenta de
+# leitura do engine que o `agent.yaml` nao declara, mais a decisao de quanto do processo interno
+# pode ser exposto a quem esta do outro lado.
+
+#: Os textos de status inventado, na forma em que um modelo os escreve.
+STATUS_INVENTADO: tuple[str, ...] = (
+    "Seu caso esta em analise pela nossa equipe.",
+    "Voce esta na fila de atendimento, aguarde.",
+    "Seu protocolo e' o 4821 e esta em andamento.",
+    "Ja foi visto pela enfermagem.",
+    "Seu pedido esta sendo avaliado agora.",
+)
+
+
+@pytest.mark.parametrize("texto", STATUS_INVENTADO)
+def test_status_inventado_e_recusado_em_toda_rota(texto: str) -> None:
+    """Proibido em TODA rota, `escalate` incluida, e a distincao e' o ponto: em `escalate` a Helena
+    SABE que abriu o processo, e dizer isso e' o handoff; dizer o ANDAMENTO dele e' outra coisa,
+    porque este turno nao sabe quanto do SLA ja correu."""
+    for rota in ("inform", "escalate", "schedule", "collect"):
+        achado = motivo_de_recusa(texto, rota)
+
+        assert achado is not None, f"status inventado passou em {rota}: {texto!r}"
+        assert achado[0] == "promessa_de_capacidade"
+
+
+def test_o_prompt_manda_dizer_que_nao_consulta_status_e_oferecer_a_rota_humana() -> None:
+    """A instrucao e a cerca sao as duas metades: a lista impede, o prompt ensina o que dizer no
+    lugar — senao o turno cai em escalonamento por texto recusado, que e' fila de gente para uma
+    pergunta que tem resposta honesta."""
+    texto = response_prompt().lower()
+
+    assert "nao consulta o status do caso da propria pessoa" in texto
+    assert "atendente humano" in texto
+    for padrao in ("em analise", "na fila", "ja foi visto", "esta sendo avaliado"):
+        assert padrao in texto, f"o prompt nao nomeia a frase proibida {padrao!r}"
+
+
+def test_dizer_que_nao_consulta_o_status_continua_passando() -> None:
+    """A outra metade, e ela e' obrigatoria: a resposta HONESTA a "em que pe' esta?" tem de passar.
+
+    Se a cerca reprovasse este texto, a pergunta de status viraria escalonamento em vez de
+    resposta — e a cerca existe para o contrario disso.
+    """
+    honesto = (
+        "Por aqui eu nao consigo consultar o andamento do seu atendimento. "
+        "Se quiser, eu te encaminho para um atendente humano."
+    )
+
+    assert motivo_de_recusa(honesto, "inform") is None
+    assert motivo_de_canal_nao_confirmado(honesto) is None

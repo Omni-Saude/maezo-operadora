@@ -1,5 +1,5 @@
 {
-  "versao": "extracao-v1",
+  "versao": "extracao-v2",
   "casos": [
     {
       "id": "r2-cefaleia-comum-01",
@@ -2228,6 +2228,219 @@
       "origem": "escrito",
       "regras": [
         "R1"
+      ]
+    },
+    {
+      "id": "q-cefaleia-min-21-09",
+      "mensagem": "estou com dor de cabeca",
+      "esperado": {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Caso `C1` da bateria de 21/09/2026, medido: estas cinco palavras viraram `cefaleia_subita_intensa` (regra r4 da tabela adulta, P1 com prazo de cinco minutos) e a resposta ainda CITOU a pessoa entre aspas dizendo 'a pior da vida'. O codigo carrega DOIS qualificadores — subita e intensa — e nenhum dos dois aparece aqui; a intensidade tambem nao foi dita, entao ela e' `desconhecida` e o dado que falta e' para perguntar.",
+      "origem": "bateria-21-09",
+      "regras": [
+        "R1",
+        "R2"
+      ],
+      "nao_pode_casar": [
+        "cefaleia_subita_intensa"
+      ]
+    },
+    {
+      "id": "q-cefaleia-max-21-09",
+      "mensagem": "minha dor de cabeca comecou de repente e e a pior da minha vida",
+      "esperado": {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "cefaleia_subita_intensa",
+        "intensidade": "grave",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Caso `C4` da mesma bateria — o contraste que prova que a tabela esta certa e que o codigo e' legitimo. A pessoa disse as DUAS coisas com outras palavras: inicio subito ('comecou de repente') e intensidade maxima ('a pior da minha vida'). Traduzir isso e' leitura, nao invencao (R1), e um corpus que so' tivesse o caso minimo ensinaria a extracao a nunca produzir o codigo — trocando o falso positivo por um falso negativo numa emergencia.",
+      "origem": "bateria-21-09",
+      "regras": [
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "id": "q-sangramento-min",
+      "mensagem": "sangrou um pouco o nariz mais cedo e ja parou",
+      "esperado": {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "leve",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Par minimo de `sangramento_ativo`: o qualificador do codigo e' o sangramento estar ACONTECENDO (intenso, sem parar), e aqui a pessoa diz o contrario — ja parou. 'Um pouco' e' ela dizendo a intensidade, entao `leve` e' leitura (R1); o codigo, sem o qualificador, e' `null` (R2), porque a allowlist de adulto nao tem um codigo generico de sangramento.",
+      "origem": "escrito",
+      "regras": [
+        "R1",
+        "R2"
+      ],
+      "nao_pode_casar": [
+        "sangramento_ativo"
+      ]
+    },
+    {
+      "id": "q-sangramento-max",
+      "mensagem": "cortei o dedo fundo e esta jorrando sangue, nao consigo estancar",
+      "esperado": {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "sangramento_ativo",
+        "intensidade": "grave",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Par maximo do anterior: 'jorrando' e 'nao consigo estancar' sao a pessoa dizendo que o sangramento esta ativo e intenso — o qualificador do codigo, dito com outras palavras.",
+      "origem": "escrito",
+      "regras": [
+        "R1",
+        "R2"
+      ]
+    },
+    {
+      "id": "q-falta-de-ar-min",
+      "mensagem": "sinto uma falta de ar leve quando subo a escada",
+      "esperado": {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "dispneia",
+        "intensidade": "leve",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Par minimo de intensidade (R1), nao de codigo: `dispneia` nao carrega qualificador no nome, entao a falta de ar E' dispneia em qualquer intensidade. O que nao se pode inventar aqui e' a gravidade — a pessoa disse 'leve', e e' isso que entra na DMN.",
+      "origem": "escrito",
+      "regras": [
+        "R1"
+      ]
+    },
+    {
+      "id": "q-falta-de-ar-max",
+      "mensagem": "nao estou conseguindo respirar direito, ta muito ruim",
+      "esperado": {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "dispneia",
+        "intensidade": "grave",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Par maximo do anterior: mesmo codigo, intensidade oposta, e ela foi DITA ('muito ruim', 'nao estou conseguindo'). O par existe para que a nota de `intensidade` meca a leitura nos dois extremos em vez de premiar um chute constante.",
+      "origem": "escrito",
+      "regras": [
+        "R1"
+      ]
+    },
+    {
+      "id": "q-contracoes-min",
+      "mensagem": "to de 33 semanas e senti umas fisgadas na barriga de vez em quando",
+      "esperado": {
+        "intent": "symptom",
+        "population": "gestante",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": 33
+      },
+      "porque": "Par minimo de `contracoes_regulares`: o qualificador e' a REGULARIDADE, e 'de vez em quando' e' exatamente a sua ausencia. Sem ele o codigo e' `null` (R2); a idade gestacional foi dita e entra na unidade em que veio (R4), porque quatro das cinco regras P1 da gestante dependem dela.",
+      "origem": "escrito",
+      "regras": [
+        "R2",
+        "R4"
+      ],
+      "nao_pode_casar": [
+        "contracoes_regulares"
+      ]
+    },
+    {
+      "id": "q-contracoes-max",
+      "mensagem": "estou de 33 semanas e o aperto na barriga vem de 5 em 5 minutos ha uma hora",
+      "esperado": {
+        "intent": "symptom",
+        "population": "gestante",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "contracoes_regulares",
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": 33
+      },
+      "porque": "Par maximo do anterior: 'de 5 em 5 minutos ha uma hora' e' a regularidade dita com outras palavras — leitura, nao invencao. A intensidade continua `desconhecida`: a pessoa falou do intervalo, nao da dor, e inventar 'grave' aqui seria a R1 ao contrario.",
+      "origem": "escrito",
+      "regras": [
+        "R2",
+        "R4"
+      ]
+    },
+    {
+      "id": "q-gest-cefaleia-min",
+      "mensagem": "to gravida de 26 semanas e com dor de cabeca desde ontem",
+      "esperado": {
+        "intent": "symptom",
+        "population": "gestante",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": 26
+      },
+      "porque": "Par minimo de `cefaleia_alteracao_visual`: o codigo exige a ALTERACAO NA VISAO junto da dor, e ela nao aparece. A allowlist de gestante nao tem codigo generico de cefaleia, entao o honesto e' `null` mais a pergunta — nao o codigo P1 'por seguranca' (R2).",
+      "origem": "escrito",
+      "regras": [
+        "R2",
+        "R4"
+      ],
+      "nao_pode_casar": [
+        "cefaleia_alteracao_visual"
+      ]
+    },
+    {
+      "id": "q-gest-movimentos-min",
+      "mensagem": "estou de 29 semanas, o bebe mexeu bem hoje, mas to sentindo dor nas costas",
+      "esperado": {
+        "intent": "symptom",
+        "population": "gestante",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": 29
+      },
+      "porque": "Par minimo de `movimentos_fetais_reduzidos`: a mensagem FALA de movimento fetal e diz que ele esta normal. O qualificador do codigo e' a reducao, e o codigo aqui seria o oposto do que a pessoa contou. Dor nas costas nao casa nenhum codigo da gestante, entao `null` (R5).",
+      "origem": "escrito",
+      "regras": [
+        "R2",
+        "R4"
+      ],
+      "nao_pode_casar": [
+        "movimentos_fetais_reduzidos"
       ]
     }
   ]

@@ -3,7 +3,7 @@
   "agent": "helena",
   "class": "CE",
   "tier": ["A", "B"],
-  "description": "Beneficiary asks about their carencia (waiting period) limit -> classify extracts intent=information -> Helena informs directly, no escalation. Synthetic data only (tenant amh, pseudo id).",
+  "description": "Beneficiary asks about their carencia (waiting period) limit -> classify extracts intent=information -> Helena informs directly, no escalation. Synthetic data only (tenant amh, pseudo id). Texto do `recorded_llm` atualizado em 21/09/2026 (F7): a resposta citava \"o aplicativo\", que nao e' um dos nomes de `prompts.py::CANAIS_CONFIRMADOS` — e carencia e' duvida administrativa, resolvida pela central de atendimento do plano, nao pelo app.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -15,7 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Voce pode consultar os prazos de carencia no aplicativo ou falando com um atendente."
+    "Voce pode consultar os prazos de carencia com a central de atendimento do plano."
   ],
   "expect": {
     "next_kind": "inform",
