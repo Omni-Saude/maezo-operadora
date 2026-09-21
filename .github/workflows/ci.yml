@@ -30,6 +30,22 @@ jobs:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
 
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # O flip PUBLIC->PRIVATE (12:51Z) sujeitou o repo a cota de cache de Actions do
+        # repo privado e as 20 caches foram evictadas; toda run desde entao reconstruiu
+        # caches frios e esgotou o disco do runner NO MEIO da suite (provado:
+        # "Free space left: 61 MB" as 13:39:48Z e "0 MB" as 21:05:01Z -> ~3,5k falhas
+        # + ~3,3k erros de escrita e jobs morrendo com logs nao finalizados). A imagem
+        # ubuntu-24.04 embarca SDKs que NENHUM passo deste job usa (Android/.NET/GHC
+        # pertencem a outros jobs/flows, em outros runners); remove-los devolve a
+        # margem que a suite media pre-flip. df antes/depois audita a reclamacao; a
+        # limpeza nao toca em nenhum caminho usado por este job.
+        run: |
+          set -e
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h / | tail -1
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -113,6 +129,12 @@ jobs:
 
       - name: Type check
         run: make type
+
+      - name: Disk headroom checkpoint before the unit suite
+        # Post-mortem 2026-09-20: registra no log o espaco livre no momento exato em
+        # que a suite comeca — se o esgotamento de disco voltar, o checkpoint nomeia o
+        # consumidor entre "fim do setup" e "durante o pytest".
+        run: df -h / | tail -1
 
       # T2.3 (B9 CI surgery): folded the coverage gate into the unit-test step itself
       # instead of a second pytest invocation, so the suite runs exactly once.
@@ -210,6 +232,81 @@ jobs:
       - name: npm run verify
         run: |
           PATH="$GITHUB_WORKSPACE/.venv/bin:$PATH" npm run verify
+
+  # WP-J1-10: prova sintetica de browser da fatia do portal (J1-DESIGN §3 passo 5).
+  # REAL: bundle construido do portal-web + BFF FastAPI (rotas de producao de login/callback/
+  # sessao). SINTETICO: apenas a fonte de identidade (stub OIDC local-test, jamais construivel
+  # sob create_production_app) — nenhum IdP, nenhuma rede de terceiros (qualquer origem
+  # estranha e abortada e reprovada). Assertions: ADR-0049 D3 (nada em localStorage/
+  # sessionStorage/IndexedDB/service-worker, document.cookie ilegivel, URL sem query) e D10
+  # (varredura axe WCAG 2.2 AA + teclado + foco visivel). NAO e' provado aqui: o trecho com
+  # efeito no engine (intake -> claim -> APROVAR -> outcome no fixture seguro), que exige os
+  # materiais de custodia da ROOT (postura `root_fixture`), e o passo humano de VoiceOver.
+  portal-e2e:
+    name: portal-e2e
+    runs-on: ubuntu-latest
+    needs: [portal-web]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
+
+      - name: Reject unmanaged Python and uv configuration
+        run: |
+          set -e
+          python -I - <<'PY'
+          import os, sys
+          names = sorted(key for key in os.environ if key.startswith(("PYTHON", "PYTEST_", "UV_")))
+          if names:
+              sys.exit("Unmanaged Python/pytest/uv environment names: " + ",".join(names))
+          PY
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4  # v10.1.0
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python-dir
+        with:
+          version: ${{ env.MAEZO_CI_UV_VERSION }}
+          enable-cache: true
+          cache-local-path: ${{ runner.temp }}/setup-uv-cache
+          cache-dependency-glob: "uv.lock"
+
+      - name: Install Python dependencies
+        working-directory: .
+        run: uv sync --locked --all-groups --all-extras
+
+      - name: npm ci
+        working-directory: src/maezo/portal/web
+        run: npm ci
+
+      - name: Install the Playwright browser
+        working-directory: src/maezo/portal/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the portal browser journey
+        env:
+          MAEZO_PORTAL_E2E_ARTIFACTS: ${{ runner.temp }}/portal-journey
+        run: |
+          set -e
+          cd src/maezo/portal/web
+          PATH="$GITHUB_WORKSPACE/.venv/bin:$PATH" npm run build
+          cd - >/dev/null
+          env -u VIRTUAL_ENV .venv/bin/python scripts/dev/run_portal_journey.py \
+            --artifacts "$MAEZO_PORTAL_E2E_ARTIFACTS" --web-dist src/maezo/portal/web/dist
+
+      - name: Retain journey evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: portal-journey-evidence
+          path: ${{ runner.temp }}/portal-journey
+          if-no-files-found: error
 
   # ── Reativado em M13: o módulo maezo.platform.validation.cli está implementado
   # (construído em M2/M9). Os artefatos BPMN/DMN/policy em spec/ são validados.
@@ -443,8 +540,13 @@ jobs:
       # consequences are declared dated xfail(strict=True) markers instead of deleted tests. Same
       # no-silent-renewal discipline as the two gates above, scoped to these two markers: this gate
       # reads each tracked test's xfail via AST (never re-parsing prose) and reprovas the build the
-      # day after 2026-11-11 passes, or if the marker loses strict=True or its reason drifts from
-      # the tracked deadline. Belt-and-suspenders with tests/unit/ci/test_check_d7_xfail_expiry.py.
+      # day after 2027-02-09 passes, or if the marker loses strict=True or its reason drifts from
+      # the tracked deadline. RENOVACAO — DECISAO DO DONO 2026-09-20: 2026-11-11 -> 2027-02-09; a
+      # obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438
+      # Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10,
+      # ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres
+      # fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B); checkpoint de revisao
+      # sugerido: 2026-12-15. Belt-and-suspenders with tests/unit/ci/test_check_d7_xfail_expiry.py.
       - name: D7 catalogue expected-fail expiry gate (owner override, 2026-09-12)
         run: make check-d7-xfail-expiry
 
@@ -555,6 +657,17 @@ jobs:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
 
+      - name: Reclaim runner disk headroom (post-mortem do flip privado 2026-09-20)
+        # Mesma causa e mesma prova do passo igual no job `quality`: cache evictado no
+        # flip privado -> reconstrucao fria -> disco esgotado no meio da suite (floor
+        # mediu 3.4-3.5k falhas + 3.0-3.4k erros em 28 min com 0-61 MB livres). Remove
+        # apenas SDKs da imagem que este job nao usa; df antes/depois audita.
+        run: |
+          set -e
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h / | tail -1
+
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: ${{ env.MAEZO_CI_PYTHON_VERSION }}
@@ -613,6 +726,12 @@ jobs:
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -I \
             scripts/ci/prepare_offline_fixture_cache.py --root "$GITHUB_WORKSPACE" \
             --output "$RUNNER_TEMP/offline-fixture-cache-proof"
+
+      - name: Disk headroom checkpoint before the floor gate
+        # Post-mortem 2026-09-20: espaco livre registrado no momento em que o gate
+        # comeca (fences + suite de medicao) — mesmo proposito do checkpoint do job
+        # `quality`.
+        run: df -h / | tail -1
 
       - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
         env:

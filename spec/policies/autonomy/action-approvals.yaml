@@ -148,7 +148,10 @@ deviation:
   owner_role: "Security/crypto R1 reviewer (interim: dono)"
   ratified_on: "2026-08-13"
   ratified_by: "dono (2ª leva + confirmação 2026-08-13)"
-  expires: "2026-11-11"
+  # RENOVACAO — decisao do dono 2026-09-20: expires 2026-11-11 -> 2027-02-09, alinhando as tres
+  # cercas same-date (Q-2, Q-10 checkpoint, ciclo de vida, catalogo D7) num UNICO momento de
+  # revisao do dono (memo MEMOS 2026-09-19, Opcao B). Checkpoint de revisao sugerido: 2026-12-15.
+  expires: "2027-02-09"
   checkpoint: "2026-09-12"
   criteria_ref: "PLANS.md §0.8 — 2ª leva Q-2/Q-10 (valores confirmados 2026-08-13)"
 
@@ -437,7 +440,10 @@ acoes:
       ratified_on: "2026-08-13"
       ratified_by: "dono (2ª leva + confirmação 2026-08-13)"
       review_by: "2027-02-09"
-      checkpoint: "2026-11-11"
+      # RENOVACAO — decisao do dono 2026-09-20: checkpoint 2026-11-11 -> 2027-02-09 (igual ao
+      # review_by), de modo que a revisao do dono aconteca num UNICO momento junto com as outras
+      # cercas same-date (memo MEMOS 2026-09-19, Opcao B).
+      checkpoint: "2027-02-09"
       criteria_ref: "PLANS.md §0.8 — 2ª leva Q-2/Q-10 (valores confirmados 2026-08-13)"
     descricao: >-
       Leitura de dado clínico PHI via FHIR (`read_phi_data`, L0-core.yaml:42, L3). XRD-09 põe

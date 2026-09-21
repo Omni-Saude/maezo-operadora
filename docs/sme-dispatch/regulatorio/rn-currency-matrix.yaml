@@ -444,9 +444,9 @@ rows:
     acao_ao_ratificar: "atualizar a citacao para RN 566/2022 no cabecalho/gatilho regulatorio do contrato e remover o marcador DRAFT/verify dessa linha"
   - norma_citada: "RN 259 (sem ano explicito no texto)"
     arquivo: "spec/policies/autonomy/action-approvals.yaml"
-    linha: 228
+    linha: 231
     norma_token: "RN 259"
-    arquivo_linha: "spec/policies/autonomy/action-approvals.yaml:228"
+    arquivo_linha: "spec/policies/autonomy/action-approvals.yaml:231 [re-ancorada 2026-09-20, renovacao das cercas same-date (a5bb7e08), +3]"
     o_que_afirma: "Garantia de atendimento; tempos/distancias maximas"
     status_rn_currency_review_1: "revogada"
     norma_corrente_indicada: "RN 566/2022"

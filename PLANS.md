@@ -9,7 +9,7 @@
 > **⚠️ ESTE DOCUMENTO FOI CORRIGIDO EM 2026-07-19 PARA REFLETIR A VERDADE VERIFICADA.**
 > As marcações originais **"✅ CONCLUÍDO / 15 de 15 / 100%"** eram **auto-certificação NÃO verificada** de agentes anteriores. Quando auditadas (2026-07-16), a plataforma estava em **v0.2.0 alpha-dev** (o LLM levantava `NotImplementedError`, sem entrypoints, com um bypass de aprovação financeira ao vivo). **Aquele "100%" é a lição cautelar, não uma medição.** Os envelopes de milestone (§3) são preservados como *referência do que cada milestone deve entregar* — mas os seus selos "✅ CONCLUÍDO" inline estão **SUPERSEDED**; o status real de cada um está na tabela de reconciliação em **§0**.
 >
-> **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (**tamanho cresce a cada gap fechado — meça com `wc -l docs/evidence-ledger.md` antes de citar, nunca reescreva um número fixo aqui**: esta mesma linha já publicou duas contagens stale em sequência, "211" e depois "229", cada uma tornada errada por um commit posterior antes mesmo do merge — achado do verificador independente, ver `docs/evidence-ledger.md` linhas AF-06/AF-05/PERSP-B5-SHADOW-LINES/PERSP-C5-FRAUDE-METADATA; achado F5/AF-06 2026-09-05, `scripts/ci/check_plans_counts.py` não fenceia este número de propósito — um ledger append-only multi-escritor mudaria de novo antes do próximo commit), `docs/decisions-log.md` (DLs), `docs/adr/` (53 ADRs numerados, 55 arquivos incl. README+template — AF-06, recontado 2026-09-18 via `scripts/ci/check_plans_counts.py`; NUNCA cite um número fixo sem reexecutar o gate primeiro — este mesmo número já ficou stale uma vez, 32→39→48, achado do gap AF-06) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
+> **O modelo de verdade não é "15 milestones concluídos".** É o modelo **fase/gate (P0–P4 / G0–G4)** com verificação **zero-trust** (todo "done" carrega uma linha de verificador independente + evidência reproduzível). **A fonte de verdade durável e versionada no repositório é:** `docs/evidence-ledger.md` (**tamanho cresce a cada gap fechado — meça com `wc -l docs/evidence-ledger.md` antes de citar, nunca reescreva um número fixo aqui**: esta mesma linha já publicou duas contagens stale em sequência, "211" e depois "229", cada uma tornada errada por um commit posterior antes mesmo do merge — achado do verificador independente, ver `docs/evidence-ledger.md` linhas AF-06/AF-05/PERSP-B5-SHADOW-LINES/PERSP-C5-FRAUDE-METADATA; achado F5/AF-06 2026-09-05, `scripts/ci/check_plans_counts.py` não fenceia este número de propósito — um ledger append-only multi-escritor mudaria de novo antes do próximo commit), `docs/decisions-log.md` (DLs), `docs/adr/` (58 ADRs numerados, 60 arquivos incl. README+template — AF-06, recontado 2026-09-18 via `scripts/ci/check_plans_counts.py`; NUNCA cite um número fixo sem reexecutar o gate primeiro — este mesmo número já ficou stale uma vez, 32→39→48, achado do gap AF-06) e `docs/gates/` (registros de gate). *(O plano detalhado `V2-COMPLETION-PLAN.md` e o prompt de execução do backlog vivem apenas localmente em `docs/prompts/` por decisão do dono — o ledger é a verdade clonável.)*
 >
 > **Orquestrador:** Hive-Mind Queen (Opus / Fable 5) · **Repo:** Omni-Saude/maezo-operadora · **main:** `85c9618` (2026-08-07 — PRs #199/#200/#197/#198: cred gateway fact · adequacao fact-preservation + fail-safe · ans_submit NACK/assemble + ADR-0030 · **portão de critérios de aprovação automática**) — *(header 2026-07-19 preservado abaixo; reconciliação em §0.5; execução Tier-2 em §0.5.2)*
 > **Estratégia:** Keep Brain (`docs/`), Rebuild Spine (`src/`) — **em execução, NÃO concluída.**
@@ -42,7 +42,7 @@ Legenda: **✅** verificado-done (gate) · **◑** parcial (código existe, lacu
 | Milestone (§3) | Estado REAL | Nota de realidade |
 |---|---|---|
 | M0 Foundation | **✅** | Scaffold/CI/dev-stack reais (G0/G1). Correção: CIB Seven pinado em **2.1.0** (DL-0006), não 2.1.3. |
-| M1 ADR Ratification | **◑** | 53 ADRs (não 24); recontado 2026-09-18 (AF-06) — era "32" desde 2026-07, ficou stale conforme a árvore cresceu (ADR-0030/0031 adicionados 2026-07; até ADR-0049 em 2026-09-08; ADR-0050 em 2026-09-12, WP-J1-11; ADR-0051 em 2026-09-12 por este WP-J1-09, ADR-0052 em 2026-09-18). Ainda há ADRs "Proposed". Contínuo. |
+| M1 ADR Ratification | **◑** | 58 ADRs (não 24); recontado 2026-09-20 (AF-06; +5 do carve B do pr-c-infra, ADR-0054..0058); recontado 2026-09-18 (AF-06) — era "32" desde 2026-07, ficou stale conforme a árvore cresceu (ADR-0030/0031 adicionados 2026-07; até ADR-0049 em 2026-09-08; ADR-0050 em 2026-09-12, WP-J1-11; ADR-0051 em 2026-09-12 por este WP-J1-09, ADR-0052 em 2026-09-18). Ainda há ADRs "Proposed". Contínuo. |
 | M2 BPMN/DMN Regeneration | **◑** | BPMN/DMN existem + `validate-artifacts` verde; **MAS contratos ainda DRAFT — o gap<5% e a validação por SME NÃO foram feitos** (G2-bloqueado). |
 | M3 Core Runtime | **✅** | G1 fechado; runtime spine verified-complete. |
 | M4 Gateway & Security | **◑** | Cadeia de auditoria real e wired **nesta sessão** (T1.10 wave). PEP/pseudonymizer/vault/custody existem com lacunas — ex.: o gate de identidade LGPD estava **fail-OPEN** (corrigindo #113). |
@@ -420,7 +420,7 @@ delegação + idempotência durável p/ A2A não-local.
   `shadow`, `status` segue `DRAFT` e os 45 blocos de aprovação seguem `PENDENTE` byte a byte;
   declarar prazo não é aprovar):
   - **Q-2 — `enforcement_padrao_nao_mapeado: shadow`** (o default de refs não mapeadas).
-    `owner_role`: *Security/crypto R1 reviewer (interim: dono)* · **`expires: 2026-11-11`** ·
+    `owner_role`: *Security/crypto R1 reviewer (interim: dono)* · **`expires: 2027-02-09`** ·
     `checkpoint: 2026-09-12`. Critérios de saída (referenciados pelo `criteria_ref`, não
     duplicados no YAML): censo de não-mapeados = 0 (gerado por máquina) + ≥30 dias consecutivos de
     zero `WOULD_DENY` em refs não mapeadas (ou SLA de triagem de 7 dias) + sampler/ReviewQueue
@@ -429,11 +429,17 @@ delegação + idempotência durável p/ A2A não-local.
     pergunta da Médica realmente endereça: o design §10 Q-10 ancora em "a denied FHIR read
     degrades to a dossier gap note (`rafael/graph.py:44-48`)", que é o `SHAPE_LACUNA_DECLARADA`
     dessa classe e de nenhuma outra C2). `owner_role`: *Diretor(a) Médico(a) (interim,
-    deadline-enforcement only: dono)* · **`review_by: 2027-02-09`** · `checkpoint: 2026-11-11`.
+    deadline-enforcement only: dono)* · **`review_by: 2027-02-09`** · `checkpoint: 2027-02-09`.
     Critérios: aprovador Médico nomeado existe + um trimestre de telemetria de sombra C2 + triagem
     clínica de todo `WOULD_DENY` + limiar de carga que a Médica ratifique + interação com
     consentimento resolvida (nenhum flip de C2 com `consentimento_exigido` enquanto o adapter de
     consentimento estiver desfiado — Q-5).
+  - **RENOVAÇÃO (decisão do dono 2026-09-20, PR `fix/d7-exception-renewal-2027`).** O `expires` de
+    Q-2 (original 2026-11-11) e o `checkpoint` de Q-10 passaram a **2027-02-09** (= `review_by` de
+    Q-10), alinhando as TRÊS cercas same-date (desvios Q-2/Q-10, marcador de ciclo de vida
+    `lifecycle.expectedFailUntil`, xfails do catálogo D7) num ÚNICO momento de revisão do dono em
+    vez de três muros no mesmo dia — a saída do catálogo D7 depende do programa D7 secured-startup
+    (#438 Slice A pousou 2026-09-20); checkpoint de revisão sugerido: 2026-12-15.
   - **AUTO-COBRÁVEL, sem renovação silenciosa.** `scripts/ci/check_deviation_expiry.py`
     (`make deviation-expiry-check`) roda no job `artifact-validation`, que reporta como o check
     **obrigatório** `validate-artifacts` — logo o prazo é bloqueante de merge desde já. A partir do

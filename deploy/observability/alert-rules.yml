@@ -383,7 +383,8 @@ groups:
       # exact alarm-normalisation defect D12-01-b's own justification cites. The `unless` clause
       # excludes jobs carrying `maezo.io/expected-fail-until`
       # (deploy/helm/maezo-tenant/templates/cronjob-lifecycle.yaml,
-      # values.yaml:lifecycle.expectedFailUntil, default 2026-11-11) via kube-state-metrics'
+      # values.yaml:lifecycle.expectedFailUntil, default 2027-02-09 — renovado pelo dono em
+      # 2026-09-20 a partir de 2026-11-11) via kube-state-metrics'
       # annotation-derived series — see the required `--metric-annotations-allowlist` flag in
       # prometheus.yml's kube-state-metrics job comment; without it this `unless` matches nothing
       # and the alert fires anyway (fail-open, never a silent fail-closed hole). The exclusion does

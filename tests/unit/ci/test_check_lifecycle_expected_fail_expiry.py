@@ -8,7 +8,8 @@ Three layers:
    lost the annotation or carries a value that is not the tracked date, GREEN when all three agree.
 2. **Real-tree** tests run the comparator against the SHIPPED
    `deploy/helm/maezo-tenant/values.yaml` + `deploy/observability/alert-rules.yml` and assert they
-   pass as of a pinned "today" well before the ratified 2026-11-11 deadline, plus a
+   pass as of a pinned "today" well before the ratified 2027-02-09 deadline (renovado pelo dono em
+   2026-09-20 a partir de 2026-11-11), plus a
    template-SOURCE assertion that `templates/cronjob-lifecycle.yaml` still binds the annotation to
    the values key — the regression proof that R-040 landed for real.
 3. The RENDER itself (`helm template`) is exercised by the gate's own `main()` in CI and locally;
@@ -45,8 +46,12 @@ _SHIPPED_CRONJOB_TEMPLATE = _CHART_DIR / "templates" / "cronjob-lifecycle.yaml"
 _LIFECYCLE_JOB_NAMES = ("lifecycle-audit-retention", "lifecycle-expurgo-working", "lifecycle-verify-erasure")
 
 
-def _rendered(expected_fail_until: str | None = "2026-11-11") -> list[RenderedLifecycleJob]:
-    """A synthetic render of the three lifecycle CronJobs, all carrying the same marker value."""
+def _rendered(expected_fail_until: str | None = "2027-02-09") -> list[RenderedLifecycleJob]:
+    """A synthetic render of the three lifecycle CronJobs, all carrying the same marker value.
+
+    Default is the CURRENTLY tracked date (2027-02-09, renovado pelo dono em 2026-09-20 a partir de
+    2026-11-11) so call sites that pair this with the shipped `values.yaml` stay consistent.
+    """
     return [
         RenderedLifecycleJob(overlay="values-amh.yaml", name=name, expected_fail_until=expected_fail_until)
         for name in _LIFECYCLE_JOB_NAMES
@@ -106,14 +111,18 @@ def test_an_unparseable_date_fails(tmp_path: Path) -> None:
 
 
 def test_a_deadline_that_has_passed_fails() -> None:
-    """The headline case: R-040 cannot silently outlive its own deadline."""
+    """The headline case: R-040 cannot silently outlive its own deadline.
+
+    Uses the PRE-renewal date (2026-11-11, ratificado 2026-09-04) as the expired fixture — proof
+    the fence fires on a past date as such and is not tuned to the currently tracked one.
+    """
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         values = _values(tmp_path, "2026-11-11")
         rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
-        findings = evaluate(values, rules, _rendered(), today=date(2026, 11, 12))
+        findings = evaluate(values, rules, _rendered("2026-11-11"), today=date(2026, 11, 12))
         assert len(findings) == 1
         assert "DEADLINE VENCIDO" in findings[0].reason
         assert "2026-11-11" in findings[0].reason
@@ -121,13 +130,13 @@ def test_a_deadline_that_has_passed_fails() -> None:
 
 def test_the_deadline_day_itself_still_passes(tmp_path: Path) -> None:
     """`today > deadline`, not `>=` — the deadline day itself is still in-date."""
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
-    assert evaluate(values, rules, _rendered(), today=date(2026, 11, 11)) == []
+    assert evaluate(values, rules, _rendered(), today=date(2027, 2, 9)) == []
 
 
 def test_a_date_comfortably_in_the_future_passes(tmp_path: Path) -> None:
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
     assert evaluate(values, rules, _rendered(), today=date(2026, 9, 4)) == []
 
@@ -138,7 +147,7 @@ def test_a_date_comfortably_in_the_future_passes(tmp_path: Path) -> None:
 
 
 def test_the_alert_rule_missing_entirely_fails(tmp_path: Path) -> None:
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(
         tmp_path,
         "alert-rules.yml",
@@ -157,7 +166,7 @@ def test_the_alert_rule_missing_entirely_fails(tmp_path: Path) -> None:
 
 def test_an_expression_that_dropped_the_marker_reference_fails(tmp_path: Path) -> None:
     """A future edit that removes the `unless` clause must go RED, not ship silently."""
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(
         tmp_path,
         "alert-rules.yml",
@@ -187,7 +196,7 @@ def test_a_rendered_cronjob_without_the_annotation_fails(tmp_path: Path) -> None
     stayed intact, `helm lint --strict` stayed green, this gate exited 0 — and the exclusion had
     silently ceased to exist in the only artefact the cluster ever sees.
     """
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
     findings = evaluate(values, rules, _rendered(None), today=date(2026, 9, 4))
     assert len(findings) == len(_LIFECYCLE_JOB_NAMES)
@@ -196,7 +205,7 @@ def test_a_rendered_cronjob_without_the_annotation_fails(tmp_path: Path) -> None
 
 def test_one_rendered_cronjob_losing_the_annotation_is_enough_to_fail(tmp_path: Path) -> None:
     """Per-job, not all-or-nothing: a fourth lifecycle job added without the marker must go RED."""
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
     jobs = _rendered()
     jobs.append(
@@ -209,7 +218,7 @@ def test_one_rendered_cronjob_losing_the_annotation_is_enough_to_fail(tmp_path: 
 
 def test_a_rendered_annotation_that_drifted_from_the_tracked_date_fails(tmp_path: Path) -> None:
     """Hardcoding a different date in the template detaches the marker from the gated value."""
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
     findings = evaluate(values, rules, _rendered("2027-01-01"), today=date(2026, 9, 4))
     assert len(findings) == len(_LIFECYCLE_JOB_NAMES)
@@ -222,7 +231,7 @@ def test_an_annotation_rendered_empty_fails(tmp_path: Path) -> None:
     The alert then pages on the by-design failures (honest fail-open), so an empty value is NOT the
     marker being present; it must be as loud as a missing one.
     """
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
     findings = evaluate(values, rules, _rendered(""), today=date(2026, 9, 4))
     assert len(findings) == len(_LIFECYCLE_JOB_NAMES)
@@ -231,7 +240,7 @@ def test_an_annotation_rendered_empty_fails(tmp_path: Path) -> None:
 
 def test_a_render_with_no_lifecycle_cronjobs_at_all_fails(tmp_path: Path) -> None:
     """`lifecycle.enabled: false` (or the jobs vanishing) must fail closed, never pass vacuously."""
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
     findings = evaluate(values, rules, [], today=date(2026, 9, 4))
     assert len(findings) == 1
@@ -287,7 +296,7 @@ def test_the_render_reader_reports_a_missing_annotation_as_none() -> None:
 
 
 def test_an_in_date_marker_referenced_by_the_expression_passes(tmp_path: Path) -> None:
-    values = _values(tmp_path, "2026-11-11")
+    values = _values(tmp_path, "2027-02-09")
     rules = _write(tmp_path, "alert-rules.yml", _VALID_EXPR)
     assert evaluate(values, rules, _rendered(), today=date(2026, 9, 4)) == []
 
@@ -323,11 +332,14 @@ def test_the_shipped_files_pass_non_vacuously_well_before_the_deadline() -> None
     assert findings == [], [f.render() for f in findings]
 
 
-def test_the_shipped_deadline_is_exactly_the_ratified_2026_11_11() -> None:
-    """Pins the ratified date itself — a quiet edit to a different date must be a visible diff."""
+def test_the_shipped_deadline_is_exactly_the_renewed_2027_02_09() -> None:
+    """Pins the ratified date itself — a quiet edit to a different date must be a visible diff.
+
+    2027-02-09 = renewal ratified by the owner on 2026-09-20 (original R-040 date: 2026-11-11).
+    """
     from scripts.ci.check_lifecycle_expected_fail_expiry import _load_expected_fail_until
 
-    assert _load_expected_fail_until(_SHIPPED_VALUES) == "2026-11-11"
+    assert _load_expected_fail_until(_SHIPPED_VALUES) == "2027-02-09"
 
 
 def test_the_shipped_template_still_binds_the_annotation_to_the_values_key() -> None:

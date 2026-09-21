@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import signal
 import subprocess
 import sys
 from dataclasses import replace
@@ -318,8 +319,18 @@ def test_matching_one_pass_hash_with_setup_error_is_not_accepted(repo: Any, tmp_
 
 
 def test_real_interruption_is_not_acceptance(repo: Any, tmp_path: Path) -> None:
-    root, occurrence, _ = repo("import os, signal\ndef test_case(): os.kill(os.getpid(), signal.SIGINT)\n")
-    _, verdict, receipt = execute(root, occurrence, tmp_path / "proof")
+    # The recipe kills its own process with SIGINT, so the probe child must see a
+    # LIVE disposition. Detached launchers (nohup, daemonized CI runners) hand the
+    # suite SIGINT=SIG_IGN, which survives exec: the child would swallow the
+    # self-interrupt and the harness would mint ACCEPTED for an unimpeded run.
+    previous = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    try:
+        sigint_case = "import os, signal\ndef test_case(): os.kill(os.getpid(), signal.SIGINT)\n"
+        root, occurrence, _ = repo(sigint_case)
+        _, verdict, receipt = execute(root, occurrence, tmp_path / "proof")
+    finally:
+        signal.signal(signal.SIGINT, previous)
     assert verdict.status != "ACCEPTED"
     assert receipt["returncode"] != 0
 

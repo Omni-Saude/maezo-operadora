@@ -162,7 +162,8 @@ check-lifecycle-expected-fail-expiry: ## R-040/SC-07: marcador expected-fail-unt
 	# O dono ratificou (2026-09-04) a anotacao `maezo.io/expected-fail-until` nos 3 CronJobs de
 	# ciclo de vida (todos falham POR DESENHO — nenhum comando implementado) mais uma exclusao em
 	# MaezoLifecycleJobFailed, com a MESMA disciplina de check_deviation_expiry.py: a data vive em
-	# deploy/helm/maezo-tenant/values.yaml (lifecycle.expectedFailUntil, default 2026-11-11) e este
+	# deploy/helm/maezo-tenant/values.yaml (lifecycle.expectedFailUntil, default 2027-02-09 desde a
+	# renovacao do dono em 2026-09-20; original 2026-11-11) e este
 	# gate reprova a build a partir do dia seguinte ao prazo, alem de reprovar se a expressao do
 	# alerta parar de referenciar a serie derivada da anotacao. `--today YYYY-MM-DD` simula qualquer
 	# data. Terceiro check (D4, VERIFY-A1-OBS §Delta): RENDERIZA o chart com `helm template` em
@@ -177,7 +178,8 @@ check-d7-xfail-expiry: ## DONO 2026-09-12 (override V6-Q6): os 2 xfail estritos 
 	# O dono manteve o catalogo D7 (D7unit802 em D7_CATALOG) em vez de excluir a entrada, com a
 	# MESMA disciplina de check_deviation_expiry.py/check_lifecycle_expected_fail_expiry.py: os 2
 	# testes que provam a entrada insatisfazivel em main (R1 test_historical_async_recipe.py,
-	# R2 test_ledger_invalid_declarations.py) viram xfail(strict=True) datado ate 2026-11-11, e
+	# R2 test_ledger_invalid_declarations.py) viram xfail(strict=True) datado ate 2027-02-09
+	# (renovacao do dono em 2026-09-20; original 2026-11-11), e
 	# este gate le o marcador de CADA teste rastreado via AST (nunca YAML/prosa) e reprova a build
 	# a partir do dia seguinte ao prazo, ou se o marcador sumir, perder o strict=True, ou a data no
 	# reason= divergir da rastreada em TRACKED_XFAILS. `--today YYYY-MM-DD` simula qualquer data.

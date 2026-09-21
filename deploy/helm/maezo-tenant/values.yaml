@@ -884,12 +884,18 @@ lifecycle:
   # anotar aqui NAO fecha a exposicao sozinho, so' a torna fechavel pelo operador.
   #
   # NUNCA gravar o literal "AF-07" aqui — a data e
-  # o teto rastreado, a mesma que spec/policies/autonomy/action-approvals.yaml:151 ja torna
+  # o teto rastreado, a mesma que spec/policies/autonomy/action-approvals.yaml:154 ja torna
   # merge-bloqueante. scripts/ci/check_lifecycle_expected_fail_expiry.py reprova a build a partir
   # do dia seguinte a esta data (fail-closed, sem renovacao silenciosa) — quem sair do vermelho
   # remove a anotacao (AF-07 fechou, os jobs agora sao reais e DEVEM paginar) ou renova a data em
   # PR de dados revisado.
-  expectedFailUntil: "2026-11-11"
+  #
+  # RENOVACAO (decisao do dono 2026-09-20, PR fix/d7-exception-renewal-2027): 2026-11-11 ->
+  # 2027-02-09. Prazo original ratificado em 2026-09-04 (R-040/SC-07); a renovacao alinha as TRES
+  # cercas same-date (deviation Q-2/Q-10, ciclo de vida, catalogo D7) num UNICO momento de revisao
+  # do dono em 2027-02-09, evitando que as tres fiquem vermelhas no mesmo dia; checkpoint de
+  # revisao sugerido: 2026-12-15. Nenhuma semantica alem da data mudou.
+  expectedFailUntil: "2027-02-09"
   # Teto de execucao por job (segundos) — bounded para nunca travar um Job.
   activeDeadlineSeconds: 1800
   resources:

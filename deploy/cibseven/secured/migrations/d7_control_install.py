@@ -177,11 +177,16 @@ class NativeOwnerAuthority(Protocol):
     def verify(
         self,
         *,
+        cursor: OwnerCursor,
         qualification_wire: bytes,
         birth_wire: bytes,
         generation_wire: bytes,
+        fence_wire: bytes,
+        version_wire: bytes,
+        before_catalog_wire: bytes,
+        actual_catalog_wire: bytes,
         session: tuple[Any, ...],
-    ) -> None: ...
+    ) -> bytes: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,6 +482,8 @@ class OwnerInstaller:
         native_authority: NativeOwnerAuthority | None = None,
     ) -> None:
         require(connection is not None and authority is not None, "UNAVAILABLE")
+        if isinstance(authority, EnrolledInitialOwnerAuthority):
+            require(authority.connection is connection, "AUTH_REFUSED")
         require(digest(sql_wire) == metadata["sql_sha256"] and metadata["component"] == COMPONENT)
         self.connection = connection
         self.metadata = parse_wire(canonical(metadata))
@@ -524,6 +531,8 @@ class OwnerInstaller:
         require(row == (True, True), "AUTH_REFUSED")
 
     def _begin(self) -> OwnerCursor:
+        if isinstance(self.authority, EnrolledInitialOwnerAuthority):
+            require(self.authority.connection is self.connection, "AUTH_REFUSED")
         require(
             self.connection.autocommit is False and self.connection.info.transaction_status == 0,
             "PRECONDITION_MISMATCH",
@@ -911,6 +920,8 @@ class OwnerInstaller:
         session: tuple[Any, ...],
         generation_id: int | None,
         target_oid: int,
+        *,
+        native_transition: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
         scope = value["scope"]
         params = tuple(scope[k] for k in ("tenant", "environment", "engine_name"))
@@ -941,7 +952,13 @@ class OwnerInstaller:
             ),
             params,
         )
-        cursor.execute("SELECT maezo_d7_control._assert_catalog(%s::oid)", (target_oid,))
+        if native_transition:
+            # Only explicit initial qualification may defer the old grant snapshot
+            # comparison. The native path validates all invariants and exact new
+            # source allocation, then the original assertion runs after append.
+            require(self.native_authority is not None, "UNAVAILABLE")
+        else:
+            cursor.execute("SELECT maezo_d7_control._assert_catalog(%s::oid)", (target_oid,))
         return f, v, g
 
     @staticmethod
@@ -1180,6 +1197,76 @@ class OwnerInstaller:
         cursor.execute("SELECT maezo_d7_control._assert_catalog()")
         return wire
 
+    @staticmethod
+    def check_native_catalog(before: bytes, after: bytes, session: tuple[Any, ...]) -> None:
+        catalog_check(parse_wire(before), owner_login_oid=session[2])
+        catalog_check(parse_wire(after), owner_login_oid=session[2])
+
+    def _native_transition(
+        self,
+        cursor: OwnerCursor,
+        value: dict[str, Any],
+        session: tuple[Any, ...],
+        f: dict[str, Any],
+        v: dict[str, Any],
+        g: dict[str, Any] | None,
+        old: dict[str, Any],
+        birth_wire: bytes,
+    ) -> bytes:
+        from maezo.platform.engine_bootstrap.native_catalog_transition import retained_manifest
+
+        cursor.execute("SET LOCAL search_path=pg_catalog,pg_temp")
+        principal = old["principal"]
+        native = value["native_qualification"]
+        require(
+            value["terminal_proof_bytes"] is value["terminal_proof_sha256"] is None
+            and principal["kind"] == "generation"
+        )
+        require(
+            g is not None
+            and g["status"] == "PREPARED"
+            and g["phase"] == "UNADMITTED"
+            and g["opened_at_ms"] is None
+            and g["retired_at_ms"] is None
+            and f["mode"] == "CLOSED"
+            and f["current_generation_id"] is None
+            and f["restore_state"] == "RECONCILED",
+            "PRECONDITION_MISMATCH",
+        )
+        validate_native_qualification(native)
+        require(
+            native["d_preparation_id"] == value["preparation_id"]
+            and native["scope"] == value["scope"]
+            and native["generation_id"] == principal["generation_id"]
+            and native["login_name"] == principal["login_name"]
+            and native["login_oid"] == principal["login_oid"]
+            and native["purpose"] == principal["purpose"]
+            and native["generation_core_sha256"] == digest(canonical(old["generation_core"]))
+            and native["decision_sha256"] == present(g)["activation_decision_sha256"]
+            and native["database_binding_sha256"] == f["database_binding_sha256"],
+            "PRECONDITION_MISMATCH",
+        )
+        before = retained_manifest(cursor, v)
+        manifest = parse_wire(before)
+        roles = [{k: r[k] for k in ("role_class", "role_name")} for r in manifest["roles"]]
+        after = canonical(
+            self._catalog(cursor, roles, manifest["operational_principals"], v["installation_id"])
+        )
+        self.check_native_catalog(before, after, session)
+        verified = present(self.native_authority, "UNAVAILABLE").verify(
+            cursor=cursor,
+            qualification_wire=canonical(native),
+            birth_wire=birth_wire,
+            generation_wire=canonical(g),
+            fence_wire=canonical(f),
+            version_wire=canonical(v),
+            before_catalog_wire=before,
+            actual_catalog_wire=after,
+            session=session,
+        )
+        require(type(verified) is bytes and verified == after, "PRECONDITION_MISMATCH")
+        return after
+
     def _event(self, cursor: OwnerCursor, input_wire: bytes, session: tuple[Any, ...]) -> bytes:
         value = exact(
             parse_wire(input_wire),
@@ -1193,6 +1280,10 @@ class OwnerInstaller:
             value["protocol"] == "maezo.d7-owner-preparation-event.v1"
             and value["event"] in {"NATIVE_QUALIFIED", "REMOVED"}
         )
+        if value["event"] == "NATIVE_QUALIFIED":
+            cursor.execute("SET LOCAL search_path=pg_catalog,pg_temp")
+            cursor.execute("SET LOCAL lock_timeout='1000ms'")
+            cursor.execute("SET LOCAL statement_timeout='5000ms'")
         cursor.execute(
             (
                 "SELECT result_bytes,result_sha256,resource_identity_sha256 FROM "
@@ -1209,9 +1300,19 @@ class OwnerInstaller:
         require(value["installation_id"] == old["installation_id"] and digest(birth_wire) == birth[1])
         value = {**value, "scope": old["scope"]}
         f, v, g = self._owner_context(
-            cursor, value, session, principal.get("generation_id"), principal["login_oid"]
+            cursor,
+            value,
+            session,
+            principal.get("generation_id"),
+            principal["login_oid"],
+            native_transition=value["event"] == "NATIVE_QUALIFIED",
         )
         v["database_binding_sha256"] = f["database_binding_sha256"]
+        verified_native_catalog = (
+            self._native_transition(cursor, value, session, f, v, g, old, birth_wire)
+            if value["event"] == "NATIVE_QUALIFIED"
+            else None
+        )
         replay = self._replay(cursor, value, input_wire)
         if replay is not None:
             # Replaying history still requires today's owner and complete catalog.
@@ -1234,40 +1335,7 @@ class OwnerInstaller:
         manifest = parse_wire(before)
         native = value["native_qualification"]
         if value["event"] == "NATIVE_QUALIFIED":
-            require(
-                value["terminal_proof_bytes"] is value["terminal_proof_sha256"] is None
-                and principal["kind"] == "generation"
-            )
-            require(
-                g is not None
-                and g["status"] == "PREPARED"
-                and g["phase"] == "UNADMITTED"
-                and g["opened_at_ms"] is None
-                and g["retired_at_ms"] is None
-                and f["mode"] == "CLOSED"
-                and f["current_generation_id"] is None
-                and f["restore_state"] == "RECONCILED",
-                "PRECONDITION_MISMATCH",
-            )
-            validate_native_qualification(native)
-            require(
-                native["d_preparation_id"] == value["preparation_id"]
-                and native["scope"] == value["scope"]
-                and native["generation_id"] == principal["generation_id"]
-                and native["login_name"] == principal["login_name"]
-                and native["login_oid"] == principal["login_oid"]
-                and native["generation_core_sha256"] == digest(canonical(old["generation_core"]))
-                and native["decision_sha256"] == present(g)["activation_decision_sha256"]
-                and native["database_binding_sha256"] == f["database_binding_sha256"],
-                "PRECONDITION_MISMATCH",
-            )
-            require(self.native_authority is not None, "UNAVAILABLE")
-            present(self.native_authority, "UNAVAILABLE").verify(
-                qualification_wire=canonical(native),
-                birth_wire=birth_wire,
-                generation_wire=canonical(g),
-                session=session,
-            )
+            require(verified_native_catalog is not None, "UNAVAILABLE")
             external = old["external_resource_readback_sha256"]
         else:
             require(native is None and value["terminal_proof_bytes"] is not None)
@@ -1306,6 +1374,8 @@ class OwnerInstaller:
         roles = [{k: r[k] for k in ("role_class", "role_name")} for r in manifest["roles"]]
         after = self._catalog(cursor, roles, manifest["operational_principals"], value["installation_id"])
         catalog_check(after, owner_login_oid=session[2])
+        if verified_native_catalog is not None:
+            require(canonical(after) == verified_native_catalog, "PRECONDITION_MISMATCH")
         self.authority.catalog(
             before_wire=before, after_wire=canonical(after), input_wire=input_wire, session=session
         )
@@ -1323,3 +1393,111 @@ class OwnerInstaller:
             value["event"],
             native,
         )
+
+
+class EnrolledInitialOwnerAuthority:
+    """ADR-0055 initial installation only, using the SAME explicit owner connection.
+
+    External owner service must independently qualify current ownership/policy.
+    No connection/credential discovery, generation preparation or runtime adapter.
+    """
+
+    def __init__(self, *, connection: OwnerConnection, external: Any) -> None:
+        from maezo.gateway.d7_owner_bootstrap import ExternalOwnerBootstrap
+
+        require(type(external) is ExternalOwnerBootstrap, "UNAVAILABLE")
+        self.connection = connection
+        self.external = external
+
+    def _context(
+        self,
+        input_wire: bytes,
+        session: tuple[Any, ...],
+        catalog_wire: bytes,
+    ) -> dict[str, Any]:
+        import hashlib
+        import stat
+
+        value = installation_input(input_wire)
+        binding = value["database_binding"]
+        info = self.connection.info
+        parameters = info.get_parameters()
+        require(parameters.get("sslmode") == "verify-full", "AUTH_REFUSED")
+        require(
+            parameters.get("host") == binding["endpoint_host"] == binding["server_identity"], "AUTH_REFUSED"
+        )
+        require(int(parameters.get("port", "5432")) == binding["endpoint_port"], "AUTH_REFUSED")
+        root = Path(parameters.get("sslrootcert", ""))
+        require(
+            root.is_absolute() and not root.is_symlink() and stat.S_ISREG(root.stat().st_mode), "AUTH_REFUSED"
+        )
+        require(hashlib.sha256(root.read_bytes()).hexdigest() == binding["ca_sha256"], "AUTH_REFUSED")
+        pgconn = getattr(self.connection, "pgconn", None)
+        require(pgconn is not None and pgconn.ssl_in_use, "AUTH_REFUSED")
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT ssl,version FROM pg_catalog.pg_stat_ssl WHERE pid=pg_catalog.pg_backend_pid()"
+            )
+            require(cursor.fetchone() == (True, "TLSv1.3"), "AUTH_REFUSED")
+            cursor.execute(SESSION_SQL)
+            require(tuple(cursor.fetchone()) == session, "AUTH_REFUSED")
+            require(
+                session[0] == session[1]
+                and session[3] == binding["database_oid"]
+                and session[4] == binding["database_name"],
+                "SCOPE_REFUSED",
+            )
+            cursor.execute(
+                "SELECT oid::bigint FROM pg_catalog.pg_namespace WHERE nspname=%s", (binding["schema_name"],)
+            )
+            require(cursor.fetchone() == (binding["schema_oid"],), "SCOPE_REFUSED")
+            cursor.execute("SELECT pg_catalog.pg_backend_pid()")
+            backend = cursor.fetchone()[0]
+        finally:
+            cursor.close()
+        return {
+            "session": list(session),
+            "backend_pid": backend,
+            "database_binding": binding,
+            "catalog": parse_wire(catalog_wire),
+        }
+
+    def installation(
+        self,
+        *,
+        input_wire: bytes,
+        session: tuple[Any, ...],
+        role_catalog_wire: bytes,
+    ) -> InstallationPrerequisites:
+        context = self._context(input_wire, session, role_catalog_wire)
+        enrollment, root = self.external.installation_facts(input_wire=input_wire, context=context)
+        expected = enrollment.value()
+        require(session[0] == expected["owner_login"] and session[2] == expected["owner_oid"], "AUTH_REFUSED")
+        return InstallationPrerequisites((root,), canonical(expected["operational_principals"]))
+
+    def catalog(
+        self,
+        *,
+        before_wire: bytes | None,
+        after_wire: bytes,
+        input_wire: bytes,
+        session: tuple[Any, ...],
+    ) -> None:
+        require(before_wire is None, "UNSUPPORTED_ADAPTER")
+        value = parse_wire(after_wire)
+        catalog_check(value, owner_login_oid=session[2])
+        context = self._context(input_wire, session, after_wire)
+        enrollment, _ = self.external.installation_facts(input_wire=input_wire, context=context)
+        expected = enrollment.value()
+        require(session[0] == expected["owner_login"] and session[2] == expected["owner_oid"], "AUTH_REFUSED")
+        require(value["operational_principals"] == expected["operational_principals"], "AUTH_REFUSED")
+
+    def preparation(self, **kwargs: Any) -> str:
+        raise Refusal("UNAVAILABLE")
+
+    def removal(self, **kwargs: Any) -> str:
+        raise Refusal("UNAVAILABLE")
+
+    def replay(self, **kwargs: Any) -> None:
+        raise Refusal("UNAVAILABLE")

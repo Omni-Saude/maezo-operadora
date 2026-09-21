@@ -18,7 +18,7 @@ from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.gateway.staff_cases.composition import StaffCaseRuntime
-from maezo.portal.api.auth import AuthenticationError
+from maezo.portal.api.auth import AuthenticationError, HumanAuthenticator
 from maezo.portal.api.cases import CaseServiceFactory, StaffCaseServiceFactory, case_router
 from maezo.portal.api.communications import (
     CommunicationServiceFactory,
@@ -141,6 +141,7 @@ def create_app(
     *,
     store: IdentityStore | None = None,
     oidc_client: httpx.AsyncClient | None = None,
+    authenticator: HumanAuthenticator | None = None,
     task_read_service_factory: ReadServiceFactory | None = None,
     engine_read_composition: EngineReadComposition | None = None,
     decision_service_factory: DecisionServiceFactory | None = None,
@@ -174,7 +175,9 @@ def create_app(
         ):
             raise ValueError("Composição de casos de colaboradores ambígua.")
         staff_case_service_factory = staff_case_runtime.service
-    adapters = build_human_identity_adapters(config, store=store, oidc_client=oidc_client)
+    adapters = build_human_identity_adapters(
+        config, store=store, oidc_client=oidc_client, authenticator=authenticator
+    )
     store = adapters.store
     resolver = HumanSessionResolver(config, store)
     service = HumanSessionService(resolver, adapters.authenticator)

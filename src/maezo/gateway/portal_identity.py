@@ -32,10 +32,20 @@ def build_human_identity_adapters(
     *,
     store: IdentityStore | None = None,
     oidc_client: httpx.AsyncClient | None = None,
+    authenticator: HumanAuthenticator | None = None,
 ) -> HumanIdentityAdapters:
     """Compose fixed Cognito operations and tenant DB; no generic production injection."""
-    if config.mode == "production" and (store is not None or oidc_client is not None):
+    if config.mode == "production" and (
+        store is not None or oidc_client is not None or authenticator is not None
+    ):
         raise ValueError("production dependency overrides prohibited")
+    if authenticator is not None:
+        # Local-test stub authenticator (WP-J1-10): an explicit store is required so the
+        # returned identity resolves against a membership somebody deliberately seeded,
+        # and no Cognito HTTP client is constructed (the stub never opens one).
+        if store is None:
+            raise ValueError("local-test authenticator requires an explicit identity store")
+        return HumanIdentityAdapters(store, authenticator)
     if store is None:
         if config.database_url is None:
             raise ValueError("identity database required; local test store must be explicit")

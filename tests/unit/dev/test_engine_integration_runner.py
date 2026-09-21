@@ -170,6 +170,10 @@ import sys
 from scripts.dev import run_engine_integration as runner
 
 directory = Path(sys.argv[1])
+# A detached launcher (nohup, daemonized runner) hands us SIGINT=SIG_IGN, which
+# survives exec and would silence the [SIGINT] variant entirely. Reinstall the
+# normal Python disposition so the probe tests a LIVE interrupt on every runner.
+signal.signal(signal.SIGINT, signal.default_int_handler)
 signal.signal(signal.SIGTERM, runner._signal_handler)
 lock = runner.EngineLock.create(directory / "engine.lock", checkout="probe", sha="probe", suite="probe")
 assert lock.acquire(0)
