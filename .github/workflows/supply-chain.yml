@@ -154,8 +154,14 @@ jobs:
           IMAGE_REF: ${{ steps.target.outputs.image_ref }}
         run: |
           set -euo pipefail
+          # `--use-signing-config=false`: no cosign 3.x a signing config vem do TUF
+          # por padrao e ela EXIGE um log de transparencia — com ela ligada,
+          # `--tlog-upload=false` e' recusado (medido: run 35665215302). Desligar a
+          # signing config e' o que diz, explicitamente, que esta cadeia nao usa
+          # Rekor: a confianca e' a chave da conta.
           cosign sign --yes \
             --key "${KMS_KEY_URI}" \
+            --use-signing-config=false \
             --tlog-upload=false \
             --registry-referrers-mode="${REFERRERS_MODE}" \
             "${IMAGE_REF}"
@@ -169,6 +175,7 @@ jobs:
           set -euo pipefail
           cosign attest --yes \
             --key "${KMS_KEY_URI}" \
+            --use-signing-config=false \
             --tlog-upload=false \
             --registry-referrers-mode="${REFERRERS_MODE}" \
             --type spdxjson \
