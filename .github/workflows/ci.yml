@@ -540,8 +540,13 @@ jobs:
       # consequences are declared dated xfail(strict=True) markers instead of deleted tests. Same
       # no-silent-renewal discipline as the two gates above, scoped to these two markers: this gate
       # reads each tracked test's xfail via AST (never re-parsing prose) and reprovas the build the
-      # day after 2026-11-11 passes, or if the marker loses strict=True or its reason drifts from
-      # the tracked deadline. Belt-and-suspenders with tests/unit/ci/test_check_d7_xfail_expiry.py.
+      # day after 2027-02-09 passes, or if the marker loses strict=True or its reason drifts from
+      # the tracked deadline. RENOVACAO — DECISAO DO DONO 2026-09-20: 2026-11-11 -> 2027-02-09; a
+      # obrigacao do catalogo segue viva e a saida depende do programa D7 secured-startup (#438
+      # Slice A pousou 2026-09-20); renovar alinha as TRES cercas same-date (desvios Q-2/Q-10,
+      # ciclo de vida, catalogo D7) num UNICO momento de revisao do dono, evitando que as tres
+      # fiquem vermelhas no mesmo dia (memo MEMOS 2026-09-19, Opcao B); checkpoint de revisao
+      # sugerido: 2026-12-15. Belt-and-suspenders with tests/unit/ci/test_check_d7_xfail_expiry.py.
       - name: D7 catalogue expected-fail expiry gate (owner override, 2026-09-12)
         run: make check-d7-xfail-expiry
 

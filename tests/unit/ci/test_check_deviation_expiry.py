@@ -25,7 +25,7 @@ against the REAL tree, not only against fixtures.
 from __future__ import annotations
 
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +58,9 @@ _MANIFEST = _REPO_ROOT / "spec" / "policies" / "autonomy" / "action-approvals.ya
 _Q2_SLOT = "enforcement_padrao_nao_mapeado"
 _Q2_OWNER_ROLE = "Security/crypto R1 reviewer (interim: dono)"
 _Q2_DEADLINE_FIELD = "expires"
-_Q2_EXPIRES = date(2026, 11, 11)
+# RENOVACAO — decisao do dono 2026-09-20: 2026-11-11 -> 2027-02-09 (as tres cercas same-date
+# passam a partilhar um unico momento de revisao do dono).
+_Q2_EXPIRES = date(2027, 2, 9)
 _Q2_CHECKPOINT = date(2026, 9, 12)
 
 _C2_CLASS = "leitura_phi_clinica"
@@ -66,7 +68,8 @@ _C2_SLOT = "acoes.leitura_phi_clinica"
 _C2_OWNER_ROLE = "Diretor(a) Médico(a) (interim, deadline-enforcement only: dono)"
 _C2_DEADLINE_FIELD = "review_by"
 _C2_REVIEW_BY = date(2027, 2, 9)
-_C2_CHECKPOINT = date(2026, 11, 11)
+# RENOVACAO — decisao do dono 2026-09-20: checkpoint 2026-11-11 -> 2027-02-09 (= review_by).
+_C2_CHECKPOINT = date(2027, 2, 9)
 
 _RATIFIED_ON = date(2026, 8, 13)
 _RATIFIED_BY = "dono (2ª leva + confirmação 2026-08-13)"
@@ -168,8 +171,10 @@ def test_the_gate_is_green_on_the_day_the_owner_ratified() -> None:
 @pytest.mark.parametrize(
     ("today", "expected_red"),
     [
-        pytest.param(date(2026, 11, 12), {_Q2_SLOT}, id="day-after-q2-expires"),
-        pytest.param(date(2027, 2, 10), {_Q2_SLOT, _C2_SLOT}, id="day-after-c2-review-by"),
+        # RENOVACAO 2026-09-20: Q-2 `expires` passou a 2027-02-09, a MESMA data de `review_by` de
+        # Q-10 — o velho caso "so' o Q-2 vermelho no dia seguinte" deixou de existir por
+        # construcao; o dia seguinte ao muro unico pegra os DOIS slots de uma vez.
+        pytest.param(date(2027, 2, 10), {_Q2_SLOT, _C2_SLOT}, id="day-after-the-shared-wall"),
         pytest.param(date(2030, 1, 1), {_Q2_SLOT, _C2_SLOT}, id="years-later"),
     ],
 )
@@ -179,15 +184,28 @@ def test_an_expired_deviation_turns_the_gate_red(today: date, expected_red: set[
     assert gate.main(["--manifest", str(_MANIFEST), "--today", today.isoformat()]) == 1
 
 
+def test_the_renewed_q2_wall_no_longer_reddens_the_old_date() -> None:
+    """RENOVACAO 2026-09-20: 2026-11-12 era vermelho na arvore anterior; hoje e verde nela.
+
+    Metade da propriedade de renovacao aplicada ao proprio muro: a data que o prazo ANTIGO
+    deixaria vermelha ficou verde no PR que a renovou — a renovacao nao precisou de override
+    nenhum para pousar.
+    """
+    assert _levels(_MANIFEST, date(2026, 11, 12)) == {
+        _Q2_SLOT: gate.LEVEL_OK,
+        _C2_SLOT: gate.LEVEL_OK,
+    }
+
+
 def test_the_deadline_itself_is_still_green_and_the_next_day_is_not() -> None:
     """`today <= deadline` passes. Pinning BOTH sides is what makes the boundary a fact."""
     assert _levels(_MANIFEST, _Q2_EXPIRES)[_Q2_SLOT] != gate.LEVEL_FAIL
-    assert _levels(_MANIFEST, _Q2_EXPIRES.replace(day=12))[_Q2_SLOT] == gate.LEVEL_FAIL
+    assert _levels(_MANIFEST, _Q2_EXPIRES + timedelta(days=1))[_Q2_SLOT] == gate.LEVEL_FAIL
 
 
 def test_the_red_message_names_the_deviation_owner_date_and_renewal_procedure() -> None:
     """A red that does not say who owns it and how to close it teaches people to route around it."""
-    findings = gate.evaluate(load_action_approvals(_MANIFEST), date(2026, 11, 12))
+    findings = gate.evaluate(load_action_approvals(_MANIFEST), _Q2_EXPIRES + timedelta(days=1))
     red = next(f for f in findings if f.level == gate.LEVEL_FAIL)
     rendered = red.render()
     assert "Q-2" in rendered
@@ -272,7 +290,7 @@ def test_dropping_the_tracked_class_is_red(tmp_path: Path) -> None:
 
 
 def test_the_warning_window_is_loud_but_does_not_fail(capsys: pytest.CaptureFixture[str]) -> None:
-    inside = date(2026, 10, 28)  # 14 days before 2026-11-11, hardcoded per the values above
+    inside = date(2027, 1, 26)  # 14 days before 2027-02-09, hardcoded per the values above
     assert _levels(_MANIFEST, inside)[_Q2_SLOT] == gate.LEVEL_WARN
     assert gate.main(["--manifest", str(_MANIFEST), "--today", inside.isoformat()]) == 0
     assert "::warning" in capsys.readouterr().out
@@ -280,7 +298,7 @@ def test_the_warning_window_is_loud_but_does_not_fail(capsys: pytest.CaptureFixt
 
 def test_the_day_before_the_window_opens_is_plain_green() -> None:
     """The control for the test above: 15 days out is OK, 14 is WARN. Isolates the boundary."""
-    assert _levels(_MANIFEST, date(2026, 10, 27))[_Q2_SLOT] == gate.LEVEL_OK
+    assert _levels(_MANIFEST, date(2027, 1, 25))[_Q2_SLOT] == gate.LEVEL_OK
 
 
 def test_the_step_summary_is_written_when_github_asks_for_one(
@@ -288,7 +306,7 @@ def test_the_step_summary_is_written_when_github_asks_for_one(
 ) -> None:
     summary = tmp_path / "summary.md"
     monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
-    gate.main(["--manifest", str(_MANIFEST), "--today", date(2026, 10, 28).isoformat()])
+    gate.main(["--manifest", str(_MANIFEST), "--today", date(2027, 1, 26).isoformat()])
     body = summary.read_text(encoding="utf-8")
     assert _Q2_SLOT in body and "⚠️" in body
 
@@ -339,16 +357,20 @@ def test_both_flipped_is_green_forever(tmp_path: Path) -> None:
 def test_a_re_ratified_date_is_green_on_a_day_that_was_red_before_it(tmp_path: Path) -> None:
     """The mechanism's honesty test.
 
-    On 2026-11-12 the shipped tree is RED. A tree carrying a NEW owner-ratified date is GREEN on
+    On 2027-02-10 (the renewed wall — decisao do dono 2026-09-20) the shipped tree is RED. A tree
+    carrying a NEW owner-ratified date is GREEN on
     that same day — so the renewal PR can actually land, and no override was needed to land it.
     Both halves matter: without the red the deadline is decorative, and without the green the gate
     would be a trap with no legitimate exit.
     """
-    day = "2026-11-12"
+    day = "2027-02-10"
     assert gate.main(["--manifest", str(_MANIFEST), "--today", day]) == 1
 
     renewed = _shipped_dict()
     renewed["deviation"]["expires"] = "2027-05-11"
+    # RENOVACAO 2026-09-20: a parede agora e' COMPARTILHADA — o `review_by` de Q-10 e o mesmo dia,
+    # entao uma re-ratificacao que queira ficar verde nele precisa re-data os DOIS slots.
+    renewed["acoes"][_C2_CLASS]["deviation"]["review_by"] = "2027-05-11"
     renewed["deviation"]["checkpoint"] = "2027-02-11"
     renewed["deviation"]["ratified_by"] = "dono (re-ratificação hipotética)"
     path = _write(tmp_path / "renewed", renewed)

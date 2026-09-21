@@ -918,8 +918,11 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # Re-derived 2026-09-03 (ADR-0040 PR-4): the CONTAS half of the perspective delta added 6
     # lines above the unmapped-topics passage (2 new surfaces in `negativa_notificacao`, and the
     # `inicio_processo_regulatorio` surface item rewritten in place). Same designed outcome.
-    ("gateway/effect_classes.py", "640-643", "decisão humana, não inferência de agente"),
-    ("gateway/effect_classes.py", "172-174", "no class was invented to round out a taxonomy"),
+    # Re-derived 2026-09-20 (renovação das cercas same-date, a5bb7e08): the two RENOVACAO comment
+    # blocks added +3 lines above the taxonomy passage and +6 above the unmapped-topics passage.
+    # Same designed outcome.
+    ("gateway/effect_classes.py", "646-649", "decisão humana, não inferência de agente"),
+    ("gateway/effect_classes.py", "175-177", "no class was invented to round out a taxonomy"),
 )
 
 
