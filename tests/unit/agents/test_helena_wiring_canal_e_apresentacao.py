@@ -147,10 +147,19 @@ async def test_receive_preserva_o_sinal_entre_turnos_e_nao_o_inventa() -> None:
 
 
 async def test_o_sinal_chega_ao_contexto_do_prompt_de_resposta() -> None:
+    """A chave entra no contexto SO' quando e' `True` (21/09/2026, segunda rodada).
+
+    As irmas (`population`, `memoria_a_confirmar`) sao condicionais, e o prompt inteiro e' escrito
+    no idioma "QUANDO O CONTEXTO TROUXER X". Mandar `apresentacao_ja_feita: False` pedia ao modelo
+    que interpretasse uma negacao explicita num texto que so' fala de presenca — ruido no unico
+    lugar em que a AUSENCIA ja era a informacao.
+    """
     graph, inferencia = _graph(TEXTO_COM_NOME)
 
     await graph._respond_llm(_estado(apresentacao_ja_feita=True), "inform")
     await graph._respond_llm(_estado(), "inform")
 
     assert "'apresentacao_ja_feita': True" in inferencia.prompts[0]
-    assert "'apresentacao_ja_feita': False" in inferencia.prompts[1]
+    # A forma com aspas simples e' o dict do contexto; o TEXTO do prompt cita o campo entre
+    # backticks ("quando o contexto trouxer `apresentacao_ja_feita`"), e por isso continua ali.
+    assert "'apresentacao_ja_feita'" not in inferencia.prompts[1]

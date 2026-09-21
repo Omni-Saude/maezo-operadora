@@ -300,12 +300,32 @@ async def test_veredito_fora_do_vocabulario_escala_falha_tecnica() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_memoria_de_coleta_e_um_subconjunto_declarado_da_memoria_de_conversa() -> None:
+    """O PORTAO da coleta governa TRES campos, e nao o conjunto inteiro.
+
+    Antes de 21/09/2026 (segunda rodada) `receive` derivava os campos governados pelo portao por
+    SUBTRACAO (`_HELENA_MEMORIA_DE_CONVERSA - {"memoria_clinica"}`), e por isso todo membro NOVO
+    do conjunto maior herdava silenciosamente o portao da coleta — foi o que aconteceria com
+    `apresentacao_ja_feita`, que nao tem portao nenhum e passaria a depender de uma tabela de
+    suficiencia sem relacao com ele.
+    """
+    assert helena_graph._MEMORIA_DE_COLETA < _HELENA_MEMORIA_DE_CONVERSA
+    assert all(chave.startswith("coleta_") for chave in helena_graph._MEMORIA_DE_COLETA)
+
+
+@pytest.mark.asyncio
 async def test_receive_preserva_so_a_memoria_de_conversa_e_zera_o_resto() -> None:
     g = _graph(_FakeInference([]), _dmn(), coleta=True)
     plantado = _state(
         coleta_rodadas=1,
         coleta_pendente="PERGUNTAR_INTENSIDADE",
         coleta_contexto="antes",  # type: ignore[arg-type]
+        # 21/09/2026 (segunda rodada): o campo do cartao entrou no estado plantado porque ele
+        # entrou em `_HELENA_MEMORIA_DE_CONVERSA`. `receive` ja o preservava desde a entrega do F6,
+        # mas sem a declaracao no conjunto esta cerca nao o enxergava — e um campo preservado que a
+        # cerca da particao nao ve e' exatamente a excecao silenciosa que a defesa T1.11 existe
+        # para nao ter.
+        apresentacao_ja_feita=True,
         next_kind="inform",
         dmn_decision_ref="forjado",
         coleta_veredito="SUFICIENTE",
@@ -315,6 +335,7 @@ async def test_receive_preserva_so_a_memoria_de_conversa_e_zera_o_resto() -> Non
     assert reset["coleta_rodadas"] == 1
     assert reset["coleta_pendente"] == "PERGUNTAR_INTENSIDADE"
     assert reset["coleta_contexto"] == "antes"
+    assert reset["apresentacao_ja_feita"] is True
     # tudo o que NAO e' memoria volta ao neutro — inclusive os dois campos de coleta do turno
     for chave, neutro in _HELENA_NEUTRAL_OUTPUTS.items():
         if chave not in _HELENA_MEMORIA_DE_CONVERSA:

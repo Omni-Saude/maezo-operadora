@@ -1108,8 +1108,11 @@ async def test_respond_sends_via_whatsapp_using_hash_not_raw_number() -> None:
     # NEW-10: `desfecho` e' agora gravado no estado tambem no ramo de sucesso (o mesmo valor
     # rotulado na telemetria CC-09) -- antes deste WP `HelenaState.desfecho` era campo morto
     # em qualquer turno que nao falhasse ao iniciar o processo.
-    # F6 (21/09/2026): o envio bem-sucedido tambem acende o cartao de apresentacao da conversa.
-    assert result == {"desfecho": "resolvido_automatico", "apresentacao_ja_feita": True}
+    # F6 (21/09/2026, segunda rodada): `apresentacao_ja_feita` NAO acende aqui. O texto enviado
+    # ("oi, tudo bem?") nao contem a apresentacao, e o sinal significa "a pessoa JA LEU o cartao" —
+    # acende-lo num turno sem cartao PROIBIRIA a apresentacao pelo resto da conversa. Na primeira
+    # rodada ele acendia em qualquer envio bem-sucedido, que e' o defeito que esta linha fixava.
+    assert result == {"desfecho": "resolvido_automatico"}
     assert sender.sent == [("deadbeef", "oi, tudo bem?")]
 
 

@@ -184,6 +184,9 @@ from .prompts import (
     response_prompt,
     sintoma_em_palavras,
 )
+from .prompts import (
+    _normalizar as _normalizar_texto,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -738,6 +741,37 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
 
 _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
 
+#: F6 (21/09/2026, segunda rodada): A MARCA DA APRESENTACAO no texto enviado.
+#:
+#: POR QUE ELA EXISTE. `apresentacao_ja_feita` significa "a pessoa JA LEU o cartao", e o efeito de
+#: liga-lo e' PROIBIR a apresentacao no prompt pelo resto da conversa. Ate' aqui ele acendia em
+#: QUALQUER envio bem-sucedido — inclusive nos turnos em que a cerca TEXTO x FATO trocou o texto
+#: por uma constante que nao tem cartao nenhum ("Recebemos sua mensagem. Seu atendimento (...) ja
+#: esta aberto"). Nesses turnos a pessoa leu uma mensagem, nao o cartao, e a Helena nunca mais se
+#: apresentaria naquela conversa — o oposto do F6, que existe para ela nao REPETIR o cartao.
+#:
+#: POR QUE UMA MARCA, E POR QUE ELA E' O NOME. O cartao e' redigido pelo modelo, entao nao ha texto
+#: fixo para comparar. O `response-v8` passou a mandar que a apresentacao, quando acontece, se
+#: IDENTIFIQUE PELO NOME ("Sou Helena") — que e' uma boa ideia por si (quem pergunta "quem e' voce?"
+#: merece o nome) e e' o que torna o sinal verificavel. A cerca e' `_apresentou_se`, e o
+#: `response_prompt` e a lista aqui sao as duas metades: editar uma sem a outra e' o descompasso
+#: que o teste torna visivel.
+#:
+#: FALSO NEGATIVO E' O LADO SEGURO: um cartao que saia sem a marca deixa o sinal apagado e no maximo
+#: repete a apresentacao uma vez. Um falso positivo cala a Helena para sempre naquela conversa.
+MARCAS_DE_APRESENTACAO: tuple[str, ...] = ("sou helena", "sou a helena")
+
+
+def _apresentou_se(texto: str) -> bool:
+    """O texto ENVIADO contem a apresentacao? (F6, 21/09/2026 segunda rodada)
+
+    Comparacao normalizada pela mesma funcao das cercas de saida (`prompts._normalizar`): caixa,
+    acento e caractere invisivel nao podem decidir se a Helena volta a se apresentar.
+    """
+    plano = _normalizar_texto(texto)
+    return any(marca in plano for marca in MARCAS_DE_APRESENTACAO)
+
+
 #: MEMORIA DE CONVERSA — a UNICA excecao ao reset de `receive`, e por que ela e' segura.
 #:
 #: O reset existe para que valor plantado por quem chama nao seja lido a jusante. Estes tres
@@ -751,9 +785,37 @@ _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
 #: do bloco NAO CONFIAVEL do prompt, que ja' e' onde a mensagem do beneficiario vive. Nenhum
 #: deles suprime uma red flag, forja um `dmn_decision_ref` ou desvia um escalonamento — os
 #: campos que fazem isso continuam zerados em todo turno.
+#:
+#: `apresentacao_ja_feita` ENTROU NO CONJUNTO EM 21/09/2026 (segunda rodada), e a declaracao e' a
+#: correcao: `receive` ja' o preservava desde a entrega do F6, mas ele nao estava DECLARADO aqui —
+#: entao a cerca que prova "so' a memoria de conversa sobrevive ao reset"
+#: (`test_helena_coleta.py::test_receive_preserva_so_a_memoria_de_conversa_e_zera_o_resto`) nao o
+#: enxergava, e um campo preservado sem declaracao e' exatamente o tipo de excecao que a defesa
+#: T1.11 existe para nao ter.
+#:
+#: NOTA IMPORTANTE, que e' a razao de `_MEMORIA_DE_COLETA` existir logo abaixo: este campo e'
+#: preservado SEM o portao de coleta, ao contrario dos tres primeiros. Ele e' um bool que so' anda
+#: para True e o unico efeito dele e' o prompt nao repetir a apresentacao; amarra-lo ao portao da
+#: tabela de suficiencia faria a Helena repetir o cartao a cada turno ate' aquela tabela ser
+#: ratificada, que e' um prazo sem relacao nenhuma com o defeito. E `receive` o le' com `is True`,
+#: entao um valor plantado truthy nao-bool nao atravessa.
 _HELENA_MEMORIA_DE_CONVERSA: frozenset[str] = frozenset(
-    {"coleta_rodadas", "coleta_pendente", "coleta_contexto", "memoria_clinica"}
+    {
+        "coleta_rodadas",
+        "coleta_pendente",
+        "coleta_contexto",
+        "memoria_clinica",
+        "apresentacao_ja_feita",
+    }
 )
+
+#: Os campos de memoria que o PORTAO DA COLETA governa. Subconjunto explicito de
+#: `_HELENA_MEMORIA_DE_CONVERSA` porque os outros dois membros daquele conjunto tem cada um a sua
+#: propria condicao de preservacao (`memoria_clinica` -> portao da memoria clinica;
+#: `apresentacao_ja_feita` -> nenhum portao, ver a nota acima). Derivar este conjunto por
+#: subtracao, como era antes, fazia todo membro NOVO do conjunto maior herdar silenciosamente o
+#: portao da coleta.
+_MEMORIA_DE_COLETA: frozenset[str] = frozenset({"coleta_rodadas", "coleta_pendente", "coleta_contexto"})
 
 #: MEMORIA CLINICA ENTRE TURNOS (Frente 2.1) — os campos que dizem QUEM E' O PACIENTE.
 #:
@@ -1593,7 +1655,7 @@ class HelenaGraph:
         # Memoria de coleta so' e' preservada com a feature ligada. O helper estrito
         # recusa bool, negativos e valores malformados como rodadas esgotadas.
         if self._coleta_enabled:
-            for chave in _HELENA_MEMORIA_DE_CONVERSA - {"memoria_clinica"}:
+            for chave in _MEMORIA_DE_COLETA:
                 if chave in state:
                     reset[chave] = state[chave]  # type: ignore[literal-required]
             if "coleta_rodadas" in state:
@@ -2381,7 +2443,17 @@ class HelenaGraph:
                 enviada=enviada,
             )
             saida = {**saida, "desfecho": desfecho}
-            if enviada:
+            if enviada and _apresentou_se(text):
+                # F6, 21/09/2026 (segunda rodada): o sinal acende SO' quando o texto ENVIADO trouxe
+                # a apresentacao. Ele acendia em qualquer envio, inclusive nos turnos em que a cerca
+                # TEXTO x FATO trocou o rascunho por uma constante que nao tem cartao nenhum — e o
+                # efeito de liga-lo e' PROIBIR a apresentacao pelo resto da conversa. A pessoa lia
+                # uma mensagem, nao o cartao, e a Helena nunca mais se apresentava: o oposto do F6,
+                # que existe para ela nao REPETIR o cartao. Ver `MARCAS_DE_APRESENTACAO`.
+                #
+                # O ramo `start_failed=True` nao alcanca esta linha (ele retorna antes), e esta'
+                # certo assim: o texto daquele ramo e' `RESPOSTA_FALHA_TECNICA_START`, que nao tem
+                # cartao — o sinal ficaria apagado de qualquer forma.
                 saida["apresentacao_ja_feita"] = True
         return saida
 
@@ -2755,9 +2827,15 @@ class HelenaGraph:
             "response_kind": response_kind,
             "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
             "escalation_severidade": state.get("escalation_severidade"),
-            # F6: o prompt proibe repetir o cartao quando isto e' True (ver `response_prompt`).
-            "apresentacao_ja_feita": state.get("apresentacao_ja_feita") is True,
         }
+        # F6: o prompt proibe repetir o cartao quando isto vem no contexto (ver `response_prompt`).
+        # SO' QUANDO TRUE (21/09/2026, segunda rodada), como as chaves irmas `population` e
+        # `memoria_a_confirmar`: o prompt inteiro e' escrito no idioma "QUANDO O CONTEXTO TROUXER
+        # X", e mandar `apresentacao_ja_feita: False` pede ao modelo que interprete uma negacao
+        # explicita num texto que so' fala de presenca. Um `False` presente e' ruido no unico lugar
+        # em que a ausencia ja' era a informacao.
+        if state.get("apresentacao_ja_feita") is True:
+            context["apresentacao_ja_feita"] = True
         # MEMORIA CLINICA (Frente 2.1, decisao 5 do documento): a populacao vale TAMBEM para o
         # texto, nao so' para a tabela. O defeito medido em 13/09 nao foi apenas triar um bebe pela
         # tabela de adulto — foi a Helena listar sinais de alerta de ADULTO para a mae de um bebe

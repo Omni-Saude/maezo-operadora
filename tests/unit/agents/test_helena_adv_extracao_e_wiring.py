@@ -130,9 +130,27 @@ async def test_um_envio_que_falhou_nao_acende_a_apresentacao() -> None:
 
 
 @pytest.mark.parametrize("desfecho", (START_DESFECHO_NOVO, START_DESFECHO_JA_ATIVO))
-async def test_um_envio_bem_sucedido_acende_a_apresentacao_em_qualquer_desfecho(desfecho: str) -> None:
-    """Inclusive nos turnos em que o texto foi TROCADO pela cerca: a pessoa leu uma mensagem
-    desta conversa, e o cartao nao se repete por causa de uma substituicao."""
+async def test_o_envio_de_um_texto_sem_cartao_nao_acende_a_apresentacao(desfecho: str) -> None:
+    """O QUE MUDOU EM 21/09/2026 (segunda rodada), e por que a versao anterior estava ERRADA.
+
+    Este teste afirmava o contrario — "inclusive nos turnos em que o texto foi TROCADO pela cerca:
+    a pessoa leu uma mensagem desta conversa, e o cartao nao se repete por causa de uma
+    substituicao" —, e o raciocinio confunde "leu uma mensagem" com "leu o CARTAO". Sao coisas
+    diferentes, e a diferenca tem consequencia visivel:
+
+      * o sinal significa "a pessoa JA LEU a apresentacao", e o efeito de liga-lo e' PROIBIR a
+        apresentacao no prompt pelo RESTO da conversa (`response_prompt`);
+      * nos dois desfechos deste teste o texto que sai e' uma CONSTANTE da cerca TEXTO x FATO
+        ("Recebemos sua mensagem. Seu atendimento (...) ja esta aberto" / "... encaminhamos seu
+        caso ..."), e nenhuma delas tem cartao nenhum;
+      * logo, acender o sinal ali fazia a Helena NUNCA MAIS se apresentar naquela conversa — por
+        causa de um turno em que ela nao se apresentou. E' o oposto do F6, que existe para ela nao
+        REPETIR o cartao.
+
+    O invariante que substitui: o sinal acende quando o texto ENVIADO contem a apresentacao
+    (`MARCAS_DE_APRESENTACAO`), e nao quando o envio deu certo. Falso negativo aqui repete o cartao
+    uma vez; falso positivo cala a agente para sempre.
+    """
     whatsapp = _WhatsApp()
     graph = _graph(whatsapp=whatsapp)
 
@@ -140,8 +158,61 @@ async def test_um_envio_bem_sucedido_acende_a_apresentacao_em_qualquer_desfecho(
         _estado(response_text="Recebemos sua mensagem.", response_kind="escalate", start_desfecho=desfecho)
     )
 
-    assert whatsapp.enviados
-    assert saida["apresentacao_ja_feita"] is True
+    assert whatsapp.enviados, "premissa: o turno envia alguma coisa"
+    assert "sou helena" not in whatsapp.enviados[0][1].lower(), "premissa: o texto nao tem cartao"
+    assert "apresentacao_ja_feita" not in saida
+
+
+_CARTAO = "Sou Helena, navegadora de saude deste canal."
+
+
+@pytest.mark.parametrize(
+    ("rotulo", "estado"),
+    [
+        (
+            "inform sem start: nada e' trocado",
+            {
+                "response_text": f"{_CARTAO} Pode me contar o que houve?",
+                "response_kind": "inform",
+            },
+        ),
+        (
+            "escalate com start novo: o rascunho MENCIONA, entao sai intacto",
+            {
+                "response_text": f"{_CARTAO} Um profissional vai dar continuidade ao seu atendimento.",
+                "response_kind": "escalate",
+                "start_desfecho": START_DESFECHO_NOVO,
+            },
+        ),
+        (
+            "ja_ativo: a constante entra como PREFIXO e o cartao segue atras",
+            {
+                "response_text": f"{_CARTAO} Pode me contar o que houve?",
+                "response_kind": "escalate",
+                "start_desfecho": START_DESFECHO_JA_ATIVO,
+            },
+        ),
+    ],
+)
+async def test_o_envio_do_cartao_acende_a_apresentacao(rotulo: str, estado: dict[str, Any]) -> None:
+    """O RED do teste acima: o sinal PRECISA acender quando o cartao sai de verdade.
+
+    Sem esta metade, "nunca acender" passaria o teste de cima e o F6 deixaria de existir — a
+    Helena repetiria a apresentacao em todo turno, que e' o defeito medido em `A1`/`A2`/`A3`.
+
+    OS TRES CASOS SAO OS TRES CAMINHOS em que o cartao SOBREVIVE a cerca TEXTO x FATO, e a escolha
+    de cada um e' o ponto: num `escalate` com start novo, um rascunho que nao mencionasse o
+    encaminhamento seria trocado INTEIRO pela constante (e o cartao morreria com ele, corretamente
+    — o fato tem precedencia sobre a apresentacao); no `ja_ativo` a constante entra como PREFIXO e
+    o rascunho segue atras, entao o cartao continua no texto enviado.
+    """
+    whatsapp = _WhatsApp()
+    graph = _graph(whatsapp=whatsapp)
+
+    saida = await graph.respond(_estado(**estado))
+
+    assert _CARTAO in whatsapp.enviados[0][1], rotulo
+    assert saida["apresentacao_ja_feita"] is True, rotulo
 
 
 async def test_o_turno_de_falha_de_start_envia_e_nao_acende_a_apresentacao() -> None:
