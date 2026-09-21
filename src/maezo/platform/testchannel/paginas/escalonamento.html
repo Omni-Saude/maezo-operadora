@@ -72,6 +72,42 @@
      abre o login do portal e, na volta, RELE' `GET /session` e mostra quem esta logado.
      Cuidado ao ler a sessao: a projecao do portal (`SessionDTO`) traz `roles`, e NAO traz
      grupo. O grupo que a fila indica vem de `eligible_candidate_groups` da tarefa.
+
+  8. O QUE A REVISAO DE 21/09/2026 DERRUBOU (revisao defect-first do dono do repositorio). Os
+     quatro achados da pagina tinham a MESMA forma: a tela afirmava mais do que tinha medido.
+
+     ERRO NAO E' RECUSA. Todo nao-ok do portal era gravado como `recusado` e os botoes voltavam
+     na hora. Mas 503 e' declarado EFEITO INCERTO pelo proprio endpoint (a conclusao pode ter
+     commitado e morrido no elo de auditoria do resultado, e "um 503 nunca e' evidencia de
+     rollback"), e 409 exige releitura. A tela afirmava encerramento seguro e oferecia repeticao
+     sobre efeito que ninguem mediu. Agora ha um terceiro estado, RESULTADO DESCONHECIDO, com cor
+     propria, e o retry so' aparece DEPOIS de reler as tarefas abertas no motor. Ver
+     `classeDaFalhaPortal` e `decidirRetry`.
+
+     IGUALDADE NAO E' EQUIVALENCIA. Dois cartoes ACTIVE, os dois aguardando o external task, os
+     dois sem fim no rastro, satisfaziam "mesmo rastro / mesmo fim / mesmo encerramento" e a tela
+     escrevia "Os dois caminhos conferem" sobre dois fluxos que nao terminaram. Agora exige-se
+     estado terminal e o fim previsto nos DOIS lados, e enquanto faltar a tela diz "ainda
+     comparando" — dizendo tambem que parada em `ST_PublishResolved` e' worker, nao divergencia.
+     Ver `faltaParaComparar`.
+
+     A ORDEM DA VARREDURA ERA O DEFEITO. `classificarValor` rodava ANTES dos regex e transformava
+     `beneficiario-cpf-123.456.789-09` em referencia `opaco`, que suprimia CPF e telefone: um CPF
+     com todos os pontos passava sem achado. Agora o que exige pontuacao roda primeiro, em todo
+     valor — e continua imune ao digest, porque digest hexadecimal nao tem ponto nem parentese.
+
+     E DUAS LEITURAS INCOMPLETAS QUE VIRAVAM DIAGNOSTICO: a fila lia so' a primeira pagina
+     (`next_cursor` ignorado) e produzia "a tarefa nao aparece" para tarefa da pagina 2; e o 404
+     da releitura POS-CONCLUSAO — que e' a saida normal de uma tarefa concluida — era lido como
+     isolamento ou chave de juncao errada, falso alarme no caminho de sucesso.
+
+  9. A CERCA DE CORS DO PORTAL E' POR CAMINHO, e esta pagina cabe dentro dela. O portal responde
+     preflight credenciado apenas em `/api/v1/portal/session` e `/api/v1/portal/tasks` (e
+     subcaminhos). Toda chamada de outra origem daqui sai de `portalChamar`, e os unicos caminhos
+     que ela recebe sao `CAMINHO_SESSAO` e `CAMINHO_FILA` (+ `/{id}` e `/{id}/completion`). O
+     login NAO e' excecao: `entrarNoPortal` faz `window.open`, que e' navegacao de topo e nao
+     passa por CORS. Acrescentar aqui uma chamada `fetch` a qualquer outro caminho do portal
+     produz rejeicao sem status — indistinguivel de portal fora do ar.
 -->
 <title>Conversa com a Helena — Canal de Teste</title>
 <style>
@@ -183,6 +219,18 @@
   .desfecho table th{width:150px}
   .diverge{background:#fdeaea;border:1px solid #f3c2c2;color:var(--vermelho);border-radius:7px;
            padding:9px 11px;font-size:13px;margin:9px 0 0}
+  /* RESULTADO DESCONHECIDO NAO E' RECUSA, e a cor diz isso antes do texto: recusa e' vermelha e
+     fechada, incerteza e' ambar e aberta. Um 503 do portal pode ter commitado a conclusao e
+     falhado so' no elo de auditoria do resultado — pintar isso de vermelho ao lado de um 403 de
+     isolamento faria a tela afirmar encerramento seguro sobre efeito que ninguem mediu. */
+  .incerto{background:#fff6e5;border:1px solid #e8cf9a;color:var(--ambar);border-radius:7px;
+           padding:9px 11px;font-size:13px;margin:9px 0 0}
+  /* "Ainda comparando" e' um TERCEIRO estado ao lado de confere e diverge, e neutro de proposito:
+     nao ha noticia nenhuma ainda, e verde ou vermelho aqui seriam os dois errados. */
+  .comparando{background:#f4f5f8;border:1px solid var(--linha);color:var(--tinta2);
+              border-radius:7px;padding:9px 11px;font-size:13px;margin:9px 0 0}
+  .comparando ul,.incerto ul{margin:5px 0 0;padding-left:20px}
+  .desfecho.inc{background:#fffdf7}
   .confere{background:#eef7f0;border:1px solid #cfe6d5;color:var(--verde);border-radius:7px;
            padding:9px 11px;font-size:13px;margin:9px 0 0}
 
@@ -839,14 +887,41 @@ function concluirPortal(tid, resultado){
     .then(function(r){
       $("avisoPortal").innerHTML = "";
       if (r.ok) return fecharTurno("portal", resultado, {status:r.status, detalhe:resumoCorpo(r.corpo)});
-      botoesAtivos(true);
       $("avisoPortal").innerHTML = explicarFalhaPortal(r, "concluir");
       /* UM DESFECHO RECUSADO TAMBEM E' DESFECHO — e' o que prova que o isolamento funciona (403
          para o grupo errado) ou que a flag esta desligada (404/501). Registrar so' o que deu
-         certo esconderia exatamente a metade interessante. */
+         certo esconderia exatamente a metade interessante.
+
+         MAS NEM TODO NAO-OK E' RECUSA, e ate 21/09/2026 esta funcao tratava todos como recusa:
+         gravava `recusado`, reabilitava os botoes na hora, e a tela afirmava encerramento seguro
+         e repetivel sobre dois codigos em que isso e' falso. Ver `classeDaFalhaPortal`.
+         `botoesAtivos(true)` SAIU daqui de proposito: quem reabilita botao agora e'
+         `decidirRetry`, DEPOIS da releitura — nunca antes dela. */
       return fecharTurno("portal", resultado,
-        {status:r.status, detalhe:resumoCorpo(r.corpo), recusado:true});
+        {status:r.status, detalhe:resumoCorpo(r.corpo), desfecho:classeDaFalhaPortal(r)});
     });
+}
+
+/* AS DUAS CLASSES DE NAO-OK, pelo contrato do endpoint (`docs/portal/completion-endpoint.md`,
+   secao 3):
+
+   RECUSA — o efeito nao aconteceu. 400 (enquadramento), 401 (sessao/CSRF/origem), 403
+   (isolamento), 404 (tarefa nao ativa ou snapshot nao corrente), 422 (corpo) e 501 (flag
+   desligada) param todos ANTES do efeito. Repetir e' seguro e, na maioria, inutil — e um 403
+   aqui e' o passo 3 do roteiro dando certo.
+
+   DESCONHECIDO — 503 `completion_dependency_unavailable` e' declarado como EFEITO INCERTO: a
+   conclusao pode ter commitado no motor e a resposta ter morrido no elo de auditoria do
+   resultado, e "um 503 nunca e' evidencia de rollback". 409 `revision_conflict` nao afirma
+   efeito nosso, mas afirma que o estado mudou, e o contrato manda RELER antes de decidir de novo.
+
+   `bloqueado` (rejeicao sem status) fica em RECUSA, e isso e' escolha, nao esquecimento: este
+   POST manda `Content-Type: application/json` e `X-CSRF-Token`, logo exige preflight, e preflight
+   recusado significa que a requisicao nao foi emitida. E' tambem o estado do dia-a-dia (CORS do
+   portal desligado), e chamar isso de "resultado desconhecido" encheria a tela de incerteza que
+   nao existe. A releitura de `decidirRetry` roda igual nos dois casos. */
+function classeDaFalhaPortal(r){
+  return (r.status === 503 || r.status === 409) ? "desconhecido" : "recusado";
 }
 
 /* Uma recusa do portal tem nome proprio, e a tela usa o nome — nao "erro ao concluir". Os
@@ -867,10 +942,15 @@ function explicarFalhaPortal(r, acao){
     404: "O portal não conhece este caminho ou não enxerga esta tarefa. Duas causas comuns: a flag " +
          "<code>MAEZO_PORTAL_DIRECT_COMPLETION</code> está desligada, ou a tarefa não é visível " +
          "para este colaborador.",
-    409: "A tarefa já foi concluída ou mudou de revisão desde a leitura.",
+    409: "Conflito de revisão: a tarefa já foi concluída, mudou de revisão, ou outra conclusão " +
+         "da mesma revisão já foi reivindicada. <b>Exige releitura</b> — não é para repetir o " +
+         "mesmo clique, e a tela releu o estado antes de decidir se libera repetição.",
     422: "O corpo foi recusado pela validação do portal.",
     501: "O portal declara o caminho como não implementado — é a flag de conclusão direta desligada.",
-    503: "Dependência de leitura indisponível. O gateway recusa fonte atrasada; ver a projeção de autoridade."
+    503: "<b>Efeito INCERTO — não é recusa.</b> O portal não prova conclusão nem conflito: a " +
+         "conclusão pode ter commitado no motor e falhado depois, no elo de auditoria do " +
+         "resultado. Um 503 nunca é evidência de rollback. A tela releu a tarefa no motor antes " +
+         "de liberar (ou não) qualquer repetição."
   }[r.status];
   return '<div class="erro"><b>HTTP ' + r.status + (codigo ? " · <code>" + esc(codigo) + "</code>" : "") +
     "</b><br>" + (fala || "Resposta não esperada para " + esc(acao) + ".") + "</div>";
@@ -1044,14 +1124,52 @@ function lerPortal(){
 
 /* ------------------------------------------------------------------- a fila */
 
+/* A FILA E' PAGINADA, E ATE 21/09/2026 ESTA TELA LIA SO A PRIMEIRA PAGINA. `TaskQueuePage` tem
+   `next_cursor`, e `TaskQueueRequest` o recebe de volta em `cursor=`; `limit` e' no maximo 100.
+   Com uma pagina so', qualquer tarefa que caisse da segunda virava "A TAREFA DESTE TURNO NAO
+   APARECE" — falso ausente no unico painel cujo trabalho e' dizer se a tarefa aparece. E nao era
+   falso ausente RARO: o validador `ordered` do contrato ordena a pagina por `task_id`, entao
+   cair para a pagina 2 nao depende de idade nem de sorte, depende do id que o motor sorteou.
+
+   TETO DE PAGINAS, E ELE E' DITO EM TELA. 20 x 100 e' mais fila do que qualquer bateria de teste
+   produz; se o teto for atingido a tela declara leitura INCOMPLETA e nao afirma ausencia — uma
+   ausencia medida em meia fila e' o mesmo defeito com outra roupa. */
+var LIMITE_PAGINA = 100;
+var MAX_PAGINAS = 20;
+
+function lerFilaCompleta(nome){
+  var itens = [], paginas = 0, ultima = null;
+  function proxima(cursor){
+    var url = CAMINHO_FILA + "?queue=" + nome + "&limit=" + LIMITE_PAGINA +
+              (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
+    return portalChamar(url).then(function(r){
+      paginas += 1;
+      ultima = r;
+      if (!r.ok || !r.corpo || !r.corpo.items){
+        /* Uma pagina que falha invalida a leitura INTEIRA. Devolver o que ja' foi lido como se
+           fosse a fila seria afirmar ausencia sobre leitura parcial — de novo o mesmo defeito. */
+        return {ok:false, status:r.status, bloqueado:!!r.bloqueado, erro:r.erro, corpo:r.corpo,
+                paginas:paginas, lidosAntes:itens.length};
+      }
+      itens = itens.concat(r.corpo.items);
+      var prox = r.corpo.next_cursor || null;
+      if (prox && paginas < MAX_PAGINAS) return proxima(prox);
+      return {ok:true, status:r.status, paginas:paginas, truncado:!!prox,
+              corpo:{queue:r.corpo.queue, items:itens, next_cursor:prox,
+                     freshness:r.corpo.freshness}};
+    });
+  }
+  return proxima(null);
+}
+
 function lerFilas(){
-  return Promise.all([
-    portalChamar(CAMINHO_FILA + "?queue=team&limit=100"),
-    portalChamar(CAMINHO_FILA + "?queue=mine&limit=100")
-  ]).then(function(rs){
+  return Promise.all([lerFilaCompleta("team"), lerFilaCompleta("mine")]).then(function(rs){
     S.portal.filas = {team:rs[0], mine:rs[1]};
-    S.evid.portalFila = {team:{status:rs[0].status, itens:contarItens(rs[0])},
-                         mine:{status:rs[1].status, itens:contarItens(rs[1])}};
+    S.evid.portalFila = {
+      team:{status:rs[0].status, itens:contarItens(rs[0]),
+            paginas:rs[0].paginas, truncado:!!rs[0].truncado},
+      mine:{status:rs[1].status, itens:contarItens(rs[1]),
+            paginas:rs[1].paginas, truncado:!!rs[1].truncado}};
     pintarFilas();
     return rs;
   });
@@ -1069,6 +1187,33 @@ function acharItem(r, taskId){
 }
 
 var POSSE = {unassigned:"não atribuída", self:"atribuída a você", other:"atribuída a outra pessoa"};
+
+/* DEPOIS DE CONCLUIR, AUSENCIA E' O ESTADO CORRETO — e ate 21/09/2026 esta tela chamava isso de
+   defeito. `fecharTurno` termina com `lerPortal()`, logo a releitura roda justamente quando a
+   tarefa acabou de sair da fila; o portal responde 404 `resource_unavailable` porque a tarefa
+   concluida nao esta mais ATIVA e nao tem snapshot corrente (`completion-endpoint.md`, secao 3),
+   e a fila de trabalho nao lista tarefa concluida. A tela lia esse par como "isolamento ou chave
+   de juncao errada": falso alarme disparado exatamente no caminho de SUCESSO, um segundo e meio
+   depois do clique que deu certo.
+
+   So' conta conclusao EFETIVA desta tarefa: `!d.http.desfecho` exclui recusado e desconhecido.
+   Num desfecho recusado o processo segue aberto, e ali a ausencia continua sendo diagnostico. */
+function conclusaoDesteTurno(){
+  if (!S.tarefaId) return null;
+  var achado = null;
+  S.desfechos.forEach(function(d){
+    if (d.tarefaId === S.tarefaId && !d.http.desfecho) achado = d;
+  });
+  return achado;
+}
+
+function saiuDaFila(feito, onde){
+  return '<p><span class="selo ok">A TAREFA SAIU DA FILA</span></p><p>' + onde +
+    ' Concluída pelo <b>' + esc(feito.caminho) + '</b> às ' +
+    feito.quando.toLocaleTimeString("pt-BR") + ' (resultado <code>' + esc(feito.resultado) +
+    '</code>). Não há nada a diagnosticar: tarefa concluída sai da fila de trabalho e deixa de ' +
+    'ter snapshot corrente para devolver.</p>';
+}
 
 function pintarFilas(){
   var f = S.portal.filas || {};
@@ -1109,15 +1254,30 @@ function pintarFilas(){
           esc(POSSE[meu.ownership] || meu.ownership) + ", prazo do portal " +
           "<b>" + (meu.engine_due_at ? new Date(meu.engine_due_at).toLocaleString("pt-BR")
                                      : "nenhum") + "</b>.</p>";
+      } else if (r.truncado){
+        html += '<p><span class="selo av">LEITURA INCOMPLETA</span></p>' +
+          '<p class="nota">Paramos em ' + r.paginas + ' páginas de ' + LIMITE_PAGINA +
+          ' e o portal ainda oferece <code>next_cursor</code>. Com fila lida pela metade, ' +
+          '"não aparece" não é conclusão — e por isso a tela não afirma nada aqui.</p>';
       } else {
-        html += '<p><span class="selo esp">A TAREFA DESTE TURNO NÃO APARECE</span></p>' +
-          '<p class="nota">A fila devolveu ' + itens.length + ' tarefa(s), nenhuma com o id ' +
-          '<code>' + esc(S.tarefaId) + '</code>. Duas leituras, e a tela não escolhe: a tarefa ' +
-          '<b>não é deste colaborador</b> (é o isolamento funcionando), ou o portal indexa a ' +
-          'tarefa por um identificador diferente do id do motor.</p>';
+        var feito = conclusaoDesteTurno();
+        html += feito
+          ? saiuDaFila(feito, 'A fila devolveu ' + itens.length +
+              ' tarefa(s), nenhuma com o id <code>' + esc(S.tarefaId) + '</code> — e é assim ' +
+              'que tem de ser.')
+          : '<p><span class="selo esp">A TAREFA DESTE TURNO NÃO APARECE</span></p>' +
+            '<p class="nota">A fila devolveu ' + itens.length + ' tarefa(s), nenhuma com o id ' +
+            '<code>' + esc(S.tarefaId) + '</code>. Duas leituras, e a tela não escolhe: a ' +
+            'tarefa <b>não é deste colaborador</b> (é o isolamento funcionando), ou o portal ' +
+            'indexa a tarefa por um identificador diferente do id do motor.</p>';
       }
     }
     html += frescor(r.corpo && r.corpo.freshness);
+    if (r.truncado)
+      html += '<p class="nota">Lida em ' + r.paginas + ' páginas (teto), <b>incompleta</b>.</p>';
+    else if (r.paginas > 1)
+      html += '<p class="nota">Fila lida em ' + r.paginas + ' páginas de ' + LIMITE_PAGINA +
+        ', percorrendo <code>next_cursor</code> até o fim.</p>';
     html += "</div>";
   });
   $("pFila").innerHTML = html;
@@ -1164,12 +1324,16 @@ function pintarTarefaPortal(){
   var r = S.portal.tarefa;
   if (!r){ $("pTarefa").innerHTML = '<p class="vazio">Não lida.</p>'; return; }
   if (r.status === 404){
-    $("pTarefa").innerHTML = '<p><span class="selo esp">A TAREFA NÃO APARECE PARA ESTE ' +
-      'COLABORADOR</span></p><p>O portal respondeu <b>404</b>' +
-      (r.corpo && r.corpo.code ? " (<code>" + esc(r.corpo.code) + "</code>)" : "") + '.</p>' +
-      '<p class="nota">Se você entrou com o colaborador do <b>outro</b> grupo, é o isolamento ' +
-      'funcionando — e é justamente o passo 3 do roteiro. Se você entrou com o grupo certo, ' +
-      'compare o id: o portal pode indexar a tarefa por outro identificador.</p>';
+    var codigo = r.corpo && r.corpo.code ? " (<code>" + esc(r.corpo.code) + "</code>)" : "";
+    var feito = conclusaoDesteTurno();
+    $("pTarefa").innerHTML = feito
+      ? saiuDaFila(feito, "O portal respondeu <b>404</b>" + codigo + " — e depois de uma " +
+          "conclusão é essa a resposta certa.")
+      : '<p><span class="selo esp">A TAREFA NÃO APARECE PARA ESTE COLABORADOR</span></p>' +
+        '<p>O portal respondeu <b>404</b>' + codigo + '.</p>' +
+        '<p class="nota">Se você entrou com o colaborador do <b>outro</b> grupo, é o isolamento ' +
+        'funcionando — e é justamente o passo 3 do roteiro. Se você entrou com o grupo certo, ' +
+        'compare o id: o portal pode indexar a tarefa por outro identificador.</p>';
     return;
   }
   if (!r.ok){ $("pTarefa").innerHTML = explicarFalhaPortal(r, "ler a tarefa"); return; }
@@ -1253,14 +1417,39 @@ function compararGrupo(grupos){
    digest sha256 de 64 hex tem corrida de digitos por acaso com frequencia alta — a tela
    apontaria "telefone" em `form_digest` varias vezes por leitura. Por isso o valor e'
    CLASSIFICADO antes de varrido: digest (hex puro longo) sai da varredura numerica, referencia
-   opaca vira SUSPEITA em vez de vazamento, e so' texto de verdade conta como vazamento. */
+   opaca vira SUSPEITA em vez de vazamento, e so' texto de verdade conta como vazamento.
+
+   A ORDEM ERA O DEFEITO, E FOI CORRIGIDA EM 21/09/2026. A classificacao rodava ANTES da
+   varredura e engolia o caso obvio: `beneficiario-cpf-123.456.789-09` tem letra, digito e mais de
+   20 caracteres, logo virava `opaco`, e `opaco` suprimia os regex de CPF e telefone — a tela
+   passava batido por um CPF escrito com todos os pontos. Agora a varredura SENSIVEL vem primeiro
+   e vale para qualquer valor; a classificacao so' decide o que fazer com o que restou.
+
+   O QUE PERMITE INVERTER A ORDEM SEM TRAZER O FALSO POSITIVO DE VOLTA: os padroes que rodam
+   antes exigem PONTUACAO (ponto, parentese, espaco ou hifen em posicao de separador), e um digest
+   sha256 e' `[0-9a-f]{64}` — nao ha ponto nem parentese nem hifen onde pos-lo. O padrao CRU (11
+   digitos seguidos, sem separador nenhum) continua restrito a `texto`, que e' de onde vinha a
+   corrida de digitos por acaso. */
 var RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+
+/* SENSIVEIS: rodam antes de classificar, em TODO valor. Pontuacao obrigatoria — e' ela que os
+   torna impossiveis dentro de um digest hexadecimal e dentro de um id no formato UUID. */
+var RE_CPF_PONTUADO = /\d{3}[.\s]\d{3}[.\s]\d{3}[-.\s]?\d{2}/g;
+var RE_FONE_PONTUADO = /\(\d{2}\)\s?\d{4,5}[-.\s]?\d{4}|\d{2}[.\s]\d{4,5}[-.\s]\d{4}/g;
+
+/* CRUS: sem separador nenhum, logo so' em `texto`. Em `opaco` e em digest eles produziriam o
+   falso positivo que o comentario acima descreve. */
 var RE_CPF = /\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g;
 var RE_FONE = /\(?\d{2}\)?\s?\d{4,5}-?\d{4}/g;
 
+/* REFERENCIA OPACA NAO TEM ESPACO, e sem esta condicao a classificacao engolia narrativa: uma
+   nota como "paciente 12345678909 ligou" tem letra, digito e mais de 20 caracteres, logo virava
+   `opaco`, e `opaco` rebaixa CPF de VAZAMENTO para suspeita. A condicao nao e' palpite — o
+   contrato define `OpaqueRef` como `^[^\s -/?#]+$`, ou seja, referencia opaca do
+   portal por definicao nao contem espaco em branco. */
 function classificarValor(v){
   if (/^[0-9a-f]{40,}$/.test(v)) return "digest";
-  if (/[A-Za-z]/.test(v) && /\d/.test(v) && v.length >= 20) return "opaco";
+  if (/[A-Za-z]/.test(v) && /\d/.test(v) && v.length >= 20 && !/\s/.test(v)) return "opaco";
   return "texto";
 }
 
@@ -1286,20 +1475,28 @@ function varrer(valor, caminho, saida){
   }
   var v = String(valor);
   saida.valores += 1;
-  var tipo = classificarValor(v);
-  if (tipo === "digest"){ saida.digests += 1; return; }
 
   var marcas = [], rotulos = {}, grave = false;
-  (v.match(RE_EMAIL) || []).forEach(function(m){
-    marcas.push(m); rotulos["e-mail"] = 1; grave = true;
-  });
-  if (tipo === "texto"){
-    (v.match(RE_CPF) || []).concat(v.match(RE_FONE) || []).forEach(function(m){
-      marcas.push(m); rotulos[rotularNumero(m)] = 1; grave = true;
-    });
-  } else if (/\d{10,}/.test(v)){
-    rotulos["corrida de dígitos em referência opaca"] = 1;
-    marcas.push((/\d{10,}/.exec(v) || [""])[0]);
+  function anotar(m, rotulo){ marcas.push(m); rotulos[rotulo] = 1; grave = true; }
+
+  /* PASSO 1 — SENSIVEL, ANTES DE CLASSIFICAR. Vale para digest, opaco e texto: um CPF pontuado
+     dentro de uma referencia opaca e' um CPF exposto, e era exatamente o que escapava. */
+  (v.match(RE_EMAIL) || []).forEach(function(m){ anotar(m, "e-mail"); });
+  (v.match(RE_CPF_PONTUADO) || []).forEach(function(m){ anotar(m, rotularNumero(m)); });
+  (v.match(RE_FONE_PONTUADO) || []).forEach(function(m){ anotar(m, rotularNumero(m)); });
+
+  /* PASSO 2 — o que depende da natureza do valor, e so' quando o passo 1 nao achou nada. */
+  var tipo = classificarValor(v);
+  if (tipo === "digest") saida.digests += 1;
+  if (!grave){
+    if (tipo === "texto"){
+      (v.match(RE_CPF) || []).concat(v.match(RE_FONE) || []).forEach(function(m){
+        anotar(m, rotularNumero(m));
+      });
+    } else if (tipo === "opaco" && /\d{10,}/.test(v)){
+      rotulos["corrida de dígitos em referência opaca"] = 1;
+      marcas.push((/\d{10,}/.exec(v) || [""])[0]);
+    }
   }
   if (!marcas.length) return;
   saida.achados.push({onde:caminho, valor:v, marcas:marcas,
@@ -1418,9 +1615,13 @@ function seguro(promessa){
   return promessa.then(function(v){ return v; }).catch(function(){ return null; });
 }
 
-function juntarEncerramento(){
-  var r = {atividades:null, fim:[], estado:null, endTime:null, esperando:null, incidentes:null};
-  return seguro(api("/engine/history/activity-instance?processInstanceId=" + S.pid +
+/* `pid` EXPLICITO, e nao `S.pid`: `relerEncerramentos` rele' o encerramento de desfechos de
+   turnos ANTERIORES, cada um com a sua instancia, e ler `S.pid` la' dentro fotografaria o turno
+   atual varias vezes com rotulos diferentes. */
+function juntarEncerramento(pid){
+  var r = {atividades:null, fim:[], estado:null, endTime:null, esperando:null, incidentes:null,
+           tarefasAbertas:null};
+  return seguro(api("/engine/history/activity-instance?processInstanceId=" + pid +
                     "&sortBy=startTime&sortOrder=asc&maxResults=200"))
     .then(function(as){
       if (as){
@@ -1430,16 +1631,24 @@ function juntarEncerramento(){
         r.fim = r.atividades.filter(function(a){ return !!DESFECHOS[a.id]; })
                             .map(function(a){ return a.id; });
       }
-      return seguro(api("/engine/history/process-instance/" + S.pid));
+      return seguro(api("/engine/history/process-instance/" + pid));
     })
     .then(function(i){
       if (i){ r.estado = i.state || null; r.endTime = i.endTime || null; }
-      return seguro(api("/engine/external-task?processInstanceId=" + S.pid + "&maxResults=50"));
+      return seguro(api("/engine/external-task?processInstanceId=" + pid + "&maxResults=50"));
     })
     .then(function(x){
       if (x) r.esperando = x.map(function(t){
         return (t.topicName || "?") + " em " + (t.activityId || "?"); });
-      return seguro(api("/engine/history/incident?processInstanceId=" + S.pid + "&maxResults=20"));
+      return seguro(api("/engine/task?processInstanceId=" + pid));
+    })
+    .then(function(ts){
+      /* AS TAREFAS AINDA ABERTAS NO MOTOR, e esta leitura existe para decidir RETRY, nao para
+         pintar. Um 503 do portal tem efeito incerto por contrato, e a unica pergunta que desfaz
+         a incerteza e' esta: a tarefa continua aberta no motor? `null` (leitura que falhou) e'
+         diferente de `[]`, e a diferenca decide se a tela libera repeticao. */
+      if (ts) r.tarefasAbertas = ts.map(function(t){ return t.id; });
+      return seguro(api("/engine/history/incident?processInstanceId=" + pid + "&maxResults=20"));
     })
     .then(function(ins){
       if (ins) r.incidentes = ins.filter(function(n){ return !n.endTime; })
@@ -1448,8 +1657,12 @@ function juntarEncerramento(){
     });
 }
 
+/* TRES SAIDAS, E A TERCEIRA E' NOVA: `http.desfecho` e' `undefined` (concluiu), `"recusado"`
+   (nao aconteceu) ou `"desconhecido"` (pode ter acontecido). So' a primeira pinta "desfecho
+   escolhido" e esconde os botoes; as outras duas passam por `decidirRetry`, que le' o estado real
+   ANTES de deixar alguem repetir. */
 function fecharTurno(caminho, resultado, http){
-  if (!http.recusado){
+  if (!http.desfecho){
     $("vTarefa").innerHTML = "<table>" +
       linha("Desfecho escolhido", "<b>" + esc(ROTULO_RESULTADO[resultado] || resultado) + "</b>") +
       linha("Caminho", '<span class="selo ' + (caminho === "portal" ? "por" : "mot") + '">' +
@@ -1461,21 +1674,107 @@ function fecharTurno(caminho, resultado, http){
      external task, o gateway, o fim) e' assincrono. Ler no mesmo instante fotografaria um
      processo a meio caminho e a tela chamaria isso de divergencia. */
   return espera(1800)
-    .then(juntarEncerramento)
+    .then(function(){ return juntarEncerramento(S.pid); })
     .then(function(enc){
       S.desfechos.push({caminho:caminho, resultado:resultado, http:http, quando:new Date(),
         numero:S.fone, turno:S.turno, pid:S.pid, bk:S.bk, tarefaId:S.tarefaId,
         atividades:enc.atividades, fim:enc.fim, estado:enc.estado, endTime:enc.endTime,
-        esperando:enc.esperando, incidentes:enc.incidentes});
-      S.evid.desfechos = S.desfechos.map(function(d){
-        return {caminho:d.caminho, resultado:d.resultado, http:d.http.status, fim:d.fim,
-                estado:d.estado, pid:d.pid, recusado:!!d.http.recusado};
-      });
+        esperando:enc.esperando, incidentes:enc.incidentes,
+        tarefasAbertas:enc.tarefasAbertas, relidoEm:null});
       pintarDesfechos();
       return rastro();
     })
     .then(function(){ return lerPortal(); })
-    .then(function(){ if (http.recusado) botoesAtivos(true); });
+    .then(function(){ if (http.desfecho) decidirRetry(); });
+}
+
+function sincronizarEvidenciaDesfechos(){
+  S.evid.desfechos = S.desfechos.map(function(d){
+    return {caminho:d.caminho, resultado:d.resultado, http:d.http.status,
+            desfecho:d.http.desfecho || "concluido", fim:d.fim, estado:d.estado, pid:d.pid,
+            tarefaAindaAberta:tarefaAindaAberta(d), relidoEm:d.relidoEm};
+  });
+}
+
+/* `true`, `false` ou `null`, e `null` NAO e' `false`. `null` significa que a leitura das tarefas
+   abertas no motor falhou — e decidir retry sobre efeito incerto com leitura que falhou e' a
+   mesma coisa que decidir sem ler. */
+function tarefaAindaAberta(d){
+  if (!d || !d.tarefaId || d.tarefasAbertas === null) return null;
+  return d.tarefasAbertas.indexOf(d.tarefaId) >= 0;
+}
+
+/* O RETRY E' CONSEQUENCIA DA RELEITURA, NAO DO CODIGO DE ERRO. Era este o defeito: `catch` unico
+   gravava `recusado:true` e devolvia os botoes para o dedo de quem clicou, sem ler nada. Num 503
+   isso e' pior que otimismo — e' oferecer um SEGUNDO efeito sobre um primeiro que pode ter
+   commitado, e ainda por cima com o rotulo "recusado", que afirma o contrario.
+
+   A ordem agora e': falhou -> espera -> `juntarEncerramento` (que le' as tarefas abertas no
+   motor) -> decide. Se a tarefa saiu da fila do motor, o efeito aconteceu e NAO HA retry: os
+   botoes ficam desligados e a tela diz por que. */
+function decidirRetry(){
+  var d = S.desfechos[S.desfechos.length - 1];
+  if (!d) return;
+  var aberta = tarefaAindaAberta(d);
+  var incerto = d.http.desfecho === "desconhecido";
+
+  if (aberta === false){
+    botoesAtivos(false);
+    /* += e nao =: a explicacao do codigo HTTP que `concluirPortal` acabou de escrever e' o
+       QUE aconteceu, e o veredito abaixo e' o que a releitura MEDIU. Substituir apagaria a
+       metade que nomeia a recusa. */
+    $("avisoPortal").innerHTML += '<div class="' + (incerto ? "incerto" : "diverge") + '"><b>' +
+      (incerto
+        ? "A releitura mostra que a tarefa saiu da fila do motor: o efeito ACONTECEU."
+        : "A tarefa não está mais aberta no motor, apesar da recusa.") +
+      '</b><br>Não há o que repetir, e os botões ficam desligados de propósito — repetir aqui ' +
+      'seria pedir um segundo efeito sobre uma tarefa já concluída. O cartão de desfecho abaixo ' +
+      'traz o estado medido; a cadeia de auditoria fica no Cockpit. Para outro caso, ' +
+      '<b>nova conversa</b>.</div>';
+    return;
+  }
+
+  if (incerto && aberta === null){
+    botoesAtivos(false);
+    $("avisoPortal").innerHTML += '<div class="incerto"><b>Efeito incerto, e a releitura não ' +
+      'mediu.</b><br>Não deu para ler as tarefas abertas desta instância no motor, então não sei ' +
+      'se a conclusão commitou. Os botões ficam desligados: liberar repetição sobre efeito ' +
+      'incerto sem releitura é exatamente o que esta tela não pode fazer. Use <b>Reler o ' +
+      'encerramento no motor</b> no bloco de desfechos, ou abra a instância no Cockpit.</div>';
+    return;
+  }
+
+  botoesAtivos(true);
+  if (incerto){
+    $("avisoPortal").innerHTML += '<div class="incerto"><b>Efeito incerto, mas a tarefa segue ' +
+      'aberta no motor.</b><br>A releitura achou <code>' + esc(d.tarefaId) + '</code> ainda ' +
+      'aberta, então a conclusão não commitou e repetir é aceitável. Se ela commitar entre esta ' +
+      'leitura e o próximo clique, a segunda tentativa volta <b>409</b> — e é assim que se ' +
+      'descobre, não adivinhando.</div>';
+  }
+}
+
+/* "AINDA COMPARANDO" PRECISA DE SAIDA, senao e' um verde que nunca chega: o cartao e' a leitura do
+   INSTANTE da conclusao, e o que falta (o external task rodar, o fim ser alcancado) acontece
+   depois dela. Este botao rele' o encerramento de cada desfecho no motor, pela instancia que o
+   proprio cartao guardou, e repinta. Sequencial de proposito: sao poucas instancias e o motor
+   deste ambiente e' um no' so'. */
+function relerEncerramentos(){
+  if (!S.desfechos.length) return Promise.resolve();
+  var fila = S.desfechos.slice();
+  function passo(i){
+    if (i >= fila.length){ pintarDesfechos(); return Promise.resolve(); }
+    var d = fila[i];
+    if (!d.pid) return passo(i + 1);
+    return juntarEncerramento(d.pid).then(function(enc){
+      d.atividades = enc.atividades; d.fim = enc.fim; d.estado = enc.estado;
+      d.endTime = enc.endTime; d.esperando = enc.esperando; d.incidentes = enc.incidentes;
+      d.tarefasAbertas = enc.tarefasAbertas; d.relidoEm = new Date().toISOString();
+      return passo(i + 1);
+    });
+  }
+  $("vDesfechos").innerHTML += '<p class="vazio">Relendo o encerramento no motor…</p>';
+  return passo(0);
 }
 
 /* Do rastro completo, so' o trecho A PARTIR da tarefa humana. Comparar o rastro inteiro de dois
@@ -1522,28 +1821,51 @@ function fimEmTexto(d){
   return texto + ' <span class="selo esc">esperado ' + esc(esperado) + "</span>";
 }
 
+/* O CARTAO TEM TRES CARAS, e a do meio e' a que faltava. RECUSADO e' vermelho e afirma que nada
+   aconteceu; RESULTADO DESCONHECIDO e' ambar e afirma exatamente que ninguem sabe — com a
+   releitura do motor ao lado, que e' a unica coisa concreta que existe nesse estado. */
 function pintarDesfechos(){
   var n = S.desfechos.length;
   $("blocoDesfechos").style.display = n ? "block" : "none";
+  sincronizarEvidenciaDesfechos();
   if (!n) return;
 
   var cartoes = S.desfechos.map(function(d){
     var trecho = trechoDepoisDaTarefa(d.atividades);
-    return '<div class="desfecho ' + (d.caminho === "portal" ? "por" : "mot") + '">' +
+    var recusado = d.http.desfecho === "recusado";
+    var incerto = d.http.desfecho === "desconhecido";
+    var aberta = tarefaAindaAberta(d);
+    return '<div class="desfecho ' + (d.caminho === "portal" ? "por" : "mot") +
+      (incerto ? " inc" : "") + '">' +
       "<h4>" +
       '<span class="selo ' + (d.caminho === "portal" ? "por" : "mot") + '">' +
         d.caminho.toUpperCase() + "</span>" +
       esc(ROTULO_RESULTADO[d.resultado] || d.resultado) +
-      (d.http.recusado ? ' <span class="selo esc">RECUSADO</span>' : "") +
+      (recusado ? ' <span class="selo esc">RECUSADO</span>' : "") +
+      (incerto ? ' <span class="selo av">RESULTADO DESCONHECIDO</span>' : "") +
       '<span class="meta">' + d.quando.toLocaleTimeString("pt-BR") + " · turno " + d.turno +
-        " · " + esc(d.numero) + "</span></h4>" +
+        " · " + esc(d.numero) +
+        (d.relidoEm ? " · relido " + new Date(d.relidoEm).toLocaleTimeString("pt-BR") : "") +
+        "</span></h4>" +
       /* NUM CARTAO RECUSADO, "fim" e "encerramento" sao o estado ATUAL do processo, nao o
          resultado de uma conclusao que nao aconteceu. Sem esta linha, "nenhum evento de fim" ao
          lado de um 403 se le' como defeito do processo, quando o processo esta' intacto de
          proposito — foi a autorizacao que barrou. */
-      (d.http.recusado
+      (recusado
         ? '<p class="nota">Nada foi concluído por este caminho. As leituras abaixo são do ' +
           '<b>estado atual</b> do processo, que segue aberto — como tem de seguir.</p>'
+        : "") +
+      (incerto
+        ? '<div class="incerto"><b>Não sei se a conclusão aconteceu.</b> HTTP ' +
+          (d.http.status || "—") + ' não prova conclusão nem conflito, e não é evidência de ' +
+          'rollback: o efeito pode ter commitado no motor e a resposta ter morrido no elo de ' +
+          'auditoria do resultado. O que é medido: a tarefa <code>' +
+          esc(d.tarefaId || "—") + '</code> ' +
+          (aberta === true ? '<b>continua aberta</b> no motor (a conclusão não commitou).'
+           : aberta === false ? '<b>não está mais aberta</b> no motor (algo a concluiu).'
+           : '<b>não foi lida</b> — a consulta de tarefas abertas falhou.') +
+          ' Este cartão não entra na comparação entre caminhos: efeito incerto não prova nem ' +
+          'equivalência nem divergência.</div>'
         : "") +
       "<table>" +
       linha("Resultado enviado", "<code>" + esc(d.resultado) + "</code>") +
@@ -1560,26 +1882,72 @@ function pintarDesfechos(){
   }).join("");
 
   $("vDesfechos").innerHTML = cartoes + compararCaminhos() +
-    '<div class="botoes"><button class="sec" onclick="esquecerDesfechos()">Esquecer desfechos' +
-    "</button></div>";
+    '<div class="botoes">' +
+    '<button class="sec" onclick="relerEncerramentos()">Reler o encerramento no motor</button>' +
+    '<button class="sec" onclick="esquecerDesfechos()">Esquecer desfechos</button></div>';
 }
 
 /* A COMPARACAO QUE O MANDATO PEDE, e ela so' vale entre desfechos COMPARAVEIS: mesmo resultado,
    os dois efetivamente concluidos. Resultado diferente nao e' divergencia — e' outro teste. */
+/* O PORTAO QUE FALTAVA. Ate 21/09/2026 a comparacao olhava so' IGUALDADE, e igualdade e' barata:
+   dois processos ACTIVE, os dois aguardando o external task, os dois sem fim nenhum no rastro,
+   satisfazem "mesmo rastro", "mesmo fim" e "mesmo encerramento" — e a tela imprimia "Os dois
+   caminhos conferem" sobre dois fluxos que nao terminaram. Verde sobre nada, no painel cujo unico
+   trabalho e' dizer se os dois caminhos produzem o mesmo efeito.
+
+   Agora a equivalencia exige, nos DOIS lados: leitura medida, processo COMPLETED com `endTime`, e
+   o fim que o BPMN preve para aquele resultado presente no rastro. Enquanto faltar, "ainda
+   comparando" — e com a armadilha dita por escrito, porque ela e' o caso comum deste ambiente:
+   processo parado depois da User Task esta' em `ST_PublishResolved` AGUARDANDO WORKER
+   (`operadora.events.publish`), o que nao e' divergencia nenhuma. */
+function faltaParaComparar(d){
+  if (d.estado === null || d.atividades === null) return "leitura do motor não medida";
+  if (d.estado !== "COMPLETED" || !d.endTime){
+    if (d.esperando && d.esperando.length)
+      return "processo ainda <code>" + esc(String(d.estado)) + "</code>, aguardando worker (" +
+        d.esperando.map(function(x){ return "<code>" + esc(x) + "</code>"; }).join(", ") + ")";
+    if (d.incidentes && d.incidentes.length)
+      return "processo ainda <code>" + esc(String(d.estado)) + "</code> com incidente aberto: " +
+        d.incidentes.map(esc).join(" · ");
+    return "processo ainda <code>" + esc(String(d.estado)) + "</code> — não encerrado";
+  }
+  var esperado = FIM_ESPERADO[d.resultado];
+  if (!d.fim || d.fim.indexOf(esperado) < 0)
+    return "encerrado, mas o fim previsto (<code>" + esc(String(esperado)) +
+      "</code>) não está no rastro";
+  return null;
+}
+
 function compararCaminhos(){
-  var feitos = S.desfechos.filter(function(d){ return !d.http.recusado; });
+  var feitos = S.desfechos.filter(function(d){ return !d.http.desfecho; });
   var motor = feitos.filter(function(d){ return d.caminho === "motor"; });
   var portal = feitos.filter(function(d){ return d.caminho === "portal"; });
   if (!motor.length || !portal.length){
+    var incertos = S.desfechos.filter(function(d){
+      return d.http.desfecho === "desconhecido"; }).length;
     return '<p class="nota">A comparação entre caminhos aparece quando houver <b>uma conclusão ' +
       'pelo motor e uma pelo portal</b> com o mesmo resultado. Agora: ' + motor.length +
-      " pelo motor, " + portal.length + " pelo portal.</p>";
+      " pelo motor, " + portal.length + " pelo portal" +
+      (incertos ? " (e " + incertos + " com resultado desconhecido, que não entram na " +
+        "comparação — efeito incerto não prova equivalência nem divergência)" : "") + ".</p>";
   }
   var m = motor[motor.length-1], p = portal[portal.length-1];
   if (m.resultado !== p.resultado){
     return '<p class="nota">Os dois últimos desfechos usaram resultados diferentes (' +
       esc(m.resultado) + " pelo motor, " + esc(p.resultado) + " pelo portal), então não são " +
       "comparáveis. Conclua um caso de cada lado com o <b>mesmo</b> resultado.</p>";
+  }
+  var fm = faltaParaComparar(m), fp = faltaParaComparar(p);
+  if (fm || fp){
+    return '<div class="comparando"><b>Ainda comparando.</b> Equivalência só se declara com os ' +
+      'dois fluxos em estado <b>terminal</b> e com o fim previsto alcançado. Antes disso, dois ' +
+      'processos abertos satisfazem qualquer comparação de igualdade, e o verde não significaria ' +
+      'nada.<ul><li>motor: ' + (fm || "pronto") + "</li><li>portal: " + (fp || "pronto") +
+      "</li></ul>Processo parado logo depois da tarefa humana está em " +
+      "<code>ST_PublishResolved</code> <b>aguardando o worker</b> " +
+      "<code>operadora.events.publish</code> — é o estado normal deste ambiente sem worker " +
+      "rodando, e não é divergência. Depois que o worker rodar, use <b>Reler o encerramento no " +
+      "motor</b>.</div>";
   }
   var tm = trechoDepoisDaTarefa(m.atividades), tp = trechoDepoisDaTarefa(p.atividades);
   var linhas = [];
@@ -1606,7 +1974,6 @@ function compararCaminhos(){
 
 function esquecerDesfechos(){
   S.desfechos = [];
-  S.evid.desfechos = [];
   pintarDesfechos();
 }
 
@@ -1621,8 +1988,11 @@ function copiarEvidencia(){
          "", "PORTAL: " + (PORTAL || "não configurado"));
   S.desfechos.forEach(function(d){
     t.push("  desfecho pelo " + d.caminho + ": " + d.resultado + " · HTTP " + d.http.status +
-           (d.http.recusado ? " (recusado)" : "") + " · fim " + ((d.fim || []).join(",") || "—") +
-           " · estado " + String(d.estado) + " · instância " + String(d.pid));
+           (d.http.desfecho ? " (" + d.http.desfecho + ")" : "") +
+           " · fim " + ((d.fim || []).join(",") || "—") +
+           " · estado " + String(d.estado) +
+           " · tarefa ainda aberta " + String(tarefaAindaAberta(d)) +
+           " · instância " + String(d.pid));
   });
   /* `S.evid` NAO carrega o `csrf_token` da sessao do portal — ver `lerSessao`. Esta funcao
      escreve na area de transferencia; token de sessao nao vai para la'. */

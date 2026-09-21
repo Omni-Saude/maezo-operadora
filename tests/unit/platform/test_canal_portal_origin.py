@@ -153,6 +153,44 @@ def test_origem_malformada_e_recusada_mesmo_em_dev(monkeypatch: pytest.MonkeyPat
     assert canal.PORTAL_MOTIVO.startswith("RECUSADA")
 
 
+@pytest.mark.parametrize(
+    "origem",
+    [
+        'https://a"b.austa.com.br',  # aspa: FECHA o literal JavaScript da pagina
+        "https://a'b.austa.com.br",  # apostrofo, pelo mesmo motivo
+        "https://a<b.austa.com.br",  # `<` abre tag e poderia fechar o `<script>`
+        "https://-portal.austa.com.br",  # hifen no inicio do rotulo
+        "https://portal-.austa.com.br",  # hifen no fim do rotulo
+        "https://portal..austa.com.br",  # rotulo vazio
+        "https://PORTAL.austa.com.br",  # netloc que nao e' o hostname canonico
+        "https://[::1]",  # IPv6 literal
+        "https://portal_maezo.austa.com.br",  # `_` nao e' caractere de rotulo DNS
+        "https://" + "a" * 64 + ".austa.com.br",  # rotulo com mais de 63 caracteres
+        "https://" + ".".join(["abcdefghij"] * 26),  # mais de 253 caracteres no total
+    ],
+)
+def test_hostname_que_nao_e_rotulo_dns_e_recusado(monkeypatch: pytest.MonkeyPatch, origem: str) -> None:
+    """A cerca acrescentada em 21/09/2026, e o motivo dela em um caso: a regra do portal, copiada
+    linha por linha, ACEITA `https://a"b.austa.com.br` — `urlsplit` poe isso tudo no netloc, sem
+    caminho, query, fragmento nem porta. No portal isso e' uma origem que nunca resolve; aqui o
+    valor era concatenado dentro de um literal JavaScript, e a aspa fechava o literal no meio do
+    script. A cerca ficou nos dois lugares: rotulo DNS aqui, `json.dumps` na injecao.
+
+    A diferenca em relacao ao portal so' RECUSA mais, nunca aceita mais — e' essa direcao que
+    mantem "uma regra so'" verdadeira na pratica.
+    """
+    canal = _canal(monkeypatch, MAEZO_ENV="dev", PORTAL_PUBLIC_ORIGIN=origem)
+    assert canal.PORTAL_ORIGIN == ""
+    assert canal.PORTAL_MOTIVO.startswith("RECUSADA")
+
+
+def test_hostname_de_rotulo_unico_e_aceito(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O rotulo DNS unico continua valendo: o portal aceita, e recusar aqui criaria a segunda
+    regra que este arquivo existe para evitar."""
+    canal = _canal(monkeypatch, MAEZO_ENV="dev", PORTAL_PUBLIC_ORIGIN="https://portal")
+    assert canal.PORTAL_ORIGIN == "https://portal"
+
+
 def test_porta_443_explicita_e_aceita(monkeypatch: pytest.MonkeyPatch) -> None:
     """443 explicita e' a MESMA origem; o portal a aceita, e recusa-la aqui criaria a segunda
     regra que este arquivo existe para evitar."""
@@ -187,6 +225,49 @@ def test_pagina_servida_fora_de_dev_recebe_string_vazia(monkeypatch: pytest.Monk
     assert 'window.PORTAL_PUBLIC_ORIGIN = ""' in corpo
     assert ORIGEM_DEV not in corpo
     assert servida.cabecalhos["Content-Length"] == str(len(servida.corpo))
+
+
+def test_a_origem_entra_na_pagina_serializada_e_nao_concatenada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SEGUNDA cerca, testada sozinha. `PORTAL_ORIGIN` e' forcada aqui para um valor que a
+    validacao recusaria — de proposito: o ponto deste teste e' que a INJECAO nao depende da
+    validacao. Se amanha alguem alargar `_origem_https_pura`, a pagina continua sintaticamente
+    intacta, porque o que entra nela e' `json.dumps` de uma string, nao concatenacao.
+    """
+    hostil = 'https://a"b\\c</script>.example'
+    canal = _canal(monkeypatch, MAEZO_ENV="dev", PORTAL_PUBLIC_ORIGIN=ORIGEM_DEV)
+    monkeypatch.setattr(canal, "PORTAL_ORIGIN", hostil)
+
+    servida = _PaginaServida(canal, PAGINA)
+    servida.executar()
+    corpo = servida.corpo.decode("utf-8")
+
+    assert MARCADOR not in corpo
+    # A aspa e a barra invertida chegam ESCAPADAS; o literal nao fecha no meio do script.
+    assert f"window.PORTAL_PUBLIC_ORIGIN = {json.dumps(hostil)}" in corpo
+    assert 'https://a"b' not in corpo  # a forma CRUA nao aparece em lugar nenhum
+    # E o literal e' JSON valido, que e' a prova de que ele fecha onde deve.
+    literal = corpo.split("window.PORTAL_PUBLIC_ORIGIN = ", 1)[1].split(";\n", 1)[0]
+    assert json.loads(literal) == hostil
+    assert servida.cabecalhos["Content-Length"] == str(len(servida.corpo))
+
+
+def test_marcador_fora_de_literal_cai_para_nao_configurado(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Falha segura da injecao: uma pagina futura que declarasse o marcador FORA de aspas nao tem
+    como ser serializada, e o que sobrava antes era o marcador CRU — string truthy, que faria a
+    tela sair chamando `https://__PORTAL_PUBLIC_ORIGIN__/api/v1/portal/session`. Agora ele e'
+    apagado, e a pagina cai em "portal nao configurado", que e' um estado que ela trata.
+    """
+    canal = _canal(monkeypatch, MAEZO_ENV="dev", PORTAL_PUBLIC_ORIGIN=ORIGEM_DEV)
+    solta = Path(canal.PAGINAS) / "_marcador_solto_teste.html"
+    solta.write_text(f"<p>{MARCADOR}</p>", encoding="utf-8")
+    try:
+        servida = _PaginaServida(canal, solta.name)
+        servida.executar()
+        assert servida.corpo.decode("utf-8") == "<p></p>"
+    finally:
+        solta.unlink()
 
 
 def test_pagina_declara_o_marcador_uma_vez_e_nao_crava_a_origem() -> None:

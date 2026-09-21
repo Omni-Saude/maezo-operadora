@@ -121,14 +121,39 @@ AMBIENTE = os.environ.get("MAEZO_ENV", "").strip().lower()
 #: Substituicao de UM marcador, nao injecao de `<script>`: o arquivo continua sendo a unica fonte
 #: de verdade da pagina, e o que entra ali e' um valor ja' validado como `https://<host>`.
 MARCA_PORTAL = "__PORTAL_PUBLIC_ORIGIN__"
+#: O marcador vive DENTRO de um literal JavaScript (`window.PORTAL_PUBLIC_ORIGIN = "<marcador>"`),
+#: e e' o literal INTEIRO — com as aspas — que e' substituido, por `json.dumps` do valor. Antes
+#: desta versao o valor cru era concatenado dentro das aspas, e isso fazia a pagina depender de a
+#: validacao de origem tambem cercar a SINTAXE do JavaScript. Ela nao cerca: `urlsplit` aceita
+#: `https://a"b.example` (netloc `a"b.example`, sem caminho, query, fragmento nem porta), que fecha
+#: o literal no meio do script. Duas cercas agora, e nenhuma confia na outra — rotulo DNS estrito
+#: na validacao, serializacao na injecao.
+MARCA_PORTAL_LITERAL = f'"{MARCA_PORTAL}"'
+
+#: Rotulo DNS: letra/digito/hifen, sem hifen nas pontas, 1..63 por rotulo e 253 no total. E' uma
+#: cerca ESTRITAMENTE mais fechada que a do portal (`PortalSettings._deployment_boundaries`), e a
+#: direcao da diferenca e' o que a torna segura: tudo que este canal aceita, o portal tambem
+#: aceita. Uma regra mais LARGA deste lado e' que seria o jeito conhecido de as duas discordarem
+#: em silencio — o risco que o docstring de `_origem_https_pura` descreve.
+RE_ROTULO_DNS = re.compile(
+    r"^(?=.{1,253}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\Z"
+)
 
 
 def _origem_https_pura(origem: str) -> bool:
-    """Mesma regra que o portal aplica ao seu proprio `public_origin`.
+    """A regra do portal para o proprio `public_origin`, MAIS rotulo DNS estrito.
 
     HTTPS, DNS puro, sem caminho, query, fragmento, credencial nem porta diferente de 443. E' de
     proposito que nao ha excecao para `http://localhost`: o portal recusa, e uma regra mais larga
     deste lado seria uma segunda regra — o jeito conhecido de as duas discordarem em silencio.
+
+    A parte "MAIS" foi acrescentada em 21/09/2026 e e' deliberada: a regra do portal, copiada
+    linha por linha, aceita `https://a"b.example` — `urlsplit` poe isso tudo no netloc, sem
+    caminho, query, fragmento nem porta. No portal isso e' apenas uma origem que jamais resolve;
+    aqui o valor era CONCATENADO dentro de um literal JavaScript da pagina, e a aspa fechava o
+    literal. A cerca ficou nos dois lugares (ver `MARCA_PORTAL_LITERAL`), e o acrescimo so' RECUSA
+    mais — nunca aceita o que o portal recusaria, que e' a direcao que preserva a regra unica.
     """
     if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in origem):
         return False
@@ -149,6 +174,12 @@ def _origem_https_pura(origem: str) -> bool:
         and not partes.password
         and porta in (None, 443)
         and origem == f"https://{partes.netloc}"
+        # As duas linhas abaixo sao o que o portal NAO exige, e sao a diferenca deliberada: o
+        # hostname tem de ser rotulo DNS, e o netloc tem de ser exatamente esse hostname (em
+        # minusculas, com ou sem `:443`). Isto recusa `https://a"b.example`, `https://[::1]` e
+        # qualquer coisa que `urlsplit` tolere no netloc e o rotulo DNS nao.
+        and RE_ROTULO_DNS.match(partes.hostname or "") is not None
+        and partes.netloc in (partes.hostname, f"{partes.hostname}:443")
     )
 
 
@@ -480,7 +511,11 @@ class Handler(BaseHTTPRequestHandler):
             # `PORTAL_ORIGIN` vazia (nao configurada, ou RECUSADA fora de dev) apaga o marcador,
             # e a pagina le' string vazia — que e' o estado "portal nao configurado" que ela
             # trata. O `Content-Length` abaixo e' calculado depois desta troca, de proposito.
-            dados = dados.replace(MARCA_PORTAL.encode(), PORTAL_ORIGIN.encode())
+            dados = dados.replace(MARCA_PORTAL_LITERAL.encode(), json.dumps(PORTAL_ORIGIN).encode())
+            # Uma pagina que declarasse o marcador FORA de um literal nao tem como ser injetada
+            # com seguranca; ela cai para "portal nao configurado" em vez de receber o marcador
+            # cru, que e' string TRUTHY e faria a tela chamar `https://__PORTAL_.../api/v1/...`.
+            dados = dados.replace(MARCA_PORTAL.encode(), b"")
         self.send_response(200)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(dados)))
