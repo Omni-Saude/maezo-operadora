@@ -116,6 +116,21 @@ resource "aws_ecs_task_definition" "canal_teste" {
       #      proxy arbitrario de `/engine` ja depende neste servico.
       { name = "RECEPTOR_URL", value = local.receptor_base_url },
       { name = "CANAL_SIMULAR_RECEPTOR", value = "1" },
+
+      # ---------------------------------------------------------------------
+      # Portal Maezo — a pagina `escalonamento.html` le a fila do colaborador.
+      # ---------------------------------------------------------------------
+      # O portal vive em OUTRO dominio, entao a pagina o alcanca por CORS com credenciais, e o
+      # portal aceita a origem deste canal SOMENTE em dev. Deste lado a cerca e' o proprio
+      # `server.py`: `PORTAL_PUBLIC_ORIGIN` so' vale quando `MAEZO_ENV=dev`, e fora de dev ele
+      # RECUSA a variavel e diz o motivo no log de boot (`_portal_origem_configurada`). Por isso
+      # as duas variaveis andam juntas: sem `MAEZO_ENV` o canal nao tem como provar que esta em
+      # dev, e o painel do portal fica em "nao configurado" — o lado que falha seguro.
+      { name = "MAEZO_ENV", value = local.env },
+      # UMA fonte de verdade quando ela existir: se `var.portal` ja' foi preenchido (Frente 1),
+      # a origem vem dele e o canal segue o portal automaticamente. Enquanto `var.portal` e'
+      # `null` — o estado de hoje — vale o hostname decidido pela diretoria em 21/09/2026.
+      { name = "PORTAL_PUBLIC_ORIGIN", value = try(var.portal.public_origin, "https://portal-maezo-dev.austa.com.br") },
     ]
 
     # PRIMEIRO segredo deste container. Vale dizer o que ele NAO e': aqui o

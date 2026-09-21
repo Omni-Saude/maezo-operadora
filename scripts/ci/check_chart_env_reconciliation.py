@@ -221,7 +221,7 @@ _OTEL_SDK_REASON = (
 _ADOT_COLLECTOR_REASON = (
     "O binario do coletor ADOT (`aws-otel-collector`, "
     "deploy/aws-ecs/envs/dev-sa-east-1/service-metrics-collector.tf, Frente 5) e' quem le estas "
-    "seis: `AOT_CONFIG_CONTENT` pelo entrypoint da imagem, e as outras cinco pela expansao "
+    "cinco: `AOT_CONFIG_CONTENT` pelo entrypoint da imagem, e as outras quatro pela expansao "
     "`${env:...}` do proprio coletor dentro de "
     "deploy/observability/otel-collector-ecs-dev.yaml. Nenhum modulo Python do maezo participa — o "
     "coletor RASPA o `/metrics` do maezo pela rede, nunca roda dentro dele. Contraste "
@@ -290,12 +290,21 @@ _CODEBUILD_BUILDSPEC_NAMES: tuple[str, ...] = ("DOCKERFILE", "REGISTRO", "REPOSI
 #: OpenTelemetry SDK's own env-var contract — see `_OTEL_SDK_REASON`.
 _OTEL_SDK_NAMES: tuple[str, ...] = ("OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_RESOURCE_ATTRIBUTES")
 
-#: As seis do coletor ADOT — see `_ADOT_COLLECTOR_REASON`. `AWS_REGION` entra aqui apesar do nome
+#: As cinco do coletor ADOT — see `_ADOT_COLLECTOR_REASON`. `AWS_REGION` entra aqui apesar do nome
 #: generico: quem a le' e' a extensao `sigv4auth` do coletor, nao o SDK de nenhum modulo do maezo.
+#:
+#: `MAEZO_ENV` SAIU desta tupla em 21/09/2026, e a saida e' o comportamento pedido pela propria
+#: `test_allowlist_entries_that_are_declared_today_are_genuinely_unread_by_src` ("remove the
+#: allowlist entry instead of leaving a stale exemption"): `src/maezo/platform/testchannel/
+#: server.py` passou a LER `MAEZO_ENV` — e' por ela que o canal decide se pode aceitar
+#: `PORTAL_PUBLIC_ORIGIN` (cerca 3.3 do mandato do portal). A isencao ficou falsa: o nome tem
+#: leitor em `src/` agora, entao a direcao (1) da reconciliacao o resolve sozinha e a tabela nao
+#: precisa — nem deve — falar dele. O coletor ADOT continua lendo a MESMA variavel pela expansao
+#: `${env:...}`; isso nao volta a valer como isencao, porque isencao aqui e' para nome SEM leitor
+#: em `src/`, nao para nome com dois consumidores.
 _ADOT_COLLECTOR_NAMES: tuple[str, ...] = (
     "AOT_CONFIG_CONTENT",
     "AWS_REGION",
-    "MAEZO_ENV",
     "MAEZO_CLUSTER",
     "MAEZO_NAMESPACE",
     "AMP_REMOTE_WRITE_URL",

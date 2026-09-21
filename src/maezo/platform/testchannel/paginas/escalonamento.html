@@ -30,6 +30,48 @@
      texto voltado ao beneficiario, e a cerca de CI reprova o portao ligado em outro ambiente.
      Sem o portao os dois campos simplesmente nao vem, e ai' a pagina DIZ que nao recebeu, em
      vez de fingir. Nunca inventa um texto nem finge silencio da Helena.
+
+  O QUE MUDOU EM 21/09/2026 (FRENTE 3 do mandato PORTAL_FULL_E_PAGINA_DE_TESTE)
+
+  5. A PAGINA PASSOU A OLHAR PARA O PORTAL. Ate aqui ela so' via o MOTOR, e o motor sempre
+     concorda consigo mesmo. O que ninguem via e' o que o colaborador ve' quando entra no
+     Portal Maezo: se a tarefa chega na fila dele, com que grupo, com que prazo, e com o
+     contexto pseudonimizado ou nao. O painel "O QUE O PORTAL VE" mede isso pela API do
+     portal, com o cookie de sessao do proprio portal (`credentials: "include"`), e diz o
+     que mediu — inclusive quando nao mediu nada.
+
+     OUTRO DOMINIO, ENTAO CORS. O portal vive em `PORTAL_PUBLIC_ORIGIN` (injetado pelo
+     `server.py`, vazio por default). Em dev o portal aceita a origem deste Canal COM
+     credenciais; fora de dev o proprio `server.py` RECUSA a variavel, e o painel fica em
+     "portal nao configurado". Uma pagina de demonstracao sem autenticacao propria nao pode
+     virar porta de entrada do portal, e a cerca disso e' de servidor, nao de tela.
+
+     O NAVEGADOR ESCONDE A DIFERENCA, E A TELA DIZ ISSO. Quando o portal nao aceita esta
+     origem, o `fetch` rejeita SEM status — indistinguivel de portal fora do ar. A tela nao
+     escolhe entre as duas leituras: mostra as duas.
+
+  6. DOIS CAMINHOS DE CONCLUSAO, LADO A LADO. Os tres botoes de sempre passaram a ser
+     "Concluir pelo motor" (referencia) e ganharam par: "Concluir pelo portal", que chama
+     `POST {PORTAL}/api/v1/portal/tasks/{id}/completion`. Cada conclusao e' renderizada pela
+     MESMA funcao — desfecho, rastro de atividades e encerramento no mesmo formato — porque o
+     ponto do teste e' ver divergencia, e divergencia so' salta aos olhos em formato igual.
+
+     O FIM ESPERADO VEM DO BPMN, NAO DA INTUICAO. `emergencia_acionada` termina em
+     `End_ResolvidoPorHumano`, nao em `End_SupervisorAlertado` — o gateway `GW_Resultado` so'
+     desvia `devolvido_agente`, e o resto cai no flow default. `End_SupervisorAlertado` e' o
+     caminho do TIMER de ciencia, nao um desfecho de conclusao. Ver `FIM_ESPERADO` abaixo: com
+     o mapa "intuitivo" a tela gritaria divergencia sobre um processo correto.
+
+     E O RASTRO PODE PARAR SEM ERRO NENHUM. Logo depois da User Task vem `ST_PublishResolved`,
+     que e' EXTERNAL TASK (`operadora.events.publish`). Sem worker rodando, o processo fica
+     vivo sem chegar a fim nenhum. Isso e' "aguardando worker", nao divergencia, e a tela
+     separa as duas coisas lendo `/engine/external-task`.
+
+  7. O SELETOR DE COLABORADOR ORIENTA, NAO FORJA. A identidade vive no cookie do portal, no
+     dominio dele. Esta tela nao consegue — e nao deve conseguir — escolher quem voce e': ela
+     abre o login do portal e, na volta, RELE' `GET /session` e mostra quem esta logado.
+     Cuidado ao ler a sessao: a projecao do portal (`SessionDTO`) traz `roles`, e NAO traz
+     grupo. O grupo que a fila indica vem de `eligible_candidate_groups` da tarefa.
 -->
 <title>Conversa com a Helena — Canal de Teste</title>
 <style>
@@ -38,6 +80,10 @@
     --fundo:#f6f7f9; --papel:#ffffff; --linha:#e2e6ec;
     --azul:#1f3864; --verde:#1e7a3c; --vermelho:#b31b1b;
     --ambar:#9a6b00; --bolhaEu:#dcf0dd; --bolhaEla:#eef1f5;
+    /* UMA cor nova, e com trabalho a fazer: tudo que e' VOZ DO PORTAL usa violeta — titulo do
+       painel, trilha do cartao de desfecho, selo do caminho. Motor fica no azul que a pagina
+       ja usa. Assim "quem disse isto" se le' de longe, que e' a leitura que este teste pede. */
+    --violeta:#5a3e8f; --violetaFraco:#f2eefa;
   }
   *{box-sizing:border-box}
   body{background:var(--fundo);color:var(--tinta);
@@ -103,6 +149,55 @@
   .rastro{font-size:12px;border-left:2px solid var(--linha);padding-left:11px}
   .rastro div{padding:2px 0;color:var(--tinta2)}
   pre{background:#f0f2f5;border-radius:7px;padding:10px;overflow-x:auto;font-size:11px;max-height:260px}
+
+  /* ---- o portal, e os dois caminhos (21/09) ---- */
+  .faixa{margin-top:16px}
+  .cartao.portal{border-left:3px solid var(--violeta)}
+  .cartao.portal .cab h2{color:var(--violeta)}
+  .selo.por{background:var(--violeta)} .selo.mot{background:var(--azul)}
+  .duas{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+  @media(max-width:760px){.duas{grid-template-columns:1fr}}
+  /* `.bloco:first-child` zera borda e recuo do primeiro bloco — dentro da grade isso desalinhava
+     os dois titulos da linha por 12px, e o olho le' desalinhamento como hierarquia diferente. */
+  .duas > .bloco:first-child{border-top:1px solid var(--linha);padding-top:11px;margin-top:13px}
+
+  /* Cada caminho e' uma caixa fechada, com a borda na cor de quem fala: o par de botoes nunca
+     fica ambiguo sobre para onde a conclusao vai. */
+  .caminho{border:1px solid var(--linha);border-radius:8px;padding:11px 12px}
+  .caminho.mot{border-top:3px solid var(--azul)}
+  .caminho.por{border-top:3px solid var(--violeta)}
+  .caminho h4{font-size:12.5px;margin:0 0 3px;color:var(--tinta)}
+  .caminho .nota{margin-top:7px}
+  /* Os botoes dos dois caminhos ficam no TAMANHO PADRAO da pagina de proposito. A primeira versao
+     deste bloco os encolhia para caber tres por coluna, e o resultado foi alvo de toque menor
+     justamente no par de botoes mais importante da tela — que tambem e' o par que alguem pode
+     apertar por engano. Eles envolvem em duas linhas na coluna estreita, e esta' certo assim. */
+  .caminho .botoes{margin-top:9px}
+
+  /* Cartao de desfecho: o MESMO molde para motor e portal, e a unica diferenca visual e' a
+     trilha lateral. Formato igual e' o que faz divergencia aparecer. */
+  .desfecho{border:1px solid var(--linha);border-left:3px solid var(--azul);border-radius:8px;
+            padding:10px 12px;margin-top:10px}
+  .desfecho.por{border-left-color:var(--violeta)}
+  .desfecho h4{font-size:12.5px;margin:0 0 6px;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+  .desfecho table th{width:150px}
+  .diverge{background:#fdeaea;border:1px solid #f3c2c2;color:var(--vermelho);border-radius:7px;
+           padding:9px 11px;font-size:13px;margin:9px 0 0}
+  .confere{background:#eef7f0;border:1px solid #cfe6d5;color:var(--verde);border-radius:7px;
+           padding:9px 11px;font-size:13px;margin:9px 0 0}
+
+  /* IDENTIFICADOR QUE VAZOU. Marcacao no proprio texto, nao um icone ao lado: o que precisa
+     saltar e' ONDE no contexto o dado apareceu. */
+  .vaza{background:#ffdede;color:#7d1010;font-weight:700;padding:0 3px;border-radius:3px;
+        border-bottom:2px solid var(--vermelho)}
+  .achado{font-size:12.5px;border-top:1px dotted var(--linha);padding:7px 0 0;margin-top:7px;
+          word-wrap:break-word;overflow-wrap:anywhere}
+  .achado:first-of-type{border-top:0}
+  .achado .onde{font-family:Consolas,Menlo,monospace;font-size:11px;color:var(--tinta3);
+                display:block;margin-bottom:2px}
+  .sessao{background:var(--violetaFraco);border:1px solid #ded2f2;border-radius:8px;padding:9px 11px;
+          font-size:13px}
+  .sessao b{font-variant-numeric:tabular-nums}
 </style>
 
 <div class="largura">
@@ -171,11 +266,6 @@
       </div>
 
       <div class="bloco">
-        <h3>Você é a pessoa da equipe</h3>
-        <div id="vTarefa"><p class="vazio">Aguardando.</p></div>
-      </div>
-
-      <div class="bloco">
         <h3>O rastro</h3>
         <div id="vRastro"><p class="vazio">Aguardando.</p></div>
         <div class="botoes" id="botoesEvid" style="display:none">
@@ -187,14 +277,90 @@
     </div>
 
   </div>
+
+  <!-- ====================== o que o portal ve (entre o processo e a tarefa) -->
+  <div class="cartao portal faixa">
+    <div class="cab">
+      <h2>O que o portal vê</h2>
+      <span class="meta" id="metaPortal">—</span>
+    </div>
+
+    <div class="bloco">
+      <h3>Quem está logado no portal</h3>
+      <div id="pSessao"><p class="vazio">Aguardando.</p></div>
+    </div>
+
+    <div class="duas">
+      <div class="bloco">
+        <h3>A fila, como o portal a entrega</h3>
+        <div id="pFila"><p class="vazio">Aguardando.</p></div>
+      </div>
+      <div class="bloco">
+        <h3>A tarefa, como o portal a descreve</h3>
+        <div id="pTarefa"><p class="vazio">Aguardando.</p></div>
+      </div>
+    </div>
+
+    <div class="bloco">
+      <h3>O contexto está pseudonimizado?</h3>
+      <div id="pContexto"><p class="vazio">Aguardando.</p></div>
+    </div>
+  </div>
+
+  <!-- ====================== a tarefa, e os dois caminhos de conclusao -->
+  <div class="cartao faixa">
+    <div class="cab">
+      <h2>Você é a pessoa da equipe</h2>
+      <span class="meta" id="metaTarefa">—</span>
+    </div>
+
+    <div id="vTarefa"><p class="vazio">Aguardando.</p></div>
+
+    <div class="duas" id="caminhos" style="display:none">
+      <div class="caminho mot">
+        <h4><span class="selo mot">MOTOR</span> Concluir pelo motor</h4>
+        <p class="nota">Chama <code>POST /engine/task/{id}/complete</code> direto, como esta tela
+          sempre fez. É a <b>referência</b>: o desfecho que o processo produz sem portal nenhum.</p>
+        <div class="botoes" id="botoesMotor"></div>
+      </div>
+      <div class="caminho por">
+        <h4><span class="selo por">PORTAL</span> Concluir pelo portal</h4>
+        <p class="nota">Chama <code>POST {portal}/api/v1/portal/tasks/{id}/completion</code> com o
+          cookie de sessão do portal. Tem de produzir <b>o mesmo</b> desfecho, rastro e
+          encerramento que o motor.</p>
+        <div class="botoes" id="botoesPortal"></div>
+        <div id="avisoPortal"></div>
+      </div>
+    </div>
+
+    <div class="bloco" id="blocoDesfechos" style="display:none">
+      <h3>Desfechos, no mesmo formato</h3>
+      <div id="vDesfechos"></div>
+    </div>
+  </div>
 </div>
 
 <script>
 "use strict";
 
+/* --------------------------------------------------------- o portal, se houver
+
+   `server.py` substitui o marcador abaixo pela origem do portal LIDA DO AMBIENTE
+   (`PORTAL_PUBLIC_ORIGIN`), e so' faz isso quando o ambiente e' `dev` — fora de dev ele recusa
+   a variavel e o marcador vira string vazia. Vazio nao e' erro: e' o estado "portal nao
+   configurado", que todo painel daqui trata por escrito.
+
+   A origem chega ja' validada pelo servidor como `https://<host>` (sem caminho, porta,
+   credencial, query ou fragmento), com a mesma regra que o proprio portal aplica ao seu
+   `public_origin`. Por isso ela pode entrar numa string aqui sem escapar nada — e por isso a
+   validacao mora la', nao aqui: tela nenhuma e' lugar de cerca. */
+window.PORTAL_PUBLIC_ORIGIN = "__PORTAL_PUBLIC_ORIGIN__";
+var PORTAL = String(window.PORTAL_PUBLIC_ORIGIN || "");
+
 /* ------------------------------------------------------------------ estado */
 
-var S = {fone:null, turno:0, pid:null, bk:null, t0:null, evid:{}, historico:[]};
+var S = {fone:null, turno:0, pid:null, bk:null, t0:null, evid:{}, historico:[],
+         tarefaId:null, desfechos:[], portal:{pretendido:null, sessao:null, csrf:null}};
 
 function $(id){ return document.getElementById(id); }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){
@@ -278,17 +444,39 @@ var DESFECHOS = {End_ResolvidoPorHumano:["Resolvido por uma pessoa","ok"],
    trocar so' o alerta de colisao. */
 function novaConversa(){
   var n = 1 + Math.floor(Math.random()*99);
+  var pretendido = S && S.portal ? S.portal.pretendido : null;
+  var sessao = S && S.portal ? S.portal.sessao : null;
+  var csrf = S && S.portal ? S.portal.csrf : null;
+  /* DUAS COISAS SOBREVIVEM A "NOVA CONVERSA", e as duas por necessidade.
+
+     A SESSAO DO PORTAL, porque ela vive no cookie do portal, num dominio que esta tela nao
+     controla: zerar aqui faria a tela dizer "sem sessao" sobre um colaborador que continua
+     logado — mentira barata e irritante no meio da bateria.
+
+     OS DESFECHOS, porque a comparacao que o roteiro pede e' entre CASOS DIFERENTES ("conclua um
+     caso pelo portal e um pelo motor"), e casos diferentes moram em conversas diferentes. Cada
+     desfecho carrega o numero, o turno e a instancia de onde veio, para ninguem comparar dois
+     casos achando que e' um. Para limpar, ha' um botao explicito no bloco. */
+  var desfechos = S && S.desfechos ? S.desfechos : [];
   S = {fone: "55119000000" + (n<10 ? "0"+n : String(n)),
-       turno:0, pid:null, bk:null, t0:null, evid:{}, historico:[]};
+       turno:0, pid:null, bk:null, t0:null, evid:{}, historico:[],
+       tarefaId:null, desfechos:desfechos, portal:{pretendido:pretendido, sessao:sessao, csrf:csrf}};
   $("foneLbl").textContent = S.fone;
   $("turnoLbl").textContent = "0";
   $("thread").innerHTML = '<p class="vaziothread">Escreva como um beneficiário escreveria no WhatsApp.</p>';
   ["vTriagem","vRota","vRoteamento","vRelogios","vTarefa","vRastro"].forEach(function(id){
     $(id).innerHTML = '<p class="vazio">Aguardando.</p>';
   });
+  ["pFila","pTarefa","pContexto"].forEach(function(id){
+    $(id).innerHTML = '<p class="vazio">Aguardando um escalonamento deste turno.</p>';
+  });
   $("botoesEvid").style.display = "none";
   $("bruto").style.display = "none";
   $("erroEnvio").innerHTML = "";
+  $("caminhos").style.display = "none";
+  $("metaTarefa").textContent = "—";
+  pintarSessao();
+  pintarDesfechos();
 }
 
 function bolha(quem, texto, classe){
@@ -310,7 +498,12 @@ function enviar(){
   $("btEnviar").disabled = true;
   S.turno += 1;
   S.t0 = dataParaMotor(new Date(Date.now() - 5000));
-  S.pid = null; S.bk = null;
+  S.pid = null; S.bk = null; S.tarefaId = null;
+  $("caminhos").style.display = "none";
+  $("metaTarefa").textContent = "turno " + S.turno;
+  ["pFila","pTarefa","pContexto"].forEach(function(id){
+    $(id).innerHTML = '<p class="vazio">Aguardando a tarefa deste turno.</p>';
+  });
   S.evid = {turno:S.turno, telefone:S.fone, mensagem:texto};
   S.historico.push({quem:"você", texto:texto});
   $("turnoLbl").textContent = String(S.turno);
@@ -442,9 +635,10 @@ function procurar(tentativa){
    promessa de que algo vem; quando nada vem, e' a mesma familia de mentira dos outros dois
    defeitos desta tela. */
 function encerrarPaineisSemProcesso(motivo){
-  ["vRoteamento","vRelogios","vTarefa","vRastro"].forEach(function(id){
+  ["vRoteamento","vRelogios","vTarefa","vRastro","pFila","pTarefa","pContexto"].forEach(function(id){
     $(id).innerHTML = '<p class="vazio">Não se aplica — ' + motivo + '</p>';
   });
+  $("caminhos").style.display = "none";
   $("botoesEvid").style.display = "flex";
 }
 
@@ -546,39 +740,140 @@ function relogios(){
     .catch(function(e){ falha("vRelogios", e); });
 }
 
+/* OS TRES RESULTADOS, num lugar so'. O enum e' do BPMN (`formField id="resultado"`, type enum
+   com tres valores) e a Tasklist reprova qualquer outro — a tela nao inventa um quarto. */
+var RESULTADOS = [
+  {valor:"resolvido_humano",    rotulo:"Resolvi",             classe:"verde"},
+  {valor:"devolvido_agente",    rotulo:"Devolvo ao agente",   classe:"ambar"},
+  {valor:"emergencia_acionada", rotulo:"Acionei emergência",  classe:"vermelho"}
+];
+var ROTULO_RESULTADO = {};
+RESULTADOS.forEach(function(r){ ROTULO_RESULTADO[r.valor] = r.rotulo; });
+
 function tarefa(){
   return api("/engine/task?processInstanceId=" + S.pid)
     .then(function(ts){
       S.evid.tarefa = ts;
-      if (!ts || !ts.length){ $("vTarefa").innerHTML = '<p class="vazio">Nenhuma tarefa aberta.</p>'; return rastro(); }
+      if (!ts || !ts.length){
+        $("vTarefa").innerHTML = '<p class="vazio">Nenhuma tarefa aberta.</p>';
+        $("caminhos").style.display = "none";
+        $("pFila").innerHTML = '<p class="vazio">Não se aplica — nenhuma tarefa aberta neste processo.</p>';
+        $("pTarefa").innerHTML = '<p class="vazio">Não se aplica — nenhuma tarefa aberta.</p>';
+        $("pContexto").innerHTML = '<p class="vazio">Não se aplica — nenhuma tarefa aberta.</p>';
+        return rastro();
+      }
       var t = ts[0];
+      S.tarefaId = t.id;
+      $("metaTarefa").textContent = "tarefa " + t.id.slice(0,8) + "… · turno " + S.turno;
       $("vTarefa").innerHTML = "<table>" +
         linha("Tarefa", "<b>" + esc(t.name) + "</b>") +
-        linha("Criada", new Date(t.created).toLocaleString("pt-BR")) + "</table>" +
-        '<div class="botoes">' +
-        '<button class="verde" onclick="concluir(\'' + t.id + '\',\'resolvido_humano\')">Resolvi</button>' +
-        '<button class="ambar" onclick="concluir(\'' + t.id + '\',\'devolvido_agente\')">Devolvo ao agente</button>' +
-        '<button class="vermelho" onclick="concluir(\'' + t.id + '\',\'emergencia_acionada\')">Acionei emergência</button>' +
-        "</div>";
-      return null;
+        linha("Criada", new Date(t.created).toLocaleString("pt-BR")) +
+        linha("Id no motor", "<code>" + esc(t.id) + "</code>") + "</table>";
+      montarCaminhos(t.id);
+      /* O RASTRO AGORA E' PINTADO COM A TAREFA ABERTA, e nao so' depois da conclusao. Antes
+         desta versao `tarefa()` devolvia `null` quando havia tarefa, e o bloco "O rastro" ficava
+         em "Processando…" para sempre — a mesma familia de mentira que o item 3 do cabecalho
+         descreve, sobrevivendo num canto. O rastro e' repintado a cada conclusao. */
+      return rastro().then(function(){ return lerPortal(); });
     })
     .catch(function(e){ falha("vTarefa", e); });
 }
 
-function concluir(tid, resultado){
-  $("vTarefa").innerHTML = '<p class="vazio">Concluindo…</p>';
+/* Os dois grupos de botoes sao montados pela MESMA lista de resultados, de proposito: um botao
+   que exista num caminho e nao no outro tornaria a comparacao impossivel sem ninguem notar. */
+function montarCaminhos(tid){
+  $("caminhos").style.display = "grid";
+  $("botoesMotor").innerHTML = RESULTADOS.map(function(r){
+    return '<button class="' + r.classe + '" onclick="concluirMotor(\'' + tid + '\',\'' + r.valor +
+           '\')">' + r.rotulo + "</button>";
+  }).join("");
+  $("botoesPortal").innerHTML = RESULTADOS.map(function(r){
+    return '<button class="' + r.classe + '" onclick="concluirPortal(\'' + tid + '\',\'' + r.valor +
+           '\')"' + (PORTAL ? "" : " disabled") + ">" + r.rotulo + "</button>";
+  }).join("");
+  $("avisoPortal").innerHTML = PORTAL
+    ? '<p class="nota">O id enviado é o da tarefa <b>no motor</b>. Se o portal indexa a tarefa ' +
+      'por outro identificador, a chamada volta 404 — e é isso que a tela mostra, sem traduzir.</p>'
+    : '<div class="erro"><b>Portal não configurado.</b><br>Sem <code>PORTAL_PUBLIC_ORIGIN</code> ' +
+      'não há para onde chamar. Os botões ficam desligados em vez de falharem.</div>';
+}
+
+/* --------------------------------------------------- caminho 1: pelo motor */
+
+function concluirMotor(tid, resultado){
+  botoesAtivos(false);
+  $("vTarefa").innerHTML += '<p class="vazio">Concluindo pelo motor…</p>';
   api("/engine/task/" + tid + "/complete", {variables:{
       resultado:{value:resultado,type:"String"},
       notas_resolucao:{value:"Concluído pelo Canal de Teste (" + resultado + ")",type:"String"}}})
-    .then(function(){ return espera(1800); })
     .then(function(){
-      S.evid.resultado = resultado;
-      $("vTarefa").innerHTML = "<p>Você escolheu: <b>" +
-        ({resolvido_humano:"Resolvi", devolvido_agente:"Devolvo ao agente",
-          emergencia_acionada:"Acionei emergência"}[resultado]) + "</b></p>";
-      return rastro();
+      return fecharTurno("motor", resultado, {status:204, detalhe:"204 sem corpo (contrato do engine-rest)"});
     })
-    .catch(function(e){ falha("vTarefa", e); });
+    .catch(function(e){
+      botoesAtivos(true);
+      falha("vTarefa", e);
+    });
+}
+
+/* -------------------------------------------------- caminho 2: pelo portal */
+
+function concluirPortal(tid, resultado){
+  if (!PORTAL) return;
+  botoesAtivos(false);
+  $("avisoPortal").innerHTML = '<p class="vazio">Chamando o portal…</p>';
+  /* CSRF: os POST do portal exigem exatamente um `Origin` (o navegador manda) e um
+     `X-CSRF-Token`, que vem de `GET /session`. Relemos a sessao ANTES de concluir em vez de
+     confiar num token guardado — expirar entre uma coisa e outra e' comum numa bateria longa,
+     e um 401 aqui seria lido como "o endpoint nao existe". */
+  lerSessao()
+    .then(function(){
+      var cabecalhos = {"Content-Type":"application/json"};
+      if (S.portal.csrf) cabecalhos["X-CSRF-Token"] = S.portal.csrf;
+      return portalChamar("/api/v1/portal/tasks/" + encodeURIComponent(tid) + "/completion", {
+        method: "POST",
+        headers: cabecalhos,
+        body: JSON.stringify({resultado: resultado,
+          notas_resolucao: "Concluído pelo Canal de Teste, pelo portal (" + resultado + ")"})
+      });
+    })
+    .then(function(r){
+      $("avisoPortal").innerHTML = "";
+      if (r.ok) return fecharTurno("portal", resultado, {status:r.status, detalhe:resumoCorpo(r.corpo)});
+      botoesAtivos(true);
+      $("avisoPortal").innerHTML = explicarFalhaPortal(r, "concluir");
+      /* UM DESFECHO RECUSADO TAMBEM E' DESFECHO — e' o que prova que o isolamento funciona (403
+         para o grupo errado) ou que a flag esta desligada (404/501). Registrar so' o que deu
+         certo esconderia exatamente a metade interessante. */
+      return fecharTurno("portal", resultado,
+        {status:r.status, detalhe:resumoCorpo(r.corpo), recusado:true});
+    });
+}
+
+/* Uma recusa do portal tem nome proprio, e a tela usa o nome — nao "erro ao concluir". Os
+   codigos sao os do contrato (`PortalReadError`/`PortalDecisionError`), quando eles vem. */
+function explicarFalhaPortal(r, acao){
+  if (r.bloqueado){
+    return '<div class="erro"><b>O navegador bloqueou a chamada.</b><br>' +
+      'Duas leituras, e a tela não escolhe entre elas: o portal <b>não aceita a origem deste ' +
+      'Canal</b> (CORS com credenciais, que só é ligado em dev), ou o portal está ' +
+      '<b>inacessível</b>. O <code>fetch</code> rejeita sem status nos dois casos.' +
+      '<p class="nota">' + esc(r.erro || "") + "</p></div>";
+  }
+  var codigo = r.corpo && r.corpo.code ? String(r.corpo.code) : null;
+  var fala = {
+    401: "Sem sessão no portal — entre pelo botão acima e tente de novo.",
+    403: "O portal recusou: o grupo/papel deste colaborador não bate com a tarefa. " +
+         "Se você entrou com o colaborador do outro grupo, <b>este 403 é o isolamento funcionando</b>.",
+    404: "O portal não conhece este caminho ou não enxerga esta tarefa. Duas causas comuns: a flag " +
+         "<code>MAEZO_PORTAL_DIRECT_COMPLETION</code> está desligada, ou a tarefa não é visível " +
+         "para este colaborador.",
+    409: "A tarefa já foi concluída ou mudou de revisão desde a leitura.",
+    422: "O corpo foi recusado pela validação do portal.",
+    501: "O portal declara o caminho como não implementado — é a flag de conclusão direta desligada.",
+    503: "Dependência de leitura indisponível. O gateway recusa fonte atrasada; ver a projeção de autoridade."
+  }[r.status];
+  return '<div class="erro"><b>HTTP ' + r.status + (codigo ? " · <code>" + esc(codigo) + "</code>" : "") +
+    "</b><br>" + (fala || "Resposta não esperada para " + esc(acao) + ".") + "</div>";
 }
 
 function rastro(){
@@ -599,6 +894,722 @@ function rastro(){
     .catch(function(e){ falha("vRastro", e); });
 }
 
+/* ==========================================================================
+   O QUE O PORTAL VE
+   ==========================================================================
+
+   Tres leituras, todas com o cookie de sessao do portal (`credentials: "include"`):
+
+     GET {portal}/api/v1/portal/session                -> quem esta logado
+     GET {portal}/api/v1/portal/tasks?queue=team|mine  -> a fila (TaskQueuePage)
+     GET {portal}/api/v1/portal/tasks/{task_id}        -> a tarefa (TaskReadResponse)
+
+   E UM LIMITE QUE A TELA DIZ EM VEZ DE ESCONDER: a fila do portal NAO carrega
+   `processInstanceId`. `TaskQueueItem` tem task_id, as duas chaves de definicao, revisao,
+   posse, prazo e instante do snapshot — e nada mais. Entao a juncao com o turno e' feita pelo
+   `task_id` que o MOTOR devolveu em `/engine/task?processInstanceId=`. Se o portal indexar a
+   tarefa por outro identificador, a leitura volta 404 e a tela oferece as duas leituras
+   possiveis, sem escolher: ou a tarefa nao e' deste colaborador, ou a chave de juncao e outra. */
+
+var CAMINHO_SESSAO = "/api/v1/portal/session";
+var CAMINHO_FILA = "/api/v1/portal/tasks";
+
+function portalChamar(caminho, opcoes){
+  if (!PORTAL) return Promise.resolve({configurado:false, ok:false, status:0});
+  var o = opcoes || {};
+  o.credentials = "include";   /* o cookie de sessao do portal e' de OUTRO dominio */
+  o.mode = "cors";
+  o.cache = "no-store";
+  return fetch(PORTAL + caminho, o).then(function(r){
+    return r.text().then(function(t){
+      var corpo = null;
+      try { corpo = t ? JSON.parse(t) : null; } catch(e){ corpo = {texto: t.slice(0,400)}; }
+      return {ok:r.ok, status:r.status, corpo:corpo, bruto:t};
+    });
+  }).catch(function(e){
+    /* SEM STATUS, de proposito. Origem recusada pelo CORS e portal fora do ar produzem
+       exatamente esta rejeicao — o navegador nao conta qual foi, e a tela nao adivinha. */
+    return {ok:false, bloqueado:true, status:0, erro:String((e && e.message) || e)};
+  });
+}
+
+function semPortal(){
+  var como = '<div class="erro"><b>Portal não configurado.</b><br>' +
+    'Este Canal não recebeu <code>PORTAL_PUBLIC_ORIGIN</code>. O <code>server.py</code> só ' +
+    'aceita essa variável quando <code>MAEZO_ENV=dev</code> — fora de dev ele a recusa de ' +
+    'propósito, e é isso que impede uma página de demonstração sem autenticação própria de ' +
+    'virar porta de entrada do portal.</div>';
+  $("metaPortal").textContent = "não configurado";
+  $("pSessao").innerHTML = como;
+  ["pFila","pTarefa","pContexto"].forEach(function(id){
+    $(id).innerHTML = '<p class="vazio">Não se aplica — portal não configurado.</p>';
+  });
+}
+
+/* --------------------------------------------------------- sessao e seletor */
+
+/* O SELETOR ORIENTA, NAO FORJA. A sessao vive num cookie do dominio do portal; esta tela nao
+   tem — e nao deve ter — como dizer "sou o do plantao clinico". Os dois botoes abrem o MESMO
+   login; o que eles fazem e' registrar qual colaborador voce PRETENDE usar, para a tela poder
+   comparar o pretendido com o que o portal de fato devolve. */
+function entrarNoPortal(grupo){
+  if (!PORTAL) return;
+  S.portal.pretendido = grupo;
+  pintarSessao();
+  window.open(PORTAL + "/api/v1/portal/auth/login", "portal-maezo",
+              "width=520,height=700,noopener");
+}
+
+function lerSessao(){
+  return portalChamar(CAMINHO_SESSAO).then(function(r){
+    if (r.configurado === false){ semPortal(); return r; }
+    S.portal.ultima = r;
+    if (r.ok && r.corpo){
+      S.portal.sessao = r.corpo;
+      S.portal.csrf = r.corpo.csrf_token || null;
+    } else {
+      S.portal.sessao = null;
+      S.portal.csrf = null;
+    }
+    /* A EVIDENCIA NUNCA LEVA O `csrf_token`. Ela e' copiada para a area de transferencia e
+       impressa em "Dados brutos"; um token de sessao nao tem o que fazer nesses dois lugares. */
+    S.evid.portalSessao = {status:r.status, bloqueado:!!r.bloqueado,
+      publico: r.ok && r.corpo ? r.corpo.audience : null,
+      papeis: r.ok && r.corpo ? r.corpo.roles : null,
+      expira: r.ok && r.corpo ? r.corpo.expires_at : null};
+    pintarSessao();
+    return r;
+  });
+}
+
+function pintarSessao(){
+  if (!PORTAL){ semPortal(); return; }
+  var host = PORTAL.replace(/^https:\/\//, "");
+  $("metaPortal").textContent = host;
+
+  var botoes = '<div class="botoes">' +
+    '<button class="sec" onclick="entrarNoPortal(\'plantao-clinico\')">Entrar como plantão clínico</button>' +
+    '<button class="sec" onclick="entrarNoPortal(\'atendimento-humano\')">Entrar como atendimento humano</button>' +
+    '<button class="sec" onclick="lerPortal()">Reler o portal</button>' +
+    "</div>";
+
+  var pretendido = S.portal.pretendido
+    ? '<p class="nota">Você pediu para entrar como <b>' + esc(S.portal.pretendido) + '</b>. ' +
+      'O login acontece no domínio do portal; quando voltar, use <b>Reler o portal</b>.</p>'
+    : '<p class="nota">A identidade vive no cookie do portal. Entre pelo botão do grupo que ' +
+      'quer testar — esta tela não escolhe quem você é.</p>';
+
+  var r = S.portal.ultima;
+  var corpo;
+  if (!r){
+    corpo = '<p class="vazio">Sessão ainda não lida.</p>';
+  } else if (r.bloqueado){
+    corpo = explicarFalhaPortal(r, "ler a sessão");
+  } else if (r.status === 401 || !S.portal.sessao){
+    corpo = '<div class="sessao"><b>Sem sessão no portal.</b> Ninguém está logado neste ' +
+      'navegador para <code>' + esc(host) + '</code>' +
+      (r.status && r.status !== 401 ? " (HTTP " + r.status + ")" : "") + ".</div>";
+  } else {
+    var s = S.portal.sessao;
+    var expira = s.expires_at ? new Date(s.expires_at) : null;
+    corpo = '<div class="sessao">' +
+      "<b>" + esc(s.principal_ref || "—") + "</b> · público <b>" + esc(s.audience || "—") +
+      "</b> · papéis <b>" + esc((s.roles || []).join(", ") || "nenhum") + "</b>" +
+      (expira ? " · expira <b>" + expira.toLocaleTimeString("pt-BR") + "</b>" : "") +
+      '</div>' +
+      /* O GRUPO NAO ESTA AQUI, e isto nao e' esquecimento da tela. `SessionDTO` projeta
+         principal_ref, publico, papeis, expiracao e csrf — grupo nao. O grupo aparece na
+         tarefa, em `eligible_candidate_groups`, e e' de la' que o painel da fila o le'. */
+      '<p class="nota">A projeção de sessão do portal traz <b>papéis</b>, não grupo. O grupo ' +
+      'aparece no painel da tarefa (<code>eligible_candidate_groups</code>).</p>';
+  }
+  $("pSessao").innerHTML = corpo + pretendido + botoes;
+}
+
+/* ----------------------------------------------------------- ler tudo junto */
+
+function lerPortal(){
+  if (!PORTAL){ semPortal(); return Promise.resolve(); }
+  return lerSessao().then(function(rs){
+    if (!rs.ok){
+      var msg = explicarFalhaPortal(rs, "ler a fila");
+      $("pFila").innerHTML = msg;
+      $("pTarefa").innerHTML = '<p class="vazio">Não medido — sem sessão no portal.</p>';
+      $("pContexto").innerHTML = '<p class="vazio">Não medido — sem sessão no portal.</p>';
+      return null;
+    }
+    return lerFilas().then(function(){ return lerTarefaNoPortal(); });
+  });
+}
+
+/* ------------------------------------------------------------------- a fila */
+
+function lerFilas(){
+  return Promise.all([
+    portalChamar(CAMINHO_FILA + "?queue=team&limit=100"),
+    portalChamar(CAMINHO_FILA + "?queue=mine&limit=100")
+  ]).then(function(rs){
+    S.portal.filas = {team:rs[0], mine:rs[1]};
+    S.evid.portalFila = {team:{status:rs[0].status, itens:contarItens(rs[0])},
+                         mine:{status:rs[1].status, itens:contarItens(rs[1])}};
+    pintarFilas();
+    return rs;
+  });
+}
+
+function contarItens(r){
+  return r && r.ok && r.corpo && r.corpo.items ? r.corpo.items.length : null;
+}
+
+function acharItem(r, taskId){
+  if (!r || !r.ok || !r.corpo || !r.corpo.items) return null;
+  var achado = null;
+  r.corpo.items.forEach(function(i){ if (i.task_id === taskId) achado = i; });
+  return achado;
+}
+
+var POSSE = {unassigned:"não atribuída", self:"atribuída a você", other:"atribuída a outra pessoa"};
+
+function pintarFilas(){
+  var f = S.portal.filas || {};
+  var html = "";
+  ["team","mine"].forEach(function(nome){
+    var r = f[nome];
+    var titulo = nome === "team" ? "fila do grupo (<code>queue=team</code>)"
+                                 : "minhas tarefas (<code>queue=mine</code>)";
+    html += '<div class="achado"><span class="onde">' + titulo + "</span>";
+    if (!r){ html += '<span class="vazio">não lida</span></div>'; return; }
+    if (!r.ok){
+      html += explicarFalhaPortal(r, "ler a fila") + "</div>";
+      return;
+    }
+    var itens = (r.corpo && r.corpo.items) || [];
+    var meu = S.tarefaId ? acharItem(r, S.tarefaId) : null;
+    if (!itens.length){
+      /* VAZIO SIGNIFICA COISAS DIFERENTES NAS DUAS FILAS, e confundir as duas seria inventar
+         defeito: `mine` vazia com a tarefa NAO ATRIBUIDA e' o estado correto — ninguem assumiu
+         ainda. O alerta da projecao de autoridade vale para `team`, que e' a fila do grupo. */
+      html += nome === "mine"
+        ? '<b>Nada atribuído a você</b> — normal enquanto ninguém assume a tarefa; ' +
+          'ela mora na fila do grupo até alguém pegar.'
+        : '<b>Fila vazia</b> — nenhuma tarefa nesta fila.' +
+          '<p class="nota">Com caso aberto no motor, fila do grupo vazia aponta para a ' +
+          '<b>projeção de autoridade</b>: o gateway compara duas fontes e recusa fonte ' +
+          'indisponível ou atrasada, e projeção defasada devolve fila vazia <b>sem erro ' +
+          'visível</b>.</p>';
+    } else {
+      html += "<b>" + itens.length + (itens.length === 1 ? " tarefa" : " tarefas") + "</b>";
+      var desteProcesso = itens.filter(function(i){
+        return i.process_definition_key === "SP-OP-ESCALATION-001"; }).length;
+      html += " · " + desteProcesso + " de <code>SP-OP-ESCALATION-001</code>";
+      if (!S.tarefaId){
+        html += '<p class="nota">Sem tarefa neste turno para cruzar.</p>';
+      } else if (meu){
+        html += '<p><span class="selo ok">A TAREFA DESTE TURNO APARECE</span> — ' +
+          esc(POSSE[meu.ownership] || meu.ownership) + ", prazo do portal " +
+          "<b>" + (meu.engine_due_at ? new Date(meu.engine_due_at).toLocaleString("pt-BR")
+                                     : "nenhum") + "</b>.</p>";
+      } else {
+        html += '<p><span class="selo esp">A TAREFA DESTE TURNO NÃO APARECE</span></p>' +
+          '<p class="nota">A fila devolveu ' + itens.length + ' tarefa(s), nenhuma com o id ' +
+          '<code>' + esc(S.tarefaId) + '</code>. Duas leituras, e a tela não escolhe: a tarefa ' +
+          '<b>não é deste colaborador</b> (é o isolamento funcionando), ou o portal indexa a ' +
+          'tarefa por um identificador diferente do id do motor.</p>';
+      }
+    }
+    html += frescor(r.corpo && r.corpo.freshness);
+    html += "</div>";
+  });
+  $("pFila").innerHTML = html;
+}
+
+/* O FRESCOR E' O SINAL QUE O PROPRIO MANDATO MANDA OLHAR quando a fila vem vazia com caso
+   aberto. `QueueFreshness` traz o instante que o portal observou, o instante da FONTE e ate
+   quando a leitura vale; o atraso entre os dois e' a leitura que interessa. */
+function frescor(fr){
+  if (!fr) return '<p class="nota">Sem bloco de frescor na resposta.</p>';
+  var obs = fr.observed_at ? new Date(fr.observed_at) : null;
+  var fonte = fr.source_observed_at ? new Date(fr.source_observed_at) : null;
+  var vale = fr.valid_until ? new Date(fr.valid_until) : null;
+  var atraso = (obs && fonte) ? Math.round((obs.getTime() - fonte.getTime())/1000) : null;
+  var selo = atraso === null ? ""
+    : atraso > (fr.refresh_after_seconds || 10)
+      ? ' <span class="selo av">projeção atrasada</span>'
+      : ' <span class="selo ok">projeção no prazo</span>';
+  return '<p class="nota">Frescor: fonte observada ' + (fonte ? fonte.toLocaleTimeString("pt-BR") : "—") +
+    ", portal observou " + (obs ? obs.toLocaleTimeString("pt-BR") : "—") +
+    (atraso === null ? "" : " (atraso " + atraso + " s)") + selo +
+    (vale ? ", vale até " + vale.toLocaleTimeString("pt-BR") : "") + ".</p>";
+}
+
+/* ---------------------------------------------- a tarefa, vista pelo portal */
+
+function lerTarefaNoPortal(){
+  if (!S.tarefaId){
+    $("pTarefa").innerHTML = '<p class="vazio">Sem tarefa neste turno.</p>';
+    $("pContexto").innerHTML = '<p class="vazio">Sem tarefa neste turno.</p>';
+    return Promise.resolve(null);
+  }
+  return portalChamar(CAMINHO_FILA + "/" + encodeURIComponent(S.tarefaId)).then(function(r){
+    S.portal.tarefa = r;
+    S.evid.portalTarefa = {status:r.status, bloqueado:!!r.bloqueado,
+      codigo: r.corpo && r.corpo.code ? r.corpo.code : null};
+    pintarTarefaPortal();
+    pintarContexto();
+    return r;
+  });
+}
+
+function pintarTarefaPortal(){
+  var r = S.portal.tarefa;
+  if (!r){ $("pTarefa").innerHTML = '<p class="vazio">Não lida.</p>'; return; }
+  if (r.status === 404){
+    $("pTarefa").innerHTML = '<p><span class="selo esp">A TAREFA NÃO APARECE PARA ESTE ' +
+      'COLABORADOR</span></p><p>O portal respondeu <b>404</b>' +
+      (r.corpo && r.corpo.code ? " (<code>" + esc(r.corpo.code) + "</code>)" : "") + '.</p>' +
+      '<p class="nota">Se você entrou com o colaborador do <b>outro</b> grupo, é o isolamento ' +
+      'funcionando — e é justamente o passo 3 do roteiro. Se você entrou com o grupo certo, ' +
+      'compare o id: o portal pode indexar a tarefa por outro identificador.</p>';
+    return;
+  }
+  if (!r.ok){ $("pTarefa").innerHTML = explicarFalhaPortal(r, "ler a tarefa"); return; }
+
+  var t = (r.corpo && r.corpo.task) || {};
+  var grupos = t.eligible_candidate_groups || [];
+  var prazo = t.engine_due_at ? new Date(t.engine_due_at) : null;
+
+  $("pTarefa").innerHTML = "<table>" +
+    linha("Grupo que a fila indica", grupos.length
+      ? grupos.map(function(g){ return "<code>" + esc(g) + "</code>"; }).join(" ")
+      : "<i>nenhum grupo elegível na projeção</i>") +
+    linha("Prazo, como o portal calcula", prazo
+      ? "<b>" + prazo.toLocaleString("pt-BR") + "</b>"
+      : '<b>nenhum</b> — <code>engine_due_at</code> nulo') +
+    linha("Formulário", "<code>" + esc(t.form_key || "—") + "</code> v" + esc(t.form_version || "—") +
+      " · " + esc(t.form_source_status || "—")) +
+    linha("Revisão da tarefa", "<code>" + esc(t.task_revision || "—") + "</code>") +
+    linha("Posse", t.assignee_ref ? "atribuída (<code>" + esc(t.assignee_ref) + "</code>)"
+                                  : "não atribuída") +
+    linha("Snapshot", t.snapshot_at ? new Date(t.snapshot_at).toLocaleString("pt-BR") : "—") +
+    "</table>" + compararPrazos(prazo) + compararGrupo(grupos);
+}
+
+/* O PRAZO DO PORTAL E O PRAZO QUE O PROCESSO COBRA NAO SAO A MESMA COISA, e a tela mede os
+   dois. `engine_due_at` e' o `dueDate` da tarefa no motor — e a User Task do
+   SP-OP-ESCALATION-001 NAO define `camunda:dueDate`. O prazo real mora nos dois boundary
+   timers (ciencia e resolucao), que a fila do portal nao le'. Prazo nulo no portal, com relogio
+   armado no motor, e' portanto o estado ESPERADO hoje — e vale dizer, porque o colaborador que
+   olha so' o portal nao ve' prazo nenhum. */
+function compararPrazos(prazoPortal){
+  var js = S.evid.relogios || [];
+  var relogios = js.filter(function(j){ return !!j.dueDate; })
+                   .map(function(j){ return new Date(j.dueDate); })
+                   .sort(function(a,b){ return a - b; });
+  if (!relogios.length && !prazoPortal) return "";
+  if (!prazoPortal && relogios.length){
+    return '<div class="diverge"><b>O portal não mostra prazo; o motor tem ' + relogios.length +
+      ' relógio(s) armado(s).</b><br>O primeiro vence ' + relogios[0].toLocaleString("pt-BR") +
+      '. A tarefa não define <code>dueDate</code> no BPMN — o prazo vive em boundary timer, que ' +
+      'a fila do portal não lê. Quem olha só o portal não vê prazo algum.</div>';
+  }
+  if (prazoPortal && !relogios.length){
+    return '<p class="nota">O portal mostra prazo e o motor não tem relógio armado neste ' +
+      'processo — leitura a conferir no motor.</p>';
+  }
+  var iguais = Math.abs(prazoPortal.getTime() - relogios[0].getTime()) <= 60000;
+  return iguais
+    ? '<div class="confere">Prazo do portal e primeiro relógio do motor batem (±1 min).</div>'
+    : '<div class="diverge"><b>Prazos diferentes.</b><br>Portal: ' +
+      prazoPortal.toLocaleString("pt-BR") + " · motor: " + relogios[0].toLocaleString("pt-BR") +
+      ".</div>";
+}
+
+function compararGrupo(grupos){
+  var fila = S.evid.roteamento ? saidasDe(S.evid.roteamento)["grupo_atendimento"] : null;
+  var partes = [];
+  if (fila){
+    partes.push(grupos.indexOf(fila) >= 0
+      ? '<div class="confere">O grupo que o roteamento decidiu (<code>' + esc(fila) +
+        '</code>) está entre os grupos elegíveis do portal.</div>'
+      : '<div class="diverge"><b>O grupo do roteamento não está entre os elegíveis do portal.' +
+        '</b><br>Roteamento: <code>' + esc(fila) + '</code> · portal: ' +
+        (grupos.length ? grupos.map(esc).join(", ") : "nenhum") + ".</div>");
+  }
+  if (S.portal.pretendido && grupos.length && grupos.indexOf(S.portal.pretendido) < 0){
+    partes.push('<p class="nota">Você pediu para entrar como <b>' + esc(S.portal.pretendido) +
+      '</b>, e esta tarefa é elegível para ' + grupos.map(esc).join(", ") + '. Se você viu a ' +
+      'tarefa mesmo assim, olhe a membership do colaborador.</p>');
+  }
+  return partes.join("");
+}
+
+/* ------------------------------------------- pseudonimizacao do contexto */
+
+/* A VARREDURA E' DE SUPERFICIE, E A TELA DIZ ISSO. Ela procura padrao de identificador no JSON
+   que o portal DEVOLVEU — nao prova que o resto do sistema esta pseudonimizado, e nao prova que
+   um identificador em outro formato (prontuario, carteirinha) nao passou.
+
+   A ARMADILHA QUE CUSTOU ESTE COMENTARIO: `\d{4,5}-?\d{4}` casa 11 digitos seguidos, e um
+   digest sha256 de 64 hex tem corrida de digitos por acaso com frequencia alta — a tela
+   apontaria "telefone" em `form_digest` varias vezes por leitura. Por isso o valor e'
+   CLASSIFICADO antes de varrido: digest (hex puro longo) sai da varredura numerica, referencia
+   opaca vira SUSPEITA em vez de vazamento, e so' texto de verdade conta como vazamento. */
+var RE_EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+var RE_CPF = /\d{3}\.?\d{3}\.?\d{3}-?\d{2}/g;
+var RE_FONE = /\(?\d{2}\)?\s?\d{4,5}-?\d{4}/g;
+
+function classificarValor(v){
+  if (/^[0-9a-f]{40,}$/.test(v)) return "digest";
+  if (/[A-Za-z]/.test(v) && /\d/.test(v) && v.length >= 20) return "opaco";
+  return "texto";
+}
+
+function rotularNumero(m){
+  if (/\d{3}\.\d{3}\.\d{3}-?\d{2}/.test(m)) return "CPF";
+  if (/[()\s-]/.test(m)) return "telefone";
+  var d = m.replace(/\D/g, "").length;
+  if (d === 11) return "CPF ou telefone (11 dígitos)";
+  return "telefone (" + d + " dígitos)";
+}
+
+function varrer(valor, caminho, saida){
+  if (valor === null || valor === undefined) return;
+  if (Array.isArray(valor)){
+    valor.forEach(function(v, i){ varrer(v, caminho + "[" + i + "]", saida); });
+    return;
+  }
+  if (typeof valor === "object"){
+    Object.keys(valor).forEach(function(k){
+      varrer(valor[k], caminho ? caminho + "." + k : k, saida);
+    });
+    return;
+  }
+  var v = String(valor);
+  saida.valores += 1;
+  var tipo = classificarValor(v);
+  if (tipo === "digest"){ saida.digests += 1; return; }
+
+  var marcas = [], rotulos = {}, grave = false;
+  (v.match(RE_EMAIL) || []).forEach(function(m){
+    marcas.push(m); rotulos["e-mail"] = 1; grave = true;
+  });
+  if (tipo === "texto"){
+    (v.match(RE_CPF) || []).concat(v.match(RE_FONE) || []).forEach(function(m){
+      marcas.push(m); rotulos[rotularNumero(m)] = 1; grave = true;
+    });
+  } else if (/\d{10,}/.test(v)){
+    rotulos["corrida de dígitos em referência opaca"] = 1;
+    marcas.push((/\d{10,}/.exec(v) || [""])[0]);
+  }
+  if (!marcas.length) return;
+  saida.achados.push({onde:caminho, valor:v, marcas:marcas,
+                      rotulos:Object.keys(rotulos), grave:grave});
+  if (grave) saida.graves += 1;
+}
+
+function marcar(valor, marcas){
+  var texto = esc(valor.length > 300 ? valor.slice(0,300) + "…" : valor);
+  marcas.slice().sort(function(a,b){ return b.length - a.length; }).forEach(function(m){
+    var alvo = esc(m);
+    if (alvo) texto = texto.split(alvo).join('<span class="vaza">' + alvo + "</span>");
+  });
+  return texto;
+}
+
+/* O OUTRO LADO DA MESMA MEDICAO, e ele nao cabe no selo verde: a projecao da tarefa de
+   escalonamento nao carrega contexto clinico NENHUM. `allowed_inputs` e' uma lista de NOMES de
+   campo (`resultado`, `notas_resolucao`), `read_only_evidence` e' so' PAGTO — logo `null` aqui —
+   e o resto sao referencias opacas e digests. "Nada vazou" e' verdade e e' pouco: o colaborador
+   tambem nao recebe por esta leitura o motivo, a severidade nem uma linha da conversa. Dizer as
+   duas coisas juntas e' o unico jeito honesto de mostrar este resultado. */
+function notaContextoMinimo(){
+  var r = S.portal.tarefa;
+  if (!r || !r.ok || !r.corpo || !r.corpo.task) return "";
+  var t = r.corpo.task;
+  if (t.form_key !== "escalation" || t.read_only_evidence) return "";
+  return '<p class="nota"><b>E não há contexto clínico nesta projeção.</b> Para a tarefa de ' +
+    'escalonamento o portal entrega referências opacas, digests, a revisão e a lista de campos ' +
+    'permitidos (<code>' + esc((t.allowed_inputs || []).join(", ") || "nenhum") + '</code>) — ' +
+    'nada de motivo, severidade ou conversa. Não há o que pseudonimizar, e também não há como a ' +
+    'pessoa saber do que se trata sem outra fonte.</p>';
+}
+
+function pintarContexto(){
+  var r = S.portal.tarefa;
+  var fontes = [];
+  if (r && r.ok && r.corpo) fontes.push({nome:"tarefa (portal-task-read.v1)", dado:r.corpo});
+  var f = S.portal.filas || {};
+  ["team","mine"].forEach(function(nome){
+    if (f[nome] && f[nome].ok && f[nome].corpo)
+      fontes.push({nome:"fila " + nome + " (portal-task-queue.v1)", dado:f[nome].corpo});
+  });
+
+  if (!fontes.length){
+    $("pContexto").innerHTML = '<p class="vazio">Não medido — o portal não devolveu contexto ' +
+      'nesta leitura.</p>';
+    return;
+  }
+
+  var saida = {achados:[], valores:0, digests:0, graves:0};
+  fontes.forEach(function(fo){ varrer(fo.dado, fo.nome, saida); });
+  S.evid.portalVarredura = {valores:saida.valores, digests:saida.digests,
+    graves:saida.graves, achados:saida.achados.map(function(a){ return a.onde; })};
+
+  var cabeca;
+  if (saida.graves){
+    cabeca = '<p><span class="selo esc">IDENTIFICADOR EXPOSTO</span> — ' + saida.graves +
+      ' valor(es) com padrão de CPF, telefone ou e-mail no que o portal devolveu.</p>';
+  } else if (saida.achados.length){
+    cabeca = '<p><span class="selo av">SUSPEITA</span> — nenhum identificador em texto, mas ' +
+      saida.achados.length + ' referência(s) opaca(s) carregam corrida longa de dígitos.</p>';
+  } else {
+    cabeca = '<p><span class="selo ok">SEM IDENTIFICADOR À VISTA</span> — ' + saida.valores +
+      ' valores varridos, nenhum com padrão de CPF, telefone ou e-mail.</p>';
+  }
+
+  var lista = saida.achados.map(function(a){
+    return '<div class="achado"><span class="onde">' + esc(a.onde) + " · " +
+      esc(a.rotulos.join(", ")) + "</span>" + marcar(a.valor, a.marcas) + "</div>";
+  }).join("");
+
+  $("pContexto").innerHTML = cabeca + lista + notaContextoMinimo() +
+    '<p class="nota">Varredura de <b>superfície</b>, sobre ' + saida.valores + ' valores de ' +
+    fontes.length + ' resposta(s): ' + saida.digests + ' digest(s) hexadecimal(is) ficam fora ' +
+    'da busca numérica de propósito (um sha256 casa padrão de telefone por acaso), e ' +
+    'referência opaca com muitos dígitos vira suspeita, não vazamento. Ausência de achado ' +
+    '<b>não</b> prova pseudonimização do que esta tela não vê.</p>';
+}
+
+/* ==========================================================================
+   OS DOIS CAMINHOS, NO MESMO FORMATO
+   ========================================================================== */
+
+/* O FIM ESPERADO SAI DO BPMN, LIDO LINHA POR LINHA — nao da intuicao, que aqui erra.
+   `GW_Resultado` tem default `Flow_GW_EndHumano` e UMA condicao:
+   `${resultado == 'devolvido_agente'}`. Logo `emergencia_acionada` termina em
+   `End_ResolvidoPorHumano` junto com `resolvido_humano` (a documentacao do proprio evento de
+   fim diz "inclui emergencia_acionada"). `End_SupervisorAlertado` NAO e' desfecho de conclusao:
+   e' o fim do ramo do timer de ciencia, com o caso seguindo aberto. Com o mapa "obvio"
+   (emergencia -> supervisor) esta tela gritaria divergencia sobre um processo correto. */
+var FIM_ESPERADO = {
+  resolvido_humano: "End_ResolvidoPorHumano",
+  emergencia_acionada: "End_ResolvidoPorHumano",
+  devolvido_agente: "End_DevolvidoAoAgente"
+};
+var TAREFAS_HUMANAS = ["UT_TratarEscalonamento", "UT_SupervisorAssume"];
+
+function botoesAtivos(ligado){
+  var alvos = document.querySelectorAll("#botoesMotor button, #botoesPortal button");
+  for (var i = 0; i < alvos.length; i++){
+    alvos[i].disabled = !ligado || (!PORTAL && alvos[i].parentNode.id === "botoesPortal");
+  }
+}
+
+function resumoCorpo(corpo){
+  if (!corpo) return "sem corpo";
+  if (corpo.code) return "<code>" + esc(String(corpo.code)) + "</code>";
+  var txt = JSON.stringify(corpo);
+  return "<code>" + esc(txt.length > 180 ? txt.slice(0,180) + "…" : txt) + "</code>";
+}
+
+/* Leitura segura: uma consulta que falha vira `null` em vez de derrubar a leitura inteira. O
+   cartao de desfecho entao diz "nao medido" naquele campo, que e' diferente de dizer zero. */
+function seguro(promessa){
+  return promessa.then(function(v){ return v; }).catch(function(){ return null; });
+}
+
+function juntarEncerramento(){
+  var r = {atividades:null, fim:[], estado:null, endTime:null, esperando:null, incidentes:null};
+  return seguro(api("/engine/history/activity-instance?processInstanceId=" + S.pid +
+                    "&sortBy=startTime&sortOrder=asc&maxResults=200"))
+    .then(function(as){
+      if (as){
+        r.atividades = as.map(function(a){
+          return {id:a.activityId, nome:a.activityName || a.activityId, inicio:a.startTime};
+        });
+        r.fim = r.atividades.filter(function(a){ return !!DESFECHOS[a.id]; })
+                            .map(function(a){ return a.id; });
+      }
+      return seguro(api("/engine/history/process-instance/" + S.pid));
+    })
+    .then(function(i){
+      if (i){ r.estado = i.state || null; r.endTime = i.endTime || null; }
+      return seguro(api("/engine/external-task?processInstanceId=" + S.pid + "&maxResults=50"));
+    })
+    .then(function(x){
+      if (x) r.esperando = x.map(function(t){
+        return (t.topicName || "?") + " em " + (t.activityId || "?"); });
+      return seguro(api("/engine/history/incident?processInstanceId=" + S.pid + "&maxResults=20"));
+    })
+    .then(function(ins){
+      if (ins) r.incidentes = ins.filter(function(n){ return !n.endTime; })
+        .map(function(n){ return (n.activityId || "?") + ": " + (n.incidentMessage || "?"); });
+      return r;
+    });
+}
+
+function fecharTurno(caminho, resultado, http){
+  if (!http.recusado){
+    $("vTarefa").innerHTML = "<table>" +
+      linha("Desfecho escolhido", "<b>" + esc(ROTULO_RESULTADO[resultado] || resultado) + "</b>") +
+      linha("Caminho", '<span class="selo ' + (caminho === "portal" ? "por" : "mot") + '">' +
+            caminho.toUpperCase() + "</span>") + "</table>";
+    $("caminhos").style.display = "none";
+    S.evid.resultado = resultado;
+  }
+  /* 1,8 s antes de ler: a conclusao e' sincrona no engine-rest, mas o que vem DEPOIS dela (o
+     external task, o gateway, o fim) e' assincrono. Ler no mesmo instante fotografaria um
+     processo a meio caminho e a tela chamaria isso de divergencia. */
+  return espera(1800)
+    .then(juntarEncerramento)
+    .then(function(enc){
+      S.desfechos.push({caminho:caminho, resultado:resultado, http:http, quando:new Date(),
+        numero:S.fone, turno:S.turno, pid:S.pid, bk:S.bk, tarefaId:S.tarefaId,
+        atividades:enc.atividades, fim:enc.fim, estado:enc.estado, endTime:enc.endTime,
+        esperando:enc.esperando, incidentes:enc.incidentes});
+      S.evid.desfechos = S.desfechos.map(function(d){
+        return {caminho:d.caminho, resultado:d.resultado, http:d.http.status, fim:d.fim,
+                estado:d.estado, pid:d.pid, recusado:!!d.http.recusado};
+      });
+      pintarDesfechos();
+      return rastro();
+    })
+    .then(function(){ return lerPortal(); })
+    .then(function(){ if (http.recusado) botoesAtivos(true); });
+}
+
+/* Do rastro completo, so' o trecho A PARTIR da tarefa humana. Comparar o rastro inteiro de dois
+   CASOS diferentes acusaria divergencia por causa do caminho de notificacao, que nao tem nada a
+   ver com a conclusao — e a comparacao que este teste pede e' sobre o que a conclusao produz. */
+function trechoDepoisDaTarefa(atividades){
+  if (!atividades) return null;
+  var corte = -1;
+  atividades.forEach(function(a, i){
+    if (corte < 0 && TAREFAS_HUMANAS.indexOf(a.id) >= 0) corte = i;
+  });
+  return (corte < 0 ? atividades : atividades.slice(corte)).map(function(a){ return a.id; });
+}
+
+function encerramentoEmTexto(d){
+  if (d.estado === "COMPLETED"){
+    return '<span class="selo ok">ENCERRADO</span> ' +
+      (d.endTime ? new Date(d.endTime).toLocaleString("pt-BR") : "");
+  }
+  if (d.estado === null) return "<i>não medido</i>";
+  if (d.esperando && d.esperando.length){
+    return '<span class="selo esp">' + esc(d.estado) + '</span> aguardando worker: ' +
+      d.esperando.map(function(t){ return "<code>" + esc(t) + "</code>"; }).join(", ");
+  }
+  if (d.incidentes && d.incidentes.length){
+    return '<span class="selo esc">INCIDENTE</span> ' +
+      d.incidentes.map(function(t){ return esc(t); }).join(" · ");
+  }
+  return '<span class="selo esp">' + esc(d.estado) + "</span> sem worker pendente e sem incidente";
+}
+
+function fimEmTexto(d){
+  var esperado = FIM_ESPERADO[d.resultado];
+  if (!d.fim || !d.fim.length){
+    if (d.esperando && d.esperando.length) return "<i>ainda não — aguardando worker</i>";
+    if (d.estado === null) return "<i>não medido</i>";
+    return "<i>nenhum evento de fim no rastro</i>";
+  }
+  var texto = d.fim.map(function(id){
+    var rot = DESFECHOS[id];
+    return "<code>" + esc(id) + "</code>" + (rot ? " (" + esc(rot[0]) + ")" : "");
+  }).join(" · ");
+  if (d.fim.indexOf(esperado) >= 0) return texto + ' <span class="selo ok">como o BPMN prevê</span>';
+  return texto + ' <span class="selo esc">esperado ' + esc(esperado) + "</span>";
+}
+
+function pintarDesfechos(){
+  var n = S.desfechos.length;
+  $("blocoDesfechos").style.display = n ? "block" : "none";
+  if (!n) return;
+
+  var cartoes = S.desfechos.map(function(d){
+    var trecho = trechoDepoisDaTarefa(d.atividades);
+    return '<div class="desfecho ' + (d.caminho === "portal" ? "por" : "mot") + '">' +
+      "<h4>" +
+      '<span class="selo ' + (d.caminho === "portal" ? "por" : "mot") + '">' +
+        d.caminho.toUpperCase() + "</span>" +
+      esc(ROTULO_RESULTADO[d.resultado] || d.resultado) +
+      (d.http.recusado ? ' <span class="selo esc">RECUSADO</span>' : "") +
+      '<span class="meta">' + d.quando.toLocaleTimeString("pt-BR") + " · turno " + d.turno +
+        " · " + esc(d.numero) + "</span></h4>" +
+      /* NUM CARTAO RECUSADO, "fim" e "encerramento" sao o estado ATUAL do processo, nao o
+         resultado de uma conclusao que nao aconteceu. Sem esta linha, "nenhum evento de fim" ao
+         lado de um 403 se le' como defeito do processo, quando o processo esta' intacto de
+         proposito — foi a autorizacao que barrou. */
+      (d.http.recusado
+        ? '<p class="nota">Nada foi concluído por este caminho. As leituras abaixo são do ' +
+          '<b>estado atual</b> do processo, que segue aberto — como tem de seguir.</p>'
+        : "") +
+      "<table>" +
+      linha("Resultado enviado", "<code>" + esc(d.resultado) + "</code>") +
+      linha("Resposta do caminho", "HTTP <b>" + (d.http.status || "—") + "</b> · " +
+            (d.http.detalhe || "")) +
+      linha("Fim alcançado", fimEmTexto(d)) +
+      linha("Encerramento", encerramentoEmTexto(d)) +
+      linha("Instância", "<code>" + esc(d.pid || "—") + "</code>") +
+      "</table>" +
+      (trecho
+        ? '<p class="nota">Rastro a partir da tarefa humana:</p><div class="rastro">' +
+          trecho.map(function(id){ return "<div>" + esc(id) + "</div>"; }).join("") + "</div>"
+        : '<p class="nota">Rastro não medido nesta leitura.</p>');
+  }).join("");
+
+  $("vDesfechos").innerHTML = cartoes + compararCaminhos() +
+    '<div class="botoes"><button class="sec" onclick="esquecerDesfechos()">Esquecer desfechos' +
+    "</button></div>";
+}
+
+/* A COMPARACAO QUE O MANDATO PEDE, e ela so' vale entre desfechos COMPARAVEIS: mesmo resultado,
+   os dois efetivamente concluidos. Resultado diferente nao e' divergencia — e' outro teste. */
+function compararCaminhos(){
+  var feitos = S.desfechos.filter(function(d){ return !d.http.recusado; });
+  var motor = feitos.filter(function(d){ return d.caminho === "motor"; });
+  var portal = feitos.filter(function(d){ return d.caminho === "portal"; });
+  if (!motor.length || !portal.length){
+    return '<p class="nota">A comparação entre caminhos aparece quando houver <b>uma conclusão ' +
+      'pelo motor e uma pelo portal</b> com o mesmo resultado. Agora: ' + motor.length +
+      " pelo motor, " + portal.length + " pelo portal.</p>";
+  }
+  var m = motor[motor.length-1], p = portal[portal.length-1];
+  if (m.resultado !== p.resultado){
+    return '<p class="nota">Os dois últimos desfechos usaram resultados diferentes (' +
+      esc(m.resultado) + " pelo motor, " + esc(p.resultado) + " pelo portal), então não são " +
+      "comparáveis. Conclua um caso de cada lado com o <b>mesmo</b> resultado.</p>";
+  }
+  var tm = trechoDepoisDaTarefa(m.atividades), tp = trechoDepoisDaTarefa(p.atividades);
+  var linhas = [];
+  if (!tm || !tp) linhas.push("rastro não medido em um dos lados");
+  else if (tm.join(">") !== tp.join(">"))
+    linhas.push("rastro diferente — motor: <code>" + esc(tm.join(" > ")) +
+                "</code>; portal: <code>" + esc(tp.join(" > ")) + "</code>");
+  if ((m.fim || []).join(",") !== (p.fim || []).join(","))
+    linhas.push("fim diferente — motor: <code>" + esc((m.fim||[]).join(",") || "nenhum") +
+                "</code>; portal: <code>" + esc((p.fim||[]).join(",") || "nenhum") + "</code>");
+  if (m.estado !== p.estado)
+    linhas.push("encerramento diferente — motor: <code>" + esc(String(m.estado)) +
+                "</code>; portal: <code>" + esc(String(p.estado)) + "</code>");
+  if (!linhas.length){
+    return '<div class="confere"><b>Os dois caminhos conferem.</b> Mesmo resultado (<code>' +
+      esc(m.resultado) + "</code>), mesmo rastro a partir da tarefa humana, mesmo evento de fim " +
+      "e mesmo encerramento.</div>";
+  }
+  return '<div class="diverge"><b>DIVERGÊNCIA entre concluir pelo motor e concluir pelo portal.' +
+    "</b><ul><li>" + linhas.join("</li><li>") + "</li></ul>" +
+    "Casos diferentes podem divergir por motivo legítimo (worker que rodou num e não no outro); " +
+    "compare os dois cartões acima antes de abrir achado.</div>";
+}
+
+function esquecerDesfechos(){
+  S.desfechos = [];
+  S.evid.desfechos = [];
+  pintarDesfechos();
+}
+
 function copiarEvidencia(){
   var t = ["SP-OP-ESCALATION-001 — teste pelo Canal",
     "Quando: " + new Date().toLocaleString("pt-BR"),
@@ -607,7 +1618,15 @@ function copiarEvidencia(){
   S.historico.forEach(function(m){ t.push("  " + m.quem + ": " + m.texto); });
   t.push("", "Instância: " + (S.pid || "nenhuma aberta neste turno"),
          "Desfecho escolhido: " + (S.evid.resultado || "—"),
-         "", "Dados completos:", JSON.stringify(S.evid, null, 1));
+         "", "PORTAL: " + (PORTAL || "não configurado"));
+  S.desfechos.forEach(function(d){
+    t.push("  desfecho pelo " + d.caminho + ": " + d.resultado + " · HTTP " + d.http.status +
+           (d.http.recusado ? " (recusado)" : "") + " · fim " + ((d.fim || []).join(",") || "—") +
+           " · estado " + String(d.estado) + " · instância " + String(d.pid));
+  });
+  /* `S.evid` NAO carrega o `csrf_token` da sessao do portal — ver `lerSessao`. Esta funcao
+     escreve na area de transferencia; token de sessao nao vai para la'. */
+  t.push("", "Dados completos:", JSON.stringify(S.evid, null, 1));
   navigator.clipboard.writeText(t.join("\n")).then(function(){ alert("Evidência copiada."); });
 }
 
@@ -618,4 +1637,8 @@ function verBruto(){
 }
 
 novaConversa();
+
+/* Uma leitura de sessao no carregamento: o painel abre dizendo se alguem esta logado no portal,
+   em vez de "ainda nao lido" ate' alguem clicar. Sem portal configurado nao ha' o que chamar. */
+if (PORTAL) lerSessao();
 </script>
