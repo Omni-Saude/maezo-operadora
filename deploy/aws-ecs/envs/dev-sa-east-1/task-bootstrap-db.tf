@@ -193,3 +193,61 @@ resource "aws_ecs_task_definition" "bootstrap_db" {
 
   tags = local.base_tags
 }
+
+# ---------------------------------------------------------------------------
+# Rotacao da credencial do portal — leitura da DSN pela API, nunca por override
+# ---------------------------------------------------------------------------
+# P1 do review de 22/09/2026 (PR #454): a DSN da role `portal_bff_amh` viajou em
+# `containerOverrides.environment` no provisionamento, e esse campo e' recuperavel
+# por `ecs:DescribeTasks` enquanto a task existir. Rotacionar exige um caminho em
+# que NEM a senha NEM o verificador SCRAM (que e' password-equivalent para
+# autenticacao) passem por override.
+#
+# O caminho: a DSN nova e' gravada PRIMEIRO no Secrets Manager (texto claro so em
+# TLS ate a AWS), e a task de rotacao a BUSCA por `GetSecretValue` com a TASK role,
+# deriva o verificador SCRAM dentro do container e emite o `ALTER ROLE`. O override
+# carrega apenas CODIGO.
+#
+# Por que na task role e nao em `secrets` da task definition: `containerOverrides`
+# nao aceita `secrets`, entao injetar por task definition exigiria uma revisao nova
+# so' para este passo. E por que isto NAO alarga o raio: esta MESMA task ja carrega
+# a credencial MESTRE do Aurora (`amh_admin`, acima) — quem a executa ja pode
+# reescrever a senha desta role de qualquer forma. O statement e' de UM ARN.
+data "aws_iam_policy_document" "task_portal_session_secret" {
+  for_each = local.portal_config
+
+  statement {
+    sid       = "LerDsnDoPortalParaRotacao"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [each.value.database_secret_arn]
+  }
+
+  # Mesma postura de `portal_execution`: com a chave padrao `aws/secretsmanager`,
+  # `kms_key_id` vem vazio e o statement nao e' emitido.
+  dynamic "statement" {
+    for_each = contains(keys(data.aws_kms_key.portal_session), each.key) ? [data.aws_kms_key.portal_session[each.key].arn] : []
+
+    content {
+      actions   = ["kms:Decrypt"]
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "kms:EncryptionContext:SecretARN"
+        values   = [each.value.database_secret_arn]
+      }
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "task_portal_session_secret" {
+  for_each = local.portal_config
+  name     = "${local.name}-portal-session-secret"
+  role     = aws_iam_role.task.id
+  policy   = data.aws_iam_policy_document.task_portal_session_secret[each.key].json
+}

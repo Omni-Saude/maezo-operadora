@@ -63,6 +63,19 @@ resource "aws_vpc_security_group_egress_rule" "portal_https" {
 # validado fail-closed, /32 e nao-vazio, e cobre Cognito + os endpoints de INTERFACE):
 # o destino aqui e' UMA prefix list gerenciada pela AWS, porta 443, e nada mais. Nao e'
 # 0.0.0.0/0 e nao alcanca a internet.
+#
+# LIMITE CONHECIDO (P1 do review de 22/09/2026): a prefix list e' REGIONAL — ela cobre
+# qualquer bucket de sa-east-1, e uma URL pre-assinada de outro bucket nao precisa de
+# credencial, entao IAM nao fecha esse canal. O fecho seria uma POLICY no gateway endpoint
+# `vpce-09e34704570f7f756`. Medido antes de escrever qualquer coisa: o endpoint **nao tem
+# policy** (default full access), esta em **5 route tables** do VPC compartilhado e pertence
+# ao state do `amh-data-platform` — incluindo as subnets do **MWAA `amh-mwaa-dev`** e da KDA
+# `amh-cdc-bronze-v3-dev`. Qualquer policy aqui seria RESTRITIVA para todos eles, nao aditiva,
+# e brigaria com o Terraform da plataforma. E nao ha dois gateway endpoints de S3 na mesma
+# route table: "um endpoint so' para o portal" exigiria subnets + route table dedicadas.
+# A medicao completa, o nome do bucket confirmado na doc da AWS
+# (`prod-sa-east-1-starport-layer-bucket`) e a policy PROPOSTA estao em
+# `docs/runbooks/portal-dev-provisionamento.md`, secao 8. Nada foi aplicado: e' decisao do dono.
 data "aws_ec2_managed_prefix_list" "portal_s3" {
   count = var.portal == null ? 0 : 1
   name  = "com.amazonaws.${var.aws_region}.s3"
