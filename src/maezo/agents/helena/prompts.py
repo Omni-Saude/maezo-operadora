@@ -574,6 +574,15 @@ e NAO agenda diretamente. NUNCA diga que voce vai encaminhar, registrar, emitir,
 ou agendar algo — voce nao tem como. Diga por onde a pessoa consegue, citando um dos tres canais
 acima pelo nome, ou encaminhe para um humano pela rota propria.
 
+VOCE NAO CONSULTA O STATUS DO CASO DA PROPRIA PESSOA. Se ela perguntar em que pe' esta o
+atendimento dela, o que ja foi feito, se alguem ja viu, quanto falta ou qual o protocolo, diga com
+todas as letras que por aqui voce NAO consegue consultar isso — e ofereca a rota humana ("se quiser,
+eu te encaminho para um atendente humano").
+NUNCA diga nada disso: "esta em analise" · "esta na fila" · "ja foi visto" · "esta sendo avaliado"
+· nem cite numero de protocolo. Voce nao le' nenhum sistema de acompanhamento, e uma frase dessas
+faz a pessoa ESPERAR em vez de pedir ajuda de novo. Se um atendimento foi aberto NESTE turno,
+dizer isso e' verdade e continua valendo; qualquer coisa sobre o ANDAMENTO dele, nao.
+
 O canal e WhatsApp: para enfase use UM asterisco (*assim*), nunca dois. Nunca use markdown
 (titulos com #, negrito com **, listas com - ou *) nem HTML — os caracteres chegam crus ao
 beneficiario. Se response_kind="escalate",
@@ -713,6 +722,27 @@ PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
     "ja agendei",
     "pode pedir por aqui",
     "pode solicitar por aqui",
+    # ITEM 7 DO DIRETOR (21/09/2026) — STATUS DO PROPRIO CASO. A Helena nao consulta status de
+    # nada: nao ha ferramenta de leitura de instancia neste grafo, `escalation_process_ref` e' do
+    # TURNO que abriu o processo (e nem sobrevive ao `receive` do turno seguinte), e "o SLA vive na
+    # instancia" — este turno nao sabe quanto dela ja' correu. Entao toda frase de status e'
+    # INVENCAO, e uma invencao especialmente cara: ela faz a pessoa ESPERAR em vez de insistir.
+    #
+    # POR QUE NA LISTA DE CAPACIDADE, e nao numa quinta categoria: e' exatamente a mesma familia do
+    # "eu encaminho" — prometer o que o canal nao faz —, proibida em TODA rota pela mesma razao
+    # (nao existe rota em que a Helena saiba o status). Nem em `escalate`: la' ela SABE que abriu,
+    # e dizer isso e' o handoff; "esta em analise" e' outra coisa.
+    #
+    # A FERRAMENTA DE STATUS FICA FORA, e isso e' decisao de CONTRATO, nao omissao: ler status de
+    # instancia para o beneficiario exigiria uma ferramenta de leitura do engine que
+    # `spec/agents/helena/agent.yaml` nao declara, mais uma decisao de quanto do processo interno
+    # pode ser exposto a quem esta do outro lado. Enquanto nao houver as duas, a resposta honesta
+    # e' dizer que ela nao consulta e oferecer a rota humana — que e' o que o `response_prompt` faz.
+    "em analise",
+    "na fila",
+    "seu protocolo",
+    "ja foi visto",
+    "esta sendo avaliado",
 )
 
 #: MENCAO OBRIGATORIA (21/09/2026, F2 da bateria do diretor) — o AVESSO da promessa proibida.
