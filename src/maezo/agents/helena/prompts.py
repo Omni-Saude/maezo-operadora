@@ -627,7 +627,10 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v7"  # 21/09/2026, QUARTA RODADA (os achados do code-reviewer
+RECUSA_DE_SAIDA_VERSION = "recusa-v8"  # 21/09/2026, QUINTA RODADA: a negacao passou a ser
+# testada ONDE ela nega (lookbehind imediatamente antes da acao, em vez de janela sem `nao`) e
+# `numero` voltou a ser pista de telefone, menos no genitivo administrativo. Os dois recortes
+# mudam veredito de texto, entao o numero sobe. v7 (QUARTA RODADA — os achados do code-reviewer
 # sobre o delta da rodada 3: 1 CRITICO + 1 IMPORTANTE de cerca + 1 DESEJAVEL, todos de VEREDITO —
 # nenhuma cerca nova, tres recortes de cerca existente:
 #   * CANAL (CRITICO) — o nome exigido pelo termo QUALIFICADO passou a ter de COMECAR NA
@@ -895,6 +898,14 @@ MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
     #    o C1 da bateria, e "Sem mais detalhes ... entao a equipe vai te ligar" segue `True` porque
     #    ali o `nao` esta' FORA da janela sujeito->acao.
     #
+    #    QUINTA RODADA (21/09/2026): a janela `(?:(?!\bnao\b)[^.;!?]){0,40}` era LARGA DEMAIS.
+    #    Ela apagava a mencao por um `nao` em QUALQUER ponto entre sujeito e acao, inclusive
+    #    quando esse `nao` nega OUTRA coisa. Medido no review, num turno sem start: *"A equipe
+    #    nao tem previsao exata, mas vai te ligar hoje"* e outras tres promessas saiam INTACTAS
+    #    — o C1 de novo, pela terceira forma. Agora a negacao e' testada ONDE ela nega: um
+    #    lookbehind `(?<!nao )` imediatamente antes da ACAO. "nao vai assumir" nao casa;
+    #    "nao tem previsao, mas vai te ligar" casa, porque ali o `nao` nao nega o `vai ligar`.
+    #
     #    RESIDUAL DECLARADO, e nao vale perseguir: negacao ANTES do sujeito ("Nenhum atendente vai
     #    te ligar", "Ninguem da equipe vai assumir") continua contando como mencao. Cobri-la exige
     #    olhar a esquerda do sujeito, e e' de la' que vem a classe de falso negativo que custou o
@@ -902,7 +913,7 @@ MENCAO_DE_ENCAMINHAMENTO_OBRIGATORIA: tuple[str, ...] = (
     #    `nao` a esquerda aparece nas frases honestas e nas mentirosas. A direcao do erro aqui e'
     #    deliberada — o residual FAZ a cerca disparar, e disparar troca o texto por uma constante
     #    verdadeira.
-    rf"\b{_SUJEITO_QUE_ASSUME}\b(?:(?!\bnao\b)[^.;!?]){{0,40}}\b{_ACAO_DE_ASSUNCAO}",
+    rf"\b{_SUJEITO_QUE_ASSUME}\b[^.;!?]{{0,40}}(?<!nao )\b{_ACAO_DE_ASSUNCAO}",
     # 3. O caso `already_existed`: nao ha encaminhamento NOVO a anunciar, e o que a pessoa precisa
     #    saber e' que o antigo esta' de pe'.
     r"\b(?:seu|o)\s+atendimento\b[^.;!?]{0,60}\bja\s+esta\s+aberto\b",
@@ -1056,7 +1067,20 @@ _PRIMEIRA_PALAVRA_SEGUINTE = re.compile(r"\s*([a-z0-9]+)")
 #: ao padrao sem pista, que recusa `2024-2025` e `31602096`; a decisao e' pelo lado que nao
 #: transforma duvida administrativa legitima em escalonamento, e a instrucao do `response_prompt`
 #: ("NUNCA escreva ... numero de telefone, nem 0800") continua sendo a primeira barreira.
-_PISTA_DE_TELEFONE = r"(?:ligue|ligar|liga|ligamos|telefone|telefonar|disque|disca|fone|0800|whatsapp)"
+#: `numero` VOLTOU (21/09/2026, quinta rodada) com recorte. Tira-lo inteiro na quarta rodada
+#: reabriu o telefone inventado na fraseologia MAIS provavel para um numero de contato — medido
+#: no review: "Nosso numero e 3003 1234", "O numero para contato e ...", "O numero de atendimento
+#: e 4004 5678" passavam todos. O que precisava sair nao era a palavra, era o GENITIVO
+#: administrativo: `numero DO protocolo`, `numero DA guia`, `numero DOS pedidos`.
+#:
+#: `de` NAO entra no recorte, e a diferenca foi medida nos dois sentidos: "numero de atendimento"
+#: e "numero de telefone" sao CONTATO, nao protocolo. Por isso `d[oa]s?` e nao `d[eoa]s?` — a
+#: forma com `e` foi a proposta no review e reprovaria exatamente um dos quatro textos que ele
+#: mesmo mediu como telefone.
+_PISTA_DE_TELEFONE = (
+    r"(?:ligue|ligar|liga|ligamos|telefone|telefonar|disque|disca|fone|0800|whatsapp"
+    r"|numero(?!\s+d[oa]s?\b))"
+)
 #: A janela entre a pista e o numero, em qualquer ordem. Limitada e sem alternancia aninhada, pelo
 #: mesmo motivo dos padroes de mencao: a cerca roda em todo texto que sai.
 _TELEFONE_NU = r"\d{4,5}[\s.-]?\d{4}"

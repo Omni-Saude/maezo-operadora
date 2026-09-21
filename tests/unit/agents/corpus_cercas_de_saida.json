@@ -1297,6 +1297,83 @@
         "canal": null,
         "menciona": true
       }
+    },
+    {
+      "texto": "A equipe nao tem previsao exata, mas vai te ligar hoje.",
+      "rota": "escalate",
+      "start_aconteceu": false,
+      "origem": "rodada 5 (reviewer): negacao que NAO nega a acao — medido saindo INTACTO sem start",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "A equipe nao consegue avaliar agora, mas vai te ligar mais tarde.",
+      "rota": "escalate",
+      "start_aconteceu": false,
+      "origem": "rodada 5 (reviewer): negacao que NAO nega a acao — medido saindo INTACTO sem start",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "O atendente nao esta livre agora e vai te ligar em seguida.",
+      "rota": "escalate",
+      "start_aconteceu": false,
+      "origem": "rodada 5 (reviewer): negacao que NAO nega a acao — medido saindo INTACTO sem start",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "A equipe nao vai demorar: vai te ligar ainda hoje.",
+      "rota": "escalate",
+      "start_aconteceu": false,
+      "origem": "rodada 5 (reviewer): negacao que NAO nega a acao — medido saindo INTACTO sem start",
+      "esperado": {
+        "recusa": "promessa_sem_start",
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Nosso numero e 3003 1234.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 5 (reviewer): `numero` de contato voltou a ser pista — medido PASSANDO",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O numero para contato e 3003 1234.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 5 (reviewer): `numero` de contato voltou a ser pista — medido PASSANDO",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O numero de atendimento e 4004 5678.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "rodada 5: `numero DE atendimento` e' contato, nao protocolo (por isso d[oa]s?, nao d[eoa]s?)",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
     }
   ]
 }
