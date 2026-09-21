@@ -72,8 +72,10 @@ provider (`phi_zone_mock` in dev; a real BR-resident endpoint is blocked(externa
 charter). A non-PHI-capable provider raises `PhiZoneRoutingError` — this graph does NOT catch
 that error specially: in `_classify_llm` it is a classify failure -> escalate `falha_tecnica`
 (trigger 4, human takes over); in `_respond_llm`/`_resumo_contexto` (pure text drafting, the
-route is already decided) it degrades to a safe canned text. Neither path ever silently
-downgrades to a general-zone provider.
+route is already decided) it degrades to a safe canned text — which since 21/09/2026 means
+`RESPOSTA_FALHA_DE_REDACAO`, an honest constant that promises NOTHING and goes through the same
+output fences as a model draft (the previous canned text promised a human and bypassed them).
+Neither path ever silently downgrades to a general-zone provider.
 
 LABELED BOUNDARIES (this build, disclosed — never fabricated):
 - FHIR patient/coverage enrichment is NOT wired in this graph, and since the WP
@@ -2382,9 +2384,10 @@ class HelenaGraph:
             saida.update(cerca)
         if not text.strip():
             # HEL-07: NADA e' enviado. Uma mensagem em branco no WhatsApp nao informa e ainda
-            # parece um sistema quebrado; e o canned de handoff ("um profissional vai continuar")
-            # NAO serve de substituto num turno `inform`, onde ninguem foi acionado — seria a
-            # promessa sem lastro que CC-01 acabou de remover do ramo de falha de start. Entao a
+            # parece um sistema quebrado; e a constante de handoff (`RESPOSTA_HANDOFF_RECUSADA`,
+            # "um profissional vai dar continuidade") NAO serve de substituto num turno `inform`,
+            # onde ninguem foi acionado — seria a promessa sem lastro que CC-01 removeu do ramo de
+            # falha de start e que 21/09/2026 removeu tambem do fallback de redacao. Entao a
             # postura e' fail-closed e OBSERVAVEL: sem envio, `error` com token de classe,
             # `desfecho` proprio e um contador com `enviada=False`.
             #
