@@ -209,7 +209,7 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "c745fd94" # main de 09/09/2026 — promocao dos 5 servicos (worker primeiro); antes 40dc6d4 de 27/08, 1.304 commits atras
+  default     = "8b014a60" # main de 09/09/2026 — promocao dos 5 servicos (worker primeiro); antes 40dc6d4 de 27/08, 1.304 commits atras
 }
 
 variable "webhook_receiver_image_tag" {
@@ -235,7 +235,7 @@ variable "webhook_receiver_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "e86c0f89" # 13/09/2026: response-v3 (negativa clinica proibida) + saudacao + eco do turno. VIVO em webhook-receiver desde 13/09 18:07Z
+  default = "8b014a60" # 13/09/2026: response-v3 (negativa clinica proibida) + saudacao + eco do turno. VIVO em webhook-receiver desde 13/09 18:07Z
 }
 
 variable "webhook_receiver_desired_count" {
@@ -495,7 +495,7 @@ variable "canal_teste_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "e86c0f89" # 13/09/2026: pagina de escalonamento com entradas/saidas. VIVO em canal-teste desde 13/09 18:07Z
+  default = "8b014a60" # 13/09/2026: pagina de escalonamento com entradas/saidas. VIVO em canal-teste desde 13/09 18:07Z
 }
 
 variable "canal_teste_desired_count" {
