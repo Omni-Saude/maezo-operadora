@@ -182,6 +182,7 @@ from .prompts import (
     motivo_de_canal_nao_confirmado,
     motivo_de_recusa,
     response_prompt,
+    sintoma_em_palavras,
 )
 
 logger = structlog.get_logger(__name__)
@@ -827,6 +828,30 @@ _POPULACOES_COM_IDADE: frozenset[str] = frozenset(_POPULACAO_DA_IDADE.values())
 #: campo obrigatorio preenchido por falta de opcao.
 _IDADE_DA_POPULACAO: dict[str, str] = {v: k for k, v in _POPULACAO_DA_IDADE.items()}
 
+#: TETO SANO DE IDADE na fronteira da memoria (21/09/2026, segunda rodada).
+#:
+#: O QUE ELE FECHA: a fronteira recusava negativo, `bool`, float e string, e nao tinha limite
+#: SUPERIOR nenhum. `idade_meses=1200` (100 anos em meses) era uma memoria valida, atravessava a
+#: fusao e ia para a tabela PEDIATRICA — que le' `idade_meses` — como se fosse um lactente. E
+#: `idade_anos=900` idem na de adulto. Um valor desses nao vem de ninguem falando da propria
+#: idade; vem de extracao torta ou de valor plantado, e a leitura honesta e' "isto nao e' idade".
+#:
+#: OS NUMEROS, e por que eles NAO sao conteudo clinico: 120 anos e' o limite demografico (o recorde
+#: humano documentado e' 122), e 288 meses e' 24 anos — o proprio limiar que a frase de confirmacao
+#: ja' usa para deixar de falar em meses. Nenhum dos dois decide conduta: decidem se um valor E'
+#: uma idade.
+#:
+#: `idade_gestacional_semanas` fica FORA, e isso e' declarado e nao esquecido: qual semana deixa de
+#: ser uma gestacao possivel e' julgamento clinico (pos-termo existe, e o numero exato pertence ao
+#: medico revisor), e inventar o teto aqui seria a unica afirmacao clinica deste bloco. A ausencia
+#: fica registrada para a fila de revisao.
+#:
+#: SO' NA MEMORIA, nao em `_coerce_age`: a extracao entrega o dado que a pessoa DISSE neste turno,
+#: e a direcao cobrada por `test_toda_idade_que_a_memoria_aceita_a_extracao_tambem_aceitaria` e'
+#: "memoria ⊆ extracao". Um teto so' na memoria a torna mais estrita, que e' o lado seguro dessa
+#: relacao; um teto na extracao mudaria o que chega a DMN e e' outra decisao.
+_TETO_DE_IDADE: dict[str, int] = {"idade_anos": 120, "idade_meses": 24 * 12}
+
 
 def _populacao_tem_lastro(extraction: Mapping[str, Any], nova: object, lembrada: object) -> bool:
     """A `population` que a mensagem trouxe e' uma AFIRMACAO de que o paciente mudou? (F4)
@@ -896,6 +921,9 @@ def _memoria_clinica_valida(
         # `bool` e' subclasse de `int` em Python: `True` passaria por `isinstance(v, int)` e
         # viraria idade 1. Recusado explicitamente, como o helper de rodadas de coleta ja' faz.
         if isinstance(valor, bool) or not isinstance(valor, int) or valor < 0:
+            return None
+        teto = _TETO_DE_IDADE.get(campo)
+        if teto is not None and valor > teto:
             return None
         limpa[campo] = valor
     if not limpa:
@@ -980,11 +1008,44 @@ def _fundir_memoria_clinica(
     populacao_final = str(fundida.get("population") or "none")
 
     # PASSO 2 — A IDADE DELE, e SO' a que combina com a populacao acima.
+    #
+    # A MENSAGEM FALOU DE IDADE? Calculado ANTES do laco de proposito: o laco escreve em `fundida`,
+    # e ler a pergunta dentro dele faria a idade que a memoria acabou de inserir contar como "a
+    # mensagem trouxe".
+    mensagem_falou_de_idade = any(extraction.get(c) is not None for c in _POPULACAO_DA_IDADE)
     for campo in _POPULACAO_DA_IDADE:
         lembrado = memoria.get(campo)
         if lembrado is None or fundida.get(campo) is not None:
             continue
         if populacao_final in _POPULACOES_COM_IDADE and _POPULACAO_DA_IDADE[campo] != populacao_final:
+            continue
+        if mensagem_falou_de_idade:
+            # COERENCIA NOS DOIS SENTIDOS (21/09/2026, segunda rodada). A regra de coerencia acima
+            # e' de mao unica: ela filtra a idade que vem da MEMORIA contra a populacao final, e
+            # nunca pergunta se a mensagem ja' trouxe aquela idade em OUTRO campo.
+            #
+            # O TURNO QUE EXPOS ISSO e' o `D2` um passo adiante. A conversa lembra
+            # `population=pediatric` + `idade_meses=36`; a mae escreve "na verdade ele tem 5 anos"
+            # e o modelo devolve `population=pediatric` com a idade em `idade_anos=5` (o
+            # `classify_prompt` pede `idade_meses` para pediatric, mas "5 anos" e' como a frase
+            # chega, e `_validate_extraction` valida cada campo ISOLADAMENTE, sem cruzar idade com
+            # populacao). `idade_meses` da mensagem e' `None`, entao a idade LEMBRADA atravessava:
+            # a extracao fundida ficava com 5 anos E 36 meses ao mesmo tempo, `_evaluate_dmn` na
+            # tabela pediatrica le' `idade_meses` — a idade de dois turnos atras decidia a regra —,
+            # e a frase de confirmacao ainda dizia "sua crianca de 3 anos", contradizendo o que a
+            # pessoa escreveu no mesmo turno.
+            #
+            # A REGRA, e por que ela e' a de menor superficie: quando a pessoa esta' FALANDO DE
+            # IDADE agora, nenhuma idade lembrada atravessa. Nao ha como saber qual campo o modelo
+            # deveria ter usado — isso e' julgamento clinico sobre a frase —, e o lado seguro e'
+            # a tabela decidir com o dado que a pessoa acabou de dar (ou com idade ausente, que o
+            # catch-all das tabelas trata) em vez de com um dado velho que ela acabou de corrigir.
+            logger.info(
+                "helena_idade_lembrada_descartada",
+                node="classify",
+                campo=campo,  # so' o NOME do campo, nunca o valor
+                motivo="mensagem_trouxe_idade_em_outro_campo",
+            )
             continue
         fundida[campo] = lembrado
         veio_da_memoria[campo] = lembrado
@@ -1112,10 +1173,28 @@ def _frase_de_confirmacao(lembrados: dict[str, Any]) -> str:
     meses e' "2 anos", nao "2 anos e meio"). O limiar e' INCLUSIVE em 24: dois anos ainda e' idade
     de bebe no uso comum, e a `idade_meses` continua sendo o que a DMN pediatrica le' em todos os
     casos — a conversao e' so' da FRASE.
+
+    21/09/2026 (segunda rodada), DUAS ADICOES:
+
+      * `idade_meses=0` sai "seu RECEM-NASCIDO", nao "seu bebe de 0 meses". Ninguem fala assim, e
+        vale o mesmo argumento do "bebe de 36 meses": a frase existe para a pessoa corrigir, e uma
+        frase que soa como sistema quebrado e' uma frase que ela para de ler. O zero continua
+        atravessando toda a cadeia (validacao, fusao, gravacao) — o que muda e' so' a FRASE, e e'
+        exatamente o paciente com mais red flag na tabela pediatrica.
+      * O RAMO DO SINTOMA (F5). Quando a reavaliacao acontece com o sintoma LEMBRADO, o que a
+        pessoa precisa poder corrigir nao e' quem e' o paciente — e' SOBRE O QUE ela esta' falando.
+        A frase e' outra ("entendi que ainda e' sobre ..."), e por isso este ramo vem PRIMEIRO: num
+        turno de correcao ele e' a confirmacao que importa.
     """
+    if lembrados.get(_MEMORIA_SINTOMA_AVALIADO) is not None:
+        sobre = sintoma_em_palavras(lembrados[_MEMORIA_SINTOMA_AVALIADO])
+        return f"entendi que ainda e' sobre {sobre} que voce contou, certo?"
     if lembrados.get("idade_meses") is not None:
         meses = int(lembrados["idade_meses"])
-        quem = f"sua crianca de {meses // 12} anos" if meses > 24 else f"seu bebe de {meses} meses"
+        if meses == 0:
+            quem = "seu recem-nascido"
+        else:
+            quem = f"sua crianca de {meses // 12} anos" if meses > 24 else f"seu bebe de {meses} meses"
     elif lembrados.get("idade_anos") is not None:
         quem = f"a pessoa de {lembrados['idade_anos']} anos"
     elif lembrados.get("idade_gestacional_semanas") is not None:
@@ -1680,6 +1759,21 @@ class HelenaGraph:
             update["intent"] = intent
             update["sintoma_codigo"] = correcao["sintoma_codigo"]
             update["intensidade"] = correcao["intensidade"]
+            # MOSTRAR ANTES DE USAR, TAMBEM AQUI (21/09/2026, segunda rodada). O `confirmar_agora`
+            # acima e' calculado ANTES desta conversao e olha `veio_da_memoria`, que sao os campos
+            # de QUEM E' O PACIENTE. Neste ramo o dado lembrado que entra na decisao clinica e'
+            # outro — o SINTOMA (`sintoma_avaliado`) — e ele entrava sem ninguem dizer a pessoa: o
+            # turno reabria a triagem com um sintoma que ela nao mencionou naquela mensagem, e a
+            # unica coisa que ela leria seria o resultado.
+            #
+            # SOBRESCREVE a confirmacao de populacao quando as duas caem no mesmo turno, e a ordem
+            # e' deliberada: `response_prompt` usa UMA frase de confirmacao, e num turno de
+            # CORRECAO o que a pessoa precisa poder corrigir e' sobre o que ainda se esta' falando.
+            # Nao mexe no `confirmada` gravado na memoria: aquele flag e' da confirmacao de
+            # paciente, que acontece uma vez por conversa, e esta e' por reavaliacao.
+            update["memoria_a_confirmar"] = _frase_de_confirmacao(
+                {_MEMORIA_SINTOMA_AVALIADO: correcao["sintoma_codigo"]}
+            )
 
         # Gatilho 5 (always evaluated, highest priority): psychosocial risk in ANY message.
         if psychosocial:

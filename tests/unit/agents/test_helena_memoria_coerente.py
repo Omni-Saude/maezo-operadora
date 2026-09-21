@@ -64,6 +64,7 @@ from maezo.agents.helena.graph import (
     _memoria_a_gravar,
     _memoria_clinica_valida,
 )
+from maezo.agents.helena.prompts import ALLOWED_SINTOMA_CODIGOS, SINTOMA_EM_PALAVRAS
 from maezo.runtime.inference import InferenceProvider
 from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
@@ -552,3 +553,145 @@ async def test_um_turno_administrativo_sem_correcao_nao_reabre_a_triagem() -> No
     assert t2["next_kind"] == "inform"
     assert t2["sintoma_codigo"] is None
     assert len(dmn.calls) == 1, "a DMN foi consultada de novo num turno de cadastro"
+
+
+# =================================================================================================
+# SEGUNDA RODADA DE 21/09/2026 — a coerencia nos DOIS sentidos e a confirmacao da reavaliacao
+# =================================================================================================
+
+
+def test_a_idade_que_a_mensagem_trouxe_vence_a_lembrada_ainda_que_em_outro_campo() -> None:
+    """A regra de coerencia era de MAO UNICA, e o preco era a idade velha decidir a regra.
+
+    O CENARIO, o `D2` um turno adiante: a conversa lembra `population=pediatric` +
+    `idade_meses=36`; a mae escreve "na verdade ele tem 5 anos" e o modelo devolve
+    `population=pediatric` com a idade em `idade_anos=5` (o `classify_prompt` pede `idade_meses`
+    para pediatric, mas "5 anos" e' como a frase chega, e `_validate_extraction` valida cada campo
+    ISOLADAMENTE — nao cruza idade com populacao).
+
+    O QUE ACONTECIA: `idade_meses` da mensagem e' `None`, entao a coerencia — que so' pergunta se o
+    campo pertence a populacao FINAL — deixava a idade lembrada (36) atravessar. A extracao fundida
+    saia com 5 anos E 36 meses ao mesmo tempo, `_evaluate_dmn` na tabela pediatrica le'
+    `idade_meses`, e a idade de dois turnos atras decidia a regra enquanto o dado que a pessoa
+    acabou de dar era descartado em silencio — com a frase de confirmacao dizendo "sua crianca de 3
+    anos", contradizendo o que ela escreveu no mesmo turno.
+    """
+    lembrada = memoria(population="pediatric", idade_meses=36)
+
+    fundida, veio = _fundir_memoria_clinica(
+        {"population": "pediatric", "idade_anos": 5, "idade_meses": None}, lembrada
+    )
+
+    assert fundida.get("idade_meses") is None, (
+        "a idade lembrada sobreviveu ao lado da que a mensagem acabou de trazer, e e' ela que a "
+        "tabela pediatrica le'"
+    )
+    assert fundida["idade_anos"] == 5
+    assert "idade_meses" not in veio
+
+
+def test_sem_idade_na_mensagem_a_lembrada_continua_atravessando() -> None:
+    """O RED do teste acima: a regra nova e' condicionada a mensagem FALAR de idade.
+
+    Sem esta metade, "nenhuma idade lembrada atravessa nunca" passaria o teste de cima e
+    desmontaria a frente inteira da memoria clinica — o bebe de 11 meses voltaria a ser triado
+    pela tabela de adulto, que e' o defeito de 13/09 reproduzido tres vezes.
+    """
+    fundida, veio = _fundir_memoria_clinica(
+        {"population": "pediatric", "idade_anos": None, "idade_meses": None},
+        memoria(population="pediatric", idade_meses=11),
+    )
+
+    assert fundida["idade_meses"] == 11
+    assert veio["idade_meses"] == 11
+
+
+def test_a_frase_confirma_o_sintoma_quando_a_reavaliacao_o_usa() -> None:
+    """A frase do ramo novo, e o vocabulario que ela usa.
+
+    `febre` e' a unica entrada com texto declarado em `SINTOMA_EM_PALAVRAS` — para todo o resto a
+    frase e' generica de proposito, porque traduzir um `sintoma_codigo` para portugues leigo e'
+    afirmacao clinica (e nos codigos de saude mental seria devolver o diagnostico a pessoa).
+    """
+    assert _frase_de_confirmacao({"sintoma_avaliado": "febre"}) == (
+        "entendi que ainda e' sobre a febre que voce contou, certo?"
+    )
+    assert _frase_de_confirmacao({"sintoma_avaliado": "ideacao_suicida"}) == (
+        "entendi que ainda e' sobre o mesmo sintoma que voce contou, certo?"
+    )
+    # O ramo do sintoma vem ANTES do de idade: num turno de correcao e' ele a confirmacao que
+    # importa, e o prompt usa UMA frase.
+    frase = _frase_de_confirmacao({"sintoma_avaliado": "febre", "idade_anos": 70})
+    assert "a febre" in frase and "70 anos" not in frase
+
+
+@pytest.mark.parametrize("codigo", sorted(ALLOWED_SINTOMA_CODIGOS))
+def test_todo_codigo_da_allowlist_tem_vocabulario_declarado(codigo: str) -> None:
+    """A cerca que pega o codigo NOVO — a direcao que apodrece em silencio.
+
+    `None` e' uma declaracao valida (e e' quase toda a tabela): significa "use a frase generica".
+    O que nao pode e' um codigo ficar FORA do mapa, porque ai' a escolha entre nomear e nao nomear
+    o sintoma para o beneficiario passaria a ser um default silencioso em vez de uma decisao.
+    """
+    assert codigo in SINTOMA_EM_PALAVRAS, (
+        f"{codigo!r} nao tem vocabulario declarado em `SINTOMA_EM_PALAVRAS`: decida entre um texto "
+        "leigo (decisao do dono clinico, docs/review-queue.md) e `None` (frase generica)"
+    )
+
+
+def test_o_vocabulario_do_sintoma_nao_declara_codigo_que_nao_existe() -> None:
+    """O outro lado: um codigo removido da allowlist nao pode sobrar aqui como vocabulario morto."""
+    orfaos = sorted(set(SINTOMA_EM_PALAVRAS) - ALLOWED_SINTOMA_CODIGOS)
+
+    assert not orfaos, f"vocabulario declarado para codigo fora da allowlist: {orfaos}"
+
+
+async def test_d3_a_reavaliacao_por_correcao_confirma_o_sintoma_lembrado() -> None:
+    """F5, a metade que faltava: a pessoa tem de poder corrigir SOBRE O QUE ela esta falando.
+
+    O turno de correcao reabre a triagem com um sintoma que a mensagem NAO mencionou (o lembrado),
+    e `confirmar_agora` — calculado antes da conversao, e olhando so' os campos de QUEM E' O
+    PACIENTE — nao cobria esse caso. Resultado: o dado lembrado mais decisivo do turno entrava sem
+    ninguem dizer a pessoa, e a unica coisa que ela leria seria o resultado (um escalonamento P2).
+    """
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_adult", _COM_BANDEIRA)
+    inferencia = _Inferencia(
+        [
+            _extracao(population="adult", sintoma_codigo="febre", intensidade="moderada", idade_anos=30),
+            _extracao(intent="information", population="adult", idade_anos=70),
+        ]
+    )
+    g = _grafo(inferencia, dmn)
+
+    t1 = await _turno(g, _estado("tenho 30 anos e estou com febre"))
+    t2 = await _turno(g, _estado("me enganei, tenho 70 anos", memoria_clinica=t1["memoria_clinica"]))
+
+    assert t2["sintoma_codigo"] == "febre", "premissa: a reavaliacao usou o sintoma lembrado"
+    assert t2["memoria_a_confirmar"], (
+        "a reavaliacao usou um sintoma que a mensagem nao mencionou e nao disse isso a pessoa"
+    )
+    assert "a febre" in t2["memoria_a_confirmar"]
+    assert t2["memoria_a_confirmar"].endswith(", certo?"), "e' uma PERGUNTA, nao um aviso"
+
+
+async def test_um_turno_sem_correcao_nao_ganha_confirmacao_de_sintoma() -> None:
+    """O RED do teste acima: a confirmacao do sintoma e' do ramo de CORRECAO, nao de todo turno.
+
+    Um `memoria_a_confirmar` em toda mensagem viraria ruido e a pessoa pararia de ler — que e' a
+    razao de a confirmacao de paciente acontecer uma vez por conversa.
+    """
+    dmn = FakeDmnTransport()
+    dmn.register("triage_redflag_adult", _SEM_BANDEIRA)
+    inferencia = _Inferencia(
+        [
+            _extracao(population="adult", sintoma_codigo="febre", intensidade="moderada", idade_anos=30),
+            _extracao(intent="information", population="none"),
+        ]
+    )
+    g = _grafo(inferencia, dmn)
+
+    t1 = await _turno(g, _estado("tenho 30 anos e estou com febre"))
+    t2 = await _turno(g, _estado("qual o telefone da central?", memoria_clinica=t1["memoria_clinica"]))
+
+    assert t2.get("memoria_a_confirmar") is None

@@ -237,6 +237,72 @@ QUALIFICADORES_OBRIGATORIOS: dict[str, Qualificador] = {
 }
 
 
+# ---------------------------------------------------------------------------------------------
+# O SINTOMA EM PALAVRAS (21/09/2026, segunda rodada) — so' para a frase de CONFIRMACAO.
+# ---------------------------------------------------------------------------------------------
+# PARA QUE SERVE: quando a Helena REAVALIA a triagem com o sintoma LEMBRADO (a pessoa corrigiu um
+# dado que a avaliacao usou — F5, caso `D3`), ela tem de dizer em voz alta sobre o que ainda esta'
+# falando, porque e' a unica chance de a pessoa corrigir de novo ("nao, agora e' outra coisa").
+#
+# POR QUE UM MAPA, E POR QUE ELE E' QUASE TODO `None`. Renderizar um `sintoma_codigo` em portugues
+# leigo e' TRADUCAO CLINICA: "dispneia" -> "falta de ar" e "deficit_neurologico" -> qualquer coisa
+# sao afirmacoes de equivalencia que pertencem a um medico revisor, nao a quem escreve o grafo. E
+# para os codigos de saude mental ler o codigo de volta seria devolver o diagnostico a pessoa
+# ("entendi que ainda e' sobre a ideacao suicida"), que e' dano, nao transparencia.
+#
+# Entao a decisao: `None` significa "use a frase GENERICA" ("o mesmo sintoma que voce contou"), que
+# funciona para todos os codigos e nao afirma nada. Cada entrada com texto e' uma decisao
+# DECLARADA, e hoje ha' uma so' — `febre`, que e' a palavra que a propria pessoa usa e o exemplo
+# que a revisao pediu. A cerca
+# (`tests/unit/agents/test_helena_memoria_coerente.py`) exige que TODO codigo da allowlist esteja
+# DECLARADO aqui, inclusive como `None`: e' a direcao que pega o codigo novo, e obriga quem o
+# adicionar a decidir em vez de herdar um default silencioso. Ampliar a lista de nao-`None` e'
+# decisao do dono clinico (docs/review-queue.md), nao deste modulo.
+SINTOMA_EM_PALAVRAS: dict[str, str | None] = {
+    # adult
+    "dor_toracica": None,
+    "dispneia": None,
+    "deficit_neurologico": None,
+    "cefaleia_subita_intensa": None,
+    "sangramento_ativo": None,
+    "reacao_alergica": None,
+    "sincope": None,
+    "febre": "a febre",
+    "dor_abdominal": None,
+    # pediatric
+    "dificuldade_respiratoria": None,
+    "convulsao": None,
+    "letargia": None,
+    "sinais_desidratacao": None,
+    "petequias_febre": None,
+    # gestante
+    "sangramento_vaginal": None,
+    "cefaleia_alteracao_visual": None,
+    "perda_liquido": None,
+    "contracoes_regulares": None,
+    "movimentos_fetais_reduzidos": None,
+    # mental_health — TODOS `None` por decisao, ver o comentario acima.
+    "ideacao_suicida": None,
+    "autolesao": None,
+    "agitacao_agressividade": None,
+    "surto_psicotico": None,
+    "crise_ansiedade": None,
+    "crise_panico": None,
+}
+
+#: O sujeito generico, para todo codigo declarado `None` (e para um codigo que nem esteja no mapa —
+#: leitura fail-safe, nunca um `KeyError` no meio de um turno). Os valores deste mapa sao SUJEITOS
+#: ("a febre", "o mesmo sintoma"); quem monta a frase inteira e' `graph.py::_frase_de_confirmacao`.
+SINTOMA_EM_PALAVRAS_GENERICO: str = "o mesmo sintoma"
+
+
+def sintoma_em_palavras(codigo: object) -> str:
+    """Como a Helena se refere a um `sintoma_codigo` ao confirma-lo com o beneficiario."""
+    if not isinstance(codigo, str):
+        return SINTOMA_EM_PALAVRAS_GENERICO
+    return SINTOMA_EM_PALAVRAS.get(codigo) or SINTOMA_EM_PALAVRAS_GENERICO
+
+
 def _codes(population: str) -> str:
     return ", ".join(SINTOMA_CODIGOS_BY_POPULATION[population])
 

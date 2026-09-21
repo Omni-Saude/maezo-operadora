@@ -112,7 +112,15 @@ def test_zero_meses_atravessa_validacao_fusao_gravacao_e_frase() -> None:
     proxima = _memoria_a_gravar(fundida, valida, agora=AGORA, confirmada=False)
     assert proxima is not None and proxima["idade_meses"] == 0
 
-    assert "0 meses" in _frase_de_confirmacao(veio)
+    # 21/09/2026 (segunda rodada): a FRASE do zero passou a ser "seu recem-nascido" — "seu bebe de
+    # 0 meses" nao e' como ninguem fala, e vale o mesmo argumento que ja tirou "seu bebe de 36
+    # meses" (a frase existe PARA a pessoa corrigir, e uma que soa quebrada e' uma que ela para de
+    # ler). O que este teste prova continua sendo o zero atravessando os quatro pontos, e a
+    # assercao ficou MAIS forte: se o zero fosse lido como ausencia em `_frase_de_confirmacao`, a
+    # frase cairia no ramo generico ("a mesma pessoa de antes"), e e' isso que esta cobrado aqui.
+    frase = _frase_de_confirmacao(veio)
+    assert "recem-nascido" in frase
+    assert "a mesma pessoa de antes" not in frase
 
 
 def test_zero_semanas_e_zero_anos_tambem_atravessam() -> None:
@@ -134,7 +142,7 @@ def test_zero_semanas_e_zero_anos_tambem_atravessam() -> None:
 @pytest.mark.parametrize(
     ("meses", "esperado"),
     [
-        (0, "seu bebe de 0 meses"),
+        (0, "seu recem-nascido"),
         (1, "seu bebe de 1 meses"),
         (11, "seu bebe de 11 meses"),
         (24, "seu bebe de 24 meses"),
@@ -150,6 +158,13 @@ def test_a_frase_de_confirmacao_no_limiar_exato(meses: int, esperado: str) -> No
 
     30 meses tem de sair "2 anos" (divisao inteira, como se fala), e nao "2 anos e meio": a frase
     existe PARA a pessoa corrigir, e uma frase que soa errada e' uma frase que ela para de ler.
+
+    O ZERO TEM RAMO PROPRIO desde 21/09/2026 (segunda rodada): "seu recem-nascido", nao "seu bebe
+    de 0 meses". Mesmo argumento, e o paciente com mais red flag na tabela pediatrica.
+
+    PENDENCIA DECLARADA, nao corrigida aqui: `(1, "seu bebe de 1 meses")` continua com o plural
+    errado ("1 mes"). E' a mesma familia de defeito de redacao, nao foi pedida nesta rodada, e
+    trocar o texto sem pedido esconderia a decisao — fica registrada no relatorio.
     """
     frase = _frase_de_confirmacao({"idade_meses": meses})
 
@@ -297,7 +312,7 @@ def test_idade_ausente_nao_invalida_a_memoria_mas_tambem_nao_e_gravada() -> None
     assert _memoria_clinica_valida(_memoria(), agora=AGORA) is None
 
 
-@pytest.mark.parametrize("valor", [0, 1, 24, 36, 1200])
+@pytest.mark.parametrize("valor", [0, 1, 24, 36, 287, 288])
 def test_toda_idade_que_a_memoria_aceita_a_extracao_tambem_aceitaria(valor: int) -> None:
     """As duas fronteiras (memoria e extracao) julgam o MESMO conceito em modulos diferentes.
 
@@ -306,14 +321,60 @@ def test_toda_idade_que_a_memoria_aceita_a_extracao_tambem_aceitaria(valor: int)
     conseguiria. A recíproca nao vale de proposito — `_coerce_age` aceita `"36"` (JSON de modelo
     manda numero entre aspas) e a memoria nao, o que e' o lado seguro.
 
-    `1200` esta' na lista como o que ele e': 100 anos em meses passa nas DUAS fronteiras. Nenhuma
-    das duas tem limite superior — registrado aqui, nao corrigido aqui.
+    `287` e `288` sao os dois lados do TETO novo (24 anos em meses): a direcao cobrada aqui
+    continua valendo, porque um teto SO' na memoria a torna mais estrita — que e' exatamente o
+    lado seguro da relacao "memoria ⊆ extracao".
     """
     valida = _memoria_clinica_valida(_memoria(population="pediatric", idade_meses=valor), agora=AGORA)
     assert valida is not None and valida["idade_meses"] == valor
 
     ok, coagido = _coerce_age(valor)
     assert ok is True and coagido == valor
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("idade_meses", 289),
+        ("idade_meses", 1200),
+        ("idade_anos", 121),
+        ("idade_anos", 900),
+    ],
+)
+def test_a_memoria_recusa_idade_acima_do_teto_sano(campo: str, valor: int) -> None:
+    """O TETO SUPERIOR, que a versao anterior deste arquivo registrava como ausente.
+
+    O dano nao era teorico: `idade_meses=1200` (100 anos em meses) era memoria VALIDA, atravessava
+    a fusao e ia para a tabela PEDIATRICA — que le' `idade_meses` — como se fosse um lactente. Um
+    valor desses nao vem de ninguem falando da propria idade; vem de extracao torta ou de valor
+    plantado, e a leitura honesta e' "isto nao e' idade".
+
+    A recusa e' da MEMORIA INTEIRA, como toda recusa desta fronteira: um paciente parcialmente
+    lembrado e' o modo de falha que esta frente existe para acabar. E ela vale SO' na memoria — a
+    extracao continua entregando o que a pessoa disse NESTE turno (`_coerce_age(1200)` segue
+    aceitando), o que mantem a direcao "memoria ⊆ extracao" do teste acima.
+
+    `idade_gestacional_semanas` fica FORA por decisao declarada em `graph.py::_TETO_DE_IDADE`: qual
+    semana deixa de ser uma gestacao possivel e' julgamento clinico, e inventar o numero aqui seria
+    a unica afirmacao clinica do bloco.
+    """
+    populacao = "pediatric" if campo == "idade_meses" else "adult"
+
+    assert _memoria_clinica_valida(_memoria(population=populacao, **{campo: valor}), agora=AGORA) is None
+
+
+def test_a_semana_gestacional_nao_tem_teto_e_isso_esta_declarado() -> None:
+    """LIMITE CONHECIDO, executavel: 900 semanas de gestacao continuam passando na fronteira.
+
+    Se alguem decidir o teto (com o dono clinico), este teste fica vermelho e a declaracao em
+    `_TETO_DE_IDADE` e' atualizada junto — que e' o unico jeito de a ausencia nao apodrecer em
+    silencio.
+    """
+    valida = _memoria_clinica_valida(
+        _memoria(population="gestante", idade_gestacional_semanas=900), agora=AGORA
+    )
+
+    assert valida is not None and valida["idade_gestacional_semanas"] == 900
 
 
 # =================================================================================================
