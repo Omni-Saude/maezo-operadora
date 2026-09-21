@@ -21,11 +21,18 @@
 //
 // Medido na conta 203312548462 / sa-east-1 em 21/09/2026.
 
-// REPOSTO EM false EM 21/09/2026, pelo review do dono (P1): o portao de imagem de
-// `portal.md`/1.4 exige SBOM E ASSINATURA do digest antes de aceita-lo, e o proprio runbook
-// desta entrega declara que `8b014a60` nao tem nenhum dos dois (os passos de syft/cosign do
-// `cd.yml` estao atras do gate `AWS_ENABLED`, ausente por desenho). Ligar antes disso e' pular
-// um portao de cadeia de suprimentos, e o fato de ter FUNCIONADO nao o satisfaz.
+// LIGADO DE NOVO EM 21/09/2026, com o portao de imagem de `portal.md`/1.4 FECHADO — nao
+// contornado. O que mudou desde o `false` do review do dono (P1):
+//   - existe chave de assinatura na conta (`alias/maezo-operadora-dev-image-signing`,
+//     KMS assimetrica; assinar so' pela role do CI, com deny explicito para o resto);
+//   - o digest deste portal (`sha256:d29ce828...`) tem SBOM (SPDX, syft) e assinatura
+//     PUBLICADOS no ECR (`sha256-d29ce828....sig` / `.att`) e VERIFICADOS —
+//     `cosign verify` e `cosign verify-attestation` verdes no run 35665780360, inclusive
+//     pelo job que usa a role verify-only (sem `kms:Sign`);
+//   - a verificacao virou PORTAO no caminho de entrega: o job `verificar` de
+//     `.github/workflows/supply-chain.yml` roda em pull request sobre ESTE arquivo, entao
+//     apontar o portal para um artefato nao assinado reprova o PR.
+// Comando exato de verificacao: `docs/runbooks/supply-chain-imagem.md`.
 //
 // O QUE FICOU PROVADO ENQUANTO ESTEVE LIGADO (21/09/2026, ~19:40Z, e nao se perde ao desligar):
 //   - servico 1/1, rolloutState=COMPLETED, steady state;
@@ -39,8 +46,9 @@
 //   - verificacao 1.7 #7: log do boot com 4 linhas de uvicorn e ZERO ocorrencias de
 //     postgresql://|password|secret|__Host-|set-cookie|code_verifier|Bearer |eyJ.
 //
-// PARA LIGAR DE NOVO falta UMA coisa: publicar e verificar SBOM + assinatura do digest.
-portal_enabled = false
+// O QUE ESTE `true` CONTINUA NAO ENTREGANDO: `staff = null` (fim deste arquivo), entao o portal
+// AUTENTICA e nao tem FILA DE CASOS (`MAEZO_PORTAL_CAPABILITIES=identity`).
+portal_enabled = true
 
 portal = {
   // Tenant desta instancia; tem de ser igual a `tenant_id` do ambiente.
