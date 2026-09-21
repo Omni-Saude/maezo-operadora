@@ -206,7 +206,7 @@ jobs:
       # The scan itself needs no GHAS and always runs for real; a scan
       # failure here is a plain red job. Upload is deferred (see above).
       - name: Perform CodeQL analysis (scan always real; upload deferred)
-        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
         with:
           upload: never
           upload-database: false
@@ -368,7 +368,7 @@ jobs:
         run: mvn -B -f src/maezo/portal/engine/java/pom.xml -DskipTests package
 
       - name: Perform CodeQL analysis (scan always real; upload deferred)
-        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4.38.0
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
         with:
           upload: never
           upload-database: false
