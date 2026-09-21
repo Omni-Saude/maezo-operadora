@@ -555,7 +555,11 @@ def test_bug_valor_json_nao_hashavel_derruba_o_turno_em_vez_de_falhar_fechado() 
                 ),
                 agora=AGORA,
             )
-        except Exception as exc:  # noqa: BLE001 — o achado E' o tipo da excecao
+        # `except Exception` de proposito: o ACHADO deste teste e' o TIPO da excecao que
+        # escapa, entao estreitar o except esconderia exatamente o que ele mede. `BLE001`
+        # nao esta no `select` do ruff deste repo, e um `noqa` de regra desligada e' um
+        # comentario que finge ser cerca — `tests/unit/ci/test_noqa_hygiene.py` reprova.
+        except Exception as exc:
             problemas.append(f"_memoria_clinica_valida({valor!r}) levantou {type(exc).__name__}: {exc}")
         else:
             if resultado is not None:
@@ -579,7 +583,11 @@ def test_bug_valor_json_nao_hashavel_derruba_o_turno_em_vez_de_falhar_fechado() 
         }
         try:
             motivo = _validate_extraction(bruta)
-        except Exception as exc:  # noqa: BLE001 — o achado E' o tipo da excecao
+        # `except Exception` de proposito: o ACHADO deste teste e' o TIPO da excecao que
+        # escapa, entao estreitar o except esconderia exatamente o que ele mede. `BLE001`
+        # nao esta no `select` do ruff deste repo, e um `noqa` de regra desligada e' um
+        # comentario que finge ser cerca — `tests/unit/ci/test_noqa_hygiene.py` reprova.
+        except Exception as exc:
             problemas.append(f"_validate_extraction({campo}={valor!r}) levantou {type(exc).__name__}: {exc}")
         else:
             if motivo is None:
