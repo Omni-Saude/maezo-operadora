@@ -67,11 +67,16 @@ env:
   # sobrescreve se um dia o ambiente mudar. Nao e' segredo: e' um ARN de role cuja
   # confianca esta restrita a este repositorio.
   SUPPLY_CHAIN_ROLE_ARN: "arn:aws:iam::203312548462:role/maezo-operadora-dev-github-supply-chain"
-  COSIGN_RELEASE: "v3.0.6"
+  # NENHUMA destas variaveis se chama `COSIGN_*`, e isso NAO e' estilo: o cosign le
+  # o ambiente como se fossem flags suas. Um `COSIGN_OIDC_ISSUER` definido aqui vira
+  # `--oidc-issuer` no `cosign sign`, e o cosign 3.x recusa com
+  # `cannot specify service URLs and use signing config` (medido: run 35663398939) —
+  # falha que nao tem nada a ver com permissao nem com a imagem.
+  SIGSTORE_CLI_VERSION: "v3.0.6"
   # Identidade esperada do certificado efemero: a URI DESTE workflow. Se alguem
   # assinar a imagem por outro caminho, a verificacao abaixo reprova.
-  COSIGN_IDENTITY_REGEXP: "^https://github\\.com/Omni-Saude/maezo-operadora/\\.github/workflows/supply-chain\\.yml@refs/heads/.+$"
-  COSIGN_OIDC_ISSUER: "https://token.actions.githubusercontent.com"
+  VERIFY_IDENTITY_REGEXP: "^https://github\\.com/Omni-Saude/maezo-operadora/\\.github/workflows/supply-chain\\.yml@refs/heads/.+$"
+  VERIFY_OIDC_ISSUER: "https://token.actions.githubusercontent.com"
 
 concurrency:
   group: supply-chain-${{ github.event.inputs.image || github.sha }}
@@ -175,7 +180,7 @@ jobs:
         if: steps.target.outputs.skip != 'true'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
-          cosign-release: ${{ env.COSIGN_RELEASE }}
+          cosign-release: ${{ env.SIGSTORE_CLI_VERSION }}
 
       - name: Sign image (cosign keyless / Sigstore OIDC)
         if: steps.target.outputs.skip != 'true'
@@ -201,8 +206,8 @@ jobs:
         run: |
           set -euo pipefail
           cosign verify \
-            --certificate-identity-regexp "${COSIGN_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer "${COSIGN_OIDC_ISSUER}" \
+            --certificate-identity-regexp "${VERIFY_IDENTITY_REGEXP}" \
+            --certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \
             "${IMAGE_REF}" | tee cosign-verify.json
 
       - name: Verify SBOM attestation (cosign verify-attestation)
@@ -213,8 +218,8 @@ jobs:
           set -euo pipefail
           cosign verify-attestation \
             --type spdxjson \
-            --certificate-identity-regexp "${COSIGN_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer "${COSIGN_OIDC_ISSUER}" \
+            --certificate-identity-regexp "${VERIFY_IDENTITY_REGEXP}" \
+            --certificate-oidc-issuer "${VERIFY_OIDC_ISSUER}" \
             "${IMAGE_REF}" | tee cosign-verify-attestation.json
 
       - name: Evidence — artefatos publicados no ECR
@@ -245,7 +250,7 @@ jobs:
             cat ecr-signature-tags.txt
             echo '```'
             echo
-            echo "Assinatura e atestacao SPDX verificadas contra \`${COSIGN_OIDC_ISSUER}\`."
+            echo "Assinatura e atestacao SPDX verificadas contra \`${VERIFY_OIDC_ISSUER}\`."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload verification evidence
