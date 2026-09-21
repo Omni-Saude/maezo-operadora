@@ -561,10 +561,16 @@ class MetricsCollector:
     def agent_resposta_recusada(self) -> Counter:
         """Counter for model-drafted replies BLOCKED before reaching the beneficiary (13/09/2026).
 
-        Labels: agent_id, motivo (`negativa_clinica` | `promessa_de_humano` — the two closed
-        groups in `agents/helena/prompts.py`), response_kind (the graph's closed route vocabulary).
-        The exact matched pattern is NOT a label: it goes to the log line, so this counter's
-        cardinality does not grow when the pattern list does.
+        Labels: agent_id, motivo (a closed group declared in the agent's own `prompts.py` —
+        Helena's are `negativa_clinica`, `promessa_de_humano`, `promessa_de_capacidade`, and,
+        since 21/09/2026, the three the TEXT-vs-FACT fence adds: `promessa_sem_start`,
+        `handoff_sem_mencao`, `escalonamento_ja_aberto`), response_kind (the graph's closed route
+        vocabulary). The exact matched pattern is NOT a label: it goes to the log line, so this
+        counter's cardinality does not grow when the pattern list does.
+
+        `promessa_de_humano` vs `promessa_sem_start` is the distinction the 21/09 battery bought:
+        the first means the SENTENCE was wrong for that route, the second that the route was right
+        and the FACT was missing (the start never happened). Aggregating them would erase it.
         """
         return self._agent_resposta_recusada
 

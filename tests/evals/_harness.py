@@ -334,6 +334,38 @@ def _phi_capable_for(case: Mapping[str, Any]) -> bool:
     return bool((case.get("inference") or {}).get("phi_capable", True))
 
 
+def _memoria_clinica_for(case: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Read a case's OPTIONAL top-level `"memoria_clinica"` block (F4, 21/09/2026) and stamp it
+    with a FRESH `gravado_em`, or return `None` when the key is absent (every pre-F4 golden).
+
+    WHY THE RUNNER NEEDED THIS. `run_case` drives ONE turn, and Helena's cross-turn clinical
+    memory (`HelenaState.memoria_clinica`) is what carries "who the patient is" from one turn to
+    the next — in production the LangGraph checkpointer supplies it
+    (`platform/webhooks/whatsapp/dispatch.py`). So a golden for the third turn of a conversation
+    (the natural order `symptom -> age -> detail`, which is the one the 21/09 battery's `D2`
+    exposed as broken) could not be written at all: there was no way to say "this turn starts with
+    the conversation already knowing the patient".
+
+    WHY THE TIMESTAMP IS STAMPED HERE AND NOT WRITTEN IN THE JSON. `HelenaGraph.receive` validates
+    the memory against a SIX-HOUR window (`MEMORIA_CLINICA_JANELA_HORAS`) using `datetime.now`. A
+    literal `gravado_em` in a golden file would be inside the window on the day it was written and
+    silently outside it forever after — the golden would not fail, it would DEGRADE: the memory is
+    dropped, the turn behaves like a first turn, and the case would go green while proving
+    nothing. Stamping `now()` keeps the case about the fusion rule and not about the calendar; a
+    golden that wants to prove the window itself asserts against `_memoria_clinica_valida`
+    directly (`tests/unit/agents/test_helena_memoria_clinica.py` already does).
+
+    Same optional-block mechanism as `_cibseven_for`/`_phi_capable_for` above, so no existing
+    golden is touched by this branch.
+    """
+    bloco = case.get("memoria_clinica")
+    if not isinstance(bloco, Mapping):
+        return None
+    from datetime import UTC, datetime
+
+    return {**dict(bloco), "gravado_em": datetime.now(UTC).isoformat()}
+
+
 async def run_case(
     build_fn: Callable[[dict[str, Any]], Any],
     case: Mapping[str, Any],
@@ -388,6 +420,13 @@ async def run_case(
     graph = build_fn(config)
     compiled = graph.compile()
     input_state = dict(case["input"]["state"])
+    memoria_clinica = _memoria_clinica_for(case)
+    if memoria_clinica is not None:
+        # NOT an `HELENA_INPUT_FIELDS` key, and deliberately so: this is the CHECKPOINTED
+        # conversation memory the live dispatch path restores into the invoke state, which is the
+        # same thing being simulated here. `receive` re-validates it at the boundary
+        # (`_memoria_clinica_valida`), so a golden cannot plant a patient the graph would refuse.
+        input_state["memoria_clinica"] = memoria_clinica
     try:
         raw_result = await compiled.ainvoke(input_state)
     except Exception:

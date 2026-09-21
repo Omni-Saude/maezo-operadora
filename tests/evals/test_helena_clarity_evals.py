@@ -145,11 +145,21 @@ async def test_evl_helena_clareza_01_mutation_check_long_sentence_is_non_vacuous
 
 @pytest.mark.eval
 async def test_evl_helena_clareza_01_mutation_check_missing_disclaimer_is_non_vacuous() -> None:
-    """Replacing the escalate handoff's drafted response with a bland reply that omits both
-    disclaimer groups must make `assert_clarity` fail — proves the disclaimer check is actually
-    exercised, not a vacuous always-pass."""
+    """Replacing the escalate handoff's drafted response with a reply that omits the EMERGENCY
+    disclaimer group must make `assert_clarity` fail — proves the disclaimer check is actually
+    exercised, not a vacuous always-pass.
+
+    21/09/2026 — WHY THE REPLACEMENT IS NO LONGER "Obrigada pela mensagem.". That bland reply
+    omitted BOTH groups, and the text x fact fence (F1/F2, `helena/graph.py::
+    _texto_bate_com_o_fato`) now REFUSES it on this route: a start happened, so the reply is
+    obliged to mention the hand-off, and a reply that does not is replaced by
+    `RESPOSTA_HANDOFF_RECUSADA` — which carries both groups. The old mutation therefore stopped
+    reaching the clarity check at all (it measured the fence instead). The replacement below
+    mentions the hand-off ("atendente", group 1) so the fence lets it through, and still omits
+    group 2 ("emergencia") — so the probe targets the clarity check again, which is its job.
+    """
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-01")
-    mutated = mutate_replace_last_response(case, "Obrigada pela mensagem.")
+    mutated = mutate_replace_last_response(case, "Um atendente vai continuar o seu atendimento.")
     result = await run_case(build, mutated, extra_config=_helena_extra_config())
     with pytest.raises(AssertionError, match="missing mandatory disclaimer"):
         assert_clarity(_clarity_report(result.state, mutated["clarity"]))
@@ -167,10 +177,27 @@ async def test_evl_helena_clareza_02_mutation_check_jargon_plant_is_non_vacuous(
 
 
 @pytest.mark.eval
-async def test_evl_helena_clareza_03_mutation_check_missing_disclaimer_is_non_vacuous() -> None:
-    """Same missing-disclaimer proof as CLAREZA-01, against the schedule-path golden."""
+async def test_evl_helena_clareza_03_disclaimer_deixou_de_ser_medido_e_passou_a_ser_garantido() -> None:
+    """21/09/2026 — este era o gemeo do proof de CLAREZA-01, e a cerca TEXTO x FATO o tornou
+    IMPOSSIVEL de escrever como mutacao. O registro honesto e' este teste, nao a remocao.
+
+    CLAREZA-03 declara UM unico grupo de disclaimer — `["atendente", "humano", "profissional"]` —
+    e ele e' exatamente o vocabulario com que `prompts.py::menciona_encaminhamento` reconhece a
+    mencao ao encaminhamento. Nesta rota (`schedule`, que abre SP-OP-ESCALATION-001 de verdade) o
+    grafo agora OBRIGA essa mencao: um texto que a omita e' substituido por
+    `RESPOSTA_HANDOFF_RECUSADA`. Logo nao existe mais texto entregavel que satisfaca a cerca e
+    falhe o disclaimer — a exigencia saiu de "medida no golden" para "garantida por construcao",
+    e uma mutacao que tentasse prova-la estaria medindo a cerca, nao a clareza.
+
+    O que este teste fixa, entao, e' a GARANTIA: a resposta blanda e' trocada, o rastro fica, e o
+    texto entregue passa na clareza. Se alguem afrouxar a cerca, este teste cai.
+    """
+    from maezo.agents.helena.graph import ERRO_HANDOFF_SEM_MENCAO, RESPOSTA_HANDOFF_RECUSADA
+
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-03")
     mutated = mutate_replace_last_response(case, "Tudo bem, obrigado.")
     result = await run_case(build, mutated, extra_config=_helena_extra_config())
-    with pytest.raises(AssertionError, match="missing mandatory disclaimer"):
-        assert_clarity(_clarity_report(result.state, mutated["clarity"]))
+
+    assert result.state["response_text"] == RESPOSTA_HANDOFF_RECUSADA
+    assert result.state["error"] == ERRO_HANDOFF_SEM_MENCAO
+    assert_clarity(_clarity_report(result.state, mutated["clarity"]))
