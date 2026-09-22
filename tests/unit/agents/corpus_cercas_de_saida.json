@@ -1374,6 +1374,61 @@
         "canal": "canal_nao_confirmado",
         "menciona": false
       }
+    },
+    {
+      "texto": "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "rota": "inform",
+      "start_aconteceu": false,
+      "origem": "constante RESPOSTA_INFORM_RECUSADA (bateria 22/09, CRITICO 1)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante RESPOSTA_INFORM_RECUSADA no rascunho (bateria 22/09, CRITICO 1)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Recebemos sua mensagem sobre a dor de cabeca. Vou pedir para que a nossa equipe entre em contato com voce para avaliar melhor o seu caso.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "bateria 22/09 C1 (medido): o rascunho que virava fila humana",
+      "esperado": {
+        "recusa": "promessa_de_humano",
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Recebemos sua mensagem sobre a dor de garganta. Se quiser, me conte ha quanto tempo ela comecou e se veio com febre.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "bateria 22/09 B5 (medido): mesmo estado clinico, rascunho que saiu",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Este canal pode te orientar sobre o plano e, quando for o caso, levar o seu relato a uma pessoa da equipe. Se quiser, descreva melhor o que voce esta sentindo.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "bateria 22/09 A1 (medido): o cartao repetido nos tres turnos",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

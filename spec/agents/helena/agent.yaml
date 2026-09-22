@@ -41,11 +41,18 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v4               # 21/09/2026 (F3): a REGRA DO QUALIFICADOR — nenhum
-                                     # codigo com qualificador clinico no nome pode ser
-                                     # atribuido sem o qualificador na mensagem ("estou com
-                                     # dor de cabeca" nao e' cefaleia_subita_intensa), e
-                                     # `intensidade` nunca e' inferida do sintoma.
+  classify: classify-v5               # 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
+                                     # CAMPOS DIFERENTES — `sintoma_codigo`/`intensidade`
+                                     # sao preenchidos em QUALQUER intent, inclusive
+                                     # clinical_question ("tenho 45 anos e estou com dor no
+                                     # peito. e infarto?" leva dor_toracica), senao a
+                                     # tabela de red flag nao tem o que triar e a PERGUNTA
+                                     # decide a prioridade sozinha. v4 (21/09, F3): a REGRA
+                                     # DO QUALIFICADOR — nenhum codigo com qualificador
+                                     # clinico no nome sem o qualificador na mensagem
+                                     # ("estou com dor de cabeca" nao e'
+                                     # cefaleia_subita_intensa), e `intensidade` nunca e'
+                                     # inferida do sintoma.
   response: response-v9               # 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
                                      # O NOME DO CANAL EM CADA MENCAO ("o portal do plano
                                      # mostra a mesma lista", nunca "o portal mostra"). E' a

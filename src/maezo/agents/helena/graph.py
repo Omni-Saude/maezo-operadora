@@ -178,6 +178,7 @@ from .prompts import (
     RECUSA_HANDOFF_SEM_MENCAO,
     RECUSA_NEGATIVA_CLINICA,
     RESPONSE_PROMPT_VERSION,
+    SINTOMA_CODIGOS_BY_POPULATION,
     SYSTEM_PROMPT_VERSION,
     classify_prompt,
     coleta_prompt,
@@ -363,6 +364,28 @@ RESPOSTA_HANDOFF_RECUSADA: str = (
     "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saude. "
     "Um profissional vai dar continuidade ao seu atendimento. Se voce estiver passando por uma "
     "emergencia, procure o servico de emergencia mais proximo."
+)
+
+#: CRITICO 1 DA BATERIA DE 22/09/2026: o texto de um turno `inform` cujo RASCUNHO foi barrado por
+#: um grupo que NAO e' a negativa clinica (promessa de humano, promessa de capacidade, canal nao
+#: confirmado). A troca e' de TEXTO, e o turno segue `inform`.
+#:
+#: O QUE FOI MEDIDO, e por que a troca e' aqui. `C1` ("estou com dor de cabeca") e `B5` ("estou com
+#: um pouco de dor de garganta desde ontem") tinham estado clinico IDENTICO — extracao sem sintoma,
+#: DMN no catch-all, `red_flag=false` — e desfechos opostos: o C1 abriu chamado P3
+#: `atendimento-humano` rotulado *falha tecnica* porque o rascunho do modelo dizia "a equipe entre
+#: em contato" (`helena_resposta_recusada ... response_kind=inform`), e o B5 nao abriu nada. A fila
+#: humana dependia da frase que o modelo sorteou, nao de criterio clinico nenhum.
+#:
+#: ELA NAO PROMETE, NAO CITA CANAL E NAO OPINA SOBRE O CORPO DE NINGUEM — passa nas quatro cercas
+#: com `response_kind="inform"` e sem start, o que a torna segura por CONSTRUCAO (o corpus
+#: `corpus_cercas_de_saida.json` fixa o veredito). E ela nao traz a abertura do cartao, para nao
+#: acender `apresentacao_ja_feita` num turno que nao apresentou nada.
+RESPOSTA_INFORM_RECUSADA: str = (
+    "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. "
+    "Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma "
+    "pessoa, escreva isso na proxima mensagem. Se voce estiver passando por uma emergencia, "
+    "procure o servico de emergencia mais proximo."
 )
 
 #: RECUSA DE SAIDA (13/09/2026): o `error` do turno em que o texto redigido pelo modelo foi
@@ -793,7 +816,26 @@ _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
 #: nao de um. Os dois lados custam, e por isso o lado escolhido nao e' "o seguro", e' o
 #: VERIFICAVEL: o falso positivo (um texto com o nome dela sem cartao nenhum) exigiria que o prompt
 #: pedisse assinatura, e ele nao pede — se um dia pedir, esta lista e' o lugar de reagir.
-MARCAS_DE_APRESENTACAO: tuple[str, ...] = (r"\bhelena\b",)
+#: A SEGUNDA MARCA E' O PROPRIO CARTAO (22/09/2026, item [b] do diretor). A pergunta dele era qual
+#: das duas metades falhava — o sinal nao acendendo ou o prompt nao obedecendo —, e a medicao
+#: responde: o SINAL. O cartao que saiu nos tres turnos do `A1` ("Este canal pode te orientar sobre
+#: o plano (...) Se quiser, descreva melhor o que voce esta sentindo") nao tem o nome dela em lugar
+#: nenhum; o `response-v9` pede "comece por Sou Helena" QUANDO VOCE SE APRESENTAR, e o modelo nao
+#: trata a frase de abertura como apresentacao. Com a marca sendo so' o nome, `apresentacao_ja_feita`
+#: ficava apagado para sempre e a proibicao de repetir nunca valia — a repeticao e' de TODOS os
+#: turnos, nao de um.
+#:
+#: O FALSO POSITIVO ACEITO, declarado em vez de descoberto: um `inform` que responda uma duvida
+#: administrativa comecando por "este canal pode te orientar sobre X" tambem acende o sinal. E'
+#: aceitavel porque esse texto JA E' o cartao — a pessoa leu o que este canal faz, com ou sem o
+#: nome —, e porque o que a flag proibe e' SO' repetir a frase de abertura: "quem e voce?" e "voce
+#: e um robo?" continuam sendo respondidas SEMPRE, por regra propria do `response_prompt`, que esta
+#: flag nao desliga. Nenhuma das constantes que este modulo e o `prompts` enviam ao beneficiario
+#: contem esta abertura (`test_helena_bateria_22_09.py` e o corpus fixam isso).
+MARCAS_DE_APRESENTACAO: tuple[str, ...] = (
+    r"\bhelena\b",
+    r"\beste canal\b[^.;!?]{0,40}\b(?:pode|posso|consigo|consegue)\b",
+)
 
 
 def _apresentou_se(texto: str) -> bool:
@@ -1194,6 +1236,51 @@ def _fundir_memoria_clinica(
         fundida[campo] = lembrado
         veio_da_memoria[campo] = lembrado
     return fundida, veio_da_memoria
+
+
+#: POPULACAO -> o vocabulario de `sintoma_codigo` que a tabela DAQUELA populacao conhece. Derivado
+#: da mesma declaracao que o `classify_prompt` lista, e `test_helena_codigos_casam_com_a_dmn.py` ja'
+#: fixa que cada tupla e' IDENTICA ao conjunto de literais da `spec/processes/dmn/triage_redflag_*`
+#: correspondente — e' isso que torna a pergunta abaixo uma pergunta sobre a TABELA, e nao sobre o
+#: prompt.
+_VOCABULARIO_DA_POPULACAO: dict[str, frozenset[str]] = {
+    populacao: frozenset(codigos) for populacao, codigos in SINTOMA_CODIGOS_BY_POPULATION.items()
+}
+
+
+def _sintoma_coerente_com_a_populacao(codigo: object, population: object) -> bool:
+    """O `sintoma_codigo` existe na tabela que ESTE turno vai consultar? (CRITICO 2, 22/09/2026)
+
+    O QUE FOI MEDIDO. Mesmo telefone, tres turnos: "meu filho esta com febre" -> "3 anos" ->
+    "desde ontem". No turno 3 a decision-instance trouxe `sintoma_codigo=cefaleia_subita_intensa`
+    — a `r4` da tabela ADULTA, P1 com prazo de cinco minutos — numa conversa cujo unico sintoma
+    relatado foi FEBRE, e cuja populacao e' `pediatric`. `cefaleia_subita_intensa` NAO EXISTE na
+    tabela pediatrica.
+
+    POR QUE A REGRA DO QUALIFICADOR (rodada 3) NAO ALCANCAVA ISTO. Ela mora no texto do prompt, e o
+    prompt so' ve' a MENSAGEM do turno — "desde ontem". Quem produziu a incoerencia foi a FUSAO: o
+    modelo devolveu `population="adult"` (o campo e' obrigatorio, e sem ninguem na mensagem ele
+    preenche com o valor mais comum), a memoria corretamente impos `pediatric` por falta de lastro
+    (F4), e o codigo de adulto sobreviveu a troca. O par saiu do modelo COERENTE e ficou incoerente
+    depois — por isso a pergunta e' feita aqui, DEPOIS da fusao, e nao em `_validate_extraction`,
+    que valida cada campo isoladamente contra a UNIAO das quatro allowlists.
+
+    ESTA NAO E' A CERCA LITERAL QUE `prompts.py` RECUSOU A ESCREVER, e a diferenca e' o ponto: uma
+    cerca que exigisse as palavras "subita"/"intensa" na mensagem reprovaria o `C4` ("comecou de
+    repente e e' a pior da minha vida"), que diz o qualificador com OUTRAS palavras e tem de
+    continuar produzindo o codigo. Esta aqui nao le' a mensagem: ela pergunta se o codigo casa
+    alguma regra da tabela que vai ser consultada. `adult` + `cefaleia_subita_intensa` continua
+    passando, em qualquer redacao.
+
+    AUSENCIA E' COERENTE (`None` -> `True`): um turno sem sintoma e' o caso comum, e as tabelas tem
+    catch-all para ele. E uma populacao fora do mapa cai no vocabulario de ADULTO, que e' exatamente
+    o default de `_evaluate_dmn` (`_DMN_BY_POPULATION.get(population, "triage_redflag_adult")`) —
+    as duas leituras tem de olhar a MESMA tabela, senao a cerca mede outra coisa.
+    """
+    if codigo is None:
+        return True
+    vocabulario = _VOCABULARIO_DA_POPULACAO.get(str(population), _VOCABULARIO_DA_POPULACAO["adult"])
+    return codigo in vocabulario
 
 
 def _memoria_a_gravar(
@@ -1860,6 +1947,39 @@ class HelenaGraph:
             "idade_gestacional_semanas": extraction.get("idade_gestacional_semanas"),
         }
 
+        # CRITICO 2 (22/09/2026): O CODIGO TEM DE EXISTIR NA TABELA QUE ESTE TURNO VAI CONSULTAR.
+        #
+        # A POSICAO E' O PONTO: aqui, DEPOIS da fusao e ANTES de qualquer decisao. Quem produziu a
+        # incoerencia medida no `D2` turno 3 foi a propria fusao — o modelo devolveu
+        # `population="adult"` + `cefaleia_subita_intensa` (um par coerente) para a mensagem "desde
+        # ontem", a memoria corretamente impos `pediatric` por falta de lastro (F4), e o codigo de
+        # ADULTO sobreviveu a troca. `_validate_extraction` nao pega isso nem se quisesse: ela roda
+        # antes da fusao e valida cada campo isoladamente contra a UNIAO das quatro allowlists.
+        #
+        # O QUE ACONTECE COM O CODIGO RECUSADO: ele e' DESCARTADO, e nada mais. Nao vira
+        # `falha_tecnica` — transformar cada escorregao de redacao do modelo numa fila humana e' o
+        # defeito do CRITICO 1, do outro lado — e nao vira o sintoma lembrado da conversa: lembrar
+        # sintoma entre turnos e' uma decisao que esta agente tomou em sentido contrario (ver
+        # `_correcao_de_dado_avaliado`), e reabri-la aqui responderia a mensagem errada. O turno
+        # segue com `sintoma_codigo=None`, que e' exatamente o caso que as quatro tabelas tratam no
+        # catch-all, e a conversa continua lembrando QUAL sintoma ela ja' avaliou.
+        #
+        # `psychosocial_risk` fica FORA: o gatilho 5 forca a tabela `mental_health` por outro
+        # caminho e tem prioridade maxima; recortar o codigo dele aqui mudaria qual regra daquela
+        # tabela casa, que e' decisao clinica e nao higiene de extracao.
+        if not psychosocial and not _sintoma_coerente_com_a_populacao(
+            extraction.get("sintoma_codigo"), population
+        ):
+            logger.warning(
+                "helena_sintoma_fora_da_tabela_da_populacao",
+                node="classify",
+                # So' o TOKEN DE CLASSE: nem o codigo recusado nem a populacao entram na linha —
+                # a mesma disciplina de `helena_memoria_clinica_usada`, que loga so' os NOMES.
+                motivo="codigo_de_outra_populacao",
+            )
+            extraction["sintoma_codigo"] = None
+            update["sintoma_codigo"] = None
+
         # MOSTRAR ANTES DE USAR (decisao 4 do documento), e as tres condicoes sao todas
         # necessarias:
         #   1. algum dado veio da MEMORIA, nao da mensagem — confirmar o que a pessoa acabou de
@@ -1954,12 +2074,66 @@ class HelenaGraph:
             )
 
         # Gatilho 5 (always evaluated, highest priority): psychosocial risk in ANY message.
+        #
+        # A SEVERIDADE VEM DA TABELA (22/09/2026, item [a] do diretor). Ate' aqui a linha era
+        # `escalation_severidade = "grave"`, LITERAL, e a bateria mediu o que isso significa: "nao
+        # estou bem" como primeira mensagem saia `grave` com a DMN `mental_health` tendo respondido
+        # `r7` = `red_flag=false` / `CONTINUE`. O contrato SP-OP-ESCALATION-001 reserva `grave` para
+        # red flag P1 — um veredito que so' a DMN emite —, e `_severidade_de_intensidade` ja' tinha
+        # escrito esse raciocinio por extenso para o outro ramo: anunciar `grave` onde a tabela nao
+        # emitiu veredito e' fabricar o veredito que faltou, e faz da tabela um carimbo.
+        #
+        # O QUE **NAO** MUDA, e esta' declarado de proposito: o ROTEAMENTO. A regra `r2` da
+        # `escalation_routing` casa `risco_psicossocial` com `severidade` no coringa `-`, entao
+        # este turno continua P1 / `plantao-clinico` / 5min, como continuava antes desta linha. Um
+        # `psychosocial_risk=true` com a tabela dizendo `CONTINUE` seguir indo ao plantao clinico e'
+        # CONDUTA, nao rotulo: mudar isso e' decisao do dono clinico (`owners.clinico` segue vazio,
+        # e as tabelas seguem `CONTEUDO CLINICO: DRAFT`), nao de quem conserta o carimbo.
+        #
+        # COM A TABELA FORA DO AR O `grave` FICA, e a distincao e' toda a mudanca desta linha: o
+        # que se para de fazer e' CONTRADIZER a tabela, nao deixar de ser conservador quando ela
+        # nao falou. `EVL-HELENA-12` e' exatamente esse caso (o gemeo DMN-down do `EVL-HELENA-03`)
+        # e e' expectativa ratificada: uma tabela de saude mental indisponivel nao pode rebaixar
+        # uma revelacao de risco imediato. A propria tabela sustenta a leitura — a `r2` manda P1
+        # para ideacao mesmo SEM risco imediato declarado e a `r6` e' um fail-safe explicito —,
+        # entao a linha mais conservadora dela e' o substituto honesto da linha que nao veio.
         if psychosocial:
             dmn_out = await self._evaluate_dmn(extraction, force_population="mental_health")
             update.update(dmn_out)
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "risco_psicossocial"
-            update["escalation_severidade"] = "grave"
+            if dmn_out.get("error"):
+                update["escalation_severidade"] = "grave"
+            else:
+                prioridade = str((dmn_out.get("dmn_decision") or {}).get("prioridade", ""))
+                update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
+            return update
+
+        # GATILHO 1 (22/09/2026, CRITICO 3): A TABELA ANTES DA INTENCAO — e uma bandeira encontrada
+        # MANDA no roteamento.
+        #
+        # O QUE FOI MEDIDO. `E1` = "tenho 45 anos e estou com dor no peito. o que eu tenho? e
+        # infarto?" -> P2 / `enfermagem-triagem` / 30min, SEM consultar tabela nenhuma: o gatilho
+        # `intencao_clinica` (logo abaixo) cortava antes. A MESMA dor toracica sem a pergunta (`B1`,
+        # `F2`) da P1 / `plantao-clinico` / 5min. Ou seja: FAZER UMA PERGUNTA CLINICA REBAIXAVA A
+        # URGENCIA DE UMA RED FLAG — e a pessoa que pergunta "sera que e' infarto?" e' exatamente a
+        # que esta' com medo de estar tendo um.
+        #
+        # A ORDEM CERTA, e por que ela e' esta. Os gatilhos 2/3 classificam o que a pessoa QUER
+        # (uma opiniao clinica, um humano); a DMN decide o que o quadro E'. O que a pessoa quer nao
+        # pode decidir a prioridade de um quadro que ninguem olhou — e nenhuma decisao clinica
+        # mudou de dono: quem diz `red_flag`/`conduta` continua sendo a tabela (ADR-0012), e o que
+        # esta linha faz e' garantir que ela seja PERGUNTADA antes de o roteamento ser decidido.
+        #
+        # O GATILHO 2 NAO MORREU: sem bandeira, a pergunta clinica continua sendo `intencao_clinica`
+        # e continua sem resposta automatica (L0 hard — a Helena nunca responde uma). A diferenca e'
+        # que agora "nao ha bandeira" e' um veredito da tabela, e nao um turno em que ninguem olhou.
+        #
+        # SEM `sintoma_codigo` NADA MUDA: uma pergunta clinica sem sintoma ("o plano cobre
+        # fisioterapia?") nao tem o que triar, e uma tabela de red flag sobre um codigo nulo nao
+        # responde nada que valha uma chamada ao motor.
+        ja_triado = bool(extraction.get("sintoma_codigo"))
+        if ja_triado and await self._triar_red_flag(extraction, update):
             return update
 
         # Gatilho 2: clinical question (L0 hard — Helena never answers one herself).
@@ -1990,36 +2164,15 @@ class HelenaGraph:
             return _rota_informativa(update)
 
         # Symptom: ALWAYS goes through the DMN — the DMN decides red flag, never the LLM.
+        #
+        # A TRIAGEM PODE JA' TER ACONTECIDO neste turno (gatilho 1, acima): quando havia
+        # `sintoma_codigo`, a tabela ja' foi consultada e ja' disse que nao ha bandeira. Triar de
+        # novo seria uma segunda chamada ao motor com as MESMAS entradas — mesmo veredito, duas
+        # linhas de proveniencia e o dobro de latencia no caminho mais quente da agente. O ramo
+        # continua existindo para o caso que o gatilho 1 nao cobre: `intent="symptom"` SEM codigo,
+        # em que a tabela ainda tem de ser perguntada (o catch-all dela e' quem responde).
         if intent == "symptom":
-            dmn_out = await self._evaluate_dmn(extraction)
-            update.update(dmn_out)
-            if dmn_out.get("error"):
-                # Gatilho 4: DMN unavailable/no-result is a technical failure -> human, NEVER
-                # treated as "no red flag" (fail-safe, ADR-0028 §3).
-                update["next_kind"] = "escalate"
-                update["escalation_motivo"] = "falha_tecnica"
-                # HEL-04: AQUI ha' classificacao — o sintoma foi extraido e validado antes de a
-                # DMN cair —, entao a severidade DERIVA dela em vez de ser um literal.
-                update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
-                return update
-            # F5: a avaliacao ACONTECEU — so' AQUI, depois de a tabela responder, "houve avaliacao"
-            # e' fato e nao intencao. A conversa passa a lembrar QUAL dado ela usou, que e' a unica
-            # informacao que permite refaze-la se a pessoa corrigir esse dado
-            # (`_correcao_de_dado_avaliado`). NAO e' lembrar o sintoma da mensagem anterior — ver a
-            # nota em `_MEMORIA_SINTOMA_AVALIADO` para a diferenca e por que ela importa.
-            update["memoria_clinica"] = _marcar_avaliacao(
-                update.get("memoria_clinica"),
-                sintoma_codigo=extraction.get("sintoma_codigo"),
-                intensidade=update.get("intensidade"),
-            )
-            decision = dmn_out.get("dmn_decision", {})
-            conduta = str(decision.get("conduta", "CONTINUE"))
-            if decision.get("red_flag") is True or conduta.startswith("ESCALATE"):
-                prioridade = str(decision.get("prioridade", "P2"))
-                is_mental = dmn_out.get("dmn_table") == _DMN_BY_POPULATION["mental_health"]
-                update["next_kind"] = "escalate"
-                update["escalation_motivo"] = "risco_psicossocial" if is_mental else "red_flag_clinico"
-                update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
+            if not ja_triado and await self._triar_red_flag(extraction, update):
                 return update
             # COLETA (passo 4): SO' aqui — a red flag ja' disse `false`. Antes desta linha nada
             # muda: emergencia nunca espera pergunta. A partir dela, "sem bandeira" deixa de
@@ -2037,6 +2190,54 @@ class HelenaGraph:
             return update
 
         return _rota_informativa(update)
+
+    async def _triar_red_flag(self, extraction: dict[str, Any], update: dict[str, Any]) -> bool:
+        """Consulta a tabela de red flag da populacao e ESCREVE o veredito em `update`. Devolve
+        `True` quando a tabela decidiu o roteamento do turno.
+
+        EXTRAIDO DO RAMO `symptom` EM 22/09/2026 (CRITICO 3), sem mudar uma linha do que ele fazia:
+        a triagem precisava acontecer ANTES dos gatilhos de INTENCAO, e duas copias da mesma
+        sequencia (avaliar -> tratar tabela fora do ar -> marcar a avaliacao -> ler a bandeira)
+        derivariam na primeira edicao que tocasse so' uma delas.
+
+        DECIDE O ROTEAMENTO em dois casos, e os dois sao `escalate`:
+          * a tabela nao respondeu (gatilho 4, `falha_tecnica`) — NUNCA lido como "sem bandeira"
+            (fail-safe, ADR-0028 §3);
+          * a tabela acusou bandeira (`red_flag` ou `conduta` `ESCALATE*`) — e ai a severidade sai
+            da PRIORIDADE que ela emitiu, nunca de um literal.
+        Fora esses dois, devolve `False` e quem chamou segue com os proprios gatilhos.
+        """
+        dmn_out = await self._evaluate_dmn(extraction)
+        update.update(dmn_out)
+        if dmn_out.get("error"):
+            # Gatilho 4: DMN unavailable/no-result is a technical failure -> human, NEVER
+            # treated as "no red flag" (fail-safe, ADR-0028 §3).
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "falha_tecnica"
+            # HEL-04: AQUI ha' classificacao — o sintoma foi extraido e validado antes de a DMN
+            # cair —, entao a severidade DERIVA dela em vez de ser um literal.
+            update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
+            return True
+        # F5: a avaliacao ACONTECEU — so' AQUI, depois de a tabela responder, "houve avaliacao" e'
+        # fato e nao intencao. A conversa passa a lembrar QUAL dado ela usou, que e' a unica
+        # informacao que permite refaze-la se a pessoa corrigir esse dado
+        # (`_correcao_de_dado_avaliado`). NAO e' lembrar o sintoma da mensagem anterior — ver a nota
+        # em `_MEMORIA_SINTOMA_AVALIADO` para a diferenca e por que ela importa.
+        update["memoria_clinica"] = _marcar_avaliacao(
+            update.get("memoria_clinica"),
+            sintoma_codigo=extraction.get("sintoma_codigo"),
+            intensidade=update.get("intensidade"),
+        )
+        decision = dmn_out.get("dmn_decision", {})
+        conduta = str(decision.get("conduta", "CONTINUE"))
+        if decision.get("red_flag") is True or conduta.startswith("ESCALATE"):
+            prioridade = str(decision.get("prioridade", "P2"))
+            is_mental = dmn_out.get("dmn_table") == _DMN_BY_POPULATION["mental_health"]
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "risco_psicossocial" if is_mental else "red_flag_clinico"
+            update["escalation_severidade"] = _severidade_from_prioridade(prioridade)
+            return True
+        return False
 
     # -- COLETA (passo 4) ---------------------------------------------------------------------
 
@@ -2236,34 +2437,63 @@ class HelenaGraph:
     async def inform(self, state: HelenaState) -> dict[str, Any]:
         """Administrative response (no clinical guidance, no red flag).
 
-        RECUSA DE SAIDA (13/09/2026): quando o rascunho e' barrado, este turno NAO vira uma
-        resposta diferente — vira ESCALONAMENTO. E' a mesma escolha que `_rota_informativa` ja faz
-        quando a precondicao da rota informativa nao se sustenta (HEL-03), so' que um passo
-        adiante: se a unica coisa que a Helena tinha para dizer era algo que ela nao pode dizer,
-        entao ela nao tem resposta automatica para dar, e quem tem e' um humano.
+        RECUSA DE SAIDA — A DECISAO E' POR GRUPO, NAO POR ROTA (22/09/2026, CRITICO 1). Entre
+        13/09 e 21/09 QUALQUER rascunho barrado aqui virava escalonamento `falha_tecnica`. A
+        bateria de 22/09 mediu o que isso custa: `C1` ("estou com dor de cabeca") e `B5` ("estou
+        com um pouco de dor de garganta desde ontem") tinham estado clinico IDENTICO — extracao sem
+        sintoma, DMN no catch-all, `red_flag=false` — e desfechos opostos. O C1 abriu chamado P3
+        `atendimento-humano` rotulado *falha tecnica* porque o rascunho do modelo dizia "a equipe
+        entre em contato"; o B5, com a mesma dor e outra frase, nao abriu nada. Quem decidia a
+        abertura de fila humana era a REDACAO do modelo, nao criterio clinico nenhum.
 
-        Tentar redigir de novo seria a alternativa obvia e esta' deliberadamente FORA: o mesmo
-        prompt com a mesma mensagem tende ao mesmo texto, e um laco de tentativas transformaria
-        uma cerca num atraso. `_start_escalation` redige o texto do handoff pelo mesmo
-        `_respond_llm`, agora na rota `escalate` — se ATE ESSE for recusado, ele cai na constante.
+        A LINHA DIVISORIA, e por que ela e' esta. Escalar por recusa so' faz sentido quando a
+        recusa indica que a Helena NAO TEM resposta automatica legitima para dar:
+
+          * `negativa_clinica` — afirmar que nao ha sinal de alerta e' exatamente o que ela nao
+            pode fazer sozinha (aquela frase so' nasce de User Task). Se era isso que ela tinha a
+            dizer, ela nao tinha nada a dizer, e quem tem e' um humano. CONTINUA ESCALANDO;
+          * `promessa_de_humano`, `promessa_de_capacidade`, `canal_nao_confirmado` — sao defeitos
+            de REDACAO num turno cuja tarefa era orientar. A resposta honesta nao e' abrir uma fila
+            que ninguem pediu: e' nao mentir. TROCA DE TEXTO, e o turno segue `inform`.
+
+        E' a mesma assimetria por grupo que `collect` ja' aplica desde 21/09, e pela mesma razao —
+        ver o `except` dele, onde o porque esta' escrito por extenso.
+
+        A PERGUNTA E' FEITA AO TEXTO, e nao ao grupo da excecao, pelos dois motivos que aquele
+        `except` enumera: `RespostaRecusadaError.grupo` e' atributo de excecao ligada (a cerca
+        LUC-06/NEW-01 recusa a leitura, e ela esta' certa mesmo com um valor que por acaso e'
+        seguro) e o grupo depende da ORDEM das duas cercas, entao um texto que cita canal inventado
+        E afirma ausencia de alerta tem de escalar pelo segundo motivo, nao virar troca de texto
+        porque o primeiro venceu o log. `motivo_de_recusa` e' PURA: re-perguntar e' barato.
+
+        A TROCA E' POR CONSTANTE, nunca por um segundo rascunho — o mesmo prompt com a mesma
+        mensagem tende ao mesmo texto, e um laco de tentativas transforma uma cerca num atraso
+        (a mesma escolha de CC-01 e da cerca TEXTO x FATO).
         """
+        text = await self._redigir_resposta(state, "inform")
         try:
-            text = await self._respond_llm(state, "inform")
+            text = self._cercar_saida(text, "inform")
         except RespostaRecusadaError:
-            # O `error` leva o TOKEN DE CLASSE e nada mais. Ler `recusa.grupo` aqui seria um
-            # atributo de excecao ligada indo para campo de estado, que a cerca LUC-06/NEW-01
-            # recusa — e ela esta' certa mesmo com um valor que por acaso e' seguro: este campo
-            # sobrevive para o sufixo `[falha tecnica: ...]` do handoff no turno seguinte. QUAL
-            # padrao barrou fica onde detalhe deve ficar: na linha de log e no contador, os dois
-            # emitidos em `_respond_llm`.
-            return await self._start_escalation(
-                state,
-                motivo="falha_tecnica",
-                # HEL-04: a severidade DERIVA da classificacao ja feita, nunca de um literal.
-                severidade=_severidade_de_intensidade(state.get("intensidade")),
-                response_kind="escalate",
-                error=ERRO_RESPOSTA_RECUSADA,
-            )
+            if _texto_tem_negativa_clinica(text):
+                # O `error` leva o TOKEN DE CLASSE e nada mais: ele sobrevive para o sufixo
+                # `[falha tecnica: ...]` do handoff no turno seguinte. QUAL padrao barrou fica onde
+                # detalhe deve ficar — no log e no contador, os dois emitidos em `_cercar_saida`.
+                return await self._start_escalation(
+                    state,
+                    motivo="falha_tecnica",
+                    # HEL-04: a severidade DERIVA da classificacao ja feita, nunca de um literal.
+                    severidade=_severidade_de_intensidade(state.get("intensidade")),
+                    response_kind="escalate",
+                    error=ERRO_RESPOSTA_RECUSADA,
+                )
+            # A recusa ja foi logada e contada em `_cercar_saida`. O `error` aqui e' o RASTRO no
+            # proprio turno (item 3 do diretor: toda recusa deixa rastro) e NAO um roteamento —
+            # este turno nao escala, e nao ha falha tecnica nenhuma a declarar ao motor.
+            return {
+                "response_text": RESPOSTA_INFORM_RECUSADA,
+                "response_kind": "inform",
+                "error": ERRO_RESPOSTA_RECUSADA,
+            }
         return {"response_text": text, "response_kind": "inform"}
 
     async def schedule(self, state: HelenaState) -> dict[str, Any]:
@@ -3011,6 +3241,19 @@ class HelenaGraph:
         return data, None
 
     async def _respond_llm(self, state: HelenaState, response_kind: ResponseKind) -> str:
+        """O RASCUNHO JA CERCADO — o caminho de todo no' que nao precisa ver o texto barrado.
+
+        SEPARADO EM DOIS EM 22/09/2026 (CRITICO 1), e a razao e' a mesma que `collect` ja' tinha:
+        quem precisa DECIDIR o que fazer com uma recusa precisa do texto recusado para perguntar a
+        ele qual foi o grupo — e o texto nao pode vir pela excecao (`RespostaRecusadaError.grupo` e'
+        atributo de excecao ligada, que a cerca LUC-06/NEW-01 recusa em campo de estado). `inform`
+        passou a chamar `_redigir_resposta` + `_cercar_saida`, exatamente como `collect`.
+        """
+        return self._cercar_saida(await self._redigir_resposta(state, response_kind), response_kind)
+
+    async def _redigir_resposta(self, state: HelenaState, response_kind: ResponseKind) -> str:
+        """O rascunho do modelo, SEM cerca. O unico chamador que o usa cru e' quem vai julgar a
+        recusa por grupo (`inform`); todos os outros entram por `_respond_llm`."""
         context: dict[str, Any] = {
             "response_kind": response_kind,
             "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
@@ -3066,10 +3309,11 @@ class HelenaGraph:
             # em vez de sair pela porta de tras.
             texto = RESPOSTA_FALHA_DE_REDACAO
 
-        # RECUSA DE SAIDA (13/09/2026). ESTE e' o unico ponto por onde passa todo texto que chega
-        # ao beneficiario — `inform` (1x), `collect` (via `_cercar_saida`), `_start_escalation`
-        # (escalate e schedule) e o fallback de `respond`. Cercar aqui cobre as rotas com uma
-        # verificacao so'.
+        # RECUSA DE SAIDA (13/09/2026). O RASCUNHO TERMINA AQUI, E A CERCA VEM LOGO DEPOIS:
+        # `_respond_llm` (o caminho de `_start_escalation` — escalate e schedule) e `inform` e
+        # `collect`, que chamam `_cercar_saida` a mao para poder julgar a recusa por GRUPO. Todo
+        # texto que chega ao beneficiario passa por `_cercar_saida`; o que mudou em 22/09/2026 foi
+        # QUEM chama, nunca SE chama.
         #
         # POR QUE A CERCA EXISTE MESMO COM A PROIBICAO NO PROMPT. O `response-v3` proibiu a
         # negativa clinica em maiusculas e com o raciocinio inteiro, e o modelo passou por cima
@@ -3080,7 +3324,7 @@ class HelenaGraph:
         # F7 (21/09/2026): a cerca de CANAL vem antes e vale em toda rota — um canal que nao existe
         # nao e' verdade em rota nenhuma. As duas devolvem a mesma forma `(grupo, padrao)`, entao o
         # log, o contador e a excecao servem as duas sem ramo novo.
-        return self._cercar_saida(texto, response_kind)
+        return texto
 
     @staticmethod
     def _cercar_saida(texto: str, response_kind: ResponseKind, *, node: str = "_respond_llm") -> str:

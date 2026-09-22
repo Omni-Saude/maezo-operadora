@@ -15,6 +15,7 @@ import pytest
 
 from maezo.agents.helena.graph import (
     ERRO_RESPOSTA_RECUSADA,
+    RESPOSTA_INFORM_RECUSADA,
     HelenaGraph,
     RespostaRecusadaError,
 )
@@ -110,13 +111,19 @@ async def test_o_nome_confirmado_passa_pelo_chokepoint() -> None:
     assert await graph._respond_llm(_estado(), "inform") == TEXTO_COM_NOME
 
 
-async def test_inform_com_canal_inventado_vira_escalonamento_como_qualquer_recusa() -> None:
-    """A recusa de canal entra pelo MESMO caminho das outras tres: `inform` barrado -> humano."""
+async def test_inform_com_canal_inventado_troca_o_texto_e_nao_abre_fila() -> None:
+    """TROCA DE VEREDITO DELIBERADA (22/09/2026, CRITICO 1). O que esta prova sempre garantiu —
+    que o canal inventado NAO chega ao beneficiario — segue igual; o que muda e' o que acontece no
+    lugar dele. Citar um canal que ninguem confirmou e' defeito de REDACAO num turno cuja tarefa
+    era orientar, e a bateria de 22/09 mediu o custo de trata-lo como ausencia de resposta: uma
+    dor de cabeca comum virando chamado P3 rotulado *falha tecnica* porque a frase saiu errada."""
     graph, _ = _graph(TEXTO_E4)
 
     saida = await graph.inform(_estado())
 
-    assert saida["response_kind"] == "escalate"
+    assert saida["response_kind"] == "inform"
+    assert saida.get("escalation_started") is not True
+    assert saida["response_text"] == RESPOSTA_INFORM_RECUSADA
     assert saida["error"] == ERRO_RESPOSTA_RECUSADA
     assert "aplicativo do plano" not in str(saida)
 

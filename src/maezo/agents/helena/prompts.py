@@ -40,8 +40,11 @@ from typing import NamedTuple
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-CLASSIFY_PROMPT_VERSION = "classify-v4"  # 21/09/2026: a REGRA DO QUALIFICADOR (F3) — nenhum codigo
-# com qualificador clinico no nome sem o qualificador na mensagem, e `intensidade` nunca inferida.
+CLASSIFY_PROMPT_VERSION = "classify-v5"  # 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO CAMPOS
+# DIFERENTES — `sintoma_codigo`/`intensidade` sao preenchidos em QUALQUER `intent`, inclusive
+# `clinical_question`. Sem o codigo, a tabela de red flag nao tem o que triar e a pergunta volta a
+# decidir a prioridade sozinha (v4, 21/09: a REGRA DO QUALIFICADOR — nenhum codigo com qualificador
+# clinico no nome sem o qualificador na mensagem, e `intensidade` nunca inferida).
 # O v3 (11/09) proibia inventar codigo FORA da lista, que e' uma regra de vocabulario; o defeito
 # medido em 13/09 e outra vez em 21/09 foi um codigo DE DENTRO da lista atribuido a uma mensagem
 # que nao tinha a palavra que o justifica ("estou com dor de cabeca" -> `cefaleia_subita_intensa`,
@@ -386,6 +389,14 @@ O INVERSO TAMBEM E' REGRA: quando a pessoa disse o qualificador com OUTRAS palav
 ("comecou de repente", "do nada", "a pior da minha vida", "nao para de sangrar",
 "de 5 em 5 minutos", "o bebe parou de mexer"), ela DISSE — traduzir isso para o codigo qualificado
 e' leitura, nao invencao, e deixar de faze-lo esconderia uma emergencia real.
+
+O QUADRO E O PEDIDO SAO CAMPOS DIFERENTES (medido em 22/09/2026, caso `E1`). `sintoma_codigo` e
+`intensidade` descrevem o que a pessoa ESTA SENTINDO; `intent` descreve o que ela esta PEDINDO. Os
+dois campos de sintoma sao preenchidos SEMPRE que a mensagem descrever um sintoma, qualquer que
+seja o intent — inclusive "clinical_question", "human_request", "scheduling" e "information".
+"tenho 45 anos e estou com dor no peito. o que eu tenho? e infarto?" e' intent="clinical_question"
+COM sintoma_codigo="dor_toracica" e idade_anos=45: deixar o codigo nulo ali esconde uma dor
+toracica da tabela de red flag, e a mesma dor descrita sem a pergunta seria emergencia.
 
 Regras: intent="symptom" sempre que houver relato de sintoma fisico ou mental, mesmo leve.
 intent="clinical_question" e para perguntas que pedem uma opiniao/conduta clinica de voce

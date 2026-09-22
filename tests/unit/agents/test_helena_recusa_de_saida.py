@@ -29,6 +29,7 @@ import pytest
 from maezo.agents.helena.graph import (
     ERRO_RESPOSTA_RECUSADA,
     RESPOSTA_HANDOFF_RECUSADA,
+    RESPOSTA_INFORM_RECUSADA,
     HelenaGraph,
 )
 from maezo.agents.helena.prompts import (
@@ -261,15 +262,27 @@ def test_a_promessa_de_capacidade_nao_tem_rota_permitida() -> None:
         assert motivo_de_recusa(BOLETO, rota) is not None, f"passou em {rota}"
 
 
-async def test_boleto_recusado_no_grafo_vira_escalonamento() -> None:
-    """Mesmo caminho da negativa clinica: sem resposta que possa dar, quem responde e' um humano."""
+async def test_boleto_recusado_no_grafo_troca_o_texto_e_nao_abre_fila() -> None:
+    """TROCA DE VEREDITO DELIBERADA (22/09/2026, CRITICO 1) — declarada, nao de passagem.
+
+    Ate' 21/09 esta prova afirmava "mesmo caminho da negativa clinica: sem resposta que possa dar,
+    quem responde e' um humano". A bateria de 22/09 mostrou que a premissa nao vale para ESTE
+    grupo: `C1` e `B5` chegaram a `inform` com estado clinico IDENTICO e sairam com desfechos
+    opostos porque um dos dois rascunhos tinha a frase errada. Prometer capacidade que ela nao tem
+    e' defeito de REDACAO — a Helena TEM o que dizer sobre segunda via de boleto —, e a resposta
+    honesta e' nao mentir, nao criar trabalho numa fila humana.
+
+    `negativa_clinica` continua escalando, e a prova disso esta' logo acima (`test_negativa_...`):
+    e' o unico grupo em que a recusa significa que nao existe resposta automatica legitima.
+    """
     graph = _graph(BOLETO)
 
     saida = await graph.inform(_estado(message_body="quero a segunda via do meu boleto"))
 
-    assert saida["response_kind"] == "escalate"
-    assert saida["escalation_started"] is True
-    assert saida["error"] == ERRO_RESPOSTA_RECUSADA
+    assert saida["response_kind"] == "inform"
+    assert saida.get("escalation_started") is not True
+    assert saida["response_text"] == RESPOSTA_INFORM_RECUSADA
+    assert saida["error"] == ERRO_RESPOSTA_RECUSADA, "a recusa continua deixando rastro"
 
 
 # ---------------------------------------------------------------------------------------------
