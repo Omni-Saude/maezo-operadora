@@ -360,7 +360,18 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
 ) -> None:
     """Gatilho 5 (always active): psychosocial risk escalates regardless of `intent`, verified
     against the REAL `triage_redflag_mental_health` table + `escalation_routing` (motivo=
-    risco_psicossocial, severidade=grave -> r2 -> plantao-clinico)."""
+    risco_psicossocial -> r2 -> plantao-clinico).
+
+    A SEVERIDADE VEM DA TABELA desde 22/09/2026 (ADR-0059, item [a] do diretor; PR #460). Este
+    fake de classificador devolve so' `psychosocial_risk=True`, sem nenhum dos campos que as
+    regras r1-r6 da `mental_health` leem, entao a tabela REAL responde `r7` (`prioridade="-"`,
+    `CONTINUE`) e o grafo deixou de fabricar `grave` por cima dela: a severidade que sai e' a
+    da tabela, `leve`. O que este teste sempre quis provar — e continua provando — e' a
+    CONDUTA: risco psicossocial abre escalonamento SEMPRE e vai para `plantao-clinico`, porque
+    a `r2` da `escalation_routing` casa `risco_psicossocial` com severidade no coringa. Se a
+    tabela um dia rebaixar o roteamento, e' a asserção de `candidate_groups` la' embaixo que
+    acusa. Ate' 22/09 esta linha pinava o literal `grave`; a lane de integracao nao rodou entre
+    o merge do #460 e o desbloqueio do Actions, e este foi o primeiro run a medir a mudanca."""
     conversation_id = f"wa:{audit_tenant}:t111-psy-{_RUN_ID}"
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
@@ -398,7 +409,11 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
         )
 
         assert result["escalation_motivo"] == "risco_psicossocial"
-        assert result["escalation_severidade"] == "grave"
+        # A tabela respondeu (nao houve erro de DMN) e respondeu `r7`: sem criterio de red flag.
+        assert not result.get("error")
+        assert (result.get("dmn_decision") or {}).get("prioridade") == "-"
+        # ... e a severidade e' a DELA, nao um literal por cima dela.
+        assert result["escalation_severidade"] == "leve"
         assert result["escalation_started"] is True
 
         actives = await active_instances(engine_client, business_key)
