@@ -254,7 +254,14 @@ def test_decode_and_encode_agree_on_which_ids_are_pinned(
 # 3. Malformed frames -> the typed error, never a bare stdlib exception
 # ---------------------------------------------------------------------------
 
-_SCHEMA_ID_BYTES = uuid.uuid4().bytes
+# FIXO, e nao `uuid.uuid4()`, por medicao: estes bytes entram nos IDS do parametrize abaixo, e um
+# valor sorteado no import fazia cada processo coletar ids diferentes. Em serie ninguem via; com
+# `pytest-xdist` (CI em shards desde 22/09/2026) os workers comparam a colecao e o shard inteiro
+# morria com "Different tests were collected between gw1 and gw2" (run 35694139974). O teste nao
+# precisa de aleatoriedade — precisa de um schema id que NAO esteja pinado, e um UUID arbitrario
+# fixo cumpre isso igual. A cerca de particao dos shards conta por funcao justamente por causa
+# deste caso; agora a causa raiz tambem esta fechada.
+_SCHEMA_ID_BYTES = uuid.UUID("7f3c2a90-5e1b-4d8a-9c6f-0b2e4a7d1c35").bytes
 
 
 @pytest.mark.parametrize(

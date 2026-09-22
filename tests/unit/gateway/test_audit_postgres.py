@@ -1289,4 +1289,18 @@ async def test_both_entry_points_issue_the_same_claim_and_chain_sequence() -> No
     enlisted = _sink_with_fake_conn("amh", enlisted_conn)
     await enlisted.emit_once_on(enlisted_conn, _record("amh"), dedup_key="amh:k")  # type: ignore[arg-type]
 
-    assert [row[0] for row in standalone_conn.executed] == [row[0] for row in enlisted_conn.executed]
+    # O PREAMBULO de cada entrada e' dela, o CORPO e' compartilhado — e e' o corpo que este teste
+    # guarda. Desde o P1 do review de DL-0049 (21/09/2026) o caminho autonomo, quando o pool e' de
+    # outro, abre com `SET LOCAL search_path` (`_bind_schema`); o caminho alistado nao pode fazer
+    # isso — o chamador e' dono da conexao — e em vez disso VERIFICA `current_schema()` (um
+    # fetchval, que este fake nao registra em `executed`). Os dois preambulos sao diferentes de
+    # proposito. O que nao pode divergir e' o que vem depois: lock -> lookup -> tail -> claim ->
+    # insert. Por isso a comparacao comeca no advisory lock.
+    def corpo(executado: list[tuple[str, ...]]) -> list[str]:
+        sqls = [row[0] for row in executado]
+        return sqls[next(i for i, sql in enumerate(sqls) if "pg_advisory_xact_lock" in sql) :]
+
+    assert corpo(standalone_conn.executed) == corpo(enlisted_conn.executed)
+    assert corpo(standalone_conn.executed)[0].startswith("SELECT pg_advisory_xact_lock")
+    # E o preambulo autonomo e' exatamente o `SET LOCAL` — se ele sumir, o P1 voltou.
+    assert standalone_conn.executed[0][0] == 'SET LOCAL search_path TO "amh"'

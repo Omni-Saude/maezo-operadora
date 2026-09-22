@@ -61,14 +61,28 @@ def _shards() -> list[tuple[str, list[str]]]:
     ]
 
 
+def _tokens(linha: str) -> list[str]:
+    """`shlex.split` tolerante: uma linha de COMENTARIO do passo com apostrofo ("e' uma lista")
+    nao tokeniza e derrubava a cerca inteira com ValueError no CI (run 35694139974). Linha que
+    nao tokeniza nao e' o comando do pytest — e' ignorada, nao e' erro."""
+    try:
+        return shlex.split(linha)
+    except ValueError:
+        return []
+
+
 def _selector_do_shard(alvo: list[str]) -> tuple[list[str], str]:
     """O passo do shard escreve `${{ matrix.alvo }}` no lugar da raiz; aqui a raiz e' o `alvo`
     do proprio shard, e o marcador continua sendo lido do comando de verdade."""
     run = str(_step("unit", "Unit tests (shard) + coverage data")["run"]).replace("\\\n", " ")
-    linha = next(line for line in run.splitlines() if "pytest" in shlex.split(line.split("|", 1)[0]))
+    linha = next(line for line in run.splitlines() if "pytest" in _tokens(line.split("|", 1)[0]))
     tokens = shlex.split(linha)
     assert "${{" in linha and "matrix.alvo" in linha, linha
-    return alvo, tokens[tokens.index("-m") + 1]
+    # So' os argumentos DEPOIS de `pytest`: o comando e' `python -m pytest ...`, e o primeiro
+    # `-m` da linha e' o do interpretador — le-lo devolvia "pytest" como marcador, e um
+    # `-m pytest` nao coleta nada. O `_selector` original ja' fazia este recorte.
+    pytest_args = tokens[tokens.index("pytest") + 1 :]
+    return alvo, pytest_args[pytest_args.index("-m") + 1]
 
 
 def _collect_args(args: list[str], marker: str) -> set[str]:

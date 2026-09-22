@@ -57,16 +57,50 @@ jobs:
       matrix:
         include:
           # `alvo` e' a lista de argumentos de colecao do pytest, expandida pelo shell do passo.
-          - shard: ci-ledger
-            alvo: tests/unit/ci/test_ledger_*.py
+          # `xdist` e' o paralelismo DENTRO do shard. `tests/unit/dev` roda em SERIE (`-n 0`),
+          # e nao e' preferencia: a ferramenta de captura historica que aquela suite exercita
+          # RECUSA rodar com qualquer `PYTEST_*` no ambiente, e o xdist injeta
+          # `PYTEST_XDIST_WORKER`/`_TESTRUNUID` nos workers — 111 erros de
+          # `CaptureRefusedError: ambient Python/pytest/uv configuration present` (run
+          # 35694139974). Por isso `dev` e' partido em dois shards seriais em vez de um paralelo:
+          # `test_engine_integration_runner.py` sozinho (5,2 min medidos, com o teste de 124s que
+          # e' o piso de qualquer paralelismo) e o resto (~2,8 min).
+          # O ledger e' a MESMA historia do `dev`: `ledger_original_producer` recusa `PYTEST_XDIST_*`
+          # (114 x `CaptureRefusedError`, run 35694139974), entao roda em serie — e como e' o maior
+          # cluster da suite (test_ledger_current_consumer 6,7 min · current_execution 3,4 · os
+          # outros seis ~2,5), vai em tres shards seriais para o maior nao passar de ~7 min.
+          - shard: ledger-consumer
+            alvo: tests/unit/ci/test_ledger_current_consumer.py
+            xdist: -n 0
+          - shard: ledger-execution
+            alvo: tests/unit/ci/test_ledger_current_execution.py
+            xdist: -n 0
+          - shard: ledger-resto
+            # Lista EXPLICITA, e nao glob + `--ignore`: o pytest nao aplica `--ignore` a arquivo passado
+            # como argumento — o glob expandia os oito e o shard repetia consumer+execution (56 funcoes
+            # duplicadas, pegas pela cerca de particao antes de chegar ao CI).
+            alvo: tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py
+            xdist: -n 0
           - shard: ci
             alvo: tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py
+            xdist: -n auto --dist loadfile
           - shard: gateway-platform
             alvo: tests/unit/gateway tests/unit/platform
+            xdist: -n auto --dist loadfile
+          - shard: dev-runner
+            alvo: tests/unit/dev/test_engine_integration_runner.py
+            xdist: -n 0
+          # `test_relay_boundary_diagnostics.py` entra AQUI, em serie, e sai do `restante`: seus testes
+          # pausam o tracer do pytest-cov pelo controller para instalar o proprio `sys.settrace`; num
+          # worker do xdist o hook pertence a OUTRA instancia do coverage (a que o pytest-cov liga no
+          # boot do worker) e o `pause()` nao o remove — 8 erros "refuses to replace another Python
+          # trace hook" (run 35694139974). Em serie o controller e' o dono do hook e o fixture funciona.
           - shard: dev
-            alvo: tests/unit/dev
+            alvo: tests/unit/dev --ignore=tests/unit/dev/test_engine_integration_runner.py tests/unit/portal/test_relay_boundary_diagnostics.py
+            xdist: -n 0
           - shard: restante
-            alvo: tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev
+            alvo: tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev --ignore=tests/unit/portal/test_relay_boundary_diagnostics.py
+            xdist: -n auto --dist loadfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -189,7 +223,7 @@ jobs:
           PY
           # `alvo` e' uma LISTA de argumentos e o glob do ledger tem de expandir: sem aspas, de proposito.
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python -m pytest ${{ matrix.alvo }} -q -m "not integration" -ra \
-            -n auto --dist loadfile \
+            ${{ matrix.xdist }} \
             --junitxml="unit-junit-${{ matrix.shard }}.xml" \
             --cov="$GITHUB_WORKSPACE/src/maezo" --cov-report=
 
