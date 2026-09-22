@@ -212,7 +212,19 @@ resource "aws_ecs_task_definition" "agente" {
       # (verificado em 13/08/2026). Quando um overlay real aparecer, o merge tem de
       # rodar ANTES do build da imagem — e nao virar uma variavel de ambiente.
       { name = "CIBSEVEN_BASE_URL", value = local.cibseven_base_url },
-      { name = "FHIR_BASE_URL", value = local.fhir_base_url },
+      # FHIR_BASE_URL NAO entra aqui: quem o define e' o bloco da particao mais abaixo, e
+      # ele ja cobre os tres agentes (o ternario devolve `local.fhir_base_url` para quem nao
+      # e' o rafael). Havia uma segunda entrada com o MESMO nome neste ponto, sobrevivente da
+      # versao anterior ao bloco de particao.
+      #
+      # POR QUE ISSO NAO ERA COSMETICO (medido no plan de 21/09/2026, `terraform show -json`):
+      # o `container_definitions` planejado do agent-rafael saia com DUAS entradas
+      # `FHIR_BASE_URL` — indice 8 = `.../fhir/omni` e indice 9 = `.../fhir`. Nome repetido em
+      # `environment` nao e' erro para o ECS: ele entrega as duas ao runtime e a ULTIMA vence.
+      # O rafael passaria a subir SEM particao, e o comentario do proprio bloco abaixo diz o
+      # que isso custa: `/fhir/Patient` devolve 400, `/fhir/omni/Patient` devolve 200. Como o
+      # rafael esta em `desired_count=0`, a quebra nao apareceria no dia do apply — apareceria
+      # no dia em que alguem o escalasse, longe da mudanca que a causou.
       { name = "HEALTH_PORT", value = "8000" },
       { name = "KAFKA_BOOTSTRAP_SERVERS", value = local.kafka_bootstrap },
       { name = "AGENT_RUNTIME_MODE", value = var.agent_runtime_mode },

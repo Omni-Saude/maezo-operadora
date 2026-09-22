@@ -1,0 +1,161 @@
+// Entradas NAO SECRETAS do BFF humano do portal (ADR-0049 D3/D4/D8/D11, DL-0048).
+//
+// Por que versionado e `.auto.tfvars`: se `portal` voltar a ser null num apply futuro, o
+// Terraform DESTROI task definition, roles, SGs, NLB e listener do portal. Deixar esses
+// valores no terminal de quem aplicou nao existe para o time. Nada aqui e' segredo:
+// ARNs, subnets, IDs de client publico e IPs de endpoint sao metadados de infra. A DSN vive
+// SO' no Secrets Manager (`maezo-operadora/dev/portal/amh/session-dsn`), e o Terraform le
+// apenas os metadados dela.
+//
+// `portal_enabled` passou a TRUE em 21/09/2026, depois das verificacoes de `portal.md`/1.7 e
+// depois que os dois pre-requisitos fora desta conta cairam no mesmo dia: o CNAME de validacao
+// do ACM + o hostname na zona Cloudflare de `austa.com.br`, e o ingress 5432 do Aurora para o
+// SG dedicado do portal (`Omni-Saude/amh-data-platform#175`, aplicado com -target).
+//
+// O DEFAULT DESCREVE O QUE RODA: se isto voltar a `false` num apply futuro, o servico do
+// portal e' escalado para zero sem erro nenhum, e quem perceber vai perceber pelo 502.
+//
+// O que este `true` NAO entrega: o perfil `staff` continua `null` (ver o fim deste arquivo),
+// entao o portal AUTENTICA e nao tem FILA DE CASOS — `MAEZO_PORTAL_CAPABILITIES=identity`.
+// Os criterios 3 a 6 do mandato de 21/09 dependem da autoridade nativa, que nao existe em dev.
+//
+// Medido na conta 203312548462 / sa-east-1 em 21/09/2026.
+
+// REPOSTO EM false EM 21/09/2026, pelo review do dono (P1): o portao de imagem de
+// `portal.md`/1.4 exige SBOM E ASSINATURA do digest antes de aceita-lo, e o proprio runbook
+// desta entrega declara que `8b014a60` nao tem nenhum dos dois (os passos de syft/cosign do
+// `cd.yml` estao atras do gate `AWS_ENABLED`, ausente por desenho). Ligar antes disso e' pular
+// um portao de cadeia de suprimentos, e o fato de ter FUNCIONADO nao o satisfaz.
+//
+// O QUE FICOU PROVADO ENQUANTO ESTEVE LIGADO (21/09/2026, ~19:40Z, e nao se perde ao desligar):
+//   - servico 1/1, rolloutState=COMPLETED, steady state;
+//   - GET https://portal-maezo-dev.austa.com.br/api/v1/portal/session -> HTTP 401 com
+//     {"erro":"Nao foi possivel validar a sessao."}, TLS verificado (ssl_verify_result=0),
+//     certificado servido CN=portal-maezo-dev.austa.com.br, emissor Amazon RSA 2048 M01;
+//   - GET /api/v1/portal/auth/login -> 303 para /oauth2/authorize do pool, com
+//     client_id=61gml104sr5nc8jskrptstua0u, response_type=code, scope=openid, redirect_uri no
+//     hostname real, code_challenge_method=S256 (challenge de 43 chars), state e nonce, e
+//     cookie __Host-maezo-login; HttpOnly; Secure; SameSite=lax; Max-Age=300;
+//   - verificacao 1.7 #7: log do boot com 4 linhas de uvicorn e ZERO ocorrencias de
+//     postgresql://|password|secret|__Host-|set-cookie|code_verifier|Bearer |eyJ.
+//
+// PARA LIGAR DE NOVO falta UMA coisa: publicar e verificar SBOM + assinatura do digest.
+portal_enabled = false
+
+portal = {
+  // Tenant desta instancia; tem de ser igual a `tenant_id` do ambiente.
+  tenant = "amh"
+
+  // Pool Cognito `amh-maezo-bpm-dev` (sa-east-1_9oKv7gHOJ). O issuer e' o host regional do
+  // cognito-idp, NAO o dominio do managed login — e' dele que sai o JWKS
+  // (`{issuer}/.well-known/jwks.json`, src/maezo/portal/api/config.py:75).
+  issuer = "https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_9oKv7gHOJ"
+
+  // Dominio do managed login do MESMO pool (Domain=amh-maezo-bpm-dev, CustomDomain=null,
+  // medido com describe-user-pool). Daqui saem `/oauth2/authorize` (browser) e
+  // `/oauth2/token` (servidor).
+  cognito_origin = "https://amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com"
+
+  // Client PUBLICO dedicado, criado em 21/09/2026: `portal-humano-amh-dev`.
+  // Sem client secret, AllowedOAuthFlowsUserPoolClient=true, flows exatamente ["code"],
+  // scope ["openid"], callback exatamente {public_origin}/api/v1/portal/auth/callback,
+  // ExplicitAuthFlows so' ALLOW_REFRESH_TOKEN_AUTH. O S256/state/nonce sao do BFF: o
+  // Cognito nao tem flag que prove PKCE, entao a evidencia e' a leitura sanitizada do
+  // client no runbook.
+  human_client_id      = "61gml104sr5nc8jskrptstua0u"
+  human_client_purpose = "dedicated-human-code-pkce"
+
+  // Client M2M EXISTENTE (`agent-rafael-omni`), declarado so' para comparacao: o validador
+  // exige que seja igual a `fhir_cognito_client_id` e diferente do humano. Conferido contra
+  // a task definition VIVA de agent-rafael (FHIR_CLIENT_ID), nao contra o default do repo.
+  machine_client_id = "3kr6l4lq5mgq84rta88a2ugpd"
+
+  // Hostname publico decidido pelo dono. A zona `austa.com.br` e' EXTERNA a esta conta —
+  // ela vive no Cloudflare, e os dois registros (validacao do ACM + este hostname para o
+  // NLB) foram criados la' em 21/09/2026, DNS-only. Resolucao publica conferida:
+  // portal-maezo-dev.austa.com.br -> portal-cceba8c66318e03e-...elb.sa-east-1.amazonaws.com
+  // -> 52.67.211.205 / 54.232.19.187.
+  public_origin = "https://portal-maezo-dev.austa.com.br"
+
+  // Artefato `8b014a60`, verificado DENTRO da imagem como uid 1000 em 21/09/2026: modulo
+  // do portal presente, `portal.api.production:create_production_app` presente, migration
+  // 0012 no wheel, e as 3 raizes publicas do RDS sa-east-1 no contexto TLS padrao do
+  // Python com check_hostname ligado. SBOM/assinatura desta imagem NAO existem (o job de
+  // syft/cosign do cd.yml esta' atras do gate AWS_ENABLED, ausente) — pendencia declarada.
+  image_digest = "sha256:685ddb6d80c89f713ac776700bb7b759cb56253d85ab1b273cc7946ecdf12c3c"
+
+  // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
+  // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
+  // dedicada `portal_bff_amh`; nao e' JSON e nao e' o segredo de maezo_app/cibseven_app/
+  // master.
+  database_secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/session-dsn-e3YgbH"
+
+  // Certificado REAL, emitido pelo ACM por validacao DNS em 21/09/2026 e valido ate'
+  // 2027-04-06 (`Status=ISSUED`, `ValidationStatus=SUCCESS`, medido).
+  //
+  // HISTORIA, porque ela explica o self-signed que aparece no historico deste arquivo: a
+  // zona `austa.com.br` e' do Cloudflare (`austin/crystal.ns.cloudflare.com`), nao ha hosted
+  // zone publica no Route53 desta conta, e enquanto o CNAME de validacao nao existia o
+  // certificado ficava `PENDING_VALIDATION`. O listener TLS do NLB RECUSA certificado
+  // pendente (medido: `CreateListener 400 UnsupportedCertificate`), e sem listener o
+  // `aws_ecs_service` do portal nem e' criado (`depends_on`) — entao o passo 1.5 foi
+  // materializado com um self-signed importado
+  // (`...certificate/46784e0d-4ab0-4f4b-8932-c544b0aa3871`) enquanto o servico estava em
+  // ZERO tasks. Nada serviu trafego por ele.
+  //
+  // Os dois registros foram criados em 21/09/2026 na zona do Cloudflare, ambos DNS-ONLY:
+  //   _a97abaa85b2ea90dec7850f381c79512.portal-maezo-dev -> _1d34fdfc01d78f0ba2abe5e7a19f0039.wzccmgtwzk.acm-validations.aws
+  //   portal-maezo-dev -> portal-cceba8c66318e03e-da82ba413a53e0d5.elb.sa-east-1.amazonaws.com
+  // O proxy do Cloudflare ficaria ERRADO nos dois: no primeiro ele reescreveria o CNAME que
+  // a AWS consulta; no segundo ele terminaria o TLS nele mesmo, e o navegador veria o
+  // certificado do Cloudflare em vez deste — e o callback do Cognito exige este.
+  //
+  // O self-signed continua importado no ACM (nao apagado de proposito: apagar um certificado
+  // que ja esteve num listener nao ajuda ninguem a entender o historico). Ele nao esta em uso.
+  certificate_arn = "arn:aws:acm:sa-east-1:203312548462:certificate/34be6754-441c-4ab5-add0-67037d628c72"
+
+  // Subnets do NLB: Tier=public do mesmo VPC (vpc-0a850a9d40b36ac5b), AZs distintas
+  // (1a e 1b), com rota 0.0.0.0/0 para o IGW. As TASKS nao usam estas: o service roda em
+  // Tier=private-app sem IP publico (service-portal.tf).
+  public_subnet_ids = [
+    "subnet-0f6fd7c008207fe5b", // sa-east-1a, 10.40.0.0/24
+    "subnet-0b9f91b867920aa44", // sa-east-1b, 10.40.1.0/24
+  ]
+
+  // Egresso 443 EXATO do SG das tasks. Resolvido DE DENTRO DA VPC em 2026-09-21T17:44Z
+  // (task avulsa no cluster), com handshake TLS confirmado em cada destino. `/32` e'
+  // controle de IP, nao de FQDN: se o Cognito mudar de endereco, a lista muda por revisao
+  // — nunca por alargamento para 0.0.0.0/0.
+  //
+  // O S3 dos layers do ECR NAO entra aqui: naquele VPC ele e' GATEWAY endpoint
+  // (vpce-09e34704570f7f756, prefix list pl-6aa54003), nao tem ENI e os IPs publicos do
+  // bucket `starport` rotacionam. Ele e' liberado por uma regra propria de prefix list em
+  // portal-network.tf (`portal_s3_layers`).
+  https_egress_ipv4_cidrs = [
+    // cognito-idp.sa-east-1.amazonaws.com — JWKS do issuer (publico, via NAT).
+    "52.67.144.206/32",
+    "54.20.171.151/32",
+    "54.94.110.228/32",
+    // amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com — POST /oauth2/token (via NAT).
+    "52.67.250.153/32",
+    "52.67.98.193/32",
+    "54.20.130.20/32",
+    // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
+    "10.40.40.27/32",
+    "10.40.41.104/32",
+    // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.dkr (vpce-0548b6b556a17b262).
+    "10.40.40.123/32",
+    "10.40.41.249/32",
+    // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.secretsmanager (vpce-0034f3f1e8e8c86b8).
+    "10.40.40.139/32",
+    "10.40.41.125/32",
+    // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.logs (vpce-0309137590270feae).
+    "10.40.40.233/32",
+    "10.40.41.76/32",
+  ]
+
+  // Perfil `identity` puro. O perfil `staff` (fila de casos) exige uma imagem derivada, o
+  // bundle de materiais assinado e a autoridade nativa — nada disso existe hoje, e o
+  // pacote recusa metade disso. Ver a pendencia no runbook.
+  staff = null
+}

@@ -52,6 +52,45 @@ resource "aws_vpc_security_group_egress_rule" "portal_https" {
   description       = "Owner-approved fixed identity/AWS endpoint address; no FQDN enforcement claim"
 }
 
+# Layers da imagem: o ECR entrega os blobs por URL pre-assinada do bucket `starport` do
+# S3. Neste VPC o S3 e' GATEWAY endpoint (vpce-09e34704570f7f756, prefix list pl-6aa54003 na
+# route table de Tier=private-app) — ele NAO tem ENI, logo nao existe `/32` que o represente,
+# e os enderecos publicos do bucket rotacionam (8 medidos de dentro da VPC em 21/09/2026).
+# Sem esta regra a task Fargate nem materializa: falha ao puxar a imagem, e o sintoma chega
+# como "servico nunca fica 1/1", nao como erro de rede.
+#
+# Isto NAO afrouxa o modelo de egresso exato de `https_egress_ipv4_cidrs` (que segue
+# validado fail-closed, /32 e nao-vazio, e cobre Cognito + os endpoints de INTERFACE):
+# o destino aqui e' UMA prefix list gerenciada pela AWS, porta 443, e nada mais. Nao e'
+# 0.0.0.0/0 e nao alcanca a internet.
+#
+# LIMITE CONHECIDO (P1 do review de 22/09/2026): a prefix list e' REGIONAL — ela cobre
+# qualquer bucket de sa-east-1, e uma URL pre-assinada de outro bucket nao precisa de
+# credencial, entao IAM nao fecha esse canal. O fecho seria uma POLICY no gateway endpoint
+# `vpce-09e34704570f7f756`. Medido antes de escrever qualquer coisa: o endpoint **nao tem
+# policy** (default full access), esta em **5 route tables** do VPC compartilhado e pertence
+# ao state do `amh-data-platform` — incluindo as subnets do **MWAA `amh-mwaa-dev`** e da KDA
+# `amh-cdc-bronze-v3-dev`. Qualquer policy aqui seria RESTRITIVA para todos eles, nao aditiva,
+# e brigaria com o Terraform da plataforma. E nao ha dois gateway endpoints de S3 na mesma
+# route table: "um endpoint so' para o portal" exigiria subnets + route table dedicadas.
+# A medicao completa, o nome do bucket confirmado na doc da AWS
+# (`prod-sa-east-1-starport-layer-bucket`) e a policy PROPOSTA estao em
+# `docs/runbooks/portal-dev-provisionamento.md`, secao 8. Nada foi aplicado: e' decisao do dono.
+data "aws_ec2_managed_prefix_list" "portal_s3" {
+  count = var.portal == null ? 0 : 1
+  name  = "com.amazonaws.${var.aws_region}.s3"
+}
+
+resource "aws_vpc_security_group_egress_rule" "portal_s3_layers" {
+  for_each          = local.portal_config
+  security_group_id = aws_security_group.portal[each.key].id
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
+  prefix_list_id    = data.aws_ec2_managed_prefix_list.portal_s3[0].id
+  description       = "ECR image layers via the regional S3 gateway endpoint prefix list"
+}
+
 resource "aws_vpc_security_group_egress_rule" "portal_postgres" {
   for_each                     = local.portal_config
   security_group_id            = aws_security_group.portal[each.key].id

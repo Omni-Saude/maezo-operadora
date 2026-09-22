@@ -4,6 +4,11 @@
 *.tfstate.*
 *.tfvars
 !.tfvars.example
+# Entradas NAO secretas do portal (ARNs, subnets, client publico, IPs de endpoint). Se
+# `portal` voltar a ser null num apply, o Terraform destroi task definition/roles/SG/NLB do
+# portal — por isso estes valores precisam viver no repo, nao no terminal de quem aplicou.
+# A DSN continua so' no Secrets Manager. Ver deploy/aws-ecs/envs/dev-sa-east-1/portal.md.
+!deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars
 
 # Python
 __pycache__/
