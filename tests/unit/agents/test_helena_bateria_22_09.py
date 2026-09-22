@@ -532,9 +532,37 @@ def test_o_cartao_medido_no_a1_acende_o_sinal_de_apresentacao() -> None:
         RESPOSTA_INFORM_RECUSADA,
         "O valor da mensalidade fica no portal do plano.",
         "Recebemos sua mensagem e vamos te orientar.",
+        # A FORMA NEGADA DA MARCA (22/09/2026, revisao do proprio critico). As duas frases foram
+        # medidas dando `True` com a marca sem negacao interposta — e nao sao hipoteticas: o
+        # `response-v9` ENSINA esta familia ("Este canal NAO emite boleto, NAO atualiza cadastro,
+        # NAO consulta status de guia em tempo real"). Bastava o primeiro turno recusar uma
+        # capacidade para o sinal acender sem cartao nenhum, e a Helena nao se apresentava mais
+        # naquela conversa.
+        "Este canal nao pode agendar consultas.",
+        "Este canal nao consegue consultar o status da guia em tempo real.",
     ],
 )
 def test_o_texto_sem_cartao_continua_sem_acender_o_sinal(texto: str) -> None:
     """O lado CARO do erro: um falso positivo cala a Helena para o resto da conversa. A constante
     nova entra aqui no minuto em que nasce."""
     assert _apresentou_se(texto) is False
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        # A NEGACAO QUE NEGA OUTRA COISA CONTINUA SENDO CARTAO. Este e' o falso NEGATIVO que a
+        # correcao por janela (`\\beste canal\\b(?![^.;!?]{0,40}\\bnao\\b)...`) introduziria: ela
+        # apaga a marca por um `nao` em QUALQUER ponto entre o sujeito e o verbo, inclusive quando
+        # ele nega outra coisa — e e' EXATAMENTE assim que o `response-v9` manda redigir o cartao
+        # (o que este canal faz + o que ele nao faz na mesma frase). E' a mesma licao da quinta
+        # rodada do item 2 de `prompts.padrao_de_encaminhamento`: a negacao e' testada ONDE ela
+        # nega, com um lookbehind colado no verbo.
+        "Este canal pode te orientar sobre o plano, mas nao emite boleto.",
+        "Este canal nao emite boleto, mas pode te orientar sobre o plano.",
+        "Este canal, que nao substitui atendimento medico, pode te orientar sobre o plano.",
+    ],
+)
+def test_o_cartao_com_negacao_de_outra_coisa_continua_acendendo_o_sinal(texto: str) -> None:
+    """O outro lado do ACHADO 1: fechar o falso positivo nao pode fechar o cartao de verdade."""
+    assert _apresentou_se(texto) is True

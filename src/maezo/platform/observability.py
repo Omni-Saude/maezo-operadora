@@ -882,6 +882,32 @@ def record_resposta_recusada(*, agent_id: str, motivo: str, response_kind: str) 
         logger.warning("resposta_recusada_metric_failed", agent_id=agent_id, exc_info=True)
 
 
+def record_sintoma_fora_da_tabela(*, populacao: str, origem_populacao: str) -> None:
+    """Record ONE `sintoma_codigo` DISCARDED for not existing in the turn's red-flag table.
+
+    THE DEFECT THIS MEASURES (22/09/2026, revisao do CRITICO 2). O descarte ja existia e ja tinha
+    linha de log, mas nao tinha NUMERO — e sem numero ninguem ve' a unica das duas causas que e'
+    defeito nosso. `origem_populacao="mensagem"` e' o modelo devolvendo um par incoerente;
+    `origem_populacao="memoria"` e' a FUSAO da memoria clinica tendo imposto a populacao lembrada
+    sobre um codigo legitimo do turno (a conversa pediatrica em que a mae passa a falar de si e um
+    `dor_toracica` de adulto e' jogado fora). Uma subida sustentada em `memoria` significa que a
+    regra de lastro esta calibrada apertada demais, e e' o tipo de coisa que so' aparece agregada.
+
+    CONTENT-FREE por construcao: os dois argumentos sao vocabularios FECHADOS do grafo
+    (`_VALID_POPULATIONS` e os dois literais de origem). O codigo recusado fica no log, nunca
+    aqui — a mesma disciplina de `record_resposta_recusada`.
+
+    Best-effort, como os demais registros deste modulo: telemetria nunca derruba o turno.
+    """
+    try:
+        collector = _get_metrics_collector()
+        collector.helena_sintoma_fora_da_tabela.labels(
+            populacao=populacao, origem_populacao=origem_populacao
+        ).inc()
+    except Exception:  # telemetria nunca derruba o turno que ela conta (ver docstring)
+        logger.warning("sintoma_fora_da_tabela_metric_failed", populacao=populacao, exc_info=True)
+
+
 def record_agent_first_response(*, agent_id: str, seconds: float) -> None:
     """Record ONE inbound-to-reply-attempt latency observation (GAP 11.2, `first_response_p95`).
 

@@ -143,7 +143,7 @@ from typing import Any, Literal, Protocol, TypedDict, cast
 import structlog
 from langgraph.graph import END, START, StateGraph
 
-from maezo.platform.observability import record_resposta_recusada
+from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -832,9 +832,36 @@ _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
 #: e um robo?" continuam sendo respondidas SEMPRE, por regra propria do `response_prompt`, que esta
 #: flag nao desliga. Nenhuma das constantes que este modulo e o `prompts` enviam ao beneficiario
 #: contem esta abertura (`test_helena_bateria_22_09.py` e o corpus fixam isso).
+#: A NEGACAO INTERPOSTA ENTROU EM 22/09/2026 (REVISAO DO PROPRIO CRITICO). A marca do cartao
+#: nascia sem ela, e por isso casava tambem a forma NEGADA — medido: `_apresentou_se("Este canal
+#: nao pode agendar consultas.")` e `_apresentou_se("Este canal nao consegue consultar o status da
+#: guia em tempo real.")` davam `True`. E' o falso positivo CARO, nao um raro: o `response-v9`
+#: ENSINA exatamente essa familia de frase ("Este canal NAO emite boleto, NAO atualiza cadastro,
+#: NAO consulta status de guia em tempo real"), entao bastava o primeiro turno recusar uma
+#: capacidade para `apresentacao_ja_feita` acender SEM cartao nenhum — e a Helena nao se
+#: apresentava mais naquela conversa, que e' o lado que o comentario acima diz evitar.
+#:
+#: O LUGAR ONDE A NEGACAO E' TESTADA E' A ACAO, E NAO A JANELA — o mesmo idioma (e a mesma licao)
+#: do item 2 de `prompts.padrao_de_encaminhamento`, quinta rodada: um lookbehind `(?<!nao )`
+#: colado no verbo. A alternativa medida aqui foi a janela com lookahead
+#: (`\beste canal\b(?![^.;!?]{0,40}\bnao\b)...`), e ela ERRA PARA O OUTRO LADO justamente nos
+#: cartoes que o prompt manda redigir, porque apaga a marca por um `nao` que nega OUTRA coisa:
+#:
+#:     "Este canal pode te orientar sobre o plano, mas nao emite boleto."      -> False
+#:     "Este canal nao emite boleto, mas pode te orientar sobre o plano."      -> False
+#:     "Este canal, que nao substitui atendimento medico, pode te orientar..." -> False
+#:
+#: Com o lookbehind os tres voltam a `True`, as duas frases negadas ficam em `False` e o cartao do
+#: `A1` continua `True` (o corpus de `test_helena_bateria_22_09.py` fixa os cinco casos).
+#:
+#: RESIDUAL DECLARADO, e a direcao e' deliberada: a negacao que NAO encosta no verbo ("Este canal
+#: nunca pode...", "Este canal nao vai poder...") nao e' vista, e uma recusa isolada sem nenhum
+#: verbo afirmativo depois ("Este canal nao pode agendar consultas, mas te oriento sobre o plano")
+#: deixa de acender esta segunda marca. Nos dois casos sobra a PRIMEIRA marca, `\bhelena\b`, que e'
+#: o que o `response-v9` pede na frase de apresentacao de verdade ("comece por Sou Helena").
 MARCAS_DE_APRESENTACAO: tuple[str, ...] = (
     r"\bhelena\b",
-    r"\beste canal\b[^.;!?]{0,40}\b(?:pode|posso|consigo|consegue)\b",
+    r"\beste canal\b[^.;!?]{0,40}(?<!nao )\b(?:pode|posso|consigo|consegue)\b",
 )
 
 
@@ -1970,12 +1997,41 @@ class HelenaGraph:
         if not psychosocial and not _sintoma_coerente_com_a_populacao(
             extraction.get("sintoma_codigo"), population
         ):
+            # O QUE A LINHA LEVA, e por que cada campo e' SEGURO (22/09/2026, revisao do proprio
+            # critico). Ate' aqui ela levava so' `motivo="codigo_de_outra_populacao"`, e com isso
+            # as DUAS causas do descarte ficavam indistinguiveis: (a) o modelo alucinou um par
+            # incoerente — defeito de extracao — e (b) a FUSAO impos a populacao errada sobre um
+            # codigo legitimo. A (b) e' real e e' a cara: conversa pediatrica estabelecida, a mae
+            # passa a falar de SI ("eu estou com dor no peito"), a populacao pediatrica entra por
+            # falta de lastro (F4) e um `dor_toracica` legitimo e' jogado fora — o turno segue sem
+            # sintoma, a tabela cai no catch-all e ninguem consegue ver isso no agregado.
+            #
+            # OS TRES CAMPOS SAO VOCABULARIO FECHADO, e isso e' conferido e nao suposto:
+            #   * `codigo` so' chega aqui depois de `_validate_extraction`, que recusa a extracao
+            #     inteira quando ele nao esta em `ALLOWED_SINTOMA_CODIGOS`
+            #     (`non_allowlisted_sintoma_codigo`), e a memoria clinica NAO lembra
+            #     `sintoma_codigo` (ver `_MEMORIA_CLINICA_CAMPOS`), entao a fusao nao tem como
+            #     introduzir um valor de fora. E' um literal da allowlist, nunca texto do modelo;
+            #   * `populacao_final` e' um dos cinco de `_VALID_POPULATIONS`, pela mesma validacao;
+            #   * `populacao_da_memoria` e' um booleano derivado de `veio_da_memoria`.
+            # Nenhum deles carrega uma palavra escrita pelo beneficiario — que e' a linha que
+            # `helena_memoria_clinica_usada` ja' traca ao logar so' os NOMES dos campos.
+            #
+            # O CODIGO VAI PARA O LOG E NAO PARA O CONTADOR: e' a disciplina de
+            # `helena_texto_nao_bate_com_o_fato`/`record_resposta_recusada`, onde o padrao exato
+            # fica na linha e o contador guarda so' os eixos de cardinalidade pequena.
+            populacao_da_memoria = "population" in veio_da_memoria
             logger.warning(
                 "helena_sintoma_fora_da_tabela_da_populacao",
                 node="classify",
-                # So' o TOKEN DE CLASSE: nem o codigo recusado nem a populacao entram na linha —
-                # a mesma disciplina de `helena_memoria_clinica_usada`, que loga so' os NOMES.
                 motivo="codigo_de_outra_populacao",
+                codigo=str(extraction.get("sintoma_codigo") or ""),
+                populacao_final=population,
+                populacao_veio_da_memoria=populacao_da_memoria,
+            )
+            record_sintoma_fora_da_tabela(
+                populacao=population,
+                origem_populacao="memoria" if populacao_da_memoria else "mensagem",
             )
             extraction["sintoma_codigo"] = None
             update["sintoma_codigo"] = None
@@ -2472,7 +2528,7 @@ class HelenaGraph:
         """
         text = await self._redigir_resposta(state, "inform")
         try:
-            text = self._cercar_saida(text, "inform")
+            text = self._cercar_saida(text, "inform", node="inform")
         except RespostaRecusadaError:
             if _texto_tem_negativa_clinica(text):
                 # O `error` leva o TOKEN DE CLASSE e nada mais: ele sobrevive para o sufixo
