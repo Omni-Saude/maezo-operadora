@@ -62,7 +62,10 @@ def _trocar(texto: str, alvo: str, novo: str, *, contagem: int = 1) -> str:
 def _montar(tmp_path: Path) -> Path:
     """Árvore sintética: o ambiente `dev-sa-east-1` real + o `server.py` real."""
     raiz = tmp_path / "arvore"
-    shutil.copytree(_RAIZ_REAL / _ENV_DEV, raiz / _ENV_DEV)
+    # `.terraform/` fica de fora: e' o cache de providers de quem rodou `terraform init` nesta
+    # maquina (854 MB medidos em 22/09/2026), a cerca nao le nada dali, e o CI nao o tem —
+    # copia-lo so' fazia a suite local demorar 2 min a mais copiando binarios.
+    shutil.copytree(_RAIZ_REAL / _ENV_DEV, raiz / _ENV_DEV, ignore=shutil.ignore_patterns(".terraform"))
     (raiz / _SERVIDOR).parent.mkdir(parents=True)
     shutil.copy2(_RAIZ_REAL / _SERVIDOR, raiz / _SERVIDOR)
     return raiz

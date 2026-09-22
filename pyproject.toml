@@ -80,6 +80,7 @@ dev = [
     "testcontainers>=4.0,<5.0",
     "types-jsonschema>=4.26.0.20260518",
     "lxml-stubs>=0.5,<1.0",
+    "pytest-xdist>=3.6,<4",       # suite unitaria em paralelo no CI (medido 22/09/2026: 52 min em serie)
 ]
 
 [project.scripts]

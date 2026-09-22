@@ -49,6 +49,7 @@ nao pode fazer uma cerca evaporar.
 from __future__ import annotations
 
 import ast
+import functools
 import re
 import sys
 from dataclasses import dataclass, field
@@ -177,6 +178,20 @@ _REF_VAR = re.compile(r"var\.([A-Za-z_][A-Za-z0-9_-]*)")
 def _mascarar(texto: str) -> tuple[str, list[bool]]:
     """Devolve `(texto sem comentarios, mascara "este caractere esta dentro de string")`.
 
+    Cacheado por texto, por medicao e nao por estilo: a suite unitaria desta cerca chama o
+    lexer 64 mil vezes sobre um punhado de arquivos `.tf` iguais, e o laco em Python puro
+    somava 160s numa corrida (perfil de 22/09/2026) — o arquivo inteiro era 102s no CI. A
+    mascara volta como LISTA NOVA a cada chamada, porque `_fecha`/`_fim_expressao` a leem e
+    o proprio lexer a escreve; o que o cache guarda e' uma tupla imutavel.
+    """
+    texto_limpo, mascara = _mascarar_cacheado(texto)
+    return texto_limpo, list(mascara)
+
+
+@functools.lru_cache(maxsize=256)
+def _mascarar_cacheado(texto: str) -> tuple[str, tuple[bool, ...]]:
+    """O lexer de verdade. Puro: mesma entrada, mesma saida — por isso pode ser cacheado.
+
     O texto devolvido tem o MESMO comprimento do original (comentario vira espaco), entao
     qualquer deslocamento calculado sobre ele vale para o original — e' assim que o numero da
     linha citada no achado continua sendo o numero real do arquivo.
@@ -227,7 +242,7 @@ def _mascarar(texto: str) -> tuple[str, list[bool]]:
             i = fim
             continue
         i += 1
-    return "".join(saida), e_string
+    return "".join(saida), tuple(e_string)
 
 
 def _fim_heredoc(texto: str, inicio: int, marcador: str) -> int:

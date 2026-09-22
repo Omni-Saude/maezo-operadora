@@ -25,6 +25,14 @@ _ENVELOPE_SCHEMA = "human-envelope.v1"
 _DECIMAL = re.compile(r"0|[1-9][0-9]*")
 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+# Um code point na faixa de surrogates (U+D800..U+DFFF) dentro de um `str`: nao e' Unicode
+# escalar valido e o perfil recusa. E' uma expressao regular, e nao `any(ord(c) ...)`, por
+# medicao e nao por estilo: `canonicalize` chama `_string` uma vez por chave e por valor, e o
+# gerador em Python puro fazia 159 milhoes de `ord` numa unica corrida da suite unitaria —
+# 38 dos 43 segundos do teste mais lento de `test_decision_binding` (perfil de 22/09/2026).
+# `re.search` percorre a mesma string em C e devolve a MESMA resposta para toda entrada:
+# `[\ud800-\udfff]` casa exatamente os code points que `0xD800 <= ord(c) <= 0xDFFF` casava.
+_SURROGATE = re.compile("[\ud800-\udfff]")
 
 
 class ProfileError(ValueError):
@@ -32,7 +40,7 @@ class ProfileError(ValueError):
 
 
 def _string(value: str) -> str:
-    if any(0xD800 <= ord(c) <= 0xDFFF for c in value):
+    if _SURROGATE.search(value) is not None:
         raise ProfileError("invalid Unicode scalar")
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
