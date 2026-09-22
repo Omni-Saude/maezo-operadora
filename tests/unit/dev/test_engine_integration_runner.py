@@ -10,6 +10,7 @@ import sys
 import time
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 import pytest
 from scripts.dev import run_engine_integration as runner
@@ -61,6 +62,41 @@ def _run(
         timeout=timeout,
         check=False,
     )
+
+
+def _head_sha() -> str:
+    return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
+
+
+@pytest.fixture(scope="module")
+def baseline_discovery(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
+    """A descoberta CANONICA do repositorio real, paga UMA vez para o modulo inteiro.
+
+    Cada `discover` custa SEIS coletas completas do pytest (`tests -m integration`,
+    `tests/integration`, core, chaos, db-unit e a recoleta com o opt-in `root_fixture`),
+    e cada coleta paga o boot de `uv run` mais a arvore de imports do projeto. Tres testes
+    deste ficheiro pediam EXATAMENTE a mesma descoberta limpa do MESMO SHA, num shard que
+    ja corre em serie (`-n 0`): eram tres execucoes identicas de ~60 s cada (JUnit do run
+    35670623321). O comando, os argumentos e o ambiente aqui sao os mesmos que cada teste
+    emitia; o que desaparece e' a repeticao, nao a prova. Nenhum consumidor muta o payload.
+
+    O `returncode == 0` continua a ser assercao — apenas mudou de lugar: se a descoberta
+    canonica falhar, os tres testes ficam vermelhos por ERRO de fixture, nunca verdes.
+    """
+    directory = tmp_path_factory.mktemp("baseline-discovery")
+    result = _run(
+        "discover",
+        "--checkout",
+        str(REPO_ROOT),
+        "--sha",
+        _head_sha(),
+        "--results-dir",
+        str(directory),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    payload: dict[str, Any] = json.loads((directory / "discovery.json").read_text())
+    return payload
 
 
 def _wait_for(path: Path, *, timeout: float = 10.0) -> None:
@@ -362,21 +398,10 @@ def test_lock_owner_releases_after_successful_real_subprocess(tmp_path: Path) ->
         shutil.rmtree(lock_dir, ignore_errors=True)
 
 
-def test_discovery_covers_every_current_integration_test_and_required_families(tmp_path: Path) -> None:
-    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
-    result = _run(
-        "discover",
-        "--checkout",
-        str(REPO_ROOT),
-        "--sha",
-        sha,
-        "--results-dir",
-        str(tmp_path),
-        timeout=120,
-    )
-
-    assert result.returncode == 0, result.stderr
-    discovery = json.loads((tmp_path / "discovery.json").read_text())
+def test_discovery_covers_every_current_integration_test_and_required_families(
+    baseline_discovery: dict[str, Any],
+) -> None:
+    discovery = baseline_discovery
     assert discovery["integration_count"] > 0
     assert discovery["integration_dir_count"] > 0
     assert discovery["db_unit_count"] > 0
@@ -406,21 +431,13 @@ def test_discovery_covers_every_current_integration_test_and_required_families(t
     assert all(entry["expected_count"] > 0 for entry in discovery["execution_manifest"])
 
 
-def test_discovery_ignores_ambient_pytest_selectors_and_plugins(tmp_path: Path) -> None:
-    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
-    baseline_dir = tmp_path / "baseline"
-    baseline = _run(
-        "discover",
-        "--checkout",
-        str(REPO_ROOT),
-        "--sha",
-        sha,
-        "--results-dir",
-        str(baseline_dir),
-        timeout=120,
-    )
-    assert baseline.returncode == 0, baseline.stderr
-    expected = json.loads((baseline_dir / "discovery.json").read_text())["integration_nodeids"]
+def test_discovery_ignores_ambient_pytest_selectors_and_plugins(
+    tmp_path: Path, baseline_discovery: dict[str, Any]
+) -> None:
+    # A referencia limpa e' a descoberta canonica do modulo (mesmo comando, mesmo SHA, ambiente
+    # sem poluicao): o que este teste prova e' que a coleta POLUIDA continua igual a ela.
+    sha = _head_sha()
+    expected = baseline_discovery["integration_nodeids"]
 
     plugin_dir = tmp_path / "plugin"
     plugin_dir.mkdir()
@@ -489,14 +506,29 @@ def test_discovery_rejects_a_checkout_at_the_wrong_sha(tmp_path: Path) -> None:
 
 
 def test_busy_lock_return_code_matches_durable_run_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, baseline_discovery: dict[str, Any]
 ) -> None:
     lock_dir = tmp_path / "engine.lock"
     owner = runner.EngineLock.create(lock_dir, checkout="owner", sha="owner", suite="owner")
     assert owner.acquire(0)
     original_owner = owner.owner_path.read_bytes()
     monkeypatch.setattr(runner, "LOCK_DIR", lock_dir)
-    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
+    sha = _head_sha()
+    # O preflight do `run_suite` descobre ANTES de disputar o lock, e a descoberta e' a parte
+    # cara (seis coletas). O que este teste prova esta' TODO depois disso: codigo 73, estado
+    # `lock_busy` durado em disco, dono intacto e nenhum teardown. Em vez de repetir a
+    # descoberta, servimos a descoberta REAL do modulo (mesmo SHA, manifest real — o
+    # `--test-file` pedido continua a ter de aparecer nele exatamente uma vez) e registamos a
+    # chamada, para que o preflight continue obrigado a descobrir com o results-dir do run.
+    discover_calls: list[tuple[Path, Path]] = []
+
+    def cached_discover(checkout: Path, results_dir: Path, *, imported_module: str) -> dict[str, Any]:
+        discover_calls.append((checkout, results_dir))
+        results_dir.mkdir(parents=True, exist_ok=True)
+        (results_dir / "discovery.json").write_text(json.dumps(baseline_discovery))
+        return baseline_discovery
+
+    monkeypatch.setattr(runner, "discover", cached_discover)
     args = runner.build_parser().parse_args(
         [
             "run",
@@ -522,6 +554,7 @@ def test_busy_lock_return_code_matches_durable_run_state(
         assert state["return_code"] == return_code
         assert owner.owner_path.read_bytes() == original_owner
         assert not (tmp_path / "results" / "teardown.log").exists()
+        assert [results for _, results in discover_calls] == [(tmp_path / "results").resolve()]
     finally:
         assert owner.release()
 
@@ -701,7 +734,9 @@ def test_real_pytest_skip_is_rejected_while_strict_xfail_is_reported(tmp_path: P
     assert (accepted, accepted_reason) == (0, None)
 
 
-def test_discovery_separates_declared_deselections_from_files_without_nodeids(tmp_path: Path) -> None:
+def test_discovery_separates_declared_deselections_from_files_without_nodeids(
+    baseline_discovery: dict[str, Any],
+) -> None:
     """Uma suite desselecionada por mecanismo DECLARADO nao e' um ficheiro de teste partido.
 
     `tests/integration/conftest.py` desseleciona as suites `root_fixture` (fixture PRIVADO do
@@ -710,20 +745,7 @@ def test_discovery_separates_declared_deselections_from_files_without_nodeids(tm
     reportava-as como ausentes e abortava. As duas condicoes sao agora chaves distintas, e so'
     `missing_test_files` e' erro.
     """
-    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
-    result = _run(
-        "discover",
-        "--checkout",
-        str(REPO_ROOT),
-        "--sha",
-        sha,
-        "--results-dir",
-        str(tmp_path),
-        timeout=180,
-    )
-
-    assert result.returncode == 0, result.stderr
-    discovery = json.loads((tmp_path / "discovery.json").read_text())
+    discovery = baseline_discovery
     assert discovery["validation_errors"] == []
     assert discovery["deselected_root_fixture_files"] == ROOT_FIXTURE_SUITES
     assert discovery["missing_test_files"] == []

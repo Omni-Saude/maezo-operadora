@@ -19,7 +19,7 @@
   },
   "sources": {
     "xfail_total / xfail_by_priority": "docs/xfail-census.json ('total', 'per_classification.P0'/'P1'/'P2'); trusted only once the 'xfail-census-check' fence below proves it is not stale.",
-    "unit_tests_passed": "final summary line of `<python> -m pytest tests/ -q` (same invocation `make test` runs), executed by this script itself; a non-zero exit or any failed/error count aborts the whole gate before any comparison.",
+    "unit_tests_passed": "with `--unit-junit <glob>` (what CI uses): sum of `tests - failures - errors - skipped` over the `unit` job's own `unit-junit-<shard>.xml` reports, from the same run — the suite is measured once, by the job that owns it. Without the flag (local runs): final summary line of `<python> -m pytest tests/ -q`, the same invocation `make test` runs, executed by this script itself. Either way a red suite — or, in JUnit mode, a missing/unreadable/empty report — aborts the whole gate before any comparison.",
     "fences_passing": "each name's own script/mode, invoked exactly as its Makefile target does: check-bpmn-error-allowlist -> scripts/ci/check_bpmn_error_allowlist.py; check-start-process-fence -> scripts/ci/check_start_process_fence.py; effect-chokepoint-fence -> scripts/ci/check_effect_chokepoint_fence.py; verify-amh-contract-pin -> scripts/ci/verify_amh_contract_pin.py; xfail-census-check -> scripts/ci/generate_xfail_census.py --check"
   }
 }
