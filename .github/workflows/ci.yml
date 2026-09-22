@@ -81,8 +81,17 @@ jobs:
             # duplicadas, pegas pela cerca de particao antes de chegar ao CI).
             alvo: tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py
             xdist: -n 0
+          # `ci` em DOIS shards paralelos, por medicao (JUnit do run 35729333978): um so' somava
+          # 32,7 min de teste em 4 workers e levava 13 min de parede — os testes desta pasta geram
+          # `pytest` em subprocesso e disputam os 4 vCPU, entao a soma NAO se divide por 4. Os sete
+          # arquivos mais pesados (~21 min somados) vao num shard; o resto (~12 min) no outro. Lista
+          # explicita para os pesados; `--ignore` para o resto funciona porque o alvo e' um DIRETORIO
+          # (o pytest ignora `--ignore` em arquivo passado como argumento — licao do ledger-resto).
+          - shard: ci-pesado
+            alvo: tests/unit/ci/test_pytest_collection_privacy.py tests/unit/ci/test_check_doc_symbol_citations.py tests/unit/ci/test_check_chart_env_reconciliation.py tests/unit/ci/test_generate_release_floor.py tests/unit/ci/test_pytest_publication_context.py tests/unit/ci/test_global_integration_ci.py tests/unit/ci/test_check_evidence_ledger_supersession.py
+            xdist: -n auto --dist loadfile
           - shard: ci
-            alvo: tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py
+            alvo: tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py --ignore=tests/unit/ci/test_pytest_collection_privacy.py --ignore=tests/unit/ci/test_check_doc_symbol_citations.py --ignore=tests/unit/ci/test_check_chart_env_reconciliation.py --ignore=tests/unit/ci/test_generate_release_floor.py --ignore=tests/unit/ci/test_pytest_publication_context.py --ignore=tests/unit/ci/test_global_integration_ci.py --ignore=tests/unit/ci/test_check_evidence_ledger_supersession.py
             xdist: -n auto --dist loadfile
           - shard: gateway-platform
             alvo: tests/unit/gateway tests/unit/platform
