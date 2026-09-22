@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -82,27 +83,42 @@ def _collect_args(args: list[str], marker: str) -> set[str]:
     return {line for line in result.stdout.splitlines() if "::" in line}
 
 
+def _por_funcao(casos: set[str]) -> Counter[str]:
+    """Conta casos por FUNCAO (`arquivo::teste`, sem o `[...]` do parametrize).
+
+    Por medicao, nao por gosto: `test_wire_framing.py` gera ids de parametrize com bytes
+    ALEATORIOS, diferentes a cada coleta — comparar ids exatos entre a coleta em serie e a dos
+    shards fazia a cerca piscar por 3 casos que sao o mesmo teste. Contar por funcao detecta as
+    duas coisas que importam do mesmo jeito: um diretorio que nenhum shard cobre (falta) e um
+    arquivo em dois shards (a soma passa da serie).
+    """
+    return Counter(caso.split("[", 1)[0] for caso in casos)
+
+
 def test_unit_shards_collect_no_integration_case_and_partition_the_serial_suite() -> None:
     """Os shards sao uma PARTICAO da suite em serie: completos, disjuntos, e sem caso de integracao.
 
     Antes de 22/09/2026 o job `quality` rodava `pytest tests/ -m "not integration"` num processo
     so'. Fatiar em shards cria um defeito novo possivel — um diretorio que nenhum shard cobre, ou
-    dois shards cobrindo o mesmo — que a colecao em serie nunca teve. Este teste compara a uniao
-    dos shards com a colecao em serie, caso a caso, e reprova se faltar ou sobrar um.
+    dois shards cobrindo o mesmo — que a colecao em serie nunca teve. Este teste soma a colecao
+    dos shards, funcao a funcao, e exige que a soma seja EXATAMENTE a colecao em serie.
     """
     integration_cases = _collect("tests", "integration")
     assert integration_cases
     marcador = None
-    uniao: set[str] = set()
+    soma: Counter[str] = Counter()
     for shard, alvo in _shards():
         args, marcador = _selector_do_shard(alvo)
         casos = _collect_args(args, marcador)
         assert casos, f"shard {shard} nao coleta nada"
         assert casos.isdisjoint(integration_cases), f"shard {shard} coleta caso de integracao"
-        assert casos.isdisjoint(uniao), f"shard {shard} repete casos de outro shard"
-        uniao |= casos
+        soma += _por_funcao(casos)
     assert marcador is not None
-    assert uniao == _collect("tests", marcador)
+    serie = _por_funcao(_collect("tests", marcador))
+    faltando = serie - soma
+    sobrando = soma - serie
+    assert not faltando, f"funcoes que NENHUM shard cobre: {sorted(faltando)[:5]}"
+    assert not sobrando, f"funcoes cobertas por MAIS de um shard (ou a mais): {sorted(sobrando)[:5]}"
 
 
 def test_service_lanes_are_a_disjoint_complete_union_of_global_integration_cases() -> None:
