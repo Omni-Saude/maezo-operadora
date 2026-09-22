@@ -1605,8 +1605,17 @@ jobs:
           set -e
           echo "resultado agregado dos shards: ${RESULTADO}"
           case "${RESULTADO}" in
-            success|skipped)
+            success)
               echo "## integration tests (real engine): ${RESULTADO}" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            skipped)
+              # NAO e' verde. `skipped` aqui significa que os shards nem chegaram a rodar — o
+              # `quality` a montante falhou (medido no PR #465, run 35742237775: um shard unitario
+              # caiu num passo de cache, os 5 shards de integracao foram pulados e este job pintou
+              # verde em 2 s). Um portao que fica verde sem ter olhado e' o pior defeito que um
+              # portao pode ter; a lane so' e' verde quando os shards rodaram e passaram.
+              echo "::error::os shards da lane de motor real NAO RODARAM (resultado '${RESULTADO}') — o job a montante falhou; isto nao e' um verde."
+              exit 1
               ;;
             *)
               echo "::error::pelo menos um shard da lane de motor real terminou em '${RESULTADO}' — veja os jobs 'integration (<shard>)' e o artefato integration-test-results-<sha>-<shard>."
