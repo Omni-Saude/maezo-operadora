@@ -293,6 +293,13 @@ terraform plan -input=false -out=portal-frente1.tfplan `
   -var agents_image_digest=sha256:685ddb... -var worker_image_digest=sha256:685ddb... `
   -var diagnostics_image_digest=sha256:685ddb... -var engine_image_digest=sha256:6f478e...
 
+# CONFERIR O PLANO ANTES DE APLICAR. Esta linha nao e' zelo: um apply de um checkout
+# sem `portal.auto.tfvars` planeja 43 destroys, porque `var.portal` fica null. O
+# `aws_security_group.portal` e' o pior deles — o id dele esta na regra de ingress do
+# Aurora, em outro repositorio e outro state (amh-data-platform#175).
+terraform show -json portal-frente1.tfplan > plano.json
+python ../../../../scripts/ci/checar_plano_sem_destroy_do_portal.py plano.json
+
 terraform apply -input=false portal-frente1.tfplan
 ```
 
@@ -566,6 +573,13 @@ terraform plan -input=false -out=portal-ativar.tfplan `
   -var-file=<atestacao PHI> -var helena_zona_phi=true `
   -var agents_image_digest=sha256:685ddb... -var worker_image_digest=sha256:685ddb... `
   -var diagnostics_image_digest=sha256:685ddb... -var engine_image_digest=sha256:6f478e...
+# CONFERIR O PLANO ANTES DE APLICAR. Esta linha nao e' zelo: um apply de um checkout
+# sem `portal.auto.tfvars` planeja 43 destroys, porque `var.portal` fica null. O
+# `aws_security_group.portal` e' o pior deles — o id dele esta na regra de ingress do
+# Aurora, em outro repositorio e outro state (amh-data-platform#175).
+terraform show -json portal-ativar.tfplan > plano.json
+python ../../../../scripts/ci/checar_plano_sem_destroy_do_portal.py plano.json
+
 terraform apply -input=false portal-ativar.tfplan
 Remove-Item portal-ativar.tfplan
 
@@ -600,6 +614,11 @@ tambem precisa voltar se a postura anterior for desejada.
 
 ## 5. Como rodar SQL/rede dentro da VPC (receita reutilizavel)
 
+> **Versionado desde 22/09/2026:** `scripts/ops/run-db-task.ps1` faz exatamente o que esta
+> abaixo (gzip+base64 do script, overrides UTF-8 sem BOM, espera a task parar e despeja o log
+> do stream certo). Um comando que vive no historico do terminal de um dev nao existe para o
+> time — o mesmo argumento que criou a task `bootstrap-db`.
+
 Nao ha rota da estacao ate as subnets privadas. O caminho usado aqui:
 
 ```powershell
@@ -625,14 +644,197 @@ aws ecs run-task --cluster maezo-operadora-dev --task-definition maezo-operadora
 - Arquivos JSON de `--overrides`/`--network-configuration` precisam de UTF-8 **sem BOM**:
   `Out-File -Encoding utf8` no PowerShell 5.1 escreve BOM e a CLI recusa com
   `Expected: '=', received: '\ufeff'`.
-- **Senha nunca no log.** O valor foi passado por `containerOverrides.environment` (nao
-  aparece em `awslogs`) e o script nunca o imprime. A alternativa — dar `GetSecretValue` do
-  segredo do portal a execution role do bootstrap — abriria uma permissao permanente por um
-  passo de uma vez, e foi recusada.
+- **Segredo NUNCA por `containerOverrides`.** Este runbook dizia, ate 22/09/2026, que passar
+  a senha por `containerOverrides.environment` bastava porque ela "nao aparece em `awslogs`".
+  **Estava errado** e o review do dono (P1, PR #454) pegou: `awslogs` nao e' o unico leitor —
+  o override inteiro e' devolvido por `ecs:DescribeTasks` enquanto a task existir na janela de
+  retencao do ECS, para qualquer principal com essa permissao. A regra agora e':
+  **sonda que precisa de segredo LE do Secrets Manager, nunca de override.** O override
+  carrega codigo e ARNs; o valor vem por `GetSecretValue` com a task role (secao 7) ou por
+  `secrets` na task definition. Isso inclui o **verificador SCRAM**: ele e' password-equivalent
+  para autenticacao, entao passa-lo por override repete exatamente o mesmo defeito.
 
 ---
 
-## 6. Pendencias declaradas
+## 7. Rotacao da credencial do portal (P1-A do review de 22/09/2026)
+
+**Por que.** No provisionamento (secao 3.2) a DSN da role `portal_bff_amh` viajou em
+`containerOverrides.environment`. Esse campo e' recuperavel por `ecs:DescribeTasks`. Medido em
+22/09/2026: **zero tasks paradas** restavam no cluster (a janela de retencao do ECS ja tinha
+expirado), entao nao ha hoje de onde extrair o valor — **mas exposicao havida e' exposicao**, e
+a credencial foi rotacionada.
+
+**Caminho escolhido: (a) — gravar a DSN nova no Secrets Manager PRIMEIRO e fazer a task
+BUSCAR por API.** As alternativas e por que nao:
+
+| Caminho | Veredito |
+|---|---|
+| Passar a senha ou o verificador por `containerOverrides` | **Recusado.** Repete o defeito. O verificador SCRAM e' password-equivalent: quem o tem autentica. |
+| (b) Gerar a senha dentro da task e a propria task gravar no Secrets Manager | **Impossivel.** A SCP `deny-secrets-without-rotation` (`p-9m8f47yd`) nega `PutSecretValue` a tudo que nao seja `OrganizationAccountAccessRole`/break-glass/bootstrap/CI — uma task role nunca escrevera ali. |
+| (a) Secrets Manager primeiro + `GetSecretValue` na task | **Escolhido.** O texto claro so' trafega em TLS ate a AWS; o override carrega apenas codigo e o ARN (que nao e' segredo: vive em `portal.auto.tfvars`, versionado). |
+
+**A permissao que faltava.** A task role `maezo-operadora-dev-task` nao tinha
+`secretsmanager:GetSecretValue` nesse segredo. Foi adicionada **por Terraform**
+(`task-bootstrap-db.tf`, `aws_iam_role_policy.task_portal_session_secret`) e nao a mao —
+mudanca de um statement, um unico ARN, revisavel no diff. Nao se usou `secrets` da task
+definition porque `containerOverrides` **nao aceita** `secrets`: seria uma revisao nova de TD
+so' para este passo. E ela nao alarga o raio de explosao: **a mesma task ja carrega a
+credencial MESTRE do Aurora** (`amh_admin`), ou seja, quem a executa ja podia reescrever a
+senha dessa role de qualquer jeito.
+
+**Sequencia executada (22/09/2026):**
+
+```powershell
+# 1. permissao, por Terraform, com plan TARGETADO (1 to add, 0 to change, 0 to destroy)
+terraform plan ... -target='aws_iam_role_policy.task_portal_session_secret["this"]' -out=rotacao-iam.tfplan
+terraform apply rotacao-iam.tfplan
+
+# 2. senha nova (48 chars alfanumericos, `secrets.choice`) e DSN montada em ARQUIVO LOCAL,
+#    sem newline no fim — `--secret-string file://` e' obrigatorio (inline o PowerShell come
+#    as aspas). O arquivo foi apagado logo apos o put.
+$env:AWS_PROFILE='adm-mgmt'
+$c = (aws sts assume-role --role-arn arn:aws:iam::203312548462:role/OrganizationAccountAccessRole `
+       --role-session-name portal-dev-rotacao-p1a --output json | ConvertFrom-Json).Credentials
+# ... exporta AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN ...
+aws secretsmanager put-secret-value --secret-id <ARN do segredo> --secret-string "file://dsn-nova.txt"
+#   -> VersionId 2503e8cb-17c7-4e16-a642-ee449a074f46 = AWSCURRENT
+#      (a versao anterior 48c1246f-... vira AWSPREVIOUS: e' o rollback)
+
+# 3. a task de rotacao — o override leva SO' codigo e o ARN
+.\scripts\ops\run-db-task.ps1 -Script .\scripts\ops\portal_rotacionar_dsn.py -ExtraEnv @{ PORTAL_SECRET_ARN = '<ARN do segredo>' }
+
+# 4. o portal pega a DSN nova
+aws ecs update-service --cluster maezo-operadora-dev `
+  --service maezo-operadora-dev-portal-76e3a981 --force-new-deployment
+```
+
+**O que o script faz** (`scripts/ops/portal_rotacionar_dsn.py`, contrato: *fazer o BANCO concordar com o
+Secrets Manager*): `GetSecretValue` -> valida o formato da DSN e que o usuario e'
+`portal_bff_amh` -> deriva o **verificador SCRAM-SHA-256 dentro do container** (RFC 5802,
+salt de 16 bytes, 4096 iteracoes) -> `ALTER ROLE ... PASSWORD '<verificador>'` como
+`amh_admin` -> **loga de verdade com a senha nova** para provar. A senha em claro nunca entra
+no SQL, porque `log_statement=ddl` registraria `ALTER ROLE ... PASSWORD` inteiro, sem redigir.
+
+**Provas (22/09/2026):**
+
+- task `5ce5c215b3c64adda21f1be6152f26f2`, `exitCode: 0`. Log:
+  `login com a senha NOVA: current_user=portal_bff_amh search_path=amh portal_memberships=2`.
+- `ecs describe-tasks` da propria task de rotacao: `overrides.containerOverrides[0].environment`
+  contem **um unico par**, `PORTAL_SECRET_ARN` -> o ARN. Nenhum segredo.
+- deployment `ecs-svc/1232776679780156949`: `rolloutState=COMPLETED`, `1/1`.
+- `GET https://portal-maezo-dev.austa.com.br/api/v1/portal/session` -> **HTTP 401** com
+  `{"erro":"Nao foi possivel validar a sessao."}` e `cache-control: no-store`. O 401 prova que
+  o app subiu **e falou com o banco**: o lifespan de `portal/api/app.py:189` chama
+  `store.purge_expired(...)` antes do `yield` e converte qualquer falha em
+  `RuntimeError("Persistencia de identidade indisponivel.")` — DSN errada nao passa do startup.
+- verificacao 1.7 #7 repetida no boot novo (task `ae571658cfe6496b9297e29d17e15c07`): 4 linhas
+  de uvicorn e **zero** ocorrencias de
+  `postgresql://|postgresql+asyncpg|password|secret|__Host-|set-cookie|code_verifier|Bearer |eyJ`.
+
+**Rollback:** a versao `48c1246f-...` continua como `AWSPREVIOUS`. Para voltar:
+`put-secret-value` com o valor dela (ou `update-secret-version-stage` movendo `AWSCURRENT`) e
+**reexecutar `portal_rotacionar_dsn.py`** — como o contrato do script e' "faca o banco
+concordar com o segredo", ele reescreve o verificador para a senha antiga. Depois,
+`--force-new-deployment`.
+
+**Licao, em uma linha: sonda que precisa de segredo le' do Secrets Manager, nunca de
+override.**
+
+---
+
+## 8. Policy do endpoint S3 (P1-B) — **MEDIDO E PROPOSTO, NAO APLICADO**
+
+O review pede restringir a regra `portal_s3_layers` (`portal-network.tf`) ao bucket de camadas
+do ECR. A medicao de 22/09/2026 diz que **isso nao pode ser feito de forma aditiva, e nao pode
+ser feito por este repositorio sozinho**. Os tres fatos:
+
+**1 — O endpoint nao tem policy hoje: ele e' full access.**
+
+```
+aws ec2 describe-vpc-endpoints --vpc-endpoint-ids vpce-09e34704570f7f756
+  PolicyDocument: {"Version":"2008-10-17","Statement":[
+    {"Effect":"Allow","Principal":"*","Action":"*","Resource":"*"}]}
+```
+
+Nao existe statement ao qual "acrescentar". Trocar `Action:*`/`Resource:*` por uma allowlist do
+bucket starport e', **por definicao, restritivo para todos os consumidores** do endpoint — nao
+aditivo.
+
+**2 — O endpoint e' compartilhado, e o repo que o possui nao e' este.** Ele esta em
+**5 route tables**, todas com `Repo=amh-data-platform` e `ManagedBy=terraform` — ou seja, um
+`aws_vpc_endpoint_policy` escrito aqui brigaria com o state da plataforma no proximo apply
+deles (mesma armadilha ja documentada para o ingress do Aurora, secao 3.6):
+
+| Route table | Subnets | Quem esta la |
+|---|---|---|
+| `rtb-0c230a53171b2b8d5` (`...-private`) | `subnet-06647b0c664d0d22a`, `subnet-0e1f840dbec44e66a` | **as 13 tasks do `maezo-operadora-dev`** (incluindo o portal), **MWAA `amh-mwaa-dev`** (medido: `NetworkConfiguration.SubnetIds` sao exatamente estas duas), ALB interno do HAPI FHIR, 2 mount targets de EFS |
+| `rtb-055edba2186bef9dc` (`...-db`) | `subnet-0a5fa41803114cab0`, `subnet-0c7fe595add73e979` | ENIs do Aurora, aplicacao KDA/Flink **`amh-cdc-bronze-v3-dev`** |
+| `rtb-07a08846255fe793a` / `rtb-078fed12e3f04c388` (`...-private-egress-1a/1b`) | `subnet-0e357ef571c77b3c1`, `subnet-050694d3c3803f201` | 11 VPC endpoints de interface + attachment do **Transit Gateway** (`tgw-attach-0941e0ad8f653bfc6`) — tudo que chega por TGW tambem herda esta policy |
+| `rtb-01727c3058be41404` (`...-intra`) | `subnet-0cb4b83e72123f93f`, `subnet-0ee75a83a444c7fa8` | sem ENI no momento da medicao |
+
+Outros clusters ECS na mesma conta/VPC: `amh-hapi-fhir-dev`, `amh-steward-ui-dev`,
+`amh-grafana-hosted-dev`. Projeto CodeBuild: `maezo-operadora-dev-imagem`.
+**O caso mais obvio de quebra e' o MWAA**: ele le DAGs, `requirements.txt` e plugins de um
+bucket S3 do lago, pelas mesmas subnets — uma allowlist so' do bucket starport corta o Airflow
+inteiro. A KDA de CDC escreve no bronze do lago pelo mesmo caminho.
+
+**3 — Nao ha dois gateway endpoints de S3 na mesma route table.** "Um endpoint so' para o
+portal" **nao e' caminho**. Isolamento real exigiria: subnets dedicadas ao portal -> route
+table propria -> gateway endpoint proprio com a policy restritiva. Isso e' trabalho de rede no
+repo da plataforma, nao um statement aqui.
+
+**Nome do bucket, confirmado na documentacao da AWS** (*Amazon ECR interface VPC endpoints /
+Minimum Amazon S3 Bucket Permissions for Amazon ECR*): o padrao e'
+`arn:aws:s3:::prod-{region}-starport-layer-bucket/*`, com a regiao substituida literalmente —
+para `sa-east-1`, **`prod-sa-east-1-starport-layer-bucket`**, e a acao minima e' apenas
+`s3:GetObject`. A mesma pagina registra que *"The **Full Access** policy can be used because
+any restrictions that you have put in your task IAM roles or other IAM user policies still
+apply on top of this policy"* — e avisa que conexoes S3 existentes **podem ser interrompidas**
+ao mexer no gateway endpoint.
+
+**Policy proposta (para o dono do `amh-data-platform` aplicar, com os consumidores cientes):**
+
+```json
+{
+  "Version": "2008-10-17",
+  "Statement": [
+    {
+      "Sid": "CamadasDeImagemDoECR",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::prod-sa-east-1-starport-layer-bucket/*"]
+    },
+    {
+      "Sid": "BucketsDestaConta",
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": "s3:*",
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:ResourceAccount": "203312548462" } }
+    }
+  ]
+}
+```
+
+O segundo statement e' o que mantem MWAA, KDA, CodeBuild e os demais clusters de pe **e ao
+mesmo tempo fecha o canal de exfiltracao que o review descreve**: uma URL pre-assinada de um
+bucket de **terceiro** em `sa-east-1` deixa de passar, porque `aws:ResourceAccount` nao casa.
+E' menos restritivo do que "so' o starport" e mais restritivo do que o `*` de hoje.
+
+**Aviso honesto:** `aws:ResourceAccount` nao cobre exfiltracao para um bucket **desta mesma
+conta**, e um consumidor que hoje leia bucket publico de terceiro (ex.: repositorio de pacotes)
+quebraria. Fechar o primeiro exige a rota dedicada do item 3; medir o segundo exige
+VPC Flow Logs / CloudTrail de dados antes do apply.
+
+**Por que nada foi aplicado:** as duas condicoes do diretor. (i) A mudanca nao e' aditiva —
+qualquer policy substitui o full access e afeta **todos** os consumidores medidos acima;
+(ii) o endpoint e' de outro repositorio Terraform. Fica **proposto**, com a medicao acima, para
+decisao do dono.
+
+---
+
+## 9. Pendencias declaradas
 
 | # | Pendencia | Dono |
 |---|---|---|
@@ -645,3 +847,5 @@ aws ecs run-task --cluster maezo-operadora-dev --task-definition maezo-operadora
 | 7 | **Perfil `staff` nao provisionado** (`portal.staff = null` -> `MAEZO_PORTAL_CAPABILITIES=identity`). Sem ele o portal autentica mas **nao tem fila de casos**: os criterios 2 a 6 do mandato (ver a fila, isolamento entre grupos, concluir tarefa) dependem de imagem derivada, bundle de materiais assinado, CMK e autoridade nativa — nenhum existe | dono do produto |
 | 8 | `tests/unit/ci/test_ecs_portal_deployment.py` falha no Windows por locale: `TASK.read_text()` sem `encoding="utf-8"` le o `.tf` como cp1252 e o corpo acentuado da sonda deixa de casar. Passa com `PYTHONUTF8=1`. Defeito do teste, nao do deploy | `test-engineer` |
 | 9 | Senhas temporarias dos 2 usuarios expiram em **28/09/2026** | quem testar |
+| 10 | **Policy do endpoint S3 `vpce-09e34704570f7f756`** (secao 8) — proposta e medida, **nao aplicada**: o endpoint e' compartilhado por 5 route tables e pertence ao state do `amh-data-platform` | dono do `amh-data-platform` + dono do produto |
+| 11 | Isolamento **real** do egresso S3 do portal exige subnets + route table + gateway endpoint dedicados (um gateway S3 por route table, secao 8, item 3) | dono da rede da plataforma |
