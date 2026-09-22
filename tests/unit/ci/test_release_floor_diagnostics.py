@@ -172,12 +172,20 @@ def test_absent_option_preserves_two_argument_measurement_and_does_no_diagnostic
 
 
 def test_workflow_requests_only_diagnostics_and_uploads_with_short_retention():
+    """The gate step's environment is a CLOSED, enumerated set — that is the property, and it did
+    not loosen when a second key joined it (22/09/2026). The gate runs under the job's own
+    PYGUARD-clean environment, so anything that could steer the measurement (a `PYTEST_ADDOPTS`, a
+    selector, an interpreter) must never be injected here; the only keys allowed are the two that
+    name an OUTPUT (where to retain diagnostics) and an INPUT that is data, not behaviour (the glob
+    of the JUnit reports the `unit` job of this same run published). Both travel to the gate as
+    argv, never as inherited environment — see the make test below."""
     root = Path(__file__).resolve().parents[3]
     job = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())["jobs"]["release-floor"]
     step = next(step for step in job["steps"] if "Release-capability floor gate" in step.get("name", ""))
     assert "env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR make release-floor-check" in step["run"]
     assert step["env"] == {
-        "MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR": "${{ runner.temp }}/release-floor-unit-evidence"
+        "MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR": "${{ runner.temp }}/release-floor-unit-evidence",
+        "MAEZO_RELEASE_FLOOR_UNIT_JUNIT": "unit-junit-*.xml",
     }
     assert "PYTEST_ADDOPTS" not in step["run"]
     upload = next(
@@ -187,38 +195,85 @@ def test_workflow_requests_only_diagnostics_and_uploads_with_short_retention():
     assert upload["with"]["if-no-files-found"] == "error"
 
 
-@pytest.mark.parametrize("requested", [False, True])
+#: Every OPTIONAL input the `release-floor-check` recipe accepts from the environment, in the order
+#: the recipe appends them to argv. `..._JUNIT` joined on 22/09/2026, when the gate stopped
+#: re-running the unit suite and started reading the shards' JUnit of the same run.
+_OPTIONAL_INPUTS = ("MAEZO_RELEASE_FLOOR_UNIT_JUNIT", "MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR")
+_OPTIONAL_FLAGS = {
+    "MAEZO_RELEASE_FLOOR_UNIT_JUNIT": "--unit-junit",
+    "MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR": "--unit-evidence-dir",
+}
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [(), ("MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR",), ("MAEZO_RELEASE_FLOOR_UNIT_JUNIT",), _OPTIONAL_INPUTS],
+)
 def test_make_preserves_entrypoint_environment_and_quotes_optional_path(tmp_path, requested):
+    """Runs the real recipe against a reference recipe with NO conditional at all, and pins the
+    three properties that must survive every optional input the CI job hands it:
+
+    1. **The entrypoint is untouched.** `RELEASE_FLOOR_CHECK_CMD` is defined, unconditionally, as
+       the original command byte for byte; each optional input WRAPS it. With nothing requested the
+       expansion is indistinguishable from the reference recipe — same argv AND same stdout. (The
+       recipe gained a variable on 22/09/2026 for exactly this reason: a permanent `env` prefix
+       with empty operands would have left `env` and stray spaces in the default path.)
+    2. **The gate's environment does not change.** The child's make variables must be identical to
+       the reference run's, and every optional input must be UNSET in it (`env -u`): these values
+       travel as argv, never as inherited environment, so nothing the caller sets can steer the
+       measurement — the job's PYGUARD-clean environment is what the gate actually runs under.
+    3. **Optional values are DATA.** Neither make nor the shell may reparse them: shell
+       metacharacters arrive verbatim and `INJECTED` is never created, and — new with the JUnit
+       input — a value that is a GLOB matching real files in the working directory must arrive as
+       ONE argument, not expanded by the shell into several before argparse ever sees it.
+    """
     root = Path(__file__).resolve().parents[3]
     candidate = (root / "Makefile").read_text()
-    conditional = candidate.split("ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR\n", 1)[1].split("endif\n", 1)[
-        0
-    ]
     original = "\t.venv/bin/python scripts/ci/generate_release_floor.py --check\n"
-    assert conditional.split("else\n", 1)[1] == original
+    definition = "RELEASE_FLOOR_CHECK_CMD := " + original.strip() + "\n"
+    assert definition in candidate, "the unconditional entrypoint must stay the original command"
+
+    junit_conditional = candidate.split("ifdef MAEZO_RELEASE_FLOOR_UNIT_JUNIT\n", 1)[1].split("endif\n", 1)[0]
+    evidence_conditional = candidate.split("ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR\n", 1)[1].split(
+        "endif\n", 1
+    )[0]
+    assert evidence_conditional.split("else\n", 1)[1] == "\t$(RELEASE_FLOOR_CHECK_CMD)\n"
+    # The reference: the same Makefile with every optional branch stripped back to the plain command.
     baseline = candidate.replace(
-        "ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR\n" + conditional + "endif\n", original
-    )
+        "ifdef MAEZO_RELEASE_FLOOR_UNIT_JUNIT\n" + junit_conditional + "endif\n", ""
+    ).replace("ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR\n" + evidence_conditional + "endif\n", original)
+
     (tmp_path / ".venv/bin").mkdir(parents=True)
     (tmp_path / ".venv/bin/python").symlink_to(sys.executable)
     (tmp_path / "scripts/ci").mkdir(parents=True)
     (tmp_path / "scripts/ci/generate_release_floor.py").write_text(
         "import json, os, pathlib, sys\n"
         "keys = ('MAKELEVEL', 'MAKEFLAGS', 'MFLAGS', 'MAKEOVERRIDES', "
-        "'MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR')\n"
+        "'MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR', 'MAEZO_RELEASE_FLOOR_UNIT_JUNIT')\n"
         "pathlib.Path('observed.json').write_text(json.dumps("
         "{'argv': sys.argv, 'make_env': {k: os.environ.get(k) for k in keys}}))\n"
     )
-    environment = dict(os.environ)
-    environment.pop("MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR", None)
+    # Real files the glob below would match: an unquoted expansion would split it into two argv
+    # entries here, which is the whole point of writing them.
+    (tmp_path / "unit-junit-a.xml").write_text("<testsuite/>")
+    (tmp_path / "unit-junit-b.xml").write_text("<testsuite/>")
+
     # Shell metacharacters are data; neither make nor the shell may reparse them.
-    evidence_path = str(tmp_path / "evidence 'quoted' $(touch INJECTED) `touch INJECTED` $HOME")
+    injection = " 'quoted' $(touch INJECTED) `touch INJECTED` $HOME"
+    values = {
+        "MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR": str(tmp_path / "evidence") + injection,
+        "MAEZO_RELEASE_FLOOR_UNIT_JUNIT": "unit-junit-*.xml" + injection,
+    }
+
+    environment = dict(os.environ)
+    for name in _OPTIONAL_INPUTS:
+        environment.pop(name, None)
     observed = []
     outputs = []
     for source in (baseline, candidate):
         (tmp_path / "Makefile").write_text(source)
-        if source == candidate and requested:
-            environment["MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR"] = evidence_path
+        if source == candidate:
+            environment.update({name: values[name] for name in requested})
         result = subprocess.run(
             ["make", "release-floor-check"],
             cwd=tmp_path,
@@ -231,10 +286,14 @@ def test_make_preserves_entrypoint_environment_and_quotes_optional_path(tmp_path
         outputs.append(result.stdout)
         observed.append(json.loads((tmp_path / "observed.json").read_text()))
     assert observed[0]["make_env"] == observed[1]["make_env"]
-    assert observed[1]["make_env"]["MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR"] is None
+    for name in _OPTIONAL_INPUTS:
+        assert observed[1]["make_env"][name] is None, f"{name} must not reach the gate's environment"
     expected = ["scripts/ci/generate_release_floor.py", "--check"]
     assert observed[0]["argv"] == expected
-    assert observed[1]["argv"] == expected + (["--unit-evidence-dir", evidence_path] if requested else [])
+    for name in _OPTIONAL_INPUTS:
+        if name in requested:
+            expected += [_OPTIONAL_FLAGS[name], values[name]]
+    assert observed[1]["argv"] == expected
     if not requested:
         assert outputs[0] == outputs[1]
     assert not (tmp_path / "INJECTED").exists()
