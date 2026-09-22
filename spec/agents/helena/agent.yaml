@@ -41,11 +41,18 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v4               # 21/09/2026 (F3): a REGRA DO QUALIFICADOR — nenhum
-                                     # codigo com qualificador clinico no nome pode ser
-                                     # atribuido sem o qualificador na mensagem ("estou com
-                                     # dor de cabeca" nao e' cefaleia_subita_intensa), e
-                                     # `intensidade` nunca e' inferida do sintoma.
+  classify: classify-v5               # 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
+                                     # CAMPOS DIFERENTES — `sintoma_codigo`/`intensidade`
+                                     # sao preenchidos em QUALQUER intent, inclusive
+                                     # clinical_question ("tenho 45 anos e estou com dor no
+                                     # peito. e infarto?" leva dor_toracica), senao a
+                                     # tabela de red flag nao tem o que triar e a PERGUNTA
+                                     # decide a prioridade sozinha. v4 (21/09, F3): a REGRA
+                                     # DO QUALIFICADOR — nenhum codigo com qualificador
+                                     # clinico no nome sem o qualificador na mensagem
+                                     # ("estou com dor de cabeca" nao e'
+                                     # cefaleia_subita_intensa), e `intensidade` nunca e'
+                                     # inferida do sintoma.
   response: response-v9               # 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
                                      # O NOME DO CANAL EM CADA MENCAO ("o portal do plano
                                      # mostra a mesma lista", nunca "o portal mostra"). E' a
@@ -198,6 +205,23 @@ escalation:
     - intent: human_request           # pedido de humano     -> solicitacao_humano
     - intent: scheduling              # agendamento (fora de escopo, Fase 0; GAP 9.2) -> solicitacao_humano
     - signal: tool_failure            # falha tecnica/loop   -> falha_tecnica
+      # ALCANCE (22/09/2026, ADR-0059 — PROPOSTO, NAO RATIFICADO). A RECUSA DA CERCA DE SAIDA
+      # DEIXOU DE SER `tool_failure` PARA 3 DOS 4 GRUPOS. Entre 13/09 e 21/09, qualquer rascunho
+      # barrado num turno `inform` chegava aqui: a fila humana dependia da REDACAO do modelo, e
+      # a bateria mediu o custo (`C1` e `B5`, estado clinico IDENTICO — sem sintoma, DMN no
+      # catch-all, red_flag=false — e desfechos opostos, porque um rascunho dizia 'a equipe entre
+      # em contato'). A decisao passou a ser por GRUPO da recusa:
+      #   * `negativa_clinica`         -> CONTINUA neste gatilho (afirmar ausencia de sinal de
+      #                                   alerta so' nasce de User Task: se era isso que ela tinha
+      #                                   a dizer, ela nao tinha nada a dizer);
+      #   * `promessa_de_humano`,      -> NAO escalam mais. Troca de TEXTO por
+      #     `promessa_de_capacidade`,     `RESPOSTA_INFORM_RECUSADA`, o turno segue `inform`, e o
+      #     `canal_nao_confirmado`        rastro fica (log, contador e `error`).
+      # O GATILHO EM SI NAO MUDA — falha de ferramenta/loop continua sendo `falha_tecnica`. Esta
+      # e' uma nota de ALCANCE, e a conduta que ela descreve espera o DONO CLINICO
+      # (`owners.clinico`, no topo deste arquivo, segue vazio): ver docs/adr/0059-conduta-da-
+      # helena-recusa-por-grupo-e-sintoma-fora-da-tabela.md, que existe para ser ratificado OU
+      # DERRUBADO.
     - signal: psychosocial_risk       # suicidio/autolesao   -> risco_psicossocial (sempre)
 memory:
   episodic: false  # reabilitar exige consumidor + ato do dono: GAP-DU-01-b REMOVEU a camada semantica (0009_drop_pgvector); ADR-0002 §3 SUSPENSO (ADR-0047, DRAFT)

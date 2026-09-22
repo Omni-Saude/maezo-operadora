@@ -314,6 +314,30 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # CODIGO FORA DA TABELA DA POPULACAO (22/09/2026, revisao do CRITICO 2). Quantas vezes o
+        # `sintoma_codigo` foi DESCARTADO em `helena.classify` por nao existir na tabela de red
+        # flag que aquele turno ia consultar.
+        #
+        # POR QUE AS DUAS LABELS, e nao so' a populacao: o descarte tem DUAS causas que pedem
+        # conduta oposta. `origem_populacao="mensagem"` e' o modelo devolvendo um par incoerente
+        # (defeito de extracao -> prompt/allowlist); `origem_populacao="memoria"` e' a FUSAO tendo
+        # imposto a populacao lembrada sobre um codigo legitimo do turno — a conversa pediatrica
+        # em que a mae passa a falar de si ("eu estou com dor no peito"), a populacao pediatrica
+        # entra por falta de lastro (F4) e um `dor_toracica` de ADULTO e' jogado fora. Somar as
+        # duas no mesmo numero apagaria exatamente a diferenca que faz alguem agir.
+        #
+        # CONTENT-FREE: `populacao` e' o vocabulario fechado de cinco literais de `graph.
+        # _VALID_POPULATIONS` e `origem_populacao` tem dois valores. O CODIGO recusado NAO e'
+        # label — ele vai para a linha de log, pela mesma disciplina de `agent_resposta_recusada`,
+        # que deixa o padrao exato fora do contador.
+        self._helena_sintoma_fora_da_tabela = Counter(
+            "maezo_helena_sintoma_fora_da_tabela_total",
+            "sintoma_codigo DESCARTADO em helena.classify por nao existir na tabela de red flag "
+            "da populacao do turno (COUNTS ONLY, vocabularios fechados, nunca o codigo)",
+            labelnames=["populacao", "origem_populacao"],
+            registry=self._registry,
+        )
+
         # R-104/WP-ALERTA-SLA-CANAL. SLA-risk alerts turned into a human task, per
         # `notifications_bridge._record_sla_alert_outcome`. CONTENT-FREE BY CONSTRUCTION, same rule
         # as `bridge_dlq` above: `alert_domain` is a closed vocabulary (`notification_bridge.
@@ -573,6 +597,22 @@ class MetricsCollector:
         and the FACT was missing (the start never happened). Aggregating them would erase it.
         """
         return self._agent_resposta_recusada
+
+    @property
+    def helena_sintoma_fora_da_tabela(self) -> Counter:
+        """Counter for `sintoma_codigo` DISCARDED by `helena.classify` (22/09/2026).
+
+        Labels: `populacao` (the closed five of `graph._VALID_POPULATIONS` — the population the
+        turn actually consulted, i.e. the one AFTER the clinical-memory fusion) and
+        `origem_populacao` (`memoria` | `mensagem`). The discarded CODE is not a label: it goes
+        to the `helena_sintoma_fora_da_tabela_da_populacao` log line, so this counter's
+        cardinality does not grow with the allowlist.
+
+        `mensagem` vs `memoria` is the whole point — see the construction comment: the first is a
+        model that hallucinated an incoherent pair, the second is the fusion imposing a remembered
+        population over a legitimate code, and only the second is a defect of THIS repo's rules.
+        """
+        return self._helena_sintoma_fora_da_tabela
 
     @property
     def sla_alert_human_task(self) -> Counter:

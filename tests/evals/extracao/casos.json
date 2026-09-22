@@ -2442,6 +2442,45 @@
       "nao_pode_casar": [
         "movimentos_fetais_reduzidos"
       ]
+    },
+    {
+      "id": "e1-pergunta-sobre-dor-toracica",
+      "mensagem": "tenho 45 anos e estou com dor no peito. o que eu tenho? e infarto?",
+      "esperado": {
+        "intent": "clinical_question",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": "dor_toracica",
+        "intensidade": "desconhecida",
+        "idade_anos": 45,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "O caso E1 medido em 22/09: a mensagem PERGUNTA (intent=clinical_question) e DESCREVE um sintoma no mesmo folego. O quadro e o pedido sao campos diferentes — com sintoma_codigo nulo aqui, a tabela de red flag nao tem o que triar e a mesma dor toracica que da P1/plantao sem a pergunta virava P2/enfermagem com ela.",
+      "origem": "bateria-22-09",
+      "regras": [
+        "R1",
+        "R5"
+      ]
+    },
+    {
+      "id": "d2-detalhe-sem-sintoma",
+      "mensagem": "desde ontem",
+      "esperado": {
+        "intent": "information",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Turno 3 do D2, medido em 22/09: esta mensagem saiu com sintoma_codigo=cefaleia_subita_intensa (a r4 da tabela adulta, P1 de cinco minutos) numa conversa cujo unico sintoma relatado foi febre. Duas palavras de detalhe nao nomeiam sintoma nenhum e nao dizem de quem se fala: population=none e codigo nulo. Sem `nao_pode_casar` de proposito — o par minimo/maximo de um codigo e' por populacao, e este caso nao tem populacao para parear.",
+      "origem": "bateria-22-09",
+      "regras": [
+        "R2"
+      ]
     }
   ]
 }

@@ -22,7 +22,7 @@ não tinha régua, não tinha dono e não tinha medida.
 
 ---
 
-## As cinco regras
+## As seis regras
 
 ### R1 · Intensidade não se infere
 
@@ -90,6 +90,28 @@ Hoje isso cai na rede de segurança das quatro tabelas, que escala **se a intens
 > R1 devolvendo `desconhecida` para quem não disse a intensidade, o caminho honesto é a coleta
 > perguntar — e é mais uma razão pela qual a Frente 2.2 não é opcional.
 
+### R6 · O quadro clínico e o pedido são campos diferentes
+
+Uma mesma mensagem pode **descrever um sintoma** e **pedir outra coisa** no mesmo fôlego.
+`sintoma_codigo` e `intensidade` dizem o que a pessoa **está sentindo**; `intent` diz o que ela
+**está pedindo**. Os dois campos de sintoma são preenchidos **sempre** que a mensagem descrever um
+sintoma, qualquer que seja o pedido — inclusive quando ela está perguntando, pedindo um atendente
+ou querendo marcar consulta.
+
+*"Tenho 45 anos e estou com dor no peito. O que eu tenho? É infarto?"* é uma pergunta clínica
+**com** `sintoma_codigo=dor_toracica` e `idade_anos=45`.
+
+**Por que isto é clínico, e não arrumação de campo:** um código nulo ali esconde uma dor torácica
+da tabela de red flag. A mesma dor, dita **sem** a pergunta, era emergência — P1, plantão clínico,
+cinco minutos. Com a pergunta, e só por causa dela, o caso saía P2 / enfermagem / 30 minutos, sem
+tabela nenhuma consultada. Foi medido em 22/09/2026 (caso `E1`). **Perguntar não pode rebaixar o
+quadro de quem perguntou** — e quem pergunta *"é infarto?"* costuma ser exatamente quem está com
+medo do que sente.
+
+> **O limite, que é o mesmo de sempre:** esta regra manda EXTRAIR, nunca RESPONDER. A Helena
+> continua sem responder pergunta clínica — isso é conduta, é o gatilho de `intencao_clinica`, e
+> segue indo para gente. R6 governa o que ela **entende** da frase, não o que ela **diz** de volta.
+
 ---
 
 ## O que a régua NÃO cobre, e é deliberado
@@ -98,7 +120,7 @@ Hoje isso cai na rede de segurança das quatro tabelas, que escala **se a intens
 ser P1 é decisão das 34 regras. A régua governa a **tradução** — da frase para o código —, não a
 **conduta** — do código para a prioridade. São dois donos e duas assinaturas.
 
-**Ela não é um prompt.** O prompt (`classify-v4`) é como se pede; a régua é o que se cobra. A lição
+**Ela não é um prompt.** O prompt (`classify-v5`) é como se pede; a régua é o que se cobra. A lição
 de 12 e 13/09 é que os dois não são a mesma coisa: proibir no prompt não segura, e foi por isso que
 a cerca de saída existe. Aqui a cobrança é o conjunto de casos rotulados (3.2) e a medição ao vivo
 (3.3).
@@ -109,7 +131,7 @@ a cerca de saída existe. Aqui a cobrança é o conjunto de casos rotulados (3.2
 
 | Peça | O que faz | Onde |
 |---|---|---|
-| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` (`extracao-v2`, 126 casos) |
+| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` (`extracao-v2`, 128 casos) |
 | Cerca do corpus | o corpus não pode apodrecer: vocabulário fechado, cobertura das 4 populações e dos 25 códigos, toda regra com caso, justificativa obrigatória | `tests/unit/evals/test_corpus_de_extracao.py` |
 | Medição ao vivo | roda o `classify` real contra o corpus e pontua **campo a campo** | `tests/evals/test_extracao_live.py` |
 
@@ -130,14 +152,27 @@ próprio caso (`"nao_pode_casar": ["<código>"]`), e a cerca cobra **os dois lad
 que carrega qualificador no nome: só o negativo ensinaria a extração a nunca produzir o código, o
 que trocaria este falso positivo por um falso negativo numa emergência real.
 
-O prompt (`classify-v4`) passou a cobrar, **por código**, qual qualificador a mensagem precisa ter
-dito — a lista mora em `prompts.py::QUALIFICADORES_OBRIGATORIOS` e o texto do prompt é gerado dela,
+O prompt (`classify-v4` na época; hoje `classify-v5`) passou a cobrar, **por código**, qual
+qualificador a mensagem precisa ter dito — a lista mora em `prompts.py::QUALIFICADORES_OBRIGATORIOS` e o texto do prompt é gerado dela,
 pelo mesmo motivo que a allow-list de códigos já era. **Isto não é ratificação:** o status desta
 página continua o de 15/09, e a primeira revisão continua sendo também a primeira assinatura.
 
+**22/09/2026 — `classify-v5`, e a régua passa a ter seis regras.** A bateria mediu o caso `E1`:
+*"tenho 45 anos e estou com dor no peito. o que eu tenho? é infarto?"* saía **sem código de
+sintoma**, porque a extração tratava a pergunta como se ela apagasse o quadro. A régua ganhou a
+**R6** e o prompt passou a `classify-v5`. O caso vive no corpus como
+`e1-pergunta-sobre-dor-toracica`, com a extração correta escrita ao lado — é ele que cobra a R6 na
+medição ao vivo.
+
+> **Uma honestidade sobre a cerca, para quem assina não ser surpreendido:** a cerca do corpus ainda
+> conhece **cinco** regras e exige três casos para cada uma. O caso `E1` está rotulado com as
+> regras antigas que ele também exercita, então **a R6 é medida por aquele caso, mas ainda não é
+> cobrada por nome**. Fechar isso é rotular três casos e estender a cerca — trabalho de engenharia,
+> não decisão clínica, e não altera nenhuma regra desta página.
+
 **Por que campo a campo, e não "acertou o caso":** um caso em que o modelo acerta o sintoma e erra a
 população conta como erro em produção (tabela errada) e contaria como erro binário aqui — mas a
-medida agregada esconderia QUAL campo está ruim. A régua tem cinco regras; a medida tem de dizer
+medida agregada esconderia QUAL campo está ruim. A régua tem seis regras; a medida tem de dizer
 qual delas está sendo violada.
 
 **Os pesos não são iguais**, e a diferença é clínica, não estatística:
@@ -155,7 +190,7 @@ qual delas está sendo violada.
 
 ## O que é proposta e o que já é fato
 
-**Fato, implementado e cercado hoje:** as cinco regras estão no prompt e no validador; o corpus
+**Fato, implementado e cercado hoje:** as seis regras estão no prompt e no validador; o corpus
 existe com sua cerca; a medição ao vivo roda.
 
 **Proposta, esperando assinatura clínica:**
