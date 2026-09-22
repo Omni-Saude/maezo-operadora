@@ -1,6 +1,6 @@
 """Unit tests for the release-capability floor generator (audit §5, Wave-D fillers).
 
-Four layers:
+Five layers:
 
 1. **Pure parsing/decision** tests drive `parse_pytest_summary_line` and `evaluate_unit_tests`
    directly against synthetic summary-line fixtures — never a real (nested) pytest subprocess.
@@ -20,11 +20,18 @@ Four layers:
    First proves a genuinely regressed candidate makes `main(["--check", ...])` return 1 (RED), then
    proves the SAME candidate with the regression reverted returns 0 (GREEN) — a real, demonstrated
    red-to-green flip through the actual CLI entry point, not just the pure comparator.
+5. **`--unit-junit`** covers the mode CI uses since 22/09/2026: the passing count comes from the
+   `unit` job's own shard JUnit reports instead of a second full run of the suite. Pins the
+   arithmetic (`tests - failures - errors - skipped`, proven equal to the serial summary line on
+   the real tree), the multi-file sum, and — the point of the mode — every not-a-measurement state
+   (glob matched nothing, unreadable report, `tests=0`, failures/errors) failing loudly instead of
+   reading as 0 passed. The last test pins the `ci.yml` wiring that makes the artifact exist.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -35,13 +42,17 @@ from scripts.ci.generate_release_floor import (
     PRIORITIES,
     SELF_CHECK_SCENARIOS,
     CapabilityVector,
+    JunitParseError,
     Violation,
     build_floor_document,
     capability_vector_from_measurements,
     compare_vectors,
+    evaluate_unit_junit,
     evaluate_unit_tests,
     main,
     measure_fences,
+    measure_unit_tests_from_junit,
+    parse_junit_counts,
     parse_pytest_summary_line,
     render_floor_json,
     run_self_check,
@@ -325,3 +336,246 @@ def test_cli_check_without_a_committed_floor_fails_closed(tmp_path: Path) -> Non
 def test_violation_render_shape() -> None:
     v = Violation("some-code", "some detail")
     assert v.render() == "[some-code] some detail"
+
+
+# ---------------------------------------------------------------------------
+# Layer 5: `--unit-junit` — reading the shards' JUnit instead of re-running the suite
+# ---------------------------------------------------------------------------
+#
+# The number this mode produces must be the SAME number the serial `pytest ... -q` summary line
+# produces for the same selection. Measured on the real tree (22/09/2026, tests/unit/agents):
+# serial summary `2366 passed, 2 skipped, 2 xfailed` vs its own JUnit
+# `tests=2370 failures=0 errors=0 skipped=4` -> 2370-0-0-4 == 2366, identical in series and under
+# `-n 2 --dist loadfile`. `skipped` is where pytest files xfails too, which is exactly right: the
+# summary line counts neither skips nor xfails as `passed` either.
+
+
+def _junit(tests: int, failures: int = 0, errors: int = 0, skipped: int = 0) -> str:
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        f'<testsuites><testsuite name="pytest" errors="{errors}" failures="{failures}" '
+        f'skipped="{skipped}" tests="{tests}" time="1.0"></testsuite></testsuites>\n'
+    )
+
+
+def test_parse_junit_counts_derives_passed_as_tests_minus_the_non_passing() -> None:
+    counts = parse_junit_counts("unit-junit-ci.xml", _junit(tests=2370, skipped=4))
+    assert (counts.tests, counts.failures, counts.errors, counts.skipped) == (2370, 0, 0, 4)
+    assert counts.passed == 2366  # the exact serial-summary number measured on tests/unit/agents
+
+
+def test_parse_junit_counts_sums_every_testsuite_in_the_document() -> None:
+    """A merged/rewritten report may carry several `<testsuite>`s; reading only the first would
+    silently undercount — which for a floor gate is a fabricated regression."""
+    merged = (
+        "<testsuites>"
+        '<testsuite name="a" errors="0" failures="0" skipped="1" tests="10"/>'
+        '<testsuite name="b" errors="0" failures="0" skipped="0" tests="5"/>'
+        "</testsuites>"
+    )
+    assert parse_junit_counts("merged.xml", merged).passed == 14
+
+
+def test_parse_junit_counts_accepts_a_bare_testsuite_root() -> None:
+    bare = '<testsuite name="pytest" errors="0" failures="0" skipped="0" tests="7"/>'
+    assert parse_junit_counts("bare.xml", bare).passed == 7
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not xml at all <<<",
+        "<something-else/>",
+        '<testsuite name="pytest" failures="0" skipped="0" tests="3"/>',  # no `errors` attribute
+        '<testsuite name="pytest" errors="x" failures="0" skipped="0" tests="3"/>',
+        '<testsuite name="pytest" errors="0" failures="0" skipped="9" tests="3"/>',  # incoherent
+    ],
+)
+def test_parse_junit_counts_refuses_anything_it_cannot_trust(payload: str) -> None:
+    with pytest.raises(JunitParseError):
+        parse_junit_counts("bad.xml", payload)
+
+
+def test_evaluate_unit_junit_sums_several_shards() -> None:
+    reports = [
+        parse_junit_counts("unit-junit-ci.xml", _junit(tests=100, skipped=4)),
+        parse_junit_counts("unit-junit-gateway-platform.xml", _junit(tests=50, skipped=0)),
+        parse_junit_counts("unit-junit-restante.xml", _junit(tests=7, skipped=1)),
+    ]
+    passed, violations = evaluate_unit_junit(reports, [], "unit-junit-*.xml")
+    assert violations == []
+    assert passed == 96 + 50 + 6
+
+
+def test_evaluate_unit_junit_missing_never_reads_as_zero() -> None:
+    passed, violations = evaluate_unit_junit([], [], "unit-junit-*.xml")
+    assert passed is None
+    assert [v.code for v in violations] == ["unit-junit-missing"]
+    assert "never read as 0 passed" in violations[0].detail
+
+
+def test_evaluate_unit_junit_unreadable_report_is_a_violation_not_a_count() -> None:
+    passed, violations = evaluate_unit_junit([], ["unit-junit-ci.xml: not parseable XML"], "*.xml")
+    assert passed is None
+    assert [v.code for v in violations] == ["unit-junit-unreadable"]
+
+
+def test_evaluate_unit_junit_collection_errors_are_red() -> None:
+    reports = [parse_junit_counts("unit-junit-ci.xml", _junit(tests=10, errors=2, skipped=0))]
+    passed, violations = evaluate_unit_junit(reports, [], "*.xml")
+    assert passed is None
+    assert any(v.code == "unit-tests-red" for v in violations)
+
+
+def test_evaluate_unit_junit_failures_are_red() -> None:
+    reports = [parse_junit_counts("unit-junit-ci.xml", _junit(tests=10, failures=1))]
+    passed, violations = evaluate_unit_junit(reports, [], "*.xml")
+    assert passed is None
+    assert any(v.code == "unit-tests-red" for v in violations)
+
+
+def test_evaluate_unit_junit_empty_shard_is_a_broken_measurement() -> None:
+    reports = [
+        parse_junit_counts("unit-junit-ci.xml", _junit(tests=10)),
+        parse_junit_counts("unit-junit-dev.xml", _junit(tests=0)),
+    ]
+    passed, violations = evaluate_unit_junit(reports, [], "*.xml")
+    assert passed is None
+    assert any(v.code == "unit-junit-empty" for v in violations)
+
+
+def test_measure_unit_tests_from_junit_reads_the_glob(tmp_path: Path) -> None:
+    (tmp_path / "unit-junit-ci.xml").write_text(_junit(tests=2370, skipped=4), encoding="utf-8")
+    (tmp_path / "unit-junit-dev.xml").write_text(_junit(tests=11, skipped=1), encoding="utf-8")
+    (tmp_path / "other-junit.xml").write_text(_junit(tests=999), encoding="utf-8")  # not a shard
+    passed, violations, breakdown = measure_unit_tests_from_junit(tmp_path, "unit-junit-*.xml")
+    assert violations == []
+    assert passed == 2366 + 10
+    assert "TOTAL passed: 2376" in breakdown
+
+
+def test_measure_unit_tests_from_junit_missing_glob_fails_closed(tmp_path: Path) -> None:
+    passed, violations, _ = measure_unit_tests_from_junit(tmp_path, "unit-junit-*.xml")
+    assert passed is None
+    assert [v.code for v in violations] == ["unit-junit-missing"]
+
+
+def test_cli_unit_junit_mode_never_runs_pytest_and_gates_on_the_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End-to-end through `main()`: `--unit-junit` must (a) never shell out to pytest, (b) write a
+    floor from the JUnit sum, (c) FAIL on a regressed sum, (d) FAIL — not read 0 — when the glob
+    matches nothing (the shape of a lost/never-uploaded artifact)."""
+
+    def _explode(*args: object, **kwargs: object) -> None:
+        raise AssertionError("--unit-junit must never re-run the unit suite")
+
+    monkeypatch.setattr("scripts.ci.generate_release_floor.measure_unit_tests", _explode)
+
+    junit_dir = tmp_path / "artifacts"
+    junit_dir.mkdir()
+    (junit_dir / "unit-junit-ci.xml").write_text(_junit(tests=504, skipped=4), encoding="utf-8")
+    floor_path = tmp_path / "floor.json"
+    glob = str(junit_dir / "unit-junit-*.xml")
+
+    write_exit = main(
+        ["--write", "--repo-root", str(_REPO_ROOT), "--floor-path", str(floor_path), "--unit-junit", glob]
+    )
+    assert write_exit == 0
+    written = json.loads(floor_path.read_text(encoding="utf-8"))
+    assert written["capability_vector"]["unit_tests_passed"] == 500
+
+    check_exit = main(
+        ["--check", "--repo-root", str(_REPO_ROOT), "--floor-path", str(floor_path), "--unit-junit", glob]
+    )
+    assert check_exit == 0, "the same artifact must hold the floor"
+
+    (junit_dir / "unit-junit-ci.xml").write_text(_junit(tests=494, skipped=4), encoding="utf-8")
+    red_exit = main(
+        ["--check", "--repo-root", str(_REPO_ROOT), "--floor-path", str(floor_path), "--unit-junit", glob]
+    )
+    assert red_exit == 1, "a dropped passing count in the JUnit must fail the floor gate"
+
+    (junit_dir / "unit-junit-ci.xml").unlink()
+    missing_exit = main(
+        ["--check", "--repo-root", str(_REPO_ROOT), "--floor-path", str(floor_path), "--unit-junit", glob]
+    )
+    assert missing_exit == 1, "an absent artifact must FAIL, never read as 0 passed"
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "O_NOFOLLOW"),
+    reason=(
+        "the evidence writer opens every file with O_NOFOLLOW (anti-symlink), which only exists on "
+        "POSIX — the CI job that consumes this packet is ubuntu-latest"
+    ),
+)
+def test_cli_unit_junit_mode_retains_an_evidence_packet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CI job uploads `--unit-evidence-dir` with `if-no-files-found: error`, so the JUnit mode
+    must produce the same packet shape the subprocess mode does."""
+
+    def _explode(*args: object, **kwargs: object) -> None:
+        raise AssertionError("--unit-junit must never re-run the unit suite")
+
+    monkeypatch.setattr("scripts.ci.generate_release_floor.measure_unit_tests", _explode)
+
+    junit_dir = tmp_path / "artifacts"
+    junit_dir.mkdir()
+    (junit_dir / "unit-junit-ci.xml").write_text(_junit(tests=12, skipped=2), encoding="utf-8")
+    evidence = tmp_path / "evidence"
+    floor_path = tmp_path / "floor.json"
+    exit_code = main(
+        [
+            "--write",
+            "--repo-root",
+            str(_REPO_ROOT),
+            "--floor-path",
+            str(floor_path),
+            "--unit-junit",
+            str(junit_dir / "unit-junit-*.xml"),
+            "--unit-evidence-dir",
+            str(evidence),
+        ]
+    )
+    assert exit_code == 0
+    assert sorted(p.name for p in evidence.iterdir()) == ["measurement.json", "stderr.txt", "stdout.txt"]
+    measurement = json.loads((evidence / "measurement.json").read_text(encoding="utf-8"))
+    assert measurement["mode"] == "unit-junit"
+    assert measurement["unit_tests_passed"] == 10
+    assert measurement["counts"][0]["tests"] == 12
+
+
+def test_ci_release_floor_job_consumes_the_unit_shards() -> None:
+    """The gate no longer measures the suite itself: it must depend on `unit`, download the very
+    artifacts that job publishes (same action pin the `quality` job uses), and hand the glob to the
+    floor gate step."""
+    import yaml
+
+    workflow = yaml.safe_load((_REPO_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    unit_upload = next(
+        step
+        for step in workflow["jobs"]["unit"]["steps"]
+        if step.get("name") == "Upload shard results (coverage data + junit)"
+    )
+    assert unit_upload["with"]["name"] == "unit-shard-${{ matrix.shard }}"
+
+    job = workflow["jobs"]["release-floor"]
+    assert job["needs"] == ["unit"]
+    quality_download = next(
+        step for step in workflow["jobs"]["quality"]["steps"] if step.get("name") == "Download shard results"
+    )
+    download = next(step for step in job["steps"] if step.get("name") == "Download shard results")
+    assert download["uses"] == quality_download["uses"]  # same pin, deliberately
+    assert download["with"]["pattern"] == "unit-shard-*"
+    assert download["with"]["merge-multiple"] is True
+
+    gate = next(
+        step
+        for step in job["steps"]
+        if step.get("name") == "Release-capability floor gate (audit §5 — no override hides a P0 regression)"
+    )
+    assert job["steps"].index(download) < job["steps"].index(gate)
+    assert gate["env"]["MAEZO_RELEASE_FLOOR_UNIT_JUNIT"] == "unit-junit-*.xml"
+    assert "make release-floor-check" in gate["run"]
