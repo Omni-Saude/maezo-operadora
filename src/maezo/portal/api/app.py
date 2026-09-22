@@ -6,12 +6,14 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from typing import Any, Final
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
+from starlette.middleware.cors import CORSMiddleware
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from maezo.gateway.human.assignment_composition import AssignmentRuntime
@@ -42,7 +44,16 @@ from maezo.portal.api.intakes import IntakeServiceFactory, intake_error, intake_
 from maezo.portal.api.records import SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
-from maezo.portal.api.tasks import ReadServiceFactory, is_task_read, read_error, task_router
+from maezo.portal.api.tasks import (
+    CompletionPolicy,
+    ReadServiceFactory,
+    completion_error,
+    completion_router,
+    is_task_completion,
+    is_task_read,
+    read_error,
+    task_router,
+)
 
 _SESSION = "__Host-maezo-session"
 _BROWSER = "__Host-maezo-login"
@@ -136,6 +147,50 @@ def _delete_cookie(response: Response, name: str) -> None:
     response.delete_cookie(name, secure=True, httponly=True, samesite="lax", path="/")
 
 
+#: As UNICAS rotas que a pagina de demonstracao do canal de teste chama de outra origem
+#: (`platform/testchannel/paginas/escalonamento.html`): ler a sessao, listar a fila, ler uma
+#: tarefa e concluir. O login nao entra — ele e' um redirect que o navegador segue numa aba, e
+#: redirect nao e' requisicao cross-origin com credencial.
+CROSS_ORIGIN_PATHS: Final[tuple[str, ...]] = (
+    "/api/v1/portal/session",
+    "/api/v1/portal/tasks",
+)
+
+
+class PathScopedCORS:
+    """`CORSMiddleware` aplicado SO' num prefixo de caminho.
+
+    DL-0049 review (rodaquino, 21/09/2026), P2: o middleware global dava a origem do canal
+    acesso CREDENCIADO a todo o BFF — inclusive rotas que nao verificam `Origin` por conta
+    propria, porque nunca precisaram (sao same-origin por desenho). O canal precisa de quatro
+    caminhos; conceder o resto era alcance que ninguem pediu.
+
+    Por que envolver em vez de reimplementar: preflight, `Vary`, credencial e a lista exata de
+    metodos/cabecalhos sao detalhes que o Starlette ja acerta. Aqui so' se decide QUANDO ele
+    entra. Fora do prefixo a requisicao segue para o app sem passar por ele, entao nenhuma
+    resposta de outra rota pode ganhar `Access-Control-Allow-*` — nem no caminho felizmente
+    nem num erro.
+    """
+
+    def __init__(self, app: ASGIApp, /, **options: Any) -> None:
+        # `paths` vem por `**options` e nao como keyword-only proprio: o protocolo de middleware
+        # do Starlette (`_MiddlewareFactory`) exige exatamente `(app, **kwargs)`, e um parametro
+        # nomeado antes do `**` quebra a compatibilidade estrutural (medido com mypy).
+        self._app = app
+        self._paths: tuple[str, ...] = options.pop("paths")
+        self._cors = CORSMiddleware(app, **options)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+        caminho = scope.get("path", "")
+        if any(caminho == p or caminho.startswith(p + "/") for p in self._paths):
+            await self._cors(scope, receive, send)
+            return
+        await self._app(scope, receive, send)
+
+
 def create_app(
     settings: PortalSettings | None = None,
     *,
@@ -225,6 +280,16 @@ def create_app(
     app.state.human_session_resolver = resolver
     app.state.task_read_service_factory = task_read_service_factory
     app.include_router(task_router)
+    # INTERIM (DL-0049). Both halves ship off: `direct_completion` is false unless the
+    # deployment sets it, and `cors_origins` is empty, so the only caller the route would ever
+    # accept is the portal's own origin. `scripts/ci/check_portal_direct_completion.py` is what
+    # keeps either of them from being turned on outside `dev-sa-east-1`.
+    cross_origins = config.allowed_cross_origins()
+    app.state.completion_policy = CompletionPolicy(
+        enabled=config.direct_completion,
+        origins=frozenset((config.public_origin, *cross_origins)),
+    )
+    app.include_router(completion_router)
     app.state.decision_service_factory = decision_service_factory
     app.include_router(decision_router)
     app.state.case_service_factory = case_service_factory
@@ -238,6 +303,22 @@ def create_app(
     app.include_router(document_router)
     app.state.communication_service_factory = communication_service_factory
     app.include_router(communication_router)
+
+    # Added BEFORE `deployment_host` on purpose. `add_middleware` inserts at position 0, so
+    # the LAST call is the outermost: registering CORS first leaves it INSIDE the host check,
+    # and a preflight for a foreign Host is refused by that check instead of being answered.
+    # Nothing is installed when the allowlist is empty, which is the shipped state — there is
+    # no code path in a default deployment that can emit an `Access-Control-Allow-*` header.
+    if cross_origins:
+        app.add_middleware(
+            PathScopedCORS,
+            paths=CROSS_ORIGIN_PATHS,
+            allow_origins=list(cross_origins),  # exact strings; never a regex or an echo
+            allow_credentials=True,
+            allow_methods=["GET", "POST"],
+            allow_headers=["content-type", "x-csrf-token"],
+            max_age=600,
+        )
 
     @app.middleware("http")
     async def deployment_host(
@@ -255,6 +336,10 @@ def create_app(
                 return intake_error("invalid_request")
             if is_decision_request(request):
                 return decision_error("invalid_request")
+            # Completion first: its path lives under the read prefix, so `is_task_read` also
+            # matches it and would answer with the read schema.
+            if is_task_completion(request):
+                return completion_error("invalid_request")
             return read_error("invalid_request") if is_task_read(request) else _refused(400)
         return await call_next(request)
 
@@ -272,6 +357,10 @@ def create_app(
             return intake_error("invalid_request")
         if is_decision_request(request):
             return decision_error("invalid_decision")
+        # 422 with this route's own schema: a body whose `resultado` is absent or outside the
+        # BPMN's three values is a rejected completion, not a malformed read.
+        if is_task_completion(request):
+            return completion_error("invalid_completion")
         return read_error("invalid_request") if is_task_read(request) else _refused(400)
 
     @app.get(f"{_PREFIX}/auth/login")

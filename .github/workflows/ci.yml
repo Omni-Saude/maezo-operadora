@@ -927,6 +927,21 @@ jobs:
         # Ver scripts/ci/check_canal_simular.py.
         run: uv run python scripts/ci/check_canal_simular.py
 
+      - name: Cerca da conclusao direta do portal e do CORS (DL-0049 — atalho interino)
+        # A conclusao direta do portal chama POST {engine}/task/{id}/complete sem envelope
+        # assinado, receipt, outbox nem cerca otimista no motor — contorna os comandos
+        # atomicos da ADR-0049 D5/D6/D7 e esta registrada como interina em
+        # docs/decisions-log.md DL-0049. O CORS com credenciais existe para a pagina de
+        # teste, que e' demonstracao declarada sem autenticacao propria. As duas coisas
+        # sao aceitaveis em dev-sa-east-1 enquanto o rele' D6 (#427) nao existe, e em
+        # nenhum outro lugar. A cerca reprova (1) qualquer dos quatro portoes ligado fora
+        # de dev, (2) valor por segredo ou nao resolvivel em qualquer ambiente, (3) o
+        # portao declarado fora do Terraform analisado, e (4) as tres cercas de codigo:
+        # default literal desligado, CORSMiddleware so' dentro de `if` e sem curinga, e a
+        # recusa do portao antes do primeiro `await`.
+        # Ver scripts/ci/check_portal_direct_completion.py.
+        run: uv run python scripts/ci/check_portal_direct_completion.py
+
       # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
       # existe. NetworkPolicy egress tests serão implementados quando o módulo
       # de provisionamento de tenant for construído (post-M13).

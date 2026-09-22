@@ -876,7 +876,15 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     import maezo.gateway.human.gateway as module
 
     assert "shadow" not in inspect.signature(HumanGateway).parameters
-    assert set(n for n in dir(HumanTaskTransport) if not n.startswith("_")) == {"read_task"}
+    # `complete_task` is the INTERIM seam registered in `docs/decisions-log.md` DL-0049. It is
+    # NOT abstract and its default REFUSES, so no existing adapter gained a capability by it
+    # being here (`test_completion_port_parity.py` pins that, including for this file's own
+    # `Transport`). It is enumerated rather than tolerated: the day the durable D6 relay lands,
+    # deleting it must make this line fail.
+    assert set(n for n in dir(HumanTaskTransport) if not n.startswith("_")) == {
+        "read_task",
+        "complete_task",
+    }
     assert set(n for n in dir(DurableAdmission) if not n.startswith("_")) == {"admit"}
     source = "\n".join(p.read_text() for p in Path(module.__file__).parent.glob("*.py"))
     # D6 command and Q2 read transports own HTTP. Exact constructor scopes/options
@@ -899,6 +907,12 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     # to be application-owned (`_owns_transport` must be False on the per-request
     # client). Constructing it is the ONLY httpx use in production.py: it builds no
     # client and issues no request — both remain fenced in the transport modules.
+    # DL-0049: `completion_engine.py` is the INTERIM engine-REST completion client. Its exact
+    # constructor scope is pinned byte-exactly in
+    # `scripts/ci/check_effect_chokepoint_fence.py::_HTTPX_SCOPED_SEAMS`, like every other owner
+    # in this set, and it is the only one without a pinned TLS context — because the surface it
+    # calls (`engine-rest`) has no authentication in this distribution, so its boundary is the
+    # network. Removing the seam with the durable relay must make this line fail.
     assert http_owners == {
         "transport.py",
         "read_transport.py",
@@ -906,6 +920,7 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
         "assignment_transport.py",
         "auth_transport.py",
         "production.py",
+        "completion_engine.py",
     }
     _assert_pool_construction_only((Path(module.__file__).parent / "production.py").read_text())
     # Q2 composition only annotates its borrowed application-owned pool here.

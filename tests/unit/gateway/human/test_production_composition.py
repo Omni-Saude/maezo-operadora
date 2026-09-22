@@ -152,6 +152,10 @@ async def test_synthetic_or_in_memory_provider_is_refused(tmp_path):
     # seams — they are verified bundles (`DecisionMaterials`, `DocumentPlane`), and the
     # providers they carry are built inside their own compositions from those bytes,
     # exactly as `material` is used here.
+    # `interim_completion` (DL-0049) is not a provider seam either: it is a two-field CONFIG
+    # (`InterimCompletionConfig`: an engine origin and a timeout), and the client it produces is
+    # built inside this composition from those two values — the same relationship `decision` and
+    # `document` have. Nothing pre-built, pre-verified or test-shaped can arrive through it.
     assert set(parameters) == {
         "material",
         "pool",
@@ -159,6 +163,7 @@ async def test_synthetic_or_in_memory_provider_is_refused(tmp_path):
         "lifetime",
         "decision",
         "document",
+        "interim_completion",
     }
     assert parameters["decision"].annotation == "DecisionMaterials | None"
     assert parameters["document"].annotation == "DocumentPlane | None"
@@ -704,12 +709,16 @@ def test_human_runtime_has_no_seam_that_skips_the_loader():
     signature = inspect.signature(production_module.human_runtime)
     # `pin` stays the only positional, and every additional parameter is keyword-only
     # material *locators* plus their own out-of-band anchors — never materials.
+    # DL-0049 adds `interim_completion`, and it obeys the same rule: it carries an origin and a
+    # timeout, not material and not a provider. The bundle loader is still the only way material
+    # reaches this runtime.
     assert list(signature.parameters) == [
         "pin",
         "decision_directory",
         "decision_pin",
         "document_directory",
         "document_pin",
+        "interim_completion",
     ]
     assert signature.parameters["decision_pin"].kind is inspect.Parameter.KEYWORD_ONLY
     assert signature.parameters["document_pin"].kind is inspect.Parameter.KEYWORD_ONLY

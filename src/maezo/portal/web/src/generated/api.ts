@@ -467,6 +467,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/completion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete Task
+         * @description INTERIM (DL-0049): close an ESCALATION task from the portal.
+         *
+         *     This handler owns no authorization logic. It resolves the same gateway the two GETs use
+         *     (`task_read_service_factory`) and calls `HumanGateway.complete_task`, which proves the
+         *     `staff` audience, role and candidate group coinciding in one membership, the candidate
+         *     group against the task, and re-resolves the session after the remote reads. What lives
+         *     here is transport: the declared gate, the origin allowlist, the closed body, the error map.
+         */
+        post: operations["complete_task_api_v1_portal_tasks__task_id__completion_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/tasks/{task_id}/decision-context": {
         parameters: {
             query?: never;
@@ -2133,6 +2159,20 @@ export interface components {
             /** Workload Ref */
             workload_ref: string;
         };
+        /** PortalCompletionError */
+        PortalCompletionError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "invalid_completion" | "session_unavailable" | "employee_access_required" | "resource_unavailable" | "revision_conflict" | "completion_unavailable" | "completion_dependency_unavailable";
+            /**
+             * Schema
+             * @default portal-completion-error.v1
+             * @constant
+             */
+            schema: "portal-completion-error.v1";
+        };
         /** PortalDecisionError */
         PortalDecisionError: {
             /**
@@ -2637,6 +2677,75 @@ export interface components {
             state: "active" | "ended";
             /** State Observed At */
             state_observed_at: string;
+        };
+        /**
+         * TaskCompletionResponse
+         * @description The final state of the task, plus the trail refs that let the two paths be compared.
+         *
+         *     No note, no narrative and no beneficiary reference travel back: the browser already has the
+         *     text it typed, and the pseudonymized note belongs to the engine's PHI zone. The two audit
+         *     refs are chain-link hashes in the tenant's existing audit chain — the same chain
+         *     `human_command.intent`/`.result` writes to — so "conclusão pelo portal e pelo motor
+         *     produzem rastro idêntico" is something a reader can actually check.
+         */
+        TaskCompletionResponse: {
+            /** Audit Intent Ref */
+            audit_intent_ref: string;
+            /** Audit Result Ref */
+            audit_result_ref: string;
+            /** Authority Revision */
+            authority_revision: string;
+            /**
+             * Completed At
+             * Format: date-time
+             */
+            completed_at: string;
+            /** Consumed Task Revision */
+            consumed_task_revision: string;
+            /** Evidence Digest */
+            evidence_digest: string;
+            /** Evidence Revision */
+            evidence_revision: string;
+            /**
+             * Form Key
+             * @enum {string}
+             */
+            form_key: "auth_decisao" | "auth_junta" | "escalation" | "pagto_admissibilidade" | "contas_decisao" | "contas_coordenacao" | "recurso_decisao" | "recurso_coordenacao" | "recurso_auditor" | "reembolso_pendencia" | "reembolso_decisao" | "reembolso_auditor" | "cancel_decisao" | "inad_decisao" | "programa_decisao" | "cred_descred" | "cred_cred" | "adequacao_decisao" | "adequacao_coordenacao" | "nip_minuta" | "nip_decisao" | "lgpd_decisao" | "auth_pendencia" | "pagto_aprovacao" | "pagto_coordenacao" | "fraude_decisao" | "fraude_referral" | "ans_revisao" | "ans_coordenacao" | "ans_pendencia" | "ans_nack";
+            /** Process Definition Key */
+            process_definition_key: string;
+            /** Process Definition Version */
+            process_definition_version: string;
+            /**
+             * Resultado
+             * @enum {string}
+             */
+            resultado: "resolvido_humano" | "devolvido_agente" | "emergencia_acionada";
+            /**
+             * Schema
+             * @default portal-task-completion.v1
+             * @constant
+             */
+            schema: "portal-task-completion.v1";
+            /**
+             * State
+             * @default completed
+             * @constant
+             */
+            state: "completed";
+            /** Task Definition Key */
+            task_definition_key: string;
+            /** Task Id */
+            task_id: string;
+        };
+        /** TaskCompletionSubmission */
+        TaskCompletionSubmission: {
+            /** Notas Resolucao */
+            notas_resolucao: string;
+            /**
+             * Resultado
+             * @enum {string}
+             */
+            resultado: "resolvido_humano" | "devolvido_agente" | "emergencia_acionada";
         };
         /** TaskQueueItem */
         TaskQueueItem: {
@@ -4809,6 +4918,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalDecisionError"];
+                };
+            };
+        };
+    };
+    complete_task_api_v1_portal_tasks__task_id__completion_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCompletionSubmission"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskCompletionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalCompletionError"];
                 };
             };
         };

@@ -45,6 +45,11 @@ from .assignment_composition import AssignmentRuntime
 from .assignment_receipt import NativeAssignmentReceiptAuthority
 from .assignment_transport import AssignmentPrivateTransport, NativeAssignmentClient
 from .command_materials import assignment_scope, assignment_signing_lease, install_command_credential
+from .completion_engine import (
+    EngineRestTaskCompletion,
+    InterimCompletionConfig,
+    PostgresCompletionAudit,
+)
 from .decision import BoundDecisionPorts
 from .decision_binding import BindingConnection, PostgresDecisionBindingSource
 from .decision_binding_qualification import QualificationVerifier
@@ -189,6 +194,7 @@ def compose_human_plane(
     lifetime: MaterialLifetime,
     decision: DecisionMaterials | None = None,
     document: DocumentPlane | None = None,
+    interim_completion: InterimCompletionConfig | None = None,
 ) -> HumanRuntime:
     """Bind every human port to its concrete provider. Pure wiring: no I/O happens here.
 
@@ -288,11 +294,26 @@ def compose_human_plane(
             cursor=AeadQueueCursorCustody(partition=partition, provider=cursor_keys, key_id=cursor_key_id),
         )
 
+    # --- INTERIM completion plane (DL-0049) --------------------------------------
+    # Dark unless the deployment names it, like every other plane here. The audit sink shares
+    # the SAME tenant pool the outbox uses, so the completion link lands in the SAME hash
+    # chain as `human_command.intent`/`.result` — one chain per tenant, not a parallel table.
+    completion = (
+        None
+        if interim_completion is None
+        else EngineRestTaskCompletion(
+            scope=scope,
+            origin=interim_completion.engine_origin,
+            timeout_seconds=interim_completion.timeout_seconds,
+        )
+    )
     read = EngineReadComposition(
         new_bundle=new_bundle,
         command_credentials=command.partition,
         command_admission=admission_port,
         transport_pool=transport_pool,
+        direct_completion=completion,
+        completion_audit=(None if completion is None else PostgresCompletionAudit(scope=scope, pool=pool)),
     )
     if document is not None and document.tenant != scope.tenant:
         raise unavailable()
@@ -307,6 +328,7 @@ async def human_runtime(
     decision_pin: DecisionMaterialPin | None = None,
     document_directory: str | None = None,
     document_pin: DocumentPlanePin | None = None,
+    interim_completion: InterimCompletionConfig | None = None,
 ) -> AsyncIterator[HumanRuntime]:
     """Compose the human plane; every resource opened here is closed here.
 
@@ -384,6 +406,7 @@ async def human_runtime(
                 source_engine=source_engine,
                 lifetime=lifetime,
                 decision=decision,
+                interim_completion=interim_completion,
             )
             # The relay must be running before any gateway is built from this runtime.
             await runtime.assignment.start()
