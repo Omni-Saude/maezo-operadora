@@ -277,6 +277,13 @@ terraform plan -input=false -out=portal-frente1.tfplan `
   -var agents_image_digest=sha256:685ddb... -var worker_image_digest=sha256:685ddb... `
   -var diagnostics_image_digest=sha256:685ddb... -var engine_image_digest=sha256:6f478e...
 
+# CONFERIR O PLANO ANTES DE APLICAR. Esta linha nao e' zelo: um apply de um checkout
+# sem `portal.auto.tfvars` planeja 43 destroys, porque `var.portal` fica null. O
+# `aws_security_group.portal` e' o pior deles — o id dele esta na regra de ingress do
+# Aurora, em outro repositorio e outro state (amh-data-platform#175).
+terraform show -json portal-frente1.tfplan > plano.json
+python ../../../../scripts/ci/checar_plano_sem_destroy_do_portal.py plano.json
+
 terraform apply -input=false portal-frente1.tfplan
 ```
 
@@ -550,6 +557,13 @@ terraform plan -input=false -out=portal-ativar.tfplan `
   -var-file=<atestacao PHI> -var helena_zona_phi=true `
   -var agents_image_digest=sha256:685ddb... -var worker_image_digest=sha256:685ddb... `
   -var diagnostics_image_digest=sha256:685ddb... -var engine_image_digest=sha256:6f478e...
+# CONFERIR O PLANO ANTES DE APLICAR. Esta linha nao e' zelo: um apply de um checkout
+# sem `portal.auto.tfvars` planeja 43 destroys, porque `var.portal` fica null. O
+# `aws_security_group.portal` e' o pior deles — o id dele esta na regra de ingress do
+# Aurora, em outro repositorio e outro state (amh-data-platform#175).
+terraform show -json portal-ativar.tfplan > plano.json
+python ../../../../scripts/ci/checar_plano_sem_destroy_do_portal.py plano.json
+
 terraform apply -input=false portal-ativar.tfplan
 Remove-Item portal-ativar.tfplan
 

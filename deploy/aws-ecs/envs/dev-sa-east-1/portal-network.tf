@@ -5,15 +5,6 @@ resource "aws_security_group" "portal" {
   description = "Dedicated portal identity BFF; no peer agent/engine/FHIR ingress"
   vpc_id      = data.aws_vpc.this.id
   tags        = local.portal_tags
-
-  # PREVENT_DESTROY (22/09/2026, item 3 do documento da ultima milha). Enquanto o tfvars do
-  # portal viver so' no PR #454, `var.portal` e' `null` na `main` e um `apply` de la' destroi
-  # este recurso junto com o resto do portal (43 destroys, medidos). o id esta na regra de ingress do Aurora, em outro state.
-  # Remover o portal de verdade passa a exigir tirar este bloco ANTES — que e' o ponto: ato
-  # declarado, em vez de efeito colateral de uma variavel nula.
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_security_group" "portal_ingress" {
@@ -22,15 +13,6 @@ resource "aws_security_group" "portal_ingress" {
   description = "Dedicated public TLS ingress for the human portal"
   vpc_id      = data.aws_vpc.this.id
   tags        = local.portal_tags
-
-  # PREVENT_DESTROY (22/09/2026, item 3 do documento da ultima milha). Enquanto o tfvars do
-  # portal viver so' no PR #454, `var.portal` e' `null` na `main` e um `apply` de la' destroi
-  # este recurso junto com o resto do portal (43 destroys, medidos). e' o par do anterior: sem ele o NLB nao alcanca a task.
-  # Remover o portal de verdade passa a exigir tirar este bloco ANTES — que e' o ponto: ato
-  # declarado, em vez de efeito colateral de uma variavel nula.
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "portal_tls" {
@@ -163,15 +145,6 @@ resource "aws_lb_target_group" "portal" {
     port     = "traffic-port"
   }
   tags = local.portal_tags
-
-  # PREVENT_DESTROY (22/09/2026, item 3 do documento da ultima milha). Enquanto o tfvars do
-  # portal viver so' no PR #454, `var.portal` e' `null` na `main` e um `apply` de la' destroi
-  # este recurso junto com o resto do portal (43 destroys, medidos). recria-lo troca o alvo do listener sem aviso.
-  # Remover o portal de verdade passa a exigir tirar este bloco ANTES — que e' o ponto: ato
-  # declarado, em vez de efeito colateral de uma variavel nula.
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_lb_listener" "portal" {
