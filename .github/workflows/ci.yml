@@ -76,7 +76,10 @@ jobs:
             alvo: tests/unit/ci/test_ledger_current_execution.py
             xdist: -n 0
           - shard: ledger-resto
-            alvo: tests/unit/ci/test_ledger_*.py --ignore=tests/unit/ci/test_ledger_current_consumer.py --ignore=tests/unit/ci/test_ledger_current_execution.py
+            # Lista EXPLICITA, e nao glob + `--ignore`: o pytest nao aplica `--ignore` a arquivo passado
+            # como argumento — o glob expandia os oito e o shard repetia consumer+execution (56 funcoes
+            # duplicadas, pegas pela cerca de particao antes de chegar ao CI).
+            alvo: tests/unit/ci/test_ledger_current_relations.py tests/unit/ci/test_ledger_d7_async_consumer.py tests/unit/ci/test_ledger_execution_admission.py tests/unit/ci/test_ledger_invalid_declaration_boundaries.py tests/unit/ci/test_ledger_invalid_declarations.py tests/unit/ci/test_ledger_operational_history.py
             xdist: -n 0
           - shard: ci
             alvo: tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py
