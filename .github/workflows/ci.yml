@@ -90,11 +90,16 @@ jobs:
           - shard: dev-runner
             alvo: tests/unit/dev/test_engine_integration_runner.py
             xdist: -n 0
+          # `test_relay_boundary_diagnostics.py` entra AQUI, em serie, e sai do `restante`: seus testes
+          # pausam o tracer do pytest-cov pelo controller para instalar o proprio `sys.settrace`; num
+          # worker do xdist o hook pertence a OUTRA instancia do coverage (a que o pytest-cov liga no
+          # boot do worker) e o `pause()` nao o remove — 8 erros "refuses to replace another Python
+          # trace hook" (run 35694139974). Em serie o controller e' o dono do hook e o fixture funciona.
           - shard: dev
-            alvo: tests/unit/dev --ignore=tests/unit/dev/test_engine_integration_runner.py
+            alvo: tests/unit/dev --ignore=tests/unit/dev/test_engine_integration_runner.py tests/unit/portal/test_relay_boundary_diagnostics.py
             xdist: -n 0
           - shard: restante
-            alvo: tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev
+            alvo: tests --ignore=tests/unit/ci --ignore=tests/unit/gateway --ignore=tests/unit/platform --ignore=tests/unit/dev --ignore=tests/unit/portal/test_relay_boundary_diagnostics.py
             xdist: -n auto --dist loadfile
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
