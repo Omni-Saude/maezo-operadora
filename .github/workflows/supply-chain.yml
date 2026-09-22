@@ -133,8 +133,23 @@ jobs:
           REQUESTED: ${{ github.event.inputs.image }}
         run: ./scripts/ci/resolve_image_digest.sh
 
-      - name: Generate SBOM (syft)
+      # O repositorio e' IMMUTABLE e o cosign publica em tags derivadas do digest.
+      # Reassinar o mesmo digest e' escrever a mesma tag de novo, e o ECR recusa
+      # (`TAG_INVALID`, medido no run 35666402636) — entao o job so' era verde na
+      # PRIMEIRA execucao sobre cada imagem. Este passo decide o que ainda falta
+      # PUBLICAR; quem decide se o artefato presta e' a verificacao la' embaixo,
+      # que continua rodando sempre.
+      - name: Estado dos artefatos no ECR
+        id: estado
         if: steps.target.outputs.skip != 'true'
+        env:
+          DIGEST_HEX: ${{ steps.target.outputs.digest_hex }}
+        run: ./scripts/ci/estado_dos_artefatos.sh
+
+      # O SBOM so' e' gerado se houver atestacao a publicar: ele existe para virar
+      # predicado do `attest`, e o SBOM da imagem ja' atestada esta' no registro.
+      - name: Generate SBOM (syft)
+        if: steps.target.outputs.skip != 'true' && steps.estado.outputs.falta_atestacao == 'true'
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ steps.target.outputs.image_ref }}
@@ -149,7 +164,7 @@ jobs:
           cosign-release: ${{ env.SIGSTORE_CLI_VERSION }}
 
       - name: Sign image (cosign / KMS)
-        if: steps.target.outputs.skip != 'true'
+        if: steps.target.outputs.skip != 'true' && steps.estado.outputs.falta_assinatura == 'true'
         env:
           IMAGE_REF: ${{ steps.target.outputs.image_ref }}
         run: |
@@ -176,7 +191,7 @@ jobs:
             "${IMAGE_REF}"
 
       - name: Attest SBOM (cosign / KMS)
-        if: steps.target.outputs.skip != 'true'
+        if: steps.target.outputs.skip != 'true' && steps.estado.outputs.falta_atestacao == 'true'
         env:
           IMAGE_REF: ${{ steps.target.outputs.image_ref }}
           SBOM_FILE: ${{ steps.target.outputs.sbom_file }}
