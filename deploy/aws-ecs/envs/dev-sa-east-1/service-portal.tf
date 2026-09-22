@@ -52,6 +52,15 @@ resource "aws_cloudwatch_log_group" "portal" {
   name              = "/ecs/${local.portal_name}"
   retention_in_days = var.log_retention_days
   tags              = local.portal_tags
+
+  # PREVENT_DESTROY (22/09/2026, item 3 do documento da ultima milha). Enquanto o tfvars do
+  # portal viver so' no PR #454, `var.portal` e' `null` na `main` e um `apply` de la' destroi
+  # este recurso junto com o resto do portal (43 destroys, medidos). destrui-lo apaga o log do boot, que e' evidencia da verificacao 1.7 #7.
+  # Remover o portal de verdade passa a exigir tirar este bloco ANTES — que e' o ponto: ato
+  # declarado, em vez de efeito colateral de uma variavel nula.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_role" "portal_execution" {
@@ -59,6 +68,15 @@ resource "aws_iam_role" "portal_execution" {
   name               = "${local.portal_name}-exec"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
   tags               = local.portal_tags
+
+  # PREVENT_DESTROY (22/09/2026, item 3 do documento da ultima milha). Enquanto o tfvars do
+  # portal viver so' no PR #454, `var.portal` e' `null` na `main` e um `apply` de la' destroi
+  # este recurso junto com o resto do portal (43 destroys, medidos). referenciada por nome na task definition.
+  # Remover o portal de verdade passa a exigir tirar este bloco ANTES — que e' o ponto: ato
+  # declarado, em vez de efeito colateral de uma variavel nula.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_iam_role" "portal_task" {
@@ -67,6 +85,15 @@ resource "aws_iam_role" "portal_task" {
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
   tags               = local.portal_tags
   # Deliberately no runtime AWS policies, agent credentials, Bedrock or ECS Exec.
+
+  # PREVENT_DESTROY (22/09/2026, item 3 do documento da ultima milha). Enquanto o tfvars do
+  # portal viver so' no PR #454, `var.portal` e' `null` na `main` e um `apply` de la' destroi
+  # este recurso junto com o resto do portal (43 destroys, medidos). idem, e e' quem le' o segredo da DSN.
+  # Remover o portal de verdade passa a exigir tirar este bloco ANTES — que e' o ponto: ato
+  # declarado, em vez de efeito colateral de uma variavel nula.
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 data "aws_iam_policy_document" "portal_execution" {
