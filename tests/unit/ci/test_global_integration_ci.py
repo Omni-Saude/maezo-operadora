@@ -78,7 +78,11 @@ def _selector_do_shard(alvo: list[str]) -> tuple[list[str], str]:
     linha = next(line for line in run.splitlines() if "pytest" in _tokens(line.split("|", 1)[0]))
     tokens = shlex.split(linha)
     assert "${{" in linha and "matrix.alvo" in linha, linha
-    return alvo, tokens[tokens.index("-m") + 1]
+    # So' os argumentos DEPOIS de `pytest`: o comando e' `python -m pytest ...`, e o primeiro
+    # `-m` da linha e' o do interpretador — le-lo devolvia "pytest" como marcador, e um
+    # `-m pytest` nao coleta nada. O `_selector` original ja' fazia este recorte.
+    pytest_args = tokens[tokens.index("pytest") + 1 :]
+    return alvo, pytest_args[pytest_args.index("-m") + 1]
 
 
 def _collect_args(args: list[str], marker: str) -> set[str]:
