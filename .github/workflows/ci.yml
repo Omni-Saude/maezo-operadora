@@ -65,9 +65,19 @@ jobs:
           # 35694139974). Por isso `dev` e' partido em dois shards seriais em vez de um paralelo:
           # `test_engine_integration_runner.py` sozinho (5,2 min medidos, com o teste de 124s que
           # e' o piso de qualquer paralelismo) e o resto (~2,8 min).
-          - shard: ci-ledger
-            alvo: tests/unit/ci/test_ledger_*.py
-            xdist: -n auto --dist loadfile
+          # O ledger e' a MESMA historia do `dev`: `ledger_original_producer` recusa `PYTEST_XDIST_*`
+          # (114 x `CaptureRefusedError`, run 35694139974), entao roda em serie — e como e' o maior
+          # cluster da suite (test_ledger_current_consumer 6,7 min · current_execution 3,4 · os
+          # outros seis ~2,5), vai em tres shards seriais para o maior nao passar de ~7 min.
+          - shard: ledger-consumer
+            alvo: tests/unit/ci/test_ledger_current_consumer.py
+            xdist: -n 0
+          - shard: ledger-execution
+            alvo: tests/unit/ci/test_ledger_current_execution.py
+            xdist: -n 0
+          - shard: ledger-resto
+            alvo: tests/unit/ci/test_ledger_*.py --ignore=tests/unit/ci/test_ledger_current_consumer.py --ignore=tests/unit/ci/test_ledger_current_execution.py
+            xdist: -n 0
           - shard: ci
             alvo: tests/unit/ci --ignore-glob=tests/unit/ci/test_ledger_*.py
             xdist: -n auto --dist loadfile
