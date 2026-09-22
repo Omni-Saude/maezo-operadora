@@ -862,6 +862,15 @@ jobs:
   release-floor:
     name: release-capability-floor (audit §5)
     runs-on: ubuntu-latest
+    # O JOB DEIXOU DE MEDIR A SUITE POR CONTA PROPRIA (22/09/2026). O gate so precisava de UM
+    # numero da suite unitaria — quantos testes passam — e rodava `pytest tests/ -q` inteiro, em
+    # SERIE, para obte-lo: ~50 min de runner por push (22 min ja queimados quando a run
+    # 35727033897 foi cancelada), medindo pela segunda vez exatamente a mesma suite que o job
+    # `unit` acabara de medir em 8 shards com xdist. Agora ele le o `unit-junit-<shard>.xml` que
+    # aqueles shards JA publicam, da MESMA run (`needs: [unit]`), como o job `quality` ja faz para
+    # a cobertura. Nao se mede menos; para-se de medir duas vezes. Fail-closed: artefato ausente,
+    # ilegivel ou com zero casos REPROVA — nunca vira "0 passed" em silencio.
+    needs: [unit]
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -945,9 +954,20 @@ jobs:
         # `quality`.
         run: df -h / | tail -1
 
+      # Os mesmos artefatos que o job `quality` baixa para a cobertura, no mesmo pin: cada
+      # `unit-shard-*` traz `unit-junit-<shard>.xml`, e `merge-multiple: true` achata todos na raiz
+      # do workspace — de onde o glob abaixo os le.
+      - name: Download shard results
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          pattern: unit-shard-*
+          merge-multiple: true
+
       - name: Release-capability floor gate (audit §5 — no override hides a P0 regression)
         env:
           MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR: ${{ runner.temp }}/release-floor-unit-evidence
+          # Fonte do `unit_tests_passed`: o JUnit dos shards desta run, nao um segundo pytest aqui.
+          MAEZO_RELEASE_FLOOR_UNIT_JUNIT: unit-junit-*.xml
         run: |
           set -e
           python -I - <<'PY'

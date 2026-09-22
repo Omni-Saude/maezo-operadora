@@ -27,14 +27,27 @@ number:
                           engineering-gap xfail introduced nets a FLAT or IMPROVED total while a
                           real regression slipped in — audit §5's exact "override hides a P0
                           regression" shape). Must not increase, per priority, regardless of total.
-  - `unit_tests_passed` — the passing count from `<python> -m pytest tests/ -q` (the same invocation
-                          `make test` runs), parsed off pytest's own final summary line. No existing
-                          artifact commits this number anywhere in the repo (unlike the census), so
-                          this script performs the SAME measurement `make test` already performs and
-                          treats pytest's own summary line as the generated truth. A red run (any
-                          `failed`/`error`, or non-zero exit) aborts the whole gate before any
-                          comparison is even attempted — a broken suite must never quietly produce a
-                          "lower but still passing" floor number.
+  - `unit_tests_passed` — the passing count of the unit suite, obtained in one of TWO modes:
+                          * `--unit-junit <glob>` (what CI uses since 22/09/2026): sum of
+                            `tests - failures - errors - skipped` over the JUnit reports the
+                            `unit` job's 8 shards already publish (`unit-junit-<shard>.xml`).
+                            The suite is measured ONCE per run, by the job that owns it; this gate
+                            reads the artifact of the SAME run instead of re-running ~50 min of
+                            runner time to recompute a number that already exists. The arithmetic
+                            is pytest's own: a `<testsuite>`'s `tests` counts every reported case,
+                            and `failures`/`errors`/`skipped` (pytest files xfail under `skipped`)
+                            are exactly the cases that did not pass — measured identical to the
+                            serial summary line on `tests/unit/agents` (2366 == 2366), in serial
+                            and under `-n 2 --dist loadfile`.
+                          * no flag (local `make release-floor-check`/`--write`): runs
+                            `<python> -m pytest tests/ -q` itself (the same invocation `make test`
+                            runs) and parses pytest's own final summary line.
+                          Both modes are fail-closed in the same way: a red run (any
+                          `failed`/`error`), an unparseable summary, a JUnit report that is missing,
+                          unreadable or reports zero cases, aborts the whole gate before any
+                          comparison is even attempted — neither a broken suite nor an absent
+                          artifact may quietly produce a "lower but still passing" floor number, and
+                          NOTHING may silently read as 0.
   - `fences_passing`    — which of the repo's already-wired AST/contract fences
                           (`FENCE_REGISTRY` below — the exact same scripts `artifact-validation`'s
                           CI job runs, invoked exactly as their own Makefile targets do) currently
@@ -67,15 +80,18 @@ a stray `return []`) fails this self-check loudly instead of silently rubber-sta
 
 Fail-closed contract
 ---------------------
-- Any registered fence errors, `docs/xfail-census.json` is missing, or the unit-test run is red
-  (`--write` mode) -> refuse to write; a baseline must never encode a known-broken measurement.
-- The unit-test run is red (`--check` mode) -> FAIL immediately, before the floor comparison.
+- Any registered fence errors, `docs/xfail-census.json` is missing, or the unit-test measurement is
+  red (`--write` mode) -> refuse to write; a baseline must never encode a known-broken measurement.
+- The unit-test measurement is red (`--check` mode) -> FAIL immediately, before the floor
+  comparison. In `--unit-junit` mode "red" also covers a measurement that never happened: no file
+  matched the glob, a file is not parseable JUnit, or a report has zero cases.
 - The self-check itself misbehaves -> FAIL immediately, before measuring anything real.
 - `--check`: never mutates `docs/release-capability-floor.json`.
 
 Usage
 -----
-    python scripts/ci/generate_release_floor.py --check     # CI gate (default, no flags)
+    python scripts/ci/generate_release_floor.py --check     # local gate: re-runs the suite itself
+    python scripts/ci/generate_release_floor.py --check --unit-junit 'unit-junit-*.xml'   # CI gate
     python scripts/ci/generate_release_floor.py --write      # regenerate docs/release-capability-floor.json
 """
 
@@ -94,6 +110,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 # scripts/ci/<file> -> parents[2] == repo root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -429,6 +446,223 @@ def measure_unit_tests(
 
 
 # ---------------------------------------------------------------------------
+# Unit-test pass count, mode 2: read the shards' JUnit instead of re-running the whole suite
+# ---------------------------------------------------------------------------
+#
+# Why this mode exists (measured, 22/09/2026): the `unit` CI job already runs the ENTIRE unit suite,
+# split across 8 shards with xdist, and already publishes `unit-junit-<shard>.xml` as the artifact
+# `unit-shard-<shard>` — the same artifact the `quality` job downloads for the coverage gate. This
+# gate was running `pytest tests/ -q` a SECOND time, in series, in its own job, purely to fill
+# `unit_tests_passed`: ~50 min of runner wall clock per push (22 min already burned when run
+# 35727033897 was cancelled). Reading the JUnit of the SAME run measures the same thing the same
+# number of times as the suite actually ran — it does not measure less, it stops measuring twice.
+#
+# What it can NOT do is degrade quietly. A gate whose input is a file is a gate that reads 0 when
+# the file is absent, and "0 passed" is >= no floor in the wrong direction only because 0 is a
+# NUMBER: it would read as a catastrophic regression on `--check` (harmless) but as a floor of 0 on
+# `--write` (a permanently defanged gate). So every not-a-measurement state — glob matched nothing,
+# file unreadable/not JUnit, a report with `tests=0` (the shape a collection-time crash leaves),
+# any `failures`/`errors` — is a hard violation with its own code, never a count.
+
+#: Matches the `--junitxml=unit-junit-<shard>.xml` the `unit` job's matrix writes, after
+#: `actions/download-artifact` with `merge-multiple: true` flattens every `unit-shard-*` into the
+#: workspace root — the exact same shape the `quality` job's coverage step consumes.
+DEFAULT_UNIT_JUNIT_GLOB = "unit-junit-*.xml"
+
+#: The four `<testsuite>` attributes pytest always writes. `passed` is NOT among them: pytest's
+#: JUnit has no such attribute, and `tests` counts every reported case, so the passing count is
+#: `tests - failures - errors - skipped`. `skipped` is where pytest files BOTH real skips and
+#: xfails (`<skipped type="pytest.xfail">`) — which is exactly right here, because the serial
+#: summary line this replaces counts neither as `passed` either.
+_JUNIT_COUNT_ATTRIBUTES: tuple[str, ...] = ("tests", "failures", "errors", "skipped")
+
+
+class JunitParseError(ValueError):
+    """A file matched the glob but is not a JUnit report we can trust. Never a verdict on the suite."""
+
+
+@dataclass(frozen=True)
+class JunitCounts:
+    """One shard's JUnit report, reduced to the four counts the floor needs."""
+
+    label: str
+    tests: int
+    failures: int
+    errors: int
+    skipped: int
+
+    @property
+    def passed(self) -> int:
+        return self.tests - self.failures - self.errors - self.skipped
+
+
+def parse_junit_counts(label: str, xml_text: str) -> JunitCounts:
+    """Pure parser: one JUnit document -> `JunitCounts`. Sums EVERY `<testsuite>` in the document
+    (pytest writes one under a `<testsuites>` root, but a merged/rewritten report may carry several,
+    and silently reading only the first would undercount). Raises rather than guessing: a missing or
+    non-numeric attribute is an unreadable measurement, not a zero."""
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError as exc:
+        # ElementTree does not expand external entities and raises on undefined ones, so an
+        # attacker-supplied XXE payload lands here as a parse error rather than a file read.
+        raise JunitParseError(f"{label}: not parseable XML ({exc})") from exc
+    suites = list(root.iter("testsuite"))  # includes `root` itself when it IS a <testsuite>
+    if not suites:
+        raise JunitParseError(f"{label}: no <testsuite> element — not a pytest JUnit report")
+    totals = dict.fromkeys(_JUNIT_COUNT_ATTRIBUTES, 0)
+    for suite in suites:
+        for attribute in _JUNIT_COUNT_ATTRIBUTES:
+            raw = suite.get(attribute)
+            if raw is None:
+                raise JunitParseError(f"{label}: <testsuite> has no {attribute!r} attribute")
+            try:
+                value = int(raw)
+            except ValueError as exc:
+                raise JunitParseError(f"{label}: <testsuite> {attribute}={raw!r} is not an integer") from exc
+            if value < 0:
+                raise JunitParseError(f"{label}: <testsuite> {attribute}={value} is negative")
+            totals[attribute] += value
+    counts = JunitCounts(label, **totals)
+    if counts.passed < 0:
+        raise JunitParseError(
+            f"{label}: failures+errors+skipped ({counts.tests - counts.passed}) exceeds tests "
+            f"({counts.tests}) — incoherent report"
+        )
+    return counts
+
+
+def resolve_unit_junit_paths(repo_root: Path, pattern: str) -> list[Path]:
+    """Expand the glob (relative to the repo root unless absolute) into a sorted, deterministic file
+    list. Sorted so the evidence packet and the printed breakdown never depend on directory order."""
+    raw = Path(pattern)
+    if raw.is_absolute():
+        anchor = Path(raw.anchor)
+        matches = anchor.glob(str(raw.relative_to(anchor)))
+    else:
+        matches = repo_root.glob(pattern)
+    return sorted(path for path in matches if path.is_file())
+
+
+def evaluate_unit_junit(
+    reports: Sequence[JunitCounts], read_errors: Sequence[str], pattern: str
+) -> tuple[int | None, list[Violation]]:
+    """Pure fail-closed decision over already-read reports. Same contract as `evaluate_unit_tests`:
+    returns `(None, violations)` for every state that is not a trustworthy measurement, and never a
+    partial or zero count."""
+    violations: list[Violation] = []
+    for message in read_errors:
+        violations.append(Violation("unit-junit-unreadable", message))
+    if not reports and not read_errors:
+        violations.append(
+            Violation(
+                "unit-junit-missing",
+                f"no JUnit report matched {pattern!r} — the unit suite was never measured for this "
+                "candidate; an absent artifact must never read as 0 passed",
+            )
+        )
+    for report in reports:
+        if report.tests == 0:
+            violations.append(
+                Violation(
+                    "unit-junit-empty",
+                    f"{report.label}: reports tests=0 — a shard that collected nothing is a broken "
+                    "measurement, not an empty one",
+                )
+            )
+    for report in reports:
+        if report.failures or report.errors:
+            violations.append(
+                Violation(
+                    "unit-tests-red",
+                    f"{report.label}: failures={report.failures} errors={report.errors} "
+                    "(collection errors count here too) — a red suite cannot produce a trustworthy "
+                    "capability measurement",
+                )
+            )
+    if violations:
+        return None, violations
+    total = sum(report.passed for report in reports)
+    if total <= 0:
+        return None, [
+            Violation(
+                "unit-junit-empty",
+                f"JUnit reports matching {pattern!r} sum to {total} passing tests — refusing to "
+                "treat that as a measurement",
+            )
+        ]
+    return total, []
+
+
+def render_unit_junit_breakdown(reports: Sequence[JunitCounts], pattern: str) -> str:
+    lines = [f"pattern: {pattern}"]
+    for report in reports:
+        lines.append(
+            f"{report.label}: tests={report.tests} failures={report.failures} "
+            f"errors={report.errors} skipped={report.skipped} passed={report.passed}"
+        )
+    lines.append(f"TOTAL passed: {sum(report.passed for report in reports)}")
+    return "\n".join(lines) + "\n"
+
+
+def measure_unit_tests_from_junit(
+    repo_root: Path, pattern: str, *, evidence_dir: Path | None = None
+) -> tuple[int | None, list[Violation], str]:
+    """Read the shards' JUnit reports; optionally retain the same private diagnostics packet the
+    subprocess mode retains (same directory contract, so the CI upload step is unchanged)."""
+    destination = _create_unit_evidence(repo_root, evidence_dir) if evidence_dir is not None else None
+    paths = resolve_unit_junit_paths(repo_root, pattern)
+    reports: list[JunitCounts] = []
+    read_errors: list[str] = []
+    file_identity: dict[str, Any] = {}
+    for path in paths:
+        label = str(path.relative_to(repo_root)) if path.is_relative_to(repo_root) else str(path)
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            read_errors.append(f"{label}: cannot be read ({exc})")
+            continue
+        file_identity[label] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+        try:
+            reports.append(parse_junit_counts(label, raw.decode("utf-8", errors="replace")))
+        except JunitParseError as exc:
+            read_errors.append(str(exc))
+    passed, violations = evaluate_unit_junit(reports, read_errors, pattern)
+    breakdown = render_unit_junit_breakdown(reports, pattern)
+    if destination is not None:
+        metadata: dict[str, Any] = {
+            "mode": "unit-junit",
+            "pattern": pattern,
+            "cwd": str(repo_root.resolve()),
+            "source_after": _unit_source_identity(repo_root),
+            "reports": file_identity,
+            "counts": [
+                {
+                    "label": report.label,
+                    "tests": report.tests,
+                    "failures": report.failures,
+                    "errors": report.errors,
+                    "skipped": report.skipped,
+                    "passed": report.passed,
+                }
+                for report in reports
+            ],
+            "unit_tests_passed": passed,
+            "violations": [violation.render() for violation in violations],
+        }
+        try:
+            _write_unit_evidence(destination, metadata, breakdown, "\n".join(read_errors))
+        except Exception as exc:
+            if not violations:
+                raise UnitEvidenceError("unit diagnostic retention failed after successful read") from exc
+            print(
+                "[release-floor] unit diagnostic retention failed; original red result preserved",
+                file=sys.stderr,
+            )
+    return passed, violations, breakdown.strip()
+
+
+# ---------------------------------------------------------------------------
 # The capability vector + the floor comparison
 # ---------------------------------------------------------------------------
 
@@ -598,9 +832,13 @@ def build_floor_document(vector: CapabilityVector) -> dict[str, Any]:
                 "once the 'xfail-census-check' fence below proves it is not stale."
             ),
             "unit_tests_passed": (
-                "final summary line of `<python> -m pytest tests/ -q` (same invocation `make test` "
-                "runs), executed by this script itself; a non-zero exit or any failed/error count "
-                "aborts the whole gate before any comparison."
+                "with `--unit-junit <glob>` (what CI uses): sum of `tests - failures - errors - "
+                "skipped` over the `unit` job's own `unit-junit-<shard>.xml` reports, from the same "
+                "run — the suite is measured once, by the job that owns it. Without the flag "
+                "(local runs): final summary line of `<python> -m pytest tests/ -q`, the same "
+                "invocation `make test` runs, executed by this script itself. Either way a red "
+                "suite — or, in JUnit mode, a missing/unreadable/empty report — aborts the whole "
+                "gate before any comparison."
             ),
             "fences_passing": (
                 "each name's own script/mode, invoked exactly as its Makefile target does: "
@@ -635,6 +873,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "                     docs/release-capability-floor.json in any dimension.\n"
             "  --write            measure the current tree and overwrite the committed floor\n"
             "                     (refuses to write if any fence is failing or unit tests are red).\n"
+            "\n"
+            "unit-test source\n"
+            "  --unit-junit GLOB  read the passing count off the unit job's published JUnit\n"
+            "                     reports instead of re-running the suite in this process.\n"
         ),
     )
     parser.add_argument("--repo-root", default=str(REPO_ROOT), help="Repository root.")
@@ -644,6 +886,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--python",
         default=sys.executable,
         help="Interpreter used for the fence + pytest subprocess measurements (default: sys.executable).",
+    )
+    parser.add_argument(
+        "--unit-junit",
+        metavar="GLOB",
+        help=(
+            "Read `unit_tests_passed` from the unit job's already-published JUnit reports "
+            f"(e.g. {DEFAULT_UNIT_JUNIT_GLOB!r}) instead of re-running the whole suite here. "
+            "Fail-closed: no match, an unreadable report, a report with zero cases, or any "
+            "failure/error is a hard FAIL — never a count."
+        ),
     )
     parser.add_argument(
         "--unit-evidence-dir",
@@ -696,17 +948,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     census = json.loads(census_path.read_text(encoding="utf-8"))
 
     try:
-        if args.unit_evidence_dir is None:
-            unit_counts, unit_rc, unit_raw = measure_unit_tests(repo_root, args.python)
-        else:
-            unit_counts, unit_rc, unit_raw = measure_unit_tests(
-                repo_root, args.python, evidence_dir=args.unit_evidence_dir
+        if args.unit_junit:
+            # CI path: the `unit` job of this same run already measured the suite; read its JUnit.
+            unit_passed, unit_violations, unit_raw = measure_unit_tests_from_junit(
+                repo_root, args.unit_junit, evidence_dir=args.unit_evidence_dir
             )
+            print(f"[release-floor] unit tests (JUnit reports of this run):\n{unit_raw}")
+        else:
+            # Local path: no shard artifacts around, so measure the suite here as before.
+            if args.unit_evidence_dir is None:
+                unit_counts, unit_rc, unit_raw = measure_unit_tests(repo_root, args.python)
+            else:
+                unit_counts, unit_rc, unit_raw = measure_unit_tests(
+                    repo_root, args.python, evidence_dir=args.unit_evidence_dir
+                )
+            print(f"[release-floor] unit tests: {unit_raw!r} (exit {unit_rc})")
+            unit_passed, unit_violations = evaluate_unit_tests(unit_counts, unit_rc, unit_raw)
     except UnitEvidenceError:
         print("[release-floor] FAIL — requested unit diagnostics could not be retained", file=sys.stderr)
         return 1
-    print(f"[release-floor] unit tests: {unit_raw!r} (exit {unit_rc})")
-    unit_passed, unit_violations = evaluate_unit_tests(unit_counts, unit_rc, unit_raw)
     if unit_violations:
         print("[release-floor] FAIL — unit-test measurement is not trustworthy:", file=sys.stderr)
         for v in unit_violations:

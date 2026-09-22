@@ -223,6 +223,12 @@ check-phi-scrub-prereqs: ## R-009: valida manifesto, promocao e referencias dos 
 	.venv/bin/ruff format --check scripts/ci/check_phi_scrub_prereqs.py
 	.venv/bin/python scripts/ci/check_phi_scrub_prereqs.py
 
+ifdef MAEZO_RELEASE_FLOOR_UNIT_JUNIT
+RELEASE_FLOOR_UNIT_JUNIT_ARG := --unit-junit "$$MAEZO_RELEASE_FLOOR_UNIT_JUNIT"
+# O subprocesso do gate nao precisa herdar a variavel: o glob ja vai no argv.
+RELEASE_FLOOR_UNIT_JUNIT_ENV := -u MAEZO_RELEASE_FLOOR_UNIT_JUNIT
+endif
+
 release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO do floor de capacidade de release comitado (gate de regressao)
 	# Composto de verdades JA GERADAS (nao um numero novo mantido a mao): total do censo de
 	# strict-xfail (docs/xfail-census.json) nao pode SUBIR; o subconjunto P0/P1/P2 (automatable,
@@ -237,10 +243,15 @@ release-floor-check: ## Audit §5 (W-fillers): candidato nao pode ficar ABAIXO d
 	# antes de confiar em qualquer medicao real. `--write` (release-floor-write) refaz o floor
 	# comitado a partir da arvore atual — recusa escrever se algum fence estiver falhando ou a suite
 	# unitaria estiver vermelha.
+	# MAEZO_RELEASE_FLOOR_UNIT_JUNIT (o CI define): le a contagem de testes passando dos JUnit que
+	# os 8 shards do job `unit` JA publicam nesta mesma run, em vez de rodar a suite inteira de novo
+	# aqui (~50 min de runner por push, medido). Sem a variavel — uso local — o gerador mede a suite
+	# ele mesmo, como sempre. Fail-closed nos dois modos: glob sem match, relatorio ilegivel ou com
+	# zero casos NAO vira "0 passed", vira FALHA.
 ifdef MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR
-	env -u MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR .venv/bin/python scripts/ci/generate_release_floor.py --check --unit-evidence-dir "$$MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR"
+	env -u MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR $(RELEASE_FLOOR_UNIT_JUNIT_ENV) .venv/bin/python scripts/ci/generate_release_floor.py --check --unit-evidence-dir "$$MAEZO_RELEASE_FLOOR_UNIT_EVIDENCE_DIR" $(RELEASE_FLOOR_UNIT_JUNIT_ARG)
 else
-	.venv/bin/python scripts/ci/generate_release_floor.py --check
+	env $(RELEASE_FLOOR_UNIT_JUNIT_ENV) .venv/bin/python scripts/ci/generate_release_floor.py --check $(RELEASE_FLOOR_UNIT_JUNIT_ARG)
 endif
 
 release-floor-write: ## Audit §5 (W-fillers): regenera docs/release-capability-floor.json a partir da arvore atual
