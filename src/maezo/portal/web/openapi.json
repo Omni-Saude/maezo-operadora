@@ -4757,6 +4757,36 @@
         "title": "PendingDecisionAdmission",
         "type": "object"
       },
+      "PortalCompletionError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "invalid_completion",
+              "session_unavailable",
+              "employee_access_required",
+              "resource_unavailable",
+              "revision_conflict",
+              "completion_unavailable",
+              "completion_dependency_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "schema": {
+            "const": "portal-completion-error.v1",
+            "default": "portal-completion-error.v1",
+            "title": "Schema",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalCompletionError",
+        "type": "object"
+      },
       "PortalDecisionError": {
         "additionalProperties": false,
         "properties": {
@@ -6302,6 +6332,174 @@
           "state_observed_at"
         ],
         "title": "StaffSummary",
+        "type": "object"
+      },
+      "TaskCompletionResponse": {
+        "additionalProperties": false,
+        "description": "The final state of the task, plus the trail refs that let the two paths be compared.\n\nNo note, no narrative and no beneficiary reference travel back: the browser already has the\ntext it typed, and the pseudonymized note belongs to the engine's PHI zone. The two audit\nrefs are chain-link hashes in the tenant's existing audit chain — the same chain\n`human_command.intent`/`.result` writes to — so \"conclusão pelo portal e pelo motor\nproduzem rastro idêntico\" is something a reader can actually check.",
+        "properties": {
+          "audit_intent_ref": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Audit Intent Ref",
+            "type": "string"
+          },
+          "audit_result_ref": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Audit Result Ref",
+            "type": "string"
+          },
+          "authority_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Authority Revision",
+            "type": "string"
+          },
+          "completed_at": {
+            "format": "date-time",
+            "title": "Completed At",
+            "type": "string"
+          },
+          "consumed_task_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Consumed Task Revision",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Evidence Digest",
+            "type": "string"
+          },
+          "evidence_revision": {
+            "pattern": "^(0|[1-9][0-9]*)$",
+            "title": "Evidence Revision",
+            "type": "string"
+          },
+          "form_key": {
+            "enum": [
+              "auth_decisao",
+              "auth_junta",
+              "escalation",
+              "pagto_admissibilidade",
+              "contas_decisao",
+              "contas_coordenacao",
+              "recurso_decisao",
+              "recurso_coordenacao",
+              "recurso_auditor",
+              "reembolso_pendencia",
+              "reembolso_decisao",
+              "reembolso_auditor",
+              "cancel_decisao",
+              "inad_decisao",
+              "programa_decisao",
+              "cred_descred",
+              "cred_cred",
+              "adequacao_decisao",
+              "adequacao_coordenacao",
+              "nip_minuta",
+              "nip_decisao",
+              "lgpd_decisao",
+              "auth_pendencia",
+              "pagto_aprovacao",
+              "pagto_coordenacao",
+              "fraude_decisao",
+              "fraude_referral",
+              "ans_revisao",
+              "ans_coordenacao",
+              "ans_pendencia",
+              "ans_nack"
+            ],
+            "title": "Form Key",
+            "type": "string"
+          },
+          "process_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Process Definition Key",
+            "type": "string"
+          },
+          "process_definition_version": {
+            "pattern": "^[1-9][0-9]*$",
+            "title": "Process Definition Version",
+            "type": "string"
+          },
+          "resultado": {
+            "enum": [
+              "resolvido_humano",
+              "devolvido_agente",
+              "emergencia_acionada"
+            ],
+            "title": "Resultado",
+            "type": "string"
+          },
+          "schema": {
+            "const": "portal-task-completion.v1",
+            "default": "portal-task-completion.v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "state": {
+            "const": "completed",
+            "default": "completed",
+            "title": "State",
+            "type": "string"
+          },
+          "task_definition_key": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Definition Key",
+            "type": "string"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "process_definition_key",
+          "process_definition_version",
+          "task_definition_key",
+          "form_key",
+          "resultado",
+          "consumed_task_revision",
+          "authority_revision",
+          "evidence_revision",
+          "evidence_digest",
+          "completed_at",
+          "audit_intent_ref",
+          "audit_result_ref"
+        ],
+        "title": "TaskCompletionResponse",
+        "type": "object"
+      },
+      "TaskCompletionSubmission": {
+        "additionalProperties": false,
+        "properties": {
+          "notas_resolucao": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Notas Resolucao",
+            "type": "string"
+          },
+          "resultado": {
+            "enum": [
+              "resolvido_humano",
+              "devolvido_agente",
+              "emergencia_acionada"
+            ],
+            "title": "Resultado",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resultado",
+          "notas_resolucao"
+        ],
+        "title": "TaskCompletionSubmission",
         "type": "object"
       },
       "TaskQueueItem": {
@@ -9078,6 +9276,126 @@
           }
         },
         "summary": "Submit Assignment"
+      }
+    },
+    "/api/v1/portal/tasks/{task_id}/completion": {
+      "post": {
+        "description": "INTERIM (DL-0049): close an ESCALATION task from the portal.\n\nThis handler owns no authorization logic. It resolves the same gateway the two GETs use\n(`task_read_service_factory`) and calls `HumanGateway.complete_task`, which proves the\n`staff` audience, role and candidate group coinciding in one membership, the candidate\ngroup against the task, and re-resolves the session after the remote reads. What lives\nhere is transport: the declared gate, the origin allowlist, the closed body, the error map.",
+        "operationId": "complete_task_api_v1_portal_tasks__task_id__completion_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskCompletionSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskCompletionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalCompletionError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Complete Task"
       }
     },
     "/api/v1/portal/tasks/{task_id}/decision-context": {
