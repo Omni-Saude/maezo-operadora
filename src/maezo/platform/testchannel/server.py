@@ -28,6 +28,14 @@ Configuração por ambiente, nada cravado:
     RECEPTOR_URL          — base do receptor de webhook (só para `/receptor/simular`)
     WHATSAPP_APP_SECRET   — segredo da Meta, usado para ASSINAR o envelope sintético
     CANAL_SIMULAR_RECEPTOR — "1" LIGA `/receptor/simular`; ausente = rota inexistente
+    MAEZO_ENV             — ambiente, pelo nome que o resto do repo usa; só `dev` libera o portal
+    PORTAL_PUBLIC_ORIGIN  — origem do Portal Maezo entregue à página; RECUSADA fora de `dev`
+
+As páginas de `paginas/` não alcançam o portal por mesma-origem — ele vive em outro domínio. A
+ligação é por CORS com credenciais, aceita pelo portal **apenas em dev**, e deste lado a cerca é
+`PORTAL_PUBLIC_ORIGIN` só valer quando `MAEZO_ENV=dev`: ver `_portal_origem_configurada`. Este
+canal é demonstração declarada, sem autenticação própria; ligá-lo ao portal não pode transformá-lo
+em porta de entrada do portal em nenhum outro ambiente.
 
 A rota `/receptor/simular` é a única coisa aqui que fabrica uma mensagem de beneficiário
 assinada. Ela está DESLIGADA por padrão e as três cercas estão descritas em
@@ -42,6 +50,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -102,6 +111,103 @@ TIPOS = {
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
 }
+
+#: Ambiente, pelo nome que o resto do repo usa (`MAEZO_ENV`, posto pela task definition a partir
+#: de `local.env` — e' o mesmo nome que `service-metrics-collector.tf` ja' entrega). Ausente e'
+#: ambiente DESCONHECIDO, nunca dev: a cerca abaixo resolve por EXCLUSAO do lado perigoso.
+AMBIENTE = os.environ.get("MAEZO_ENV", "").strip().lower()
+
+#: Marcador que cada `.html` de `paginas/` declara e que o servidor troca pela origem do portal.
+#: Substituicao de UM marcador, nao injecao de `<script>`: o arquivo continua sendo a unica fonte
+#: de verdade da pagina, e o que entra ali e' um valor ja' validado como `https://<host>`.
+MARCA_PORTAL = "__PORTAL_PUBLIC_ORIGIN__"
+#: O marcador vive DENTRO de um literal JavaScript (`window.PORTAL_PUBLIC_ORIGIN = "<marcador>"`),
+#: e e' o literal INTEIRO — com as aspas — que e' substituido, por `json.dumps` do valor. Antes
+#: desta versao o valor cru era concatenado dentro das aspas, e isso fazia a pagina depender de a
+#: validacao de origem tambem cercar a SINTAXE do JavaScript. Ela nao cerca: `urlsplit` aceita
+#: `https://a"b.example` (netloc `a"b.example`, sem caminho, query, fragmento nem porta), que fecha
+#: o literal no meio do script. Duas cercas agora, e nenhuma confia na outra — rotulo DNS estrito
+#: na validacao, serializacao na injecao.
+MARCA_PORTAL_LITERAL = f'"{MARCA_PORTAL}"'
+
+#: Rotulo DNS: letra/digito/hifen, sem hifen nas pontas, 1..63 por rotulo e 253 no total. E' uma
+#: cerca ESTRITAMENTE mais fechada que a do portal (`PortalSettings._deployment_boundaries`), e a
+#: direcao da diferenca e' o que a torna segura: tudo que este canal aceita, o portal tambem
+#: aceita. Uma regra mais LARGA deste lado e' que seria o jeito conhecido de as duas discordarem
+#: em silencio — o risco que o docstring de `_origem_https_pura` descreve.
+RE_ROTULO_DNS = re.compile(
+    r"^(?=.{1,253}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\Z"
+)
+
+
+def _origem_https_pura(origem: str) -> bool:
+    """A regra do portal para o proprio `public_origin`, MAIS rotulo DNS estrito.
+
+    HTTPS, DNS puro, sem caminho, query, fragmento, credencial nem porta diferente de 443. E' de
+    proposito que nao ha excecao para `http://localhost`: o portal recusa, e uma regra mais larga
+    deste lado seria uma segunda regra — o jeito conhecido de as duas discordarem em silencio.
+
+    A parte "MAIS" foi acrescentada em 21/09/2026 e e' deliberada: a regra do portal, copiada
+    linha por linha, aceita `https://a"b.example` — `urlsplit` poe isso tudo no netloc, sem
+    caminho, query, fragmento nem porta. No portal isso e' apenas uma origem que jamais resolve;
+    aqui o valor era CONCATENADO dentro de um literal JavaScript da pagina, e a aspa fechava o
+    literal. A cerca ficou nos dois lugares (ver `MARCA_PORTAL_LITERAL`), e o acrescimo so' RECUSA
+    mais — nunca aceita o que o portal recusaria, que e' a direcao que preserva a regra unica.
+    """
+    if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in origem):
+        return False
+    if any(c in origem for c in "?#\\"):
+        return False
+    partes = urllib.parse.urlsplit(origem)
+    try:
+        porta = partes.port
+    except ValueError:
+        return False  # porta nao numerica ou fora de faixa
+    return (
+        partes.scheme == "https"
+        and bool(partes.hostname)
+        and not partes.path
+        and not partes.query
+        and not partes.fragment
+        and not partes.username
+        and not partes.password
+        and porta in (None, 443)
+        and origem == f"https://{partes.netloc}"
+        # As duas linhas abaixo sao o que o portal NAO exige, e sao a diferenca deliberada: o
+        # hostname tem de ser rotulo DNS, e o netloc tem de ser exatamente esse hostname (em
+        # minusculas, com ou sem `:443`). Isto recusa `https://a"b.example`, `https://[::1]` e
+        # qualquer coisa que `urlsplit` tolere no netloc e o rotulo DNS nao.
+        and RE_ROTULO_DNS.match(partes.hostname or "") is not None
+        and partes.netloc in (partes.hostname, f"{partes.hostname}:443")
+    )
+
+
+def _portal_origem_configurada() -> tuple[str, str]:
+    """A CERCA 3.3 DO MANDATO, deste lado: devolve `(origem, motivo)`.
+
+    Origem vazia e' estado valido — a pagina entra em "portal nao configurado" e diz isso por
+    escrito. O `motivo` existe para o log de boot: uma recusa silenciosa apareceria como
+    "nao configurado" e alguem perderia a tarde procurando a variavel que ele mesmo tinha posto.
+
+    Por que a cerca e' de SERVIDOR e nao de tela: a pagina e' demonstracao declarada, sem
+    autenticacao propria (ver `README.md` deste diretorio). Uma cerca escrita em JavaScript
+    servido por este canal seria cerca que o proprio visitante pode remover.
+    """
+    bruta = os.environ.get("PORTAL_PUBLIC_ORIGIN", "").strip()
+    if not bruta:
+        return "", "nao configurada"
+    if AMBIENTE != "dev":
+        return "", f"RECUSADA (MAEZO_ENV={AMBIENTE or '(ausente)'} nao e' dev)"
+    if not _origem_https_pura(bruta):
+        return "", "RECUSADA (origem nao e' https://<host> puro)"
+    return bruta, "ligada"
+
+
+#: Origem do portal entregue as paginas, e o motivo da decisao. Resolvidas no import, uma vez:
+#: ambiente de processo nao muda no meio da vida do container, e reavaliar por requisicao
+#: convidaria a divergencia entre o que o log de boot disse e o que a pagina recebeu.
+PORTAL_ORIGIN, PORTAL_MOTIVO = _portal_origem_configurada()
 
 HTML = r"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
@@ -401,6 +507,15 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         dados = alvo.read_bytes()
+        if alvo.suffix.lower() == ".html":
+            # `PORTAL_ORIGIN` vazia (nao configurada, ou RECUSADA fora de dev) apaga o marcador,
+            # e a pagina le' string vazia — que e' o estado "portal nao configurado" que ela
+            # trata. O `Content-Length` abaixo e' calculado depois desta troca, de proposito.
+            dados = dados.replace(MARCA_PORTAL_LITERAL.encode(), json.dumps(PORTAL_ORIGIN).encode())
+            # Uma pagina que declarasse o marcador FORA de um literal nao tem como ser injetada
+            # com seguranca; ela cai para "portal nao configurado" em vez de receber o marcador
+            # cru, que e' string TRUTHY e faria a tela chamar `https://__PORTAL_.../api/v1/...`.
+            dados = dados.replace(MARCA_PORTAL.encode(), b"")
         self.send_response(200)
         self.send_header("Content-Type", tipo)
         self.send_header("Content-Length", str(len(dados)))
@@ -563,7 +678,8 @@ def main() -> None:
     print(
         f"canal de teste ouvindo em {BIND}:{PORT} | motor: {ENGINE} | cockpit: {COCKPIT_URL} "
         f"| agente: {AGENTE or '(nao configurado)'} | paginas: {_paginas_disponiveis() or '(nenhuma)'} "
-        f"| /receptor/simular: {'LIGADA -> ' + RECEPTOR if SIMULAR_LIGADO and RECEPTOR and APP_SECRET else 'desligada'}",
+        f"| /receptor/simular: {'LIGADA -> ' + RECEPTOR if SIMULAR_LIGADO and RECEPTOR and APP_SECRET else 'desligada'} "
+        f"| ambiente: {AMBIENTE or '(ausente)'} | portal: {PORTAL_ORIGIN or PORTAL_MOTIVO}",
         flush=True,
     )
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
