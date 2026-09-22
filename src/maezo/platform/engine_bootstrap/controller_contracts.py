@@ -4042,6 +4042,15 @@ _RECORD_TYPES: dict[str, type[Record]] = {
     "TypePacket": TypePacket,
 }
 _REFUSALS = frozenset(_DEFINITIONS["RefusalCode"]["enum"])
+# As duas checagens de caractere abaixo eram `any(ord(c) ...)` em Python puro e viraram
+# expressao regular compilada, por medicao: `_plain` e `_shape` visitam CADA string de CADA
+# pacote, e numa unica corrida de `test_controller_dynamodb` o gerador fazia 41 milhoes de
+# `ord` — mais da metade dos 122s do arquivo no CI (perfil de 22/09/2026). `re.search` percorre
+# a string em C e responde EXATAMENTE o mesmo para toda entrada:
+#   `[\ud800-\udfff]`  <=>  `0xD800 <= ord(c) <= 0xDFFF`   (surrogate: nao e' escalar Unicode)
+#   `[\x00-\x1f\x7f-\x9f]` <=> `ord(c) < 0x20 or 0x7F <= ord(c) <= 0x9F`   (controle C0/DEL/C1)
+_SURROGATE = re.compile("[\ud800-\udfff]")
+_CONTROLE = re.compile("[\x00-\x1f\x7f-\x9f]")
 
 
 def _plain(value: Any, depth: int = 0) -> Any:
@@ -4056,7 +4065,7 @@ def _plain(value: Any, depth: int = 0) -> Any:
         _need(len(value) <= 1024)
         return [_plain(v, depth + 1) for v in value]
     if type(value) is str:
-        _need(not any(0xD800 <= ord(c) <= 0xDFFF for c in value))
+        _need(_SURROGATE.search(value) is None)
         return value
     if type(value) is int:
         _need(0 <= value <= MAX_INTEGER)
@@ -4186,7 +4195,7 @@ def _shape(rule: dict[str, Any], value: Any) -> None:
         _need(type(value) is str)
         # W1 applies to every typed identifier/text, including ARN resources
         # whose structural pattern does not exclude non-whitespace controls.
-        _need(not any(ord(char) < 0x20 or 0x7F <= ord(char) <= 0x9F for char in value))
+        _need(_CONTROLE.search(value) is None)
         size = len(value.encode("utf-8"))
         _need(rule["minLength"] <= size <= rule["maxLength"])
         _need(not rule.get("pattern") or re.fullmatch(rule["pattern"], value) is not None)

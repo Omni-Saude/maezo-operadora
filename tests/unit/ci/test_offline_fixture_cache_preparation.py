@@ -185,7 +185,7 @@ def test_fixture_constraints_reject_unselected_direct_pin():
 def test_both_ci_consumers_bind_cache_to_preparer_and_run_it_before_pytest():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[3] / ".github/workflows/ci.yml").read_text())
     for job_name, consumer_name in (
-        ("quality", "Unit tests + coverage gate (>=85%)"),
+        ("unit", "Unit tests (shard) + coverage data"),
         ("release-floor", "Release-capability floor gate (audit §5 — no override hides a P0 regression)"),
     ):
         steps = workflow["jobs"][job_name]["steps"]
