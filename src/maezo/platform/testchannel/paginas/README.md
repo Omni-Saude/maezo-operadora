@@ -116,9 +116,9 @@ atraso entre a fonte e o portal, que é onde isso aparece.
 A rota assina um envelope de WhatsApp no servidor e o entrega ao receptor, o que faz a
 triagem da Helena rodar de verdade. Duas coisas a saber antes de usar:
 
-**O telefone tem de estar na faixa `55119000000xx`** — dois dígitos no fim, nada além. É a
+**O telefone tem de estar na faixa `5511900000xxx`** — três dígitos no fim, nada além (999 números desde 22/09/2026; eram 99). É a
 cerca que impede este canal de fabricar mensagem em nome de um número real, e ela é
-verificada nas duas pontas (`^55119000000\d{2}$`), então a faixa como prefixo de um número
+verificada nas duas pontas (`^5511900000\d{3}$`), então a faixa como prefixo de um número
 mais longo é recusada.
 
 **Um telefone repetido NÃO abre um escalonamento novo.** A chave de negócio do processo é
