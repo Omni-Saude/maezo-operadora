@@ -1202,19 +1202,91 @@ jobs:
   # 3 s idle tail that every `drain_topics()` call pays — tests/integration/processes/
   # conftest.py — is the dominant term) is test infrastructure, not workflow, and is left for
   # a change proven on a local engine first; `--durations=40` below is the evidence for it.
+  #
+  # ── ESTA LANE EM SHARDS PARALELOS (22/09/2026). Medicao, nao palpite: run 35581780054 (ultima
+  # run COMPLETA e verde da `main`; a run 35668498355 e as seguintes morrem em 3 s no bloqueio de
+  # cobranca do Actions e nao medem nada). Job 106297527604, passo a passo:
+  #
+  #     set up job + checkout + setup-python + uv + `uv sync`   14 s
+  #     "Check for collectable integration tests" (colecao)      44 s
+  #     "Start core stack" (compose up postgres/kafka/cibseven)  50 s
+  #     "Wait for stack to be healthy"                           43 s
+  #     "Integration tests"                          5 932 s = 98,9 min
+  #     upload + teardown + post-steps                            4 s
+  #     ------------------------------------------------------------
+  #     total do job                                 6 090 s = 101,5 min
+  #
+  # 97,5% do relogio e' UM passo. Subir o motor custa 1 min 33 s no total, entao cache de camada
+  # do Docker (candidato (b)) disputa 1,5% do tempo: descartado por medicao, nao por gosto.
+  # Cortar setup duplicado com `chaos`/`fhir-sync`/`evals` (candidato (d)) tambem nao existe —
+  # essas tres lanes somam 1,5 min de relogio nessa mesma run.
+  #
+  # Dentro do passo, pelo JUnit do artefato `integration-test-results-<sha>` (717 casos,
+  # 5 916,9 s somados, que batem com os 98,9 min do passo): `tests/integration/processes/` e'
+  # 5 555 s = 93,9%. Todo o resto do conjunto — agents, platform, dmn, gateway e os modulos
+  # marcados `integration` que moram sob `tests/unit/` — soma 362 s = 6 min.
+  #
+  # Por isso a lane e' fatiada POR ARQUIVO, cada shard com o SEU proprio motor. Nada roda em
+  # paralelo dentro de um shard: a ordem e o isolamento de cada teste ficam byte-a-byte como
+  # hoje, e o unico eixo novo e' quantos motores sobem ao mesmo tempo (cada shard e' um runner
+  # isolado, com o seu `docker compose`). Balanceamento LPT sobre o tempo medido por arquivo:
+  #
+  #     reembolso+lgpd_dsr                         1 180 s = 19,7 min
+  #     recurso+nip+programa+t33+lgpd_refusal      1 153 s = 19,2 min
+  #     cancel+contas+inadimplencia+escalation     1 219 s = 20,3 min
+  #     cred+ans_submit+pagto+ans_cron             1 161 s = 19,4 min
+  #     restante (fraude+auth+adequacao+os 6 min)  1 203 s = 20,1 min
+  #
+  # Relogio estimado: 20,3 min de teste + ~2,3 min de setup ≈ 23 min, contra 101,5 min hoje.
+  # O PISO e' um so' teste: `test_nenhum_caminho_automatizado_nega_reembolso` sozinho leva
+  # 931,8 s = 15,5 min. Nenhum sharding por arquivo desce disso; baixar mais exige mexer no
+  # `drain_topics()` (long-poll de 1 s x 30 rondas), que e' infraestrutura de TESTE e sai daqui.
+  # Minutos faturados sobem ~101 -> ~115 (5 runners x ~23 min): e' a mesma troca ja aceita nos
+  # shards unitarios — relogio de quem espera o PR vale mais que o minuto marginal.
+  #
+  # xdist DENTRO da lane (candidato (c)) esta DESCARTADO por um motivo estrutural, nao por medo
+  # de estado compartilhado: `scripts/ci/run_live_pytest.py` roda `pytest.main(..., plugins=[
+  # EvidencePlugin(...)])` EM PROCESSO, e o `EvidencePlugin.pytest_runtest_call`
+  # (scripts/ci/pytest_execution_evidence.py) prova "entrada no corpo" com `sys.setprofile` no
+  # processo que executa o teste. Sob `-n`, os corpos rodam nos workers do execnet, onde esse
+  # plugin nao existe: `body_entered` sairia falso para TODOS os casos e a validacao falharia
+  # fechada. Nao ha' como ligar xdist aqui sem reescrever a cadeia de evidencia.
+  #
+  # Os shards sao uma PARTICAO de `-m "integration and not chaos"` (completa e disjunta) e ha'
+  # teste que prova isso contra a colecao em serie, e contra a lane `chaos`:
+  # `tests/unit/ci/test_global_integration_ci.py`.
   integration:
-    name: integration tests (real engine)
+    name: integration (${{ matrix.shard }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `alvo` e' a lista de argumentos de colecao do pytest, expandida pelo shell do passo.
+          # O shard `restante` e' o COMPLEMENTO (`tests` menos os arquivos acima): arquivo novo
+          # marcado `integration` cai nele sozinho, sem editar esta matriz e sem buraco na
+          # particao.
+          - shard: reembolso
+            alvo: tests/integration/processes/test_sp_op_reembolso_001.py tests/integration/processes/test_sp_op_lgpd_dsr_001.py
+          - shard: recurso-nip
+            alvo: tests/integration/processes/test_sp_op_recurso_001.py tests/integration/processes/test_sp_op_nip_001.py tests/integration/processes/test_sp_op_programa_001.py tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py tests/integration/processes/test_lgpd_execution_refusal.py
+          - shard: cancel-contas
+            alvo: tests/integration/processes/test_sp_op_cancel_001.py tests/integration/processes/test_sp_op_contas_001.py tests/integration/processes/test_sp_op_inadimplencia_001.py tests/integration/processes/test_sp_op_escalation_001.py
+          - shard: cred-ans
+            alvo: tests/integration/processes/test_sp_op_cred_001.py tests/integration/processes/test_sp_op_ans_submit_001.py tests/integration/processes/test_sp_op_pagto_001.py tests/integration/processes/test_sp_op_ans_cron_001.py
+          - shard: restante
+            alvo: tests --ignore=tests/integration/processes/test_sp_op_reembolso_001.py --ignore=tests/integration/processes/test_sp_op_lgpd_dsr_001.py --ignore=tests/integration/processes/test_sp_op_recurso_001.py --ignore=tests/integration/processes/test_sp_op_nip_001.py --ignore=tests/integration/processes/test_sp_op_programa_001.py --ignore=tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py --ignore=tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py --ignore=tests/integration/processes/test_lgpd_execution_refusal.py --ignore=tests/integration/processes/test_sp_op_cancel_001.py --ignore=tests/integration/processes/test_sp_op_contas_001.py --ignore=tests/integration/processes/test_sp_op_inadimplencia_001.py --ignore=tests/integration/processes/test_sp_op_escalation_001.py --ignore=tests/integration/processes/test_sp_op_cred_001.py --ignore=tests/integration/processes/test_sp_op_ans_submit_001.py --ignore=tests/integration/processes/test_sp_op_pagto_001.py --ignore=tests/integration/processes/test_sp_op_ans_cron_001.py
     runs-on: ubuntu-latest
     # `needs: [quality]` RESTAURADO (18/09/2026): sumiu no squash de #378 sem justificativa, e o
     # paragrafo de CI-minutes acima so' e' verdadeiro com ele — sem o needs, um PR reprovado no
     # ruff/mypy disparava os ~93 min desta lane em paralelo, em vez de ser barrado antes.
     needs: [quality]
-    # Hard cap (CI-minutes hygiene): measured steady state is 92.4-95.9 min per run (every
-    # completed run 2026-08-07..2026-09-03). Without a cap a wedged engine or a stuck long-poll
-    # bills GitHub's 360-min default before the job dies. 150 leaves ~55 min of headroom over
-    # the slowest observed run — a timeout here is a REAL anomaly worth a red, never a flake
-    # to be waved through by raising the number.
-    timeout-minutes: 150
+    # Hard cap (CI-minutes hygiene). O cap de 150 min valia para a lane INTEIRA num job so'
+    # (steady state medido 92,4-95,9 min de 2026-08-07 a 2026-09-03; 101,5 min na run
+    # 35581780054). Agora o job e' um SHARD: o mais pesado da matriz mede 20,3 min de teste +
+    # ~2,3 min de setup. 60 min deixa ~37 min de folga sobre o pior shard medido — mesma regra
+    # de sempre: um timeout aqui e' anomalia REAL que merece vermelho, nunca flake a ser
+    # abafado subindo o numero.
+    timeout-minutes: 60
     # Sem "test coverage illusion": testes de integracao rodam contra engine REAL.
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     # `pull-requests: read` is for dorny/paths-filter's listFiles fallback — same reason and
@@ -1280,11 +1352,12 @@ jobs:
         run: |
           echo "::notice::INTEGRATION LANE NOT APPLICABLE — every changed file is under docs/** or *.md; nothing this lane executes reads those paths. The nightly schedule still runs the full lane on main."
           {
-            echo "## integration tests (real engine): NOT APPLICABLE (docs-only change)"
+            echo "## integration (${{ matrix.shard }}): NOT APPLICABLE (docs-only change)"
             echo ""
             echo "Every changed file matches \`docs/**\` or \`**/*.md\`; no test in the"
-            echo "global integration-marker set reads those paths. The real-engine lane (~93 min) was"
-            echo "not started. The nightly schedule still runs the full lane on main."
+            echo "global integration-marker set reads those paths. The real-engine lane (~23 min de"
+            echo "relogio em 5 shards, ~115 min faturados) was not started. The nightly schedule"
+            echo "still runs the full lane on main."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -1340,9 +1413,10 @@ jobs:
               sys.exit("Unqualified Python/pytest/uv environment names: " + ",".join(sorted(actual)))
           PY
           set +e
+          # `alvo` e' uma LISTA de argumentos (raizes + `--ignore`): sem aspas, de proposito.
           env -u UV_CACHE_DIR -u UV_PYTHON_INSTALL_DIR .venv/bin/python scripts/ci/run_live_pytest.py collect \
             --output integration-collection.json -- \
-            tests -q -m "integration and not chaos"
+            ${{ matrix.alvo }} -q -m "integration and not chaos"
           code=$?
           set -e
           echo "collect_code=${code}" >> "$GITHUB_OUTPUT"
@@ -1366,7 +1440,7 @@ jobs:
         run: |
           echo "::notice::INTEGRATION LANE SKIPPED — no tests yet (pytest --collect-only exit ${{ steps.guard.outputs.collect_code }}); unblocks at T3.1 (V2-COMPLETION-PLAN)"
           {
-            echo "## integration tests (real engine): SKIPPED"
+            echo "## integration (${{ matrix.shard }}): SKIPPED"
             echo ""
             echo "No collectable tests in the global \`-m integration\` set (pytest --collect-only exit"
             echo "${{ steps.guard.outputs.collect_code }}). This lane auto-activates when any"
@@ -1443,13 +1517,16 @@ jobs:
             --evidence integration-execution.json \
             --junit integration-junit.xml \
             --validation integration-validation.json -- \
-            tests -q -m "integration and not chaos" --durations=40 -ra
+            ${{ matrix.alvo }} -q -m "integration and not chaos" --durations=40 -ra
 
       - name: Upload integration test results
         if: always() && steps.gate.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: integration-test-results-${{ github.sha }}
+          # Um artefato POR SHARD: com a matriz, um nome unico por `github.sha` colidiria e o
+          # upload perderia o JUnit dos outros shards — que e' exatamente a evidencia que
+          # responde quando a lane fica vermelha (o `run_live_pytest` esconde a saida do pytest).
+          name: integration-test-results-${{ github.sha }}-${{ matrix.shard }}
           path: |
             .pytest_cache/
             integration-collection.json
@@ -1466,13 +1543,47 @@ jobs:
         if: failure() && steps.guard.outputs.run == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: docker-compose-failure-logs-${{ github.sha }}
+          name: docker-compose-failure-logs-${{ github.sha }}-${{ matrix.shard }}
           path: docker-compose-failure.log
           retention-days: 3
 
       - name: Tear down stack
         if: always() && steps.guard.outputs.run == 'true'
         run: docker compose --profile core down -v
+
+  # O contexto `integration tests (real engine)` e' o nome que a ADR-0023 (§ union-green na main
+  # protegida) cita como ancora da lane de motor real. Fatiar o job em matriz trocaria esse nome
+  # por cinco contextos novos e a ADR ficaria apontando para nada; entao o nome continua existindo
+  # AQUI, como agregador — exatamente o padrao que `quality` ja' cumpre para os shards unitarios,
+  # onde o contexto exigido `lint / type / unit` fica verde so' depois de todos os shards.
+  # Custo: um runner por ~5 s, sem checkout e sem dependencia.
+  #
+  # `if: always()` de proposito: sem ele, `quality` vermelho deixaria este contexto SKIPPED, e um
+  # required check que nunca reporta trava merge para sempre (a armadilha ja' documentada em
+  # branch-protection-check.yml). `skipped` conta como nao-falha; so' `failure`/`cancelled`
+  # pintam vermelho.
+  integration-gate:
+    name: integration tests (real engine)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [integration]
+    if: always()
+    steps:
+      - name: Union-green dos shards da lane de motor real
+        env:
+          RESULTADO: ${{ needs.integration.result }}
+        run: |
+          set -e
+          echo "resultado agregado dos shards: ${RESULTADO}"
+          case "${RESULTADO}" in
+            success|skipped)
+              echo "## integration tests (real engine): ${RESULTADO}" >> "$GITHUB_STEP_SUMMARY"
+              ;;
+            *)
+              echo "::error::pelo menos um shard da lane de motor real terminou em '${RESULTADO}' — veja os jobs 'integration (<shard>)' e o artefato integration-test-results-<sha>-<shard>."
+              exit 1
+              ;;
+          esac
 
   # ---------------------------------------------------------------------------
   # T3.3 W0/W1 — chaos / cross-process resilience: seam-level fault-injection suites

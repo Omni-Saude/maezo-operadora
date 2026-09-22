@@ -35,6 +35,7 @@ Alem disso, duas praticas atuais dependem de **push direto no main**, que qualqu
    - `terraform validate` — job `validate-terraform` (`ci.yml:97`).
    - `helm lint + egress NetworkPolicy CI` — job `validate-helm` (`ci.yml:129`): inclui os testes de egress PHI fail-closed (ADR-0006/ADR-0017).
    - `integration tests (real engine)` — job `integration` (`ci.yml:174`): a **lane de engine real** — a ancora de union-green.
+     **Correcao factual de 22/09/2026 (a decisao nao muda):** a lane foi fatiada em 5 shards paralelos (101,5 min -> ~23 min de relogio; medicao no cabecalho do job em `ci.yml`), e os shards reportam como `integration (<shard>)`. O contexto com ESTE nome passou a ser emitido pelo job agregador **`integration-gate`**, que so' fica verde quando todos os shards passam — mesmo arranjo que `quality` ja' cumpre para os shards de `unit`/`lint / type / unit`. A string do contexto a exigir na ruleset continua sendo exatamente `integration tests (real engine)`.
 
    Os 6 ja sao reportados HOJE sob esses nomes exatos (todos rodam em PR e em push a `main`), entao nao dependem tecnicamente de nenhum rename. Ainda assim a protecao deve ser **aplicada apos o merge do PR WS-1** (que (a) corrige o nome truncado do job fhir-sync em `ci.yml:238` e (b) adiciona o workflow de alarme de main-vermelho), para que o rollout ocorra com o namespace de check-runs limpo e o alarme complementar ja vivo antes de `enforce_admins` fechar a valvula de push direto.
 

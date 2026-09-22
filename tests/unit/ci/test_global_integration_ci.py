@@ -27,7 +27,10 @@ def _step(job: str, name: str) -> dict[str, Any]:
 def _selector(job: str, step_name: str) -> tuple[str, str]:
     logical_commands = str(_step(job, step_name)["run"]).replace("\\\n", " ")
     for line in logical_commands.splitlines():
-        tokens = shlex.split(line.split("|", 1)[0])
+        # `_tokens` (tolerante) e nao `shlex.split`: desde 22/09/2026 os passos da lane de motor
+        # real tambem carregam um comentario com apostrofo, e uma linha que nao tokeniza nunca e'
+        # o comando do pytest — ignora-la e' a leitura certa, estourar ValueError nao e'.
+        tokens = _tokens(line.split("|", 1)[0])
         if "pytest" in tokens:
             pytest_args = tokens[tokens.index("pytest") + 1 :]
         elif "scripts/ci/run_live_pytest.py" in tokens and "--" in tokens:
@@ -53,11 +56,11 @@ def _collect(root: str, marker: str) -> set[str]:
     return {line for line in result.stdout.splitlines() if "::" in line}
 
 
-def _shards() -> list[tuple[str, list[str]]]:
+def _shards(job: str = "unit") -> list[tuple[str, list[str]]]:
     workflow = yaml.safe_load(_WORKFLOW.read_text())
     return [
         (item["shard"], shlex.split(item["alvo"]))
-        for item in workflow["jobs"]["unit"]["strategy"]["matrix"]["include"]
+        for item in workflow["jobs"][job]["strategy"]["matrix"]["include"]
     ]
 
 
@@ -82,6 +85,29 @@ def _selector_do_shard(alvo: list[str]) -> tuple[list[str], str]:
     # `-m` da linha e' o do interpretador — le-lo devolvia "pytest" como marcador, e um
     # `-m pytest` nao coleta nada. O `_selector` original ja' fazia este recorte.
     pytest_args = tokens[tokens.index("pytest") + 1 :]
+    return alvo, pytest_args[pytest_args.index("-m") + 1]
+
+
+def _selector_do_shard_da_lane(alvo: list[str]) -> tuple[list[str], str]:
+    """Idem `_selector_do_shard`, para os shards do job `integration` (22/09/2026).
+
+    A raiz de colecao do passo e' `${{ matrix.alvo }}` — o workflow so' a resolve no runner, entao
+    quem sabe a raiz de cada shard e' a MATRIZ. O marcador, esse, continua vindo do comando de
+    verdade: se alguem trocar `integration and not chaos` por outra coisa no passo, esta cerca
+    passa a medir a coisa nova, e a particao tem de continuar valendo para ela.
+
+    O recorte e' depois do `--` (nao depois de "pytest") pelo mesmo motivo que levou o
+    `_selector_do_shard` a recortar depois de "pytest": aqui o comando e'
+    `... run_live_pytest.py run --expected ... -- <alvo> -q -m "<marcador>"`, e so' o que vem
+    depois do `--` sao argumentos do pytest.
+    """
+    run = str(_step("integration", "Integration tests")["run"]).replace("\\\n", " ")
+    linha = next(
+        line for line in run.splitlines() if "scripts/ci/run_live_pytest.py" in _tokens(line.split("|", 1)[0])
+    )
+    tokens = shlex.split(linha)
+    assert "${{" in linha and "matrix.alvo" in linha, linha
+    pytest_args = tokens[tokens.index("--") + 1 :]
     return alvo, pytest_args[pytest_args.index("-m") + 1]
 
 
@@ -136,10 +162,34 @@ def test_unit_shards_collect_no_integration_case_and_partition_the_serial_suite(
 
 
 def test_service_lanes_are_a_disjoint_complete_union_of_global_integration_cases() -> None:
-    normal_root, normal_marker = _selector("integration", "Integration tests")
+    """As lanes de servico continuam uma particao completa e disjunta — agora com a lane de
+    motor real em SHARDS (22/09/2026).
+
+    Antes, `integration` era um job so' e a colecao dele era, por construcao, a lane inteira.
+    Fatiar cria dois defeitos novos possiveis que a lane em serie nunca teve — um arquivo que
+    NENHUM shard coleta (some da cobertura em silencio) e um arquivo em DOIS shards (roda duas
+    vezes, contra dois motores) — e nenhum dos dois aparece numa uniao de conjuntos. Por isso a
+    completude/disjuncao entre shards e' medida por CONTAGEM por funcao, como na cerca dos shards
+    unitarios; a relacao com a lane `chaos` continua sendo de conjunto.
+    """
+    marcador = None
+    soma: Counter[str] = Counter()
+    normal: set[str] = set()
+    for shard, alvo in _shards("integration"):
+        args, marcador = _selector_do_shard_da_lane(alvo)
+        casos = _collect_args(args, marcador)
+        assert casos, f"shard {shard} da lane de motor real nao coleta nada"
+        soma += _por_funcao(casos)
+        normal |= casos
+    assert marcador is not None
+    serie = _por_funcao(_collect("tests", marcador))
+    faltando = serie - soma
+    sobrando = soma - serie
+    assert not faltando, f"funcoes que NENHUM shard da lane coleta: {sorted(faltando)[:5]}"
+    assert not sobrando, f"funcoes coletadas por MAIS de um shard da lane: {sorted(sobrando)[:5]}"
+
     chaos_root, chaos_marker = _selector("chaos", "Chaos tests (seam-level fault injection)")
     all_integration = _collect("tests", "integration")
-    normal = _collect(normal_root, normal_marker)
     chaos = _collect(chaos_root, chaos_marker)
 
     assert normal
@@ -169,7 +219,15 @@ def test_live_lane_publishes_junit_collection_and_checks_infrastructure_skips() 
     assert _selector("integration", "Check for collectable integration tests") == _selector(
         "integration", "Integration tests"
     )
+    # A lane roda em shards: as DUAS etapas tem de coletar o mesmo `alvo` da matriz (senao o
+    # manifesto da coleta nao bate com a execucao e o wrapper falha fechado), e o artefato tem
+    # de carregar o shard no nome — com um nome so' por `github.sha` o upload de um shard
+    # sobrescreveria/perderia o JUnit dos outros, que e' a unica evidencia legivel do vermelho.
+    assert "${{ matrix.alvo }}" in logical_run, logical_run
+    assert "${{ matrix.alvo }}" in " ".join(guard.split()), guard
+
     upload = _step("integration", "Upload integration test results")
+    assert "${{ matrix.shard }}" in str(upload["with"]["name"])
     uploaded = str(upload["with"]["path"])
     assert "integration-junit.xml" in uploaded
     assert "integration-collection.json" in uploaded
