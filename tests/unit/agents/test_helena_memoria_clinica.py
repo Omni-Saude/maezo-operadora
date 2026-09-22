@@ -32,6 +32,7 @@ from typing import Any, Final
 import pytest
 
 from maezo.agents.helena.graph import (
+    _MEMORIA_CONFIRMADA,
     MEMORIA_CLINICA_JANELA_HORAS,
     HelenaGraph,
     HelenaState,
@@ -424,6 +425,14 @@ async def test_a_confirmacao_chega_ao_contexto_do_prompt_uma_vez_so() -> None:
 
     O QUE ISTO NAO PROVA: que o modelo obedece. A licao de 13/09 e' que mandar no prompt nao
     segura — o que se prova aqui e' que a frase CHEGA, que e' a parte deterministica.
+
+    "UMA VEZ POR CONVERSA" PASSOU A SER CONTADA DO ENVIO (21/09/2026, quarta rodada), e por isso
+    este teste ganhou um `respond` no meio. `memoria_clinica.confirmada` era gravada em `classify`,
+    quando a frase e' GERADA; entre gerar e enviar esta' a cerca TEXTO x FATO, que troca o rascunho
+    por constante — e num `ja_ativo` a troca e' integral. Contando da geracao, a pessoa podia nunca
+    ler a pergunta e ela nunca mais ser feita. O `_turno` deste arquivo para em `classify` de
+    proposito (ele existe para medir a ROTA), entao o envio entra explicitamente aqui: e' o fato
+    que apaga a pergunta, e um teste que nao o simula mede a regra antiga.
     """
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_pediatric", _SEM_BANDEIRA)
@@ -441,7 +450,21 @@ async def test_a_confirmacao_chega_ao_contexto_do_prompt_uma_vez_so() -> None:
     assert t2["memoria_a_confirmar"], "o dado lembrado entrou numa decisao clinica sem ser mostrado"
     assert "11 meses" in t2["memoria_a_confirmar"]
 
-    t3 = await _turno(g, _estado("e agora?", memoria_clinica=t2["memoria_clinica"]))
+    # O turno 2 ENVIA a pergunta: e' o envio que apaga a confirmacao, nao a geracao dela.
+    envio = await g.respond(
+        _estado(
+            "ele esta com febre",
+            response_text=t2["memoria_a_confirmar"],
+            response_kind="inform",
+            memoria_clinica=t2["memoria_clinica"],
+            memoria_a_confirmar=t2["memoria_a_confirmar"],
+        )
+    )
+    assert envio["memoria_clinica"][_MEMORIA_CONFIRMADA] is True, (
+        "a pergunta saiu ao beneficiario e a memoria nao registrou a confirmacao"
+    )
+
+    t3 = await _turno(g, _estado("e agora?", memoria_clinica=envio["memoria_clinica"]))
     assert t3["memoria_a_confirmar"] is None, (
         "a confirmacao e' UMA vez por conversa: repeti-la a cada mensagem vira ruido e a pessoa "
         "para de ler justamente a frase que existe para ela corrigir"

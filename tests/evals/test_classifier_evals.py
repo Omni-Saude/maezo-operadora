@@ -85,6 +85,42 @@ async def test_evl_helena_01_mutation_check_route_is_non_vacuous() -> None:
     )
 
 
+@pytest.mark.eval
+async def test_evl_helena_19_mutation_check_memoria_is_non_vacuous() -> None:
+    """EVL-HELENA-19 (ordem natural `sintoma -> idade -> detalhe`) mede a MEMORIA, e esta e' a
+    prova disso: sem o bloco `memoria_clinica` o mesmo turno tem de FALHAR.
+
+    A mutacao escolhida nao e' a rota (`mutate_expected_route`), e a diferenca importa. Flipar a
+    rota provaria apenas que `assert_expect` compara `next_kind`; remover a memoria prova que o
+    veredito do caso — tabela PEDIATRICA para uma mensagem cuja extracao diz `population=adult` —
+    vem da fusao com o que a conversa lembrava, e de nada mais. Sem ela o grafo escolhe a tabela
+    de adulto, que o `dmn_fixture` nao registra, e o turno vira `falha_tecnica` -> `escalate`.
+
+    E' o espelho, no nivel do golden, de `tests/unit/agents/test_helena_memoria_clinica.py::
+    test_sem_a_memoria_o_mesmo_turno_2_cai_na_tabela_de_adulto`.
+    """
+    case = next(c for c in HELENA_CASES if c["id"] == "EVL-HELENA-19")
+    sem_memoria = {k: v for k, v in copy.deepcopy(dict(case)).items() if k != "memoria_clinica"}
+    # O turno DEGRADADO faz TRES chamadas (classify + `_resumo_contexto` + `_respond_llm`) em vez
+    # das duas do caso verde, porque ele termina em `escalate`. O contrato un-swallowable do
+    # `run_case` exige a contagem exata, e essa diferenca de contagem e' ela mesma parte da prova.
+    sem_memoria["recorded_llm"] = [
+        *case["recorded_llm"],
+        "Um profissional de saude vai continuar seu atendimento.",
+    ]
+
+    result = await run_case(build, sem_memoria, extra_config=_helena_extra_config())
+
+    assert result.state["next_kind"] == "escalate", (
+        "sem memoria o turno TEM de degradar para o comportamento medido em 21/09 (tabela de "
+        "adulto -> indisponivel no fixture -> falha tecnica). Se este turno continuar `inform` "
+        "com a tabela pediatrica, o caso esta verde por outro motivo e nao mede a memoria."
+    )
+    assert result.state["dmn_table"] == "triage_redflag_adult"
+    with pytest.raises(AssertionError, match="RT mismatch"):
+        assert_expect(result.state, case["expect"])
+
+
 # ---------------------------------------------------------------------------
 # Tier B — live Anthropic call, threshold-scored, nightly-only, non-blocking. Loudly skips
 # without MAEZO_ANTHROPIC_API_KEY/ANTHROPIC_API_KEY (mirrors test_inference_live.py) — never

@@ -24,15 +24,23 @@ Uma cerca que afirmasse correcao clinica seria a mesma casca vazia que o projeto
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any, Final
 
 import pytest
 
-from maezo.agents.helena.prompts import ALLOWED_SINTOMA_CODIGOS, SINTOMA_CODIGOS_BY_POPULATION
+from maezo.agents.helena.prompts import (
+    ALLOWED_SINTOMA_CODIGOS,
+    QUALIFICADORES_OBRIGATORIOS,
+    SINTOMA_CODIGOS_BY_POPULATION,
+)
 
 _CORPUS: Final[Path] = Path(__file__).resolve().parents[3] / "tests" / "evals" / "extracao" / "casos.json"
+#: A pagina que quem assina a regua le'. A versao do corpus tem de aparecer LA' tambem — ver
+#: `test_o_corpus_declara_a_versao_e_a_regua_aponta_para_ela`.
+_REGUA: Final[Path] = Path(__file__).resolve().parents[3] / "docs" / "design" / "regua-de-extracao.md"
 
 #: Minimo que o documento do diretor pede: "pelo menos cem mensagens escritas como gente escreve".
 _MINIMO_DE_CASOS: Final[int] = 100
@@ -271,3 +279,96 @@ def test_as_mensagens_sao_texto_de_gente_e_nao_gabarito() -> None:
         if codigo.replace("_", " ") in caso["mensagem"].lower():
             vazamentos.append(f"{caso['id']}: a mensagem contem o proprio codigo {codigo!r}")
     assert not vazamentos, "mensagem escrita a partir do rotulo:\n  " + "\n  ".join(vazamentos)
+
+
+# =================================================================================================
+# 4. O PAR MINIMO/MAXIMO de cada codigo qualificado (21/09/2026, F3)
+# =================================================================================================
+# O defeito de 13/09 voltou em 21/09: "estou com dor de cabeca" saiu `cefaleia_subita_intensa`, P1
+# com prazo de cinco minutos. O corpus ja' tinha o par daquele codigo (foi a razao de existir do
+# `test_o_defeito_de_13_09_esta_no_corpus_nos_dois_sentidos`), mas o par era UM, escrito a mao, e
+# os outros quatro codigos que carregam qualificador no nome nao tinham nenhum.
+#
+# O QUE MUDA AQUI: o par passa a ser cobrado para TODO codigo de `QUALIFICADORES_OBRIGATORIOS`, e o
+# lado negativo e' declarado no proprio caso (`nao_pode_casar`) em vez de deduzido de prosa. Sem o
+# campo, um caso negativo e' indistinguivel de um caso que por acaso deu `null` — e a cerca ficaria
+# verde sobre um corpus que nao exercita a regra.
+
+
+def test_o_campo_nao_pode_casar_so_cita_codigo_da_allowlist() -> None:
+    """Um negativo que refuta um codigo inexistente nao refuta nada."""
+    problemas: list[str] = []
+    for caso in _casos():
+        for codigo in caso.get("nao_pode_casar", []):
+            if codigo not in ALLOWED_SINTOMA_CODIGOS:
+                problemas.append(f"{caso['id']}: {codigo!r} fora da allowlist")
+            if caso["esperado"]["sintoma_codigo"] == codigo:
+                problemas.append(f"{caso['id']}: rotulado com o codigo que ele diz nao poder casar")
+    assert not problemas, "\n  ".join(problemas)
+
+
+def test_todo_codigo_com_qualificador_tem_o_par_minimo_e_maximo() -> None:
+    """Os dois lados, para cada codigo qualificado.
+
+    So' o lado negativo ensinaria a extracao a nunca produzir o codigo, o que troca um falso
+    positivo por um falso negativo numa emergencia real; so' o positivo e' o corpus de hoje, que
+    passou verde enquanto o defeito acontecia em producao duas vezes.
+    """
+    casos = _casos()
+    positivos = {c["esperado"]["sintoma_codigo"] for c in casos}
+    negativos = {codigo for c in casos for codigo in c.get("nao_pode_casar", [])}
+
+    faltando = {
+        codigo: [
+            lado
+            for lado, presente in (("positivo", codigo in positivos), ("negativo", codigo in negativos))
+            if not presente
+        ]
+        for codigo in QUALIFICADORES_OBRIGATORIOS
+    }
+    faltando = {codigo: lados for codigo, lados in faltando.items() if lados}
+
+    assert not faltando, (
+        f"codigo(s) qualificado(s) sem o par completo: {faltando}. O lado negativo se declara com "
+        f'"nao_pode_casar": ["<codigo>"] no caso que NAO pode casar aquele codigo.'
+    )
+
+
+def test_os_casos_medidos_em_21_09_estao_no_corpus_nos_dois_sentidos() -> None:
+    """O `C1` e o `C4` da bateria do diretor, as duas mensagens que uma pessoa mandou de verdade.
+
+    Mesma prova de nao-vacuidade do caso de 13/09, oito dias depois e com as mensagens exatas: a
+    diferenca entre as duas e' o unico lugar onde a regra do qualificador se mede.
+    """
+    por_id = {c["id"]: c for c in _casos()}
+    minimo = por_id.get("q-cefaleia-min-21-09")
+    maximo = por_id.get("q-cefaleia-max-21-09")
+
+    assert minimo is not None and maximo is not None, "o par medido em 21/09 sumiu do corpus"
+    assert minimo["esperado"]["sintoma_codigo"] is None
+    assert "cefaleia_subita_intensa" in minimo["nao_pode_casar"]
+    assert maximo["esperado"]["sintoma_codigo"] == "cefaleia_subita_intensa"
+    assert {minimo["origem"], maximo["origem"]} == {"bateria-21-09"}
+
+
+# =================================================================================================
+# 5. A versao do corpus nao e' decoracao
+# =================================================================================================
+
+
+def test_o_corpus_declara_a_versao_e_a_regua_aponta_para_ela() -> None:
+    """`versao` existia no arquivo desde 15/09 e NENHUM teste a lia — era um rotulo decorativo.
+
+    Ela e' a unica coisa que distingue duas medicoes: "a extracao esta em 0,89" so' quer dizer algo
+    ao lado do conjunto de casos contra o qual foi medida. Amarrar o numero a pagina que quem assina
+    a regua le' faz um corpus novo custar uma linha de documento — e impede que duas rodadas contra
+    corpora diferentes sejam comparadas como se fossem a mesma.
+    """
+    versao = str(_corpus().get("versao", ""))
+
+    assert re.fullmatch(r"extracao-v\d+", versao), f"versao do corpus ausente ou malformada: {versao!r}"
+    regua = _REGUA.read_text(encoding="utf-8")
+    assert versao in regua, (
+        f"a regua ({_REGUA.name}) nao menciona {versao!r}. Um corpus que muda sem deixar rastro no "
+        f"documento faz duas medicoes diferentes parecerem comparaveis."
+    )

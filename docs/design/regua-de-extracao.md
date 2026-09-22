@@ -98,7 +98,7 @@ Hoje isso cai na rede de segurança das quatro tabelas, que escala **se a intens
 ser P1 é decisão das 34 regras. A régua governa a **tradução** — da frase para o código —, não a
 **conduta** — do código para a prioridade. São dois donos e duas assinaturas.
 
-**Ela não é um prompt.** O prompt (`classify-v3`) é como se pede; a régua é o que se cobra. A lição
+**Ela não é um prompt.** O prompt (`classify-v4`) é como se pede; a régua é o que se cobra. A lição
 de 12 e 13/09 é que os dois não são a mesma coisa: proibir no prompt não segura, e foi por isso que
 a cerca de saída existe. Aqui a cobrança é o conjunto de casos rotulados (3.2) e a medição ao vivo
 (3.3).
@@ -109,9 +109,31 @@ a cerca de saída existe. Aqui a cobrança é o conjunto de casos rotulados (3.2
 
 | Peça | O que faz | Onde |
 |---|---|---|
-| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` |
+| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` (`extracao-v2`, 126 casos) |
 | Cerca do corpus | o corpus não pode apodrecer: vocabulário fechado, cobertura das 4 populações e dos 25 códigos, toda regra com caso, justificativa obrigatória | `tests/unit/evals/test_corpus_de_extracao.py` |
 | Medição ao vivo | roda o `classify` real contra o corpus e pontua **campo a campo** | `tests/evals/test_extracao_live.py` |
+
+**A versão do corpus fica no próprio arquivo, e é cobrada aqui.** O campo `versao` existia
+desde 15/09 e nenhum teste o lia — um rótulo decorativo. Ele é a única coisa que distingue duas
+medições: *"a extração está em 0,89"* só quer dizer algo ao lado do conjunto de casos contra o qual
+foi medida. A cerca do corpus agora exige que o número apareça nesta página, então um corpus novo
+custa uma linha de documento — e duas rodadas contra corpora diferentes param de parecer
+comparáveis.
+
+**21/09/2026 — `extracao-v2`, os pares de qualificador.** O defeito de 13/09 voltou: *"estou com
+dor de cabeça"* saiu `cefaleia_subita_intensa` outra vez (caso `C1` da bateria), e a resposta ainda
+citou a pessoa entre aspas dizendo *'a pior da vida'*. O corpus ganhou dez casos — o par medido
+`C1`/`C4` e mais três pares mínimo/máximo (sangramento × sangramento ativo, falta de ar leve ×
+dispneia grave, contração isolada × contrações regulares), além dos negativos que faltavam para
+`cefaleia_alteracao_visual` e `movimentos_fetais_reduzidos`. O lado negativo agora se declara no
+próprio caso (`"nao_pode_casar": ["<código>"]`), e a cerca cobra **os dois lados** para todo código
+que carrega qualificador no nome: só o negativo ensinaria a extração a nunca produzir o código, o
+que trocaria este falso positivo por um falso negativo numa emergência real.
+
+O prompt (`classify-v4`) passou a cobrar, **por código**, qual qualificador a mensagem precisa ter
+dito — a lista mora em `prompts.py::QUALIFICADORES_OBRIGATORIOS` e o texto do prompt é gerado dela,
+pelo mesmo motivo que a allow-list de códigos já era. **Isto não é ratificação:** o status desta
+página continua o de 15/09, e a primeira revisão continua sendo também a primeira assinatura.
 
 **Por que campo a campo, e não "acertou o caso":** um caso em que o modelo acerta o sintoma e erra a
 população conta como erro em produção (tabela errada) e contaria como erro binário aqui — mas a

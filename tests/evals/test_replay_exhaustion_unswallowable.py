@@ -64,13 +64,30 @@ _CLASSIFY_JSON = (
 _RESUMO_TEXT = "Beneficiario solicitou atendimento humano."
 _RESPOND_TEXT = "Um atendente humano vai continuar seu atendimento em breve."
 
-#: Verbatim from `HelenaGraph._respond_llm`'s `except Exception:` branch -- the exact fallback
-#: text a beneficiary gets when the THIRD `generate()` call is what runs out of scripted
-#: responses. Duplicated here (not imported) so this test does not silently stop proving anything
-#: if that literal is ever edited in `src/` -- a drifted copy makes the assertion on
-#: `swallowed_state["response_text"]` fail loudly instead of quietly checking the wrong string.
+#: Verbatim from `HelenaGraph._respond_llm`'s `except EXTERNAL_DEPENDENCY_FAILURES` branch --
+#: the constant that replaces the model's draft when the THIRD `generate()` call runs out of
+#: scripted responses. Duplicated here (not imported) so this test does not silently stop proving
+#: anything if that literal is ever edited in `src/` -- a drifted copy makes the assertion below
+#: fail loudly instead of quietly checking the wrong string. It did exactly that on 21/09/2026
+#: (second round), when the old fallback -- "Recebemos sua mensagem. Um profissional humano vai
+#: continuar o atendimento em breve." -- was replaced: that text PROMISED a human and reached the
+#: beneficiary through a `return` placed BEFORE the output fences, which in an `inform` turn (no
+#: process, no queue, nobody calling) is the C1 defect with no model in the loop.
 _HELENA_RESPOND_LLM_FALLBACK_TEXT = (
-    "Recebemos sua mensagem. Um profissional humano vai continuar o atendimento em breve."
+    "Recebemos sua mensagem. Nao consegui preparar a resposta agora por uma falha tecnica. "
+    "Por favor, envie sua mensagem novamente em alguns minutos. Se voce estiver passando por "
+    "uma emergencia, procure o servico de emergencia mais proximo."
+)
+
+#: What the beneficiary ACTUALLY reads on this path, and it is a TWO-STEP chain -- both steps in
+#: production code. Step 1: `_respond_llm` degrades to the honest constant above. Step 2: this case
+#: is `human_request -> escalate`, the start SUCCEEDS, and the TEXTO x FATO fence in `respond` sees
+#: "a human took the case and the text does not say so" (F2), so it substitutes the handoff
+#: constant. Same duplication discipline as above.
+_HELENA_HANDOFF_SUBSTITUTE_TEXT = (
+    "Recebemos sua mensagem e encaminhamos seu caso para a nossa equipe de saude. "
+    "Um profissional vai dar continuidade ao seu atendimento. Se voce estiver passando por uma "
+    "emergencia, procure o servico de emergencia mais proximo."
 )
 
 _CASE: dict[str, Any] = {
@@ -121,10 +138,15 @@ async def test_replay_exhaustion_one_entry_short_fails_even_with_agent_fallback(
     # unrelated crash that happens to also be a ReplayExhaustedError.
     assert err.detected_post_turn is True, "must be the run_case post-turn check, not the raw provider raise"
     assert err.swallowed_state is not None, "the turn must have returned a final state (fallback path taken)"
-    assert err.swallowed_state["response_text"] == _HELENA_RESPOND_LLM_FALLBACK_TEXT, (
-        "the swallowed state's response_text must be _respond_llm's own hardcoded fallback string "
-        "-- proves the exhaustion really was caught by the production except-Exception fallback, "
-        "not by some other failure mode"
+    assert err.swallowed_state["response_text"] == _HELENA_HANDOFF_SUBSTITUTE_TEXT, (
+        "the swallowed state's response_text must be the end of the production degradation chain "
+        "(_respond_llm's honest fallback, then respond's TEXTO x FATO substitution because a human "
+        "WAS actioned and that constant does not mention the handoff) -- proves the exhaustion "
+        "really was caught inside the graph, not by some other failure mode"
+    )
+    assert "profissional humano vai continuar" not in _HELENA_RESPOND_LLM_FALLBACK_TEXT, (
+        "the fallback this test duplicates must never promise a human again: it is returned on a "
+        "path where nothing was started (an `inform` turn), and it bypasses no fence anymore"
     )
 
     # THE SMOKING GUN: a bare assert_expect on that swallowed state -- i.e. exactly what this
