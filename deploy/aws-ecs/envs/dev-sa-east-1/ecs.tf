@@ -40,8 +40,29 @@ resource "aws_ecr_lifecycle_policy" "app" {
         }
         action = { type = "expire" }
       },
+      # Artefatos de assinatura do cosign (`sha256-<digest>.sig` / `.att`, publicados
+      # por .github/workflows/supply-chain.yml) sao IMAGENS TAGEADAS para o ECR e
+      # concorriam na mesma contagem de 20 da regra seguinte. Duas consequencias, as
+      # duas ruins: cada digest assinado empurrava DUAS imagens de aplicacao para
+      # fora da retencao, e a propria assinatura podia expirar antes da imagem que
+      # ela prova — um portao que se apaga sozinho nao e' portao.
+      #
+      # Uma imagem que casa uma regra de prioridade MENOR (numero menor) nao e'
+      # expirada por regra de prioridade maior, entao esta regra tambem TIRA os
+      # artefatos de assinatura da contagem da regra 3.
       {
         rulePriority = 2
+        description  = "Mantem os 60 artefatos de assinatura/atestacao (cosign) mais recentes"
+        selection = {
+          tagStatus      = "tagged"
+          tagPatternList = ["sha256-*"]
+          countType      = "imageCountMoreThan"
+          countNumber    = 60
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 3
         description  = "Mantem as 20 imagens tageadas mais recentes"
         selection = {
           tagStatus   = "any"

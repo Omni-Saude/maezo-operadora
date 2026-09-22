@@ -30,6 +30,7 @@ the established convention rather than introducing a second language into this d
 | [`a2a-key-rotation.md`](a2a-key-rotation.md) | Agent Card signing key today, registry verification, what's pending | Security, platform |
 | [`aws-ecs.md`](aws-ecs.md) | `maezo-operadora` on ECS/Fargate (AMH data account `amh-data-dev`, dev/staging) — the `deploy/aws-ecs/` path that superseded the never-provisioned EKS/Helm one | Platform, SRE, on-call |
 | [`portal-dev-provisionamento.md`](portal-dev-provisionamento.md) | O portal humano (ADR-0049) provisionado em dev com `portal_enabled=false`: client Cognito, role/grants do BFF, segredo da DSN, egresso exato, NLB/TLS, memberships de teste — e as tres pecas externas que faltam para ativar | Plataforma, SRE, dono do DNS |
+| [`supply-chain-imagem.md`](supply-chain-imagem.md) | SBOM + assinatura (cosign keyless/Sigstore) do digest da imagem: qual identidade assina, qual issuer, o comando exato de verificacao e o que o portao 1.4 de `portal.md` passa a significar | Plataforma, seguranca, dono do produto |
 | [`melhorar-com-o-uso.md`](melhorar-com-o-uso.md) | De conversa real a caso de teste: o comando, o rotulo que continua humano, e a cadencia de revisao das reguas como cerca de CI (Frente 8) | Plataforma, QA, dono clinico |
 | [`metricas-do-canal.md`](metricas-do-canal.md) | O coletor de metricas em dev (ECS/Cloud Map -> workspace gerenciado), os quatro numeros do canal, e a rotina semanal de leitura humana das respostas da Helena (Frente 5) | Plataforma, SRE, dono clinico |
 

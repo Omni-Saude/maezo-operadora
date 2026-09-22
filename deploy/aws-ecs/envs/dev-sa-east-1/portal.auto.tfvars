@@ -21,11 +21,18 @@
 //
 // Medido na conta 203312548462 / sa-east-1 em 21/09/2026.
 
-// REPOSTO EM false EM 21/09/2026, pelo review do dono (P1): o portao de imagem de
-// `portal.md`/1.4 exige SBOM E ASSINATURA do digest antes de aceita-lo, e o proprio runbook
-// desta entrega declara que `8b014a60` nao tem nenhum dos dois (os passos de syft/cosign do
-// `cd.yml` estao atras do gate `AWS_ENABLED`, ausente por desenho). Ligar antes disso e' pular
-// um portao de cadeia de suprimentos, e o fato de ter FUNCIONADO nao o satisfaz.
+// LIGADO DE NOVO EM 21/09/2026, com o portao de imagem de `portal.md`/1.4 FECHADO — nao
+// contornado. O que mudou desde o `false` do review do dono (P1):
+//   - existe chave de assinatura na conta (`alias/maezo-operadora-dev-image-signing`,
+//     KMS assimetrica; assinar so' pela role do CI, com deny explicito para o resto);
+//   - o digest deste portal (`sha256:d29ce828...`) tem SBOM (SPDX, syft) e assinatura
+//     PUBLICADOS no ECR (`sha256-d29ce828....sig` / `.att`) e VERIFICADOS —
+//     `cosign verify` e `cosign verify-attestation` verdes no run 35665780360, inclusive
+//     pelo job que usa a role verify-only (sem `kms:Sign`);
+//   - a verificacao virou PORTAO no caminho de entrega: o job `verificar` de
+//     `.github/workflows/supply-chain.yml` roda em pull request sobre ESTE arquivo, entao
+//     apontar o portal para um artefato nao assinado reprova o PR.
+// Comando exato de verificacao: `docs/runbooks/supply-chain-imagem.md`.
 //
 // O QUE FICOU PROVADO ENQUANTO ESTEVE LIGADO (21/09/2026, ~19:40Z, e nao se perde ao desligar):
 //   - servico 1/1, rolloutState=COMPLETED, steady state;
@@ -39,8 +46,9 @@
 //   - verificacao 1.7 #7: log do boot com 4 linhas de uvicorn e ZERO ocorrencias de
 //     postgresql://|password|secret|__Host-|set-cookie|code_verifier|Bearer |eyJ.
 //
-// PARA LIGAR DE NOVO falta UMA coisa: publicar e verificar SBOM + assinatura do digest.
-portal_enabled = false
+// O QUE ESTE `true` CONTINUA NAO ENTREGANDO: `staff = null` (fim deste arquivo), entao o portal
+// AUTENTICA e nao tem FILA DE CASOS (`MAEZO_PORTAL_CAPABILITIES=identity`).
+portal_enabled = true
 
 portal = {
   // Tenant desta instancia; tem de ser igual a `tenant_id` do ambiente.
@@ -77,12 +85,19 @@ portal = {
   // -> 52.67.211.205 / 54.232.19.187.
   public_origin = "https://portal-maezo-dev.austa.com.br"
 
-  // Artefato `8b014a60`, verificado DENTRO da imagem como uid 1000 em 21/09/2026: modulo
-  // do portal presente, `portal.api.production:create_production_app` presente, migration
-  // 0012 no wheel, e as 3 raizes publicas do RDS sa-east-1 no contexto TLS padrao do
-  // Python com check_hostname ligado. SBOM/assinatura desta imagem NAO existem (o job de
-  // syft/cosign do cd.yml esta' atras do gate AWS_ENABLED, ausente) — pendencia declarada.
-  image_digest = "sha256:685ddb6d80c89f713ac776700bb7b759cb56253d85ab1b273cc7946ecdf12c3c"
+  // REPINADO EM 21/09/2026 para `e857e284` (main com o PR #455, as correcoes da Helena da
+  // bateria de 21/09) — o MESMO artefato que o resto da frota ja roda em dev. Antes daqui
+  // apontava para `8b014a60` (sha256:685ddb6d...), de 20/09: religar o portal naquele digest
+  // seria testar o portal contra um build atrasado, e deixar o portal numa imagem diferente
+  // da frota e' a divergencia que ninguem lembra de conferir quando algo quebra.
+  //
+  // SBOM e ASSINATURA DESTE digest existem e foram VERIFICADOS — e' o portao 1.4, agora
+  // fechado: `cosign verify`/`verify-attestation` com a chave KMS
+  // `alias/maezo-operadora-dev-image-signing`, artefatos `sha256-d29ce828....sig`/`.att` no
+  // proprio ECR. Comando exato e o que ele prova: `docs/runbooks/supply-chain-imagem.md`.
+  // Trocar este digest sem assinar o novo REPROVA o job `verificar` do workflow
+  // `supply-chain.yml` no proprio PR.
+  image_digest = "sha256:d29ce828272cb6b34ab5f2ec7c452fed1663d903f5cb3c958b02e13354d16fb6"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role

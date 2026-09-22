@@ -61,10 +61,20 @@ variables {
   # Required digest variables (IMMUTABLE repos — 19/09/2026 owner decision, trivy/IaC D2
   # packet): terraform test needs a syntactically valid value for every required variable
   # even though these run blocks target only the portal graph. Synthetic, never deployable.
-  worker_image_digest    = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-  agents_image_digest    = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-  engine_image_digest    = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-  tenant_id              = "portaltest"
+  worker_image_digest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+  agents_image_digest = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  engine_image_digest = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  tenant_id           = "portaltest"
+  # PINADO AQUI de proposito. Sem esta linha `portal_enabled` vinha de
+  # `portal.auto.tfvars`, que e' o arquivo do AMBIENTE VIVO — ou seja, o
+  # significado desta suite mudava quando alguem ligava o portal em dev. E mudava
+  # para quebrado: `disabled_by_default` zera `var.portal`, e a regra de validacao
+  # de `portal-variables.tf:7` recusa `portal_enabled = true` com `portal = null`.
+  # O teste morria em "Invalid value for variable" antes de asserir coisa alguma
+  # (0 passed, 1 failed, 31 skipped — medido no branch que ligou o portal). Um
+  # teste tem de declarar as proprias precondicoes; herda-las do estado de
+  # producao e' o contrario de um teste.
+  portal_enabled         = false
   fhir_cognito_client_id = "machine123"
   portal = {
     tenant                  = "portaltest"

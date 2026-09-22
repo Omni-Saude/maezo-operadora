@@ -235,7 +235,23 @@ aws acm import-certificate --certificate fileb://bootstrap.crt --private-key fil
 A chave privada local foi apagada. **Nao ative o portal com este certificado:** navegador
 nenhum confia nele.
 
-### 3.4 Imagem (1.4) — FEITO em parte (SBOM/assinatura AUSENTES)
+### 3.4 Imagem (1.4) — FECHADO em 21/09/2026 (ver `supply-chain-imagem.md`)
+
+> **ATUALIZACAO 21/09/2026.** O portal foi **repinado** de `685ddb6d` (tag `8b014a60`, 20/09)
+> para **`sha256:d29ce828...`** (tag `e857e284`) — a mesma imagem que o resto da frota ja roda
+> em dev, com as correcoes da Helena do PR #455. Religar no digest antigo seria testar o
+> portal contra um build atrasado.
+>
+> O digest novo tem **SBOM (SPDX/syft) e assinatura (chave KMS
+> `alias/maezo-operadora-dev-image-signing`) publicados no ECR** como
+> `sha256-d29ce828....sig` / `.att`, e **verificados** por `cosign verify` e
+> `cosign verify-attestation` (run 35665780360, inclusive pelo job que usa a role
+> verify-only). A pendencia abaixo, escrita quando o portao estava aberto, fica como
+> historico. As verificacoes DENTRO da imagem (modulo, `create_production_app`, CAs do RDS)
+> foram feitas em `685ddb6d` e **nao** foram refeitas no digest novo — o que se provou no
+> novo foi boot real, `/session` 401 e o redirect de login com S256.
+
+### 3.4 (historico) Imagem — FEITO em parte (SBOM/assinatura AUSENTES)
 
 Verificado **dentro do artefato exato**, como **uid 1000**
 (`docker run --user 1000:1000 --entrypoint /app/.venv/bin/python <repo>@sha256:685ddb...`):
@@ -825,7 +841,7 @@ decisao do dono.
 | 1 | CNAME de validacao do ACM + CNAME do hostname para o NLB (secao 2) | dono do DNS `austa.com.br` |
 | 2 | Aplicar `amh-data-platform#175` (ingress do Aurora) — e decidir sobre os 3 recursos de deriva do mesmo plan | dono do state da plataforma |
 | 3 | Trocar o certificado de bootstrap pelo real depois de `ISSUED` | quem aplicar |
-| 4 | **SBOM e assinatura da imagem `8b014a60` nao existem** (gate `AWS_ENABLED` ausente no `cd.yml`) — 1.4 de `portal.md` nao esta satisfeito | dono do produto / CI |
+| 4 | ~~SBOM e assinatura da imagem nao existem~~ **FECHADA em 21/09/2026**: o portal foi repinado para `sha256:d29ce828...` (tag `e857e284`), que tem SBOM SPDX e assinatura KMS publicados no ECR (`sha256-d29ce828....sig`/`.att`) e **verificados** (run 35665780360). O portao virou automatico: o job `verificar` de `.github/workflows/supply-chain.yml` roda em PR sobre `portal.auto.tfvars`. Ver `supply-chain-imagem.md` | — |
 | 5 | Verificacao 1.7 #7 (log sem query/cookie/token) so fecha com o servico de pe | quem ativar |
 | 6 | Papel `escalonamento-tratar` e PROVISORIO — R-034 pendente. Trocar **e** bump de `revision` | dono organizacional |
 | 7 | **Perfil `staff` nao provisionado** (`portal.staff = null` -> `MAEZO_PORTAL_CAPABILITIES=identity`). Sem ele o portal autentica mas **nao tem fila de casos**: os criterios 2 a 6 do mandato (ver a fila, isolamento entre grupos, concluir tarefa) dependem de imagem derivada, bundle de materiais assinado, CMK e autoridade nativa — nenhum existe | dono do produto |
