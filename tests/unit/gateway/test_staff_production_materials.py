@@ -377,8 +377,21 @@ def test_engine_schema_is_pinned_from_manifest_and_settings() -> None:
 @pytest.mark.parametrize(
     "schema",
     [
-        "Cibseven", "cib-seven", "1cib", "a" * 64, "", "cibseven;drop", '"cibseven"', "cib.seven",
-        "public", "information_schema", "maezo_native", "pg_catalog", "pg_temp", "pg_toast", "pg_temp_3",
+        "Cibseven",
+        "cib-seven",
+        "1cib",
+        "a" * 64,
+        "",
+        "cibseven;drop",
+        '"cibseven"',
+        "cib.seven",
+        "public",
+        "information_schema",
+        "maezo_native",
+        "pg_catalog",
+        "pg_temp",
+        "pg_toast",
+        "pg_temp_3",
     ],
 )
 def test_engine_schema_outside_the_rule_is_refused(schema: str) -> None:
