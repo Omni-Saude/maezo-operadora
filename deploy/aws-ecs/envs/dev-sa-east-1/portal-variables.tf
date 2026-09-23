@@ -84,7 +84,7 @@ variable "portal" {
         "material_secret_arn", "material_secret_version_id", "material_kms_key_arn",
         "portal_image_digest", "public_manifest_sha256", "root_key_sha256",
         "designation_sha256", "native_configuration_sha256", "scope", "native_origin",
-        "native_server_spki_sha256", "native_schema", "read_key_sha256", "witness_key_sha256", "maximum_seconds",
+        "native_server_spki_sha256", "native_schema", "engine_schema", "read_key_sha256", "witness_key_sha256", "maximum_seconds",
         "native_https_security_group_id", "native_database_security_group_id", "native_database_port"
       ]) &&
       toset(keys(var.portal.staff.scope)) == toset(["tenant", "environment", "engine_name", "database_incarnation"]) &&
@@ -115,6 +115,13 @@ variable "portal" {
       can(regex("^[a-z_][a-z0-9_]{0,62}$", var.portal.staff.native_schema)) &&
       !contains(["public", "cibseven", "information_schema"], var.portal.staff.native_schema) &&
       !startswith(var.portal.staff.native_schema, "pg_") &&
+      # T1.8b: the CIB seven engine schema is a pin of the same v2 manifest, same rule as
+      # EngineSchema.java: closed identifier, never public/information_schema/maezo_native/pg_*
+      # nor the native schema pinned next to it.
+      can(regex("^[a-z_][a-z0-9_]{0,62}$", var.portal.staff.engine_schema)) &&
+      !contains(["public", "information_schema", "maezo_native"], var.portal.staff.engine_schema) &&
+      !startswith(var.portal.staff.engine_schema, "pg_") &&
+      var.portal.staff.engine_schema != var.portal.staff.native_schema &&
       alltrue([for id in [var.portal.staff.native_https_security_group_id, var.portal.staff.native_database_security_group_id] : can(regex("^sg-[0-9a-f]{8,17}$", id))]) &&
       var.portal.staff.maximum_seconds == floor(var.portal.staff.maximum_seconds) &&
       var.portal.staff.maximum_seconds >= 1 && var.portal.staff.maximum_seconds <= 10 &&
@@ -122,7 +129,7 @@ variable "portal" {
       var.portal.staff.native_database_port >= 1 && var.portal.staff.native_database_port <= 65535,
       false
     )
-    error_message = "Staff requires the complete exact public input set, explicit tenant scope, distinct installed key pins, exact native schema identifier, immutable image/secret version, account/regional secret+CMK and fixed native HTTPS/SG/port; no defaults or extra keys."
+    error_message = "Staff requires the complete exact public input set, explicit tenant scope, distinct installed key pins, exact native and engine schema identifiers, immutable image/secret version, account/regional secret+CMK and fixed native HTTPS/SG/port; no defaults or extra keys."
   }
 
 }

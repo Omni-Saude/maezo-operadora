@@ -74,6 +74,7 @@ def manifest_matches(settings: PortalProductionSettings, manifest: PublicManifes
         settings.staff_native_origin,
         settings.staff_native_server_spki_sha256,
         settings.staff_native_schema,
+        settings.staff_engine_schema,
     )
     actual = (
         manifest.material_version_id,
@@ -87,6 +88,7 @@ def manifest_matches(settings: PortalProductionSettings, manifest: PublicManifes
         manifest.native_origin,
         manifest.native_server_spki_sha256,
         manifest.native_schema,
+        manifest.engine_schema,
     )
     snapshot = manifest.revocation_snapshot
     if (
@@ -155,7 +157,8 @@ def verify_materials(
     read, witness = signers
     entry = authority.entries[manifest.read_key_fingerprint]
     if (
-        entry.operations != ("detail",)
+        # Conjunto exato e na ordem canonica (D-H.4): `/cases` exige `list`, o detalhe exige `detail`.
+        entry.operations != ("detail", "list")
         or set(entry.projections) != {"staff_summary.v1", "staff_identity.v1", "staff_current_task.v1"}
         or authority.entries[manifest.witness_key_fingerprint].login_role
         != manifest.native_witness_connection.login

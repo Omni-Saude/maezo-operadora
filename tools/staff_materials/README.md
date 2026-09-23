@@ -38,6 +38,6 @@ Nenhum agente roda os comandos do `approver`. O módulo de engenharia não impor
 
 ## O que ainda não existe
 
-- `assemble` v2: monta `portal-staff-material.v2` com `native_schema`. Espera a T1.8/Python.
+- `assemble` v2: monta `portal-staff-material.v2` com `native_schema` e `engine_schema` (`cibseven`, T1.8b). Espera a T1.8/Python.
 - O shape fechado do `portal-read-admission.v1` é da T1.7a. O `sign-admission` exige só o que o
   plano §3.1 já fixa e mostra o resto ao aprovador.

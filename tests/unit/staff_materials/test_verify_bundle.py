@@ -24,13 +24,13 @@ from tools.staff_materials.verify import load_pins, manifest_digest, verify_bund
 from maezo.gateway.external_cases.models import digest
 from maezo.portal.engine.profile import canonicalize
 
-from .conftest import Assembled, assemble_v1, bundle_bytes, pins_for, settings
+from .conftest import Assembled, assemble_v2, bundle_bytes, pins_for, settings
 
 
 def test_generated_and_approver_signed_bundle_is_accepted_by_the_loader(
     generated: Generated, now: datetime
 ) -> None:
-    assembled = assemble_v1(generated, now)
+    assembled = assemble_v2(generated, now)
     manifest = verify_bundle(bundle_bytes(assembled), settings(pins_for(assembled)))
     assert manifest.designation_digest == generated.summary["designation_sha256"]
     assert manifest_digest(canonicalize(assembled.manifest)) == digest(assembled.manifest)
@@ -38,7 +38,7 @@ def test_generated_and_approver_signed_bundle_is_accepted_by_the_loader(
 
 def test_control_repinning_an_untouched_manifest_still_loads(generated: Generated, now: datetime) -> None:
     """Controle do teste abaixo: re-pinar sem adulterar nada continua passando."""
-    assembled = assemble_v1(generated, now)
+    assembled = assemble_v2(generated, now)
     for name, value in list(assembled.manifest["files"].items()):
         if value is not None:
             assembled.manifest["files"][name] = hashlib.sha256(assembled.files[name]).hexdigest()
@@ -71,7 +71,7 @@ def _flip(data: bytes, index: int = -40) -> bytes:
     ],
 )
 def test_loader_refuses_every_tampering(mutation: str, generated: Generated, now: datetime) -> None:
-    assembled: Assembled = assemble_v1(generated, now)
+    assembled: Assembled = assemble_v2(generated, now)
     pins: dict[str, Any] = pins_for(assembled)
     files = assembled.files
     if mutation == "public_byte":
@@ -133,7 +133,7 @@ def test_cli_verify_uses_the_approver_pins_file_and_refuses_a_dirty_environment(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assembled = assemble_v1(generated, now)
+    assembled = assemble_v2(generated, now)
     (tmp_path / "bundle.json").write_bytes(bundle_bytes(assembled))
     (tmp_path / "pins.json").write_text(json.dumps(pins_for(assembled)))
     (tmp_path / "manifest.json").write_bytes(canonicalize(assembled.manifest))
@@ -153,7 +153,7 @@ def test_cli_verify_uses_the_approver_pins_file_and_refuses_a_dirty_environment(
 
 
 def test_pins_file_with_duplicate_field_is_refused(generated: Generated, now: datetime) -> None:
-    raw = json.dumps(pins_for(assemble_v1(generated, now)))
+    raw = json.dumps(pins_for(assemble_v2(generated, now)))
     duplicated = raw[:-1] + ', "tenant": "outro"}'
     with pytest.raises(MaterialError, match="repetido"):
         load_pins(duplicated.encode())
