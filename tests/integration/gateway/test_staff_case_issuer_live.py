@@ -1,7 +1,7 @@
 """T1.6 contra PostgreSQL e CIB Seven REAIS: a membership revisada e o grupo que a DMN escolheu.
 
-* Grantees: tabela `portal_memberships` criada pela migracao REAL 0012 (fixture `audit_pg`, que
-  aplica as migracoes num schema por execucao).
+* Grantees: tabela `portal_memberships` criada pela migracao REAL 0012 (schema descartavel por teste,
+  migracoes reais aplicadas por `_apply_migrations`).
 * Escalacoes: BPMN SP-OP-ESCALATION-001 + DMN `escalation_routing` da arvore, deployados no engine
   real. O teste so completa as external tasks de publicacao/notificacao (sem worker de dominio) para
   a instancia chegar em `UT_TratarEscalonamento`; o grupo e o que o ENGINE resolveu da DMN.
@@ -12,17 +12,22 @@ declarado como tal. Nenhum grant e publicado aqui (isso e a C1).
 
 from __future__ import annotations
 
+import asyncio
+import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import asyncpg  # type: ignore[import-untyped]
 import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from tests.integration.conftest import _apply_migrations, _pg_reachable
 
+from maezo.gateway.audit_postgres import normalize_dsn
 from maezo.gateway.external_cases.models import Identity
 from maezo.gateway.staff_cases.case_issuer import CaseIssuerError, visible_cases
 from maezo.gateway.staff_cases.case_issuer_sources import (
@@ -59,16 +64,48 @@ def record(name: str, *groups: str, tenant: str = "amh", **changes: Any) -> Memb
     return MembershipRecord(**value)
 
 
+_DEFAULT_PORT = "5433"  # docker-compose.yml: ports ["${MAEZO_PG_HOST_PORT:-5433}:5432"]
+
+
+def _pg_dsn() -> str:
+    explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    port = os.environ.get("MAEZO_PG_HOST_PORT", _DEFAULT_PORT)
+    return f"postgresql://maezo:maezo@localhost:{port}/maezo"
+
+
 @pytest.fixture
-async def pg(audit_pg: tuple[str, str]) -> AsyncIterator[tuple[AsyncEngine, str]]:
-    dsn, schema = audit_pg
+def pg_schema() -> Iterator[tuple[str, str]]:
+    """Schema descartavel por teste com as migracoes REAIS (inclui a 0012). Skip alto sem banco."""
+    dsn = _pg_dsn()
+    if not _pg_reachable(dsn):
+        pytest.skip(f"COULD NOT VERIFY: Postgres inalcancavel em {dsn!r} (MAEZO_TEST_DATABASE_URL)")
+    schema = "t16_" + uuid.uuid4().hex[:12]
+
+    async def _schema(sql: str) -> None:
+        connection = await asyncpg.connect(normalize_dsn(dsn))
+        try:
+            await connection.execute(sql)
+        finally:
+            await connection.close()
+
+    asyncio.run(_schema(f'CREATE SCHEMA "{schema}"'))
+    try:
+        _apply_migrations(dsn, schema)
+        yield dsn, schema
+    finally:
+        asyncio.run(_schema(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+
+
+@pytest.fixture
+async def pg(pg_schema: tuple[str, str]) -> AsyncIterator[tuple[AsyncEngine, str]]:
+    dsn, schema = pg_schema
     url = dsn if "+asyncpg" in dsn else dsn.replace("postgresql://", "postgresql+asyncpg://", 1)
     engine = create_async_engine(url)
     try:
         yield engine, schema
     finally:
-        async with engine.begin() as connection:
-            await connection.execute(text(f'DELETE FROM "{schema}".portal_memberships'))
         await engine.dispose()
 
 
