@@ -17,7 +17,7 @@ imagem é a Onda 4, com os pré-requisitos dela (T1.1, T1.7a/b, C1, materiais da
 | Raízes RDS sa-east-1 | `deploy/certificates/sa-east-1-bundle.pem` | o mesmo arquivo vendorizado do portal, conferido por SHA-256 no build |
 | `ENV SKIP_DB_CONFIG=true` | Dockerfile | sem isso o `cibseven.sh` da base reescreve o datasource a partir de `DB_URL` (ou do H2 padrão) |
 | Paridade com a imagem viva | Dockerfile | `jobExecutorDeploymentAware=false` e `configure-group-whitelist.sh`, os dois deltas de `deploy/cibseven/Dockerfile`. Sem eles, a Onda 4 pararia os timers e a whitelist de grupos |
-| `ARG INSTALL_STAFF_COMPOSITION` | Dockerfile | `false` por padrão. `true` registra `br.com.maezo.human.StaffDeploymentComposition` (T1.1, D-E) **antes** do `HumanCommandPlugin` e **recusa o build** se a classe não estiver no JAR. Hoje (T1.1 não mergeada) `true` falha de propósito |
+| `ARG INSTALL_STAFF_COMPOSITION` | Dockerfile | `false` por padrão. `true` registra `br.com.maezo.human.StaffDeploymentComposition` (T1.1, D-E) **antes** do `HumanCommandPlugin` e **recusa o build** se a classe não estiver no JAR. A classe existe desde a T1.1; o engine lê `MAEZO_STAFF_COMPOSITION_FILE` (JCS `staff-deployment-composition.v1`) e, sem ele, não sobe |
 | `ARG INSTALL_PORTAL_READ` | Dockerfile | inalterado. `true` constrói, mas **não sobe** até a T1.7a (I6). A imagem da Onda 4 só usa `true` depois dela |
 
 ## Contrato de execução (o que a task definition da Onda 4 precisa entregar)
