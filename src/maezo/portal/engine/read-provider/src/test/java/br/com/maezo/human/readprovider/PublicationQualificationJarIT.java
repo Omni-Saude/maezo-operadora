@@ -288,6 +288,21 @@ class PublicationQualificationJarIT {
   }
 
   @Test
+  void catalogRevocationMustComeFromTheAdmittedCatalogPublisher() {
+    var valid = f.publication("catalog-revoke", plainProvenance(CATALOG + ":revoke",
+        clock.instant().minusSeconds(1), f.until), record("catalog_ref", CATALOG,
+        "expected_catalog_revision", "1"), 0);
+    for (var breakIt : List.<Consumer<Map<String, Object>>>of(
+             r -> obj(r, "source").put("publisher_ref", "other-publisher"),
+             r -> obj(r, "payload").put("catalog_ref", "other-catalog"))) {
+      var broken = deep(valid);
+      breakIt.accept(broken);
+      refusedPublication(broken);
+      publishes(valid);
+    }
+  }
+
+  @Test
   void membershipPublisherMustBeTheAdmittedOne() throws Exception {
     var admission = f.publicationAdmission(2);
     @SuppressWarnings("unchecked")

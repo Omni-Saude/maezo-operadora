@@ -113,6 +113,30 @@ class PortalReadPublisherEngineIT {
         h.artifact.get("deployment_receipt_digest"), "valid_until", time(h.until));
     assertEquals(409, assertThrows(Rejected.class, () -> h.publish("catalog-designate", p)).status);
   }
+  /** Ressalva #487: the engine re-reads the live membership row under the tenant lock. */
+  @Test
+  void membershipRevisionNotAboveThePublishedOneIsRefused() throws Exception {
+    long published = number(h.principal.get("membership_revision"));
+    for (long stale : List.of(published, published - 1)) {
+      var p = record("audience", "staff", "state", "active", "reviewed_until", time(h.until));
+      for (String k : List.of("principal_ref", "issuer", "subject", "memberships",
+               "subject_bindings"))
+        p.put(k, h.principal.get(k));
+      p.put("membership_revision", Long.toString(stale));
+      long before = h.revision();
+      assertEquals(409,
+          assertThrows(Rejected.class, () -> h.publish("membership", p)).status);
+      assertEquals(before, h.revision());
+    }
+    try (var c = h.connection(); var q = c.prepareStatement(
+             "SELECT REVISION_ FROM MZO_PORTAL_READ_MEMBERSHIP WHERE PRINCIPAL_=?")) {
+      q.setString(1, (String) h.principal.get("principal_ref"));
+      try (var r = q.executeQuery()) {
+        assertTrue(r.next());
+        assertEquals(published, r.getLong(1));
+      }
+    }
+  }
   @ParameterizedTest
   @ValueSource(ints = {0, 248, 252})
   void readSignerCannotPublishAndRevokedReaderCannotRead(int firstByte) throws Exception {

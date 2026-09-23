@@ -18,18 +18,25 @@ import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
 /** Fixed scoped reads and enlisted writes on the actual engine PostgreSQL connection. */
 final class ExternalCaseStore {
   static final String S="tenant=? AND environment=? AND engine_name=? AND database_incarnation=?";
-  final Connection connection;final SqlSession session;final Map<String,Object> scope;final int timeout;final String engineSchema;
-  ExternalCaseStore(CommandContext context,Map<String,Object> scope,int timeout,String engineSchema){
-    this.engineSchema=EngineSchema.require(engineSchema,null);
+  final Connection connection;final SqlSession session;final Map<String,Object> scope;final int timeout;final String engineSchema;final String nativeSchema;
+  /** Native mzo_* relations the external path reads; resolved in the pinned native schema (ADR-0060 D3). */
+  static final List<String> NATIVE_TABLES=List.of("mzo_human_tenant","mzo_portal_read_revocation");
+  /** The tenant CAS row, locked; positional parameter: tenant. */
+  static String tenantLockSql(String nativeSchema){return "SELECT rev_ FROM \""+StaffCaseStore.schema(nativeSchema)+"\".mzo_human_tenant WHERE tenant_=? FOR UPDATE";}
+  /** Revoked read keys of the scope; positional parameters: tenant, environment, engine, incarnation. */
+  static String revokedSql(String nativeSchema){return "SELECT fingerprint_ FROM \""+StaffCaseStore.schema(nativeSchema)+"\".mzo_portal_read_revocation WHERE TENANT_=? AND ENVIRONMENT_=? AND ENGINE_=? AND INCARNATION_=? ORDER BY fingerprint_";}
+  ExternalCaseStore(CommandContext context,Map<String,Object> scope,int timeout,String engineSchema,String nativeSchema){
+    this.nativeSchema=StaffCaseStore.schema(nativeSchema);this.engineSchema=EngineSchema.require(engineSchema,nativeSchema);
     this.session=context.getDbSqlSession().getSqlSession();this.connection=session.getConnection();this.scope=scope;this.timeout=timeout;
     if(timeout<1||timeout>10||!scope.get("engine_name").equals(context.getProcessEngineConfiguration().getProcessEngineName()))throw unavailable();
     String prefix=context.getProcessEngineConfiguration().getDatabaseTablePrefix();
     String schema=context.getProcessEngineConfiguration().getDatabaseSchema();
     EngineSchema.requireEngineConfiguration(engineSchema,schema,prefix);
-    try{if(connection.getAutoCommit()||!connection.getMetaData().getDatabaseProductName().equals("PostgreSQL")||!"public".equals(connection.getSchema()))throw unavailable();}
+    try{if(connection.getAutoCommit()||!connection.getMetaData().getDatabaseProductName().equals("PostgreSQL"))throw unavailable();}
     catch(SQLException ex){throw unavailable();}
     if(one("SELECT login_role FROM maezo_external.mzo_external_caller_scope WHERE "+S+" AND login_role=session_user AND capability='native'",args())==null)throw unavailable();
     for(String table:EngineSchema.TABLES)EngineSchema.requireTable(one(EngineSchema.PIN,engineSchema,table));
+    for(String table:NATIVE_TABLES)EngineSchema.requireTable(one(EngineSchema.PIN,nativeSchema,table));
   }
   Object[] args(Object... rest){Object[] all=new Object[rest.length+4];int i=0;
     for(String key:List.of("tenant","environment","engine_name","database_incarnation"))all[i++]=scope.get(key);
@@ -88,10 +95,10 @@ final class ExternalCaseStore {
       try(ResultSet rs=ps.executeQuery()){while(rs.next()){ /* locks only; no payload collection */ }}
     }catch(SQLException ex){throw unavailable();}
     one("SELECT epoch FROM maezo_external.mzo_external_checkpoint_accepted WHERE "+S+" FOR UPDATE",args());
-    var tenant=one("SELECT rev_ FROM public.mzo_human_tenant WHERE tenant_=? FOR UPDATE",scope.get("tenant"));
+    var tenant=one(tenantLockSql(nativeSchema),scope.get("tenant"));
     if(tenant==null)throw unavailable();return ((Number)tenant.get("rev_")).longValue();
   }
-  Set<String> revoked(){Set<String> pins=new TreeSet<>();for(var r:rows("SELECT fingerprint_ FROM public.mzo_portal_read_revocation WHERE TENANT_=? AND ENVIRONMENT_=? AND ENGINE_=? AND INCARNATION_=? ORDER BY fingerprint_",1024,args()))pins.add((String)r.get("fingerprint_"));return pins;}
+  Set<String> revoked(){Set<String> pins=new TreeSet<>();for(var r:rows(revokedSql(nativeSchema),1024,args()))pins.add((String)r.get("fingerprint_"));return pins;}
   Authority authority(ExternalCaseModels.Configuration c){
     var a=one("SELECT e.canonical_designation,e.installation_receipt,c.designation_digest FROM maezo_external.mzo_external_authority_current c JOIN maezo_external.mzo_external_authority_event e USING(tenant,environment,engine_name,database_incarnation,designation_revision) WHERE c.tenant=? AND c.environment=? AND c.engine_name=? AND c.database_incarnation=? AND c.designation_digest=e.designation_digest AND c.authority_revision=e.authority_revision",args());
     if(a==null||!c.designationDigest().equals(a.get("designation_digest")))throw unavailable();

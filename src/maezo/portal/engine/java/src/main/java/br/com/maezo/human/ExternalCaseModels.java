@@ -88,17 +88,17 @@ public final class ExternalCaseModels {
   }
   public record Configuration(Map<String,Object> scope, String designationDigest,
       PublicKey installationKey, PublicKey transportKey, String transportFingerprint,
-      String tlsPeerFingerprint, String purpose, String engineSchema) {
+      String tlsPeerFingerprint, String purpose, String engineSchema, String nativeSchema) {
     public Configuration {
       scope=Collections.unmodifiableMap(new TreeMap<>(shape("scope",scope)));
-      check("h",designationDigest);check("h",transportFingerprint);check("h",tlsPeerFingerprint);EngineSchema.require(engineSchema,null);
+      check("h",designationDigest);check("h",transportFingerprint);check("h",tlsPeerFingerprint);StaffCaseStore.schema(nativeSchema);EngineSchema.require(engineSchema,nativeSchema);
       if(installationKey==null||transportKey==null||!Jcs.digest(transportKey.getEncoded()).equals(transportFingerprint)
           ||!Set.of("portal-external-case-publication","portal-external-case-read").contains(purpose))throw unavailable();
     }
     public String digest(){return hash(record("schema","portal-external-native-configuration.v1","scope",scope,
       "designation_digest",designationDigest,"installation_key_spki_base64",Base64.getUrlEncoder().withoutPadding().encodeToString(installationKey.getEncoded()),
       "transport_key_spki_base64",Base64.getUrlEncoder().withoutPadding().encodeToString(transportKey.getEncoded()),
-      "transport_fingerprint",transportFingerprint,"tls_peer_fingerprint",tlsPeerFingerprint,"purpose",purpose));}
+      "transport_fingerprint",transportFingerprint,"tls_peer_fingerprint",tlsPeerFingerprint,"purpose",purpose,"engine_schema",engineSchema,"native_schema",nativeSchema));}
   }
   public static final class Verified {
     final Configuration configuration;final Map<String,Object> request;final String digest;

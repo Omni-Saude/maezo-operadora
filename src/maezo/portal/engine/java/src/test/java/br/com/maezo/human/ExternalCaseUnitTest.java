@@ -37,7 +37,7 @@ class ExternalCaseUnitTest {
       var complete=record("designation_ref","complete-test","policy_receipt_ref","policy-test","policy_receipt_digest",H,"required_namespaces",List.of("operator-test"),"signer_fingerprints",List.of(pin),"valid_until",end);
       bundle=record("schema","portal-external-authority-designation.v1","scope",scope,"designation_ref","designation-test","designation_revision","1","installation_receipt_ref","installed-test","policy_receipt_ref","policy-test","policy_receipt_digest",H,"signers",List.of(key),"completeness",complete,"observed_at",start,"valid_until",end);
       installation=sign(record("schema","portal-external-authority-installation.v1","scope",scope,"designation_digest",hash(bundle),"receipt_ref","installed-test","observed_at",start,"valid_until",end),root.getPrivate());
-      configuration=new Configuration(scope,hash(bundle),root.getPublic(),signer.getPublic(),pin,H,"portal-external-case-publication","cibseven");
+      configuration=new Configuration(scope,hash(bundle),root.getPublic(),signer.getPublic(),pin,H,"portal-external-case-publication","cibseven","maezo_native");
       var c=record("schema","portal-external-scope-checkpoint.v1","scope",scope,"designation_digest",hash(bundle),"checkpoint_ref","checkpoint-test","epoch","1","predecessor_checkpoint_digest",null,"upstream_position","position-test","observed_at",start,"valid_until",end,"namespace_positions",List.of(record("namespace","operator-test","upstream_position","position-test")),"heads",List.of(),"heads_count","0","heads_digest",hash(List.of()));
       checkpoint=record("schema","portal-external-checkpoint-packet.v1","statement",c,"completeness_proof",proof(c,"completeness"));
     }
@@ -50,6 +50,14 @@ class ExternalCaseUnitTest {
     var f=new Fixture();assertEquals(f.source,f.authority().source(f.packet));assertEquals(obj(f.checkpoint,"statement"),f.authority().checkpoint(f.checkpoint));
     ExternalCaseStore.checkpointBarrier(obj(f.checkpoint,"statement"),List.of(),0,0);
   }
+  /** Ressalva #489: the external configuration pins the native schema and binds both schemas in its digest. */
+  @Test void configurationPinsTheNativeSchema()throws Exception{
+    var f=new Fixture();
+    for(String[] bad:new String[][]{{"cibseven",null},{"cibseven","public"},{"cibseven","cibseven"},{"maezo_x","maezo_x"},{"cibseven","Bad"}})
+      assertThrows(RuntimeException.class,()->new Configuration(f.scope,hash(f.bundle),f.root.getPublic(),f.signer.getPublic(),f.pin,H,"portal-external-case-publication",bad[0],bad[1]),String.join("/",String.valueOf(bad[0]),String.valueOf(bad[1])));
+    var other=new Configuration(f.scope,hash(f.bundle),f.root.getPublic(),f.signer.getPublic(),f.pin,H,"portal-external-case-publication","cibseven","maezo_native_b");
+    assertNotEquals(f.configuration.digest(),other.digest());
+  }
   @TestFactory Stream<DynamicTest> originalAuthorityAttacks(){return Stream.of("source","grant","purpose","namespace","revocation","root","empty_namespace").map(attack->DynamicTest.dynamicTest(attack,()->{
     var f=new Fixture();var p=cloneMap(f.packet);var a=f.authority();
     switch(attack){
@@ -58,7 +66,7 @@ class ExternalCaseUnitTest {
       case "purpose"->obj(p,"ownership_proof").put("purpose","disclosure");
       case "namespace"->obj(p,"statement").put("source_namespace","other-namespace");
       case "revocation"->a=new Authority(f.configuration,Jcs.canonical(f.bundle),Jcs.canonical(f.installation),Set.of(f.pin));
-      case "root"->{var c=new Configuration(f.scope,hash(f.bundle),f.signer.getPublic(),f.signer.getPublic(),f.pin,H,"portal-external-case-publication","cibseven");assertThrows(RuntimeException.class,()->new Authority(c,Jcs.canonical(f.bundle),Jcs.canonical(f.installation),Set.of()));return;}
+      case "root"->{var c=new Configuration(f.scope,hash(f.bundle),f.signer.getPublic(),f.signer.getPublic(),f.pin,H,"portal-external-case-publication","cibseven","maezo_native");assertThrows(RuntimeException.class,()->new Authority(c,Jcs.canonical(f.bundle),Jcs.canonical(f.installation),Set.of()));return;}
       case "empty_namespace"->{var cp=cloneMap(f.checkpoint);obj(cp,"statement").put("namespace_positions",List.of());cp.put("completeness_proof",f.proof(obj(cp,"statement"),"completeness"));assertThrows(RuntimeException.class,()->f.authority().checkpoint(cp));return;}
       default->throw new AssertionError();
     }
