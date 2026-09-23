@@ -3,11 +3,11 @@
 O arquivo gerado e commitado; `tests/unit/deploy/test_engine_native_install_pg.py` recusa
 divergencia entre ele e esta montagem. Uso: `python deploy/sql/build_engine_native_install.py`.
 
-Fora de proposito (instalados em runtime pelo proprio engine, que recusa se ja existirem):
-`human-auth-intake-documents-postgres.sql` (AuthInstallation.installSchema) e
-`human-consumer-lineage-postgres.sql` (ConsumerEdgeInstallation). Fora do schema nativo:
-`external-case-schema-postgres.sql` (maezo_external, D-I; ainda qualifica `public.*`) e os
-programas native-v2/provisioning, que tem schema e instalador proprios.
+D-J.4: o DDL AUTH e o `human-consumer-lineage` entram aqui, instalados pelo dono, com a MESMA
+matriz de grants dos instaladores Java; `AuthInstallation`/`ConsumerEdgeInstallation` aceitam as
+tabelas so se o digest do catalogo bater com `native-catalog-pin-*.sha256`. Fora do schema nativo:
+`external-case-schema-postgres.sql` (maezo_external, passo proprio) e os programas
+native-v2/provisioning, que tem schema e instalador proprios.
 """
 
 from __future__ import annotations
@@ -29,6 +29,8 @@ ORDER: tuple[Path, ...] = (
     RESOURCES / "staff-case-schema-postgres.sql",
     RESOURCES / "staff-case-event-postgres.sql",
     RESOURCES / "auth-document-producer-postgres.sql",
+    RESOURCES / "human-auth-intake-documents-postgres.sql",
+    RESOURCES / "human-consumer-lineage-postgres.sql",
     READ_PROVIDER / "portal-read-admission-postgres.sql",
     HERE / "staff-case-issuer-ledger-postgres.sql",
 )
@@ -94,7 +96,8 @@ BEGIN
      AND (starts_with(c.relname, 'mzo_human_') OR starts_with(c.relname, 'mzo_portal_read_'))
      AND NOT starts_with(c.relname, 'mzo_human_consumer_') AND c.relname<>'mzo_portal_read_admission' LOOP
    privs := CASE
-     WHEN r.relname='mzo_portal_read_designation' THEN 'SELECT, INSERT, UPDATE'
+     WHEN r.relname='mzo_portal_read_designation' THEN 'SELECT, INSERT'
+     WHEN r.relname='mzo_human_decision_binding' THEN 'SELECT'
      WHEN starts_with(r.relname, 'mzo_portal_read_')
        OR r.relname ~ '_(event|receipt|continuity|cursor|version|dependency|chunk|ledger)$'
        THEN 'SELECT, INSERT'
@@ -102,7 +105,36 @@ BEGIN
    EXECUTE format('REVOKE ALL ON maezo_native.%I FROM cibseven_app', r.relname);
    EXECUTE format('GRANT %s ON maezo_native.%I TO cibseven_app', privs, r.relname);
  END LOOP;
+ -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) so escreve REVOKED_ e PUBLICATION_.
+ GRANT UPDATE (revoked_, publication_) ON maezo_native.mzo_portal_read_designation TO cibseven_app;
 END $dml$;
+
+-- D-J.4: matriz EXATA de AuthInstallation.installSchema e ConsumerEdgeInstallation.installSchema
+-- (o pin do catalogo inclui os grants; divergir aqui faz o instalador Java recusar).
+DO $engine_owned$
+DECLARE t text; privs text;
+BEGIN
+ FOREACH t IN ARRAY ARRAY['installation','trust','revoked_key','input_head','input_version','guide_claim',
+                          'instance_head','doc_occurrence','effect_receipt'] LOOP
+   privs := 'SELECT'
+     || CASE WHEN t IN ('input_head','input_version','guide_claim','instance_head',
+                        'doc_occurrence','effect_receipt') THEN ',INSERT' ELSE '' END
+     || CASE WHEN t IN ('input_head','instance_head','doc_occurrence') THEN ',UPDATE' ELSE '' END;
+   EXECUTE format('REVOKE ALL ON TABLE maezo_native.%I FROM PUBLIC, cibseven_app', 'mzo_auth_'||t);
+   EXECUTE format('GRANT %s ON TABLE maezo_native.%I TO cibseven_app', privs, 'mzo_auth_'||t);
+ END LOOP;
+ FOREACH t IN ARRAY ARRAY['database','trust','revoked','qualification','head','pointer',
+                          'pointer_head','link'] LOOP
+   privs := 'SELECT'
+     || CASE WHEN t IN ('pointer','pointer_head','link') THEN ',INSERT' ELSE '' END
+     || CASE WHEN t = 'pointer_head' THEN ',UPDATE' ELSE '' END;
+   EXECUTE format('REVOKE ALL ON TABLE maezo_native.%I FROM PUBLIC, cibseven_app', 'mzo_human_consumer_'||t);
+   EXECUTE format('GRANT %s ON TABLE maezo_native.%I TO cibseven_app', privs, 'mzo_human_consumer_'||t);
+ END LOOP;
+ -- D-H.1/3: o emissor le so tenant_, instance_, case_ da reivindicacao AUTH (entra no pin AUTH).
+ REVOKE ALL ON maezo_native.mzo_auth_guide_claim FROM maezo_native_case_issuer;
+ GRANT SELECT (tenant_, instance_, case_) ON maezo_native.mzo_auth_guide_claim TO maezo_native_case_issuer;
+END $engine_owned$;
 
 -- Postura final: recusa (e desfaz a transacao, se houver) o que as verificacoes do runtime recusariam.
 DO $posture$

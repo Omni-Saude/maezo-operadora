@@ -14,20 +14,14 @@ roda no boot nem pelo portal. Os verificadores SCRAM vêm de `tools/staff_materi
    `REVOKE maezo_native_schema_owner FROM <admin>;` e reexecute o script, que recusa qualquer
    membro dos 4 logins além do ADMIN implícito sem INHERIT/SET.
 2. **Dono nativo** (`engine-native-install.sql`, gerado por `build_engine_native_install.py`):
-   DDL `mzo_*`, ledger do emissor, grants e a postura final.
+   DDL `mzo_*` (inclusive AUTH e `human-consumer-lineage`, D-J.4), ledger do emissor, grants e a
+   postura final. `AuthInstallation`/`ConsumerEdgeInstallation` aceitam essas tabelas só se o digest
+   do catálogo (`native-catalog-digest-postgres.sql`) bater com `native-catalog-pin-*.sha256`;
+   qualquer divergência é recusa. `cibseven_app` nunca recebe CREATE. Mudou um desses DDL ou a
+   matriz de grants: regere o install e atualize o pin (o teste PG 17 mostra o digest novo).
 3. **Dono de `amh`** (`amh-native-source-grants.sql`, via migration do `maezo_app`).
-4. **Dono de `maezo_external`**: `external-case-schema-postgres.sql` (já qualificado com
-   `maezo_native.*` para `mzo_human_tenant` e `mzo_portal_read_revocation`). **Pendente:** o DDL
-   cria papéis `portal_external_*` (`CREATE ROLE`), que o dono não pode (NOCREATEROLE); quem
-   executa e como a posse passa ao dono ainda não está decidido.
-5. **Depois da instalação AUTH** (`AuthInstallation.installSchema`, dono nativo):
-   `engine-native-post-auth-grants.sql`.
-
-## D-J.2a — BLOQUEADO (não implementado)
-
-A decisão pede CREATE em `maezo_native` para `cibseven_app`, para o engine instalar AUTH e
-consumer-lineage no boot. O código atual recusa esse layout: `ConsumerEdgeInstallation.session`
-(`:68`, `:73`, usado também por `AuthInstallation`) exige sessão do **dono** (`owner_role` ≠
-`runtime_role`) e `has_schema_privilege(runtime,schema,'CREATE') = false`, e o pin staff
-(`postgres.py`, `runtime_create`) também. Tabelas criadas pelo `cibseven_app` teriam dono = runtime,
-contra ADR-0060 D1. Por isso o CREATE não é concedido; volta ao software-architect.
+4. **Dono nativo**: `external-case-schema-postgres.sql` em `maezo_external` (sem `CREATE ROLE`:
+   os papéis `portal_external_*` são NOLOGIN e vêm do passo 1). Depois, **admin**:
+   `external-case-owners.sql`, que entrega as funções SECURITY DEFINER aos papéis definer
+   (`ALTER ... OWNER TO` exige poder assumir o papel de destino; o dono nativo não é membro de
+   nada, por isso esse passo é do admin).

@@ -40,7 +40,44 @@ _ENGINE = _ROOT / "src/maezo/portal/engine"
 _PIN_JAVA = (
     _ENGINE / "read-provider/src/main/java/br/com/maezo/human/readprovider" / "InstalledReadProviders.java"
 )
-_AUTH_DDL = _ENGINE / "java/src/main/resources/human-auth-intake-documents-postgres.sql"
+_RES = _ENGINE / "java/src/main/resources"
+_FAMILIES = {
+    "auth": [
+        "mzo_auth_" + t
+        for t in (
+            "installation",
+            "trust",
+            "revoked_key",
+            "input_head",
+            "input_version",
+            "guide_claim",
+            "instance_head",
+            "doc_occurrence",
+            "effect_receipt",
+        )
+    ],
+    "consumer-lineage": [
+        "mzo_human_consumer_" + t
+        for t in ("database", "trust", "revoked", "qualification", "head", "pointer", "pointer_head", "link")
+    ],
+}
+
+
+def _pin(family: str) -> str:
+    return (_RES / f"native-catalog-pin-{family}.sha256").read_text(encoding="utf-8").strip()
+
+
+async def _catalog_digest(conn: asyncpg.Connection, tables: list[str]) -> str:
+    sql = (_RES / "native-catalog-digest-postgres.sql").read_text(encoding="utf-8")
+    for n in range(1, 5):
+        sql = sql.replace("?", f"${n}", 1)
+    row = await conn.fetchrow(
+        sql, "maezo_native", ",".join(tables), "maezo_native_schema_owner", "cibseven_app"
+    )
+    assert row["relations"] == len(tables)
+    return row["digest"]
+
+
 _LOGINS = (
     "maezo_native_schema_owner",
     "maezo_native_case_issuer",
@@ -340,8 +377,12 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
                 name = r["relname"]
                 if name == "mzo_portal_read_admission":
                     want = (True, False, False)
+                elif name.startswith("mzo_human_consumer_"):
+                    continue  # matriz do ConsumerEdgeInstallation, coberta pelo pin do catalogo
+                elif name == "mzo_human_decision_binding":
+                    want = (True, False, False)
                 elif name == "mzo_portal_read_designation":
-                    want = (True, True, True)
+                    want = (True, True, False)  # UPDATE so por coluna (abaixo)
                 elif name.startswith("mzo_portal_read_") or immutable.search(name):
                     want = (True, True, False)
                 else:
@@ -349,6 +390,23 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
                 if (r["sel"], r["ins"], r["upd"]) != want or r["forbidden"]:
                     wrong[name] = tuple(r)
             assert wrong == {}
+            # D-J.4 2.c: UPDATE da designacao so em REVOKED_/PUBLICATION_.
+            cols = await engine.fetch(
+                "SELECT a.attname FROM pg_attribute a"
+                " WHERE a.attrelid='maezo_native.mzo_portal_read_designation'::regclass"
+                " AND a.attnum>0 AND has_column_privilege(a.attrelid,a.attnum,'UPDATE') ORDER BY 1"
+            )
+            assert [r["attname"] for r in cols] == ["publication_", "revoked_"]
+            assert (
+                await engine.execute(
+                    "UPDATE maezo_native.mzo_portal_read_designation"
+                    " SET revoked_=true, publication_='p' WHERE false"
+                )
+                == "UPDATE 0"
+            )
+            await _refused(
+                engine, "UPDATE maezo_native.mzo_portal_read_designation SET catalog_='x' WHERE false"
+            )
             await _refused(engine, "DELETE FROM maezo_native.mzo_human_tenant")
             await _refused(engine, "DELETE FROM maezo_native.mzo_portal_read_publication_receipt")
             await _refused(engine, "TRUNCATE maezo_native.mzo_human_principal")
@@ -377,28 +435,55 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
             encoding="utf-8"
         )
         assert not re.search(r"public\.mzo_", ddl, re.I)
+        owner = await env.login("maezo_native_schema_owner")
+        try:
+            await owner.execute("SET search_path TO ''")
+            await owner.execute(ddl)  # o DONO executa o DDL (sem CREATE ROLE)
+        finally:
+            await owner.close()
         admin = await env.admin()
         try:
-            await admin.execute("SET search_path TO ''")
-            await admin.execute(ddl.replace("CREATE SCHEMA maezo_external;", "", 1))
-            assert (
-                await admin.fetchval(
-                    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace"
-                    " WHERE n.nspname='maezo_external' AND c.relkind='r'"
-                )
-                > 5
+            await admin.execute(_sql("external-case-owners.sql"))
+            await admin.execute(_sql("external-case-owners.sql"))
+            owners = await admin.fetch(
+                "SELECT DISTINCT pg_get_userbyid(c.relowner) AS o FROM pg_class c JOIN pg_namespace n"
+                " ON n.oid=c.relnamespace WHERE n.nspname='maezo_external' AND c.relkind='r'"
             )
+            assert [r["o"] for r in owners] == ["maezo_native_schema_owner"]
+            definers = await admin.fetch(
+                "SELECT DISTINCT pg_get_userbyid(p.proowner) AS o FROM pg_proc p JOIN pg_namespace n"
+                " ON n.oid=p.pronamespace WHERE n.nspname='maezo_external' AND p.prosecdef"
+            )
+            assert {r["o"] for r in definers} <= {
+                "portal_external_source_definer",
+                "portal_external_checkpoint_definer",
+                "portal_external_ingress_reader",
+                "portal_external_publisher_definer",
+            } and definers
+            ext = await admin.fetch(
+                "SELECT rolname, rolcanlogin, EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid"
+                " OR m.roleid=r.oid) AS linked FROM pg_roles r WHERE starts_with(rolname,'portal_external_')"
+            )
+            assert len(ext) == 7 and not [r for r in ext if r["rolcanlogin"] or r["linked"]]
         finally:
             await admin.close()
 
-        # O grant de coluna em mzo_auth_guide_claim, depois da instalacao AUTH (simulada pelo dono).
+        # D-J.4 2.a: o catalogo AUTH/consumer instalado pelo script e o pin que os instaladores Java
+        # exigem; qualquer divergencia muda o digest (o Java recusa: NativeCatalogPinPgTest).
         owner = await env.login("maezo_native_schema_owner")
         try:
-            await _refused_or_raise(owner, _sql("engine-native-post-auth-grants.sql"))
-            await owner.execute("SET search_path TO maezo_native")
-            await owner.execute(_AUTH_DDL.read_text(encoding="utf-8"))
-            await owner.execute(_sql("engine-native-post-auth-grants.sql"))
-            await owner.execute(_sql("engine-native-post-auth-grants.sql"))
+            for family, tables in _FAMILIES.items():
+                assert await _catalog_digest(owner, tables) == _pin(family), family
+            tx = owner.transaction()
+            await tx.start()
+            await owner.execute("GRANT DELETE ON maezo_native.mzo_auth_trust TO cibseven_app")
+            assert await _catalog_digest(owner, _FAMILIES["auth"]) != _pin("auth")
+            await tx.rollback()
+            tx = owner.transaction()
+            await tx.start()
+            await owner.execute("ALTER TABLE maezo_native.mzo_human_consumer_link ADD COLUMN x_ int")
+            assert await _catalog_digest(owner, _FAMILIES["consumer-lineage"]) != _pin("consumer-lineage")
+            await tx.rollback()
         finally:
             await owner.close()
         issuer = await env.login("maezo_native_case_issuer")
@@ -407,6 +492,11 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
             await _refused(issuer, "SELECT guide_ FROM maezo_native.mzo_auth_guide_claim")
         finally:
             await issuer.close()
+        engine = await env.login("cibseven_app")
+        try:
+            await _refused(engine, "CREATE TABLE maezo_native.mzo_auth_x(x int)")
+        finally:
+            await engine.close()
 
     _run(check)
 
@@ -488,6 +578,15 @@ def test_roles_refuse_set_role_reachability_bad_verifier_and_foreign_owner() -> 
             finally:
                 await owner.close()
             await admin.execute("REVOKE maezo_native_schema_owner FROM cibseven_app")
+            # D-J.4 2.b: definer externo com membership com o dono (em qualquer direcao): recusa.
+            for grant in (
+                "GRANT portal_external_source_definer TO maezo_native_schema_owner",
+                "GRANT maezo_native_schema_owner TO portal_external_source_definer",
+            ):
+                await admin.execute(grant)
+                with pytest.raises(asyncpg.RaiseError, match="membro|membership"):
+                    await env.roles(admin)
+                await admin.execute(grant.replace("GRANT", "REVOKE").replace(" TO ", " FROM "))
             # Verificador que nao e SCRAM: recusa (nunca uma senha em claro).
             await admin.execute(
                 "SELECT set_config($1,'hunter2',false)", "maezo.verifier.maezo_native_case_issuer"

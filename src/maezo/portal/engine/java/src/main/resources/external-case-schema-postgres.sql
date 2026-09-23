@@ -1,15 +1,9 @@
 -- W6A approved interface, installation-only additive PostgreSQL migration.
 -- Execute only as migration owner after effective-role review. No ACT_* DDL or startup migration.
 -- Actual LOGIN roles and scope bindings are independently provisioned; no default tenant/data.
-CREATE SCHEMA maezo_external;
+-- D-J.4: o schema e os papeis portal_external_* vem de deploy/sql/engine-native-roles.sql (admin);
+-- a posse das funcoes SECURITY DEFINER, de deploy/sql/external-case-owners.sql (admin, depois).
 REVOKE ALL ON SCHEMA maezo_external FROM PUBLIC;
-CREATE ROLE portal_external_source_importer NOLOGIN;
-CREATE ROLE portal_external_case_publisher NOLOGIN;
-CREATE ROLE portal_external_case_runtime NOLOGIN;
-CREATE ROLE portal_external_source_definer NOLOGIN;
-CREATE ROLE portal_external_ingress_reader NOLOGIN;
-CREATE ROLE portal_external_checkpoint_definer NOLOGIN;
-CREATE ROLE portal_external_publisher_definer NOLOGIN;
 GRANT USAGE ON SCHEMA maezo_external TO portal_external_source_importer,
  portal_external_case_publisher,portal_external_case_runtime,
  portal_external_source_definer,portal_external_checkpoint_definer,portal_external_publisher_definer,portal_external_ingress_reader;
@@ -202,7 +196,6 @@ BEGIN
  IF d IS NULL THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  RETURN d;
 END $$;
-ALTER FUNCTION maezo_external.lock_ingress(jsonb) OWNER TO portal_external_source_definer;
 REVOKE ALL ON FUNCTION maezo_external.lock_ingress(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.lock_ingress(jsonb) TO portal_external_checkpoint_definer;
 
@@ -304,10 +297,6 @@ BEGIN
 END $$;
 
 -- Function owners cannot be assumed by caller roles. No direct importer table writes.
-ALTER FUNCTION maezo_external.reserve_external_case_ref(jsonb,text) OWNER TO portal_external_source_definer;
-ALTER FUNCTION maezo_external.accept_external_case_source(jsonb,text,bigint,text,bytea) OWNER TO portal_external_source_definer;
-ALTER FUNCTION maezo_external.revoke_external_case_source(jsonb,text,bigint,text,bytea) OWNER TO portal_external_source_definer;
-ALTER FUNCTION maezo_external.accept_external_scope_checkpoint(jsonb,text,bigint,text,bytea) OWNER TO portal_external_checkpoint_definer;
 REVOKE ALL ON ALL TABLES IN SCHEMA maezo_external FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA maezo_external FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.reserve_external_case_ref(jsonb,text),
@@ -432,7 +421,6 @@ BEGIN
  RETURN QUERY SELECT scope_binding,a.designation_digest::text,a.canonical_designation,
  a.installation_receipt,native_rev,pins,historic;
 END $$;
-ALTER FUNCTION maezo_external.lock_external_ingress_authority(jsonb,text,text,text) OWNER TO portal_external_ingress_reader;
 REVOKE ALL ON FUNCTION maezo_external.lock_external_ingress_authority(jsonb,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.lock_external_ingress_authority(jsonb,text,text,text) TO portal_external_source_importer;
 GRANT EXECUTE ON FUNCTION maezo_external.receipt_json(jsonb) TO portal_external_ingress_reader;
@@ -462,7 +450,6 @@ BEGIN
  PERFORM 1 FROM maezo_native.mzo_human_tenant WHERE tenant_=scope_binding->>'tenant' FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
 END $$;
-ALTER FUNCTION maezo_external.lock_publisher(jsonb) OWNER TO portal_external_publisher_definer;
 REVOKE ALL ON FUNCTION maezo_external.lock_publisher(jsonb) FROM PUBLIC;
 
 CREATE FUNCTION maezo_external.capture_external_case(scope_binding jsonb, publication text, claimant text, deadline timestamptz)
@@ -542,9 +529,6 @@ BEGIN
  UPDATE maezo_external.mzo_external_publication_outbox x SET delivery_state='committed',native_receipt=receipt WHERE x.tenant=scope_binding->>'tenant' AND x.environment=scope_binding->>'environment' AND x.engine_name=scope_binding->>'engine_name' AND x.database_incarnation=scope_binding->>'database_incarnation' AND x.publication_id=publication;
  RETURN true;
 END $$;
-ALTER FUNCTION maezo_external.capture_external_case(jsonb,text,text,timestamptz) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.persist_external_case(jsonb,text,text,bigint,bytea) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.transition_external_case(jsonb,text,text,bigint,text,bytea,text) OWNER TO portal_external_publisher_definer;
 REVOKE ALL ON FUNCTION maezo_external.capture_external_case(jsonb,text,text,timestamptz),maezo_external.persist_external_case(jsonb,text,text,bigint,bytea),maezo_external.transition_external_case(jsonb,text,text,bigint,text,bytea,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.capture_external_case(jsonb,text,text,timestamptz),maezo_external.persist_external_case(jsonb,text,text,bigint,bytea),maezo_external.transition_external_case(jsonb,text,text,bigint,text,bytea,text) TO portal_external_case_publisher;
 
@@ -606,9 +590,6 @@ BEGIN
  UPDATE maezo_external.mzo_external_checkpoint_outbox x SET delivery_state='committed',native_receipt=receipt WHERE x.tenant=scope_binding->>'tenant' AND x.environment=scope_binding->>'environment' AND x.engine_name=scope_binding->>'engine_name' AND x.database_incarnation=scope_binding->>'database_incarnation' AND x.publication_id=publication;
  RETURN true;
 END $$;
-ALTER FUNCTION maezo_external.capture_external_checkpoint(jsonb,text,text,timestamptz) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.persist_external_checkpoint(jsonb,text,text,bigint,bytea) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.transition_external_checkpoint(jsonb,text,text,bigint,text,bytea,text) OWNER TO portal_external_publisher_definer;
 REVOKE ALL ON FUNCTION maezo_external.capture_external_checkpoint(jsonb,text,text,timestamptz),maezo_external.persist_external_checkpoint(jsonb,text,text,bigint,bytea),maezo_external.transition_external_checkpoint(jsonb,text,text,bigint,text,bytea,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.capture_external_checkpoint(jsonb,text,text,timestamptz),maezo_external.persist_external_checkpoint(jsonb,text,text,bigint,bytea),maezo_external.transition_external_checkpoint(jsonb,text,text,bigint,text,bytea,text) TO portal_external_case_publisher;
 
