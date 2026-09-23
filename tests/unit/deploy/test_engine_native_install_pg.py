@@ -394,6 +394,27 @@ def test_roles_refuse_set_role_reachability_bad_verifier_and_foreign_owner() -> 
             with pytest.raises(asyncpg.RaiseError, match="membro de um papel"):
                 await env.roles(admin)
             await admin.execute("REVOKE maezo_app FROM portal_read_source_amh")
+            # Alguem membro de um dos logins (o engine no dono nativo): recusa nos dois scripts.
+            await admin.execute("GRANT maezo_native_schema_owner TO cibseven_app")
+            with pytest.raises(asyncpg.RaiseError, match="alguem e membro de maezo_native_schema_owner"):
+                await env.roles(admin)
+            owner = await env.login("maezo_native_schema_owner")
+            try:
+                with pytest.raises(asyncpg.RaiseError, match="alcanca o dono nativo"):
+                    await owner.execute(_sql("engine-native-install.sql"))
+            finally:
+                await owner.close()
+            await admin.execute("REVOKE maezo_native_schema_owner FROM cibseven_app")
+            await admin.execute(
+                "GRANT maezo_native_schema_owner TO cibseven_app WITH INHERIT FALSE, SET TRUE"
+            )
+            owner = await env.login("maezo_native_schema_owner")
+            try:
+                with pytest.raises(asyncpg.RaiseError, match="alcanca o dono nativo"):
+                    await owner.execute(_sql("engine-native-install.sql"))
+            finally:
+                await owner.close()
+            await admin.execute("REVOKE maezo_native_schema_owner FROM cibseven_app")
             # Verificador que nao e SCRAM: recusa (nunca uma senha em claro).
             await admin.execute(
                 "SELECT set_config($1,'hunter2',false)", "maezo.verifier.maezo_native_case_issuer"

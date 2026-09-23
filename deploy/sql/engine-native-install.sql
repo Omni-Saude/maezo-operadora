@@ -488,6 +488,11 @@ DECLARE
  l oid := 'maezo_native.mzo_staff_case_issuer_ledger'::regclass;
  anything text := 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE';
 BEGIN
+ -- SoD do schema inteiro: o engine nao alcanca o dono nem por heranca nem por SET ROLE.
+ IF pg_has_role('cibseven_app', 'maezo_native_schema_owner', 'USAGE')
+    OR pg_has_role('cibseven_app', 'maezo_native_schema_owner', 'SET') THEN
+   RAISE EXCEPTION 'engine-native-install: cibseven_app alcanca o dono nativo';
+ END IF;
  IF EXISTS(SELECT 1 FROM pg_attribute a WHERE a.attrelid=t AND a.attacl IS NOT NULL)
     OR EXISTS(SELECT 1 FROM pg_trigger g WHERE g.tgrelid=t)
     OR EXISTS(SELECT 1 FROM pg_rewrite w WHERE w.ev_class=t)

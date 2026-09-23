@@ -33,6 +33,13 @@ BEGIN
    IF EXISTS(SELECT 1 FROM pg_auth_members a JOIN pg_roles r ON r.oid=a.member WHERE r.rolname=login) THEN
      RAISE EXCEPTION 'engine-native-roles: % e membro de um papel', login;
    END IF;
+   -- E ninguem e membro dele. Unica excecao: o ADMIN implicito (sem INHERIT/SET) que o PG 16+ da
+   -- a quem cria o papel sem ser superusuario (a role de administracao do RDS).
+   IF EXISTS(SELECT 1 FROM pg_auth_members a JOIN pg_roles r ON r.oid=a.roleid WHERE r.rolname=login
+             AND NOT (a.member=(SELECT oid FROM pg_roles WHERE rolname=current_user)
+                      AND a.admin_option AND NOT a.inherit_option AND NOT a.set_option)) THEN
+     RAISE EXCEPTION 'engine-native-roles: alguem e membro de %', login;
+   END IF;
  END LOOP;
 END $roles$;
 
