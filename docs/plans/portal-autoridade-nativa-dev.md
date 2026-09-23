@@ -10,6 +10,12 @@ APROVA (§4) e o aprovador é uma pessoa nomeada pelo dono (§6).
 Regra de leitura: toda afirmação de fato traz `arquivo:linha` ou o comando que a mede. O que
 depende de execução e não foi executado está marcado **NÃO VERIFICADO**.
 
+**Onda 0 medida em 23/09/2026** (infra-specialist; M1 e M2 só leitura na conta, S1 local; §7).
+Resultado: **D-C refutada** e substituída por **D-C2** (§2). As medições também corrigiram
+três premissas do plano: o `/cases` depende da autoridade Q2 do engine (`PortalReadPlugin` com um
+provedor SPI que não existe), o DDL staff não instala em PostgreSQL, e o perfil staff exige o
+plano AUTH instalado. Cada correção está marcada **[Onda 0]** no ponto do texto em que vale.
+
 ---
 
 ## 0. Resumo em uma tela
@@ -33,6 +39,12 @@ depende de execução e não foi executado está marcado **NÃO VERIFICADO**.
 4. O plano tem 9 ondas (0 a 8). As Ondas 0 a 7 entregam `/cases` com um caso real em 3 a 5
    semanas: o flip de capabilities acontece na Onda 6 e a aceitação na Onda 7. A fila de tarefas
    (Onda 8) leva mais 3 a 6 semanas, estimativa de baixa confiança.
+   **[Onda 0] Essa estimativa não vale mais** (§5). Toda rota staff passa por
+   `PortalReadPlugin.staffLease` (`HumanCommandPlugin.java:209`), e o `PortalReadPlugin` não sobe
+   sem um provedor `PortalReadTrust.Providers` que **não existe no repositório**. S1 executou isso:
+   a imagem `INSTALL_PORTAL_READ=true` morre no boot com `READ_DEPENDENCY_UNAVAILABLE`. Assim, a
+   autoridade Q2 do engine, que o plano punha na Onda 8, fica no caminho crítico de `/cases`
+   (nova T1.7).
 
 ---
 
@@ -119,10 +131,15 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
 
 | # | Incompatibilidade | Prova (leitura) | Status |
 |---|---|---|---|
-| I1 | A função de lock referencia `public.portal_sessions` e `public.portal_memberships`, mas em dev as tabelas estão no schema `amh`: a migration cria sem qualificar, com `search_path` `{tenant}, public`, e a role `portal_bff_amh` usa `search_path=amh` | `external-case-schema-postgres.sql:658`, `:663`, `:669`; `src/maezo/platform/migrations/env.py:57-62`; `0012_portal_identity_session.py:36-45` | Lido. Plpgsql não valida a relação no `CREATE`: a função instala e **falha na 1ª chamada**. NÃO VERIFICADO por execução |
-| I2 | O witness Python e o `StaffCaseStore` Java só aceitam `mzo_*` em `nspname='public'`. O Java ainda exige `databaseSchema` nulo ou `public`. O engine de dev usa `currentSchema=cibseven` no JDBC, e o SQL sem qualificação do plugin (`FROM MZO_PORTAL_READ_MEMBERSHIP`) resolve pelo `search_path` | `postgres.py:241`, `:266`; `StaffCaseStore.java:31-33`, `:44`; `service-cibseven.tf:90` | Lido. NÃO VERIFICADO |
-| I3 | O plano staff exige `authorizationEnabled` e `tenantCheckEnabled` no engine **compartilhado** que serve Helena/worker/agentes | `HumanCommandPlugin.java:64` | O descritor secured herda `authorizationEnabled=true` (`secured/descriptors/bpm-platform.xml:16`). O valor no engine vivo está NÃO VERIFICADO |
+| I1 | A função de lock referencia `public.portal_sessions` e `public.portal_memberships`, mas em dev as tabelas estão no schema `amh`: a migration cria sem qualificar, com `search_path` `{tenant}, public`, e a role `portal_bff_amh` usa `search_path=amh` | `external-case-schema-postgres.sql:658`, `:663`, `:669`; `src/maezo/platform/migrations/env.py:57-62`; `0012_portal_identity_session.py:36-45` | Lido. Plpgsql não valida a relação no `CREATE`: a função instala e **falha na 1ª chamada**. **[Onda 0] Catálogo confirma** (M2): `amh.portal_sessions`/`amh.portal_memberships` existem, `public.portal_*` não, e o schema `portal_identity` não existe. A falha da função em si continua NÃO VERIFICADA por execução |
+| I2 | O witness Python e o `StaffCaseStore` Java só aceitam `mzo_*` em `nspname='public'`. O Java ainda exige `databaseSchema` nulo ou `public`. O engine de dev usa `currentSchema=cibseven` no JDBC, e o SQL sem qualificação do plugin (`FROM MZO_PORTAL_READ_MEMBERSHIP`) resolve pelo `search_path` | `postgres.py:241`, `:266`; `StaffCaseStore.java:31-33`, `:44`; `service-cibseven.tf:90` | **[Onda 0] Provado por execução** (S1 R1): com `currentSchema=cibseven` e `MZO_*` em outro schema, o engine cria os 49 `ACT_*` e morre em `postProcessEngineBuild` com `human engine store unavailable`, porque `MZO_HUMAN_TENANT` não resolve. É o que aconteceria hoje em dev se só a imagem fosse trocada |
+| I3 | O plano staff exige `authorizationEnabled` e `tenantCheckEnabled` no engine **compartilhado** que serve Helena/worker/agentes | `HumanCommandPlugin.java:64` | O descritor secured herda `authorizationEnabled=true` (`secured/descriptors/bpm-platform.xml:16`). **[Onda 0] Medido** (M1): o engine vivo **já** tem `authorizationEnabled=true` (`/camunda/conf/bpm-platform.xml:18`). `tenantCheckEnabled` não aparece no descritor, então vale o default do engine (true), o que continua NÃO VERIFICADO por execução. Ligar o plugin não muda essas duas flags |
 | I4 | A imagem "secured" fecha o `engine-rest` por certificado, e worker/agentes/canal chamam sem credencial (a migração de callers é o pacote C, pendente) | `secured/README.md:10-15`, `:196-198`; `deploy/cibseven/Dockerfile:14-21` | Lido. Trocar o engine de dev para `secured-v2` **derruba a Helena**. Por isso o plano usa `Dockerfile.human` |
+| I5 **[Onda 0]** | **O plano AUTH, obrigatório para staff, não qualifica com D-C.** `staffConfigured()` exige `authRuntime` (`HumanCommandPlugin.java:60-65`). `AuthInstallation.runtime` relê, **na conexão do engine**, `ConsumerEdgeInstallation.session(owner=false)`, que exige quatro coisas: `current_schema()` = schema das `mzo_auth_*`, dono desse schema ≠ login do engine, login do engine **sem CREATE** nele e sem nenhuma role-membro. Com `currentSchema=cibseven,public`, `current_schema()` vira `cibseven`, e o dono e o CREATE são do próprio `cibseven_app` | `AuthInstallation.java:90-94`; `ConsumerEdgeInstallation.java:60-74`; `AuthInstallation.java:21` (`owner_role ≠ runtime_role`) | **Provado** (S1 R2, SQL das mesmas precondições como `cibseven_app`): `current_schema=cibseven`, `owner=cibseven_app`, `owner_differs=f`, `runtime_lacks_create=f` |
+| I6 **[Onda 0]** | **`INSTALL_PORTAL_READ=true` não sobe.** `PortalReadPlugin.preInit` exige `MAEZO_PORTAL_READ_TRUST_FILE` **e exatamente um** `PortalReadTrust.Providers` via `ServiceLoader`. Não existe implementação nem registro `META-INF/services` no repositório, só provedores anônimos de teste | `PortalReadPlugin.java:19-24`; `find src/maezo/portal/engine/java -path "*META-INF/services*"` → vazio; `LIFECYCLE.md:128-143` ("Q2 cannot currently be built from configuration alone") | **Provado** (S1 R0): Tomcat não sobe, `ENGINE-08043 … Start process engine default: READ_DEPENDENCY_UNAVAILABLE`. Staff precisa dele: `executeStaff` chama `PortalReadPlugin.staffLease` em **toda** operação (`HumanCommandPlugin.java:209`) e o `Q2Intersection` monta um `PortalReadCommand` com a admissão Q2 (`StaffCaseReadCommand.java:290-306`) |
+| I7 **[Onda 0]** | **O DDL staff não instala em PostgreSQL.** Três `FOREIGN KEY` sem lista de colunas apontam para tabelas cuja PK tem uma coluna a menos: `designation_current` (6 colunas) → `designation_event` (PK de 5); `policy_current`/`policy_dependency` (7) → `policy_version` (PK de 6). O único teste que abre o arquivo faz busca de string (`StaffCaseListRepairTest.java:98-104`) | `staff-case-schema-postgres.sql:18-19`, `:112-113`, `:120-121` | **Provado** (S1, PG 17.11): `ERROR: number of referencing and referenced columns for foreign key disagree` na linha 19. O spike seguiu com um patch local (lista explícita das colunas da UNIQUE), sem alterar o repo |
+| I8 **[Onda 0]** | **A matriz de grants do DDL staff contradiz o `StaffCaseStore`.** O store trata como imutável só o que termina em `_event/_receipt/_continuity/_cursor/_version/_dependency` e, para as outras, **exige UPDATE**. `mzo_staff_case_checkpoint_chunk` recebe só `SELECT,INSERT` no DDL, então o pin recusa **toda** chamada staff | `StaffCaseStore.java:50-60`; `staff-case-schema-postgres.sql:138` (grant `SELECT,INSERT` inclui `checkpoint_chunk`) | **Provado** (S1 R2, matriz lida como `cibseven_app`): `checkpoint_chunk ins=t upd=f`. A correção (sufixo `_chunk` imutável no código **ou** UPDATE no DDL) é do backend: decide o que é imutável |
+| I9 **[Onda 0]** | **Ordem do primeiro boot.** Quando o login do engine não tem CREATE no primeiro schema do path (o que I5 exige), um banco **vazio** não sobe: o auto-update tenta criar `ACT_*` ali | S1 R4 | **Provado**: `ENGINE-03015 … permission denied for schema public`. Em dev o `ACT_*` já existe (49 tabelas em `cibseven`, M2), então isso não bloqueia; é regra de DR e restore: subir primeiro com `currentSchema=cibseven` |
 
 ---
 
@@ -134,6 +151,12 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   Não se cria um engine separado: a fila e os casos que interessam (as escalações da Helena)
   estão **neste** engine e **neste** banco. Trade-off aceito: em dev a fronteira D7 (bypass pelo
   REST) continua aberta. Isso é dívida registrada e não vale para staging nem produção.
+  **[Onda 0] Correção:** com `INSTALL_PORTAL_READ=true` a imagem só sobe quando existe o provedor
+  `PortalReadTrust.Providers` qualificado (I6), e ele não existe. Até a T1.7 fechar, a única imagem
+  que sobe é `INSTALL_PORTAL_READ=false`, e nela toda rota staff devolve `503
+  HUMAN_ENGINE_UNAVAILABLE` (S1). O restante de D-A continua valendo. O engine vivo é
+  `cibseven` 2.1.0 com `engine_name=default`, a imagem `amh/cibseven-maezo@sha256:6f478e23…`
+  (task definition `maezo-operadora-dev-cibseven:5`) e nenhum JAR Maezo (M1).
 - **D-B. Transporte: NLB interno TCP 443 → Tomcat 8443, TLS de ponta a ponta.** O `native_origin`
   tem que ser HTTPS numa porta que só pode ser 443 (`production_config.py:58`;
   `portal-variables.tf:112`), e o Tomcat roda como uid 1000, que não abre porta abaixo de 1024.
@@ -145,13 +168,39 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   é deste state, `security_groups.tf:11`). Custo: um NLB interno. Alternativa rejeitada: sysctl
   `ip_unprivileged_port_start` no Fargate (suporte NÃO VERIFICADO, e acopla a porta de negócio
   ao kernel).
-- **D-C. Relações `mzo_*` em `public` e engine com `currentSchema=cibseven,public`.** Resolve o
-  I2 **sem mudar código nem schema de manifesto**: o `ACT_*` continua em `cibseven` (primeiro do
-  path) e o `MZO_*` resolve em `public`, que é o que os dois validadores exigem. **Condicionada ao
-  spike da Onda 0** (auto-update de schema do engine com dois schemas no path; nenhuma colisão
-  `ACT_`/`MZO_` em `public`). Se o spike falhar, o substituto é mudança de código com ADR (schema
-  nativo pinado no manifesto, `portal-staff-material.v2`), e as Ondas 1-3 crescem cerca de 1
-  semana.
+- ~~**D-C. Relações `mzo_*` em `public` e engine com `currentSchema=cibseven,public`.**~~
+  **REFUTADA na Onda 0 (23/09/2026).** O que ela prometia funciona: o engine sobe, o auto-update
+  mantém os 49 `ACT_*` em `cibseven`, `MZO_*` resolve em `public` e o pin do `StaffCaseStore` passa
+  (S1 R2). O que ela não viu é o plano AUTH, obrigatório para staff. Ele exige que
+  `current_schema()` da conexão do engine seja o schema das `mzo_auth_*`, com dono ≠ login do
+  engine e sem CREATE para ele (I5). Com `cibseven` primeiro no path, `current_schema()` é
+  `cibseven`, que é do próprio `cibseven_app`. Nenhum layout com `cibseven` na frente qualifica.
+  A inversão `currentSchema=public,cibseven` passa nas precondições de sessão (S1 R3), mas foi
+  **rejeitada** por três motivos: (i) o dono de `public` é `pg_database_owner`, uma role reservada
+  que não faz login (`ALTER ROLE … LOGIN` → `role name "pg_database_owner" is reserved`), e a
+  instalação AUTH exige login = dono do schema, o que obrigaria a trocar o dono de `public` no banco
+  compartilhado; (ii) `maezo_app` tem CREATE em `public` (M2) e com `public` na frente qualquer
+  tabela criada ali **sombreia** o `ACT_*` do engine (S1: `public.act_ge_property` passou a ser a
+  resolvida); (iii) as tabelas `checkpoint*` do checkpointer da Helena moram em `public`.
+- **D-C2 (substitui D-C). Schema nativo dedicado, pinado, na frente do path do engine.**
+  - **Layout:** um schema novo (proposta `maezo_native`, nome final no ADR) no database `maezo`,
+    dono um login de instalação dedicado (proposta `maezo_native_owner`), que não é `maezo_app`,
+    nem `cibseven_app`, nem master. Nele ficam **todas** as `mzo_*`: human, portal-read, staff e
+    auth. O engine roda com `currentSchema=maezo_native,cibseven` e `cibseven_app` recebe só
+    `USAGE` no schema e os grants de tabela de cada DDL.
+  - **Código (com ADR):** o `nspname='public'` fixo do `StaffCaseStore` (`StaffCaseStore.java:44`)
+    e do witness (`postgres.py:241`, `:266`) vira schema pinado no manifesto,
+    `portal-staff-material.v2`.
+  - **Provas no spike:** S1 R5 subiu o engine nesse layout. `ACT_*` ficou em `cibseven`, `MZO_*`
+    resolveu em `maezo_native`, as precondições AUTH passaram (`owner=native_owner≠cibseven_app`,
+    sem CREATE, sem membership) e o SQL de pin staff com `nspname='maezo_native'` passou nas 14
+    relações. O mTLS se comportou igual.
+  - **Sombreamento:** só o dono cria no schema da frente.
+  - **O que D-C2 herda:** a regra do primeiro boot (I9). Ela não afeta dev, onde o `ACT_*` já
+    existe, mas vira passo do runbook de DR.
+  - **Custo:** o "~1 semana" que o plano previa para o substituto, mais a T1.8 (§3).
+  - **Dono da decisão:** esta é uma proposta de infra a partir da medição. **Quem decide D-C2 é o
+    software-architect**, com o ADR.
 - **D-D. A função de lock é instalada numa variante por tenant** (`amh.portal_sessions`,
   `amh.portal_memberships`), gerada do bloco canônico por substituição revisada, com
   `search_path=pg_catalog, portal_identity` intacto (o runtime confere `proconfig` exato,
@@ -192,6 +241,11 @@ role de administração/migration: **não** o portal (`portal.md:41-49`, `:195`)
 | **M2 · bancos** | Numa task avulsa in-VPC read-only (receita da sonda): `current_database()` do DSN do portal e do engine (são o mesmo database?); `to_regclass('amh.portal_sessions')`, `to_regclass('public.portal_sessions')`; `SELECT nspname FROM pg_namespace`; colisão `SELECT relname FROM pg_class c JOIN pg_namespace n … WHERE nspname='public' AND relname ILIKE 'mzo\_%' OR relname ILIKE 'act\_%'` |
 | **S1 · spike local (o que decide D-C)** | Com o harness `deploy/cibseven/package-test/` (Postgres descartável): imagem `Dockerfile.human` `INSTALL_PORTAL_READ=true`, `currentSchema=cibseven,public`, DDL `mzo_*` em `public`. Provar: engine sobe com auto-update; `ACT_*` fica em `cibseven`; `StaffCaseStore` passa o pin de `public`; handshake mTLS com o cliente Python (`StaffNativeClient`) devolve uma recusa **fechada** do plugin (não 404 nem 503 de Tomcat) |
 
+- **[Onda 0] FECHADA em 23/09/2026.** Resultados em §7. D-C refutada e substituída por D-C2.
+  S1 não usou `StaffNativeClient` em si: ele exige signer e `InstalledStaffAuthority`, que são
+  materiais da T1.3. Usou a mesma forma de TLS do cliente
+  (`ssl.create_default_context(cafile)` + `load_cert_chain`, `publisher.py:173-179`). O handshake
+  com o próprio `StaffNativeClient` fica para quando a T1.3 existir.
 - **Onde roda:** conta de dev (M1 e M2, só leitura) e estação local (S1).
 - **Pré-requisito:** nenhum.
 - **Pronto quando:** os 3 resultados estão anotados neste arquivo (§7) com o comando exato;
@@ -211,13 +265,36 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
 | T1.4 | backend/Python + SQL | `deploy/sql/portal-identity-lock.sql.tmpl` (novo, variante por tenant, D-D) + `deploy/sql/engine-native-install.sql` (ordem dos resources `mzo_*` + login witness SELECT-only + grants) + teste que compara o template com o bloco canônico (`external-case-schema-postgres.sql:636-672`), com diferença **só** no schema | teste verde; diff revisado |
 | T1.5 | backend/Python | `src/maezo/gateway/human/membership_publication_job.py` (novo `__main__`): publica `portal_memberships` → engine (`PortalReadPublication`) e principal → `/v1/authority`, idempotente por revisão | teste de integração contra o harness; 2ª execução não muda nada (CAS) |
 | T1.6 | backend/Python | fonte de publicação de casos staff (`case_issuer`): lê as escalações vivas e publica `staff_case_grant` / `staff_policy_head` / `scope_complete`. **Bloqueada pela decisão de negócio N3** (§6): qual grupo vê qual caso | teste de integração; grant só para o grupo decidido |
+| T1.7 **[Onda 0]** | backend/Java (pacote revisado à parte) | **Provedor Q2 do engine:** uma implementação `PortalReadTrust.Providers` com registro `META-INF/services/br.com.maezo.human.PortalReadTrust$Providers` na imagem. Ela faz admissão viva por escopo, encarnação, digests e propósito, com validade, revogação e timeout, e traz custódia das chaves de continuidade nativas e qualificação das publicações (catálogo, membership, principal). Os requisitos estão em `LIFECYCLE.md:128-143` ("never copy the anonymous Java test provider"). Sem ela o `PortalReadPlugin` não sobe (I6) e nenhuma rota staff responde | engine `INSTALL_PORTAL_READ=true` sobe no harness com trust real, e `staff-case-list` passa do `staffLease`; teste negativo com provedor ausente ou duplicado → boot recusado |
+| T1.8 **[Onda 0]** | backend/Java + Python (com ADR) | **Schema nativo pinado (D-C2):** `StaffCaseStore.java:44` e o witness (`postgres.py:241`, `:266`) deixam o `'public'` fixo e passam a comparar com o schema pinado; o manifesto sobe para `portal-staff-material.v2` com o campo novo; a validação de settings e o Terraform aprendem esse campo | testes: o pin recusa um schema diferente do pinado e um `public` homônimo; ADR registrado |
+
+**[Onda 0] Acréscimos às tarefas existentes:**
+- **T1.4:** tem que corrigir o DDL canônico staff **antes** de gerar qualquer script. São as três
+  FKs de I7 (lista explícita das colunas da UNIQUE) e a matriz de `checkpoint_chunk` de I8, junto
+  com o backend. Precisa de um teste que **execute** o DDL num PostgreSQL 17 e releia a matriz de
+  grants contra `StaffCaseStore`, porque busca de string não pega esse tipo de erro. O
+  `engine-native-install.sql` instala no schema de D-C2 e **inclui o DDL AUTH**
+  (`human-auth-intake-documents-postgres.sql`) e `portal-read-schema-postgres.sql`, que o plano
+  não listava.
+- **T1.2:** o `DB_URL` alvo é `currentSchema=maezo_native,cibseven` (D-C2), não
+  `cibseven,public`. A imagem da Onda 4 só pode ter `INSTALL_PORTAL_READ=true` depois da T1.7.
+- **T1.3:** os certificados gerados devem trazer `AuthorityKeyIdentifier` e
+  `SubjectKeyIdentifier`. O harness atual não traz, e um cliente Python ≥ 3.13
+  (`VERIFY_X509_STRICT` ligado por padrão) recusa o servidor com `Missing Authority Key
+  Identifier` (S1, Python 3.14 local). O portal roda `python:3.12-slim` (`deploy/Dockerfile:85`),
+  então isso não quebra hoje, mas quebraria na próxima troca de Python.
 
 - **Onde roda:** repositório, CI e local. Aviso: o CI está bloqueado por billing do Actions desde
   22/09, então o "verde" é local até o billing voltar.
-- **Pré-requisito:** Onda 0 fechada (T1.2 e T1.4 dependem de D-C); T1.6 depende de N3.
+- **Pré-requisito:** Onda 0 fechada (T1.2, T1.4 e T1.8 dependem de D-C2, que exige ADR); T1.6
+  depende de N3; T1.7 não depende de decisão de negócio, mas é o maior item e o menos conhecido.
 - **Reversão:** revert do PR (nada foi implantado).
 - **Estimativa:** T1.1 3-4 d · T1.2 2 d · T1.3 3 d · T1.4 1-2 d · T1.5 3-4 d · T1.6 3-5 d. Em
   paralelo: **~1,5 a 2 semanas** de calendário.
+  **[Onda 0]** Somam-se a T1.8 (~1 semana, o custo que D-C já previa para o substituto), mais
+  1-2 d na T1.4 para as correções de DDL e o teste executável, e a **T1.7, NÃO ESTIMADA**. A T1.7
+  é o "next package" Q2 de `LIFECYCLE.md`: admissão viva, revogação e custódia de chaves. É do
+  mesmo porte das partes da Onda 8 que o plano estimava em semanas, com confiança baixa.
 
 ### Onda 2 — gerar os materiais (engenharia) e a raiz (aprovador)
 
@@ -243,6 +320,18 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
   `portal_staff_witness_amh` **SELECT-only** em `public.mzo_portal_read_membership` e
   `public.mzo_human_principal`, sem RLS nessas duas (o witness exige `relrowsecurity=false`,
   `postgres.py:254`), e a linha de designação instalada.
+  **[Onda 0] Com D-C2, troque `public` pelo schema nativo** e mude três coisas:
+  - **Banco:** o banco do engine **é o mesmo** banco de identidade. `maezo` recebe `cibseven_app`,
+    `maezo_app` e `portal_bff_amh` ao mesmo tempo (sessões vivas, M2), então as duas listas de
+    artefatos desta onda vão no mesmo database.
+  - **Instalação:** ela entra com o login dono do schema nativo, não com `maezo_app`. `maezo_app`
+    é dono do database e o runtime da Helena; se ele fosse dono das tabelas de autoridade, o
+    próprio app poderia gravar grants e designações.
+  - **AUTH:** a instalação AUTH entra nesta onda. São o DDL `mzo_auth_*` e as linhas de instalação
+    e designação por `AuthInstallation.installSchema`/`designate`, que exigem sessão do dono com
+    `current_schema()` = schema nativo e TLS (`ConsumerEdgeInstallation.java:60-69`). Os insumos de
+    qualificação AUTH (`human-auth-installation-qualification.v1`, `AuthInstallation.java:23-30`)
+    também não têm gerador hoje e entram na T1.3.
 - **Onde roda:** task avulsa in-VPC com a role de **administração/migration** (nunca
   `portal_bff_amh`, nunca master para DML de aplicação), executada pelo dono do banco ou por
   engenharia com autorização explícita dele para esta janela.
@@ -263,13 +352,16 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
   (keystore do servidor, truststore com a CA do cliente, trust files do `HumanCommandPlugin` e do
   `PortalReadPlugin`, entrada da T1.1), publicado pelo caminho D-G; Terraform: init
   container no `cibseven` (mesmo padrão do init do portal), `DB_URL` com
-  `currentSchema=cibseven,public`, `portMappings` 8443, NLB interno + target group TCP 8443 +
+  ~~`currentSchema=cibseven,public`~~ `currentSchema=maezo_native,cibseven` (**[Onda 0]** D-C2),
+  `portMappings` 8443, NLB interno + target group TCP 8443 +
   listener TCP 443, zona privada + registro, SG do NLB, ingress 8443 no SG do engine só a partir
   do SG do NLB.
 - **Onde roda:** `terraform plan`/`apply` do state `envs/dev-sa-east-1/maezo-operadora`, na
   receita conhecida: var-file PHI, 4 digests, cerca de plano. Janela combinada, porque **a
   Helena usa este engine**.
-- **Pré-requisito:** Ondas 1 (T1.1, T1.2), 2 e 3.
+- **Pré-requisito:** Ondas 1 (T1.1, T1.2), 2 e 3. **[Onda 0]** Também a T1.7, sem a qual a imagem
+  com `PortalReadPlugin` não sobe, e a T1.8. A janela está liberada pelo dono (N4, 23/09), mas só
+  vale quando esses pré-requisitos fecharem.
 - **Pronto quando:**
   1. serviço `cibseven` 1/1 estável;
   2. log do boot com a linha `staff_native_configuration_digest=` e nada além de valores
@@ -280,7 +372,12 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
   4. **bateria da Helena sem regressão** (mesma contagem OK/DIVERGE da última medida);
   5. `GET /engine-rest/version` continua 200 pela 8080 (worker e agentes intactos).
 - **Reversão:** voltar `engine_image_digest` para o anterior (`6f478e23…`, lido da task definition
-  viva antes do apply) e `DB_URL` para `currentSchema=cibseven`. As tabelas `mzo_*` são aditivas e
+  viva antes do apply) e `DB_URL` para `currentSchema=cibseven`. **[Onda 0]** O digest foi
+  confirmado na task viva em 23/09 (`sha256:6f478e230869d9fbe2dfa7dc58079134562dd8cd0d3cc5dac11adf8c5b9f27bf`,
+  task definition `:5`). A reversão da imagem precisa voltar **junto** com a do `DB_URL`: a
+  imagem nova com `currentSchema=cibseven` morre no boot (I2, S1 R1), e a antiga com o path novo
+  sobe, mas não serve para nada. Ao restaurar o banco do engine do zero, suba primeiro com
+  `currentSchema=cibseven` (I9). As tabelas `mzo_*` são aditivas e
   ficam. NLB, zona e SGs saem por `terraform apply` do commit anterior.
 - **Estimativa:** 1 a 2 dias (o apply em si é curto; a janela e a bateria custam o dia).
 
@@ -394,7 +491,7 @@ Pin que o aprovador não consegue recalcular sozinho não é aprovado.
 | `native_https_security_group_id`, `native_database_security_group_id`, `native_database_port` | destinos de egress | state Terraform + EC2 | `aws ec2 describe-security-groups --group-ids …`: VPC certa; ingress 443 do NLB só do SG do portal; porta 5432 igual ao host dos DSNs |
 | `maximum_seconds` | teto de espera | `native_maximum_seconds` do manifesto e configuração do engine | inteiro de 1 a 10, ≤ ao valor nativo |
 | *(dentro do manifesto)* `function_pin` | `oid`, `owner`, `definition_sha256` da função instalada | **Catálogo do banco de identidade** | `SELECT p.oid, pg_get_userbyid(p.proowner), encode(sha256(convert_to(pg_get_functiondef(p.oid),'UTF8')),'hex') FROM pg_proc p WHERE p.oid=to_regprocedure('portal_identity.lock_external_session(text)')`. Mesma fórmula do runtime, `production.py:138` |
-| *(dentro do manifesto)* `native_relation_pins` | `oid`, `owner` das 2 relações | **Catálogo do banco do engine** | `SELECT c.relname, c.oid, pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('mzo_portal_read_membership','mzo_human_principal')` |
+| *(dentro do manifesto)* `native_relation_pins` | `oid`, `owner` das 2 relações | **Catálogo do banco do engine** | `SELECT c.relname, c.oid, pg_get_userbyid(c.relowner) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('mzo_portal_read_membership','mzo_human_principal')`. **[Onda 0]** Com D-C2 o filtro é `n.nspname=<schema nativo pinado>`, e o próprio nome do schema vira pin do manifesto v2 (T1.8) |
 | *(arquivos públicos)* `session-lock-ca.pem`, `native-witness-ca.pem` | raízes RDS | bundle vendorizado e pins do repo | SHA-256 contra `deploy/certificates/README.md` |
 | *(arquivos públicos)* `native-ca.pem` | CA que emitiu o cert do servidor | o listener vivo | `openssl verify -CAfile native-ca.pem <cert lido do s_client>` → `OK` |
 | *(arquivos públicos)* `read-client-certificate.pem` | cert do cliente | designação assinada | SPKI do cert = `entries[read_requester].certificate_spki` |
@@ -417,8 +514,17 @@ com a identidade dele (N1).
 | 5 | 1-1,5 d | 1-2 d (agenda do aprovador) | alta |
 | 6 | 1 d | 1 d | alta |
 | 7 | 0,5-1 d | 1 d | média |
-| **0-7** | | **3-5 semanas** | |
+| **0-7** | | ~~**3-5 semanas**~~ **reestimar** (ver abaixo) | **baixa** |
 | 8 | não estimado com precisão | +3-6 semanas | **baixa** |
+
+**[Onda 0] A linha "0-7" não vale mais.** A Onda 0 custou ~0,5 dia (a S1 levou horas, não 2 a 3
+dias, porque o harness já existia). O resto cresce:
+- a Onda 1 ganha a T1.8 (~1 semana) e as correções de DDL (1-2 d);
+- a Onda 1 ganha também a **T1.7, que não foi estimada**. Ela é a autoridade Q2 do engine, que o
+  plano punha fora do caminho de `/cases`.
+Proposta de infra, **a validar pelo software-architect**: tratar a T1.7 como o mesmo risco da
+Onda 8. Enquanto ela não tiver desenho próprio, `/cases` fica em **5 a 9 semanas, confiança
+baixa**.
 
 Pode rodar em paralelo: as 5 tarefas da Onda 1 (T1.6 depois de N3); a Onda 2 com T1.1/T1.5
 assim que T1.3 fechar; a Onda 3 com a Onda 2. **Não** paraleliza: 4 → 5 → 6, porque os pins de
@@ -449,14 +555,145 @@ apply). A cadência é a decisão N2.
 6. **N6 — Se a meta é a fila de tarefas** (Onda 8, +3 a 6 semanas) ou se `/cases` (Onda 7) basta
    para o teste conjunto do diretor.
 
+**Decisões do dono em 23/09/2026:** N2 = 14 dias. N4 = ninguém usa o motor de dev, a troca da
+imagem (Onda 4) está liberada quando chegar a hora. N6 = a meta é `/cases` (Onda 7), a fila
+(Onda 8) fica fora. **Continuam abertas:** N1, N3 e N5.
+
+7. **N7 [Onda 0] — D-C2 (schema nativo dedicado + ADR)**, a substituta de D-C. Decisão técnica,
+   do software-architect e não do dono. Mesmo assim precisa de ciência do dono por dois motivos:
+   cria um schema e um login novos no database `maezo` compartilhado, e rejeita a alternativa que
+   mexeria no dono de `public`.
+8. **N8 [Onda 0] — Com a T1.7 no caminho crítico, `/cases` ainda é a meta certa?** O custo real de
+   `/cases` agora inclui a autoridade Q2 do engine. Reabre N6 com um número novo, que ainda não
+   existe.
+
 ---
 
 ## 7. Registro de medições (preencher na Onda 0)
 
 | Medição | Comando | Resultado | Data |
 |---|---|---|---|
-| M1 `authorizationEnabled`/`tenantCheck`/`engine_name` | §3 Onda 0 | *pendente* | |
-| M2 identity DB = engine DB? schema das tabelas do portal | §3 Onda 0 | *pendente* | |
-| M2 colisões `mzo_`/`act_` em `public` | §3 Onda 0 | *pendente* | |
-| S1 D-C (`currentSchema=cibseven,public`) | §3 Onda 0 | *pendente* | |
+| M1 `authorizationEnabled`/`tenantCheck`/`engine_name` | §7.1 | `authorizationEnabled=true`; `tenantCheck*` ausente (default); `engine_name=default`; 2.1.0; sem JAR Maezo | 23/09/2026 |
+| M2 identity DB = engine DB? schema das tabelas do portal | §7.2 | **mesmo database `maezo`** (sessões vivas de `cibseven_app`, `maezo_app` e `portal_bff_amh`); tabelas do portal só em `amh`; `portal_identity` não existe | 23/09/2026 |
+| M2 colisões `mzo_`/`act_` em `public` | §7.2 | **nenhuma**; `ACT_*` só em `cibseven` (49); nenhuma `mzo_*` em schema nenhum | 23/09/2026 |
+| S1 D-C (`currentSchema=cibseven,public`) | §7.3 | **REFUTADA** (AUTH, I5); substituta D-C2 com o engine subindo (R5); de quebra, I6, I7, I8 e I9 | 23/09/2026 |
 | Conta 203312548462: segredos `maezo-operadora/dev/portal/*` | `aws secretsmanager list-secrets` (thread principal, 23/09 UTC) | só `…/amh/session-dsn`; nenhum `staff-materials` | 23/09/2026 |
+
+### 7.1 M1 — engine vivo (23/09/2026, só leitura)
+
+Caminho: `ecs execute-command` no container `cibseven`, task
+`9fab9e2d436f43c0ae903f50715a399f`, iniciada em 20/09 17:43 -03. Perfil `adm-dev`, Git Bash com
+`MSYS_NO_PATHCONV=1`.
+
+```sh
+aws ecs describe-tasks --cluster maezo-operadora-dev --tasks 9fab9e2d436f43c0ae903f50715a399f \
+  --query "tasks[0].{td:taskDefinitionArn,digest:containers[0].imageDigest}"
+# td = task-definition/maezo-operadora-dev-cibseven:5
+# digest = sha256:6f478e230869d9fbe2dfa7dc58079134562dd8cd0d3cc5dac11adf8c5b9f27bf
+aws ecs execute-command --cluster maezo-operadora-dev --task 9fab9e2d436f43c0ae903f50715a399f \
+  --container cibseven --interactive --command "sh -c 'cat /camunda/conf/bpm-platform.xml'"
+#  9:  <process-engine name="default">
+# 17:      <property name="databaseSchemaUpdate">true</property>
+# 18:      <property name="authorizationEnabled">true</property>
+#     nenhum tenantCheckEnabled (vale o default do engine)
+#     plugins ativos: ProcessApplicationEventListenerPlugin, SpinProcessEnginePlugin,
+#     ConnectProcessEnginePlugin (LDAP e AdministratorAuthorizationPlugin estão COMENTADOS)
+aws ecs execute-command ... --command "sh -c 'curl -s localhost:8080/engine-rest/engine; curl -s localhost:8080/engine-rest/version'"
+# [{"name":"default"}]
+# {"version":"2.1.0"}
+aws ecs execute-command ... --command "sh -c 'env | grep -E \"^(DB_URL|DB_DRIVER|DB_SCHEMA_UPDATE)=\" | sed -E \"s#//[^/]+/#//<host>/#\"'"
+# DB_URL=jdbc:postgresql://<host>/maezo?currentSchema=cibseven   (sem sslmode explícito)
+aws ecs execute-command ... --command "sh -c 'ls /camunda/lib | grep -i -E \"maezo|human|portal\"; ls /camunda/webapps'"
+# nenhum JAR Maezo; webapps: ROOT camunda cibseven-welcome docs engine-rest examples host-manager manager webapp
+```
+
+Leitura: `scope.engine_name = default` (§4). O plugin não está no engine vivo, o que confirma
+§1.3. `authorizationEnabled` já está ligado, então o I3 não pede mudança de flag.
+
+### 7.2 M2 — bancos (23/09/2026, só leitura)
+
+Caminho: quatro tasks avulsas `run-task` com a TD `maezo-operadora-dev-webhook-receiver:17`,
+subnet `subnet-0e1f840dbec44e66a`, SG `sg-0e2aebe1a2c1d253d`, sem IP público. Override
+`command: ["python","-c",<script asyncpg>]`, sessão `SET SESSION CHARACTERISTICS AS TRANSACTION
+READ ONLY`, login `maezo_app`, só `SELECT` de catálogo, sem DSN nem senha no log. Tasks:
+`667517aa…`, `1c6b479e…`, `9a5017dd…`, `480cb283…`. Log em `/ecs/maezo-operadora-dev/webhook-receiver`,
+stream `webhook/webhook-receiver/<taskId>`.
+
+**Por que não usei a credencial do engine.** A TD do `cibseven` é Java, sem Python nem `psql`, e o
+`--overrides` do ECS não injeta `secrets`. Todas as perguntas da Onda 0 são de catálogo
+(`pg_class`, `pg_namespace`, `pg_roles`, `pg_stat_activity`), que qualquer login do database lê.
+
+| Consulta | Resultado |
+|---|---|
+| `current_database(), current_setting('server_version')` | `maezo`, **PostgreSQL 17.9** (Aurora `amh-aurora-hapi-dev`) |
+| `pg_stat_activity` por `usename, datname` | `cibseven_app→maezo` (5), `maezo_app→maezo` (6), `portal_bff_amh→maezo` (1), `hapi_app→hapi`. **O DSN do portal e o do engine apontam para o mesmo database** |
+| `pg_namespace` | `amh` (dono `maezo_app`), `cibseven` (dono `cibseven_app`), `public` (dono `pg_database_owner`) |
+| `pg_database.datdba` de `maezo` | `maezo_app`, que por isso é quem age como `pg_database_owner` em `public` |
+| ACL de `public` | `{pg_database_owner=UC, maezo_app=U, cibseven_app=U}`; PUBLIC sem direito |
+| `has_schema_privilege` | `cibseven_app`: CREATE em `cibseven` = t, em `public` = f; `maezo_app`: CREATE em `public` = t |
+| `pg_auth_members` de `cibseven_app` | vazio (AUTH exige isso, I5) |
+| `pg_roles` | `cibseven_app`, `maezo_app`, `portal_bff_amh`: sem super/createdb/createrole/bypassrls/replication; `portal_bff_amh.rolconfig = {search_path=amh}` |
+| relações do portal (`portal_sessions`, `portal_memberships`, …) | só em `amh`, dono `maezo_app`, `relrowsecurity=false` |
+| `to_regclass` | `amh.portal_sessions` ✓, `public.portal_sessions` = NULL, `amh.portal_memberships` ✓, `public.portal_memberships` = NULL |
+| `portal_identity` / `lock_external_session` | schema inexistente; função inexistente |
+| `public` ∩ (`mzo\_%` ∪ `act\_%`) | **vazio** |
+| `act\_%` por schema | só `cibseven` (49 tabelas) |
+| `mzo\_%` em qualquer schema | **vazio** (nenhuma relação nativa instalada) |
+| tabelas em `public` | `checkpoint_blobs`, `checkpoint_migrations`, `checkpoint_writes`, `checkpoints` (dono `maezo_app`: checkpointer da Helena) |
+| TLS das sessões | `maezo_app`: ssl=t. As sessões de `cibseven_app` não são visíveis para outro login: **NÃO VERIFICADO**. O JDBC não fixa `sslmode`, então o default do pgjdbc é `prefer`. AUTH exige TLS na conexão do engine (`ConsumerEdgeInstallation.java:69`); vale fixar `sslmode=verify-full` na T1.2 |
+
+### 7.3 S1 — spike local (23/09/2026, Docker Desktop 4.91 / Engine 29.8.0, nada na AWS)
+
+**Montagem do spike**
+
+- **Imagens**, construídas do SHA `aa8829bc3b92910d6b2590daacbf6f9a8e0cfc9e`, contexto na raiz:
+
+  ```sh
+  docker build -f deploy/cibseven/Dockerfile.human --build-arg INSTALL_PORTAL_READ=true  -t maezo-s1-human:onda0 .
+  # -> sha256:6ab9cbdc3e89…
+  docker build -f deploy/cibseven/Dockerfile.human --build-arg INSTALL_PORTAL_READ=false -t maezo-s1-human:onda0-noread .
+  # -> sha256:1db398dc04c5…
+  ```
+
+- **Fixture:** gerada por `prepare._generate_fixture` do harness (CA, servidor, clientes, trust,
+  `server.xml` com 8080 e 8443 TLS 1.3 `certificateVerification=required`). O `server.xml` recebeu
+  variantes só no `url` do JDBC, com usuário `cibseven_app`.
+- **Banco:** `postgres:17-alpine` (`sha256:d4bb0a8c…`, 17.11), com o layout medido em M2:
+  - `maezo` com dono `maezo_app`;
+  - `cibseven` com dono `cibseven_app`;
+  - `public` com a mesma ACL do dev;
+  - `mzo_*` (human + staff + staff-event) instaladas **por `maezo_app`** e grants para
+    `cibseven_app`.
+- **Descarte:** a fixture, com chaves e senhas, foi apagada ao final. Containers e rede foram
+  removidos.
+
+| Rodada | Configuração | Resultado |
+|---|---|---|
+| R0 | imagem `INSTALL_PORTAL_READ=true`, `cibseven,public` | **não sobe**: `ENGINE-08043 … 'Start process engine default': READ_DEPENDENCY_UNAVAILABLE` (I6) |
+| R1 | `noread`, `currentSchema=cibseven`, banco vazio | cria os 49 `ACT_*` em `cibseven` e morre em `human engine store unavailable` (I2 provado) |
+| R2 | `noread`, **`cibseven,public` (D-C)**, `ACT_*` existente | **sobe** (`Server startup in [21226] ms`) e sobe de novo no restart. `ACT_*` 49 em `cibseven`, 0 em `public`. `MZO_HUMAN_TENANT`, `ACT_GE_PROPERTY` e `mzo_staff_case_grant` resolvem. Pin staff (SQL do `StaffCaseStore`, `nspname='public'`) passa nas 14 relações. **Precondições AUTH falham**: `current_schema=cibseven`, `owner=cibseven_app`, `owner_differs=f`, `runtime_lacks_create=f` (I5). Matriz de escrita: `checkpoint_chunk upd=f` contra o `upd=t` exigido (I8) |
+| R3 | `noread`, `public,cibseven`, `ACT_*` existente | sobe. `current_schema=public`, dono `pg_database_owner`, sem CREATE e sem membership. Mas `ALTER ROLE pg_database_owner LOGIN` → `role name "pg_database_owner" is reserved`, e uma `public.act_ge_property` criada por `maezo_app` passa a ser a resolvida pelo engine (sombreamento provado) |
+| R4 | `noread`, `public,cibseven`, banco **vazio** | não sobe: `ENGINE-03015 … permission denied for schema public` (I9) |
+| R5 | `noread`, **`maezo_native,cibseven` (D-C2)**, `ACT_*` existente, `mzo_*` em `maezo_native` com dono `native_owner` | **sobe**. `ACT_*` 49 em `cibseven`, `mzo_*` 20 em `maezo_native`. Precondições AUTH: `current_schema=maezo_native`, `owner=native_owner`, `owner_differs=t`, `runtime_lacks_create=t`, memberships 0. Pin staff com `nspname='maezo_native'` passa nas 14 relações. Com o `'public'` fixo de hoje dá 0, o que mostra que a T1.8 é necessária |
+
+**mTLS** (R2, R3 e R5 deram o mesmo resultado). O cliente usou a mesma forma de TLS do
+`StaffNativeClient` (`publisher.py:173-179`). O Python local é 3.14, então o spike desligou
+`VERIFY_X509_STRICT` para emular o 3.12 do portal (ver T1.3).
+
+| Chamada | Resultado |
+|---|---|
+| `POST https://localhost:18443/maezo-human/v1/staff-case-list`, sem certificado de cliente | recusado no handshake: `SSLV3_ALERT_BAD_CERTIFICATE` |
+| mesma chamada com certificado de CA não confiável | recusado no handshake: `SSLV3_ALERT_CERTIFICATE_UNKNOWN` |
+| mesma chamada com certificado confiável, `{}` | **`HTTP 503` `{"error":"HUMAN_ENGINE_UNAVAILABLE"}`**, a recusa fechada do plugin (`staffConfigured()`, sem configuração staff). Não é 404 nem página de erro do Tomcat |
+| mesma rota por HTTP 8080 | `HTTP 403` `{"error":"AUTHORITY_DENIED"}` (`HumanServlet.peer` exige `isSecure`) |
+| `GET http://localhost:18080/engine-rest/engine` | `200 [{"name":"default"}]`: o REST de worker e agentes continua intacto |
+
+**Veredito sobre D-C:** refutada e substituída por **D-C2** (§2). O plano foi corrigido nos pontos
+marcados **[Onda 0]**:
+- §0 item 4;
+- §1.4, com I1 a I3 atualizados e I5 a I9 novos;
+- §2, em D-A, D-C e D-C2;
+- §3, na Onda 0, na Onda 1 (T1.7, T1.8 e acréscimos à T1.2, T1.3 e T1.4) e nas Ondas 3 e 4;
+- §4 (`native_relation_pins`);
+- §5;
+- §6 (N7 e N8).
