@@ -19,6 +19,8 @@
   - O connector HTTP 8080 continua, igual ao da base: e' por ele que worker, agentes, canal e a
     Helena falam com o engine-rest. O plugin humano recusa tudo que nao chega por TLS
     (HumanServlet.peer exige request.isSecure()).
+  - A 8443 fica num Service/Engine/Host SEPARADO (appBase native-webapps) com so' maezo-human:
+    /engine-rest nao existe nela (404), e a 8080 nao ganha nada que a base nao tenha.
   - Nenhum RemoteIpValve, proxyName/proxyPort, AJP ou cabecalho de certificado encaminhado: a
     identidade do cliente e' a cadeia X.509 do handshake, e so' ela.
   - allowTrace="false" explicito nos dois connectors; autoDeploy="false" (nada de deploy a
@@ -72,7 +74,26 @@
                connectionTimeout="20000"
                allowTrace="false" />
 
-    <!-- Endpoint nativo do portal (POST /maezo-human/v1/staff-case-*). -->
+    <Engine name="Catalina" defaultHost="localhost">
+      <Realm className="org.apache.catalina.realm.LockOutRealm">
+        <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
+               resourceName="UserDatabase"/>
+      </Realm>
+      <Host name="localhost" appBase="webapps"
+            unpackWARs="true" autoDeploy="false">
+        <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
+               prefix="localhost_access_log" suffix=".txt"
+               pattern="%h %l %u %t &quot;%r&quot; %s %b" />
+      </Host>
+    </Engine>
+  </Service>
+
+  <!-- Endpoint nativo do portal (POST /maezo-human/v1/staff-case-*), num Service PROPRIO.
+       A 8443 tem outro Engine e outro Host, com appBase native-webapps, onde a imagem so' instala
+       maezo-human (e maezo-human-read quando INSTALL_PORTAL_READ=true). O engine-rest, o webapp
+       do Cockpit e os exemplos nao existem neste Host: um certificado de cliente valido nao
+       alcanca o REST sem autenticacao (revisao de seguranca do PR #482). -->
+  <Service name="MaezoNative">
     <Connector port="8443" protocol="org.apache.coyote.http11.Http11NioProtocol"
                SSLEnabled="true" scheme="https" secure="true"
                maxThreads="50" connectionTimeout="20000"
@@ -87,15 +108,11 @@
       </SSLHostConfig>
     </Connector>
 
-    <Engine name="Catalina" defaultHost="localhost">
-      <Realm className="org.apache.catalina.realm.LockOutRealm">
-        <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
-               resourceName="UserDatabase"/>
-      </Realm>
-      <Host name="localhost" appBase="webapps"
-            unpackWARs="true" autoDeploy="false">
+    <Engine name="MaezoNative" defaultHost="native">
+      <Host name="native" appBase="native-webapps"
+            unpackWARs="false" autoDeploy="false" deployOnStartup="true">
         <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
-               prefix="localhost_access_log" suffix=".txt"
+               prefix="native_access_log" suffix=".txt"
                pattern="%h %l %u %t &quot;%r&quot; %s %b" />
       </Host>
     </Engine>

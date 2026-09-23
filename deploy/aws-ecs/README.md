@@ -88,9 +88,11 @@ cluster, ECR, log group ou task family.
 ## Ambiente novo fora de dev: declarar como o `engine-rest` autentica
 
 O engine de `dev-sa-east-1` expõe o `engine-rest` **sem autenticação** na 8080. Isso é aceito só
-em dev (decisão N5, `docs/plans/portal-autoridade-nativa-dev.md` §6). Todo diretório em
-`envs/` cujo nome não seja `dev` nem comece com `dev-` tem de declarar, com valor literal (ou
-`local.`/`var.` que resolva para ele):
+em dev (decisão N5, `docs/plans/portal-autoridade-nativa-dev.md` §6). "Dev" é uma allowlist
+**exata** de caminhos (`AMBIENTES_DEV` na cerca: este `envs/dev-sa-east-1` e a borda
+`deploy/cloudflare/envs/dev`), não um padrão de nome: `dev-prod` ou `dev-us-east-1` não são
+isentos. Todo outro diretório em `envs/` tem de declarar, com valor literal (ou `local.`/`var.`
+que resolva para ele):
 
 ```hcl
 engine_rest_authentication = "client-certificate"

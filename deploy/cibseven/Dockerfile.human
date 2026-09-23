@@ -20,6 +20,13 @@ RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war
     && test ! -e /camunda/webapps/camunda-invoice.war
 COPY --from=human-build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar
 COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
+# T1.2: the mTLS connector serves ONLY this appBase (its own Service/Host in native-deploy/
+# server.xml). The same descriptor stays under webapps/ so the plaintext 8080 keeps answering the
+# 403 AUTHORITY_DENIED that the package harness asserts; engine-rest never exists on 8443.
+# Created by the build user (same owner as the base's webapps/), so the read branch below can
+# add its copy; the descriptor files themselves are root-owned by COPY.
+RUN mkdir /camunda/native-webapps
+COPY deploy/cibseven/human-webapp /camunda/native-webapps/maezo-human
 # Explicit image composition only; this flag installs no read authority.
 ARG INSTALL_PORTAL_READ=false
 COPY --chown=camunda:camunda deploy/cibseven/read-webapp /tmp/maezo-human-read
@@ -44,7 +51,8 @@ RUN test -f /camunda/conf/bpm-platform.xml \
     && sed -i 's|<plugins>|<plugins><plugin><class>br.com.maezo.human.HumanCommandPlugin</class></plugin>|' /camunda/conf/bpm-platform.xml \
     && grep -q 'br.com.maezo.human.HumanCommandPlugin' /camunda/conf/bpm-platform.xml
 RUN case "$INSTALL_PORTAL_READ" in \
-      true) mv /tmp/maezo-human-read /camunda/webapps/maezo-human-read \
+      true) cp -R /tmp/maezo-human-read /camunda/native-webapps/maezo-human-read \
+        && mv /tmp/maezo-human-read /camunda/webapps/maezo-human-read \
         && sed -i 's|<plugins>|<plugins><plugin><class>br.com.maezo.human.PortalReadPlugin</class></plugin>|' /camunda/conf/bpm-platform.xml \
         && grep -q 'br.com.maezo.human.PortalReadPlugin' /camunda/conf/bpm-platform.xml ;; \
       false) rm -r /tmp/maezo-human-read ;; \
@@ -76,6 +84,10 @@ RUN echo "c2f9255eadfa939dd6f965ede75d8e0d4168c9cbb7ca1e7baa9bff6d5e2c96e1  /cam
     && [ "$(grep -c 'SSLEnabled="true"' /camunda/conf/server.xml)" = "1" ] \
     && grep -q 'certificateVerification="required"' /camunda/conf/server.xml \
     && ! grep -q 'valves.RemoteIpValve"' /camunda/conf/server.xml
+# The mTLS appBase holds the human webapps and nothing else (no engine-rest, no Cockpit).
+RUN set -eu; native=$(ls -A /camunda/native-webapps | tr '\n' ' '); \
+    [ "$native" = "maezo-human " ] || [ "$native" = "maezo-human maezo-human-read " ] \
+    || { echo "FATAL (T1.2): unexpected native appBase content: $native" >&2; exit 1; }
 # cibseven.sh rewrites the datasource from DB_URL unless this is set; setenv.sh refuses to start
 # when a task definition clears it.
 ENV SKIP_DB_CONFIG=true

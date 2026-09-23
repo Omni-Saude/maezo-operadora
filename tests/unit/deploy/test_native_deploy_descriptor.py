@@ -41,10 +41,15 @@ def _server() -> ET.Element:
     return ET.parse(SERVER_XML).getroot()
 
 
-def _connectors() -> list[ET.Element]:
+def _services() -> dict[str, ET.Element]:
     services = _server().findall("./Service")
-    assert len(services) == 1, "exactly one Tomcat Service is expected"
-    return services[0].findall("./Connector")
+    names = [s.get("name") for s in services]
+    assert names == ["Catalina", "MaezoNative"], names
+    return {str(s.get("name")): s for s in services}
+
+
+def _connectors() -> list[ET.Element]:
+    return [c for service in _services().values() for c in service.findall("./Connector")]
 
 
 def _logical(dockerfile: str) -> list[str]:
@@ -69,6 +74,39 @@ def test_exactly_one_tls_connector_with_required_client_certificate() -> None:
     (certificate,) = host.findall("./Certificate")
     assert certificate.get("certificateFile") == MOUNT_ROOT + "server.crt"
     assert certificate.get("certificateKeyFile") == MOUNT_ROOT + "server.key"
+
+
+def test_mtls_connector_lives_in_its_own_service_with_only_the_native_app_base() -> None:
+    """Security review of #482: a valid client certificate must not reach the open engine-rest."""
+    services = _services()
+    assert [c.get("port") for c in services["Catalina"].findall("./Connector")] == ["8080"]
+    assert [c.get("port") for c in services["MaezoNative"].findall("./Connector")] == ["8443"]
+    (engine,) = services["MaezoNative"].findall("./Engine")
+    hosts = engine.findall("./Host")
+    assert len(hosts) == 1
+    (host,) = hosts
+    assert engine.get("defaultHost") == host.get("name")
+    assert host.get("appBase") == "native-webapps"
+    assert host.get("autoDeploy") == "false"
+    # No Context/alias can graft another docBase (engine-rest) into the native host.
+    assert host.findall(".//Context") == [] and host.findall("./Alias") == []
+    (catalina_engine,) = services["Catalina"].findall("./Engine")
+    assert [h.get("appBase") for h in catalina_engine.findall("./Host")] == ["webapps"]
+
+
+def test_image_installs_only_human_webapps_in_the_native_app_base() -> None:
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    runtime = _logical(text.split("\nFROM cibseven/", 1)[1])
+    into_native = [
+        line for line in runtime if "/camunda/native-webapps/" in line and not line.startswith("#")
+    ]
+    copies = [line for line in into_native if line.startswith("COPY ")]
+    assert copies == ["COPY deploy/cibseven/human-webapp /camunda/native-webapps/maezo-human"]
+    (read_branch,) = [line for line in runtime if line.startswith('RUN case "$INSTALL_PORTAL_READ"')]
+    assert "cp -R /tmp/maezo-human-read /camunda/native-webapps/maezo-human-read" in read_branch
+    (guard,) = [line for line in runtime if "unexpected native appBase content" in line]
+    assert '"$native" = "maezo-human "' in guard
+    assert '"$native" = "maezo-human maezo-human-read "' in guard
 
 
 def test_http_connector_for_engine_rest_stays_plain_and_untrusted() -> None:
@@ -185,7 +223,22 @@ def _source_setenv(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     )
 
 
-BASE_ENV = {"SKIP_DB_CONFIG": "true", "DB_HOST": "db", "DB_PORT": "5432", "DB_NAME": "maezo"}
+BASE_ENV = {
+    "SKIP_DB_CONFIG": "true",
+    "DB_HOST": "amh-aurora-hapi-dev.cluster-abc.sa-east-1.rds.amazonaws.com",
+    "DB_PORT": "5432",
+    "DB_NAME": "maezo",
+}
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="sources the POSIX setenv.sh with /bin/sh")
+@pytest.mark.parametrize(
+    "override",
+    [{"DB_NAME": "Maezo_1"}, {"DB_PORT": "1"}, {"DB_PORT": "65535"}, {"DB_HOST": "10.40.20.70"}],
+)
+def test_setenv_accepts_the_allowlisted_datasource_location(override: dict[str, str]) -> None:
+    result = _source_setenv(dict(BASE_ENV, **override))
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="sources the POSIX setenv.sh with /bin/sh")
@@ -207,9 +260,24 @@ def test_setenv_resolves_datasource_from_environment_and_exits_on_connector_fail
     [
         ({"SKIP_DB_CONFIG": ""}, "SKIP_DB_CONFIG must stay 'true'"),
         ({"SKIP_DB_CONFIG": "false"}, "SKIP_DB_CONFIG must stay 'true'"),
-        ({"DB_HOST": ""}, "DB_HOST is required"),
-        ({"DB_PORT": ""}, "DB_PORT is required"),
-        ({"DB_NAME": ""}, "DB_NAME is required"),
+        ({"DB_HOST": ""}, "DB_HOST is missing"),
+        ({"DB_PORT": ""}, "DB_PORT is missing"),
+        ({"DB_NAME": ""}, "DB_NAME is missing"),
+        # pgjdbc keeps the LAST value of a repeated parameter: these would void the pin.
+        ({"DB_NAME": "cibseven?currentSchema=public&x="}, "DB_NAME is missing or has characters"),
+        (
+            {"DB_NAME": "maezo&sslfactory=org.postgresql.ssl.NonValidatingFactory"},
+            "DB_NAME is missing or has characters",
+        ),
+        ({"DB_NAME": "maezo-x"}, "DB_NAME is missing or has characters"),
+        ({"DB_NAME": "maezo\nx"}, "DB_NAME is missing or has characters"),
+        ({"DB_HOST": "db:5432/maezo?currentSchema=public#"}, "DB_HOST is missing or has characters"),
+        ({"DB_HOST": "DB.example"}, "DB_HOST is missing or has characters"),
+        ({"DB_HOST": "db x"}, "DB_HOST is missing or has characters"),
+        ({"DB_HOST": "db\n"}, "DB_HOST is missing or has characters"),
+        ({"DB_PORT": "5432&sslmode=disable"}, "DB_PORT is missing or has characters"),
+        ({"DB_PORT": "123456"}, "DB_PORT is missing or has characters"),
+        ({"DB_PORT": "-1"}, "DB_PORT is missing or has characters"),
     ],
 )
 def test_setenv_refuses_to_start_without_the_pinned_datasource(

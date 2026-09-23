@@ -11,9 +11,9 @@ imagem é a Onda 4, com os pré-requisitos dela (T1.1, T1.7a/b, C1, materiais da
 
 | Peça | Onde | Por quê |
 |---|---|---|
-| `conf/server.xml` de deploy | `native-deploy/server.xml` | HTTP 8080 igual ao de hoje (engine-rest de worker, agentes, canal e Helena) e **um** connector TLS 8443, `certificateVerification="required"`, TLS 1.3, `allowTrace="false"`, sem proxy/forwarded, sem senha no arquivo |
+| `conf/server.xml` de deploy | `native-deploy/server.xml` | HTTP 8080 igual ao de hoje (engine-rest de worker, agentes, canal e Helena) e **um** connector TLS 8443, `certificateVerification="required"`, TLS 1.3, `allowTrace="false"`, sem proxy/forwarded, sem senha no arquivo. A 8443 fica num **Service/Engine/Host próprio** (`MaezoNative`, appBase `native-webapps`), onde só existem `maezo-human` (e `maezo-human-read` com `INSTALL_PORTAL_READ=true`): `/engine-rest` não existe nela |
 | Datasource pinado | mesmo arquivo | `currentSchema=maezo_native,cibseven&sslmode=verify-full&sslrootcert=/camunda/conf/rds-sa-east-1-bundle.pem`. Imagem e path revertem juntos (ADR-0060, Consequência 3): voltar o digest volta o path |
-| `bin/setenv.sh` | `native-deploy/setenv.sh` | `${DB_*}` do `server.xml` resolvidos do ambiente (`EnvironmentPropertySource`), `EXIT_ON_INIT_FAILURE=true`, e recusa de boot se `SKIP_DB_CONFIG` não for `true` ou faltar `DB_HOST`/`DB_PORT`/`DB_NAME` |
+| `bin/setenv.sh` | `native-deploy/setenv.sh` | `${DB_*}` do `server.xml` resolvidos do ambiente (`EnvironmentPropertySource`), `EXIT_ON_INIT_FAILURE=true`, e recusa de boot se `SKIP_DB_CONFIG` não for `true` ou se `DB_HOST`/`DB_PORT`/`DB_NAME` faltarem ou saírem da allowlist (`[a-z0-9.-]`, `[0-9]{1,5}`, `[A-Za-z0-9_]`): eles entram **na** URL JDBC, e o pgjdbc fica com o **último** valor de um parâmetro repetido, então `DB_NAME=x?currentSchema=public&y=` ou `…&sslfactory=…NonValidatingFactory` anulariam o pino |
 | Raízes RDS sa-east-1 | `deploy/certificates/sa-east-1-bundle.pem` | o mesmo arquivo vendorizado do portal, conferido por SHA-256 no build |
 | `ENV SKIP_DB_CONFIG=true` | Dockerfile | sem isso o `cibseven.sh` da base reescreve o datasource a partir de `DB_URL` (ou do H2 padrão) |
 | Paridade com a imagem viva | Dockerfile | `jobExecutorDeploymentAware=false` e `configure-group-whitelist.sh`, os dois deltas de `deploy/cibseven/Dockerfile`. Sem eles, a Onda 4 pararia os timers e a whitelist de grupos |
@@ -24,7 +24,7 @@ imagem é a Onda 4, com os pré-requisitos dela (T1.1, T1.7a/b, C1, materiais da
 
 | Entrada | Forma | Observação |
 |---|---|---|
-| `DB_HOST`, `DB_PORT`, `DB_NAME` | env | obrigatórios; a ausência recusa o boot |
+| `DB_HOST`, `DB_PORT`, `DB_NAME` | env | obrigatórios e validados por allowlist (`[a-z0-9.-]+`, `[0-9]{1,5}`, `[A-Za-z0-9_]+`); fora dela, ou vazio, recusa o boot |
 | `DB_USERNAME`, `DB_PASSWORD` | `secrets` do ECS (os de hoje, `cibseven_app`) | sem eles o `cibseven.sh` injeta `sa`, e o PostgreSQL recusa |
 | `DB_URL` | — | **inerte** nesta imagem. A TD pode mantê-lo para a imagem antiga, e o rollback continua sendo só o digest |
 | `SKIP_DB_CONFIG` | — | não declarar. Qualquer valor diferente de `true` recusa o boot |
@@ -64,13 +64,15 @@ certificado do servidor, os clientes e o `trust.json`, e um compose próprio que
 | `check.py` (5 testes do pacote) | **5 passed** |
 | `POST https://…:8443/maezo-human/v1/staff-case-list` `{}` com certificado confiável | `503 {"error":"HUMAN_ENGINE_UNAVAILABLE"}`, a recusa fechada do plugin sem configuração staff (T1.1) |
 | mesma rota pela 8080 | `403 {"error":"AUTHORITY_DENIED"}` |
+| 8443 com certificado confiável: `GET /engine-rest/engine`, `/version`, `/user`, `POST …/start`, `/camunda/`, `/`, `/manager/html`, `/maezo-human/../engine-rest/engine` | todos `404` (o Host nativo não tem o REST); `/%2e%2e/engine-rest/engine` = `400` |
 | `GET /engine-rest/engine` e `/version` pela 8080 | `200 [{"name":"default"}]`, `{"version":"2.1.0"}` |
-| `TRACE` na 8080 e na 8443 | `405` |
+| `TRACE` na 8080 / na 8443 | `405` / `404` |
 | senha do banco no log do engine | ausente |
 | `DB_URL=…currentSchema=cibseven` na TD | inerte: engine sobe e o `server.xml` fica intacto |
 | sem `server.key` | Tomcat sai com 1: `Protocol handler initialization failed` / `FileNotFoundException` |
 | `SKIP_DB_CONFIG=""` | sai com 1: `FATAL (T1.2): SKIP_DB_CONFIG must stay 'true'` |
-| sem `DB_HOST` | sai com 1: `FATAL (T1.2): DB_HOST is required` |
+| sem `DB_HOST` | sai com 1: `FATAL (T1.2): DB_HOST is missing or has characters outside [a-z0-9.-]` |
+| `DB_NAME=maezo?currentSchema=public&x=` / `DB_NAME=maezo&sslfactory=org.postgresql.ssl.NonValidatingFactory` | sai com 1, antes do Tomcat (`DB_NAME is missing or has characters outside [A-Za-z0-9_]`) |
 | sem `DB_PASSWORD` | PostgreSQL recusa (`password authentication failed`), engine não sobe |
 | com as raízes RDS reais (servidor local) | `PKIX path building failed`: o `verify-full` é de verdade |
 | build `INSTALL_STAFF_COMPOSITION=true` / `=yes` | falha no estágio Maven (classe ausente / valor inválido) |
@@ -80,7 +82,7 @@ certificado do servidor, os clientes e o `trust.json`, e um compose próprio que
 
 - O `engine-rest` continua sem autenticação na 8080 (dívida D7, N5). Isso é aceito **só em dev**,
   e a cerca `scripts/ci/check_engine_rest_auth.py` reprova qualquer outro ambiente (T1.9).
-- A 8443 também serve o `engine-rest` a quem tiver certificado de cliente da CA nativa. Só o portal
-  recebe esse certificado e o NLB só aceita o SG do portal (D-B), mas é superfície a registrar.
+- A 8443 **não** serve o `engine-rest` (Service próprio; revisão de segurança do #482). A 8080 continua
+  servindo `maezo-human` só para devolver o `403` que o harness exige: o servlet recusa sem TLS.
 - Staff continua em `503` até a T1.1 (composição) e o provedor Q2 (T1.7a/b).
 - DDL staff/AUTH/admissão em `maezo_native` é a T1.4. A prova acima instala só o DDL human.

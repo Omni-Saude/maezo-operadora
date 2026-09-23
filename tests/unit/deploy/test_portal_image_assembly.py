@@ -148,6 +148,7 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str, c
     stage = tmp_path / "tmp/maezo-human-read"
     (camunda / "conf").mkdir(parents=True)
     (camunda / "webapps").mkdir()
+    (camunda / "native-webapps").mkdir()
     (stage / "WEB-INF").mkdir(parents=True)
     xml = (ROOT / "deploy/cibseven/read-webapp/WEB-INF/web.xml").read_bytes()
     (stage / "WEB-INF/web.xml").write_bytes(xml)
@@ -184,3 +185,7 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str, c
     assert stage.exists() == (flag == "invalid")
     if flag == "true":
         assert (installed / "WEB-INF/web.xml").read_bytes() == xml
+        # The mTLS-only app base gets its own copy (native-deploy/server.xml, Service MaezoNative).
+        assert (camunda / "native-webapps/maezo-human-read/WEB-INF/web.xml").read_bytes() == xml
+    else:
+        assert not (camunda / "native-webapps/maezo-human-read").exists()

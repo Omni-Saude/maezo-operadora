@@ -42,9 +42,17 @@ O que ela reprova
      `enabled` que nao e' booleano.
   6. Cerca cega: nenhum ambiente encontrado, ou o dev conhecido (`dev-sa-east-1`) ausente.
 
-Dev e' `dev` ou `dev-*`: e' onde a decisao N5 aceita o engine aberto. O analisador de HCL e' o de
-`check_canal_simular.py` (endurecido pela RV-371): comentarios e heredocs saem, `local.`/`var.`
-sao resolvidos como o Terraform resolveria.
+Dev e' uma ALLOWLIST EXATA de caminhos (`AMBIENTES_DEV`), nunca um padrao: `dev-*` isentaria
+`dev-prod` ou `dev-us-east-1` amanha sem ninguem decidir isso (revisao de seguranca do PR #482).
+Um ambiente dev novo entra aqui por PR, com a justificativa. O Helm nao tem overlay dev hoje, entao
+todo `values*.yaml` e' avaliado como nao-dev (`OVERLAYS_HELM_DEV` vazio).
+
+O analisador de HCL e' o de `check_canal_simular.py` (endurecido pela RV-371): comentarios e
+heredocs saem, `local.`/`var.` sao resolvidos como o Terraform resolveria.
+
+Fora do escopo, de proposito: manifests kustomize e o repositorio `gitops` (k3s/Argo) nao sao
+lidos por esta cerca. Este repositorio nao entrega o engine por eles hoje; se passar a entregar,
+a cerca tem de ser estendida no mesmo PR, e ate' la' eles nao estao cobertos.
 """
 
 from __future__ import annotations
@@ -75,6 +83,14 @@ ATRIBUTO = "engine_rest_authentication"
 VALOR_EXIGIDO = "client-certificate"
 #: O ambiente dev que existe hoje. Se ele sumir, a cerca nao sabe se esta' olhando o lugar certo.
 AMBIENTE_DEV_CONHECIDO = "dev-sa-east-1"
+#: Os UNICOS diretorios de ambiente onde o engine-rest aberto e' aceito (N5). Caminho exato,
+#: relativo a raiz, com o motivo. Qualquer outro diretorio de `envs/` e' nao-dev.
+AMBIENTES_DEV: dict[str, str] = {
+    f"deploy/aws-ecs/envs/{AMBIENTE_DEV_CONHECIDO}": "o engine de dev (servico cibseven, ECS).",
+    "deploy/cloudflare/envs/dev": "a borda Cloudflare do MESMO dev (tunel para o engine de dev).",
+}
+#: Overlays Helm dev (`deploy/helm/<chart>/values-<x>.yaml`, caminho exato). Nenhum hoje.
+OVERLAYS_HELM_DEV: frozenset[str] = frozenset()
 CHAVE_HELM = "engineRestAuthentication"
 #: A imagem oficial nao autentica o engine-rest (deploy/cibseven/Dockerfile, "O QUE ISTO NAO
 #: RESOLVE"). Declarar `client-certificate` com ela seria declarar o que nao existe.
@@ -92,8 +108,9 @@ _REFERENCIA = re.compile(rf"\b(?:var|local)\.{ATRIBUTO}\b")
 _NOME = re.compile(rf"(?<![\w]){ATRIBUTO}(?![\w])")
 
 
-def e_dev(nome: str) -> bool:
-    return nome == "dev" or nome.startswith("dev-")
+def e_dev(caminho_relativo: str) -> bool:
+    """Igualdade exata contra a allowlist; nunca prefixo nem padrao."""
+    return caminho_relativo in AMBIENTES_DEV
 
 
 @dataclass(frozen=True)
@@ -146,7 +163,7 @@ def _avaliar_ambiente(raiz: Path, env: Path) -> list[str]:
 
     ecs = env.parent.parent.name == "aws-ecs"
     sobe_engine = ecs or any(_SOBE_ENGINE.search(texto) for texto, _ in textos.values())
-    if e_dev(nome) or not sobe_engine:
+    if e_dev(rotulo) or not sobe_engine:
         return []
 
     achados: list[str] = []
@@ -253,8 +270,8 @@ def _imagem_oficial(repositorio: object) -> bool:
     return nome in (IMAGEM_OFICIAL_ABERTA, "library/" + IMAGEM_OFICIAL_ABERTA)
 
 
-def _avaliar_values(rotulo: str, ambiente: str, valores: Any) -> list[str]:
-    if e_dev(ambiente):
+def _avaliar_values(rotulo: str, valores: Any) -> list[str]:
+    if rotulo in OVERLAYS_HELM_DEV:
         return []
     cib = valores.get("cibseven") if isinstance(valores, dict) else None
     in_cluster = cib.get("inCluster") if isinstance(cib, dict) else None
@@ -296,9 +313,7 @@ def checar_helm(raiz: Path = REPO_ROOT) -> list[str]:
         except yaml.YAMLError as erro:
             achados.append(f"{(chart / 'values.yaml').relative_to(raiz).as_posix()}: YAML invalido ({erro}).")
             continue
-        achados.extend(
-            _avaliar_values((chart / "values.yaml").relative_to(raiz).as_posix(), "values.yaml", base)
-        )
+        achados.extend(_avaliar_values((chart / "values.yaml").relative_to(raiz).as_posix(), base))
         for overlay in sorted(chart.glob("values-*.yaml")):
             rotulo = overlay.relative_to(raiz).as_posix()
             try:
@@ -306,8 +321,7 @@ def checar_helm(raiz: Path = REPO_ROOT) -> list[str]:
             except yaml.YAMLError as erro:
                 achados.append(f"{rotulo}: YAML invalido ({erro}).")
                 continue
-            ambiente = overlay.stem.removeprefix("values-")
-            achados.extend(_avaliar_values(rotulo, ambiente, _mesclar(base, valores)))
+            achados.extend(_avaliar_values(rotulo, _mesclar(base, valores)))
     return achados
 
 

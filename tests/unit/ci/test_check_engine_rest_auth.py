@@ -95,7 +95,20 @@ def test_mesma_copia_com_a_declaracao_passa(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "nome", ["prod-sa-east-1", "staging", "dr-us-east-1", "devx-sa-east-1", "prod-dev-1"]
+    "nome",
+    [
+        "prod-sa-east-1",
+        "staging",
+        "dr-us-east-1",
+        "devx-sa-east-1",
+        "prod-dev-1",
+        # Allowlist exata (revisao de seguranca do #482): nome com cara de dev nao isenta.
+        "dev-prod",
+        "dev-us-east-1",
+        "dev",
+        "dev-sa-east-2",
+        "dev-sa-east-1-copy",
+    ],
 )
 def test_qualquer_nome_fora_de_dev_exige_a_declaracao(tmp_path: Path, nome: str) -> None:
     raiz = _montar(tmp_path)
@@ -103,11 +116,27 @@ def test_qualquer_nome_fora_de_dev_exige_a_declaracao(tmp_path: Path, nome: str)
     assert any(nome in a for a in checar_terraform(raiz))
 
 
-@pytest.mark.parametrize("nome", ["dev-us-east-1", "dev"])
-def test_ambiente_dev_pode_omitir(tmp_path: Path, nome: str) -> None:
+def test_so_os_caminhos_da_allowlist_podem_omitir(tmp_path: Path) -> None:
     raiz = _montar(tmp_path)
-    _copiar_dev_como(raiz, nome)
+    borda = raiz / "deploy/cloudflare/envs/dev"
+    borda.mkdir(parents=True)
+    shutil.copyfile(_RAIZ_REAL / "deploy/cloudflare/envs/dev/variables.tf", borda / "variables.tf")
     assert checar_terraform(raiz) == []
+    # O mesmo conteudo num caminho fora da allowlist reprova, mesmo chamado `dev`.
+    outra = raiz / "deploy/terraform/envs/dev"
+    shutil.copytree(borda, outra)
+    assert any("deploy/terraform/envs/dev" in a for a in checar_terraform(raiz))
+
+
+def test_allowlist_dev_e_exata_e_justificada() -> None:
+    from scripts.ci.check_engine_rest_auth import AMBIENTES_DEV, OVERLAYS_HELM_DEV, e_dev
+
+    assert set(AMBIENTES_DEV) == {"deploy/aws-ecs/envs/dev-sa-east-1", "deploy/cloudflare/envs/dev"}
+    assert all(motivo.strip() for motivo in AMBIENTES_DEV.values())
+    assert not OVERLAYS_HELM_DEV
+    assert not e_dev("deploy/aws-ecs/envs/dev-prod")
+    assert not e_dev("deploy/aws-ecs/envs/dev-sa-east-1/")
+    assert not e_dev("dev-sa-east-1")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -279,7 +308,9 @@ def test_helm_enabled_que_nao_e_booleano_reprova(tmp_path: Path, valor: object) 
     assert any("values-amh.yaml" in a for a in checar_helm(raiz))
 
 
-def test_helm_overlay_dev_pode_ligar_o_engine_aberto(tmp_path: Path) -> None:
+@pytest.mark.parametrize("nome", ["values-dev.yaml", "values-dev-prod.yaml"])
+def test_helm_overlay_com_nome_de_dev_nao_e_isento(tmp_path: Path, nome: str) -> None:
+    """Nao existe overlay dev na allowlist: o nome do arquivo nao abre excecao."""
     raiz = _montar(tmp_path, com_helm=True)
-    _overlay(raiz, "values-dev.yaml", _in_cluster())
-    assert checar_helm(raiz) == []
+    _overlay(raiz, nome, _in_cluster())
+    assert any(nome in a for a in checar_helm(raiz))
