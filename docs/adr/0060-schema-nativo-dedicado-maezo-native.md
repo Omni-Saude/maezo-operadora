@@ -230,6 +230,10 @@ pin.
 - Não decide quem vê qual caso (N3, T1.6).
 - Não toca o programa native-v2.
 
+**Desvio aprovado (revisão de segurança do #495, 23/09/2026).** As 13 funções SECURITY DEFINER de
+`maezo_external` não ficam com `maezo_native_schema_owner`: o admin as entrega, por `deploy/sql/external-case-owners.sql`,
+aos papéis `portal_external_*_definer` (NOLOGIN, sem membership com o dono), porque o dono não é membro de papel nenhum (D1).
+
 ---
 
 ## Relação com ADRs existentes

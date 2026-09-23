@@ -89,6 +89,20 @@ class NativeCatalogPinPgTest {
       assertThrows(RuntimeException.class, () -> absent(c, NativeCatalogPin.CONSUMER, "maezo_native", CONSUMER));
       c.rollback();
       s.execute("SET LOCAL ROLE " + OWNER);
+      s.execute("CREATE OR REPLACE FUNCTION maezo_native.mzo_human_consumer_immutable() RETURNS trigger"
+          + " LANGUAGE plpgsql AS $$BEGIN RETURN NULL; END$$");
+      assertThrows(RuntimeException.class, () -> absent(c, NativeCatalogPin.CONSUMER, "maezo_native", CONSUMER));
+      c.rollback();
+      s.execute("SET LOCAL ROLE " + OWNER);
+      s.execute("CREATE POLICY open ON maezo_native.mzo_auth_trust USING (true)");
+      assertThrows(RuntimeException.class, () -> absent(c, NativeCatalogPin.AUTH, "maezo_native", AUTH));
+      c.rollback();
+      s.execute("SET LOCAL ROLE " + OWNER);
+      s.execute("GRANT EXECUTE ON FUNCTION maezo_native.mzo_human_consumer_immutable() TO " + RUNTIME);
+      s.execute("REVOKE EXECUTE ON FUNCTION maezo_native.mzo_human_consumer_immutable() FROM PUBLIC");
+      assertThrows(RuntimeException.class, () -> absent(c, NativeCatalogPin.CONSUMER, "maezo_native", CONSUMER));
+      c.rollback();
+      s.execute("SET LOCAL ROLE " + OWNER);
       s.execute("DROP TABLE maezo_native.mzo_auth_effect_receipt");
       assertThrows(RuntimeException.class, () -> absent(c, NativeCatalogPin.AUTH, "maezo_native", AUTH));
       c.rollback();

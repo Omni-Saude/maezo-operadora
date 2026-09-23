@@ -32,9 +32,24 @@ line AS (
  CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) x
  JOIN r ge ON ge.oid = x.grantee JOIN r gr ON gr.oid = x.grantor
  UNION ALL
- SELECT pg_catalog.format('trg|%s|%s|%s|%s|%s|%s', t.relname, g.tgname, g.tgtype, g.tgenabled, f.proname, f.prosecdef)
+ SELECT pg_catalog.format('trg|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s', t.relname, g.tgname, g.tgtype, g.tgenabled,
+        f.proname, f.prosecdef, (SELECT label FROM r WHERE r.oid = f.proowner),
+        CASE WHEN f.pronamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = p.schema)
+             THEN 'schema' ELSE pg_catalog.format('%s', f.pronamespace::regnamespace) END,
+        COALESCE((SELECT pg_catalog.string_agg(pg_catalog.format('%s:%s:%s:%s', ge.label, gr.label, x.privilege_type,
+                  x.is_grantable), ',' ORDER BY ge.label, x.privilege_type)
+                  FROM pg_catalog.aclexplode(COALESCE(f.proacl, pg_catalog.acldefault('f', f.proowner))) x
+                  JOIN r ge ON ge.oid = x.grantee JOIN r gr ON gr.oid = x.grantor), ''),
+        pg_catalog.md5(pg_catalog.replace(pg_catalog.pg_get_functiondef(f.oid), pg_catalog.quote_ident(p.schema) || '.', '')),
+        pg_catalog.replace(pg_catalog.pg_get_triggerdef(g.oid), pg_catalog.quote_ident(p.schema) || '.', ''))
  FROM t JOIN pg_catalog.pg_trigger g ON g.tgrelid = t.oid AND NOT g.tgisinternal
- JOIN pg_catalog.pg_proc f ON f.oid = g.tgfoid
+ JOIN pg_catalog.pg_proc f ON f.oid = g.tgfoid, p
+ UNION ALL
+ SELECT pg_catalog.format('pol|%s|%s|%s|%s|%s|%s|%s', t.relname, y.polname, y.polcmd, y.polpermissive,
+        (SELECT pg_catalog.string_agg(ge.label, ',' ORDER BY ge.label) FROM r ge WHERE ge.oid = ANY(y.polroles)),
+        COALESCE(pg_catalog.pg_get_expr(y.polqual, y.polrelid), ''),
+        COALESCE(pg_catalog.pg_get_expr(y.polwithcheck, y.polrelid), ''))
+ FROM t JOIN pg_catalog.pg_policy y ON y.polrelid = t.oid
  UNION ALL
  SELECT pg_catalog.format('rule|%s|%s', t.relname, w.rulename)
  FROM t JOIN pg_catalog.pg_rewrite w ON w.ev_class = t.oid
