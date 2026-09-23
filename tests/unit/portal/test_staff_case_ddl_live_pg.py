@@ -5,9 +5,10 @@ Onda 0 (S1, PG 17.11) proved two defects that no string search caught:
 * I7 — three `FOREIGN KEY ... REFERENCES t` without a column list pointed at a table whose
   PRIMARY KEY has one column fewer, so `CREATE TABLE` fails with
   ``number of referencing and referenced columns for foreign key disagree``;
-* I8 — `mzo_staff_case_checkpoint_chunk` received `SELECT,INSERT` while the store's pin
-  requires UPDATE on every relation it does not classify as immutable, so every staff call
-  would be refused at `StaffCaseStore` construction.
+* I8 — the grant matrix of `mzo_staff_case_checkpoint_chunk` contradicted the store's pin
+  (UPDATE required on every relation not classified immutable), so every staff call would be
+  refused at `StaffCaseStore` construction. Resolved by least privilege: the store classifies
+  `_chunk` as immutable (it only ever INSERTs chunks) and the DDL grants `SELECT,INSERT`.
 
 This module installs `staff-case-schema-postgres.sql` + `staff-case-event-postgres.sql` in a
 throwaway database, as a separate non-superuser installer, for a separate LOGIN runtime role,
@@ -106,7 +107,7 @@ def test_store_rule_is_parsed_from_the_store() -> None:
     tables, suffixes, installed = _store_rule()
     assert "mzo_staff_case_checkpoint_chunk" in tables
     assert installed == "mzo_staff_case_designation_"
-    assert "_event" in suffixes
+    assert "_event" in suffixes and "_chunk" in suffixes
 
 
 def test_staff_ddl_installs_and_grants_match_the_store_pin() -> None:

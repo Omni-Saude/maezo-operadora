@@ -47,7 +47,7 @@ final class StaffCaseStore {
           ||!"r".equals(row.get("relkind"))||!Boolean.FALSE.equals(row.get("relrowsecurity"))
           ||!Boolean.FALSE.equals(row.get("relforcerowsecurity"))||!Boolean.FALSE.equals(row.get("owner_member"))
           ||!Boolean.TRUE.equals(row.get("can_read")))throw unavailable();
-      boolean immutable=table.endsWith("_event")||table.endsWith("_receipt")||table.endsWith("_continuity")||table.endsWith("_cursor")||table.endsWith("_version")||table.endsWith("_dependency");
+      boolean immutable=table.endsWith("_event")||table.endsWith("_receipt")||table.endsWith("_continuity")||table.endsWith("_cursor")||table.endsWith("_version")||table.endsWith("_dependency")||table.endsWith("_chunk");
       boolean installed=table.startsWith("mzo_staff_case_designation_");
       var writes=auth.one("""
         SELECT has_table_privilege(session_user,CAST(? AS oid),'INSERT') AS ins,

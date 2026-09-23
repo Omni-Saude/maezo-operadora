@@ -135,12 +135,12 @@ BEGIN
    RAISE EXCEPTION 'invalid staff native role';
  END IF;
  -- This matrix is exactly what StaffCaseStore pins: DELETE/TRUNCATE never; designation_* SELECT
- -- only; UPDATE on every relation whose name does not end in an immutable suffix
- -- (_event/_receipt/_continuity/_cursor/_version/_dependency). checkpoint_chunk has no such
- -- suffix, so the pin requires UPDATE on it; the store itself only ever INSERTs chunks.
+ -- only; no UPDATE on a relation whose name ends in an immutable suffix
+ -- (_event/_receipt/_continuity/_cursor/_version/_dependency/_chunk), UPDATE on the rest.
+ -- checkpoint_chunk is insert-only (least privilege): the store never updates a chunk.
  EXECUTE format('GRANT SELECT ON mzo_staff_case_designation_event,mzo_staff_case_designation_current TO %I',native_role);
- EXECUTE format('GRANT SELECT,INSERT ON mzo_staff_case_source_event,mzo_staff_case_publication_receipt,mzo_staff_case_continuity,mzo_staff_case_cursor,mzo_staff_case_policy_version,mzo_staff_case_policy_dependency TO %I',native_role);
- EXECUTE format('GRANT SELECT,INSERT,UPDATE ON mzo_staff_case_source_head,mzo_staff_case_grant,mzo_staff_case_checkpoint_chunk,mzo_staff_case_checkpoint_accepted,mzo_staff_case_policy_current TO %I',native_role);
+ EXECUTE format('GRANT SELECT,INSERT ON mzo_staff_case_source_event,mzo_staff_case_publication_receipt,mzo_staff_case_checkpoint_chunk,mzo_staff_case_continuity,mzo_staff_case_cursor,mzo_staff_case_policy_version,mzo_staff_case_policy_dependency TO %I',native_role);
+ EXECUTE format('GRANT SELECT,INSERT,UPDATE ON mzo_staff_case_source_head,mzo_staff_case_grant,mzo_staff_case_checkpoint_accepted,mzo_staff_case_policy_current TO %I',native_role);
 END $$;
 -- No current designation/source/head/grant row is inserted here. Those rows
 -- require authenticated installation or the native signed publication command.
