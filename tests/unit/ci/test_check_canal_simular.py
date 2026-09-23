@@ -46,7 +46,7 @@ _BLOCO_SEGREDO = (
     'valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },\n'
     "    ]\n"
 )
-_FAIXA = 'FAIXA_TESTE = re.compile(r"^55119000000\\d{2}$")'
+_FAIXA = 'FAIXA_TESTE = re.compile(r"^5511900000\\d{3}$")'
 _GATE_NA_ROTA = "        if not SIMULAR_LIGADO:"
 _RECEPTOR_TF = "service-webhook-receiver.tf"
 _PORTAO_TURNO = '{ name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },'
@@ -188,7 +188,7 @@ def _sonda_g(raiz: Path) -> None:
     """G — `FAIXA_TESTE` reescrita com aspas simples e sem as âncoras."""
     _reescrever(
         raiz / _SERVIDOR,
-        lambda t: _trocar(t, _FAIXA, "FAIXA_TESTE = re.compile(r'55119000000\\d{2}')"),
+        lambda t: _trocar(t, _FAIXA, "FAIXA_TESTE = re.compile(r'5511900000\\d{3}')"),
     )
 
 

@@ -145,7 +145,9 @@ NOMES_EXIGIDOS = ("SIMULAR_LIGADO", "FAIXA_TESTE")
 #: A faixa SINTETICA de teste. A cerca antiga so' exigia `^`...`$`; isso deixava passar
 #: `^\d+$`, que e' ancorado nas duas pontas e aceita o telefone de qualquer beneficiario real.
 #: O que precisa continuar valendo e' a faixa, nao a ancora.
-PREFIXO_FAIXA_TESTE = "^55119000000"
+#: 22/09/2026: a faixa passou de 99 para 999 numeros (o prefixo encurtou um digito para o
+#: telefone continuar com 13) — a cerca ancora no prefixo NOVO. Ver `FAIXA_TESTE` em server.py.
+PREFIXO_FAIXA_TESTE = "^5511900000"
 
 ROTA_SIMULAR = "/receptor/simular"
 

@@ -581,3 +581,25 @@ def test_a_pagina_so_chama_caminhos_que_o_cors_do_portal_cobre() -> None:
     # E o login e' mesmo navegacao: a unica linha que o menciona e' a do `window.open`.
     (linha,) = [ln for ln in js.splitlines() if "/api/v1/portal/auth/login" in ln]
     assert "window.open" in linha
+
+
+def test_nova_conversa_sorteia_fora_da_faixa_ja_consumida(tmp_path: Path) -> None:
+    r"""Review do #468 (P2): a faixa nova e' superconjunto da antiga e os sufixos 001-099 tem
+    historico. O sorteio tem de ficar em 100-999 — numeros virgens — e continuar com 13 digitos,
+    dentro da cerca `^5511900000\d{3}$`. Dois mil sorteios: nenhum abaixo de 100, nenhum acima de
+    999, e as duas pontas da faixa aparecem (o sorteio cobre a faixa, nao um canto dela).
+    """
+    caso = (
+        "var fones = []; for (var i = 0; i < 2000; i++) { novaConversa(); fones.push(S.fone); }"
+        " var suf = fones.map(function(f){ return parseInt(f.slice(10), 10); });"
+        r" var ok13 = fones.every(function(f){ return /^5511900000\d{3}$/.test(f); });"
+        " console.log(JSON.stringify({todos13: ok13, min: Math.min.apply(null, suf),"
+        " max: Math.max.apply(null, suf), distintos: new Set(fones).size}));"
+    )
+    r = _rodar(caso, tmp_path)
+    assert r["todos13"] is True
+    assert r["min"] >= 100, r
+    assert r["max"] <= 999, r
+    # cobertura da faixa: com 2000 sorteios em 900 numeros, as pontas aparecem e ha' centenas distintos
+    assert r["min"] < 130 and r["max"] > 970, r
+    assert r["distintos"] > 700, r

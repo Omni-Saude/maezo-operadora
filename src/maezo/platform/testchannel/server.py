@@ -91,9 +91,16 @@ APP_SECRET = os.environ.get("WHATSAPP_APP_SECRET", "")
 SIMULAR_LIGADO = os.environ.get("CANAL_SIMULAR_RECEPTOR", "") == "1"
 
 #: SEGUNDA CERCA: a faixa de telefone de teste, ancorada nas DUAS pontas e com
-#: comprimento exato. `startswith` sozinho aceitaria `55119000000` seguido de qualquer
+#: comprimento exato. `startswith` sozinho aceitaria `5511900000` seguido de qualquer
 #: coisa, inclusive de um numero real mais longo.
-FAIXA_TESTE = re.compile(r"^55119000000\d{2}$")
+#:
+#: 999 NUMEROS, NAO 99 (22/09/2026, autorizado pelo diretor). Com 99 a colisao era questao de
+#: tempo e aconteceu: 93 dos 99 ja tinham sido usados em baterias anteriores, e sortear um
+#: numero usado cai numa conversa com escalonamento ABERTO — o painel mostra o caso velho como
+#: se fosse do turno (falso positivo medido em 13/09 e de novo em 21/09). O prefixo encurta um
+#: digito para o numero continuar com 13 (55 + DDD 11 + 9 + oito digitos): `5511900000` + tres.
+#: `scripts/ci/check_canal_simular.py` ancora a cerca neste prefixo.
+FAIXA_TESTE = re.compile(r"^5511900000\d{3}$")
 
 #: Teto do texto aceito. O receptor tem os seus proprios limites; este existe para a
 #: rota nao ser um caminho barato de empurrar megabytes para dentro do cluster.
@@ -579,7 +586,7 @@ class Handler(BaseHTTPRequestHandler):
 
           1. `CANAL_SIMULAR_RECEPTOR=1` — a rota nao existe sem isso (`SIMULAR_LIGADO`), e
              `scripts/ci/check_canal_simular.py` reprova quem a ligar fora de dev.
-          2. `FAIXA_TESTE` — so' `55119000000xx`, ancorado nas duas pontas. Sem isso o canal
+          2. `FAIXA_TESTE` — so' `5511900000xxx`, ancorado nas duas pontas. Sem isso o canal
              forjaria mensagem em nome de um numero real.
           3. O Cloudflare Access na frente. E' a mesma fronteira de identidade que o proxy
              arbitrario de `/engine` ja depende, e nao e' menos necessaria aqui.
@@ -616,7 +623,7 @@ class Handler(BaseHTTPRequestHandler):
             self._responder_json(400, {"erro": f"texto acima de {TEXTO_MAX} caracteres"})
             return
         if not FAIXA_TESTE.match(telefone):
-            self._responder_json(400, {"erro": "telefone fora da faixa de teste 55119000000xx"})
+            self._responder_json(400, {"erro": "telefone fora da faixa de teste 5511900000xxx"})
             return
 
         envelope = {

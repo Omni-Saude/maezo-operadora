@@ -484,14 +484,21 @@ var DESFECHOS = {End_ResolvidoPorHumano:["Resolvido por uma pessoa","ok"],
 
 /* ------------------------------------------------------------- a conversa */
 
-/* FAIXA DE 999, NAO DE 99. Com 99 numeros a colisao era questao de tempo, e aconteceu duas
-   vezes na tarde de 13/09: o sorteio caiu num numero ja usado, que tinha escalonamento aberto de
-   uma bateria anterior, e o painel mostrou o caso velho como se fosse do turno. A cerca do Canal
-   aceita `55119000000` + dois digitos; com tres, o prefixo encurta um. Confirmar com o time que
-   `check_canal_simular.py` aceita a faixa nova ANTES de aplicar — se nao aceitar, manter 99 e
-   trocar so' o alerta de colisao. */
+/* FAIXA DE 999 (22/09/2026, autorizado pelo diretor). Com 99 numeros a colisao era questao de
+   tempo e aconteceu duas vezes em 13/09 e de novo em 21/09: o sorteio caiu num numero ja usado,
+   que tinha escalonamento aberto de uma bateria anterior, e o painel mostrou o caso velho como
+   se fosse do turno. A cerca do Canal (`FAIXA_TESTE` no server.py) e a cerca de CI
+   (`check_canal_simular.py`) aceitam `5511900000` + TRES digitos desde a mesma mudanca — o
+   prefixo encurtou um digito para o numero continuar com 13.
+
+   O SORTEIO EXCLUI A FAIXA JA' CONSUMIDA (review do #468, P2): a faixa nova e' superconjunto da
+   antiga, e os sufixos 001-099 tem historico — 93 deles com conversa e escalonamento antigos.
+   Sortear de 001 a 999 dava ~9% de chance por conversa de cair num alias velho, e >60% em dez
+   sorteios. Entao o sorteio vai de 100 a 999: 900 numeros comprovadamente virgens no dia da
+   mudanca. Os 001-099 continuam ACEITOS pelas cercas (a faixa sintetica e' a mesma) e a
+   caixa "manter o numero" continua servindo para testar a segunda mensagem de proposito. */
 function novaConversa(){
-  var n = 1 + Math.floor(Math.random()*99);
+  var n = 100 + Math.floor(Math.random()*900);
   var pretendido = S && S.portal ? S.portal.pretendido : null;
   var sessao = S && S.portal ? S.portal.sessao : null;
   var csrf = S && S.portal ? S.portal.csrf : null;
@@ -506,7 +513,7 @@ function novaConversa(){
      desfecho carrega o numero, o turno e a instancia de onde veio, para ninguem comparar dois
      casos achando que e' um. Para limpar, ha' um botao explicito no bloco. */
   var desfechos = S && S.desfechos ? S.desfechos : [];
-  S = {fone: "55119000000" + (n<10 ? "0"+n : String(n)),
+  S = {fone: "5511900000" + String(n).padStart(3, "0"),
        turno:0, pid:null, bk:null, t0:null, evid:{}, historico:[],
        tarefaId:null, desfechos:desfechos, portal:{pretendido:pretendido, sessao:sessao, csrf:csrf}};
   $("foneLbl").textContent = S.fone;
