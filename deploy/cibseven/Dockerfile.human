@@ -5,6 +5,14 @@ WORKDIR /build
 COPY src/maezo/portal/engine/java/pom.xml ./pom.xml
 COPY src/maezo/portal/engine/java/src ./src
 RUN mvn -B -DskipTests package
+# T1.2: the staff composition plugin (T1.1, D-E) is an explicit image choice. `true` refuses to
+# build unless the JAR really carries the class, so the descriptor never names a missing plugin.
+ARG INSTALL_STAFF_COMPOSITION=false
+RUN case "$INSTALL_STAFF_COMPOSITION" in \
+      true) jar tf target/human-command-engine-1.0.0.jar | grep -qx 'br/com/maezo/human/StaffDeploymentComposition.class' ;; \
+      false) true ;; \
+      *) exit 1 ;; \
+    esac
 FROM cibseven/cibseven:tomcat-2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
 RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war \
     && rm -f /camunda/lib/camunda-invoice*.jar \
@@ -15,6 +23,22 @@ COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
 # Explicit image composition only; this flag installs no read authority.
 ARG INSTALL_PORTAL_READ=false
 COPY --chown=camunda:camunda deploy/cibseven/read-webapp /tmp/maezo-human-read
+# T1.2 owns this descriptor. Parity with the image that runs in dev today
+# (deploy/cibseven/Dockerfile): the job executor must not be deployment aware (97 timers were
+# never acquired after a restart, 09/09/2026) and the canonical group whitelist must be present.
+# Without both, swapping the dev engine to this image (Onda 4) would regress the Helena.
+# The staff plan needs authorizationEnabled=true (inherited) and tenant checks at the engine
+# default (no tenantCheckEnabled override); the build refuses a base that changed either.
+RUN sed -i 's|<property name="jobExecutorDeploymentAware">true</property>|<property name="jobExecutorDeploymentAware">false</property>|' \
+        /camunda/conf/bpm-platform.xml \
+    && grep -q '<property name="jobExecutorDeploymentAware">false</property>' /camunda/conf/bpm-platform.xml \
+    && ! grep -q '<property name="jobExecutorDeploymentAware">true</property>' /camunda/conf/bpm-platform.xml \
+    && [ "$(grep -c '<property name="authorizationEnabled">true</property>' /camunda/conf/bpm-platform.xml)" = "1" ] \
+    && ! grep -q 'authorizationEnabled">false' /camunda/conf/bpm-platform.xml \
+    && ! grep -q 'tenantCheckEnabled' /camunda/conf/bpm-platform.xml
+COPY deploy/cibseven/configure-group-whitelist.sh /camunda/configure-group-whitelist.sh
+RUN sh /camunda/configure-group-whitelist.sh /camunda/conf/bpm-platform.xml \
+    && rm /camunda/configure-group-whitelist.sh
 # Modify the existing Tomcat descriptor; do not substitute CIB Run config.
 RUN test -f /camunda/conf/bpm-platform.xml \
     && sed -i 's|<plugins>|<plugins><plugin><class>br.com.maezo.human.HumanCommandPlugin</class></plugin>|' /camunda/conf/bpm-platform.xml \
@@ -26,8 +50,36 @@ RUN case "$INSTALL_PORTAL_READ" in \
       false) rm -r /tmp/maezo-human-read ;; \
       *) exit 1 ;; \
     esac
-# TLS listener/clientAuth=required and SG restriction belong to the actual deployment.
-# No HTTP, forwarded-cert, shared bearer secret, synthetic flag, or validity default.
+# D-E: the composition plugin must run BEFORE HumanCommandPlugin (it calls its setters).
+# Inserted last at the head of <plugins>, so it ends up first.
+ARG INSTALL_STAFF_COMPOSITION=false
+RUN case "$INSTALL_STAFF_COMPOSITION" in \
+      true) sed -i 's|<plugins>|<plugins><plugin><class>br.com.maezo.human.StaffDeploymentComposition</class></plugin>|' /camunda/conf/bpm-platform.xml \
+        && grep -q 'br.com.maezo.human.StaffDeploymentComposition' /camunda/conf/bpm-platform.xml ;; \
+      false) true ;; \
+      *) exit 1 ;; \
+    esac
+
+# T1.2 deployment descriptor: HTTP 8080 (engine-rest, unchanged) + ONE mTLS connector 8443
+# (certificateVerification=required, TLS 1.3, PEM material mounted read-only under
+# /run/maezo/native/), and the datasource with the schema path and TLS pinned
+# (currentSchema=maezo_native,cibseven, sslmode=verify-full; ADR-0060 D2). Root-owned: the
+# runtime user cannot rewrite it. See deploy/cibseven/native-deploy/README.md.
+# No forwarded-cert, proxy trust, shared bearer secret, synthetic flag, or validity default.
+COPY deploy/cibseven/native-deploy/server.xml /camunda/conf/server.xml
+COPY deploy/cibseven/native-deploy/setenv.sh /camunda/bin/setenv.sh
+# Public sa-east-1 RDS roots (deploy/certificates/README.md), byte-pinned: the sslrootcert of the
+# pinned datasource. A different file fails the build instead of being trusted.
+COPY deploy/certificates/sa-east-1-bundle.pem /camunda/conf/rds-sa-east-1-bundle.pem
+RUN echo "c2f9255eadfa939dd6f965ede75d8e0d4168c9cbb7ca1e7baa9bff6d5e2c96e1  /camunda/conf/rds-sa-east-1-bundle.pem" | sha256sum -c - \
+    && grep -q 'currentSchema=maezo_native,cibseven&amp;sslmode=verify-full&amp;sslrootcert=/camunda/conf/rds-sa-east-1-bundle.pem"' /camunda/conf/server.xml \
+    && [ "$(grep -c 'SSLEnabled="true"' /camunda/conf/server.xml)" = "1" ] \
+    && grep -q 'certificateVerification="required"' /camunda/conf/server.xml \
+    && ! grep -q 'valves.RemoteIpValve"' /camunda/conf/server.xml
+# cibseven.sh rewrites the datasource from DB_URL unless this is set; setenv.sh refuses to start
+# when a task definition clears it.
+ENV SKIP_DB_CONFIG=true
+EXPOSE 8443
 
 # ---------------------------------------------------------------------------
 # DS-0002 (trivy "Least Privilege User") — explicit final non-root USER plus a

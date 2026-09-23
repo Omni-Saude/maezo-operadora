@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Descritor de DEPLOY do engine nativo (T1.2 do plano docs/plans/portal-autoridade-nativa-dev.md;
+  ADR-0049 D5; ADR-0060 D2). Derivado do conf/server.xml da base pinada
+  cibseven/cibseven:tomcat-2.1.0 (Tomcat 10.1.47), que e' Apache License 2.0.
+
+  O que muda em relacao a base, e por que:
+  - Server port="-1": sem porta de shutdown. O container para por SIGTERM (tini).
+  - DataSource com o PATH e o TLS PINADOS aqui, nao na task definition:
+      currentSchema=maezo_native,cibseven  (ADR-0060 D2: mzo_* na frente, ACT_* em seguida)
+      sslmode=verify-full + a raiz regional do RDS vendorizada (ADR-0060 D2; plano §7.2)
+    Imagem e path revertem juntos por construcao (ADR-0060, Consequencia 3): voltar o digest
+    volta o path. Host, porta, database e credencial vem do ambiente por
+    EnvironmentPropertySource (bin/setenv.sh); nenhuma senha fica neste arquivo nem em disco.
+  - UM connector TLS (8443), mTLS obrigatorio, TLS 1.3, sem senha nenhuma neste arquivo:
+    certificado e chave do servidor em PEM, e a CA dos clientes num truststore PKCS12 SEM senha
+    (so' certificado publico; o JSSE ignora caCertificateFile, medido em 23/09/2026), todos
+    MONTADOS read-only em /run/maezo/native/ (Onda 4).
+  - O connector HTTP 8080 continua, igual ao da base: e' por ele que worker, agentes, canal e a
+    Helena falam com o engine-rest. O plugin humano recusa tudo que nao chega por TLS
+    (HumanServlet.peer exige request.isSecure()).
+  - Nenhum RemoteIpValve, proxyName/proxyPort, AJP ou cabecalho de certificado encaminhado: a
+    identidade do cliente e' a cadeia X.509 do handshake, e so' ela.
+  - allowTrace="false" explicito nos dois connectors; autoDeploy="false" (nada de deploy a
+    quente: as webapps sao as da imagem, carregadas no boot).
+  O resto (listeners, UserDatabase/Realm, recursos JNDI da plataforma) e' o da base, sem mudanca.
+-->
+<Server port="-1" shutdown="SHUTDOWN">
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+  <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+  <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
+  <Listener className="org.cibseven.bpm.container.impl.tomcat.TomcatBpmPlatformBootstrap" />
+  <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+
+  <GlobalNamingResources>
+    <Resource name="UserDatabase" auth="Container"
+              type="org.apache.catalina.UserDatabase"
+              description="User database that can be updated and saved"
+              factory="org.apache.catalina.users.MemoryUserDatabaseFactory"
+              pathname="conf/tomcat-users.xml" />
+
+    <Resource name="jdbc/ProcessEngine"
+              auth="Container"
+              type="javax.sql.DataSource"
+              factory="org.apache.tomcat.jdbc.pool.DataSourceFactory"
+              uniqueResourceName="process-engine"
+              driverClassName="org.postgresql.Driver"
+              url="jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}?currentSchema=maezo_native,cibseven&amp;sslmode=verify-full&amp;sslrootcert=/camunda/conf/rds-sa-east-1-bundle.pem"
+              defaultTransactionIsolation="READ_COMMITTED"
+              username="${DB_USERNAME}"
+              password="${DB_PASSWORD}"
+              maxActive="20"
+              minIdle="5"
+              maxIdle="20" />
+
+    <Resource name="global/camunda-bpm-platform/process-engine/ProcessEngineService!org.cibseven.bpm.ProcessEngineService" auth="Container"
+              type="org.cibseven.bpm.ProcessEngineService"
+              description="Camunda Platform Process Engine Service"
+              factory="org.cibseven.bpm.container.impl.jndi.ProcessEngineServiceObjectFactory" />
+
+    <Resource name="global/camunda-bpm-platform/process-engine/ProcessApplicationService!org.cibseven.bpm.ProcessApplicationService" auth="Container"
+              type="org.cibseven.bpm.ProcessApplicationService"
+              description="Camunda Platform Process Application Service"
+              factory="org.cibseven.bpm.container.impl.jndi.ProcessApplicationServiceObjectFactory" />
+  </GlobalNamingResources>
+
+  <Service name="Catalina">
+    <!-- engine-rest de worker/agentes/canal/Helena. Sem autenticacao: aceito SO' em dev (N5);
+         a cerca scripts/ci/check_engine_rest_auth.py reprova qualquer outro ambiente. -->
+    <Connector port="8080" protocol="HTTP/1.1"
+               connectionTimeout="20000"
+               allowTrace="false" />
+
+    <!-- Endpoint nativo do portal (POST /maezo-human/v1/staff-case-*). -->
+    <Connector port="8443" protocol="org.apache.coyote.http11.Http11NioProtocol"
+               SSLEnabled="true" scheme="https" secure="true"
+               maxThreads="50" connectionTimeout="20000"
+               allowTrace="false"
+               sslImplementationName="org.apache.tomcat.util.net.jsse.JSSEImplementation">
+      <SSLHostConfig certificateVerification="required"
+                     protocols="TLSv1.3"
+                     truststoreFile="/run/maezo/native/client-ca.p12"
+                     truststoreType="PKCS12">
+        <Certificate certificateFile="/run/maezo/native/server.crt"
+                     certificateKeyFile="/run/maezo/native/server.key" />
+      </SSLHostConfig>
+    </Connector>
+
+    <Engine name="Catalina" defaultHost="localhost">
+      <Realm className="org.apache.catalina.realm.LockOutRealm">
+        <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
+               resourceName="UserDatabase"/>
+      </Realm>
+      <Host name="localhost" appBase="webapps"
+            unpackWARs="true" autoDeploy="false">
+        <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
+               prefix="localhost_access_log" suffix=".txt"
+               pattern="%h %l %u %t &quot;%r&quot; %s %b" />
+      </Host>
+    </Engine>
+  </Service>
+</Server>
