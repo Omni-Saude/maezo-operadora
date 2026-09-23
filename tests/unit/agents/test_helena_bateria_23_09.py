@@ -83,7 +83,15 @@ async def _rota(graph: HelenaGraph, mensagem: str) -> tuple[str, dict[str, Any]]
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "mensagem", ["quem e voce?", "voce e uma pessoa ou um robo?", "Com quem estou falando?"]
+    "mensagem",
+    [
+        "quem e voce?",
+        "voce e uma pessoa ou um robo?",
+        "Com quem estou falando?",
+        # R6 da bateria v2 (23/09): a identidade do BENEFICIARIO, mesma resposta honesta (F6).
+        "voce sabe quem eu sou?",
+        "vc me conhece?",
+    ],
 )
 async def test_a2_pergunta_de_identidade_classificada_como_pedido_nao_abre_fila(mensagem: str) -> None:
     """O modelo errou do jeito que errou no ar (`human_request`); a rota nao pode depender disso."""
@@ -127,6 +135,9 @@ async def test_pedido_explicito_de_humano_continua_escalando(mensagem: str) -> N
         ("quem pode me atender?", False),
         ("quem e o medico responsavel?", False),
         ("estou com dor de cabeca", False),
+        ("Você sabe quem eu sou?", True),
+        ("sabe meu nome?", True),
+        ("voce sabe quem eu sou? quero falar com um atendente", False),
     ],
 )
 def test_a_cerca_e_estreita_na_identidade_e_larga_no_pedido(texto: str, esperado: bool) -> None:
