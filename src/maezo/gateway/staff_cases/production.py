@@ -206,6 +206,7 @@ async def staff_runtime(
                     name: RelationPin(int(pin.oid), pin.owner)
                     for name, pin in manifest.native_relation_pins.items()
                 },
+                native_schema=manifest.native_schema,
                 seconds=seconds,
             )
             witnesses = StaffWitnessSource(source, material.witness_signer)

@@ -27,7 +27,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     var parsed=StaffCaseInstallation.canonical(raw);
     var principal=StaffCaseModels.shape("principal",parsed.get("principal"));
     var q2=lease.enter(context,principal,()->lease.admission.requireCurrent());
-    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.relationPins());
+    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.nativeSchema(),config.relationPins());
     store.auth.lock();var installed=new StaffCaseInstallation(config,store,lease.admission);
     var request=installed.signedRead(raw,peer);
     Map<String,Object> original=request,retained=null;

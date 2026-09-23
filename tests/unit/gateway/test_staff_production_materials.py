@@ -122,7 +122,7 @@ def material_fixture() -> tuple[PortalProductionSettings, dict[str, Any], dict[s
     }
     version = "11111111-2222-3333-4444-555555555555"
     manifest = dict(
-        schema="portal-staff-material.v1",
+        schema="portal-staff-material.v2",
         material_version_id=version,
         scope=scope,
         issuer="https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_test",
@@ -136,6 +136,7 @@ def material_fixture() -> tuple[PortalProductionSettings, dict[str, Any], dict[s
         witness_key_fingerprint=fingerprint(witness.public_key()),
         native_origin="https://native.invalid",
         native_server_spki_sha256="d" * 64,
+        native_schema="maezo_native",
         session_lock_connection=dict(
             host="identity.invalid",
             port="5432",
@@ -188,6 +189,7 @@ def settings_for(manifest: dict[str, Any]) -> PortalProductionSettings:
         staff_scope=manifest["scope"],
         staff_native_origin=manifest["native_origin"],
         staff_native_server_spki_sha256=manifest["native_server_spki_sha256"],
+        staff_native_schema=manifest["native_schema"],
         staff_read_key_sha256=manifest["read_key_fingerprint"],
         staff_witness_key_sha256=manifest["witness_key_fingerprint"],
         staff_maximum_seconds=5,
@@ -261,6 +263,85 @@ def test_closed_bundle(mutation: str) -> None:
         raw = b" " * 65537
     with pytest.raises(PortalStaffBootstrapError):
         m.decode_bundle(raw, settings)
+
+
+def test_native_schema_is_pinned_from_manifest_and_settings() -> None:
+    settings, manifest, files = material_fixture()
+    parsed, decoded = m.decode_bundle(bundle(manifest, files), settings)
+    loaded = m.verify_materials(settings, parsed, decoded, now=datetime.now(UTC))
+    assert loaded.manifest.native_schema == settings.staff_native_schema == "maezo_native"
+
+
+@pytest.mark.parametrize("shape", ["v1_original", "v1_with_native_schema"])
+def test_v1_manifest_is_refused_on_load(shape: str) -> None:
+    # ADR-0060 D3: no v1 package was ever published, so there is nothing to migrate. The
+    # second shape isolates the schema literal: every other field is the valid v2 one.
+    settings, manifest, files = material_fixture()
+    manifest["schema"] = "portal-staff-material.v1"
+    if shape == "v1_original":
+        del manifest["native_schema"]
+    settings = settings.model_copy(update={"staff_public_manifest_sha256": digest(manifest)})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "Maezo_native",
+        "maezo-native",
+        "1maezo",
+        "a" * 64,
+        "",
+        "maezo_native;drop",
+        '"maezo_native"',
+        "maezo.native",
+    ],
+)
+def test_native_schema_outside_the_identifier_regex_is_refused(schema: str) -> None:
+    settings, manifest, files = material_fixture()
+    manifest["native_schema"] = schema
+    settings = settings.model_copy(update={"staff_public_manifest_sha256": digest(manifest)})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+    with pytest.raises(ValidationError):
+        PortalProductionSettings.model_validate(
+            {**settings.model_dump(), "staff_native_schema": schema, "staff_scope": manifest["scope"]}
+        )
+
+
+@pytest.mark.parametrize(
+    "schema", ["public", "cibseven", "information_schema", "pg_catalog", "pg_temp", "pg_toast", "pg_temp_3"]
+)
+def test_shared_or_system_schema_is_never_the_native_schema(schema: str) -> None:
+    settings, manifest, files = material_fixture()
+    manifest["native_schema"] = schema
+    settings = settings.model_copy(update={"staff_public_manifest_sha256": digest(manifest)})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+    with pytest.raises(ValidationError):
+        PortalProductionSettings.model_validate(
+            {**settings.model_dump(), "staff_native_schema": schema, "staff_scope": manifest["scope"]}
+        )
+
+
+@pytest.mark.parametrize(
+    "schema", ["maezo_native_v2", "maezo_native_owner_v1", "public_native", "maezo_nativ"]
+)
+def test_native_schema_must_equal_the_deployment_pin_exactly(schema: str) -> None:
+    # D5: equality only. A prefix-sharing native-v2 schema is a different pin.
+    settings, manifest, files = material_fixture()
+    settings = settings.model_copy(update={"staff_native_schema": schema})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+
+
+def test_staff_profile_requires_the_native_schema() -> None:
+    settings, manifest, _ = material_fixture()
+    values = {**settings.model_dump(), "staff_scope": manifest["scope"]}
+    del values["staff_native_schema"]
+    with pytest.raises(PortalStaffBootstrapError):
+        PortalProductionSettings.model_validate(values)
 
 
 def test_identity_profile_has_no_staff_defaults() -> None:

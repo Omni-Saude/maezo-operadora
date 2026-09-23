@@ -12,6 +12,7 @@ locals {
     { name = "MAEZO_PORTAL_STAFF_SCOPE", value = jsonencode(staff.scope) },
     { name = "MAEZO_PORTAL_STAFF_NATIVE_ORIGIN", value = staff.native_origin },
     { name = "MAEZO_PORTAL_STAFF_NATIVE_SERVER_SPKI_SHA256", value = staff.native_server_spki_sha256 },
+    { name = "MAEZO_PORTAL_STAFF_NATIVE_SCHEMA", value = staff.native_schema },
     { name = "MAEZO_PORTAL_STAFF_READ_KEY_SHA256", value = staff.read_key_sha256 },
     { name = "MAEZO_PORTAL_STAFF_WITNESS_KEY_SHA256", value = staff.witness_key_sha256 },
     { name = "MAEZO_PORTAL_STAFF_MAXIMUM_SECONDS", value = tostring(staff.maximum_seconds) }

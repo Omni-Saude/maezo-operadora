@@ -28,6 +28,7 @@ from maezo.portal.contracts.models import HumanPrincipal
 from maezo.portal.engine.profile import strict_loads
 
 from .models import StaffCaseError
+from .production_config import is_native_schema
 
 
 def validate_session(
@@ -197,14 +198,89 @@ class NativeMembershipSource:
         login: str,
         pins: Mapping[str, RelationPin],
         *,
+        native_schema: str,
         seconds: float = 5,
         clock: Callable[[], datetime] = now_utc,
     ):
         qualify_engine(engine, seconds)
-        if set(pins) != self.TABLES or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", login):
+        if (
+            set(pins) != self.TABLES
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,62}", login)
+            or not is_native_schema(native_schema)
+        ):
             raise StaffCaseError("unavailable")
         self.engine, self.scope, self.login, self.pins = engine, scope, login, dict(pins)
         self.seconds, self.clock = seconds, clock
+        # ADR-0060 D3: the pinned schema (manifest v2), compared exactly (D5). It enters the
+        # read only as a quoted identifier of a regex-closed name, never as free text.
+        self.native_schema = native_schema
+        schema = '"' + native_schema + '"'
+        self.read_sql = f"""
+                SELECT m.payload_,m.source_,h.* FROM {schema}.mzo_portal_read_membership m
+                JOIN {schema}.mzo_human_principal h ON h.tenant_=m.tenant_ AND h.principal_=m.principal_
+                WHERE m.tenant_=:tenant AND m.environment_=:environment AND m.engine_=:engine
+                  AND m.incarnation_=:incarnation AND m.principal_=:principal
+            """
+
+    async def require_pins(self, connection: Any) -> None:
+        """Actual login and the exact pinned relations of the pinned schema, or refuse.
+
+        ``relkind`` is the one-byte ``"char"`` type, which asyncpg decodes as ``bytes``
+        (``b'r'``); cast to text or the comparison with ``"r"`` refuses every relation.
+
+        The namespace is pinned as well: owned by the pinned relation owner (ADR-0060 D1,
+        `maezo_native_schema_owner` owns the schema and its relations), with no CREATE for
+        this login and none for PUBLIC.
+        """
+        users = (
+            (
+                await connection.execute(
+                    text("SELECT session_user::text AS actual,current_user::text AS effective")
+                )
+            )
+            .mappings()
+            .one()
+        )
+        if users["actual"] != self.login or users["effective"] != self.login:
+            raise StaffCaseError("unavailable")
+        for name, pin in sorted(self.pins.items()):
+            row = (
+                (
+                    await connection.execute(
+                        text("""
+                    SELECT c.oid, c.relkind::text AS relkind, c.relrowsecurity, c.relforcerowsecurity,
+                      pg_get_userbyid(c.relowner) AS owner,
+                      pg_has_role(session_user,c.relowner,'MEMBER') AS owner_member,
+                      has_table_privilege(session_user,c.oid,'SELECT') AS rd,
+                      has_table_privilege(session_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE') AS wr,
+                      pg_get_userbyid(n.nspowner) AS schema_owner,
+                      has_schema_privilege(session_user,n.oid,'CREATE') AS runtime_create,
+                      EXISTS(SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+                             WHERE a.grantee=0 AND a.privilege_type='CREATE') AS public_create
+                    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                    WHERE n.nspname=:schema AND c.relname=:name
+                """),
+                        {"schema": self.native_schema, "name": name},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if (
+                row is None
+                or row["oid"] != pin.oid
+                or row["owner"] != pin.owner
+                or row["relkind"] != "r"
+                or row["relrowsecurity"]
+                or row["relforcerowsecurity"]
+                or row["owner_member"]
+                or not row["rd"]
+                or row["wr"]
+                or row["schema_owner"] != pin.owner
+                or row["runtime_create"] is not False
+                or row["public_create"] is not False
+            ):
+                raise StaffCaseError("unavailable")
 
     async def observe(self, principal: HumanPrincipal) -> tuple[SourceProvenance, dict[str, Any], datetime]:
         if principal.tenant != self.scope.tenant:
@@ -217,63 +293,9 @@ class NativeMembershipSource:
             principal=principal.principal_ref,
         )
         async with transaction(self.engine, self.seconds) as connection:
-            users = (
-                (
-                    await connection.execute(
-                        text("SELECT session_user::text AS actual,current_user::text AS effective")
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            if users["actual"] != self.login or users["effective"] != self.login:
-                raise StaffCaseError("unavailable")
-            for name, pin in sorted(self.pins.items()):
-                row = (
-                    (
-                        await connection.execute(
-                            text("""
-                    SELECT c.oid, c.relkind, c.relrowsecurity, c.relforcerowsecurity,
-                      pg_get_userbyid(c.relowner) AS owner,
-                      pg_has_role(session_user,c.relowner,'MEMBER') AS owner_member,
-                      has_table_privilege(session_user,c.oid,'SELECT') AS rd,
-                      has_table_privilege(session_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE') AS wr
-                    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-                    WHERE n.nspname='public' AND c.relname=:name
-                """),
-                            {"name": name},
-                        )
-                    )
-                    .mappings()
-                    .one()
-                )
-                if (
-                    row["oid"] != pin.oid
-                    or row["owner"] != pin.owner
-                    or row["relkind"] != "r"
-                    or row["relrowsecurity"]
-                    or row["relforcerowsecurity"]
-                    or row["owner_member"]
-                    or not row["rd"]
-                    or row["wr"]
-                ):
-                    raise StaffCaseError("unavailable")
+            await self.require_pins(connection)
             # One statement snapshot binds current membership and actual native principal.
-            row = (
-                (
-                    await connection.execute(
-                        text("""
-                SELECT m.payload_,m.source_,h.* FROM public.mzo_portal_read_membership m
-                JOIN public.mzo_human_principal h ON h.tenant_=m.tenant_ AND h.principal_=m.principal_
-                WHERE m.tenant_=:tenant AND m.environment_=:environment AND m.engine_=:engine
-                  AND m.incarnation_=:incarnation AND m.principal_=:principal
-            """),
-                        args,
-                    )
-                )
-                .mappings()
-                .one()
-            )
+            row = (await connection.execute(text(self.read_sql), args)).mappings().one()
             member = parse_model(MembershipProjection, strict_loads(row["payload_"].encode()))
             source = parse_model(SourceProvenance, strict_loads(row["source_"].encode()))
             groups = strict_loads(row["groups_"].encode())

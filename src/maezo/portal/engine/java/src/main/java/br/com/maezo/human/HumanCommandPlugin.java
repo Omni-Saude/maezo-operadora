@@ -149,7 +149,7 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
     staffConfigured();lease.admission.requireCurrent();
     var q2=new PortalReadStore(context,lease.trust,lease.admission.statementTimeoutSeconds());q2.lockTenant();
     var store=new StaffCaseStore(context,staffConfiguration.authScope(),lease.admission.statementTimeoutSeconds(),
-      staffConfiguration.nativeRole(),staffConfiguration.relationPins());
+      staffConfiguration.nativeRole(),staffConfiguration.nativeSchema(),staffConfiguration.relationPins());
     store.auth.lock();var installed=new StaffCaseInstallation(staffConfiguration,store,lease.admission);
     var used=new java.util.HashSet<String>();var peers=new java.util.HashSet<String>();
     trust.keys.values().forEach(k->{used.add(k.fingerprint());peers.add(k.peerSpki());});
