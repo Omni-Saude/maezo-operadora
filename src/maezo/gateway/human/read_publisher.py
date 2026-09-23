@@ -84,6 +84,21 @@ class SourceSnapshot:
     lease: SourceFreezeLease = field(repr=False)
 
 
+def membership_projection(record: MembershipRecord) -> MembershipProjection:
+    """The one Python projection of a `portal_memberships` row (parity: jcs-membership-vector)."""
+    return MembershipProjection(
+        principal_ref=record.principal_ref,
+        issuer=record.issuer,
+        subject=record.subject,
+        membership_revision=record.revision,
+        audience=record.audience,
+        memberships=record.memberships,
+        subject_bindings=record.subject_bindings,
+        state="revoked" if record.revoked else "active",
+        reviewed_until=record.reviewed_until,
+    )
+
+
 class PostgresMembershipPublicationSource:
     def __init__(self, *, store: PostgresIdentityStore, handshake: MembershipPublicationHandshake) -> None:
         if not isinstance(store, PostgresIdentityStore):
@@ -108,18 +123,7 @@ class PostgresMembershipPublicationSource:
             # source receipt. Independent old put/delete methods do not install this handshake.
             record = MembershipRecord.model_validate(record)
             lease.verify(canonicalize(wire(record)))
-            projection = MembershipProjection(
-                principal_ref=record.principal_ref,
-                issuer=record.issuer,
-                subject=record.subject,
-                membership_revision=record.revision,
-                audience=record.audience,
-                memberships=record.memberships,
-                subject_bindings=record.subject_bindings,
-                state="revoked" if record.revoked else "active",
-                reviewed_until=record.reviewed_until,
-            )
-            return SourceSnapshot(lease.provenance, projection, lease)
+            return SourceSnapshot(lease.provenance, membership_projection(record), lease)
         except BaseException:
             lease.uncertain()
             raise
