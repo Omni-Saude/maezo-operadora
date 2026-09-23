@@ -27,7 +27,7 @@ final class AssignmentReceiptAuthority implements Command<byte[]> {
     // Inspect only to choose the documented lock order. Exact current disclosure is reread under locks.
     var peek=disclosure(db,identity);ExternalCaseStore external=null;
     if(obj(obj(peek,"disclosure"),"resource").get("kind").equals("case")){
-      if(cases==null)throw unavailable();external=new ExternalCaseStore(context,cases.scope(),1);external.lock();
+      if(cases==null)throw unavailable();external=new ExternalCaseStore(context,cases.scope(),1,cases.engineSchema());external.lock();
     }
     db.lockTenant();var request=disclosure(db,identity);var d=obj(request,"disclosure");
     AssignmentReceiptPublication.validate(request,trust,db);if(!d.get("identity").equals(identity)||!d.get("state").equals("active"))throw denied();

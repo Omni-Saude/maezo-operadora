@@ -18,16 +18,18 @@ import org.cibseven.bpm.engine.impl.interceptor.CommandContext;
 /** Fixed scoped reads and enlisted writes on the actual engine PostgreSQL connection. */
 final class ExternalCaseStore {
   static final String S="tenant=? AND environment=? AND engine_name=? AND database_incarnation=?";
-  final Connection connection;final SqlSession session;final Map<String,Object> scope;final int timeout;
-  ExternalCaseStore(CommandContext context,Map<String,Object> scope,int timeout){
+  final Connection connection;final SqlSession session;final Map<String,Object> scope;final int timeout;final String engineSchema;
+  ExternalCaseStore(CommandContext context,Map<String,Object> scope,int timeout,String engineSchema){
+    this.engineSchema=EngineSchema.require(engineSchema,null);
     this.session=context.getDbSqlSession().getSqlSession();this.connection=session.getConnection();this.scope=scope;this.timeout=timeout;
     if(timeout<1||timeout>10||!scope.get("engine_name").equals(context.getProcessEngineConfiguration().getProcessEngineName()))throw unavailable();
     String prefix=context.getProcessEngineConfiguration().getDatabaseTablePrefix();
     String schema=context.getProcessEngineConfiguration().getDatabaseSchema();
-    if(prefix!=null&&!prefix.isEmpty()&&!prefix.equals("public.")||schema!=null&&!schema.equals("public"))throw unavailable();
+    EngineSchema.requireEngineConfiguration(engineSchema,schema,prefix);
     try{if(connection.getAutoCommit()||!connection.getMetaData().getDatabaseProductName().equals("PostgreSQL")||!"public".equals(connection.getSchema()))throw unavailable();}
     catch(SQLException ex){throw unavailable();}
     if(one("SELECT login_role FROM maezo_external.mzo_external_caller_scope WHERE "+S+" AND login_role=session_user AND capability='native'",args())==null)throw unavailable();
+    for(String table:EngineSchema.TABLES)EngineSchema.requireTable(one(EngineSchema.PIN,engineSchema,table));
   }
   Object[] args(Object... rest){Object[] all=new Object[rest.length+4];int i=0;
     for(String key:List.of("tenant","environment","engine_name","database_incarnation"))all[i++]=scope.get(key);
@@ -133,24 +135,14 @@ final class ExternalCaseStore {
   }
   /** Native identity/status from actual ACT tables, no case payload state or general REST. */
   Map<String,Object> nativeState(Map<String,Object> identity){
-    var rows=rows("""
-      SELECT d.ID_ AS definition_id,d.KEY_ AS definition_key,d.VERSION_ AS definition_version,
-       d.TENANT_ID_ AS definition_tenant,encode(sha256(b.BYTES_),'hex') AS definition_digest,
-       r.ID_ AS active_id,r.PROC_INST_ID_ AS active_instance,r.PROC_DEF_ID_ AS active_definition,r.TENANT_ID_ AS active_tenant,
-       h.PROC_INST_ID_ AS historic_instance,h.PROC_DEF_ID_ AS historic_definition,h.TENANT_ID_ AS historic_tenant,h.END_TIME_ AS ended_at
-      FROM public.ACT_RE_PROCDEF d JOIN public.ACT_GE_BYTEARRAY b ON b.DEPLOYMENT_ID_=d.DEPLOYMENT_ID_ AND b.NAME_=d.RESOURCE_NAME_
-      LEFT JOIN public.ACT_RU_EXECUTION r ON r.ID_=? AND r.PROC_INST_ID_=r.ID_
-      LEFT JOIN public.ACT_HI_PROCINST h ON h.PROC_INST_ID_=?
-      WHERE d.ID_=?
-      """,1,identity.get("process_instance_ref"),identity.get("process_instance_ref"),identity.get("process_definition_id"));
+    var rows=rows(EngineSchema.identitySql(engineSchema),1,identity.get("process_instance_ref"),identity.get("process_instance_ref"),identity.get("process_definition_id"));
     if(rows.size()!=1)throw unavailable();return nativeProjection(identity,scope.get("tenant"),rows.get(0));
   }
   Map<String,Map<String,Object>> nativeStates(List<Map<String,Object>> identities){
     if(identities.isEmpty())return Map.of();
-    var parameters=new ArrayList<Object>();var values=new ArrayList<String>();
-    for(var id:identities){values.add("(CAST(? AS text),CAST(? AS text),CAST(? AS text))");
-      parameters.add(id.get("case_ref"));parameters.add(id.get("process_instance_ref"));parameters.add(id.get("process_definition_id"));}
-    String sql="SELECT v.case_ref,d.ID_ AS definition_id,d.KEY_ AS definition_key,d.VERSION_ AS definition_version,d.TENANT_ID_ AS definition_tenant,encode(sha256(b.BYTES_),'hex') AS definition_digest,r.ID_ AS active_id,r.PROC_INST_ID_ AS active_instance,r.PROC_DEF_ID_ AS active_definition,r.TENANT_ID_ AS active_tenant,h.PROC_INST_ID_ AS historic_instance,h.PROC_DEF_ID_ AS historic_definition,h.TENANT_ID_ AS historic_tenant,h.END_TIME_ AS ended_at FROM (VALUES "+String.join(",",values)+") v(case_ref,instance_id,definition_id) JOIN public.ACT_RE_PROCDEF d ON d.ID_=v.definition_id JOIN public.ACT_GE_BYTEARRAY b ON b.DEPLOYMENT_ID_=d.DEPLOYMENT_ID_ AND b.NAME_=d.RESOURCE_NAME_ LEFT JOIN public.ACT_RU_EXECUTION r ON r.ID_=v.instance_id AND r.PROC_INST_ID_=r.ID_ LEFT JOIN public.ACT_HI_PROCINST h ON h.PROC_INST_ID_=v.instance_id";
+    var parameters=new ArrayList<Object>();
+    for(var id:identities){parameters.add(id.get("case_ref"));parameters.add(id.get("process_instance_ref"));parameters.add(id.get("process_definition_id"));}
+    String sql=EngineSchema.statesSql(engineSchema,identities.size());
     var raw=rows(sql,identities.size(),parameters.toArray());var states=new HashMap<String,Map<String,Object>>();
     var byRef=new HashMap<String,Map<String,Object>>();for(var id:identities)byRef.put(str(id,"case_ref"),id);
     for(var row:raw){String ref=(String)row.get("case_ref");if(!byRef.containsKey(ref)||states.put(ref,nativeProjection(byRef.get(ref),scope.get("tenant"),row))!=null)throw unavailable();}

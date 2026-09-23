@@ -37,7 +37,7 @@ class ExternalCaseUnitTest {
       var complete=record("designation_ref","complete-test","policy_receipt_ref","policy-test","policy_receipt_digest",H,"required_namespaces",List.of("operator-test"),"signer_fingerprints",List.of(pin),"valid_until",end);
       bundle=record("schema","portal-external-authority-designation.v1","scope",scope,"designation_ref","designation-test","designation_revision","1","installation_receipt_ref","installed-test","policy_receipt_ref","policy-test","policy_receipt_digest",H,"signers",List.of(key),"completeness",complete,"observed_at",start,"valid_until",end);
       installation=sign(record("schema","portal-external-authority-installation.v1","scope",scope,"designation_digest",hash(bundle),"receipt_ref","installed-test","observed_at",start,"valid_until",end),root.getPrivate());
-      configuration=new Configuration(scope,hash(bundle),root.getPublic(),signer.getPublic(),pin,H,"portal-external-case-publication");
+      configuration=new Configuration(scope,hash(bundle),root.getPublic(),signer.getPublic(),pin,H,"portal-external-case-publication","cibseven");
       var c=record("schema","portal-external-scope-checkpoint.v1","scope",scope,"designation_digest",hash(bundle),"checkpoint_ref","checkpoint-test","epoch","1","predecessor_checkpoint_digest",null,"upstream_position","position-test","observed_at",start,"valid_until",end,"namespace_positions",List.of(record("namespace","operator-test","upstream_position","position-test")),"heads",List.of(),"heads_count","0","heads_digest",hash(List.of()));
       checkpoint=record("schema","portal-external-checkpoint-packet.v1","statement",c,"completeness_proof",proof(c,"completeness"));
     }
@@ -58,7 +58,7 @@ class ExternalCaseUnitTest {
       case "purpose"->obj(p,"ownership_proof").put("purpose","disclosure");
       case "namespace"->obj(p,"statement").put("source_namespace","other-namespace");
       case "revocation"->a=new Authority(f.configuration,Jcs.canonical(f.bundle),Jcs.canonical(f.installation),Set.of(f.pin));
-      case "root"->{var c=new Configuration(f.scope,hash(f.bundle),f.signer.getPublic(),f.signer.getPublic(),f.pin,H,"portal-external-case-publication");assertThrows(RuntimeException.class,()->new Authority(c,Jcs.canonical(f.bundle),Jcs.canonical(f.installation),Set.of()));return;}
+      case "root"->{var c=new Configuration(f.scope,hash(f.bundle),f.signer.getPublic(),f.signer.getPublic(),f.pin,H,"portal-external-case-publication","cibseven");assertThrows(RuntimeException.class,()->new Authority(c,Jcs.canonical(f.bundle),Jcs.canonical(f.installation),Set.of()));return;}
       case "empty_namespace"->{var cp=cloneMap(f.checkpoint);obj(cp,"statement").put("namespace_positions",List.of());cp.put("completeness_proof",f.proof(obj(cp,"statement"),"completeness"));assertThrows(RuntimeException.class,()->f.authority().checkpoint(cp));return;}
       default->throw new AssertionError();
     }

@@ -19,12 +19,13 @@ class StaffCaseNativeSchemaTest {
   StaffCaseNativeSchemaTest() throws GeneralSecurityException {
     var g=KeyPairGenerator.getInstance("Ed25519");root=g.generateKeyPair();result=g.generateKeyPair();
   }
-  StaffCaseInstallation.Configuration config(String nativeSchema){
+  StaffCaseInstallation.Configuration config(String nativeSchema){return config(nativeSchema,"cibseven");}
+  StaffCaseInstallation.Configuration config(String nativeSchema,String engineSchema){
     var scope=record("tenant","tenant","environment","test","engine_name","engine","database_incarnation","inc",
       "installation_ref","installation","installation_revision","1");
     var pins=new TreeMap<String,StaffCaseStore.RelationPin>();for(String name:StaffCaseStore.OWNED)pins.put(name,PIN);
     return new StaffCaseInstallation.Configuration(scope,"a".repeat(64),root.getPublic(),result.getPrivate(),result.getPublic(),
-      "cibseven_app",nativeSchema,pins,5);
+      "cibseven_app",nativeSchema,engineSchema,pins,5);
   }
   static Map<String,Object> resolution(Object current,Object resolved){
     var row=new HashMap<String,Object>();row.put("current_schema",current);row.put("resolved",resolved);return row;
@@ -110,5 +111,42 @@ class StaffCaseNativeSchemaTest {
     assertEquals(1,rule.size(),"StaffCaseStore immutable rule moved");
     assertTrue(rule.get(0).contains("table.endsWith(\"_chunk\")"),rule.get(0));
     assertTrue(StaffCaseStore.OWNED.contains("mzo_staff_case_checkpoint_chunk"));
+  }
+  // D-I (T1.8b): the ACT_* schema is a pin too.
+  @Test void engineSchemaIsAClosedPinDistinctFromTheNativeSchema(){
+    assertEquals("cibseven",config(SCHEMA).engineSchema());
+    assertEquals("engine_x",config(SCHEMA,"engine_x").engineSchema());
+    for(String bad:Arrays.asList(null,"","public","information_schema","maezo_native","pg_catalog","pg_temp","pg_",
+        "Cibseven","cib-seven","\"cibseven\"","cibseven;drop","cibseven.act","a".repeat(64)))
+      assertThrows(Rejected.class,()->config("other_native",bad),String.valueOf(bad));
+    assertThrows(Rejected.class,()->config("native_x","native_x"));
+  }
+  @Test void configurationDigestBindsTheEngineSchema(){
+    assertEquals(config(SCHEMA,"cibseven").digest(),config(SCHEMA,"cibseven").digest());
+    assertNotEquals(config(SCHEMA,"cibseven").digest(),config(SCHEMA,"cibseven_v2").digest());
+  }
+  @Test void engineConfigurationMustNotPointElsewhere(){
+    EngineSchema.requireEngineConfiguration("cibseven",null,null);
+    EngineSchema.requireEngineConfiguration("cibseven","cibseven","cibseven.");
+    EngineSchema.requireEngineConfiguration("cibseven",null,"");
+    assertThrows(Rejected.class,()->EngineSchema.requireEngineConfiguration("cibseven","public",null));
+    assertThrows(Rejected.class,()->EngineSchema.requireEngineConfiguration("cibseven",null,"public."));
+  }
+  @Test void everyActQueryUsesTheQuotedPinnedSchema(){
+    for(String sql:List.of(EngineSchema.identitySql("cibseven"),EngineSchema.statesSql("cibseven",2),EngineSchema.taskSql("cibseven"))){
+      assertFalse(sql.contains("public."),sql);
+      assertEquals(sql.split("ACT_",-1).length-1,sql.split(java.util.regex.Pattern.quote("\"cibseven\".ACT_"),-1).length-1,sql);
+    }
+    assertThrows(Rejected.class,()->EngineSchema.taskSql("public"));
+    assertThrows(Rejected.class,()->EngineSchema.statesSql("cibseven",0));
+    assertTrue(EngineSchema.PIN.contains("n.nspname=?")&&!EngineSchema.PIN.contains("cibseven")&&!EngineSchema.PIN.contains("public"),EngineSchema.PIN);
+  }
+  @Test void noFixedPublicActReferenceInMain() throws Exception {
+    try(var files=Files.walk(Path.of("src/main"))){
+      var offenders=files.filter(f->f.toString().endsWith(".java")).filter(f->{
+        try{return Files.readString(f,StandardCharsets.UTF_8).toLowerCase(Locale.ROOT).contains("public.act_");}
+        catch(java.io.IOException e){throw new java.io.UncheckedIOException(e);}}).toList();
+      assertEquals(List.of(),offenders);
+    }
   }
 }

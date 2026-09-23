@@ -27,7 +27,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     var parsed=StaffCaseInstallation.canonical(raw);
     var principal=StaffCaseModels.shape("principal",parsed.get("principal"));
     var q2=lease.enter(context,principal,()->lease.admission.requireCurrent());
-    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.nativeSchema(),config.relationPins());
+    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.nativeSchema(),config.engineSchema(),config.relationPins());
     store.auth.lock();var installed=new StaffCaseInstallation(config,store,lease.admission);
     var request=installed.signedRead(raw,peer);
     Map<String,Object> original=request,retained=null;
@@ -109,7 +109,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     var locked=store.exactGrant(caseRef,principal);
     if(locked==null||!peek.equals(locked))throw conflict();
     store.requireRecordedPolicies(locked,policies);
-    var identityState=new NativeCaseIdentityReader(store.auth).read(caseRef);var identity=obj(identityState,"identity");
+    var identityState=new NativeCaseIdentityReader(store.auth,store.engineSchema).read(caseRef);var identity=obj(identityState,"identity");
     var fields=installed.grant(publication,principal,identity,policies);
     var event=new StaffCaseEventStore(store.auth).read(caseRef);
     if(!identity.get("process_instance_ref").equals(event.get("process_instance_id")))throw unavailable();
@@ -165,7 +165,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     for(var entry:store.checkpointEntries(accepted)){String caseRef=str(entry,"case_ref");if(after!=null&&caseRef.compareTo(after)<=0)continue;
       var row=store.exactGrant(caseRef,principal);if(row==null||!entry.get("grant_ref").equals(row.get("grant_ref")))throw unavailable();
       var publication=store.publication(str(row,"publication_id"));if(publication==null)throw unavailable();var grant=obj(publication,"payload");var policies=store.policyPins(grant);
-      store.requireRecordedPolicies(row,policies);var identityState=new NativeCaseIdentityReader(store.auth).read(caseRef);var identity=obj(identityState,"identity");
+      store.requireRecordedPolicies(row,policies);var identityState=new NativeCaseIdentityReader(store.auth,store.engineSchema).read(caseRef);var identity=obj(identityState,"identity");
       installed.grant(publication,principal,identity,policies,"list");var event=new StaffCaseEventStore(store.auth).read(caseRef);
       if(!identity.get("process_instance_ref").equals(event.get("process_instance_id")))throw unavailable();
       if(items.size()<limit){items.add(record("case_ref",caseRef,"kind","authorization","state",obj(identityState,"native").get("state"),

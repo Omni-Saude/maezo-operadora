@@ -11,7 +11,10 @@ import java.util.*;
  */
 final class NativeCaseIdentityReader {
   private final AuthStore db;
-  NativeCaseIdentityReader(AuthStore db) { this.db = Objects.requireNonNull(db); }
+  private final String engineSchema;
+  NativeCaseIdentityReader(AuthStore db,String engineSchema) {
+    this.db = Objects.requireNonNull(db); this.engineSchema = EngineSchema.require(engineSchema,null);
+  }
 
   Map<String,Object> read(String caseRef) {
     ExternalCaseModels.check("case", caseRef);
@@ -22,19 +25,7 @@ final class NativeCaseIdentityReader {
         || !caseRef.equals(claim.get("case_"))) throw unavailable();
     var definition = AuthStore.parse(claim.get("definition_"));
     if (!"SP-OP-AUTH-001".equals(definition.get("process_key"))) throw unavailable();
-    var row = db.optional("""
-      SELECT d.ID_ AS definition_id,d.KEY_ AS definition_key,d.VERSION_ AS definition_version,
-       d.DEPLOYMENT_ID_ AS deployment_id,d.TENANT_ID_ AS definition_tenant,
-       encode(sha256(b.BYTES_),'hex') AS definition_digest,
-       r.ID_ AS active_id,r.PROC_INST_ID_ AS active_instance,r.PROC_DEF_ID_ AS active_definition,
-       r.TENANT_ID_ AS active_tenant,h.PROC_INST_ID_ AS historic_instance,
-       h.PROC_DEF_ID_ AS historic_definition,h.TENANT_ID_ AS historic_tenant,h.END_TIME_ AS ended_at
-      FROM public.ACT_RE_PROCDEF d
-      JOIN public.ACT_GE_BYTEARRAY b ON b.DEPLOYMENT_ID_=d.DEPLOYMENT_ID_ AND b.NAME_=d.RESOURCE_NAME_
-      LEFT JOIN public.ACT_RU_EXECUTION r ON r.ID_=? AND r.PROC_INST_ID_=r.ID_
-      LEFT JOIN public.ACT_HI_PROCINST h ON h.PROC_INST_ID_=?
-      WHERE d.ID_=?
-      """, claim.get("instance_"),claim.get("instance_"),definition.get("definition_id"));
+    var row = db.optional(EngineSchema.identitySql(engineSchema), claim.get("instance_"),claim.get("instance_"),definition.get("definition_id"));
     if (row == null || !definition.get("definition_digest").equals(row.get("definition_digest"))
         || !definition.get("deployment_id").equals(row.get("deployment_id"))) throw unavailable();
     var identity = fromClaim(claim, definition, row);

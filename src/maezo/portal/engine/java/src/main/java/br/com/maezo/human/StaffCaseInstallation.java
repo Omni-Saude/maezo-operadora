@@ -17,19 +17,21 @@ public final class StaffCaseInstallation {
    * {@link #digest()}, so the designation/publication digest binds it, and
    * {@link StaffCaseStore} compares it exactly (D5) and requires the unqualified name to
    * resolve to the pinned OID (D4). */
+  /** {@code engineSchema} (D-I, T1.8b) is the schema of the engine's {@code ACT_*}
+   * relations ({@code cibseven} in D-C2); also a pin bound by {@link #digest()}. */
   public record Configuration(Map<String,Object> authScope,String designationDigest,PublicKey rootKey,
-      PrivateKey resultKey,PublicKey resultPublicKey,String nativeRole,String nativeSchema,
+      PrivateKey resultKey,PublicKey resultPublicKey,String nativeRole,String nativeSchema,String engineSchema,
       Map<String,StaffCaseStore.RelationPin> relationPins,int maximumSeconds) {
     public Configuration {
       authScope=Collections.unmodifiableMap(copy(authScope));relationPins=Map.copyOf(relationPins);
-      check("h",designationDigest);StaffCaseStore.schema(nativeSchema);
+      check("h",designationDigest);StaffCaseStore.schema(nativeSchema);EngineSchema.require(engineSchema,nativeSchema);
       if(rootKey==null||resultKey==null||resultPublicKey==null||nativeRole==null||maximumSeconds<1||maximumSeconds>10)throw unavailable();
       if(Jcs.digest(rootKey.getEncoded()).equals(Jcs.digest(resultPublicKey.getEncoded())))throw unavailable();
     }
     public String digest(){var pins=new TreeMap<String,Object>();relationPins.forEach((name,p)->pins.put(name,record("oid",Long.toString(p.oid()),"owner",p.owner())));
       return hash(record("schema","staff-case-native-configuration.v2","auth_scope",authScope,"designation_digest",designationDigest,
         "root_key_fingerprint",Jcs.digest(rootKey.getEncoded()),"result_key_fingerprint",Jcs.digest(resultPublicKey.getEncoded()),
-        "native_role",nativeRole,"native_schema",nativeSchema,"relation_pins",pins,"maximum_seconds",Integer.toString(maximumSeconds)));}
+        "native_role",nativeRole,"native_schema",nativeSchema,"engine_schema",engineSchema,"relation_pins",pins,"maximum_seconds",Integer.toString(maximumSeconds)));}
   }
   final Configuration config;
   final StaffCaseStore store;

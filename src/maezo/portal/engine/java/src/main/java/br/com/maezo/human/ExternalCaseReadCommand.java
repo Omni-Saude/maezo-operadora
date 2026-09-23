@@ -45,7 +45,7 @@ public final class ExternalCaseReadCommand implements Command<ExternalCaseReadCo
       if(!hash(principal).equals(previous.get("principal_digest"))||!r.get("audience").equals(previous.get("audience"))||!r.get("scope").equals(previous.get("scope")))throw conflict();
     }else{if(!Set.of("list","detail").contains(r.get("operation"))||r.get("continuity_proof")!=null||r.get("public_projection_digest")!=null)throw invalid();query=map(r.get("query"));}
     String operation=finalize?str(previous,"operation"):str(r,"operation");validateQuery(query,operation,r.get("audience"));
-    var db=new ExternalCaseStore(context,verified.configuration.scope(),verified.admission.statementTimeoutSeconds());long authorityRevision=db.lock();
+    var db=new ExternalCaseStore(context,verified.configuration.scope(),verified.admission.statementTimeoutSeconds(),verified.configuration.engineSchema());long authorityRevision=db.lock();
     var authority=db.authority(verified.configuration);if(authority.revoked.contains(verified.configuration.transportFingerprint()))throw denied();
     var memberDb=new PortalReadStore(context,membershipTrust,membershipAdmission.statementTimeoutSeconds());
     var membership=externalMembership(memberDb,principal,r.get("audience"));
