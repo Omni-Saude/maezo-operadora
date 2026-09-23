@@ -8,9 +8,10 @@ revisao e sai sem assinar.
 
 Comandos (``python -m tools.staff_materials.approver <comando>``):
 
-* ``root-keygen --out DIR``  gera a raiz num diretorio NOVO 0700: `installation-root-key.pem`
-  (0400, opcionalmente cifrada por senha) e `installation-root.der` (a publica, que vai para o
-  pacote). Imprime `root_key_sha256`.
+* ``root-keygen --out DIR``  gera a raiz num diretorio NOVO 0700, fora do repositorio:
+  `installation-root-key.pem` (0400, CIFRADA por senha por padrao; em claro so com
+  `--no-encrypt`) e `installation-root.der` (a publica, que vai para o pacote). Imprime
+  `root_key_sha256`.
 * ``sign-designation --designation F --root-key K [--confirm-digest H] --expires-at T --out P``
   assina a designacao e grava `installation-proof.json`; em seguida reverifica com o mesmo
   verificador do portal (`InstalledStaffAuthority.verify`).
@@ -40,6 +41,7 @@ from maezo.gateway.staff_cases.authority import InstalledStaffAuthority, fingerp
 from maezo.gateway.staff_cases.models import Designation, Proof
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
+from .generate import REPO
 from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, write_new
 
 ADMISSION_DOMAIN = b"maezo/portal-read-admission/v1\x00"
@@ -50,11 +52,20 @@ class ReviewRequiredError(MaterialError):
     """O aprovador ainda nao confirmou o digest do que leu. Nada foi assinado."""
 
 
-def root_keygen(out: Path, *, passphrase: bytes | None = None) -> str:
-    directory = new_private_directory(out)
+def root_keygen(out: Path, *, passphrase: bytes | None, plaintext: bool = False) -> str:
+    """Cifra a chave raiz por padrao. Em claro so com `plaintext=True` explicito (`--no-encrypt`)."""
+    if passphrase is not None and plaintext:
+        raise MaterialError("senha e --no-encrypt sao excludentes")
+    if passphrase is None and not plaintext:
+        raise MaterialError("a raiz sai cifrada por padrao: informe a senha ou use --no-encrypt")
+    if passphrase is not None and len(passphrase) < 12:
+        raise MaterialError("senha da raiz curta demais (minimo 12 bytes)")
+    directory = new_private_directory(out, forbidden=(REPO,))
     key = Ed25519PrivateKey.generate()
     encryption: serialization.KeySerializationEncryption = (
-        serialization.BestAvailableEncryption(passphrase) if passphrase else serialization.NoEncryption()
+        serialization.NoEncryption()
+        if passphrase is None
+        else serialization.BestAvailableEncryption(passphrase)
     )
     write_new(
         directory / "installation-root-key.pem",
@@ -72,7 +83,10 @@ def root_keygen(out: Path, *, passphrase: bytes | None = None) -> str:
 
 
 def load_root(path: Path, passphrase: bytes | None = None) -> Ed25519PrivateKey:
-    key = serialization.load_pem_private_key(path.read_bytes(), password=passphrase)
+    try:
+        key = serialization.load_pem_private_key(path.read_bytes(), password=passphrase)
+    except (TypeError, ValueError):
+        raise MaterialError("nao foi possivel abrir a chave raiz (senha ausente ou errada)") from None
     if not isinstance(key, Ed25519PrivateKey):
         raise MaterialError("a raiz de instalacao e Ed25519")
     return key
@@ -202,7 +216,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     keygen = commands.add_parser("root-keygen")
     keygen.add_argument("--out", type=Path, required=True)
-    keygen.add_argument("--encrypt", action="store_true", help="pede uma senha e cifra a chave privada")
+    keygen.add_argument(
+        "--no-encrypt", action="store_true", help="grava a chave raiz EM CLARO (so com decisao explicita)"
+    )
     for name in ("sign-designation", "sign-admission"):
         command = commands.add_parser(name)
         command.add_argument("--root-key", type=Path, required=True)
@@ -217,8 +233,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "root-keygen":
-            secret = getpass.getpass("senha da raiz: ").encode() if args.encrypt else None
-            print(f"root_key_sha256={root_keygen(args.out, passphrase=secret)}")
+            secret = None if args.no_encrypt else getpass.getpass("senha da raiz: ").encode()
+            if secret is not None and getpass.getpass("repita a senha: ").encode() != secret:
+                raise MaterialError("as senhas nao conferem")
+            print(f"root_key_sha256={root_keygen(args.out, passphrase=secret, plaintext=args.no_encrypt)}")
             return 0
         root = load_root(args.root_key, _passphrase(args.passphrase_file))
         if args.out.exists():

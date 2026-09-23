@@ -4,7 +4,9 @@ Produz, num diretorio NOVO 0700 fora do repositorio:
 
 ``portal/``  arquivos do pacote staff do portal (11 dos 12 do manifesto; faltam
              `installation-root.der` e `installation-proof.json`, que so o aprovador produz)
-``engine/``  material do listener mTLS e da autoridade nativa (segredo nativo, Onda 4)
+``engine/``  material do listener mTLS e da autoridade nativa (segredo nativo, Onda 4); a CA de
+             clientes vai em PEM e em `client-ca.p12` (truststore PKCS12 sem senha, o que o
+             Tomcat 10.1/JSSE le)
 ``issuer/``  chaves e certificado do emissor de casos e do importador (T1.6)
 ``dba/``     verificadores SCRAM dos dois logins novos (Onda 3; a senha em claro so existe no DSN)
 ``public/summary.json``  o que o aprovador confere: digests, fingerprints e pins de SPKI
@@ -28,6 +30,7 @@ from urllib.parse import quote
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import pkcs12
 
 from maezo.gateway.external_cases.models import digest, parse, timestamp
 from maezo.gateway.staff_cases.authority import fingerprint
@@ -92,6 +95,19 @@ def rds_bundle() -> bytes:
     if hashlib.sha256(raw).hexdigest() != RDS_BUNDLE_SHA256:
         raise MaterialError("bundle RDS vendorizado difere do pin revisado")
     return raw
+
+
+def client_truststore(client_ca: Issued) -> bytes:
+    """Truststore PKCS12 SEM senha com SO a CA de clientes (montado em `/run/maezo/native/client-ca.p12`).
+
+    Medido na T1.2 (#482): o Tomcat 10.1 com JSSE ignora `caCertificateFile` e recusou um cliente
+    confiavel; o listener mTLS le a CA de clientes deste truststore. Leva o atributo de "trusted
+    certificate" do Java (`serialize_java_truststore`) e nenhuma chave privada.
+    """
+    return pkcs12.serialize_java_truststore(
+        [pkcs12.PKCS12Certificate(client_ca.certificate, b"maezo-native-client-ca")],
+        serialization.NoEncryption(),
+    )
 
 
 def dsn(connection: Any, password: str) -> bytes:
@@ -202,6 +218,7 @@ def generate(spec: MaterialsSpec, out: Path) -> Generated:
         (engine / "native-server-key.pem", server.key_pem(), PRIVATE),
         (engine / "native-server-certificate.pem", server.certificate_pem(), PUBLIC),
         (engine / "native-client-ca.pem", client_ca.certificate_pem(), PUBLIC),
+        (engine / "client-ca.p12", client_truststore(client_ca), PUBLIC),
         (engine / "native-result-signing-key.pem", _private_pem(keys["native_result"]), PRIVATE),
         (engine / "portal-read-continuity-key.bin", continuity_key, PRIVATE),
         (issuer / "case-issuer-signing-key.pem", _private_pem(keys["case_issuer"]), PRIVATE),
@@ -236,6 +253,9 @@ def generate(spec: MaterialsSpec, out: Path) -> Generated:
         native_server_spki_sha256=server.spki_sha256(),
         native_ca_sha256=hashlib.sha256(server_ca.certificate_pem()).hexdigest(),
         native_client_ca_sha256=hashlib.sha256(client_ca.certificate_pem()).hexdigest(),
+        native_client_ca_der_sha256=hashlib.sha256(
+            client_ca.certificate.public_bytes(serialization.Encoding.DER)
+        ).hexdigest(),
         continuity=dict(key_ref=continuity_ref, commitment=continuity_commitment(continuity_key)),
         logins=dict(
             session_lock=spec.session_lock_connection.login,

@@ -1,19 +1,31 @@
-"""Escrita de material sensivel: diretorio NOVO 0700, arquivo novo, modo explicito, sem sobrescrever."""
+"""Escrita de material sensivel: diretorio NOVO 0700, arquivo novo, modo explicito, sem sobrescrever.
+
+Fail-closed fora de POSIX. No Windows, `chmod(0o400)`/`mkdir(mode=0o700)` nao mudam a ACL: medido
+em 23/09/2026, `D:\\` e `D:\\tmp` herdam `Usuarios autenticados:(OI)(CI)(M)`, entao chave e DSN
+ficariam legiveis por qualquer usuario da maquina. A ferramenta recusa antes de criar qualquer
+coisa; rode em Linux, WSL ou num container.
+"""
 
 from __future__ import annotations
 
 import os
 import stat
-import sys
 from pathlib import Path
 
 PRIVATE = 0o400
 PUBLIC = 0o444
-POSIX = sys.platform != "win32"
 
 
 class MaterialError(RuntimeError):
     """Recusa da ferramenta. A mensagem nunca carrega bytes de chave, senha ou DSN."""
+
+
+def require_posix() -> None:
+    if os.name != "posix":
+        raise MaterialError(
+            "fora de POSIX o modo 0400/0700 nao protege o arquivo (ACL herdada): "
+            "rode em Linux, WSL ou num container"
+        )
 
 
 def _inside(path: Path, parent: Path) -> bool:
@@ -22,6 +34,7 @@ def _inside(path: Path, parent: Path) -> bool:
 
 def new_private_directory(path: Path, *, forbidden: tuple[Path, ...] = ()) -> Path:
     """Cria um diretorio NOVO com modo 0700. Recusa caminho existente e caminho dentro do repo."""
+    require_posix()
     if not path.is_absolute():
         raise MaterialError("o diretorio de saida precisa ser absoluto")
     resolved = path.resolve(strict=False)
@@ -33,30 +46,29 @@ def new_private_directory(path: Path, *, forbidden: tuple[Path, ...] = ()) -> Pa
         raise MaterialError("o diretorio de saida precisa ser NOVO")
     if not path.parent.is_dir():
         raise MaterialError("o diretorio pai da saida precisa existir")
-    old = os.umask(0o077) if POSIX else None
+    old = os.umask(0o077)
     try:
         path.mkdir(mode=0o700)
     finally:
-        if old is not None:
-            os.umask(old)
-    if POSIX:
-        os.chmod(path, 0o700)
-        if stat.S_IMODE(path.stat().st_mode) != 0o700:
-            raise MaterialError("o diretorio de saida nao ficou 0700")
+        os.umask(old)
+    os.chmod(path, 0o700)
+    if stat.S_IMODE(path.stat().st_mode) != 0o700:
+        raise MaterialError("o diretorio de saida nao ficou 0700")
     return path
 
 
 def subdirectory(parent: Path, name: str) -> Path:
+    require_posix()
     path = parent / name
     path.mkdir(mode=0o700)
-    if POSIX:
-        os.chmod(path, 0o700)
+    os.chmod(path, 0o700)
     return path
 
 
 def write_new(path: Path, data: bytes, mode: int) -> None:
-    """Grava um arquivo que ainda nao existe, com `O_EXCL` e o modo pedido."""
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    """Grava um arquivo que ainda nao existe, com `O_EXCL`/`O_NOFOLLOW` e o modo pedido."""
+    require_posix()
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags, 0o600)
     try:
         view = memoryview(data)
@@ -65,15 +77,4 @@ def write_new(path: Path, data: bytes, mode: int) -> None:
             view = view[written:]
     finally:
         os.close(descriptor)
-    if POSIX:
-        os.chmod(path, mode)
-
-
-def private_mode_ok(path: Path) -> bool:
-    """Em POSIX exige 0400/0600 do dono; fora dele (estacao Windows de teste) nao ha o que medir."""
-    if sys.platform == "win32":
-        return True
-    st = path.stat()
-    return (
-        stat.S_ISREG(st.st_mode) and stat.S_IMODE(st.st_mode) in (0o400, 0o600) and st.st_uid == os.geteuid()
-    )
+    os.chmod(path, mode)

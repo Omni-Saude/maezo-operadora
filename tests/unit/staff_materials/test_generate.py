@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 from datetime import datetime, timedelta
@@ -12,6 +13,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import pkcs12
 from tools.staff_materials.generate import REPO, Generated, continuity_commitment, generate
 from tools.staff_materials.pki import spki_sha256
 from tools.staff_materials.secure_io import MaterialError
@@ -76,7 +78,6 @@ def test_tree_is_exact_and_carries_no_root_and_no_ca_private_key(generated: Gene
     }
 
 
-@pytest.mark.skipif(os.name != "posix", reason="modo de arquivo so e medivel em POSIX; o CI roda Linux")
 def test_private_modes(generated: Generated) -> None:
     assert stat.S_IMODE(generated.directory.stat().st_mode) == 0o700
     for name in _tree(generated):
@@ -165,6 +166,37 @@ def connection_url_password(generated: Generated, name: str) -> str:
     from sqlalchemy.engine import make_url
 
     return make_url((generated.directory / f"portal/{name}-dsn.txt").read_text()).password or ""
+
+
+def test_client_truststore_is_a_passwordless_pkcs12_with_only_the_client_ca(generated: Generated) -> None:
+    raw = (generated.directory / "engine/client-ca.p12").read_bytes()
+    loaded = pkcs12.load_pkcs12(raw, None)  # sem senha: abre com None
+    assert loaded.key is None and loaded.cert is None
+    (only,) = loaded.additional_certs
+    client_ca = x509.load_pem_x509_certificate(
+        (generated.directory / "engine/native-client-ca.pem").read_bytes()
+    )
+    server_ca = x509.load_pem_x509_certificate((generated.directory / "portal/native-ca.pem").read_bytes())
+    assert only.certificate == client_ca and only.certificate != server_ca
+    assert only.friendly_name == b"maezo-native-client-ca"
+    assert b"PRIVATE" not in raw
+    der = client_ca.public_bytes(serialization.Encoding.DER)
+    assert generated.summary["native_client_ca_der_sha256"] == hashlib.sha256(der).hexdigest()
+
+
+def test_non_posix_host_is_refused_before_anything_is_written(
+    now: datetime, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tools.staff_materials import secure_io
+
+    spec = load_spec(spec_bytes(spec_value(now)))
+    monkeypatch.setattr(secure_io.os, "name", "nt")
+    with pytest.raises(MaterialError, match="POSIX"):
+        generate(spec, tmp_path / "out")
+    with pytest.raises(MaterialError, match="POSIX"):
+        secure_io.write_new(tmp_path / "x", b"segredo", 0o400)
+    monkeypatch.undo()
+    assert not (tmp_path / "out").exists() and not (tmp_path / "x").exists()
 
 
 def test_continuity_key_and_commitment(generated: Generated) -> None:

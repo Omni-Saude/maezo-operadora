@@ -6,7 +6,6 @@ A raiz e gerada no teste (`Ed25519PrivateKey.generate()` ou `root_keygen` num tm
 from __future__ import annotations
 
 import base64
-import os
 import stat
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,7 +16,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from tools.staff_materials import approver
-from tools.staff_materials.generate import Generated
+from tools.staff_materials.generate import REPO, Generated
 from tools.staff_materials.secure_io import MaterialError
 
 from maezo.gateway.external_cases.models import digest, instant, parse
@@ -79,22 +78,41 @@ def test_root_equal_to_a_designated_key_is_refused(generated: Generated, now: da
         )
 
 
-def test_root_keygen_writes_private_and_public_in_a_new_private_directory(tmp_path: Path) -> None:
+def test_root_keygen_encrypts_by_default_in_a_new_private_directory(tmp_path: Path) -> None:
     out = tmp_path / "root"
-    shown = approver.root_keygen(out, passphrase=b"senha de teste")
+    shown = approver.root_keygen(out, passphrase=b"senha de teste longa")
     public = serialization.load_der_public_key((out / "installation-root.der").read_bytes())
     assert isinstance(public, Ed25519PublicKey) and fingerprint(public) == shown
-    with pytest.raises(TypeError):
+    assert b"ENCRYPTED PRIVATE KEY" in (out / "installation-root-key.pem").read_bytes()
+    with pytest.raises(MaterialError, match="senha"):
         approver.load_root(out / "installation-root-key.pem")  # cifrada: sem senha nao abre
-    assert (
-        fingerprint(approver.load_root(out / "installation-root-key.pem", b"senha de teste").public_key())
-        == shown
-    )
-    if os.name == "posix":
-        assert stat.S_IMODE(out.stat().st_mode) == 0o700
-        assert stat.S_IMODE((out / "installation-root-key.pem").stat().st_mode) == 0o400
+    with pytest.raises(MaterialError, match="senha"):
+        approver.load_root(out / "installation-root-key.pem", b"senha errada qualquer")
+    opened = approver.load_root(out / "installation-root-key.pem", b"senha de teste longa")
+    assert fingerprint(opened.public_key()) == shown
+    assert stat.S_IMODE(out.stat().st_mode) == 0o700
+    assert stat.S_IMODE((out / "installation-root-key.pem").stat().st_mode) == 0o400
     with pytest.raises(MaterialError, match="NOVO"):
-        approver.root_keygen(out)
+        approver.root_keygen(out, passphrase=b"senha de teste longa")
+
+
+def test_plaintext_root_only_with_explicit_no_encrypt(tmp_path: Path) -> None:
+    with pytest.raises(MaterialError, match="cifrada por padrao"):
+        approver.root_keygen(tmp_path / "a", passphrase=None)
+    with pytest.raises(MaterialError, match="curta"):
+        approver.root_keygen(tmp_path / "b", passphrase=b"curta")
+    with pytest.raises(MaterialError, match="excludentes"):
+        approver.root_keygen(tmp_path / "c", passphrase=b"senha de teste longa", plaintext=True)
+    assert not any((tmp_path / n).exists() for n in "abc")
+    approver.root_keygen(tmp_path / "d", passphrase=None, plaintext=True)
+    assert b"BEGIN PRIVATE KEY" in (tmp_path / "d/installation-root-key.pem").read_bytes()
+
+
+def test_root_keygen_refuses_the_repository() -> None:
+    target = REPO / "tmp-root-should-never-exist"
+    with pytest.raises(MaterialError, match="repositorio"):
+        approver.root_keygen(target, passphrase=b"senha de teste longa")
+    assert not target.exists()
 
 
 def admission(now: datetime, **changes: Any) -> dict[str, Any]:
@@ -159,7 +177,8 @@ def test_cli_prints_review_and_does_not_sign_without_confirmation(
     generated: Generated, tmp_path: Path, capsys: pytest.CaptureFixture[str], now: datetime
 ) -> None:
     root_dir = tmp_path / "approver-root"
-    approver.root_keygen(root_dir)
+    approver.root_keygen(root_dir, passphrase=b"senha de teste longa")
+    (tmp_path / "senha.txt").write_bytes(b"senha de teste longa" + b"\n")
     out = tmp_path / "installation-proof.json"
     args = [
         "sign-designation",
@@ -167,6 +186,8 @@ def test_cli_prints_review_and_does_not_sign_without_confirmation(
         str(generated.directory / "portal/designation.json"),
         "--root-key",
         str(root_dir / "installation-root-key.pem"),
+        "--passphrase-file",
+        str(tmp_path / "senha.txt"),
         "--expires-at",
         instant(now + timedelta(days=2)),
         "--out",
