@@ -63,8 +63,9 @@ final class StaffCaseStore {
   final AuthStore auth;
   final Map<String,Object> scope;
   final int timeout;
+  final String engineSchema;
   StaffCaseStore(CommandContext context,Map<String,Object> authScope,int timeout,
-      String nativeRole,String nativeSchema,Map<String,RelationPin> pins) {
+      String nativeRole,String nativeSchema,String engineSchema,Map<String,RelationPin> pins) {
     auth=new AuthStore(context,authScope,timeout);this.timeout=timeout;
     session=context.getDbSqlSession().getSqlSession();
     scope=record("tenant",authScope.get("tenant"),"environment",authScope.get("environment"),
@@ -72,9 +73,10 @@ final class StaffCaseStore {
     if(!pins.keySet().equals(OWNED))throw unavailable();schema(nativeSchema);
     String schema=context.getProcessEngineConfiguration().getDatabaseSchema();
     String prefix=context.getProcessEngineConfiguration().getDatabaseTablePrefix();
-    if(schema!=null&&!schema.equals("public")||prefix!=null&&!prefix.isEmpty()&&!prefix.equals("public."))throw unavailable();
+    this.engineSchema=EngineSchema.require(engineSchema,nativeSchema);EngineSchema.requireEngineConfiguration(engineSchema,schema,prefix);
     var user=auth.one("SELECT session_user::text AS actual,current_user::text AS effective");
     if(!nativeRole.equals(user.get("actual"))||!nativeRole.equals(user.get("effective")))throw unavailable();
+    for(String table:EngineSchema.TABLES)EngineSchema.requireTable(auth.optional(EngineSchema.PIN,engineSchema,table));
     for(String table:new TreeSet<>(OWNED)) {
       var pin=pins.get(table);
       var row=auth.one(PIN,table,nativeSchema,table);
@@ -291,7 +293,7 @@ final class StaffCaseStore {
     if(((Number)count.get("n")).longValue()!=currentPins.size()||currentPins.isEmpty())throw unavailable();
   }
   void taskRows(Map<String,Object> identity,java.util.function.Predicate<Map<String,Object>> visitor) {
-    String sql="SELECT ID_,PROC_INST_ID_,PROC_DEF_ID_,TASK_DEF_KEY_,REV_,CREATE_TIME_,TENANT_ID_ FROM public.ACT_RU_TASK WHERE TENANT_ID_=? AND PROC_INST_ID_=? ORDER BY ID_ COLLATE \"C\" FOR SHARE";
+    String sql=EngineSchema.taskSql(engineSchema);
     try(var statement=auth.connection().prepareStatement(sql)){
       statement.setQueryTimeout(timeout);statement.setFetchSize(16);statement.setString(1,str(scope,"tenant"));statement.setString(2,str(identity,"process_instance_ref"));
       try(var rs=statement.executeQuery()){while(rs.next()){

@@ -88,10 +88,10 @@ public final class ExternalCaseModels {
   }
   public record Configuration(Map<String,Object> scope, String designationDigest,
       PublicKey installationKey, PublicKey transportKey, String transportFingerprint,
-      String tlsPeerFingerprint, String purpose) {
+      String tlsPeerFingerprint, String purpose, String engineSchema) {
     public Configuration {
       scope=Collections.unmodifiableMap(new TreeMap<>(shape("scope",scope)));
-      check("h",designationDigest);check("h",transportFingerprint);check("h",tlsPeerFingerprint);
+      check("h",designationDigest);check("h",transportFingerprint);check("h",tlsPeerFingerprint);EngineSchema.require(engineSchema,null);
       if(installationKey==null||transportKey==null||!Jcs.digest(transportKey.getEncoded()).equals(transportFingerprint)
           ||!Set.of("portal-external-case-publication","portal-external-case-read").contains(purpose))throw unavailable();
     }

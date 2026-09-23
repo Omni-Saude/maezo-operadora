@@ -21,7 +21,7 @@ public final class ExternalCasePublicationCommand implements Command<ExternalCas
   @Override public Result execute(CommandContext context){
     verified.current();if(!verified.configuration.purpose().equals("portal-external-case-publication"))throw denied();
     var r=publication(verified.request);if(!r.get("requester_fingerprint").equals(verified.configuration.transportFingerprint()))throw denied();
-    var db=new ExternalCaseStore(context,verified.configuration.scope(),verified.admission.statementTimeoutSeconds());
+    var db=new ExternalCaseStore(context,verified.configuration.scope(),verified.admission.statementTimeoutSeconds(),verified.configuration.engineSchema());
     long authorityRevision=db.lock();var old=db.receipt(str(r,"publication_id"));var out=new Result();out.guard=verified::current;
     if(old!=null){if(!verified.digest.equals(old.get("request_digest"))||!r.get("kind").equals(old.get("kind"))
         ||!r.get("requester_fingerprint").equals(old.get("requester_fingerprint")))throw conflict();

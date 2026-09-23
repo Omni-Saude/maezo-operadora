@@ -24,7 +24,7 @@ public final class StaffCasePublicationCommand implements Command<StaffCasePubli
     read.context=context;read.db=new PortalReadStore(context,lease.trust,lease.admission.statementTimeoutSeconds());
     read.ceiling("native_admission",lease.admission.providerRef(),lease.admission.providerRevision(),lease.admission.capabilityDigest(),lease.admission.observedAt(),lease.admission.validUntil());
     read.db.lockTenant();
-    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.nativeSchema(),config.relationPins());
+    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.nativeSchema(),config.engineSchema(),config.relationPins());
     store.auth.lock();var installed=new StaffCaseInstallation(config,store,lease.admission);
     var request=installed.signedPublication(raw,peer);String id=str(request,"publication_id"),requestDigest=hash(request);
     // Current importer is independently authenticated for this exact source. An
@@ -39,7 +39,7 @@ public final class StaffCasePublicationCommand implements Command<StaffCasePubli
         var witness=obj(request,"membership_witness");
         var membership=installed.membership(read,witness,null);String membershipDigest=hash(membership);
         checks.add(()->{if(!membershipDigest.equals(hash(installed.membership(read,witness,null))))throw conflict();});
-        var identityReader=new NativeCaseIdentityReader(store.auth);var identity=identityReader.read(str(payload,"case_ref"));String identityDigest=hash(identity);
+        var identityReader=new NativeCaseIdentityReader(store.auth,store.engineSchema);var identity=identityReader.read(str(payload,"case_ref"));String identityDigest=hash(identity);
         var pins=store.policyPins(payload);
         installed.grant(request,obj(witness,"actor"),obj(identity,"identity"),pins,null);
         String pinDigest=hash(pins);checks.add(()->{
@@ -60,7 +60,7 @@ public final class StaffCasePublicationCommand implements Command<StaffCasePubli
         installed.proof(obj(request,"proof"),withoutProof(request,"proof"),"case_issuer","scope_complete",str(request,"source_ref"),null);
         var provisional=record("checkpoint_ref",payload.get("checkpoint_ref"),"generation",number(payload.get("generation")),"canonical_checkpoint",AuthStore.text(payload));
         var entries=store.checkpointEntries(provisional);for(var entry:entries){var publication=store.publication(str(store.grant(str(entry,"grant_ref")),"publication_id"));
-          var identity=new NativeCaseIdentityReader(store.auth).read(str(entry,"case_ref"));var policies=store.policyPins(obj(publication,"payload"));
+          var identity=new NativeCaseIdentityReader(store.auth,store.engineSchema).read(str(entry,"case_ref"));var policies=store.policyPins(obj(publication,"payload"));
           store.requireRecordedPolicies(store.grant(str(entry,"grant_ref")),policies);installed.grant(publication,actor,obj(identity,"identity"),policies,"list");}
         String censusDigest=hash(entries);checks.add(()->{var latest=store.checkpointEntries(provisional);if(!censusDigest.equals(hash(latest)))throw conflict();});
       } else if(kind.equals("policy_head")) {
