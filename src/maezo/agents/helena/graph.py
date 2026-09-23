@@ -1571,6 +1571,12 @@ _PERGUNTA_DE_IDENTIDADE = re.compile(
     r"|\b(?:voce|vc|tu|isso|isto) (?:e|eh|seria)(?: uma?)? (?:pessoa|humano|humana|gente|robo|bot|ia"
     r"|inteligencia artificial|maquina|sistema|assistente|atendente|real|de verdade)\b"
     r"|\b(?:e|eh) (?:uma? )?(?:pessoa|humano|humana|robo|bot|ia|maquina)\b"
+    # 23/09/2026, caso `R6` da bateria v2: a pergunta sobre a identidade do BENEFICIARIO ("voce
+    # sabe quem eu sou?", "voce me conhece?") tem a mesma resposta honesta — "por aqui eu nao
+    # consigo te identificar" (F6) — e o mesmo defeito: saiu `human_request` e abriu P3.
+    r"|\b(?:voce|vc|tu) (?:sabe|conhece|lembra) (?:quem (?:eu )?sou|meu nome|de mim|com quem)\b"
+    r"|\b(?:voce|vc|tu) me (?:conhece|identifica|reconhece|conhecia)\b"
+    r"|\bsabe (?:o )?meu nome\b"
 )
 _PEDIDO_DE_HUMANO = re.compile(
     r"\b(?:falar|conversar|atendimento|atender|atendente|transfer\w*|passa\w*|chama\w*|liga\w*"
