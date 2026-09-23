@@ -16,6 +16,12 @@ três premissas do plano: o `/cases` depende da autoridade Q2 do engine (`Portal
 provedor SPI que não existe), o DDL staff não instala em PostgreSQL, e o perfil staff exige o
 plano AUTH instalado. Cada correção está marcada **[Onda 0]** no ponto do texto em que vale.
 
+**Decisões de 23/09/2026 (dono + software-architect).** O dono aprovou D-C2 (N7), e a decisão
+virou o **ADR-0060** (`docs/adr/0060-schema-nativo-dedicado-maezo-native.md`). A meta segue sendo
+`/cases` (N8); N3 e N5 ficaram com as recomendações. O arquiteto desenhou a T1.7 (§3.1),
+redistribuiu a Onda 1 (T1.7a/T1.7b, T1.9 nova, escopo maior na T1.5) e reestimou as Ondas 1 a 7
+(§5). Os pontos alterados estão marcados **[23/09]**.
+
 ---
 
 ## 0. Resumo em uma tela
@@ -45,6 +51,10 @@ plano AUTH instalado. Cada correção está marcada **[Onda 0]** no ponto do tex
    a imagem `INSTALL_PORTAL_READ=true` morre no boot com `READ_DEPENDENCY_UNAVAILABLE`. Assim, a
    autoridade Q2 do engine, que o plano punha na Onda 8, fica no caminho crítico de `/cases`
    (nova T1.7).
+   **[23/09] Nova estimativa: 4 a 6 semanas** de calendário para as Ondas 1 a 7, com confiança
+   média-baixa (§5). Ela vale porque a T1.7 foi recortada ao que o staff usa (§3.1). A autoridade
+   Q2 inteira, com publicação de tarefas, classificação e política de identidade, continua na
+   Onda 8.
 
 ---
 
@@ -138,7 +148,7 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
 | I5 **[Onda 0]** | **O plano AUTH, obrigatório para staff, não qualifica com D-C.** `staffConfigured()` exige `authRuntime` (`HumanCommandPlugin.java:60-65`). `AuthInstallation.runtime` relê, **na conexão do engine**, `ConsumerEdgeInstallation.session(owner=false)`, que exige quatro coisas: `current_schema()` = schema das `mzo_auth_*`, dono desse schema ≠ login do engine, login do engine **sem CREATE** nele e sem nenhuma role-membro. Com `currentSchema=cibseven,public`, `current_schema()` vira `cibseven`, e o dono e o CREATE são do próprio `cibseven_app` | `AuthInstallation.java:90-94`; `ConsumerEdgeInstallation.java:60-74`; `AuthInstallation.java:21` (`owner_role ≠ runtime_role`) | **Provado** (S1 R2, SQL das mesmas precondições como `cibseven_app`): `current_schema=cibseven`, `owner=cibseven_app`, `owner_differs=f`, `runtime_lacks_create=f` |
 | I6 **[Onda 0]** | **`INSTALL_PORTAL_READ=true` não sobe.** `PortalReadPlugin.preInit` exige `MAEZO_PORTAL_READ_TRUST_FILE` **e exatamente um** `PortalReadTrust.Providers` via `ServiceLoader`. Não existe implementação nem registro `META-INF/services` no repositório, só provedores anônimos de teste | `PortalReadPlugin.java:19-24`; `find src/maezo/portal/engine/java -path "*META-INF/services*"` → vazio; `LIFECYCLE.md:128-143` ("Q2 cannot currently be built from configuration alone") | **Provado** (S1 R0): Tomcat não sobe, `ENGINE-08043 … Start process engine default: READ_DEPENDENCY_UNAVAILABLE`. Staff precisa dele: `executeStaff` chama `PortalReadPlugin.staffLease` em **toda** operação (`HumanCommandPlugin.java:209`) e o `Q2Intersection` monta um `PortalReadCommand` com a admissão Q2 (`StaffCaseReadCommand.java:290-306`) |
 | I7 **[Onda 0]** | **O DDL staff não instala em PostgreSQL.** Três `FOREIGN KEY` sem lista de colunas apontam para tabelas cuja PK tem uma coluna a menos: `designation_current` (6 colunas) → `designation_event` (PK de 5); `policy_current`/`policy_dependency` (7) → `policy_version` (PK de 6). O único teste que abre o arquivo faz busca de string (`StaffCaseListRepairTest.java:98-104`) | `staff-case-schema-postgres.sql:18-19`, `:112-113`, `:120-121` | **Provado** (S1, PG 17.11): `ERROR: number of referencing and referenced columns for foreign key disagree` na linha 19. O spike seguiu com um patch local (lista explícita das colunas da UNIQUE), sem alterar o repo |
-| I8 **[Onda 0]** | **A matriz de grants do DDL staff contradiz o `StaffCaseStore`.** O store trata como imutável só o que termina em `_event/_receipt/_continuity/_cursor/_version/_dependency` e, para as outras, **exige UPDATE**. `mzo_staff_case_checkpoint_chunk` recebe só `SELECT,INSERT` no DDL, então o pin recusa **toda** chamada staff | `StaffCaseStore.java:50-60`; `staff-case-schema-postgres.sql:138` (grant `SELECT,INSERT` inclui `checkpoint_chunk`) | **Provado** (S1 R2, matriz lida como `cibseven_app`): `checkpoint_chunk ins=t upd=f`. A correção (sufixo `_chunk` imutável no código **ou** UPDATE no DDL) é do backend: decide o que é imutável |
+| I8 **[Onda 0]** | **A matriz de grants do DDL staff contradiz o `StaffCaseStore`.** O store trata como imutável só o que termina em `_event/_receipt/_continuity/_cursor/_version/_dependency` e, para as outras, **exige UPDATE**. `mzo_staff_case_checkpoint_chunk` recebe só `SELECT,INSERT` no DDL, então o pin recusa **toda** chamada staff | `StaffCaseStore.java:50-60`; `staff-case-schema-postgres.sql:138` (grant `SELECT,INSERT` inclui `checkpoint_chunk`) | **Provado** (S1 R2, matriz lida como `cibseven_app`): `checkpoint_chunk ins=t upd=f`. A correção (sufixo `_chunk` imutável no código **ou** UPDATE no DDL) é do backend: decide o que é imutável. **[23/09] Decidido (ADR-0060 D6):** `_chunk` passa a imutável no código (T1.8). Só existe INSERT (`StaffCaseStore.java:155`) e leitura (`:89`); o DDL fica `SELECT,INSERT` |
 | I9 **[Onda 0]** | **Ordem do primeiro boot.** Quando o login do engine não tem CREATE no primeiro schema do path (o que I5 exige), um banco **vazio** não sobe: o auto-update tenta criar `ACT_*` ali | S1 R4 | **Provado**: `ENGINE-03015 … permission denied for schema public`. Em dev o `ACT_*` já existe (49 tabelas em `cibseven`, M2), então isso não bloqueia; é regra de DR e restore: subir primeiro com `currentSchema=cibseven` |
 
 ---
@@ -183,8 +193,8 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   tabela criada ali **sombreia** o `ACT_*` do engine (S1: `public.act_ge_property` passou a ser a
   resolvida); (iii) as tabelas `checkpoint*` do checkpointer da Helena moram em `public`.
 - **D-C2 (substitui D-C). Schema nativo dedicado, pinado, na frente do path do engine.**
-  - **Layout:** um schema novo (proposta `maezo_native`, nome final no ADR) no database `maezo`,
-    dono um login de instalação dedicado (proposta `maezo_native_owner`), que não é `maezo_app`,
+  - **Layout:** um schema novo (`maezo_native`, ADR-0060) no database `maezo`,
+    dono um login de instalação dedicado (`maezo_native_schema_owner`, ADR-0060), que não é `maezo_app`,
     nem `cibseven_app`, nem master. Nele ficam **todas** as `mzo_*`: human, portal-read, staff e
     auth. O engine roda com `currentSchema=maezo_native,cibseven` e `cibseven_app` recebe só
     `USAGE` no schema e os grants de tabela de cada DDL.
@@ -199,8 +209,23 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   - **O que D-C2 herda:** a regra do primeiro boot (I9). Ela não afeta dev, onde o `ACT_*` já
     existe, mas vira passo do runbook de DR.
   - **Custo:** o "~1 semana" que o plano previa para o substituto, mais a T1.8 (§3).
-  - **Dono da decisão:** esta é uma proposta de infra a partir da medição. **Quem decide D-C2 é o
-    software-architect**, com o ADR.
+  - ~~**Dono da decisão:** esta é uma proposta de infra a partir da medição. **Quem decide D-C2 é o
+    software-architect**, com o ADR.~~
+  - **[23/09] DECIDIDA: ADR-0060.** O dono aprovou (N7) e o ADR fixa o seguinte:
+    - **Nomes:** schema `maezo_native` e login dono **`maezo_native_schema_owner`**. O nome
+      proposto antes, `maezo_native_owner`, colidia na leitura com o schema `maezo_native_owner_v1`
+      do programa native-v2 (ADR-0054).
+    - **Schema como pin:** ele entra em `portal-staff-material.v2` (`native_schema`) e no `digest()`
+      da configuração Java staff.
+    - **Resolução provada no pin:** para cada relação, `to_regclass('<nome sem schema>')::oid` tem
+      que ser igual ao OID pinado. Isso cobre um homônimo em `pg_temp`, que o PostgreSQL busca
+      antes do path.
+    - **Comparação exata**, sempre. Nunca por prefixo: `maezo_native` é prefixo de
+      `maezo_native_v2`.
+    - **I8** se resolve no código: `_chunk` passa a imutável, e o DDL continua `SELECT,INSERT`.
+    - **Runbook de banco vazio** (ADR-0060, Consequência 4): subir a imagem **antiga** com
+      `currentSchema=cibseven`, reinstalar com incarnation nova, fazer nova admissão Q2 e nova
+      designação, e só então subir a imagem nova.
 - **D-D. A função de lock é instalada numa variante por tenant** (`amh.portal_sessions`,
   `amh.portal_memberships`), gerada do bloco canônico por substituição revisada, com
   `search_path=pg_catalog, portal_identity` intacto (o runtime confere `proconfig` exato,
@@ -259,14 +284,20 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
 
 | T | Área / builder | Arquivos previstos | Pronto quando |
 |---|---|---|---|
-| T1.1 | backend/Java | `src/maezo/portal/engine/java/.../human/StaffDeploymentComposition.java` (novo) + teste; `deploy/cibseven/human-webapp/` intacto | `mvn -B package` verde; teste que prova: sem arquivo → engine não sobe; arquivo adulterado → recusa; log emite só o digest público; digest igual a `Configuration.digest()` |
+| T1.1 | backend/Java | `src/maezo/portal/engine/java/.../human/StaffDeploymentComposition.java` (novo) + teste; `deploy/cibseven/human-webapp/` intacto | `mvn -B package` verde; teste que prova: sem arquivo → engine não sobe; arquivo adulterado → recusa; log emite só o digest público; digest igual a `Configuration.digest()`. **[23/09]** O arquivo de composição traz `native_schema`, que vai para o `Configuration.nativeSchema` da T1.8. A T1.1 começa já contra essa assinatura, mas **só mergeia depois da T1.8/Java**. Ela não edita `StaffCaseInstallation.java` |
 | T1.2 | infra | `deploy/cibseven/Dockerfile.human` (ARG da composição, `server.xml` de deploy com **um** connector `SSLEnabled` 8443 `certificateVerification="required"`, `allowTrace=false`, sem atributos de proxy, keystore/truststore **montados**); `deploy/cibseven/native-deploy/server.xml` (novo) | build local verde; `S1` reexecutado sobre esta imagem |
 | T1.3 | backend/Python (ferramenta, fora do runtime) | `tools/staff_materials/` (novo): `generate` (chaves Ed25519 read/witness/result, CA nativa, cert do servidor com SAN = hostname de D-B, cert do cliente, rascunho da designação **sem assinatura**), `sign-designation` (roda **na máquina do aprovador**, com a raiz dele), `assemble` (monta o bundle), `verify` (chama `decode_bundle` com os pins lidos de um arquivo **fornecido pelo aprovador**) | testes unitários com fixture sintética; `verify` recusa bundle com 1 byte trocado, pin trocado, designação sem assinatura da raiz |
 | T1.4 | backend/Python + SQL | `deploy/sql/portal-identity-lock.sql.tmpl` (novo, variante por tenant, D-D) + `deploy/sql/engine-native-install.sql` (ordem dos resources `mzo_*` + login witness SELECT-only + grants) + teste que compara o template com o bloco canônico (`external-case-schema-postgres.sql:636-672`), com diferença **só** no schema | teste verde; diff revisado |
 | T1.5 | backend/Python | `src/maezo/gateway/human/membership_publication_job.py` (novo `__main__`): publica `portal_memberships` → engine (`PortalReadPublication`) e principal → `/v1/authority`, idempotente por revisão | teste de integração contra o harness; 2ª execução não muda nada (CAS) |
-| T1.6 | backend/Python | fonte de publicação de casos staff (`case_issuer`): lê as escalações vivas e publica `staff_case_grant` / `staff_policy_head` / `scope_complete`. **Bloqueada pela decisão de negócio N3** (§6): qual grupo vê qual caso | teste de integração; grant só para o grupo decidido |
+| | | **[23/09] Escopo ampliado.** `/cases` também precisa do **catálogo Q2 designado**: o `Q2Intersection` lê `read.catalog(anchor)` em toda operação staff (`StaffCaseReadCommand.java:307`), e sem designação `PortalReadStore.catalog` recusa (`PortalReadStore.java:103-104`). Ninguém publica catálogo hoje. `PortalReadPublisher` exige as cinco fontes no construtor (`read_publisher.py:167-176`), e `MembershipPublicationHandshake` e `DeploymentCatalogPublicationSource` são abstratas, sem implementação em `src/`. Por isso a T1.5 entrega: (i) o handshake de membership sobre `amh.portal_memberships`; (ii) uma fonte de catálogo **mínima** para o staff (`entries=[]`, `policies=[]`, `forms=[]`, digest igual ao admitido na T1.7); (iii) `resource`, `pagto` e `revocation` como fontes que **sempre recusam** (fail-closed, Onda 8); (iv) o `__main__` que publica o catálogo uma vez e as memberships por revisão | além do acima: catálogo publicado uma vez e **re-publicação idempotente** (receipt igual, `PortalReadPublication.java:66-79`). O "pronto" depende da **T1.7b**, porque sem provedor o engine não sobe com `PortalReadPlugin`. **NÃO VERIFICADO** que `entries=[]` passa: o shape aceita lista vazia (`PortalReadModels.java:324-331`) e `verifyCatalog` só itera, mas nunca foi executado. Se não passar, o catálogo leva uma entrada real do SP-OP-ESCALATION-001 e a T1.5 cresce 1-2 d |
+| T1.6 | backend/Python | fonte de publicação de casos staff (`case_issuer`): lê as escalações vivas e publica `staff_case_grant` / `staff_policy_head` / `scope_complete`. ~~**Bloqueada pela decisão de negócio N3** (§6): qual grupo vê qual caso~~ **[23/09] N3 decidida:** o caso só é visível ao grupo que a DMN `escalation_routing` escolheu para aquela escalação. **Restrição da Onda 7:** o grant **não** inclui a projeção `staff_current_task.v1`. Com ela, `collectDetail` exige publicação Q2 de cada tarefa (`StaffCaseReadCommand.java:117-124`), e publicar tarefas é Onda 8. `/cases/{ref}` responde sem a lista de tarefas correntes | teste de integração; grant só para o grupo que a `escalation_routing` escolheu; negativo: outro grupo não recebe grant; nenhum grant com `staff_current_task.v1` |
 | T1.7 **[Onda 0]** | backend/Java (pacote revisado à parte) | **Provedor Q2 do engine:** uma implementação `PortalReadTrust.Providers` com registro `META-INF/services/br.com.maezo.human.PortalReadTrust$Providers` na imagem. Ela faz admissão viva por escopo, encarnação, digests e propósito, com validade, revogação e timeout, e traz custódia das chaves de continuidade nativas e qualificação das publicações (catálogo, membership, principal). Os requisitos estão em `LIFECYCLE.md:128-143` ("never copy the anonymous Java test provider"). Sem ela o `PortalReadPlugin` não sobe (I6) e nenhuma rota staff responde | engine `INSTALL_PORTAL_READ=true` sobe no harness com trust real, e `staff-case-list` passa do `staffLease`; teste negativo com provedor ausente ou duplicado → boot recusado |
-| T1.8 **[Onda 0]** | backend/Java + Python (com ADR) | **Schema nativo pinado (D-C2):** `StaffCaseStore.java:44` e o witness (`postgres.py:241`, `:266`) deixam o `'public'` fixo e passam a comparar com o schema pinado; o manifesto sobe para `portal-staff-material.v2` com o campo novo; a validação de settings e o Terraform aprendem esse campo | testes: o pin recusa um schema diferente do pinado e um `public` homônimo; ADR registrado |
+| **[23/09] A T1.7 se divide em duas**, com desenho em §3.1: | | | |
+| T1.7a | backend/Java (módulo novo, revisão à parte) | `src/maezo/portal/engine/read-provider/` (novo módulo Maven: `pom.xml`, `InstalledReadProviders.java`, `AdmissionRecord.java`, `NativeContinuityKeys.java`, registro `META-INF/services/br.com.maezo.human.PortalReadTrust$Providers`, DDL `portal-read-admission-postgres.sql`) + testes. Na última etapa, o `COPY` do JAR no ramo `true` de `deploy/cibseven/Dockerfile.human`, **depois** que a T1.2 mergear | **admissão e chaves:** `acquire`, `requireCurrent`, `continuity`. O engine com `INSTALL_PORTAL_READ=true` **sobe** no harness com o provedor real, e um IT Java chama `PortalReadPlugin.staffLease` e recebe um `Q2Lease` com o `Admission` do provedor. Pela rota HTTP, o staff ainda devolve `503 HUMAN_ENGINE_UNAVAILABLE`, porque `executeStaff` chama `staffConfigured()` antes do lease (`HumanCommandPlugin.java:203`) e a composição é a T1.1. Os negativos da §3.1 passam |
+| T1.7b | backend/Java (mesmo módulo, depois da T1.7a) | `MembershipSourceObserver.java`, `StaffScopeQualification.java` + testes; vetor de paridade JCS compartilhado com o Python em `tests/fixtures/portal_read/jcs-membership-vector.json` (novo) | **qualificação das publicações** do escopo staff: `catalog-designate`, `catalog-revoke`, `membership` e `revoke-key` qualificam; `resource`, `verifyIdentityPolicy` e `verifyClassification` recusam sempre. IT: uma publicação de membership com o payload igual à linha viva de `amh.portal_memberships` gera receipt; o mesmo payload com um campo trocado é recusado; o vetor JCS dá o mesmo digest em Java e em Python |
+| **C1 [23/09]** | checkpoint de integração (thread principal + builder Java) | nenhum arquivo novo: é a S1 reexecutada sobre a imagem da T1.2 com T1.1, T1.4, T1.5, T1.7a/b e T1.8 mergeadas | no harness, com o layout D-C2: `staff-case-list` pela rota mTLS, com um principal e o catálogo publicados, sai do `staffLease` e do `catalog` e para no `checkpoint` (`unavailable`), porque ainda não há grant da T1.6. Com a T1.6: 200 com um caso. Estimativa: 1 d |
+| T1.8 **[Onda 0]** | backend/Java + Python (com ADR) | **Schema nativo pinado (D-C2):** `StaffCaseStore.java:44` e o witness (`postgres.py:241`, `:266`) deixam o `'public'` fixo e passam a comparar com o schema pinado; o manifesto sobe para `portal-staff-material.v2` com o campo novo; a validação de settings e o Terraform aprendem esse campo. **[23/09]** Arquivos: `StaffCaseInstallation.java` (`nativeSchema` no `Configuration` e no `digest()`), `StaffCaseStore.java` (pin com `?`, `current_schema()`, `to_regclass` e `_chunk` imutável, D6), `production_config.py`, `materials.py`, `postgres.py`, `portal-variables.tf`, `service-portal.tf`, `tests/unit/gateway/test_staff_production_materials.py` e o parágrafo de `src/maezo/portal/engine/README.md:238-239`. A ordem interna é Java primeiro (a T1.1 espera), depois Python e Terraform | testes: o pin recusa um schema diferente do pinado e um `public` homônimo. ~~ADR registrado~~ **ADR-0060 registrado (23/09)**. Negativos novos: um homônimo em `pg_temp` recusado pelo `to_regclass`; uma v1 recusada no load; `native_schema` fora do regex recusado; `checkpoint_chunk` com `SELECT,INSERT` aceito e com UPDATE recusado |
+| T1.9 **[23/09]** | infra/CI | `tests/unit/deploy/test_engine_rest_open_only_dev.py` (novo) + `tests/unit/deploy/fixtures/engine_rest_fence/` (novo) | **cerca da N5.** Pelo digest não dá para saber se a imagem é aberta ou `secured*`, então a cerca é declarativa. O teste lê o HCL de cada diretório em `deploy/aws-ecs/envs/*` com o `_hcl_probe.py` que já existe. Todo ambiente cujo nome **não** comece com `dev-` tem que declarar `engine_rest_authentication = "client-certificate"`; ausência ou outro valor reprova. `dev-*` pode omitir. Hoje só existe `dev-sa-east-1`, e o teste passa. **Controle negativo:** um fixture `staging-x` sem a declaração reprova, e o mesmo fixture com a declaração passa. A variável do módulo nasce quando o primeiro ambiente não-dev nascer; até lá, a cerca é o que impede copiar o dev. Estimativa: 0,5-1 d |
 
 **[Onda 0] Acréscimos às tarefas existentes:**
 - **T1.4:** tem que corrigir o DDL canônico staff **antes** de gerar qualquer script. São as três
@@ -284,10 +315,32 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
   Identifier` (S1, Python 3.14 local). O portal roda `python:3.12-slim` (`deploy/Dockerfile:85`),
   então isso não quebra hoje, mas quebraria na próxima troca de Python.
 
+**[23/09] Acréscimos do desenho (ADR-0060 e §3.1):**
+- **T1.3:**
+  - monta o manifesto **`portal-staff-material.v2`**, com `native_schema`. O modelo v2 é da T1.8/Python.
+    Até ele mergear, o `assemble` fica atrás de um teste marcado como pendente, e o
+    `generate`/`sign-designation` não esperam;
+  - ganha `sign-admission`, que roda na máquina do aprovador e assina o `portal-read-admission.v1` da
+    T1.7 com a mesma raiz de D-F, em domínio separado (§3.1);
+  - gera a chave de continuidade nativa (32 bytes) e o compromisso dela;
+  - soma **+1 d** à estimativa.
+- **T1.4:**
+  - o script instala com o login `maezo_native_schema_owner`, em `maezo_native`, e inclui o DDL de
+    admissão da T1.7a (`portal-read-admission-postgres.sql`);
+  - cria o login observador **`portal_read_source_amh`**, com SELECT só nas colunas de
+    `amh.portal_memberships` que a T1.7b lê. O grant vem do dono de `amh` (`maezo_app`/migration),
+    não do dono nativo;
+  - o teste executável (PG 17) confere que o `cibseven_app` não tem INSERT, UPDATE nem DELETE
+    na tabela de admissão, e que `maezo_native` não tem nenhuma relação `act_%`.
+- **T1.2:** o `DB_URL` alvo fixa `sslmode=verify-full`. A T1.2 é **dona** de `Dockerfile.human`:
+  a T1.7a só acrescenta o estágio de build do módulo novo e o `COPY` no ramo `true`, **depois**
+  do merge da T1.2.
+
 - **Onde roda:** repositório, CI e local. Aviso: o CI está bloqueado por billing do Actions desde
   22/09, então o "verde" é local até o billing voltar.
-- **Pré-requisito:** Onda 0 fechada (T1.2, T1.4 e T1.8 dependem de D-C2, que exige ADR); T1.6
-  depende de N3; T1.7 não depende de decisão de negócio, mas é o maior item e o menos conhecido.
+- ~~**Pré-requisito:** Onda 0 fechada (T1.2, T1.4 e T1.8 dependem de D-C2, que exige ADR); T1.6
+  depende de N3; T1.7 não depende de decisão de negócio, mas é o maior item e o menos conhecido.~~
+  Substituído pelo pré-requisito [23/09] logo abaixo.
 - **Reversão:** revert do PR (nada foi implantado).
 - **Estimativa:** T1.1 3-4 d · T1.2 2 d · T1.3 3 d · T1.4 1-2 d · T1.5 3-4 d · T1.6 3-5 d. Em
   paralelo: **~1,5 a 2 semanas** de calendário.
@@ -295,6 +348,190 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
   1-2 d na T1.4 para as correções de DDL e o teste executável, e a **T1.7, NÃO ESTIMADA**. A T1.7
   é o "next package" Q2 de `LIFECYCLE.md`: admissão viva, revogação e custódia de chaves. É do
   mesmo porte das partes da Onda 8 que o plano estimava em semanas, com confiança baixa.
+  **[23/09] Estimativa refeita (d-pessoa):**
+
+  | Tarefa | Estimativa | Observação |
+  |---|---|---|
+  | T1.1 | 3-4 d | |
+  | T1.2 | 2 d | |
+  | T1.3 | 4 d | +1 pelo v2 e pela admissão |
+  | T1.4 | 2-4 d | |
+  | T1.5 | 5-7 d | escopo ampliado |
+  | T1.6 | 3-5 d | |
+  | T1.7a | 5-6 d | |
+  | T1.7b | 4-6 d | |
+  | T1.8 | 5 d | |
+  | T1.9 | 0,5-1 d | |
+  | C1 | 1 d | checkpoint de integração |
+  | **Total** | **~35-46 d-pessoa** | |
+
+  **Calendário: 2,5 a 3 semanas**, com cinco frentes (dois builders Java, dois Python, um de infra).
+  Com três frentes, 4 a 5 semanas. O caminho crítico é T1.7a → T1.7b → fim da T1.5 → C1
+  (~12-15 d úteis). Ver §3.2.
+- **Pré-requisito [23/09]:** D-C2 está decidida (ADR-0060) e N3 também (§6). Nada na Onda 1 espera
+  decisão de negócio. As dependências entre tarefas estão em §3.2.
+
+### 3.1 Desenho da T1.7 — o provedor Q2 recortado ao escopo staff **[23/09]**
+
+**O que o `PortalReadPlugin` exige** (leitura de `PortalReadPlugin.java:18-39`,
+`PortalReadTrust.java:33-68`, `:178-195`):
+- **Registro:** exatamente um `PortalReadTrust.Providers` pelo `ServiceLoader`, mais o arquivo
+  `MAEZO_PORTAL_READ_TRUST_FILE`.
+- **No boot:**
+  - `acquire("portal-task-read")` devolve um `Admission` com `generation`, `providerRef`,
+    `providerRevision`, `capabilityDigest`, `observedAt ≤ agora < validUntil` e
+    `statementTimeoutSeconds ≥ 1`;
+  - `continuity(admission)` devolve um `NativeKeySet` com uma chave HMAC-SHA256 de 32 bytes
+    vigente;
+  - em `postProcessEngineBuild`, um novo `acquire` e o lock do tenant.
+- **Em toda operação staff** (`PortalReadPlugin.java:76-88`): `acquire` **fora** de comando do
+  engine e antes de qualquer lock (`:78`). Dentro do comando só se chamam `requireCurrent`,
+  `verifySource` e `verifyCatalog`, que são síncronos, locais e sem I/O (`PortalReadTrust.java:26-31`).
+- **O que o staff realmente usa:**
+  - `verifySource` (membership e catálogo);
+  - `verifyCatalog`;
+  - `qualifyPublication` + `verify` (publicações `membership` e `catalog-designate`, da T1.5).
+
+  `verifyIdentityPolicy` e `verifyClassification` só rodam em leitura e publicação de **tarefa**
+  (`PortalReadCommand.java:367`, `:405`; `PortalReadPublication.java:240`), e isso é Onda 8. O
+  provedor **recusa** as duas, e recusa a publicação `resource`.
+
+**Onde mora.** Um módulo Maven novo, `src/maezo/portal/engine/read-provider/`, gera
+`maezo-portal-read-provider.jar`. Ele depende do JAR do engine como `provided`, e o pacote é
+`br.com.maezo.human.readprovider`. Só usa tipos públicos: `Providers`, `Admission`,
+`NativeKeySet`, `NativeKey` e `PublicationQualification`, que são públicos em `PortalReadTrust`, e
+`Rejected`, também público. Por que um módulo à parte:
+- o README do engine diz que o registro pertence a "that separately qualified provider package"
+  (`src/maezo/portal/engine/README.md:231-233`);
+- o JAR só entra na imagem `INSTALL_PORTAL_READ=true`. A imagem `false` continua sem provedor.
+
+**Configuração** (`MAEZO_PORTAL_READ_PROVIDER_FILE`, `portal-read-provider.v1`, JCS de chaves
+fechadas, montada read-only pelo segredo nativo da Onda 4):
+- a SPKI pública da **raiz de instalação do aprovador** (a mesma de D-F) e o pin SHA-256 dela;
+- `admission_ref` e `minimum_admission_revision`;
+- o nome JNDI do DataSource, que é o mesmo do descritor (`java:jdbc/ProcessEngine`,
+  `deploy/cibseven/secured/descriptors/bpm-platform.xml:11`);
+- o schema pinado (`maezo_native`) e o pin `oid`/`owner` da tabela de admissão;
+- o caminho do arquivo de chaves de continuidade;
+- a fonte de membership: arquivo do DSN, CA, schema `amh` e `publisher_ref`.
+
+**Registro de admissão** (`portal-read-admission.v1`):
+- **Onde fica:** uma linha em `maezo_native.mzo_portal_read_admission`, DDL novo da T1.7a. Quem
+  grava é **só** `maezo_native_schema_owner`, na Onda 3, e o `cibseven_app` tem SELECT.
+- **O que carrega:**
+  - `scope`, `engine_name`, `database_incarnation`, `read_deployment_ref` e `read_deployment_digest`;
+  - `trust_configuration_digest`: o SHA-256 do trust file parseado, que o plugin passa em
+    `acquire` como `configurationDigest`;
+  - os `purposes` admitidos;
+  - `code_digests`: SHA-256 dos JARs **carregados** do engine e do provedor, lidos pelo
+    `CodeSource`, no mesmo padrão de `AuthRuntime.java:49`;
+  - os compromissos das chaves de continuidade;
+  - o catálogo admitido: `catalog_ref`, `publisher_ref` e `catalog_digest`;
+  - os publicadores admitidos por kind, com prefixo de `source_ref`;
+  - `statement_timeout_seconds` (1 a 10) e `observation_seconds` (60 a 900; proposta 300);
+  - `not_before`, `valid_until` (no máximo 14 dias, N2) e `admission_revision`.
+- **Assinatura:** Ed25519 da raiz sobre `"maezo/portal-read-admission/v1\0" ‖ JCS(registro)`. É o
+  mesmo aprovador da designação staff, em outro domínio de assinatura. A engenharia não consegue se
+  auto-admitir, como em D-F.
+
+**Como cada método se comporta (tudo fail-closed: exceção vira `503`, `PortalReadServlet.java:50`,
+`HumanServlet.java:76`):**
+
+| Método | Faz | Recusa quando |
+|---|---|---|
+| `acquire` | Lê de novo a linha de admissão. Usa uma conexão do DataSource JNDI, **fora** de comando do engine, com transação read-only e `SET LOCAL statement_timeout`, e qualifica o nome pelo schema pinado. Confere o pin da tabela (OID, dono, e o `session_user` sem INSERT, UPDATE nem DELETE), a assinatura, os campos contra os parâmetros e o propósito, a janela, `revoked=false`, `revision ≥ max(minimum, maior revisão já vista)` e os `code_digests` (calculados uma vez no boot). Devolve `generation=providerRevision=revision`, `capabilityDigest=SHA-256(JCS(registro))`, `observedAt=agora` e `validUntil=min(valid_until, agora+observation_seconds)` | linha ausente, assinatura ou pin inválido, qualquer campo divergente, propósito fora da lista, revogada, revisão menor que a já vista (anti-rollback em memória), JAR diferente, ou timeout |
+| `Admission.requireCurrent` | síncrono: `agora < validUntil` e a geração não foi superada nem revogada por um `acquire` posterior | qualquer uma das duas condições. **Latência de revogação:** a próxima operação staff, porque o staff faz `acquire` por requisição. Para uma admissão já retida, no máximo `observation_seconds` |
+| `verifySource` | `publisher_ref` igual ao admitido para o kind e `source_ref` com o prefixo admitido; `observed_at ≤ agora < valid_until` | kind fora de {`membership`, `catalog-designate`} |
+| `verifyCatalog` | `SHA-256(JCS(artifact))` igual ao `catalog_digest` admitido | qualquer outro catálogo |
+| `verifyIdentityPolicy`, `verifyClassification` | nada | **sempre** (Onda 8) |
+| `continuity` | Carrega, uma vez no boot, o arquivo `portal-read-continuity-keys.v1`: dono do processo, modo 0400 e chave de 32 bytes. Exige `HMAC(chave, "maezo/portal-native-read-continuity/v1/commitment")` igual ao compromisso admitido. `current()` é a chave admitida vigente mais nova, e `verification(id)` só devolve chave admitida. `NativeKey.digest` é o compromisso, nunca o hash da chave | arquivo ausente ou com modo errado, compromisso fora da admissão, nenhuma chave vigente |
+| `qualifyPublication` | **Fora** do comando do engine: `catalog-designate` exige `catalog_digest`, `catalog_ref` e `publisher_ref` iguais aos admitidos. `membership` lê a **linha viva** de `amh.portal_memberships` pelo login `portal_read_source_amh` (TLS `verify-full`, read-only, timeout), com o mesmo SQL de `src/maezo/portal/api/postgres.py:142`, e monta a projeção em Java igual a `read_publisher.py:111-121`. `catalog-revoke` e `revoke-key` passam, porque só reduzem autoridade e o envelope já foi verificado pela chave de publicação. O `verify` compara em memória: payload igual à projeção montada, `source_revision` igual à revisão da linha e `source_digest` igual a `SHA-256(JCS(payload))` | `resource`; linha ausente; qualquer divergência; snapshot mais velho que `observation_seconds` |
+
+**Contrato com a T1.5** (fixado aqui para as duas correrem em paralelo):
+- no handshake de membership, `source_digest := SHA-256(JCS(MembershipProjection))`;
+- `receipt_ref := "portal-identity:amh:membership:" + principal_ref + "@" + revision`;
+- `valid_until := observed_at + observation_seconds`;
+- o vetor `tests/fixtures/portal_read/jcs-membership-vector.json` é a prova de paridade, lida pelos
+  testes Java e Python.
+
+**Testes que provam** (T1.7a e T1.7b):
+- **Boot negativo** (harness, PG 17):
+  - provedor ausente (a imagem sem o JAR) e provedor duplicado (dois registros) dão
+    `READ_DEPENDENCY_UNAVAILABLE`;
+  - também dão o mesmo resultado: arquivo de config ausente, assinatura de outra raiz, admissão
+    revogada, admissão vencida, `trust_configuration_digest` trocado e `code_digests` de outro JAR.
+- **Boot positivo:** engine `INSTALL_PORTAL_READ=true` sobe no layout D-C2, e o `staffLease` devolve
+  um lease.
+- **Revogação:** `UPDATE … SET revoked=true` pelo dono faz a **próxima** operação devolver 503. O
+  teste mede também que uma admissão retida expira em `observation_seconds`.
+- **Anti-rollback:** reinstalar uma revisão anterior válida com o engine vivo é recusado.
+- **Sem escrita:** o `cibseven_app` não consegue INSERT na tabela de admissão (grant), e o provedor
+  recusa se conseguir (pin).
+- **Publicação:** membership igual à linha viva gera receipt; um campo trocado, ou a linha alterada
+  entre o `qualifyPublication` e o `verify`, é recusado; `resource` é recusado.
+- **Nada vaza:** o log não traz chave, DSN nem assinatura. É o mesmo grep do §1.7 #7.
+
+**Porte.** A T1.7 **não cabe numa tarefa só**. São **9 a 12 d-pessoa** num builder Java,
+confiança média, e ela vira duas tarefas sequenciais no mesmo módulo:
+- **T1.7a** (admissão, chaves e boot, 5-6 d) já destrava o boot da imagem `INSTALL_PORTAL_READ=true`;
+- **T1.7b** (qualificação das publicações, 4-6 d) destrava a T1.5.
+
+O que pode estourar a faixa:
+- o `ServiceLoader` pelo classloader do Tomcat (`/camunda/lib`) é **NÃO VERIFICADO** e o boot
+  positivo da T1.7a o prova;
+- a paridade JCS Java × Python;
+- um catálogo com `entries=[]` (NÃO VERIFICADO, T1.5).
+
+**O que a T1.7 não é:** não é a autoridade Q2 completa de `LIFECYCLE.md:128-143`. Continuam na
+Onda 8 a publicação de tarefas (`resource`), a classificação, a política de identidade, os grants
+de READ_HISTORY e a leitura de tarefas.
+
+### 3.2 Grafo de dependências da Onda 1 **[23/09]**
+
+Uma aresta `A → B` quer dizer que B não fica **pronta** (merge) sem A. "Começa já" quer dizer que
+não há aresta de entrada que impeça **começar a codar** hoje, sem esperar a D-C2 codificada, que é a
+T1.8.
+
+```
+                 ┌──────────── T1.8/Java ──► T1.1 (merge) ──────────────┐
+ADR-0060 ──► T1.8 ┤                                                       │
+                 └── T1.8/Python ──► T1.3 `assemble` v2                   │
+T1.2 ──► T1.7a (COPY no Dockerfile.human)                                  ├──► C1 ──► Onda 2
+T1.7a ──► T1.7b ──► T1.5 (pronto: IT contra o harness) ─────────────────┤
+T1.4 (DDL corrigido + admissão) ──► T1.5, T1.7a (IT com o DDL real) ──────┤
+T1.6 ──────────────────────────────────────────────────────────────────┘   (C1 só dá 200 com a T1.6)
+T1.9 (independente; não entra em C1)
+```
+
+| Tarefa | Começa já? | Espera para **mergear** | Frente |
+|---|---|---|---|
+| T1.8 | **sim**: é a própria D-C2, e o ADR-0060 existe | nada | Java #1, depois Python #1 |
+| T1.7a | **sim**: o DDL de admissão é dela e não depende do schema | T1.2 (só o `COPY`); T1.4 para o IT com o DDL real | Java #2 |
+| T1.2 | **sim**: `server.xml`/connector não dependem do schema, e o `DB_URL` é env | nada | infra |
+| T1.4 | **sim**: nomes fixados no ADR-0060; correções I7/I8 independentes | nada (I8: o DDL fica como está, a mudança é da T1.8) | infra |
+| T1.9 | **sim** | nada | infra |
+| T1.3 | **sim** (`generate`, `sign-designation`, `sign-admission`, `verify`) | `assemble` v2 espera a T1.8/Python | Python #2 |
+| T1.6 | **sim**: N3 decidida | nada para o código. A aceitação é na C1 | Python #2, depois da T1.3 |
+| T1.1 | **sim**, contra a assinatura `Configuration.nativeSchema` fixada aqui | **T1.8/Java** | Java #1, depois da T1.8/Java |
+| T1.5 | **sim**, código e unitários com o contrato de §3.1 | **T1.7b** e T1.4 para o IT | Python #1 |
+| T1.7b | **não**: precisa do `Admission` da T1.7a | T1.7a | Java #2 |
+| C1 | não | T1.1, T1.2, T1.4, T1.5, T1.7a/b, T1.8 (e T1.6 para o 200) | thread principal |
+
+**Disjunção de arquivos, conferida pelos caminhos:**
+- a T1.8 é a única que edita `StaffCaseInstallation.java`, `StaffCaseStore.java`,
+  `production_config.py`, `materials.py`, `postgres.py` e os `.tf` do portal;
+- a T1.1 só cria `StaffDeploymentComposition.java`;
+- a T1.7 só toca o módulo novo `read-provider/` e, no fim, o `Dockerfile.human`, **depois** da
+  T1.2, que é a dona do arquivo;
+- a T1.4 fica em `deploy/sql/` e nos DDL canônicos de `src/main/resources/` (I7). A T1.8 não toca
+  DDL;
+- a T1.5 e a T1.6 são módulos Python novos. `read_publisher.py` **não** é editado: a T1.5
+  implementa as ABCs em arquivo próprio;
+- a T1.3 fica em `tools/`, e a T1.9 em `tests/unit/deploy/`.
+
+**Interseções de arquivo:**
+- `tests/fixtures/portal_read/jcs-membership-vector.json`: a T1.7b cria e a T1.5 só lê;
+- `Dockerfile.human`: T1.2 primeiro, T1.7a depois.
 
 ### Onda 2 — gerar os materiais (engenharia) e a raiz (aprovador)
 
@@ -309,6 +546,17 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
   aprovador tem `installation-root.der` e a chave privada **só** com ele.
 - **Reversão:** apagar o diretório temporário (nada saiu da máquina).
 - **Estimativa:** 0,5 d de engenharia + 0,5 d do aprovador.
+- **[23/09] Acréscimos (T1.7):**
+  - **Imagem candidata.** Construir e assinar a imagem candidata de `Dockerfile.human` (T1.2 + T1.7a)
+    **nesta onda**, e não na Onda 4. A admissão Q2 amarra os `code_digests` dos JARs e o
+    `read_deployment_digest`, então a imagem tem que existir antes da assinatura. Com o CI parado
+    por billing, o build é local, e a assinatura `supply-chain.yml` fica pendente até o billing
+    voltar. É **bloqueio da Onda 4**, não desta.
+  - **Chave de continuidade.** Gerada pelo `generate` (T1.3); só o compromisso sai do diretório 0700.
+  - **Admissão Q2 pelo aprovador.** Ele confere cada campo do `portal-read-admission.v1` contra as
+    fontes da §4 (linhas novas) e roda `sign-admission` na máquina dele.
+  - **Login observador.** DSN de `portal_read_source_amh`, pela mesma técnica SCRAM.
+  - **Estimativa:** +0,5 d de engenharia e +0,5 d do aprovador.
 
 ### Onda 3 — instalação no banco (dono do banco, não o portal)
 
@@ -332,6 +580,23 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
     `current_schema()` = schema nativo e TLS (`ConsumerEdgeInstallation.java:60-69`). Os insumos de
     qualificação AUTH (`human-auth-installation-qualification.v1`, `AuthInstallation.java:23-30`)
     também não têm gerador hoje e entram na T1.3.
+  **[23/09] Com o ADR-0060:**
+  - **Dono e schema.**
+    - Criar a role `maezo_native_schema_owner`, sem nenhum atributo de privilégio e sem membership.
+    - `CREATE SCHEMA maezo_native AUTHORIZATION maezo_native_schema_owner`, pela role de
+      administração.
+    - O DDL todo entra por sessão **do dono**, com `current_schema()=maezo_native` e TLS.
+  - **Admissão Q2.** Instalar `mzo_portal_read_admission` e a linha assinada da Onda 2 (T1.7a).
+  - **Grants.**
+    - `GRANT USAGE ON SCHEMA maezo_native` ao `cibseven_app` e ao witness.
+    - Login `portal_read_source_amh` com SELECT nas colunas de `amh.portal_memberships`, concedido
+      pelo dono de `amh`.
+  - **Negativos a mais no "pronto":**
+    - o `cibseven_app` não cria em `maezo_native` nem escreve na admissão;
+    - o `portal_read_source_amh` não lê nada além daquela tabela.
+  - **Reversão:** `DROP SCHEMA maezo_native CASCADE` e `DROP ROLE` das roles novas (tabelas vazias,
+    antes da Onda 4).
+  - **Estimativa:** a onda passa a **1,5 d**.
 - **Onde roda:** task avulsa in-VPC com a role de **administração/migration** (nunca
   `portal_bff_amh`, nunca master para DML de aplicação), executada pelo dono do banco ou por
   engenharia com autorização explícita dele para esta janela.
@@ -379,6 +644,11 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
   sobe, mas não serve para nada. Ao restaurar o banco do engine do zero, suba primeiro com
   `currentSchema=cibseven` (I9). As tabelas `mzo_*` são aditivas e
   ficam. NLB, zona e SGs saem por `terraform apply` do commit anterior.
+  **[23/09] Precisão (ADR-0060, Consequência 4):** "suba primeiro com `currentSchema=cibseven`"
+  vale para a **imagem antiga**. A nova morre com esse path. Depois vêm incarnation nova,
+  reinstalação, nova admissão Q2 e nova designação, e só então a imagem nova.
+- **[23/09] Pré-requisito corrigido:** T1.7a e T1.7b (não só "a T1.7"), mais o checkpoint C1 verde
+  e a imagem candidata assinada (Onda 2).
 - **Estimativa:** 1 a 2 dias (o apply em si é curto; a janela e a bateria custam o dia).
 
 ### Onda 5 — montar, validar e aprovar o pacote
@@ -423,7 +693,8 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
 
 - **Pronto quando**, com `plantao.teste`:
   1. `GET /api/v1/portal/cases` → 200 com **um caso real** publicado pela T1.6;
-  2. `GET /cases/{ref}` → 200;
+  2. `GET /cases/{ref}` → 200. **[23/09]** A resposta vem **sem** a lista de tarefas correntes,
+     porque o grant não leva `staff_current_task.v1` (T1.6). Tarefas no detalhe são Onda 8;
   3. `atendimento.teste` (outro grupo) **não** vê o caso (negativa por grupo);
   4. membership revogada → recusa na próxima leitura (currentness);
   5. log sem DSN, cookie ou token (mesmo grep do §1.7 #7).
@@ -462,8 +733,29 @@ módulos Python novos e distintos. Risco de interseção: T1.1 e T1.2 se tocam n
 `bpm-platform.xml` (ordem dos plugins). **A T1.2 é dona desse arquivo** e a T1.1 entrega só a
 classe e o teste.
 
-**Total até `/cases` com caso real (Ondas 0 a 7): 3 a 5 semanas** de calendário, com um builder
-por área e o aprovador disponível nos dias das Ondas 2 e 5. A variação vem de S1 (D-C) e de N3.
+~~**Total até `/cases` com caso real (Ondas 0 a 7): 3 a 5 semanas** de calendário, com um builder
+por área e o aprovador disponível nos dias das Ondas 2 e 5. A variação vem de S1 (D-C) e de N3.~~
+
+**[23/09] Versão atual (substitui o diagrama e o total acima):**
+
+```
+Onda 0 ✔ ─► Onda 1 (grafo em §3.2; caminho crítico T1.7a → T1.7b → T1.5 → C1)
+          ─► Onda 2 [geração ∥ imagem candidata] ─► assinatura do aprovador (designação rascunho + admissão Q2)
+          ─► Onda 3 (DDL/logins podem começar com a T1.4 mergeada; a linha de admissão espera a assinatura da Onda 2)
+          ─► Onda 4 ─► Onda 5 ─► Onda 6 ─► Onda 7
+```
+
+A geração da Onda 2 pode começar assim que a T1.3 fechar, em paralelo ao resto da Onda 1. A
+instalação da Onda 3 (schema, dono, DDL e logins) pode rodar antes da assinatura, mas a **linha de
+admissão** só entra depois dela. Ondas 4 → 5 → 6 continuam **sem** paralelismo, porque os pins de
+SPKI e de configuração nativa só existem com o servidor vivo.
+
+**Total até `/cases` com caso real (Ondas 1 a 7): 4 a 6 semanas** de calendário, confiança
+**média-baixa**. Hipóteses: cinco frentes na Onda 1 e o aprovador disponível em dois momentos
+(Onda 2 e Onda 5). A variação vem de três coisas, nesta ordem:
+1. a T1.7 (classloader, paridade JCS);
+2. o catálogo vazio (T1.5);
+3. o CI parado por billing, que segura a assinatura da imagem da Onda 4.
 
 ---
 
@@ -495,6 +787,12 @@ Pin que o aprovador não consegue recalcular sozinho não é aprovado.
 | *(arquivos públicos)* `session-lock-ca.pem`, `native-witness-ca.pem` | raízes RDS | bundle vendorizado e pins do repo | SHA-256 contra `deploy/certificates/README.md` |
 | *(arquivos públicos)* `native-ca.pem` | CA que emitiu o cert do servidor | o listener vivo | `openssl verify -CAfile native-ca.pem <cert lido do s_client>` → `OK` |
 | *(arquivos públicos)* `read-client-certificate.pem` | cert do cliente | designação assinada | SPKI do cert = `entries[read_requester].certificate_spki` |
+| **[23/09]** *(dentro do manifesto v2)* `native_schema` | schema das `mzo_*` | **Catálogo do banco** | `SELECT n.nspname, pg_get_userbyid(n.nspowner) FROM pg_namespace n WHERE n.nspname='maezo_native'` → 1 linha, dono `maezo_native_schema_owner`; `SELECT has_schema_privilege('cibseven_app','maezo_native','CREATE')` → `f` |
+| **[23/09]** *(admissão Q2, T1.7)* `trust_configuration_digest` | SHA-256 do trust file parseado do `PortalReadPlugin` | o arquivo que vai no segredo nativo | recalcular com o `verify` da T1.3 sobre o arquivo. Nunca copiar o valor do rascunho |
+| **[23/09]** *(admissão Q2)* `code_digests` | SHA-256 dos JARs do engine e do provedor | **a imagem candidata assinada** (Onda 2) | `docker create` + `docker cp` dos dois JARs, depois `sha256sum`, na máquina do aprovador, sobre o digest da imagem que ele aprovou |
+| **[23/09]** *(admissão Q2)* compromissos de continuidade | `HMAC(chave, domínio)` | a saída do `generate` e o log do boot | o `generate` imprime o compromisso. Na Onda 4, o boot registra só o `key_id` e o compromisso, e o aprovador compara os dois |
+| **[23/09]** *(admissão Q2)* `catalog_digest` | digest do catálogo mínimo do staff | o artefato de catálogo da T1.5 | `sha256` do JCS do artefato, que o aprovador lê (tem que ter `entries=[]`) |
+| **[23/09]** *(admissão Q2)* escopo, engine, incarnation, janela | iguais aos do staff | as mesmas fontes das linhas `scope.*` acima | igual. `valid_until − not_before ≤ 14 d` (N2) |
 
 Não aprova: nenhum agente. Um agente pode **rodar** os comandos acima para mostrar a saída, mas
 o valor aprovado é o que o aprovador obteve na sessão dele. A aprovação fica registrada por ele,
@@ -529,6 +827,28 @@ baixa**.
 Pode rodar em paralelo: as 5 tarefas da Onda 1 (T1.6 depois de N3); a Onda 2 com T1.1/T1.5
 assim que T1.3 fechar; a Onda 3 com a Onda 2. **Não** paraleliza: 4 → 5 → 6, porque os pins de
 SPKI e de configuração nativa só existem depois que o servidor vivo sobe.
+
+**[23/09] Reestimativa do software-architect (substitui a linha "0-7" e a proposta de 5 a 9
+semanas).** A T1.7 **não** tem o risco da Onda 8. O desenho da §3.1 a recorta ao que o staff chama:
+admissão, chaves, catálogo e membership. Tarefa, classificação e política de identidade recusam
+sempre.
+
+| Onda | Esforço | Calendário | Confiança |
+|---|---|---|---|
+| 0 | ~0,5 d (feita) | feita, 23/09 | — |
+| 1 | ~35-46 d-pessoa | 2,5-3 sem com 5 frentes (4-5 sem com 3) | média-baixa (T1.7) |
+| 2 | 2 d (+ imagem candidata e admissão) | 1-2 d (agenda do aprovador) | média (CI/billing) |
+| 3 | 1,5 d | 1-2 d (janela) | alta |
+| 4 | 1-2 d | 1-2 d (janela) | média |
+| 5 | 1-1,5 d | 1-2 d (aprovador) | alta |
+| 6 | 1 d | 1 d | alta |
+| 7 | 0,5-1 d | 1 d | média |
+| **1-7** | | **4 a 6 semanas** | **média-baixa** |
+| 8 | fora da meta (N6/N8) | — | — |
+
+**Custo recorrente a mais:** a admissão Q2 também vence (no máximo 14 dias, N2). A renovação usa o
+mesmo ciclo da designação: o aprovador assina as duas na mesma sessão, e a Onda 5 repetida ganha
++0,5 h.
 
 Custo recorrente novo: um NLB interno em dev, a CMK do segredo staff e a do segredo nativo.
 **Custo operacional recorrente:** a designação, o manifesto e o snapshot de revogação têm
@@ -566,6 +886,20 @@ imagem (Onda 4) está liberada quando chegar a hora. N6 = a meta é `/cases` (On
 8. **N8 [Onda 0] — Com a T1.7 no caminho crítico, `/cases` ainda é a meta certa?** O custo real de
    `/cases` agora inclui a autoridade Q2 do engine. Reabre N6 com um número novo, que ainda não
    existe.
+
+**[23/09] Decisões do dono (segunda rodada):**
+- **N7 aprovada:** D-C2, registrada no **ADR-0060**.
+- **N8:** a meta continua sendo `/cases` (Onda 7), e a fila (Onda 8) fica fora. O número novo existe:
+  4 a 6 semanas (§5).
+- **N4 liberada.**
+- **N2 = 14 dias.** Vale também para a admissão Q2.
+- **N3:** o caso é visível **só ao grupo que a DMN `escalation_routing` escolheu** para aquela
+  escalação (T1.6).
+- **N5:** o `engine-rest` aberto é aceito **só em dev**, com uma cerca de CI que reprova staging e
+  prod (T1.9).
+
+**Continua aberta: só a N1** (aprovador nomeado). O plano assume Leonardo, que é a proposta, e as
+Ondas 2 e 5 não começam sem ela.
 
 ---
 
