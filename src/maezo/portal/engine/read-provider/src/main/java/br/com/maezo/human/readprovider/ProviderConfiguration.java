@@ -26,7 +26,7 @@ final class ProviderConfiguration {
   final long admissionTableOid;
   final String admissionTableOwner;
   final Path continuityKeysFile;
-  /** Consumed by T1.7b (membership qualification); only its shape is closed here. */
+  /** The live membership source, read by {@link MembershipSourceObserver} (T1.7b). */
   final Map<String, Object> membershipSource;
 
   private ProviderConfiguration(Map<String, Object> m) {
