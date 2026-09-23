@@ -24,7 +24,7 @@ public final class StaffCasePublicationCommand implements Command<StaffCasePubli
     read.context=context;read.db=new PortalReadStore(context,lease.trust,lease.admission.statementTimeoutSeconds());
     read.ceiling("native_admission",lease.admission.providerRef(),lease.admission.providerRevision(),lease.admission.capabilityDigest(),lease.admission.observedAt(),lease.admission.validUntil());
     read.db.lockTenant();
-    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.relationPins());
+    var store=new StaffCaseStore(context,config.authScope(),lease.admission.statementTimeoutSeconds(),config.nativeRole(),config.nativeSchema(),config.relationPins());
     store.auth.lock();var installed=new StaffCaseInstallation(config,store,lease.admission);
     var request=installed.signedPublication(raw,peer);String id=str(request,"publication_id"),requestDigest=hash(request);
     // Current importer is independently authenticated for this exact source. An

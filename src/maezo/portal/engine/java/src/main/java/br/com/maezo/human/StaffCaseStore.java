@@ -17,17 +17,44 @@ final class StaffCaseStore {
   record RelationPin(long oid,String owner) {
     RelationPin {if(oid<1||owner==null||!owner.matches("[A-Za-z_][A-Za-z0-9_]{0,62}"))throw unavailable();}
   }
+  /** ADR-0060 D4: one row per pinned relation. The namespace is bound, never written in
+   * the SQL; current_schema() and to_regclass(<unqualified name>) prove that the plugin's
+   * unqualified SQL resolves to the pinned OID, not to a pg_temp or earlier-path homonym.
+   * Positional parameters: relation name (to_regclass), schema, relation name. */
+  static final String PIN="""
+    SELECT c.oid::bigint AS oid,c.relkind,c.relrowsecurity,c.relforcerowsecurity,
+      pg_get_userbyid(c.relowner) AS owner,
+      pg_has_role(session_user,c.relowner,'MEMBER') AS owner_member,
+      has_table_privilege(session_user,c.oid,'SELECT') AS can_read,
+      current_schema()::text AS current_schema,
+      to_regclass(CAST(? AS text))::oid::bigint AS resolved
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname=? AND c.relname=?
+    """;
+  /** Closed lowercase PostgreSQL identifier (ADR-0060 D3), compared exactly (D5). */
+  static String schema(String value){
+    if(value==null||!value.matches("[a-z_][a-z0-9_]{0,62}"))throw unavailable();return value;
+  }
+  static void requireResolved(Map<String,Object> row,String schema,RelationPin pin){
+    if(!schema.equals(row.get("current_schema"))||!(row.get("resolved") instanceof Number resolved)
+        ||resolved.longValue()!=pin.oid())throw unavailable();
+  }
+  static void requireWrites(boolean immutable,boolean installed,Map<String,Object> writes){
+    if(!Boolean.FALSE.equals(writes.get("del"))||!Boolean.FALSE.equals(writes.get("trunc"))
+        ||!Boolean.valueOf(!installed).equals(writes.get("ins"))
+        ||!Boolean.valueOf(!installed&&!immutable).equals(writes.get("upd")))throw unavailable();
+  }
   final org.apache.ibatis.session.SqlSession session;
   final AuthStore auth;
   final Map<String,Object> scope;
   final int timeout;
   StaffCaseStore(CommandContext context,Map<String,Object> authScope,int timeout,
-      String nativeRole,Map<String,RelationPin> pins) {
+      String nativeRole,String nativeSchema,Map<String,RelationPin> pins) {
     auth=new AuthStore(context,authScope,timeout);this.timeout=timeout;
     session=context.getDbSqlSession().getSqlSession();
     scope=record("tenant",authScope.get("tenant"),"environment",authScope.get("environment"),
       "engine_name",authScope.get("engine_name"),"database_incarnation",authScope.get("database_incarnation"));
-    if(!pins.keySet().equals(OWNED))throw unavailable();
+    if(!pins.keySet().equals(OWNED))throw unavailable();schema(nativeSchema);
     String schema=context.getProcessEngineConfiguration().getDatabaseSchema();
     String prefix=context.getProcessEngineConfiguration().getDatabaseTablePrefix();
     if(schema!=null&&!schema.equals("public")||prefix!=null&&!prefix.isEmpty()&&!prefix.equals("public."))throw unavailable();
@@ -35,19 +62,13 @@ final class StaffCaseStore {
     if(!nativeRole.equals(user.get("actual"))||!nativeRole.equals(user.get("effective")))throw unavailable();
     for(String table:new TreeSet<>(OWNED)) {
       var pin=pins.get(table);
-      var row=auth.one("""
-        SELECT c.oid::bigint AS oid,c.relkind,c.relrowsecurity,c.relforcerowsecurity,
-          pg_get_userbyid(c.relowner) AS owner,
-          pg_has_role(session_user,c.relowner,'MEMBER') AS owner_member,
-          has_table_privilege(session_user,c.oid,'SELECT') AS can_read
-        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
-        WHERE n.nspname='public' AND c.relname=?
-        """,table);
+      var row=auth.one(PIN,table,nativeSchema,table);
+      requireResolved(row,nativeSchema,pin);
       if(((Number)row.get("oid")).longValue()!=pin.oid()||!pin.owner().equals(row.get("owner"))
           ||!"r".equals(row.get("relkind"))||!Boolean.FALSE.equals(row.get("relrowsecurity"))
           ||!Boolean.FALSE.equals(row.get("relforcerowsecurity"))||!Boolean.FALSE.equals(row.get("owner_member"))
           ||!Boolean.TRUE.equals(row.get("can_read")))throw unavailable();
-      boolean immutable=table.endsWith("_event")||table.endsWith("_receipt")||table.endsWith("_continuity")||table.endsWith("_cursor")||table.endsWith("_version")||table.endsWith("_dependency");
+      boolean immutable=table.endsWith("_event")||table.endsWith("_receipt")||table.endsWith("_continuity")||table.endsWith("_cursor")||table.endsWith("_version")||table.endsWith("_dependency")||table.endsWith("_chunk");
       boolean installed=table.startsWith("mzo_staff_case_designation_");
       var writes=auth.one("""
         SELECT has_table_privilege(session_user,CAST(? AS oid),'INSERT') AS ins,
@@ -55,9 +76,7 @@ final class StaffCaseStore {
           has_table_privilege(session_user,CAST(? AS oid),'DELETE') AS del,
           has_table_privilege(session_user,CAST(? AS oid),'TRUNCATE') AS trunc
         """,pin.oid(),pin.oid(),pin.oid(),pin.oid());
-      if(!Boolean.FALSE.equals(writes.get("del"))||!Boolean.FALSE.equals(writes.get("trunc"))
-          ||!Boolean.valueOf(!installed).equals(writes.get("ins"))
-          ||!Boolean.valueOf(!installed&&!immutable).equals(writes.get("upd")))throw unavailable();
+      requireWrites(immutable,installed,writes);
     }
   }
   Object[] args(Object...rest){var all=new Object[rest.length+4];int i=0;

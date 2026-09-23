@@ -12,19 +12,24 @@ import java.util.*;
  * from an untrusted request and no valid designation row is manufactured here.
  */
 public final class StaffCaseInstallation {
+  /** {@code nativeSchema} is the PostgreSQL schema of every {@code mzo_*} relation
+   * (ADR-0060 D3, {@code maezo_native} in dev). It is a pin, never a constant: it enters
+   * {@link #digest()}, so the designation/publication digest binds it, and
+   * {@link StaffCaseStore} compares it exactly (D5) and requires the unqualified name to
+   * resolve to the pinned OID (D4). */
   public record Configuration(Map<String,Object> authScope,String designationDigest,PublicKey rootKey,
-      PrivateKey resultKey,PublicKey resultPublicKey,String nativeRole,
+      PrivateKey resultKey,PublicKey resultPublicKey,String nativeRole,String nativeSchema,
       Map<String,StaffCaseStore.RelationPin> relationPins,int maximumSeconds) {
     public Configuration {
       authScope=Collections.unmodifiableMap(copy(authScope));relationPins=Map.copyOf(relationPins);
-      check("h",designationDigest);
+      check("h",designationDigest);StaffCaseStore.schema(nativeSchema);
       if(rootKey==null||resultKey==null||resultPublicKey==null||nativeRole==null||maximumSeconds<1||maximumSeconds>10)throw unavailable();
       if(Jcs.digest(rootKey.getEncoded()).equals(Jcs.digest(resultPublicKey.getEncoded())))throw unavailable();
     }
     public String digest(){var pins=new TreeMap<String,Object>();relationPins.forEach((name,p)->pins.put(name,record("oid",Long.toString(p.oid()),"owner",p.owner())));
-      return hash(record("schema","staff-case-native-configuration.v1","auth_scope",authScope,"designation_digest",designationDigest,
+      return hash(record("schema","staff-case-native-configuration.v2","auth_scope",authScope,"designation_digest",designationDigest,
         "root_key_fingerprint",Jcs.digest(rootKey.getEncoded()),"result_key_fingerprint",Jcs.digest(resultPublicKey.getEncoded()),
-        "native_role",nativeRole,"relation_pins",pins,"maximum_seconds",Integer.toString(maximumSeconds)));}
+        "native_role",nativeRole,"native_schema",nativeSchema,"relation_pins",pins,"maximum_seconds",Integer.toString(maximumSeconds)));}
   }
   final Configuration config;
   final StaffCaseStore store;
