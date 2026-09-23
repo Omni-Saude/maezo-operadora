@@ -250,6 +250,94 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   0700>`, CMK dedicada, arquivo apagado com sobrescrita ao final. Nunca o valor na linha de
   comando, no state, no log ou no repo.
 
+- **D-H [23/09, consulta da T1.6 / PR #483]. Seis decisões que fecham as portas do `case_issuer`.**
+  Cada uma diz o que foi decidido, onde muda e qual tarefa implementa.
+  1. **Âncora escalação → caso staff (`CaseAnchor`).** O engine só reconhece como caso staff uma
+     guia AUTH reivindicada (`NativeCaseIdentityReader.java:24`, `kind=authorization`). **Não** se
+     cria um `kind` novo nesta onda. A âncora vai pela **instância**, sem interpretar número de guia:
+     - só entra escalação com business key `ESC-{tenant}-sla-auth-{guia}` (ADR-0051);
+     - dela se deriva `AUTH-{tenant}-{guia}`, e o engine REST devolve **exatamente uma** instância
+       `SP-OP-AUTH-001` do mesmo tenant;
+     - a reivindicação humana precisa ter `instance_` igual a essa instância e `tenant_` igual ao
+       tenant. O caso é o `case_` dela.
+
+     Zero ou mais de uma instância, ou reivindicação ausente, contam como `unanchored`: sem grant e
+     com contador exposto no log do job. Um erro da âncora não vaza, porque o engine revalida a
+     reivindicação no grant (`identity_digest`).
+     **Consequência de produto:** as escalações conversacionais da Helena (P1, red flag) **não**
+     aparecem em `/cases` nesta onda. Um `kind` de caso "escalation" é programa próprio, com ADR,
+     depois da Onda 7. É a **N9** (§6). Muda em `case_issuer_sources.py`: `AuthClaimAnchor` lê
+     `mzo_auth_guide_claim` pelo login do item 3, só com SELECT nas colunas `tenant_`, `instance_`
+     e `case_`. **Tarefa: T1.6.**
+  2. **Witness sem sessão.** O emissor ganha a **própria** entrada `identity_verifier` na
+     designação (`entry_ref=case-issuer-witness`, purpose só `membership_current`), com chave
+     própria e o login SELECT-only **`maezo_native_issuer_witness`**, que tem os mesmos grants do
+     witness do portal. O engine aceita porque a entrada é procurada por fingerprint
+     (`StaffCaseInstallation.java:55-61`, `:82`), e no caminho de publicação o `session_ref` não é
+     comparado a uma sessão (`StaffCasePublicationCommand.java:40`, `principal=null`). O
+     `session_ref` vale `case-issuer-run:{run_id}`.
+     **Rejeitado:** reusar a chave witness do portal, porque daria dois custodiantes para uma chave,
+     e revogar um derrubaria o outro.
+     Muda em:
+     - T1.3: `generate` cria a chave e a entrada no rascunho;
+     - T1.4: login e grants;
+     - T1.6: composição.
+
+     **Pronto quando:** o `InstalledStaffAuthority` (Python) e o loader do portal aceitam duas
+     entradas `identity_verifier`. Isso é **NÃO VERIFICADO**, e o teste entra na T1.6.
+  3. **Estado durável.** Fica numa tabela nova, `maezo_native.mzo_staff_case_issuer_ledger`
+     (revisão, grants e checkpoints emitidos, pedido pendente em bytes):
+     - dono: `maezo_native_schema_owner`;
+     - login novo **`maezo_native_case_issuer`**, com SELECT, INSERT e UPDATE só no ledger, sem
+       DELETE, e SELECT de coluna em `mzo_auth_guide_claim` (item 1) e em `amh.portal_memberships`
+       (este grant vem do dono de `amh`);
+     - `cibseven_app` e os logins witness **sem** grant nenhum no ledger.
+
+     A escrita é CAS por `revision` (`UPDATE … WHERE revision=$old`). Perder o ledger é recuperado
+     com `policy_ref` novo e a revisão recomeçando (item 6). **NÃO VERIFICADO** que o engine aceita
+     reiniciar `source_revision` sob policy nova: é teste da T1.6.
+     Muda em: `deploy/sql/engine-native-install.sql` e o teste PG 17 (T1.4); `PostgresIssuerLedger`
+     em `case_issuer_sources.py` (T1.6).
+  4. **Operações da entrada de leitura: exatamente `["detail","list"]`.** O Java já aceita isso
+     (`StaffCaseInstallation.java:63`). O defeito está no loader Python
+     (`src/maezo/gateway/staff_cases/materials.py:158`, que exige `("detail",)`). A correção:
+     - `materials.py` passa a exigir `("detail","list")`, e `("detail",)` sozinho é recusado, porque
+       o portal serve `/cases`;
+     - o `generate` da T1.3 emite essa lista para `read_requester` e `case_issuer`.
+
+     A projeção `staff_current_task.v1` continua na **entrada**, e o que a Onda 7 corta é o
+     **grant**. **Tarefa: T1.10**, com negativo `["detail"]` recusado e `["list"]` recusado, em
+     `tests/unit/gateway/test_staff_production_materials.py`.
+  5. **Tenant de dev = `amh`.** O tenant é declarado explicitamente na configuração do emissor, sem
+     default no código nem no módulo Terraform. Continua valendo que, sem `tenant-id`, o emissor
+     recusa tudo (fail-closed). Muda na variável `staff_case_issuer_tenant_id = "amh"` em
+     `deploy/aws-ecs/envs/dev-sa-east-1`, **tarefa T6.2** (Onda 6, a task do emissor ao lado de
+     `portal.staff`).
+  6. **Rotação da chave `case_issuer` com `policy_ref` novo: aceita.**
+     - Formato determinístico: `policy_ref = "staff-escalation-routing@d{designation_revision}"`.
+     - A cada designação nova (ciclo N2, 14 d), o emissor publica o head novo, reemite grants e
+       checkpoint e revoga a policy anterior, tudo **na mesma rodada**.
+     - A janela sem casos é de uma rodada do emissor. Ela vira passo do runbook da Onda 5: rodar o
+       emissor logo depois de instalar a designação.
+
+     **Rejeitado:** manter a chave entre designações, porque a chave viveria além do ciclo que o
+     aprovador assina.
+     **Tarefa:** T1.6 (código) e Onda 5 (runbook).
+- **D-I [23/09, achado desta consulta]. `public.ACT_*` fixo no Java quebra D-C2 em tempo de
+  execução.** São 9 ocorrências no `origin/main` depois da T1.8: `NativeCaseIdentityReader`,
+  `ExternalCaseStore`, `ExternalCaseReadCommand`, `ExternalCasePublicationCommand`,
+  `StaffCaseStore:260` e `AssignmentReceiptAuthority`. Com os `ACT_*` em `cibseven`, a leitura
+  staff falha, e a S1 R5 só provou o SQL de pin.
+  - **Decisão:** um pin novo `engine_schema` (`cibseven`), que entra em
+    `StaffCaseInstallation.Configuration` e no `digest()`, e no manifesto **v2 sem bump**, porque
+    nenhum pacote v2 foi assinado. Depois da primeira assinatura, qualquer mudança exige v3. O SQL
+    usa o identificador validado e quotado.
+  - `maezo_external.*` e `portal_identity` continuam como schemas próprios do DDL canônico
+    (`external-case-schema-postgres.sql:4`, `:641`). São exceção nomeada ao "todas as `mzo_*` em
+    `maezo_native`" e ficam fora do path.
+  - **Tarefas:** T1.8b (Java e Python). A T1.4 tem que instalar `maezo_external`, com USAGE e SELECT
+    para `cibseven_app`. A C1 passa a depender da T1.8b.
+
 ---
 
 ## 3. Ondas executáveis
@@ -297,6 +385,8 @@ Tarefas **disjuntas por arquivo**, que podem ir em paralelo:
 | T1.7b | backend/Java (mesmo módulo, depois da T1.7a) | `MembershipSourceObserver.java`, `StaffScopeQualification.java` + testes; vetor de paridade JCS compartilhado com o Python em `tests/fixtures/portal_read/jcs-membership-vector.json` (novo) | **qualificação das publicações** do escopo staff: `catalog-designate`, `catalog-revoke`, `membership` e `revoke-key` qualificam; `resource`, `verifyIdentityPolicy` e `verifyClassification` recusam sempre. IT: uma publicação de membership com o payload igual à linha viva de `amh.portal_memberships` gera receipt; o mesmo payload com um campo trocado é recusado; o vetor JCS dá o mesmo digest em Java e em Python |
 | **C1 [23/09]** | checkpoint de integração (thread principal + builder Java) | nenhum arquivo novo: é a S1 reexecutada sobre a imagem da T1.2 com T1.1, T1.4, T1.5, T1.7a/b e T1.8 mergeadas | no harness, com o layout D-C2: `staff-case-list` pela rota mTLS, com um principal e o catálogo publicados, sai do `staffLease` e do `catalog` e para no `checkpoint` (`unavailable`), porque ainda não há grant da T1.6. Com a T1.6: 200 com um caso. Estimativa: 1 d |
 | T1.8 **[Onda 0]** | backend/Java + Python (com ADR) | **Schema nativo pinado (D-C2):** `StaffCaseStore.java:44` e o witness (`postgres.py:241`, `:266`) deixam o `'public'` fixo e passam a comparar com o schema pinado; o manifesto sobe para `portal-staff-material.v2` com o campo novo; a validação de settings e o Terraform aprendem esse campo. **[23/09]** Arquivos: `StaffCaseInstallation.java` (`nativeSchema` no `Configuration` e no `digest()`), `StaffCaseStore.java` (pin com `?`, `current_schema()`, `to_regclass` e `_chunk` imutável, D6), `production_config.py`, `materials.py`, `postgres.py`, `portal-variables.tf`, `service-portal.tf`, `tests/unit/gateway/test_staff_production_materials.py` e o parágrafo de `src/maezo/portal/engine/README.md:238-239`. A ordem interna é Java primeiro (a T1.1 espera), depois Python e Terraform | testes: o pin recusa um schema diferente do pinado e um `public` homônimo. ~~ADR registrado~~ **ADR-0060 registrado (23/09)**. Negativos novos: um homônimo em `pg_temp` recusado pelo `to_regclass`; uma v1 recusada no load; `native_schema` fora do regex recusado; `checkpoint_chunk` com `SELECT,INSERT` aceito e com UPDATE recusado |
+| T1.8b **[23/09, D-I]** | backend/Java + Python | Java com `public.ACT_*` (9 ocorrências, D-I); `StaffCaseInstallation.java` (`engineSchema`); `materials.py` e `production_config.py` (`engine_schema` no v2) | IT no layout D-C2: `staff-case-list` e `detail` leem `ACT_*` em `cibseven`; `engine_schema` divergente é recusado; um teste de grep garante nenhum `public.ACT_` em `src/main`. 2-3 d |
+| T1.10 **[23/09, D-H.4]** | backend/Python | `src/maezo/gateway/staff_cases/materials.py:158` + `tests/unit/gateway/test_staff_production_materials.py` | exige `("detail","list")`; `["detail"]` e `["list"]` são recusados. 0,5 d |
 | T1.9 **[23/09]** | infra/CI | `tests/unit/deploy/test_engine_rest_open_only_dev.py` (novo) + `tests/unit/deploy/fixtures/engine_rest_fence/` (novo) | **cerca da N5.** Pelo digest não dá para saber se a imagem é aberta ou `secured*`, então a cerca é declarativa. O teste lê o HCL de cada diretório em `deploy/aws-ecs/envs/*` com o `_hcl_probe.py` que já existe. Todo ambiente cujo nome **não** comece com `dev-` tem que declarar `engine_rest_authentication = "client-certificate"`; ausência ou outro valor reprova. `dev-*` pode omitir. Hoje só existe `dev-sa-east-1`, e o teste passa. **Controle negativo:** um fixture `staging-x` sem a declaração reprova, e o mesmo fixture com a declaração passa. A variável do módulo nasce quando o primeiro ambiente não-dev nascer; até lá, a cerca é o que impede copiar o dev. Estimativa: 0,5-1 d |
 
 **[Onda 0] Acréscimos às tarefas existentes:**
@@ -898,6 +988,8 @@ imagem (Onda 4) está liberada quando chegar a hora. N6 = a meta é `/cases` (On
   escalação (T1.6).
 - **N5:** o `engine-rest` aberto é aceito **só em dev**, com uma cerca de CI que reprova staging e
   prod (T1.9).
+
+9. **N9 [23/09, D-H.1] — Na Onda 7, `/cases` só mostra escalações ancoradas a uma guia AUTH** (risco de SLA, ADR-0051). As escalações conversacionais da Helena (P1, red flag) só entram quando existir um `kind` de caso "escalation", que é programa próprio, com ADR. Proposta: aceitar isso para o teste conjunto do diretor. **Precisa de ciência do dono.**
 
 **Continua aberta: só a N1** (aprovador nomeado). O plano assume Leonardo, que é a proposta, e as
 Ondas 2 e 5 não começam sem ela.
