@@ -325,7 +325,7 @@ class InstalledReadProvidersJarIT {
   }
 
   @Test
-  void taskAuthorityAndPublicationQualificationAreAlwaysRefused() throws Exception {
+  void taskAuthorityRefusedAndTaskReadAdmissionQualifiesNothing() throws Exception {
     f.install(f.admission(1));
     var p = provider();
     var a = acquire(p);

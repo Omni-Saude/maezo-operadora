@@ -49,15 +49,15 @@ RDS_BUNDLE_SHA256 = "c2f9255eadfa939dd6f965ede75d8e0d4168c9cbb7ca1e7baa9bff6d5e2
 CONTINUITY_DOMAIN = b"maezo/portal-native-read-continuity/v1/commitment"
 
 # Capacidades por papel: fixas, nao configuraveis. O leitor do portal precisa das tres
-# projecoes e so de `detail` porque e o que o loader aceita hoje (`materials.py`, conferencia do
-# `read_requester`). O emissor de casos NAO e designado para `staff_current_task.v1`: a
-# restricao da Onda 7 (plano, T1.6) vira fato da designacao, e o engine recusa qualquer decisao
-# de tarefa corrente assinada por ele (`StaffCaseInstallation.grant`, `projections.contains`).
+# projecoes e exatamente de `detail`+`list`, nessa ordem: e o que o loader exige (`materials.py`,
+# conferencia do `read_requester`, D-H.4) e o que `/cases` precisa. O emissor de casos NAO e
+# designado para `staff_current_task.v1`: a restricao da Onda 7 (plano, T1.6) vira fato da
+# designacao, e o engine recusa qualquer decisao de tarefa corrente assinada por ele (`StaffCaseInstallation.grant`, `projections.contains`).
 CAPABILITIES: dict[str, tuple[list[str], list[str], list[str]]] = {
     "read_requester": (
         ["staff-case-read.v1", "staff-case-finalize.v1"],
         sorted(FIELDS),
-        ["detail"],
+        ["detail", "list"],
     ),
     "identity_verifier": (["membership_current"], [], []),
     "native_result": (["native_result"], [], []),

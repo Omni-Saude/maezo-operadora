@@ -26,8 +26,9 @@ import javax.sql.DataSource;
  * <p>Fail-closed in everything: a missing/invalid configuration, key file or code digest is
  * recorded at construction (ServiceLoader instantiation must not throw an unbounded error) and
  * makes every method refuse with {@code 503 READ_DEPENDENCY_UNAVAILABLE}, which the plugin turns
- * into a boot refusal. Publication qualification, identity policy and classification are T1.7b /
- * Onda 8 and are refused here.
+ * into a boot refusal. Publication qualification covers the staff scope (T1.7b: membership,
+ * catalog designation/revocation, key revocation); resource publication, identity policy and
+ * classification are Onda 8 and are refused.
  */
 public final class InstalledReadProviders implements PortalReadTrust.Providers {
   static final String CONFIGURATION_ENV = "MAEZO_PORTAL_READ_PROVIDER_FILE";
@@ -37,7 +38,7 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
   static final long MAX_CODE_BYTES = 67108864L;
 
   private record State(ProviderConfiguration configuration, NativeContinuityKeys keys,
-      String engineCode, String providerCode) {}
+      MembershipSourceObserver membership, String engineCode, String providerCode) {}
   private record Row(long revision, byte[] record, byte[] signature, boolean revoked) {}
 
   final Clock clock;
@@ -60,6 +61,7 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
     try {
       var configuration = ProviderConfiguration.load(configurationFile);
       loaded = new State(configuration, NativeContinuityKeys.load(configuration.continuityKeysFile),
+          new MembershipSourceObserver(configuration.membershipSource),
           codeDigest(PortalReadTrust.class), codeDigest(InstalledReadProviders.class));
     } catch (RuntimeException refused) {
       loaded = null;
@@ -155,8 +157,8 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
     if (announce)
       LOG.info(publicLine(s, record));
     Instant ceiling = now.plusSeconds(record.observationSeconds);
-    return new ProviderAdmission(
-        this, record, now, record.validUntil.isBefore(ceiling) ? record.validUntil : ceiling);
+    return new ProviderAdmission(this, record, purpose, now,
+        record.validUntil.isBefore(ceiling) ? record.validUntil : ceiling);
   }
 
   /**
@@ -327,11 +329,67 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
     }
   }
 
-  /** T1.7b: publication qualification (membership, catalog-designate) is not installed yet. */
+  /**
+   * T1.7b: qualifies one staff-scope publication OUTSIDE the engine command (the plugin calls this
+   * after {@code acquire} and before the tenant lock). The request must be bound to the admitted
+   * engine, incarnation, deployment and scope. {@code membership} re-reads the live source row
+   * itself; {@code catalog-designate}, {@code catalog-revoke} and {@code revoke-key} need no I/O;
+   * {@code resource} and anything else are Onda 8 and refused. The returned qualification only
+   * compares in memory ({@link StaffScopeQualification#verify}).
+   */
   @Override
   public PortalReadTrust.PublicationQualification qualifyPublication(
       PortalReadTrust.Admission admission, Map<String, Object> publication) {
-    throw Fields.unavailable();
+    State s = require();
+    if (!(admission instanceof ProviderAdmission own) || own.provider != this
+        || !"portal-read-publication".equals(own.purpose))
+      throw Fields.unavailable();
+    own.requireCurrent();
+    try {
+      var record = own.record;
+      if (publication == null)
+        throw Fields.unavailable();
+      Fields.keys(publication, "schema", "scope", "engine_name", "database_incarnation",
+          "read_deployment_ref", "read_deployment_digest", "publication_id",
+          "expected_authority_revision", "source", "kind", "payload");
+      Fields.exact(publication, "schema", "portal-read-publication.v1");
+      Fields.exact(publication, "engine_name", record.engine);
+      Fields.exact(publication, "database_incarnation", record.incarnation);
+      Fields.exact(publication, "read_deployment_ref", record.deployment);
+      Fields.exact(publication, "read_deployment_digest", record.deploymentDigest);
+      var scope = Fields.object(publication.get("scope"));
+      Fields.keys(scope, "tenant", "environment", "workload_ref");
+      Fields.exact(scope, "tenant", (String) record.scope.get("tenant"));
+      Fields.exact(scope, "environment", (String) record.scope.get("environment"));
+      String kind = Fields.string(publication, "kind");
+      var source = Fields.object(publication.get("source"));
+      Fields.keys(source, "publisher_ref", "source_ref", "source_revision", "source_digest",
+          "receipt_ref", "observed_at", "valid_until");
+      Fields.exact(scope, "workload_ref", Fields.ref(source, "publisher_ref"));
+      Fields.ref(source, "source_ref");
+      Fields.decimal(source, "source_revision", 0, Long.MAX_VALUE - 1);
+      Fields.hash(source, "source_digest");
+      Fields.ref(source, "receipt_ref");
+      Fields.time(source, "observed_at");
+      Fields.time(source, "valid_until");
+      var payload = Fields.object(publication.get("payload"));
+      Map<String, Object> observed = null;
+      switch (kind) {
+        case "membership" -> {
+          var publisher = record.publishers.get("membership");
+          if (publisher == null || !publisher.publisherRef().equals(s.membership.publisherRef))
+            throw Fields.unavailable();
+          observed = s.membership.observe((String) record.scope.get("tenant"),
+              Fields.string(payload, "issuer"), Fields.ref(payload, "subject"),
+              record.statementTimeoutSeconds);
+        }
+        case "catalog-designate", "catalog-revoke", "revoke-key" -> {}
+        default -> throw Fields.unavailable(); // resource (Onda 8) and anything unknown
+      }
+      return new StaffScopeQualification(own, kind, source, payload, observed);
+    } catch (RuntimeException refused) {
+      throw Fields.unavailable();
+    }
   }
 
   @Override

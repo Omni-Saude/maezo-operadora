@@ -30,6 +30,10 @@
       <configuration>
         <excludes><exclude>**/*JarIT.java</exclude></excludes>
         <failIfNoTests>true</failIfNoTests>
+        <systemPropertyVariables>
+          <!-- T1.7b: the JCS parity vector shared with tests/unit/portal/test_jcs_membership_vector.py -->
+          <maezo.jcs.vector>${project.basedir}/../../../../../tests/fixtures/portal_read/jcs-membership-vector.json</maezo.jcs.vector>
+        </systemPropertyVariables>
       </configuration>
       <executions>
         <!--
