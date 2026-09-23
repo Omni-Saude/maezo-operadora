@@ -467,6 +467,11 @@ jobs:
     name: portal-e2e
     runs-on: ubuntu-latest
     needs: [portal-web]
+    # ── PUSH NA MAIN NAO DISPARA (22/09/2026, dedup de faturamento). O bundle que este job
+    # prova e' o do PR que acabou de mergea-lo byte-a-byte; o push re-provava o mesmo produto
+    # (~12 min de Playwright + install por merge). O canary noturno do `schedule` continua
+    # rodando este job na main; `portal-web` (verify estatico, ~6 min) segue em todo evento.
+    if: github.event_name != 'push'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1317,7 +1322,17 @@ jobs:
     # abafado subindo o numero.
     timeout-minutes: 60
     # Sem "test coverage illusion": testes de integracao rodam contra engine REAL.
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    # ── PUSH NA MAIN DEIXA DE DISPARAR OS SHARDS (22/09/2026, dedup de faturamento). O merge
+    # byte-checked deste repo acabou de passar esta MESMA lane no `pull_request` do PR que o
+    # mergeou; o push re-cobrava ~115 min faturados por merge pelos mesmos 5 shards. Evidencia
+    # de faturamento (billing diario, /organizations/Omni-Saude/settings/billing/usage): a
+    # maratona de merges de 09-20/09-21 no repo privado cobrou 3 725 + 7 308 min em dois dias,
+    # boa parte dela o mesmo arquivo passando duas vezes (PR e push do mesmo SHA). O canary da
+    # main NAO some: `schedule` continua disparando a lane COMPLETA (o filtro de paths abaixo
+    # nunca se aplica a `schedule`), e o agregador `integration-gate` trata o `skipped` de push
+    # como verde COM aviso visivel — nunca silencioso. Em `pull_request` e `schedule`,
+    # `skipped` continua VERMELHO (regra do PR #465, intocada).
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     # `pull-requests: read` is for dorny/paths-filter's listFiles fallback — same reason and
     # same minimum as the `evals` job below; `contents: read` restates the workflow default.
     permissions:
@@ -1340,16 +1355,32 @@ jobs:
           # Collected historical-tool tests verify immutable Git ancestry.
           fetch-depth: 0
 
-      # ── Docs-only gate (CI-minutes hygiene). A docs-only PR cannot change this lane's verdict:
-      # nothing in today's globally collected integration-marker set reads docs/** or any *.md.
-      # The filter is FAIL-CLOSED by
-      # construction — `code` is 'true' when ANY changed file falls outside the two ignorable
-      # patterns, so an unlisted path (a new top-level dir, a workflow, a lockfile, spec/,
-      # config/, ...) always RUNS the lane; only the exact verdict 'false' skips, and a
-      # missing/errored output runs (decide step below). `schedule` is never filtered — the
-      # nightly on main stays the full-lane canary regardless of what merged that day. Same
-      # action, same SHA pin and same `pull-requests: read` minimum as the `evals` job.
-      - name: Classify changed paths (docs-only cannot affect this lane)
+      # ── Lane-irrelevance gate (CI-minutes hygiene; docs-only ate 22/09/2026, ampliado na mesma
+      # data com evidencia por caminho). Uma PR que so' toca um caminho que o conjunto global de
+      # marcados `integration` nao le nao pode mudar o veredito desta lane. O filtro e' FAIL-CLOSED
+      # por construcao — `code` e' 'true' quando QUALQUER arquivo mudado cai fora dos padroes
+      # ignoraveis, entao um caminho nao listado (um diretorio novo no topo, um lockfile, spec/,
+      # config/, deploy/, ...) SEMPRE RODA a lane; so' o veredito exato 'false' pula, e uma saida
+      # ausente/erroada roda (passo decide abaixo). `schedule` nunca e' filtrado — o noturno na
+      # main continua sendo o canary de lane completa. Mesma action, mesmo pin de SHA e mesmo
+      # minimo `pull-requests: read` do job `evals`.
+      #
+      # Exclusoes e a evidencia de cada uma (toda adicao futura PRECISA citar a verificacao):
+      #   docs/** e **/*.md  — herdado: nenhum teste marcado le markdown (verificado 2026-09-03).
+      #   src/maezo/portal/web/** — grep 22/09/2026: ZERO referencias a portal/web (ou import de
+      #       portal.web) em qualquer arquivo sob tests/; o frontend tem as SUAS lanes
+      #       (`portal-web`, `portal-e2e`), que continuam rodando em todo PR.
+      #   .github/** — nenhum teste MARCADO `integration` le workflows; os meta-testes que leem
+      #       ci.yml (test_global_integration_ci.py — cerca de particao dos shards,
+      #       test_integration_stack_wait_covers_started_services.py) sao da lane UNITARIA
+      #       (rodam em `-m "not integration"` em todo PR) e continuam cercando exatamente os
+      #       riscos de um edit de workflow: particao da matriz e cobertura de espera do stack.
+      #       Ganho medido: as 5 PRs de bump de acoes (#447-#451, 21-22/09) pagaram ~115 min
+      #       faturados cada numa lane que nada nelas mudava.
+      #   REJEITADO — deploy/**: tests/integration/test_portal_engine_d7_package.py e' marcado
+      #       `integration` e referencia deploy/cibseven/secured (ACCEPTANCE.md/fixture); sem
+      #       prova de nao-leitura, o default fail-closed manda RODAR.
+      - name: Classify changed paths (lane-irrelevant paths cannot affect this lane)
         id: paths
         if: github.event_name != 'schedule'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
@@ -1359,6 +1390,8 @@ jobs:
               - '**'
               - '!docs/**'
               - '!**/*.md'
+              - '!src/maezo/portal/web/**'
+              - '!.github/**'
 
       - name: Decide whether the lane runs (fail-closed)
         id: gate
@@ -1369,22 +1402,24 @@ jobs:
           # Only the exact verdict "no code path changed" skips. Anything else — including an
           # empty/missing output from a skipped or failed filter step — runs the lane.
           if [ "${EVENT_NAME}" != "schedule" ] && [ "${CODE_CHANGED}" = "false" ]; then
-            echo "docs-only change (every changed file is under docs/** or *.md) — lane not applicable"
+            echo "lane-irrelevant change (every changed file is under docs/**, *.md, src/maezo/portal/web/** or .github/**) — lane not applicable"
             echo "run=false" >> "$GITHUB_OUTPUT"
           else
             echo "code changed (or unfiltered event '${EVENT_NAME}') — running the lane"
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: INTEGRATION LANE NOT APPLICABLE — docs-only change (visible)
+      - name: INTEGRATION LANE NOT APPLICABLE — lane-irrelevant change (visible)
         if: steps.gate.outputs.run == 'false'
         run: |
-          echo "::notice::INTEGRATION LANE NOT APPLICABLE — every changed file is under docs/** or *.md; nothing this lane executes reads those paths. The nightly schedule still runs the full lane on main."
+          echo "::notice::INTEGRATION LANE NOT APPLICABLE — every changed file is under docs/**, *.md, src/maezo/portal/web/** or .github/**; nothing this lane executes reads those paths (verification per path in the workflow comment). The nightly schedule still runs the full lane on main."
           {
-            echo "## integration (${{ matrix.shard }}): NOT APPLICABLE (docs-only change)"
+            echo "## integration (${{ matrix.shard }}): NOT APPLICABLE (lane-irrelevant change)"
             echo ""
-            echo "Every changed file matches \`docs/**\` or \`**/*.md\`; no test in the"
-            echo "global integration-marker set reads those paths. The real-engine lane (~23 min de"
+            echo "Every changed file matches \`docs/**\`, \`**/*.md\`, \`src/maezo/portal/web/**\`"
+            echo "or \`.github/**\`; no test in the global integration-marker set reads those"
+            echo "paths (frontend has its own \`portal-web\`/\`portal-e2e\` lanes; workflow edits"
+            echo "stay fenced by the unit-lane meta-tests). The real-engine lane (~23 min de"
             echo "relogio em 5 shards, ~115 min faturados) was not started. The nightly schedule"
             echo "still runs the full lane on main."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -1601,21 +1636,41 @@ jobs:
       - name: Union-green dos shards da lane de motor real
         env:
           RESULTADO: ${{ needs.integration.result }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -e
-          echo "resultado agregado dos shards: ${RESULTADO}"
+          echo "resultado agregado dos shards: ${RESULTADO} (evento ${EVENT_NAME})"
           case "${RESULTADO}" in
             success)
               echo "## integration tests (real engine): ${RESULTADO}" >> "$GITHUB_STEP_SUMMARY"
               ;;
             skipped)
-              # NAO e' verde. `skipped` aqui significa que os shards nem chegaram a rodar — o
-              # `quality` a montante falhou (medido no PR #465, run 35742237775: um shard unitario
-              # caiu num passo de cache, os 5 shards de integracao foram pulados e este job pintou
-              # verde em 2 s). Um portao que fica verde sem ter olhado e' o pior defeito que um
-              # portao pode ter; a lane so' e' verde quando os shards rodaram e passaram.
-              echo "::error::os shards da lane de motor real NAO RODARAM (resultado '${RESULTADO}') — o job a montante falhou; isto nao e' um verde."
-              exit 1
+              if [ "${EVENT_NAME}" = "push" ]; then
+                # 22/09/2026 (dedup de faturamento): os shards nao sao disparados por `push` na
+                # main — a lane acabou de rodar no `pull_request` do PR que mergeou (merge
+                # byte-checked) e o canary da main vive no `schedule` noturno, que roda a lane
+                # COMPLETA sem filtro. Verde COM aviso visivel, nunca silencioso. A regra do
+                # PR #465 fica INTACTA nos eventos que importam para merge e canary: `skipped`
+                # em `pull_request` (contexto que nao rodou) ou em `schedule` (canary noturno
+                # que deveria ter rodado) continua VERMELHO.
+                echo "::notice::integration shards nao rodam em push na main (dedup de faturamento, 22/09/2026) — o canary noturno do schedule continua completo."
+                {
+                  echo "## integration tests (real engine): NOT APPLICABLE (push na main)"
+                  echo ""
+                  echo "Os shards nao sao disparados por \`push\` na main desde 22/09/2026: o merge"
+                  echo "byte-checked acabou de passa-los no \`pull_request\` do PR que mergeou este"
+                  echo "arquivo. O canary da main continua no \`schedule\` noturno, que roda a lane"
+                  echo "COMPLETA sem filtro de paths."
+                } >> "$GITHUB_STEP_SUMMARY"
+              else
+                # NAO e' verde. `skipped` aqui significa que os shards nem chegaram a rodar — o
+                # `quality` a montante falhou (medido no PR #465, run 35742237775: um shard unitario
+                # caiu num passo de cache, os 5 shards de integracao foram pulados e este job pintou
+                # verde em 2 s). Um portao que fica verde sem ter olhado e' o pior defeito que um
+                # portao pode ter; a lane so' e' verde quando os shards rodaram e passaram.
+                echo "::error::os shards da lane de motor real NAO RODARAM (resultado '${RESULTADO}', evento '${EVENT_NAME}') — o job a montante falhou; isto nao e' um verde."
+                exit 1
+              fi
               ;;
             *)
               echo "::error::pelo menos um shard da lane de motor real terminou em '${RESULTADO}' — veja os jobs 'integration (<shard>)' e o artefato integration-test-results-<sha>-<shard>."
