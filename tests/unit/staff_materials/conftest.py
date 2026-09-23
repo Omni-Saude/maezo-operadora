@@ -99,8 +99,8 @@ class Assembled:
     manifest: dict[str, Any]
 
 
-def assemble_v1(generated: Generated, now: datetime, *, root: Ed25519PrivateKey | None = None) -> Assembled:
-    """Monta um pacote v1 NO TESTE, so para exercitar o loader.
+def assemble_v2(generated: Generated, now: datetime, *, root: Ed25519PrivateKey | None = None) -> Assembled:
+    """Monta um pacote v2 NO TESTE, so para exercitar o loader.
 
     O `assemble` da ferramenta e v2 e espera a T1.8/Python; este monta o que o loader de HOJE
     aceita, a partir da saida real do `generate` e de uma assinatura real do aprovador.
@@ -120,7 +120,7 @@ def assemble_v1(generated: Generated, now: datetime, *, root: Ed25519PrivateKey 
     scope = summary["scope"]
     spec = spec_value(now)
     manifest: dict[str, Any] = dict(
-        schema="portal-staff-material.v1",
+        schema="portal-staff-material.v2",
         material_version_id="11111111-2222-3333-4444-555555555555",
         scope=scope,
         issuer="https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_test",
@@ -134,6 +134,7 @@ def assemble_v1(generated: Generated, now: datetime, *, root: Ed25519PrivateKey 
         witness_key_fingerprint=summary["key_fingerprints"]["identity_verifier"],
         native_origin="https://" + summary["native_hostname"],
         native_server_spki_sha256=summary["native_server_spki_sha256"],
+        native_schema="maezo_native",
         session_lock_connection=dict(
             spec["session_lock_connection"],
             tls_server_name=spec["session_lock_connection"]["host"],
@@ -179,6 +180,7 @@ def pins_for(assembled: Assembled) -> dict[str, Any]:
         staff_scope=m["scope"],
         staff_native_origin=m["native_origin"],
         staff_native_server_spki_sha256=m["native_server_spki_sha256"],
+        staff_native_schema=m["native_schema"],
         staff_read_key_sha256=m["read_key_fingerprint"],
         staff_witness_key_sha256=m["witness_key_fingerprint"],
         staff_maximum_seconds=5,
