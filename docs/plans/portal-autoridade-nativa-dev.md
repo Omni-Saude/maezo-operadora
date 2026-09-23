@@ -374,7 +374,7 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
        instaladores Java, com teste de divergência recusada).
      - **2.b ajustada:** `mzo_human_tenant` e `mzo_portal_read_revocation` ficam em `maezo_native`
        (confirmado); `maezo_external` guarda só o DDL externo de casos. Os `CREATE ROLE
-       portal_external_*` saem do DDL e vão para `deploy/sql/roles.sql`, que roda pela role admin
+       portal_external_*` saem do DDL e vão para `deploy/sql/engine-native-roles.sql` (já existe na main), que roda pela role admin
        (com CREATEROLE) no início da Onda 3. Os roles são NOLOGIN e sem membership com o dono; os
        GRANTs sobre objetos continuam no DDL, executados pelo dono. Tarefa: T1.4.
      - **2.c, exceção ratificada:** `cibseven_app` tem UPDATE em `MZO_PORTAL_READ_DESIGNATION`
