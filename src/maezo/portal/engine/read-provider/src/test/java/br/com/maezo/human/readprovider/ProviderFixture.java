@@ -199,6 +199,29 @@ public final class ProviderFixture implements AutoCloseable {
     }
   }
 
+  /** Runs statements as the fixture's administrator (superuser). {@code %t} = qualified table. */
+  public void asAdmin(String... sql) throws SQLException {
+    try (var c = admin(); var s = c.createStatement()) {
+      for (String each : sql) s.execute(expand(each));
+    }
+  }
+
+  /** Runs statements as the table owner (what the installation login may do on its own). */
+  public void asOwner(String... sql) throws SQLException {
+    try (var c = admin(); var s = c.createStatement()) {
+      s.execute("SET ROLE " + owner);
+      for (String each : sql) s.execute(expand(each));
+    }
+  }
+
+  private String expand(String sql) {
+    return sql.replace("%t", schema + ".mzo_portal_read_admission")
+        .replace("%s", schema)
+        .replace("%r", runtime)
+        .replace("%o", owner)
+        .replace("%x", suffix);
+  }
+
   /** What the engine login itself can do to the table (proves the grant matrix, not the pin). */
   public Connection asRuntime() throws SQLException {
     return DriverManager.getConnection(adminUrl, runtime, runtimePassword);
@@ -226,7 +249,13 @@ public final class ProviderFixture implements AutoCloseable {
     TestNaming.bind(null);
     try (var c = admin(); var s = c.createStatement()) {
       s.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
-      for (String role : List.of(runtime, owner)) {
+      // Every role this fixture (or a test) created carries the suffix: runtime, owner, writers.
+      List<String> roles = new ArrayList<>();
+      try (ResultSet r = s.executeQuery("SELECT rolname FROM pg_roles WHERE rolname LIKE 'rp\\_%\\_"
+               + suffix + "' ORDER BY rolname DESC")) {
+        while (r.next()) roles.add(r.getString(1));
+      }
+      for (String role : roles) {
         s.execute("DROP OWNED BY " + role);
         s.execute("DROP ROLE IF EXISTS " + role);
       }

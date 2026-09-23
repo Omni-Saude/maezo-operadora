@@ -50,13 +50,42 @@ parseado), `purposes` (⊆ `portal-task-read`, `portal-read-publication`), `code
 
 **`acquire`** lê a linha de maior revisão numa conexão própria do DataSource (fora de comando do
 engine), em transação `REPEATABLE READ, READ ONLY` com `statement_timeout`/`lock_timeout` locais de
-5 s. Recusa se: a tabela não é a pinada (OID, dono, schema exato), o login do engine pode
-`INSERT/UPDATE/DELETE/TRUNCATE` nela, é membro do dono, é superusuário ou `BYPASSRLS`; a assinatura
-não é da raiz; os bytes não são JCS; qualquer campo diverge dos parâmetros do plugin; o propósito
-ou o escopo não foram admitidos; a janela não vale; a linha está revogada; a revisão é menor que a
-maior já vista neste processo (anti-rollback em memória); ou os `code_digests` não são os dos JARs
-carregados. Devolve `generation = providerRevision = revisão`, `capabilityDigest =
-SHA-256(RECORD_)`, `observedAt = agora`, `validUntil = min(valid_until, agora + observation_seconds)`.
+5 s e `search_path=pg_catalog` local, para que nenhum operador ou função resolva por um schema
+onde alguém cria objetos (CVE-2018-1058). A leitura da linha exige `tableoid` igual ao OID pinado:
+o nome não é resolvido duas vezes.
+
+**Pin da tabela: lista fechada, numa só consulta** (`InstalledReadProviders.PIN_SQL`). Recusa se:
+- a tabela não é a pinada: OID, dono, `relkind='r'` e schema exato;
+- `relacl` tem qualquer entrada além das do próprio dono e de **exatamente uma** `SELECT` do login
+  do engine concedida pelo dono, sem `GRANT OPTION`. Isso pega escrita concedida a qualquer outro
+  papel, inclusive um papel alcançável só por `SET ROLE` (`WITH INHERIT FALSE`), e também `PUBLIC`;
+- existe ACL por coluna (`pg_attribute.attacl`), que `has_table_privilege` não enxerga;
+- existe trigger ou regra na tabela (tornariam a revogação impossível), ou RLS ligado;
+- o login do engine pode `INSERT/UPDATE/DELETE/TRUNCATE/TRIGGER/REFERENCES`, é o dono ou membro
+  dele, é membro de `pg_write_all_data`, ou tem `SUPERUSER`, `BYPASSRLS` ou `CREATEROLE`.
+
+Além do pin, recusa se: a assinatura não é da raiz; os bytes não são JCS; qualquer campo diverge
+dos parâmetros do plugin; o propósito ou o escopo não foram admitidos; a janela não vale; a linha
+está revogada; a revisão é menor que a maior já vista neste processo (anti-rollback em memória);
+ou os `code_digests` não são os dos JARs carregados. Devolve `generation = providerRevision =
+revisão`, `capabilityDigest = SHA-256(RECORD_)`, `observedAt = agora`, `validUntil =
+min(valid_until, agora + observation_seconds)`.
+
+`source_ref_prefix` tem que terminar em `:` ou `/`: o prefixo é um segmento inteiro, e `…:amh:`
+nunca admite `…:amhx:…`.
+
+**Linha pública de boot (âncora independente da raiz).** O arquivo que nomeia a raiz é montado pela
+engenharia, então o pin dele sozinho não prova nada: quem monta pode trocar o par e o pin juntos.
+No primeiro `acquire` bem-sucedido de cada revisão, o provedor emite **uma** linha INFO
+(`java.util.logging`, logger `br.com.maezo.human.readprovider.InstalledReadProviders`):
+
+```
+portal_read_provider root_sha256=<hex> admission_ref=<ref> revision=<n> capability_digest=<hex> engine_code=<hex> provider_code=<hex>
+```
+
+Só valores públicos e fechados; nunca chave, compromisso, DSN, assinatura ou corpo do registro. O
+aprovador confere `root_sha256` contra a chave dele e `capability_digest` contra o registro que ele
+assinou (plano, §4, linha `portal_read_root_sha256` / `capability_digest`).
 
 ## `portal-read-continuity-keys.v1` (arquivo de chaves, segredo)
 
@@ -66,6 +95,13 @@ simbólico. Carregado uma vez no boot. Cada chave do arquivo tem que estar compr
 vigente: `commitment = hex(HMAC-SHA256(chave, "maezo/portal-native-read-continuity/v1/commitment"))`.
 `NativeKey.digest` é esse compromisso, nunca um hash da chave.
 
+**Nota operacional (montagem, decisão da T1.2).** Um volume `Secret` do Kubernetes monta cada
+chave como link simbólico para `..data/<arquivo>`, com dono root. O provedor **recusa** esse
+arquivo: link simbólico, dono diferente do usuário do processo. É fail-closed de propósito, e o
+engine não sobe. A montagem precisa entregar um arquivo regular, dono o usuário do engine (uid
+1000) e modo `0400`. Um caminho é um init container que copia o segredo para um `emptyDir` com
+`chown`/`chmod`, como o init de materiais do portal faz no ECS. Quem decide é a T1.2.
+
 ## Testes
 
 - `*Test` (sem banco): formato, assinatura, janela, limites, registro, custódia do arquivo.
@@ -74,7 +110,11 @@ vigente: `commitment = hex(HMAC-SHA256(chave, "maezo/portal-native-read-continui
   `PortalReadPlugin.staffLease` (critério de pronto da T1.7a; a rota HTTP depende da T1.1).
   Negativos de boot: provedor ausente, duplicado, configuração ausente, linha ausente, outra raiz,
   revogada, vencida/ainda não válida, `trust_configuration_digest` trocado, `code_digests` de outro
-  JAR, login do engine com escrita. `InstalledReadProvidersJarIT` cobre expiração da admissão
+  JAR, login do engine com escrita. Negativos do pin fechado, cada um revertido até o positivo
+  voltar: `UPDATE` por coluna, privilégio `TRIGGER`, papel com escrita alcançável só por
+  `SET ROLE`, `pg_write_all_data`, `CREATEROLE`, trigger ou regra na tabela, RLS com política,
+  `SELECT` para `PUBLIC` ou com `GRANT OPTION`, leitura por `pg_read_all_data` fora do ACL, e um
+  operador `=` plantado no `search_path` do login. `InstalledReadProvidersJarIT` cobre expiração da admissão
   retida, supersessão, revogação matando chaves, custódia e compromisso, `verifySource`,
   `verifyCatalog` e os pins.
 

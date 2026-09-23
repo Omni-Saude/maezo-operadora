@@ -1095,7 +1095,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        # postgres:17 (indice multi-arch resolvido em 23/09/2026 no Docker Hub).
+        image: postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
         env:
           POSTGRES_PASSWORD: read_provider_it
         ports:

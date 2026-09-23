@@ -133,6 +133,24 @@ class AdmissionRecordTest {
   }
 
   @Test
+  void sourceRefPrefixMustEndAtASegmentSeparator() {
+    for (String bad : List.of("portal-identity:amh", "staff-catalog", "a"))
+      refusedWith(r
+          -> ((Map<String, Object>) ((List<Object>) r.get("publishers")).get(0))
+                 .put("source_ref_prefix", bad));
+    for (String good : List.of("portal-identity:amh:", "catalog/"))
+      verifyWith(r
+          -> ((Map<String, Object>) ((List<Object>) r.get("publishers")).get(0))
+                 .put("source_ref_prefix", good));
+  }
+
+  void verifyWith(Consumer<Map<String, Object>> change) {
+    var record = valid();
+    change.accept(record);
+    verify(record, root);
+  }
+
+  @Test
   void continuityCommitmentsAreClosedAndDistinct() {
     refusedWith(r -> r.put("continuity_keys", new ArrayList<>()));
     refusedWith(r

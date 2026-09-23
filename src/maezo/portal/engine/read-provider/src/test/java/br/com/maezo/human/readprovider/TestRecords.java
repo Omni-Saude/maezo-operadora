@@ -79,7 +79,7 @@ public final class TestRecords {
             record("kind", "membership", "publisher_ref", PUBLISHER, "source_ref_prefix",
                 MEMBERSHIP_PREFIX),
             record("kind", "catalog-designate", "publisher_ref", PUBLISHER, "source_ref_prefix",
-                CATALOG))),
+                CATALOG + ":"))),
         "statement_timeout_seconds", "5", "observation_seconds", "300", "not_before",
         time(before), "valid_until", time(until));
   }

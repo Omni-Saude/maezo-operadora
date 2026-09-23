@@ -229,6 +229,160 @@ class ReadProviderBootJarIT {
     assertEquals("3", booted.lease(f).admission.generation());
   }
 
+  /**
+   * Security review of PR #481, finding 1: each of these lets the engine login undo a revocation
+   * (or make it impossible) while has_table_privilege() stays false. Each one must refuse boot,
+   * and removing it must bring the positive back on the same fixture.
+   */
+  void refusedUntilReverted(String[] apply, String[] revert, boolean asOwner) throws Exception {
+    f.install(f.admission(1));
+    boot().lease(f); // control first: the fixture is qualified before the change
+    if (asOwner)
+      f.asOwner(apply);
+    else
+      f.asAdmin(apply);
+    bootRefused();
+    if (asOwner)
+      f.asOwner(revert);
+    else
+      f.asAdmin(revert);
+    boot().lease(f);
+  }
+
+  @Test
+  void columnLevelUpdateGrantIsRefused() throws Exception {
+    f.asAdmin("GRANT UPDATE (revoked_) ON %t TO %r");
+    try (var c = f.asRuntime(); var s = c.createStatement()) {
+      // Proves the grant really bypasses the table-level check the first version relied on.
+      assertEquals(0, s.executeUpdate("UPDATE " + f.schema + ".mzo_portal_read_admission "
+          + "SET revoked_=false WHERE false"));
+      try (var r = s.executeQuery("SELECT has_table_privilege('" + f.schema
+               + ".mzo_portal_read_admission', 'UPDATE')")) {
+        r.next();
+        assertFalse(r.getBoolean(1));
+      }
+    }
+    f.asAdmin("REVOKE UPDATE (revoked_) ON %t FROM %r");
+    refusedUntilReverted(new String[] {"GRANT UPDATE (revoked_) ON %t TO %r"},
+        new String[] {"REVOKE UPDATE (revoked_) ON %t FROM %r"}, false);
+  }
+
+  @Test
+  void triggerPrivilegeIsRefused() throws Exception {
+    refusedUntilReverted(new String[] {"GRANT TRIGGER ON %t TO %r"},
+        new String[] {"REVOKE TRIGGER ON %t FROM %r"}, false);
+  }
+
+  @Test
+  void writerRoleReachableOnlyBySetRoleIsRefused() throws Exception {
+    f.asAdmin("CREATE ROLE rp_writer_%x NOLOGIN", "GRANT USAGE ON SCHEMA %s TO rp_writer_%x",
+        "GRANT UPDATE ON %t TO rp_writer_%x",
+        "GRANT rp_writer_%x TO %r WITH INHERIT FALSE");
+    try (var c = f.asRuntime(); var s = c.createStatement()) {
+      try (var r = s.executeQuery("SELECT has_table_privilege('" + f.schema
+               + ".mzo_portal_read_admission', 'UPDATE')")) {
+        r.next();
+        assertFalse(r.getBoolean(1), "NOINHERIT hides the write from has_table_privilege");
+      }
+      s.execute("SET ROLE rp_writer_" + f.suffix);
+      assertEquals(0, s.executeUpdate("UPDATE " + f.schema + ".mzo_portal_read_admission "
+          + "SET revoked_=false WHERE false"));
+    }
+    // Any entry for another role is foreign to the closed ACL, with or without the membership.
+    f.asAdmin("REVOKE rp_writer_%x FROM %r", "REVOKE UPDATE ON %t FROM rp_writer_%x");
+    refusedUntilReverted(
+        new String[] {"GRANT UPDATE ON %t TO rp_writer_%x",
+            "GRANT rp_writer_%x TO %r WITH INHERIT FALSE"},
+        new String[] {"REVOKE rp_writer_%x FROM %r", "REVOKE UPDATE ON %t FROM rp_writer_%x"},
+        false);
+  }
+
+  @Test
+  void writeAllDataMembershipIsRefused() throws Exception {
+    refusedUntilReverted(new String[] {"GRANT pg_write_all_data TO %r WITH INHERIT FALSE"},
+        new String[] {"REVOKE pg_write_all_data FROM %r"}, false);
+  }
+
+  @Test
+  void createRoleAttributeIsRefused() throws Exception {
+    refusedUntilReverted(new String[] {"ALTER ROLE %r CREATEROLE"},
+        new String[] {"ALTER ROLE %r NOCREATEROLE"}, false);
+  }
+
+  @Test
+  void triggerAlreadyOnTheTableIsRefused() throws Exception {
+    f.asOwner("CREATE FUNCTION %s.keep_old() RETURNS trigger LANGUAGE plpgsql AS "
+        + "'BEGIN RETURN OLD; END'");
+    refusedUntilReverted(
+        new String[] {"CREATE TRIGGER keep_old BEFORE UPDATE ON %t FOR EACH ROW "
+            + "EXECUTE FUNCTION %s.keep_old()"},
+        new String[] {"DROP TRIGGER keep_old ON %t"}, true);
+  }
+
+  @Test
+  void ruleOnTheTableIsRefused() throws Exception {
+    refusedUntilReverted(
+        new String[] {"CREATE RULE no_revoke AS ON UPDATE TO %t DO INSTEAD NOTHING"},
+        new String[] {"DROP RULE no_revoke ON %t"}, true);
+  }
+
+  @Test
+  void rowLevelSecurityOnTheTableIsRefused() throws Exception {
+    // With a policy the rows stay visible, so ONLY the row_security clause can refuse: a policy
+    // is exactly how the owner (or a compromised install) would hide the newest, revoked row.
+    refusedUntilReverted(
+        new String[] {"CREATE POLICY see_all ON %t FOR SELECT USING (true)",
+            "ALTER TABLE %t ENABLE ROW LEVEL SECURITY"},
+        new String[] {"ALTER TABLE %t DISABLE ROW LEVEL SECURITY", "DROP POLICY see_all ON %t"},
+        true);
+  }
+
+  /** The engine's SELECT must be the one closed ACL entry, not a read reached some other way. */
+  @Test
+  void selectThatIsNotTheAclEntryIsRefused() throws Exception {
+    f.install(f.admission(1));
+    boot().lease(f);
+    f.asAdmin("REVOKE SELECT ON %t FROM %r", "GRANT pg_read_all_data TO %r");
+    try (var c = f.asRuntime(); var s = c.createStatement();
+         var r = s.executeQuery("SELECT count(*) FROM " + f.schema + ".mzo_portal_read_admission")) {
+      r.next();
+      assertEquals(1, r.getLong(1), "the login can still read, just not through the pinned grant");
+    }
+    bootRefused();
+    f.asAdmin("REVOKE pg_read_all_data FROM %r", "GRANT SELECT ON %t TO %r");
+    boot().lease(f);
+  }
+
+  @Test
+  void grantableSelectAndPublicSelectAreRefused() throws Exception {
+    refusedUntilReverted(new String[] {"GRANT SELECT ON %t TO PUBLIC"},
+        new String[] {"REVOKE SELECT ON %t FROM PUBLIC"}, false);
+    f.asAdmin("REVOKE SELECT ON %t FROM %r", "GRANT SELECT ON %t TO %r WITH GRANT OPTION");
+    bootRefused();
+    f.asAdmin("REVOKE SELECT ON %t FROM %r CASCADE", "GRANT SELECT ON %t TO %r");
+    boot().lease(f);
+  }
+
+  /** Finding 3 (CVE-2018-1058): an operator in the engine login's own search_path is inert. */
+  @Test
+  void operatorPlantedInTheEngineSearchPathIsNotResolved() throws Exception {
+    f.asAdmin("CREATE SCHEMA %r AUTHORIZATION %r",
+        "CREATE FUNCTION %r.never(name, varchar) RETURNS boolean LANGUAGE sql IMMUTABLE "
+            + "AS 'SELECT false'",
+        "CREATE OPERATOR %r.= (LEFTARG = name, RIGHTARG = varchar, FUNCTION = %r.never)",
+        "ALTER FUNCTION %r.never(name, varchar) OWNER TO %r",
+        "ALTER OPERATOR %r.= (name, varchar) OWNER TO %r");
+    try (var c = f.asRuntime(); var q = c.prepareStatement("SELECT 'a'::name = ?")) {
+      q.setString(1, "a"); // bound as varchar, exactly like the pin's nspname/relname binds
+      try (var r = q.executeQuery()) {
+        r.next();
+        assertFalse(r.getBoolean(1), "the planted operator is live in the default search_path");
+      }
+    }
+    f.install(f.admission(1));
+    boot().lease(f);
+  }
+
   @Test
   void engineLoginThatCanWriteTheAdmissionTableIsRefused() throws Exception {
     f.install(f.admission(1));

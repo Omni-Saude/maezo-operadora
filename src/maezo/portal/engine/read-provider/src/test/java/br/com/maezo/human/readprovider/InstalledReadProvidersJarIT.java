@@ -218,7 +218,7 @@ class InstalledReadProvidersJarIT {
         time(now.plusSeconds(60)));
     a.verifySource("membership", good);
     var catalog = new java.util.TreeMap<>(good);
-    catalog.put("source_ref", CATALOG + "@1");
+    catalog.put("source_ref", CATALOG + ":1");
     a.verifySource("catalog-designate", catalog);
     refused(() -> a.verifySource("resource", good));
     refused(() -> a.verifySource("catalog-revoke", good));
@@ -233,6 +233,77 @@ class InstalledReadProvidersJarIT {
     expired.put("valid_until", time(now));
     refused(() -> a.verifySource("membership", expired));
     refused(() -> a.verifySource("membership", null));
+  }
+
+  /** Finding 5: a prefix is a whole segment, so `amh` never admits `amhx`. */
+  @Test
+  void sourceRefPrefixIsASegmentNotACharacterPrefix() throws Exception {
+    var admission = f.admission(1);
+    ((Map<String, Object>) ((List<Object>) admission.get("publishers")).get(0))
+        .put("source_ref_prefix", "portal-identity:amh:");
+    f.install(admission);
+    var a = acquire(provider());
+    Instant now = clock.instant();
+    var source = record("publisher_ref", PUBLISHER, "source_ref", "portal-identity:amh:human-1",
+        "source_revision", "1", "source_digest", "f".repeat(64), "receipt_ref", "r-1",
+        "observed_at", time(now.minusSeconds(1)), "valid_until", time(now.plusSeconds(60)));
+    a.verifySource("membership", source);
+    var neighbour = new java.util.TreeMap<>(source);
+    neighbour.put("source_ref", "portal-identity:amhx:human-1");
+    refused(() -> a.verifySource("membership", neighbour));
+  }
+
+  /**
+   * Finding 2: the live engine states, once per admitted revision, WHICH root and WHICH admission
+   * bytes it accepted. Nothing secret rides on that line.
+   */
+  @Test
+  void firstAcquireOfEachRevisionEmitsOnePublicLineWithoutSecrets() throws Exception {
+    List<String> lines = new java.util.concurrent.CopyOnWriteArrayList<>();
+    var handler = new java.util.logging.Handler() {
+      @Override
+      public void publish(java.util.logging.LogRecord r) {
+        lines.add(r.getMessage());
+      }
+
+      @Override
+      public void flush() {}
+
+      @Override
+      public void close() {}
+    };
+    InstalledReadProviders.LOG.addHandler(handler);
+    try {
+      var admission = f.admission(1);
+      f.install(admission);
+      var p = provider();
+      acquire(p);
+      acquire(p);
+      p.continuity(acquire(p)).current();
+      String rootPin = Jcs.digest(f.root.getPublic().getEncoded());
+      assertEquals(List.of("portal_read_provider root_sha256=" + rootPin + " admission_ref="
+                       + ADMISSION_REF + " revision=1 capability_digest="
+                       + Jcs.digest(Jcs.canonical(admission)) + " engine_code=" + f.engineCode
+                       + " provider_code=" + f.providerCode),
+          lines);
+      f.install(f.admission(2));
+      acquire(p);
+      acquire(p);
+      assertEquals(2, lines.size());
+      assertTrue(lines.get(1).contains(" revision=2 "));
+      String secret = java.util.Base64.getEncoder().encodeToString(f.secret);
+      for (String line : lines) {
+        assertFalse(line.contains(secret));
+        assertFalse(line.contains(java.util.HexFormat.of().formatHex(f.secret)));
+        assertFalse(line.contains(f.commitment()));
+        assertFalse(line.contains(f.adminPassword));
+        assertFalse(line.contains("jdbc:"));
+        assertFalse(line.contains("{"), "no record body");
+        assertTrue(line.matches("portal_read_provider( [a-z0-9_]+=[A-Za-z0-9_.:@/-]+){6}"));
+      }
+    } finally {
+      InstalledReadProviders.LOG.removeHandler(handler);
+    }
   }
 
   @Test

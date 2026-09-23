@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Logger;
 import javax.naming.InitialContext;
 import javax.sql.DataSource;
 
@@ -45,6 +46,9 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
   private long highest;
   /** Highest revision observed revoked at or above {@link #highest}; kills retained admissions. */
   private long revokedUpTo;
+  /** Highest revision already stated on the public log line (once per admitted revision). */
+  private long announced;
+  static final Logger LOG = Logger.getLogger(InstalledReadProviders.class.getName());
 
   public InstalledReadProviders() {
     this(configured(), Clock.systemUTC());
@@ -139,14 +143,34 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
     } catch (RuntimeException refused) {
       throw Fields.unavailable();
     }
+    boolean announce;
     synchronized (this) {
       if (record.revision < highest || record.revision <= revokedUpTo)
         throw Fields.unavailable();
       highest = record.revision;
+      announce = record.revision > announced;
+      if (announce)
+        announced = record.revision;
     }
+    if (announce)
+      LOG.info(publicLine(s, record));
     Instant ceiling = now.plusSeconds(record.observationSeconds);
     return new ProviderAdmission(
         this, record, now, record.validUntil.isBefore(ceiling) ? record.validUntil : ceiling);
+  }
+
+  /**
+   * The independent channel for the approver (plan section 4, {@code portal_read_root_sha256}):
+   * the configuration file that names the root is mounted by engineering, so the root pin in it
+   * proves nothing by itself. The live engine states WHICH root and WHICH admission bytes it
+   * accepted, and the approver compares that with his own key and the record he signed. Only
+   * public, closed values (hex digests and refs); never a key, DSN, signature or record body.
+   */
+  static String publicLine(State s, AdmissionRecord record) {
+    return "portal_read_provider root_sha256=" + s.configuration.rootPin
+        + " admission_ref=" + record.admissionRef + " revision=" + record.revision
+        + " capability_digest=" + record.digest + " engine_code=" + s.engineCode
+        + " provider_code=" + s.providerCode;
   }
 
   private static boolean scopeAdmitted(
@@ -173,8 +197,11 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
           statement.setQueryTimeout(READ_TIMEOUT_SECONDS);
           statement.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
           String millis = Integer.toString(READ_TIMEOUT_SECONDS * 1000);
+          // search_path=pg_catalog: no operator, function or type below may resolve through a
+          // schema the engine login (or anyone) can create objects in (CVE-2018-1058).
           statement.execute("SELECT pg_catalog.set_config('statement_timeout','" + millis
-              + "',true),pg_catalog.set_config('lock_timeout','" + millis + "',true)");
+              + "',true),pg_catalog.set_config('lock_timeout','" + millis + "',true),"
+              + "pg_catalog.set_config('search_path','pg_catalog',true)");
         }
         pin(connection, c);
         return row(connection, c);
@@ -188,27 +215,48 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
     }
   }
 
+  /** The CLOSED pin: every clause is a column that must be exactly true or exactly false. */
+  static final String PIN_SQL = "SELECT c.oid::text AS table_oid, "
+      + "pg_catalog.pg_get_userbyid(c.relowner) AS owner, c.relkind::text AS kind, "
+      + "session_user::text AS login, current_user::text AS acting, "
+      + "pg_catalog.has_table_privilege(session_user, c.oid, 'SELECT') AS can_select, "
+      + "pg_catalog.has_table_privilege(session_user, c.oid, "
+      + "'INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER, REFERENCES') AS can_write, "
+      // Closed ACL list: besides the owner's own entries, exactly one entry, SELECT for the
+      // engine login granted by the owner, not grantable. A write grant to ANY other role
+      // (including a role reachable only by SET ROLE, i.e. WITH INHERIT FALSE) is refused here,
+      // because has_table_privilege() only sees inherited privileges.
+      + "(SELECT pg_catalog.count(*) FROM pg_catalog.aclexplode(c.relacl) x "
+      + " WHERE NOT (x.grantee = c.relowner AND x.grantor = c.relowner)"
+      + "   AND NOT (x.grantee = s.oid AND x.grantor = c.relowner "
+      + "            AND x.privilege_type = 'SELECT' AND NOT x.is_grantable)) AS foreign_acl, "
+      + "(SELECT pg_catalog.count(*) FROM pg_catalog.aclexplode(c.relacl) x "
+      + " WHERE x.grantee = s.oid AND x.privilege_type = 'SELECT') AS engine_select, "
+      // Column ACLs are invisible to has_table_privilege(): GRANT UPDATE (revoked_) must refuse.
+      + "EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a "
+      + " WHERE a.attrelid = c.oid AND a.attacl IS NOT NULL) AS column_acl, "
+      // A trigger or rule can make revocation impossible (BEFORE UPDATE ... RETURN OLD).
+      + "EXISTS (SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid = c.oid) AS has_trigger, "
+      + "EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite w WHERE w.ev_class = c.oid) AS has_rule, "
+      + "c.relrowsecurity AS row_security, "
+      + "pg_catalog.pg_has_role(session_user, c.relowner, 'MEMBER') AS owner_member, "
+      + "EXISTS (SELECT 1 FROM pg_catalog.pg_roles w WHERE w.rolname = 'pg_write_all_data' "
+      + " AND pg_catalog.pg_has_role(session_user, w.oid, 'MEMBER')) AS write_all, "
+      + "(s.rolsuper OR s.rolbypassrls OR s.rolcreaterole) AS privileged "
+      + "FROM pg_catalog.pg_class c "
+      + "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+      + "JOIN pg_catalog.pg_roles s ON s.rolname = session_user "
+      + "WHERE n.nspname = ? AND c.relname = ?";
+
   /**
-   * The table must be the pinned one (OID, owner, exact schema) and the engine login must not be
-   * able to write it, directly or through the owner role. A login that CAN write is refused even if
-   * it did not: the provider does not admit a table its runtime could forge.
+   * The table must be the pinned one (OID, owner, exact schema) and the engine login must have no
+   * path to change it: no write privilege (table or column, direct, inherited or via SET ROLE),
+   * not the owner nor a member of it, not superuser/bypassrls/createrole, no trigger, rule or RLS
+   * on the table. A login that CAN write is refused even if it did not: the provider does not
+   * admit a table its runtime could forge or un-revoke.
    */
   private static void pin(Connection connection, ProviderConfiguration c) throws SQLException {
-    try (PreparedStatement query = connection.prepareStatement(
-             "SELECT c.oid::text AS table_oid, pg_catalog.pg_get_userbyid(c.relowner) AS owner, "
-             + "c.relkind::text AS kind, session_user::text AS login, "
-             + "current_user::text AS acting, "
-             + "pg_catalog.has_table_privilege(session_user, c.oid, 'SELECT') AS can_select, "
-             + "pg_catalog.has_table_privilege(session_user, c.oid, 'INSERT') AS can_insert, "
-             + "pg_catalog.has_table_privilege(session_user, c.oid, 'UPDATE') AS can_update, "
-             + "pg_catalog.has_table_privilege(session_user, c.oid, 'DELETE') AS can_delete, "
-             + "pg_catalog.has_table_privilege(session_user, c.oid, 'TRUNCATE') AS can_truncate, "
-             + "pg_catalog.pg_has_role(session_user, c.relowner, 'MEMBER') AS owner_member, "
-             + "(SELECT r.rolsuper OR r.rolbypassrls FROM pg_catalog.pg_roles r "
-             + " WHERE r.rolname = session_user) AS privileged "
-             + "FROM pg_catalog.pg_class c "
-             + "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
-             + "WHERE n.nspname = ? AND c.relname = ?")) {
+    try (PreparedStatement query = connection.prepareStatement(PIN_SQL)) {
       query.setQueryTimeout(READ_TIMEOUT_SECONDS);
       query.setString(1, c.nativeSchema);
       query.setString(2, TABLE);
@@ -220,24 +268,40 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
             && "r".equals(r.getString("kind"))
             && r.getString("login").equals(r.getString("acting"))
             && !c.admissionTableOwner.equals(r.getString("login"))
-            && r.getBoolean("can_select") && !r.getBoolean("can_insert")
-            && !r.getBoolean("can_update") && !r.getBoolean("can_delete")
-            && !r.getBoolean("can_truncate") && !r.getBoolean("owner_member")
-            && !r.getBoolean("privileged") && !r.wasNull();
+            && isTrue(r, "can_select") && isFalse(r, "can_write")
+            && r.getLong("foreign_acl") == 0 && !r.wasNull()
+            && r.getLong("engine_select") == 1 && !r.wasNull()
+            && isFalse(r, "column_acl") && isFalse(r, "has_trigger") && isFalse(r, "has_rule")
+            && isFalse(r, "row_security") && isFalse(r, "owner_member")
+            && isFalse(r, "write_all") && isFalse(r, "privileged");
         if (!qualified || r.next())
           throw Fields.unavailable();
       }
     }
   }
 
+  private static boolean isTrue(ResultSet r, String column) throws SQLException {
+    boolean value = r.getBoolean(column);
+    return !r.wasNull() && value;
+  }
+
+  private static boolean isFalse(ResultSet r, String column) throws SQLException {
+    boolean value = r.getBoolean(column);
+    return !r.wasNull() && !value;
+  }
+
   private static Row row(Connection connection, ProviderConfiguration c) throws SQLException {
     // native_schema is a closed lower-case identifier (Fields.identifier); quoting keeps it exact.
+    // tableoid binds the rows to the SAME relation the pin qualified: the name is not resolved
+    // a second time on trust.
     try (PreparedStatement query = connection.prepareStatement(
              "SELECT revision_::text AS revision, record_, signature_, revoked_ "
              + "FROM \"" + c.nativeSchema + "\"." + TABLE + " WHERE admission_ref_ = ? "
+             + "AND tableoid = CAST(? AS pg_catalog.int8)::pg_catalog.oid "
              + "ORDER BY revision_ DESC LIMIT 1")) {
       query.setQueryTimeout(READ_TIMEOUT_SECONDS);
       query.setString(1, c.admissionRef);
+      query.setLong(2, c.admissionTableOid);
       try (ResultSet r = query.executeQuery()) {
         if (!r.next())
           throw Fields.unavailable();

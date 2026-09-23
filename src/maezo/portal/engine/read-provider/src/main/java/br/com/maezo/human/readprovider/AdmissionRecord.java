@@ -99,8 +99,11 @@ final class AdmissionRecord {
       String kind = Fields.string(p, "kind");
       if (!SOURCE_KINDS.contains(kind))
         throw Fields.unavailable();
-      var publisher =
-          new Publisher(kind, Fields.ref(p, "publisher_ref"), Fields.ref(p, "source_ref_prefix"));
+      // The prefix must end at a segment separator, so `...:amh:` never admits `...:amhx:...`.
+      String prefix = Fields.ref(p, "source_ref_prefix");
+      if (!prefix.endsWith(":") && !prefix.endsWith("/"))
+        throw Fields.unavailable();
+      var publisher = new Publisher(kind, Fields.ref(p, "publisher_ref"), prefix);
       if (admitted.put(kind, publisher) != null)
         throw Fields.unavailable();
     }
