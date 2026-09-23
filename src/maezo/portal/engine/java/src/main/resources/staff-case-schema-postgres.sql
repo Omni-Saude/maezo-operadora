@@ -16,7 +16,7 @@ CREATE TABLE mzo_staff_case_designation_current (
  designation_revision bigint NOT NULL, designation_digest char(64) NOT NULL,
  PRIMARY KEY(tenant,environment,engine_name,database_incarnation),
  FOREIGN KEY(tenant,environment,engine_name,database_incarnation,designation_revision,designation_digest)
- REFERENCES mzo_staff_case_designation_event
+ REFERENCES mzo_staff_case_designation_event(tenant,environment,engine_name,database_incarnation,designation_revision,designation_digest)
 );
 CREATE TABLE mzo_staff_case_source_event (
  tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
@@ -110,7 +110,7 @@ CREATE TABLE mzo_staff_case_policy_current (
  policy_ref text NOT NULL, head_revision bigint NOT NULL, head_digest char(64) NOT NULL,
  PRIMARY KEY(tenant,environment,engine_name,database_incarnation,policy_ref),
  FOREIGN KEY(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision,head_digest)
- REFERENCES mzo_staff_case_policy_version
+ REFERENCES mzo_staff_case_policy_version(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision,head_digest)
 );
 CREATE TABLE mzo_staff_case_policy_dependency (
  tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
@@ -118,7 +118,7 @@ CREATE TABLE mzo_staff_case_policy_dependency (
  head_revision bigint NOT NULL, head_digest char(64) NOT NULL,
  PRIMARY KEY(tenant,environment,engine_name,database_incarnation,grant_ref,grant_revision,policy_ref),
  FOREIGN KEY(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision,head_digest)
- REFERENCES mzo_staff_case_policy_version
+ REFERENCES mzo_staff_case_policy_version(tenant,environment,engine_name,database_incarnation,policy_ref,head_revision,head_digest)
 );
 CREATE INDEX mzo_staff_policy_dependents ON mzo_staff_case_policy_dependency
  (tenant,environment,engine_name,database_incarnation,policy_ref,grant_ref,grant_revision);
@@ -134,9 +134,13 @@ BEGIN
    OR pg_has_role(native_role,current_user,'MEMBER') THEN
    RAISE EXCEPTION 'invalid staff native role';
  END IF;
+ -- This matrix is exactly what StaffCaseStore pins: DELETE/TRUNCATE never; designation_* SELECT
+ -- only; UPDATE on every relation whose name does not end in an immutable suffix
+ -- (_event/_receipt/_continuity/_cursor/_version/_dependency). checkpoint_chunk has no such
+ -- suffix, so the pin requires UPDATE on it; the store itself only ever INSERTs chunks.
  EXECUTE format('GRANT SELECT ON mzo_staff_case_designation_event,mzo_staff_case_designation_current TO %I',native_role);
- EXECUTE format('GRANT SELECT,INSERT ON mzo_staff_case_source_event,mzo_staff_case_publication_receipt,mzo_staff_case_checkpoint_chunk,mzo_staff_case_continuity,mzo_staff_case_cursor,mzo_staff_case_policy_version,mzo_staff_case_policy_dependency TO %I',native_role);
- EXECUTE format('GRANT SELECT,INSERT,UPDATE ON mzo_staff_case_source_head,mzo_staff_case_grant,mzo_staff_case_checkpoint_accepted,mzo_staff_case_policy_current TO %I',native_role);
+ EXECUTE format('GRANT SELECT,INSERT ON mzo_staff_case_source_event,mzo_staff_case_publication_receipt,mzo_staff_case_continuity,mzo_staff_case_cursor,mzo_staff_case_policy_version,mzo_staff_case_policy_dependency TO %I',native_role);
+ EXECUTE format('GRANT SELECT,INSERT,UPDATE ON mzo_staff_case_source_head,mzo_staff_case_grant,mzo_staff_case_checkpoint_chunk,mzo_staff_case_checkpoint_accepted,mzo_staff_case_policy_current TO %I',native_role);
 END $$;
 -- No current designation/source/head/grant row is inserted here. Those rows
 -- require authenticated installation or the native signed publication command.
