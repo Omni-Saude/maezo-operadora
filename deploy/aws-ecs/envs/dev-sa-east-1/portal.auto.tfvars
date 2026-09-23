@@ -97,7 +97,11 @@ portal = {
   // proprio ECR. Comando exato e o que ele prova: `docs/runbooks/supply-chain-imagem.md`.
   // Trocar este digest sem assinar o novo REPROVA o job `verificar` do workflow
   // `supply-chain.yml` no proprio PR.
-  image_digest = "sha256:d29ce828272cb6b34ab5f2ec7c452fed1663d903f5cb3c958b02e13354d16fb6"
+  // 23/09/2026: imagem da `main` 79cb6ab3 (tag `79cb6ab3`), construida pelo CodeBuild
+  // `maezo-operadora-dev-imagem` e assinada/atestada/verificada pelo `supply-chain.yml`
+  // (workflow_dispatch com o digest). Traz os 3 criticos da bateria (#460), a conclusao pelo
+  // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
+  image_digest = "sha256:39c4afd6a2e6a32c1e6d927f3cb290fef7a5816578ac2ef6a8f3bb4f7dd98f75"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
