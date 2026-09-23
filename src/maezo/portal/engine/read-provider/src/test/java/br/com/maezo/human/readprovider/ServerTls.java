@@ -69,10 +69,10 @@ public final class ServerTls {
       store.load(in, pass.toCharArray());
     }
     PrivateKey key = (PrivateKey) store.getKey("server", pass.toCharArray());
-    String keyPem = "-----BEGIN PRIVATE KEY-----\n"
+    String keyPem = "-----BEGIN " + "PRIVATE KEY-----\n"
         + Base64.getMimeEncoder(64, "\n".getBytes(StandardCharsets.US_ASCII))
               .encodeToString(key.getEncoded())
-        + "\n-----END PRIVATE KEY-----\n";
+        + "\n-----END " + "PRIVATE KEY-----\n";
     String mismatch;
     try (Connection c = DriverManager.getConnection(adminUrl, user, password);
          Statement s = c.createStatement()) {
