@@ -202,48 +202,94 @@ async def _drive_to_user_task(client: httpx.AsyncClient, instances: set[str]) ->
     raise AssertionError("as escalacoes nao chegaram em UT_TratarEscalonamento")
 
 
+async def _deploy(client: httpx.AsyncClient, tenant: str | None) -> None:
+    files = [(p.name, (p.name, p.read_bytes(), "application/xml")) for p in (BPMN, DMN)]
+    data = {
+        "deployment-name": f"t16-staff-case-issuer-{tenant or 'sem-tenant'}",
+        "enable-duplicate-filtering": "true",
+    }
+    if tenant is not None:
+        data["tenant-id"] = tenant
+    deployed = await client.post("/deployment/create", files=files, data=data)
+    assert deployed.status_code in (200, 201), deployed.text[:300]
+
+
+async def _start(
+    client: httpx.AsyncClient, *, tenant: str | None, variable_tenant: str, motivo: str, severidade: str
+) -> str:
+    conversation = f"t16-{uuid.uuid4().hex[:10]}"
+    variables = {
+        "tenant_id": variable_tenant,
+        "source_agent_id": "helena",
+        "source_agent_version": "qa-1.0",
+        "conversation_id": conversation,
+        "beneficiario_pseudo_id": "PSEUDO-TESTE-001",
+        "canal": "whatsapp",
+        "motivo_categoria": motivo,
+        "severidade": severidade,
+        "resumo_contexto": "sintese sintetica",
+    }
+    if tenant is None:
+        (definition,) = (
+            await client.get(
+                "/process-definition",
+                params={"key": "SP-OP-ESCALATION-001", "withoutTenantId": "true", "latestVersion": "true"},
+            )
+        ).json()
+        path = f"/process-definition/{definition['id']}/start"
+    else:
+        path = f"/process-definition/key/SP-OP-ESCALATION-001/tenant-id/{tenant}/start"
+    response = await client.post(
+        path,
+        json={
+            "businessKey": f"ESC-{variable_tenant}-{conversation}",
+            "variables": {k: {"value": v, "type": "String"} for k, v in variables.items()},
+        },
+    )
+    assert response.status_code == 200, response.text[:300]
+    return str(response.json()["id"])
+
+
+async def _task(client: httpx.AsyncClient, instance: str) -> str:
+    (task,) = (await client.get("/task", params={"processInstanceId": instance})).json()
+    return str(task["id"])
+
+
 async def test_live_escalations_carry_the_group_the_engine_resolved_from_the_dmn(
     engine_client: httpx.AsyncClient, pg: tuple[AsyncEngine, str]
 ) -> None:
     client = engine_client
-    files = [(p.name, (p.name, p.read_bytes(), "application/xml")) for p in (BPMN, DMN)]
-    deployed = await client.post(
-        "/deployment/create",
-        files=files,
-        data={"deployment-name": "t16-staff-case-issuer", "enable-duplicate-filtering": "true"},
-    )
-    assert deployed.status_code in (200, 201), deployed.text[:300]
+    await _deploy(client, "amh")
+    await _deploy(client, None)
     started: dict[str, str] = {}
-
-    async def start(label: str, tenant: str, motivo: str, severidade: str) -> None:
-        conversation = f"t16-{label}-{uuid.uuid4().hex[:8]}"
-        variables = {
-            "tenant_id": tenant,
-            "source_agent_id": "helena",
-            "source_agent_version": "qa-1.0",
-            "conversation_id": conversation,
-            "beneficiario_pseudo_id": "PSEUDO-TESTE-001",
-            "canal": "whatsapp",
-            "motivo_categoria": motivo,
-            "severidade": severidade,
-            "resumo_contexto": "sintese sintetica",
-        }
-        response = await client.post(
-            "/process-definition/key/SP-OP-ESCALATION-001/start",
-            json={
-                "businessKey": f"ESC-{tenant}-{conversation}",
-                "variables": {k: {"value": v, "type": "String"} for k, v in variables.items()},
-            },
-        )
-        assert response.status_code == 200, response.text[:300]
-        started[label] = response.json()["id"]
-
     try:
-        await start("p1", "amh", "red_flag_clinico", "grave")
-        await start("enf", "amh", "red_flag_clinico", "moderada")
-        await start("p3", "amh", "solicitacao_humano", "leve")
-        await start("outra", "outra", "red_flag_clinico", "grave")
+        for label, tenant, variable, motivo, severidade in (
+            ("p1", "amh", "amh", "red_flag_clinico", "grave"),
+            ("enf", "amh", "amh", "red_flag_clinico", "moderada"),
+            ("p3", "amh", "amh", "solicitacao_humano", "leve"),
+            ("variavel_divergente", "amh", "outra", "red_flag_clinico", "grave"),
+            ("sem_tenant_nativo", None, "amh", "red_flag_clinico", "grave"),
+            ("link_trocado", "amh", "amh", "red_flag_clinico", "moderada"),
+            ("link_extra", "amh", "amh", "solicitacao_humano", "leve"),
+        ):
+            started[label] = await _start(
+                client, tenant=tenant, variable_tenant=variable, motivo=motivo, severidade=severidade
+            )
         await _drive_to_user_task(client, set(started.values()))
+
+        # Adulteracao pelo engine-rest: o grupo candidato deixa de ser o que a DMN registrou.
+        swapped = await _task(client, started["link_trocado"])
+        for action, group in (("delete", "enfermagem-triagem"), ("", "plantao-clinico")):
+            response = await client.post(
+                f"/task/{swapped}/identity-links" + (f"/{action}" if action else ""),
+                json={"groupId": group, "type": "candidate"},
+            )
+            assert response.status_code == 204, response.text[:200]
+        extra = await _task(client, started["link_extra"])
+        response = await client.post(
+            f"/task/{extra}/identity-links", json={"groupId": "plantao-clinico", "type": "candidate"}
+        )
+        assert response.status_code == 204, response.text[:200]
 
         anchors = {started["p1"]: identity(1), started["enf"]: identity(2), started["p3"]: identity(3)}
 
@@ -252,12 +298,14 @@ async def test_live_escalations_carry_the_group_the_engine_resolved_from_the_dmn
 
         source = EngineEscalationSource(client, tenant="amh", anchor=anchor)
         live = {e.escalation_ref: e for e in await source.live() if e.escalation_ref in started.values()}
-        assert {label: live[iid].grupo_atendimento for label, iid in started.items() if iid in live} == {
+        by_label = {label: live[iid].grupo_atendimento for label, iid in started.items() if iid in live}
+        # So as tres coerentes passam; divergencia de tenant, tenant ausente e link adulterado recusam.
+        assert by_label == {
             "p1": "plantao-clinico",
             "enf": "enfermagem-triagem",
             "p3": "atendimento-humano",
         }
-        assert started["outra"] not in live and source.report.foreign >= 1
+        assert source.report.refused >= 3 and source.report.foreign >= 1
 
         routed = [e for e in await source() if e.escalation_ref in started.values()]
         engine, schema = pg

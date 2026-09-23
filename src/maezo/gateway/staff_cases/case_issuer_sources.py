@@ -5,9 +5,10 @@
   transacao read-only com `statement_timeout`. Linha cujas colunas divergem do payload e recusada
   inteira: uma fonte incoerente nao vira grant.
 * `EngineEscalationSource` le do engine as escalacoes VIVAS: cada `UT_TratarEscalonamento` ativa
-  de SP-OP-ESCALATION-001 e o grupo candidato dela, que e exatamente o `grupo_atendimento` que a
-  DMN `escalation_routing` escolheu (`camunda:candidateGroups="${roteamento.grupo_atendimento}"`).
-  O grupo e lido, nunca calculado.
+  de SP-OP-ESCALATION-001. O grupo e a SAIDA `grupo_atendimento` que a DMN `escalation_routing`
+  registrou no historico da instancia (imutavel), conferida contra o grupo candidato da tarefa
+  (`camunda:candidateGroups="${roteamento.grupo_atendimento}"`); o tenant e o `tenantId` nativo.
+  O grupo e lido, nunca calculado, e qualquer divergencia recusa a escalacao.
 
 Qual caso staff a escalacao nomeia e a porta `CaseAnchor`. Nao ha implementacao de producao: o
 engine so reconhece como caso staff uma guia AUTH reivindicada pelo plano humano
@@ -32,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from maezo.gateway.external_cases.models import Identity, now_utc
 from maezo.portal.api.records import MembershipRecord
 
-from .case_issuer import CaseIssuerError, RoutedEscalation, StaffGrantee
+from .case_issuer import ROUTING_DECISION, ROUTING_OUTPUT, CaseIssuerError, RoutedEscalation, StaffGrantee
 
 SCHEMA = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 PROCESS_KEY = "SP-OP-ESCALATION-001"
@@ -126,6 +127,64 @@ class EngineEscalationSource:
         response.raise_for_status()
         return response.json()
 
+    async def _qualify(self, task: dict[str, Any], report: EscalationReport) -> LiveEscalation | None:
+        """Uma tarefa so vira escalacao quando TRES fontes concordam; qualquer divergencia recusa.
+
+        O candidate group e a variavel `tenant_id` sao mutaveis pelo `engine-rest` (identity-links e
+        variaveis). Por isso eles so CONFIRMAM: o grupo tem de ser igual a SAIDA registrada da DMN
+        no historico (`/history/decision-instance`, imutavel), e o tenant e o `tenantId` nativo da
+        instancia (fixado no deploy/start), que a variavel tem de repetir.
+        """
+        instance = str(task["processInstanceId"])
+        process = await self._json(f"/process-instance/{instance}")
+        if process.get("tenantId") != self.tenant or task.get("tenantId") != self.tenant:
+            # Instancia sem tenant nativo (deploy sem `tenant-id`) tambem cai aqui: sem ancora
+            # imutavel de tenant nao ha grant.
+            report.foreign += 1
+            return None
+        variable = await self._json(
+            f"/process-instance/{instance}/variables/tenant_id", deserializeValue="false"
+        )
+        if variable.get("type") != "String" or variable.get("value") != self.tenant:
+            report.refused += 1
+            return None
+        decisions = await self._json(
+            "/history/decision-instance",
+            decisionDefinitionKey=ROUTING_DECISION,
+            processInstanceId=instance,
+            includeOutputs="true",
+            disableBinaryFetching="true",
+        )
+        outputs = [
+            output
+            for decision in decisions
+            for output in decision.get("outputs") or []
+            if output.get("variableName") == ROUTING_OUTPUT
+        ]
+        if (
+            len(decisions) != 1
+            or decisions[0].get("tenantId") != self.tenant
+            or len(outputs) != 1
+            or not isinstance(outputs[0].get("value"), str)
+        ):
+            report.refused += 1
+            return None
+        routed = outputs[0]["value"]
+        links = await self._json(f"/task/{task['id']}/identity-links", type="candidate")
+        groups = sorted({str(link["groupId"]) for link in links if link.get("groupId")})
+        # `candidateGroups="${roteamento.grupo_atendimento}"` resolve para UM grupo, o da DMN.
+        # Zero, varios, ou um diferente do historico: identity-link adulterado ou forma inesperada.
+        if groups != [routed]:
+            report.refused += 1
+            return None
+        return LiveEscalation(
+            tenant=self.tenant,
+            escalation_ref=instance,
+            business_key=str(process.get("businessKey") or ""),
+            task_id=str(task["id"]),
+            grupo_atendimento=routed,
+        )
+
     async def live(self) -> tuple[LiveEscalation, ...]:
         report = EscalationReport()
         found: list[LiveEscalation] = []
@@ -142,30 +201,9 @@ class EngineEscalationSource:
                 maxResults=str(self.page),
             )
             for task in tasks:
-                links = await self._json(f"/task/{task['id']}/identity-links", type="candidate")
-                groups = sorted({str(link["groupId"]) for link in links if link.get("groupId")})
-                instance = str(task["processInstanceId"])
-                tenant = await self._json(
-                    f"/process-instance/{instance}/variables/tenant_id", deserializeValue="false"
-                )
-                if tenant.get("type") != "String" or tenant.get("value") != self.tenant:
-                    report.foreign += 1
-                    continue
-                # `candidateGroups="${roteamento.grupo_atendimento}"` resolve para UM grupo. Zero
-                # ou varios nao e a forma da DMN: recusa a escalacao, nao escolhe um.
-                if len(groups) != 1:
-                    report.refused += 1
-                    continue
-                process = await self._json(f"/process-instance/{instance}")
-                found.append(
-                    LiveEscalation(
-                        tenant=self.tenant,
-                        escalation_ref=instance,
-                        business_key=str(process.get("businessKey") or ""),
-                        task_id=str(task["id"]),
-                        grupo_atendimento=groups[0],
-                    )
-                )
+                escalation = await self._qualify(task, report)
+                if escalation is not None:
+                    found.append(escalation)
             if len(tasks) < self.page:
                 break
             first += self.page
