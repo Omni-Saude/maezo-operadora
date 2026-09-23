@@ -31,7 +31,9 @@ from maezo.gateway.staff_cases.production_config import (
 from maezo.portal.engine.profile import canonicalize
 
 
-def material_fixture() -> tuple[PortalProductionSettings, dict[str, Any], dict[str, bytes]]:
+def material_fixture(
+    read_operations: tuple[str, ...] = ("detail", "list"),
+) -> tuple[PortalProductionSettings, dict[str, Any], dict[str, bytes]]:
     now = datetime.now(UTC)
     start, end = instant(now - timedelta(minutes=1)), instant(now + timedelta(hours=1))
     scope = dict(tenant="tenant", environment="test", engine_name="engine", database_incarnation="inc")
@@ -76,7 +78,7 @@ def material_fixture() -> tuple[PortalProductionSettings, dict[str, Any], dict[s
                 login_role=login,
                 purposes=purposes,
                 projections=list(FIELDS) if role == "read_requester" else [],
-                operations=["detail"] if role == "read_requester" else [],
+                operations=list(read_operations) if role == "read_requester" else [],
                 not_before=start,
                 valid_until=end,
             )
@@ -247,6 +249,33 @@ def test_invalid_material_refuses(mutation: str) -> None:
         settings = settings.model_copy(update={"staff_public_manifest_sha256": digest(manifest)})
     with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
         m.decode_bundle(bundle(manifest, files), settings)
+
+
+def test_read_entry_accepts_exactly_detail_and_list() -> None:
+    settings, manifest, files = material_fixture(("detail", "list"))
+    parsed, decoded = m.decode_bundle(bundle(manifest, files), settings)
+    loaded = m.verify_materials(settings, parsed, decoded, now=datetime.now(UTC))
+    assert loaded.authority.entries[manifest["read_key_fingerprint"]].operations == ("detail", "list")
+
+
+@pytest.mark.parametrize(
+    "operations",
+    [
+        ("detail",),
+        ("list",),
+        ("list", "detail"),
+        ("detail", "list", "export"),
+        ("detail", "list", "list"),
+        ("detail", "detail", "list"),
+        (),
+    ],
+    ids=["only_detail", "only_list", "reversed", "extra", "duplicate_list", "duplicate_detail", "empty"],
+)
+def test_read_entry_refuses_any_other_operation_set(operations: tuple[str, ...]) -> None:
+    settings, manifest, files = material_fixture(operations)
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        parsed, decoded = m.decode_bundle(bundle(manifest, files), settings)
+        m.verify_materials(settings, parsed, decoded, now=datetime.now(UTC))
 
 
 @pytest.mark.parametrize("mutation", ["duplicate", "unknown", "oversize", "extra_file"])
