@@ -1,0 +1,114 @@
+{
+  "schema": "portal-read-jcs-membership-vector.v1",
+  "about": "T1.7b/T1.5 parity: portal_memberships.payload rows (as MembershipRecord.model_dump_json writes them) -> MembershipProjection wired and JCS-canonicalized. Read by the Java provider tests (MembershipProjectionTest) and by tests/unit/portal/test_jcs_membership_vector.py. Synthetic data only.",
+  "cases": [
+    {
+      "name": "staff-utc-microseconds",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}",
+      "projection_jcs": "{\"audience\":\"staff\",\"issuer\":\"https://issuer.example/maezo\",\"membership_revision\":\"1\",\"memberships\":[{\"groups\":[\"atendimento-humano\",\"medico-auditor\"],\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"state\":\"active\",\"subject\":\"subject-human-1\",\"subject_bindings\":[]}",
+      "projection_sha256": "49c9a143ea0a1828800c6785646b4c21b9e38fbd686974c3cfbe1ce77afe3855"
+    },
+    {
+      "name": "staff-offset-no-fraction",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T09:00:00-03:00\",\"revoked\":false}",
+      "projection_jcs": "{\"audience\":\"staff\",\"issuer\":\"https://issuer.example/maezo\",\"membership_revision\":\"1\",\"memberships\":[{\"groups\":[\"atendimento-humano\",\"medico-auditor\"],\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:00:00.000000Z\",\"state\":\"active\",\"subject\":\"subject-human-1\",\"subject_bindings\":[]}",
+      "projection_sha256": "8beb95296b7af25330e0c5be41ab7d98147a207b84e9eec4f0e5a9e78a33e826"
+    },
+    {
+      "name": "revoked-many-memberships",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":42,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"m-b\",\"roles\":[\"gestor\",\"atendimento\"],\"groups\":[]},{\"membership_ref\":\"m-a\",\"roles\":[],\"groups\":[\"g-2\",\"g-1\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":true}",
+      "projection_jcs": "{\"audience\":\"staff\",\"issuer\":\"https://issuer.example/maezo\",\"membership_revision\":\"42\",\"memberships\":[{\"groups\":[],\"membership_ref\":\"m-b\",\"roles\":[\"gestor\",\"atendimento\"]},{\"groups\":[\"g-2\",\"g-1\"],\"membership_ref\":\"m-a\",\"roles\":[]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"state\":\"revoked\",\"subject\":\"subject-human-1\",\"subject_bindings\":[]}",
+      "projection_sha256": "c8832ba1f09cef8566852712d762d4f44eafb17bf9f24298e7c0a0d621e3b015"
+    },
+    {
+      "name": "beneficiary-unicode-issuer",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://idp.exemplo/ação-☃-😀-\\\"q\\\"\\\\b\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"beneficiary\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[{\"kind\":\"beneficiary\",\"resource_ref\":\"beneficiary-9\"}],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}",
+      "projection_jcs": "{\"audience\":\"beneficiary\",\"issuer\":\"https://idp.exemplo/ação-☃-😀-\\\"q\\\"\\\\b\",\"membership_revision\":\"1\",\"memberships\":[{\"groups\":[\"atendimento-humano\",\"medico-auditor\"],\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"state\":\"active\",\"subject\":\"subject-human-1\",\"subject_bindings\":[{\"kind\":\"beneficiary\",\"resource_ref\":\"beneficiary-9\"}]}",
+      "projection_sha256": "94e245e940d535cda00e1b04d40c7824cf6b81dca1aef2a3c4477e14500b0681"
+    },
+    {
+      "name": "provider-audience",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"provider\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[{\"kind\":\"provider\",\"resource_ref\":\"provider-1\"},{\"kind\":\"provider\",\"resource_ref\":\"provider-0\"}],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}",
+      "projection_jcs": "{\"audience\":\"provider\",\"issuer\":\"https://issuer.example/maezo\",\"membership_revision\":\"1\",\"memberships\":[{\"groups\":[\"atendimento-humano\",\"medico-auditor\"],\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"state\":\"active\",\"subject\":\"subject-human-1\",\"subject_bindings\":[{\"kind\":\"provider\",\"resource_ref\":\"provider-1\"},{\"kind\":\"provider\",\"resource_ref\":\"provider-0\"}]}",
+      "projection_sha256": "47d895401f56fb65edf3e382bdadd7ac95e18b5f6638ce84862e3c4573ad371c"
+    },
+    {
+      "name": "revision-beyond-double",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":9007199254740993,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}",
+      "projection_jcs": "{\"audience\":\"staff\",\"issuer\":\"https://issuer.example/maezo\",\"membership_revision\":\"9007199254740993\",\"memberships\":[{\"groups\":[\"atendimento-humano\",\"medico-auditor\"],\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"state\":\"active\",\"subject\":\"subject-human-1\",\"subject_bindings\":[]}",
+      "projection_sha256": "ae6842e342b3fdced2706e64ff3eabbb0a82bfe907626d00efa3bf2b2f301c56"
+    },
+    {
+      "name": "revoked-absent-means-active",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\": \"amh\", \"issuer\": \"https://issuer.example/maezo\", \"subject\": \"subject-human-1\", \"principal_ref\": \"human-1\", \"revision\": 1, \"audience\": \"staff\", \"memberships\": [{\"membership_ref\": \"staff-membership\", \"roles\": [\"atendimento\"], \"groups\": [\"atendimento-humano\", \"medico-auditor\"]}], \"subject_bindings\": [], \"reviewed_until\": \"2026-10-07T12:30:45.123456Z\"}",
+      "projection_jcs": "{\"audience\":\"staff\",\"issuer\":\"https://issuer.example/maezo\",\"membership_revision\":\"1\",\"memberships\":[{\"groups\":[\"atendimento-humano\",\"medico-auditor\"],\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"state\":\"active\",\"subject\":\"subject-human-1\",\"subject_bindings\":[]}",
+      "projection_sha256": "49c9a143ea0a1828800c6785646b4c21b9e38fbd686974c3cfbe1ce77afe3855"
+    },
+    {
+      "name": "json-escapes",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https:\\/\\/issuer.example/\\u00e7\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}",
+      "projection_jcs": "{\"audience\":\"staff\",\"issuer\":\"https://issuer.example/ç\",\"membership_revision\":\"1\",\"memberships\":[{\"groups\":[\"atendimento-humano\",\"medico-auditor\"],\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"]}],\"principal_ref\":\"human-1\",\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"state\":\"active\",\"subject\":\"subject-human-1\",\"subject_bindings\":[]}",
+      "projection_sha256": "51fc625717b5a194f47142294a7aacc56003fdb3b3f9a27ffd1c86065884e5a5"
+    }
+  ],
+  "refused": [
+    {
+      "name": "tenant-mismatch",
+      "tenant": "other",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}"
+    },
+    {
+      "name": "naive-review-deadline",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456\",\"revoked\":false}"
+    },
+    {
+      "name": "no-role-anywhere",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}"
+    },
+    {
+      "name": "empty-memberships",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\": \"amh\", \"issuer\": \"https://issuer.example/maezo\", \"subject\": \"subject-human-1\", \"principal_ref\": \"human-1\", \"revision\": 1, \"audience\": \"staff\", \"memberships\": [], \"subject_bindings\": [], \"reviewed_until\": \"2026-10-07T12:30:45.123456Z\", \"revoked\": false}"
+    },
+    {
+      "name": "unknown-key",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\": \"amh\", \"issuer\": \"https://issuer.example/maezo\", \"subject\": \"subject-human-1\", \"principal_ref\": \"human-1\", \"revision\": 1, \"audience\": \"staff\", \"memberships\": [{\"membership_ref\": \"staff-membership\", \"roles\": [\"atendimento\"], \"groups\": [\"atendimento-humano\", \"medico-auditor\"]}], \"subject_bindings\": [], \"reviewed_until\": \"2026-10-07T12:30:45.123456Z\", \"revoked\": false, \"extra\": \"x\"}"
+    },
+    {
+      "name": "revision-as-string",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":\"1\",\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}"
+    },
+    {
+      "name": "revision-as-float",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1.0,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}"
+    },
+    {
+      "name": "negative-revision",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":-1,\"audience\":\"staff\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}"
+    },
+    {
+      "name": "beneficiary-without-relationship",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"beneficiary\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}"
+    },
+    {
+      "name": "staff-with-mixed-bindings-for-beneficiary",
+      "tenant": "amh",
+      "row_payload": "{\"tenant\":\"amh\",\"issuer\":\"https://issuer.example/maezo\",\"subject\":\"subject-human-1\",\"principal_ref\":\"human-1\",\"revision\":1,\"audience\":\"beneficiary\",\"memberships\":[{\"membership_ref\":\"staff-membership\",\"roles\":[\"atendimento\"],\"groups\":[\"atendimento-humano\",\"medico-auditor\"]}],\"subject_bindings\":[{\"kind\":\"beneficiary\",\"resource_ref\":\"b-1\"},{\"kind\":\"provider\",\"resource_ref\":\"p-1\"}],\"reviewed_until\":\"2026-10-07T12:30:45.123456Z\",\"revoked\":false}"
+    }
+  ]
+}

@@ -4,9 +4,11 @@ import static br.com.maezo.human.readprovider.TestRecords.*;
 
 import br.com.maezo.human.Jcs;
 import br.com.maezo.human.PortalReadTrust;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.SecureRandom;
 import java.sql.Connection;
@@ -36,7 +38,14 @@ public final class ProviderFixture implements AutoCloseable {
   public final String suffix, schema, owner, runtime;
   private final String runtimePassword;
   public final Path trustFile, providerFile, keysFile;
-  public final KeyPair root = ed25519(), otherRoot = ed25519(), reader = ed25519();
+  public final KeyPair root = ed25519(), otherRoot = ed25519(), reader = ed25519(),
+                       publisher = ed25519();
+  /** T1.7b: the live membership source (a stand-in for {@code amh}) and its observer login. */
+  public final String sourceSchema, sourceOwner, sourceLogin;
+  private final String sourcePassword;
+  public final Path dsnFile;
+  public final ServerTls.Material tls;
+  public static final String PUBLISHER_PEER = "b".repeat(64);
   public final byte[] secret = new byte[32];
   public final String engine = "default", deployment = "read-release-1",
                       deploymentDigest = "c".repeat(64);
@@ -71,9 +80,16 @@ public final class ProviderFixture implements AutoCloseable {
     schema = "rp_native_" + suffix;
     owner = "rp_owner_" + suffix;
     runtime = "rp_runtime_" + suffix;
+    sourceSchema = "rp_amh_" + suffix;
+    sourceOwner = "rp_amh_owner_" + suffix;
+    sourceLogin = "rp_source_" + suffix;
     byte[] pw = new byte[24];
     random.nextBytes(pw);
     runtimePassword = HexFormat.of().formatHex(pw);
+    random.nextBytes(pw);
+    sourcePassword = HexFormat.of().formatHex(pw);
+    dsnFile = providerFile.resolveSibling("membership-source.dsn");
+    tls = ServerTls.ensure(adminUrl, adminUser, adminPassword, providerFile.resolveSibling("tls"));
     incarnation = "incarnation-" + suffix;
     before = now().minusSeconds(60);
     until = before.plusSeconds(7L * 24 * 3600);
@@ -89,6 +105,21 @@ public final class ProviderFixture implements AutoCloseable {
       }
       s.execute("RESET ROLE");
       s.execute("GRANT SELECT ON " + schema + ".mzo_portal_read_admission TO " + runtime);
+      // The membership source: migration 0012's table, owned by a NOLOGIN owner, and the observer
+      // login with SELECT on exactly the columns the provider reads (what T1.4 grants).
+      s.execute("CREATE ROLE " + sourceOwner + " NOLOGIN");
+      s.execute("CREATE ROLE " + sourceLogin + " LOGIN PASSWORD '" + sourcePassword + "'");
+      s.execute("CREATE SCHEMA " + sourceSchema + " AUTHORIZATION " + sourceOwner);
+      s.execute("GRANT USAGE ON SCHEMA " + sourceSchema + " TO " + sourceLogin);
+      s.execute("SET ROLE " + sourceOwner);
+      s.execute("CREATE TABLE " + sourceSchema + ".portal_memberships (tenant text NOT NULL, "
+          + "issuer text NOT NULL, subject text NOT NULL, principal_ref text NOT NULL, "
+          + "payload text NOT NULL, PRIMARY KEY (tenant, issuer, subject), "
+          + "UNIQUE (tenant, principal_ref))");
+      s.execute("REVOKE ALL ON TABLE " + sourceSchema + ".portal_memberships FROM PUBLIC");
+      s.execute("RESET ROLE");
+      s.execute("GRANT SELECT (tenant, issuer, subject, payload) ON " + sourceSchema
+          + ".portal_memberships TO " + sourceLogin);
     }
     try (var c = admin(); var q = c.prepareStatement(
              "SELECT c.oid::text FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
@@ -114,13 +145,99 @@ public final class ProviderFixture implements AutoCloseable {
             "workload_ref", "portal-staff", "peer_spki_sha256", "a".repeat(64),
             "public_key_spki_base64",
             Base64.getEncoder().encodeToString(reader.getPublic().getEncoded()), "not_before",
-            time(before), "not_after", time(until)))));
+            time(before), "not_after", time(until)),
+        record("key_id", "publisher", "purpose", "portal-read-publication", "workload_ref",
+            PUBLISHER, "peer_spki_sha256", PUBLISHER_PEER, "public_key_spki_base64",
+            Base64.getEncoder().encodeToString(publisher.getPublic().getEncoded()),
+            "not_before", time(before), "not_after", time(until), "publication_kinds",
+            new ArrayList<>(List.of("catalog-designate", "catalog-revoke", "membership",
+                "resource", "revoke-key")),
+            "catalog_ref", CATALOG))));
     trustDigest = Jcs.digest(Jcs.canonical(trustRecord));
     engineCode = loadedJarDigest(PortalReadTrust.class);
     providerCode = loadedJarDigest(InstalledReadProviders.class);
     writeJson(trustFile, trustRecord);
     writeProvider(providerConfiguration());
     writeKeys(keysFile, List.of(continuityKey(KEY_ID, "1", secret, before, until)), "r--------");
+    writeDsn(dsn(tls.host()), "r--------");
+  }
+
+  /** {@code postgresql://observer:password@host:port/database} for the observer login. */
+  public String dsn(String host) {
+    var m = java.util.regex.Pattern.compile("jdbc:postgresql://[^:/]+(?::([0-9]+))?/([^?]+).*")
+                .matcher(adminUrl);
+    if (!m.matches())
+      throw new IllegalStateException("IT JDBC URL must be jdbc:postgresql://host[:port]/db");
+    return "postgresql://" + sourceLogin + ":" + sourcePassword + "@" + host + ":"
+        + (m.group(1) == null ? "5432" : m.group(1)) + "/" + m.group(2);
+  }
+
+  public void writeDsn(String content, String mode) throws IOException {
+    Files.deleteIfExists(dsnFile);
+    Files.write(dsnFile, content.getBytes(StandardCharsets.UTF_8));
+    Files.setPosixFilePermissions(dsnFile, PosixFilePermissions.fromString(mode));
+  }
+
+  /** Upserts one {@code portal_memberships} row AS the table owner (the administration plane). */
+  public void putMembership(String tenant, String issuer, String subject, String principal,
+      String payload) throws SQLException {
+    try (var c = admin()) {
+      try (Statement s = c.createStatement()) {
+        s.execute("SET ROLE " + sourceOwner);
+      }
+      try (var q = c.prepareStatement("INSERT INTO " + sourceSchema + ".portal_memberships "
+               + "(tenant,issuer,subject,principal_ref,payload) VALUES(?,?,?,?,?) "
+               + "ON CONFLICT(tenant,issuer,subject) DO UPDATE SET payload=EXCLUDED.payload")) {
+        q.setString(1, tenant);
+        q.setString(2, issuer);
+        q.setString(3, subject);
+        q.setString(4, principal);
+        q.setString(5, payload);
+        q.executeUpdate();
+      }
+    }
+  }
+
+  public void deleteMembership(String tenant, String issuer, String subject) throws SQLException {
+    try (var c = admin(); var q = c.prepareStatement("DELETE FROM " + sourceSchema
+             + ".portal_memberships WHERE tenant=? AND issuer=? AND subject=?")) {
+      q.setString(1, tenant);
+      q.setString(2, issuer);
+      q.setString(3, subject);
+      q.executeUpdate();
+    }
+  }
+
+  /** Runs one administrative statement (e.g. a grant that breaks the observer posture). */
+  public void adminExecute(String sql) throws SQLException {
+    try (var c = admin(); var s = c.createStatement()) {
+      s.execute(sql);
+    }
+  }
+
+  /** A {@code portal-read-publication.v1} request bound to this fixture's engine and scope. */
+  public Map<String, Object> publication(String kind, Map<String, Object> source,
+      Map<String, Object> payload, long expectedAuthorityRevision) {
+    byte[] id = new byte[32];
+    new SecureRandom().nextBytes(id);
+    return record("schema", "portal-read-publication.v1", "scope",
+        record("tenant", TENANT, "environment", "dev", "workload_ref", PUBLISHER), "engine_name",
+        engine, "database_incarnation", incarnation, "read_deployment_ref", deployment,
+        "read_deployment_digest", deploymentDigest, "publication_id",
+        "publication-" + HexFormat.of().formatHex(id), "expected_authority_revision",
+        Long.toString(expectedAuthorityRevision), "source", source, "kind", kind, "payload",
+        payload);
+  }
+
+  public void putMembership(String tenant, Member m) throws SQLException {
+    putMembership(tenant, m.issuer(), m.subject(), m.principal(), membershipRow(tenant, m));
+  }
+
+  /** An admission that also admits publications (the T1.7b purpose). */
+  public Map<String, Object> publicationAdmission(long revision) {
+    var a = admission(revision);
+    a.put("purposes", new ArrayList<>(List.of("portal-task-read", "portal-read-publication")));
+    return a;
   }
 
   /** The digest the approver would admit: the bytes of the JAR the class really came from. */
@@ -136,7 +253,9 @@ public final class ProviderFixture implements AutoCloseable {
   }
 
   public Map<String, Object> providerConfiguration() {
-    return TestRecords.providerConfiguration(root, schema, tableOid, owner, keysFile);
+    return TestRecords.providerConfiguration(root, schema, tableOid, owner, keysFile,
+        record("dsn_file", dsnFile.toString(), "ca_file", tls.ca().toString(), "source_schema",
+            sourceSchema, "publisher_ref", PUBLISHER));
   }
 
   public void writeProvider(Map<String, Object> configuration) throws Exception {
@@ -249,7 +368,9 @@ public final class ProviderFixture implements AutoCloseable {
     TestNaming.bind(null);
     try (var c = admin(); var s = c.createStatement()) {
       s.execute("DROP SCHEMA IF EXISTS " + schema + " CASCADE");
-      // Every role this fixture (or a test) created carries the suffix: runtime, owner, writers.
+      s.execute("DROP SCHEMA IF EXISTS " + sourceSchema + " CASCADE");
+      // Every role this fixture (or a test) created carries the suffix: runtime, owner, writers,
+      // and the membership source's owner and observer (T1.7b).
       List<String> roles = new ArrayList<>();
       try (ResultSet r = s.executeQuery("SELECT rolname FROM pg_roles WHERE rolname LIKE 'rp\\_%\\_"
                + suffix + "' ORDER BY rolname DESC")) {
@@ -260,6 +381,6 @@ public final class ProviderFixture implements AutoCloseable {
         s.execute("DROP ROLE IF EXISTS " + role);
       }
     }
-    for (Path p : List.of(trustFile, providerFile, keysFile)) Files.deleteIfExists(p);
+    for (Path p : List.of(trustFile, providerFile, keysFile, dsnFile)) Files.deleteIfExists(p);
   }
 }

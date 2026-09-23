@@ -166,3 +166,8 @@ a71a14e15fde4515567d65564a019ce9a7c0f021:deploy/cibseven/secured/prepare_fixture
 # A regra que fica: descrever a linha, nunca reproduzi-la. Quem precisar do texto exato abre o
 # commit citado no fingerprint — que e' onde ele deve ser lido de qualquer forma, com o contexto
 # em volta.
+
+# 2026-09-23 T1.7b (PR #487): cabecalho PEM literal num teste Java que monta, em tempo de
+# execucao, a chave que o keytool acabou de gerar no proprio teste — nao e' chave versionada.
+# O literal ja' foi partido no commit seguinte; este fingerprint cobre so' o commit antigo.
+0749aae105f7d755541afeafc6d68c566cf8c26f:src/maezo/portal/engine/read-provider/src/test/java/br/com/maezo/human/readprovider/ServerTls.java:private-key:72
