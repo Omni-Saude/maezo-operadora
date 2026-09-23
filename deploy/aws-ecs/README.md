@@ -84,3 +84,21 @@ Tudo leva o prefixo **`maezo-operadora`**, nunca `maezo` sozinho: a plataforma d
 serviço *dela* chamado "maezo" (`applications/maezo/` — API de orquestração Flink/DLQ/RNDS, hoje
 também não implantada). Os dois produtos coexistem na mesma conta e não podem colidir em nome de
 cluster, ECR, log group ou task family.
+
+## Ambiente novo fora de dev: declarar como o `engine-rest` autentica
+
+O engine de `dev-sa-east-1` expõe o `engine-rest` **sem autenticação** na 8080. Isso é aceito só
+em dev (decisão N5, `docs/plans/portal-autoridade-nativa-dev.md` §6). "Dev" é uma allowlist
+**exata** de caminhos (`AMBIENTES_DEV` na cerca: este `envs/dev-sa-east-1` e a borda
+`deploy/cloudflare/envs/dev`), não um padrão de nome: `dev-prod` ou `dev-us-east-1` não são
+isentos. Todo outro diretório em `envs/` tem de declarar, com valor literal (ou `local.`/`var.`
+que resolva para ele):
+
+```hcl
+engine_rest_authentication = "client-certificate"
+```
+
+Sem isso o CI reprova (`scripts/ci/check_engine_rest_auth.py`). A declaração não troca a imagem:
+ela registra, num lugar que a revisão lê, que aquele ambiente assumiu subir uma imagem `secured*`
+e migrar os callers. Copiar `dev-sa-east-1` para outro nome sem ela é exatamente o que a cerca
+existe para barrar.

@@ -1,5 +1,6 @@
 # Dedicated Java image context: the application root .dockerignore excludes deploy/.
-# Only the Maven sources and human/read servlet descriptors are required here.
+# Only the Maven sources, human/read servlet descriptors, the T1.2 deployment descriptor
+# (native-deploy/server.xml + setenv.sh), the group whitelist script and the pinned RDS roots.
 **
 !src/
 src/*
@@ -20,6 +21,14 @@ deploy/*
 deploy/cibseven/*
 !deploy/cibseven/human-webapp/
 !deploy/cibseven/human-webapp/**
+!deploy/cibseven/configure-group-whitelist.sh
+!deploy/cibseven/native-deploy/
+deploy/cibseven/native-deploy/*
+!deploy/cibseven/native-deploy/server.xml
+!deploy/cibseven/native-deploy/setenv.sh
+!deploy/certificates/
+deploy/certificates/*
+!deploy/certificates/sa-east-1-bundle.pem
 !deploy/cibseven/read-webapp/
 deploy/cibseven/read-webapp/*
 !deploy/cibseven/read-webapp/WEB-INF/

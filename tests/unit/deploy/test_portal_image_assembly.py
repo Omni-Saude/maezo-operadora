@@ -42,6 +42,14 @@ def test_effective_human_ignore_keeps_closed_read_descriptor_ancestry() -> None:
         "deploy/cibseven/*",
         "!deploy/cibseven/human-webapp/",
         "!deploy/cibseven/human-webapp/**",
+        "!deploy/cibseven/configure-group-whitelist.sh",
+        "!deploy/cibseven/native-deploy/",
+        "deploy/cibseven/native-deploy/*",
+        "!deploy/cibseven/native-deploy/server.xml",
+        "!deploy/cibseven/native-deploy/setenv.sh",
+        "!deploy/certificates/",
+        "deploy/certificates/*",
+        "!deploy/certificates/sa-east-1-bundle.pem",
         "!deploy/cibseven/read-webapp/",
         "deploy/cibseven/read-webapp/*",
         "!deploy/cibseven/read-webapp/WEB-INF/",
@@ -107,17 +115,29 @@ def test_staged_read_webapp_copy_is_owned_by_declared_nonroot_user() -> None:
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="RUN requires Linux sed -i; image UID remains unverified")
-@pytest.mark.parametrize("flag", ["true", "false", "invalid"])
-def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str) -> None:
+@pytest.mark.parametrize(
+    ("flag", "composition"),
+    [
+        ("true", "false"),
+        ("false", "false"),
+        ("invalid", "false"),
+        ("false", "true"),
+        ("true", "true"),
+        ("false", "invalid"),
+    ],
+)
+def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str, composition: str) -> None:
     """Prove shell chaining on caller-owned files, not Docker COPY ownership."""
     dockerfile = (ROOT / "deploy/cibseven/Dockerfile.human").read_text()
     logical = re.sub(r"\\\n\s*", " ", dockerfile).splitlines()
+    # Only the runtime stage edits the descriptor; the build stage has its own composition check.
+    runtime = re.sub(r"\\\n\s*", " ", dockerfile.split("\nFROM cibseven/", 1)[1]).splitlines()
     steps = [
         line.removeprefix("RUN ")
-        for line in logical
+        for line in runtime
         if line.startswith("RUN test -f /camunda/conf") or line.startswith("RUN case ")
     ]
-    assert len(steps) == 2
+    assert len(steps) == 3
     # Same DS-0002 fence as above: the declared runtime user is exactly `USER
     # camunda` (never root, never absent — absence re-hides the trivy finding),
     # and the fail-closed build assertion pinning uid 1000 is still there.
@@ -128,6 +148,7 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str) -
     stage = tmp_path / "tmp/maezo-human-read"
     (camunda / "conf").mkdir(parents=True)
     (camunda / "webapps").mkdir()
+    (camunda / "native-webapps").mkdir()
     (stage / "WEB-INF").mkdir(parents=True)
     xml = (ROOT / "deploy/cibseven/read-webapp/WEB-INF/web.xml").read_bytes()
     (stage / "WEB-INF/web.xml").write_bytes(xml)
@@ -138,16 +159,33 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str) -
         command = command.replace("/tmp/maezo-human-read", shlex.quote(str(stage)))
         result = subprocess.run(
             ["sh", "-ec", command],
-            env={"PATH": os.environ["PATH"], "INSTALL_PORTAL_READ": flag},
+            env={
+                "PATH": os.environ["PATH"],
+                "INSTALL_PORTAL_READ": flag,
+                "INSTALL_STAFF_COMPOSITION": composition,
+            },
             capture_output=True,
             timeout=5,
             check=False,
         )
-        assert result.returncode == (1 if index == 1 and flag == "invalid" else 0), result.stderr
-    assert descriptor.read_text().count("br.com.maezo.human.HumanCommandPlugin") == 1
+        refused = (index == 1 and flag == "invalid") or (index == 2 and composition == "invalid")
+        assert result.returncode == (1 if refused else 0), result.stderr
+        if refused:
+            break
+    text = descriptor.read_text()
+    assert text.count("br.com.maezo.human.HumanCommandPlugin") == 1
+    if flag != "invalid":
+        assert text.count("br.com.maezo.human.StaffDeploymentComposition") == (composition == "true")
+    if composition == "true":
+        # D-E: the composition plugin calls HumanCommandPlugin's setters, so it must come first.
+        assert text.index("StaffDeploymentComposition") < text.index("HumanCommandPlugin")
     assert descriptor.read_text().count("br.com.maezo.human.PortalReadPlugin") == (flag == "true")
     installed = camunda / "webapps/maezo-human-read"
     assert installed.exists() == (flag == "true")
     assert stage.exists() == (flag == "invalid")
     if flag == "true":
         assert (installed / "WEB-INF/web.xml").read_bytes() == xml
+        # The mTLS-only app base gets its own copy (native-deploy/server.xml, Service MaezoNative).
+        assert (camunda / "native-webapps/maezo-human-read/WEB-INF/web.xml").read_bytes() == xml
+    else:
+        assert not (camunda / "native-webapps/maezo-human-read").exists()
