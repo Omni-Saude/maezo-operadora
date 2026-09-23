@@ -79,8 +79,10 @@ class StaffCaseNativeSchemaEngineIT {
     assertEquals(pin.oid(),((Number)row.get("oid")).longValue());assertEquals(pin.owner(),row.get("owner"));
     assertEquals("r",row.get("relkind"));assertEquals(Boolean.FALSE,row.get("relrowsecurity"));
     assertEquals(Boolean.FALSE,row.get("owner_member"));assertEquals(Boolean.TRUE,row.get("can_read"));
-    StaffCaseStore.requireResolved(row,schema,pin);
+    StaffCaseStore.requireResolved(row,schema,pin);StaffCaseStore.requireNamespace(row,pin);
   }
+  void adminExecute(String sql)throws SQLException{try(var c=admin(database);var s=c.createStatement()){s.execute(sql);}}
+  Map<String,Object> pinned()throws SQLException{try(var c=runtime(SCHEMA)){return pinRow(c,SCHEMA);}}
 
   @Test void pinnedSchemaOnThePathIsAccepted()throws Exception{
     try(var c=runtime(SCHEMA+",pg_catalog")){acceptedByPin(pinRow(c,SCHEMA),SCHEMA,pin);}
@@ -111,6 +113,28 @@ class StaffCaseNativeSchemaEngineIT {
       try(var s=c.createStatement()){s.execute("DROP TABLE pg_temp."+TABLE);}
       acceptedByPin(pinRow(c,SCHEMA),SCHEMA,pin);
     }
+  }
+  @Test void schemaOwnedByAnotherRoleIsRefused()throws Exception{
+    adminExecute("ALTER SCHEMA "+SCHEMA+" OWNER TO "+runtime);
+    try{var row=pinned();assertEquals(runtime,row.get("schema_owner"));
+      StaffCaseStore.requireResolved(row,SCHEMA,pin);
+      assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(row,pin));}
+    finally{adminExecute("ALTER SCHEMA "+SCHEMA+" OWNER TO "+owner);}
+    StaffCaseStore.requireNamespace(pinned(),pin);
+  }
+  @Test void runtimeWithCreateOnTheSchemaIsRefused()throws Exception{
+    adminExecute("GRANT CREATE ON SCHEMA "+SCHEMA+" TO "+runtime);
+    try{var row=pinned();assertEquals(Boolean.TRUE,row.get("runtime_create"));assertEquals(Boolean.FALSE,row.get("public_create"));
+      assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(row,pin));}
+    finally{adminExecute("REVOKE CREATE ON SCHEMA "+SCHEMA+" FROM "+runtime);}
+    StaffCaseStore.requireNamespace(pinned(),pin);
+  }
+  @Test void publicWithCreateOnTheSchemaIsRefused()throws Exception{
+    adminExecute("GRANT CREATE ON SCHEMA "+SCHEMA+" TO PUBLIC");
+    try{var row=pinned();assertEquals(Boolean.TRUE,row.get("public_create"));
+      assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(row,pin));}
+    finally{adminExecute("REVOKE CREATE ON SCHEMA "+SCHEMA+" FROM PUBLIC");}
+    StaffCaseStore.requireNamespace(pinned(),pin);
   }
   @Test void checkpointChunkSelectInsertIsAcceptedAndUpdateIsRefused()throws Exception{
     try(var c=runtime(SCHEMA)){StaffCaseStore.requireWrites(true,false,one(c,WRITES,pin.oid(),pin.oid(),pin.oid(),pin.oid()));}

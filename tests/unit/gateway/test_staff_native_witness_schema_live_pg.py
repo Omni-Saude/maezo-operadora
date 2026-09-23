@@ -78,6 +78,12 @@ def pins(oid: int = 20) -> dict[str, RelationPin]:
         "maezo.native",
         "maezo_native\n",
         None,
+        "public",
+        "cibseven",
+        "information_schema",
+        "pg_catalog",
+        "pg_temp",
+        "pg_toast",
     ],
 )
 def test_witness_refuses_a_native_schema_outside_the_identifier_regex(schema) -> None:
@@ -108,8 +114,11 @@ class Catalog:
 
 
 @asynccontextmanager
-async def _catalog() -> AsyncIterator[Catalog]:
-    """Throwaway database: same relation names and owner in three schemas, one LOGIN witness."""
+async def _catalog(tamper: tuple[str, ...] = ()) -> AsyncIterator[Catalog]:
+    """Throwaway database: same relation names and owner in three schemas, one LOGIN witness.
+
+    ``tamper`` runs as admin after the installation; ``{owner}``/``{witness}`` are replaced.
+    """
     dsn = _dsn()
     token = uuid.uuid4().hex[:12]
     database, owner, witness, password = (
@@ -152,6 +161,8 @@ async def _catalog() -> AsyncIterator[Catalog]:
                         f'INSERT INTO "{schema}".mzo_human_principal(tenant_,principal_) VALUES'
                         "('tenant','principal')"
                     )
+                for sql in tamper:
+                    await conn.execute(sql.format(owner=owner, witness=witness))
             finally:
                 await conn.close()
             base = make_url(dsn.replace("postgresql://", "postgresql+asyncpg://", 1))
@@ -167,9 +178,9 @@ async def _catalog() -> AsyncIterator[Catalog]:
         await admin.close()
 
 
-async def _run(schema: str, pinned: str) -> str:
+async def _run(schema: str, pinned: str, tamper: tuple[str, ...] = ()) -> str:
     """Pin check then the qualified read, as the witness login; returns the payload read."""
-    async with _catalog() as catalog:
+    async with _catalog(tamper) as catalog:
         engine = create_async_engine(catalog.url, hide_parameters=True)
         try:
             source = NativeMembershipSource(
@@ -194,6 +205,24 @@ def test_homonym_schema_does_not_satisfy_the_pinned_relations(homonym: str) -> N
     # Pins are the maezo_native OIDs; a deployment that names another schema is refused.
     with pytest.raises(StaffCaseError):
         asyncio.run(_run(homonym, SCHEMA))
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        # Wrong owner: the schema no longer belongs to the pinned relation owner.
+        ('ALTER SCHEMA "maezo_native" OWNER TO "{witness}"',),
+        # The witness login itself could plant a relation next to the pins.
+        ('GRANT CREATE ON SCHEMA "maezo_native" TO "{witness}"',),
+        # Anyone could.
+        ('GRANT CREATE ON SCHEMA "maezo_native" TO PUBLIC',),
+    ],
+    ids=["wrong_owner", "runtime_create", "public_create"],
+)
+def test_open_or_foreign_schema_is_refused(tamper: tuple[str, ...]) -> None:
+    with pytest.raises(StaffCaseError):
+        asyncio.run(_run(SCHEMA, SCHEMA, tamper))
 
 
 @pytest.mark.integration

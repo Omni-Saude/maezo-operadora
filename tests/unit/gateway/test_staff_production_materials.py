@@ -310,7 +310,24 @@ def test_native_schema_outside_the_identifier_regex_is_refused(schema: str) -> N
         )
 
 
-@pytest.mark.parametrize("schema", ["maezo_native_v2", "maezo_native_owner_v1", "public", "maezo_nativ"])
+@pytest.mark.parametrize(
+    "schema", ["public", "cibseven", "information_schema", "pg_catalog", "pg_temp", "pg_toast", "pg_temp_3"]
+)
+def test_shared_or_system_schema_is_never_the_native_schema(schema: str) -> None:
+    settings, manifest, files = material_fixture()
+    manifest["native_schema"] = schema
+    settings = settings.model_copy(update={"staff_public_manifest_sha256": digest(manifest)})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+    with pytest.raises(ValidationError):
+        PortalProductionSettings.model_validate(
+            {**settings.model_dump(), "staff_native_schema": schema, "staff_scope": manifest["scope"]}
+        )
+
+
+@pytest.mark.parametrize(
+    "schema", ["maezo_native_v2", "maezo_native_owner_v1", "public_native", "maezo_nativ"]
+)
 def test_native_schema_must_equal_the_deployment_pin_exactly(schema: str) -> None:
     # D5: equality only. A prefix-sharing native-v2 schema is a different pin.
     settings, manifest, files = material_fixture()

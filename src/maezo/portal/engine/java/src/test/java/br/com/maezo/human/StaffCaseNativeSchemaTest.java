@@ -41,11 +41,18 @@ class StaffCaseNativeSchemaTest {
         "\"maezo_native\"","maezo native","maezo.native","maezo_native\n","maezo_natïve"))
       assertThrows(Rejected.class,()->config(bad),String.valueOf(bad));
   }
+  @Test void sharedAndSystemSchemasAreNeverTheNativeSchema(){
+    for(String reserved:List.of("public","cibseven","information_schema","pg_catalog","pg_temp","pg_toast","pg_temp_3","pg_"))
+      assertThrows(Rejected.class,()->config(reserved),reserved);
+    // Exact denial, not a prefix ban: names that merely contain them stay valid identifiers.
+    for(String allowed:List.of("public_native","cibseven_native","pgnative","maezo_pg_x"))
+      assertEquals(allowed,config(allowed).nativeSchema());
+  }
   @Test void configurationDigestBindsTheNativeSchema(){
     assertEquals(config(SCHEMA).digest(),config(SCHEMA).digest());
     // Exact comparison (D5): a native-v2 name that merely shares the prefix is another pin.
     assertNotEquals(config(SCHEMA).digest(),config("maezo_native_v2").digest());
-    assertNotEquals(config(SCHEMA).digest(),config("public").digest());
+    assertNotEquals(config(SCHEMA).digest(),config("maezo_native_owner_v1").digest());
   }
   @Test void pinQueryBindsTheSchemaAndResolvesTheUnqualifiedName(){
     String sql=StaffCaseStore.PIN;
@@ -66,6 +73,23 @@ class StaffCaseNativeSchemaTest {
     assertThrows(Rejected.class,()->StaffCaseStore.requireResolved(resolution("public",4242L),SCHEMA,PIN));
     assertThrows(Rejected.class,()->StaffCaseStore.requireResolved(resolution("maezo_native_v2",4242L),SCHEMA,PIN));
     assertThrows(Rejected.class,()->StaffCaseStore.requireResolved(resolution(null,4242L),SCHEMA,PIN));
+  }
+  static Map<String,Object> namespace(Object owner,Object runtimeCreate,Object publicCreate){
+    var row=new HashMap<String,Object>();row.put("schema_owner",owner);row.put("runtime_create",runtimeCreate);
+    row.put("public_create",publicCreate);return row;
+  }
+  @Test void namespaceMustBeOwnedByThePinnedOwnerAndClosedToCreate(){
+    StaffCaseStore.requireNamespace(namespace(PIN.owner(),false,false),PIN);
+    assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(namespace("cibseven_app",false,false),PIN));
+    assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(namespace(null,false,false),PIN));
+    assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(namespace(PIN.owner(),true,false),PIN));
+    assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(namespace(PIN.owner(),false,true),PIN));
+    assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(namespace(PIN.owner(),null,false),PIN));
+    assertThrows(Rejected.class,()->StaffCaseStore.requireNamespace(namespace(PIN.owner(),false,null),PIN));
+    String sql=StaffCaseStore.PIN;
+    assertTrue(sql.contains("pg_get_userbyid(n.nspowner) AS schema_owner"),sql);
+    assertTrue(sql.contains("has_schema_privilege(session_user,n.oid,'CREATE') AS runtime_create"),sql);
+    assertTrue(sql.contains("a.grantee=0 AND a.privilege_type='CREATE'"),sql);
   }
   @Test void writeMatrixRefusesUpdateOnImmutableRelations(){
     StaffCaseStore.requireWrites(true,false,writes(true,false,false,false));

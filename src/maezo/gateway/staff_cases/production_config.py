@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, model_validator
+from pydantic import AfterValidator, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from maezo.gateway.external_cases.models import Digest, Ref, Scope, timestamp
@@ -40,7 +40,28 @@ PUBLIC_FILES = frozenset(
 FILES = PRIVATE_FILES | PUBLIC_FILES
 #: ADR-0060 D3: the PostgreSQL schema of the native `mzo_*` relations (`maezo_native` in
 #: dev) is a pin of the v2 manifest and of the deployment settings, compared exactly (D5).
-NATIVE_SCHEMA = r"^[a-z_][a-z0-9_]{0,62}$"
+#: Never a shared or system schema: `public` (D-C, refuted), `cibseven` (the engine's own)
+#: and the catalog/temp/toast namespaces (`pg_*`, `information_schema`). Same rule as
+#: `StaffCaseStore.schema` and `portal-variables.tf`.
+RESERVED_SCHEMAS = frozenset({"public", "cibseven", "information_schema"})
+
+
+def is_native_schema(value: object) -> bool:
+    return (
+        type(value) is str
+        and re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", value) is not None
+        and value not in RESERVED_SCHEMAS
+        and not value.startswith("pg_")
+    )
+
+
+def _native_schema(value: str) -> str:
+    if not is_native_schema(value):
+        raise ValueError("native_schema")
+    return value
+
+
+NativeSchema = Annotated[str, AfterValidator(_native_schema)]
 
 
 class PortalStaffBootstrapError(RuntimeError):
@@ -116,7 +137,7 @@ class PortalProductionSettings(BaseSettings):
     staff_scope: Scope | None = None
     staff_native_origin: str | None = None
     staff_native_server_spki_sha256: Digest | None = None
-    staff_native_schema: str | None = Field(default=None, pattern=NATIVE_SCHEMA)
+    staff_native_schema: NativeSchema | None = None
     staff_read_key_sha256: Digest | None = None
     staff_witness_key_sha256: Digest | None = None
     staff_maximum_seconds: int | None = Field(default=None, ge=1, le=10)
@@ -323,7 +344,7 @@ class PublicManifest(Closed):
     witness_key_fingerprint: Digest
     native_origin: str
     native_server_spki_sha256: Digest
-    native_schema: str = Field(pattern=NATIVE_SCHEMA)
+    native_schema: NativeSchema
     session_lock_connection: Connection
     native_witness_connection: Connection
     native_relation_pins: dict[str, NativeRelationPin]

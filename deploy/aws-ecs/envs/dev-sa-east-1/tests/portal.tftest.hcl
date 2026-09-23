@@ -595,6 +595,143 @@ run "staff_native_schema_invalid_refused" {
   }
   expect_failures = [var.portal]
 }
+# Shared and system schemas are denied exactly: public (D-C refuted), cibseven (the
+# engine's own), information_schema and every pg_* namespace.
+run "staff_native_schema_reserved_public_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { native_schema = "public" }) })
+  }
+  expect_failures = [var.portal]
+}
+run "staff_native_schema_reserved_cibseven_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { native_schema = "cibseven" }) })
+  }
+  expect_failures = [var.portal]
+}
+run "staff_native_schema_reserved_information_schema_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { native_schema = "information_schema" }) })
+  }
+  expect_failures = [var.portal]
+}
+run "staff_native_schema_reserved_pg_catalog_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { native_schema = "pg_catalog" }) })
+  }
+  expect_failures = [var.portal]
+}
+run "staff_native_schema_reserved_pg_temp_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { native_schema = "pg_temp" }) })
+  }
+  expect_failures = [var.portal]
+}
 run "staff_native_schema_missing_refused" {
   command = plan
   plan_options { target = [aws_ecs_task_definition.portal] }

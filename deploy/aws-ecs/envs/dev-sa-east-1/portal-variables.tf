@@ -110,8 +110,11 @@ variable "portal" {
       startswith(var.portal.staff.material_kms_key_arn, "arn:aws:kms:sa-east-1:${var.aws_account_id}:key/") &&
       can(regex("^arn:aws:kms:sa-east-1:[0-9]{12}:key/[0-9a-f-]{36}$", var.portal.staff.material_kms_key_arn)) &&
       can(regex("^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:443)?$", var.portal.staff.native_origin)) &&
-      # ADR-0060 D3: the mzo_* schema is a pin of the v2 manifest, same regex as the portal.
+      # ADR-0060 D3: the mzo_* schema is a pin of the v2 manifest, same rule as the portal and
+      # StaffCaseStore: closed identifier, never public/cibseven/information_schema/pg_*.
       can(regex("^[a-z_][a-z0-9_]{0,62}$", var.portal.staff.native_schema)) &&
+      !contains(["public", "cibseven", "information_schema"], var.portal.staff.native_schema) &&
+      !startswith(var.portal.staff.native_schema, "pg_") &&
       alltrue([for id in [var.portal.staff.native_https_security_group_id, var.portal.staff.native_database_security_group_id] : can(regex("^sg-[0-9a-f]{8,17}$", id))]) &&
       var.portal.staff.maximum_seconds == floor(var.portal.staff.maximum_seconds) &&
       var.portal.staff.maximum_seconds >= 1 && var.portal.staff.maximum_seconds <= 10 &&
