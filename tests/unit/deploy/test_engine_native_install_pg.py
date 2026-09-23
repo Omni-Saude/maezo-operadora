@@ -161,7 +161,10 @@ async def _with_env(check) -> None:
             )
             await server.execute(f'DROP DATABASE IF EXISTS "{database}"')
     finally:
-        for role in (*_LOGINS, "cibseven_app", "maezo_app"):
+        external = await server.fetch(
+            "SELECT rolname FROM pg_roles WHERE starts_with(rolname,'portal_external_')"
+        )
+        for role in (*_LOGINS, "cibseven_app", "maezo_app", *(r["rolname"] for r in external)):
             await server.execute(f"DROP ROLE IF EXISTS {role}")
         await server.close()
 
@@ -317,6 +320,76 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
             assert tuple(posture) == (False, False, False, False, False)
         finally:
             await source.close()
+
+        # D-J.2c: matriz DML do engine nas relacoes deste script; DELETE recusado de verdade.
+        engine = await env.login("cibseven_app")
+        try:
+            matrix = await engine.fetch(
+                """SELECT c.relname,
+                     has_table_privilege(c.oid,'SELECT') AS sel, has_table_privilege(c.oid,'INSERT') AS ins,
+                     has_table_privilege(c.oid,'UPDATE') AS upd,
+                     has_table_privilege(c.oid,'DELETE,TRUNCATE,REFERENCES,TRIGGER') AS forbidden
+                   FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                   WHERE n.nspname='maezo_native' AND c.relkind='r'
+                     AND (starts_with(c.relname,'mzo_human_') OR starts_with(c.relname,'mzo_portal_read_'))"""
+            )
+            immutable = re.compile(r"_(event|receipt|continuity|cursor|version|dependency|chunk|ledger)$")
+            assert len(matrix) > 10
+            wrong = {}
+            for r in matrix:
+                name = r["relname"]
+                if name == "mzo_portal_read_admission":
+                    want = (True, False, False)
+                elif name == "mzo_portal_read_designation":
+                    want = (True, True, True)
+                elif name.startswith("mzo_portal_read_") or immutable.search(name):
+                    want = (True, True, False)
+                else:
+                    want = (True, True, True)
+                if (r["sel"], r["ins"], r["upd"]) != want or r["forbidden"]:
+                    wrong[name] = tuple(r)
+            assert wrong == {}
+            await _refused(engine, "DELETE FROM maezo_native.mzo_human_tenant")
+            await _refused(engine, "DELETE FROM maezo_native.mzo_portal_read_publication_receipt")
+            await _refused(engine, "TRUNCATE maezo_native.mzo_human_principal")
+            await _refused(engine, "UPDATE maezo_native.mzo_portal_read_publication_receipt SET receipt_=''")
+            # D-J.3: a consulta do ExternalCaseReadCommand, qualificada, com search_path vazio.
+            await engine.execute("SET search_path TO ''")
+            java = (_ENGINE / "java/src/main/java/br/com/maezo/human/ExternalCaseReadCommand.java").read_text(
+                encoding="utf-8"
+            )
+            assert (
+                'FROM \\""+StaffCaseStore.schema(nativeSchema)+"\\".MZO_PORTAL_READ_PUBLICATION_RECEIPT'
+                in java
+            )
+            sql = (
+                'SELECT KEY_FINGERPRINT_ FROM "maezo_native".MZO_PORTAL_READ_PUBLICATION_RECEIPT WHERE '
+                "TENANT_=$1 AND ENVIRONMENT_=$2 AND ENGINE_=$3 AND INCARNATION_=$4 AND PUBLICATION_=$5"
+            )
+            assert await engine.fetch(sql, "amh", "dev", "e", "i", "p") == []
+            with pytest.raises(asyncpg.UndefinedTableError):
+                await engine.fetch("SELECT 1 FROM MZO_PORTAL_READ_PUBLICATION_RECEIPT")
+        finally:
+            await engine.close()
+
+        # D-J.2b: o DDL externo requalificado instala sobre o layout D-C2 (nada em public).
+        ddl = (_ENGINE / "java/src/main/resources/external-case-schema-postgres.sql").read_text(
+            encoding="utf-8"
+        )
+        assert not re.search(r"public\.mzo_", ddl, re.I)
+        admin = await env.admin()
+        try:
+            await admin.execute("SET search_path TO ''")
+            await admin.execute(ddl.replace("CREATE SCHEMA maezo_external;", "", 1))
+            assert (
+                await admin.fetchval(
+                    "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace"
+                    " WHERE n.nspname='maezo_external' AND c.relkind='r'"
+                )
+                > 5
+            )
+        finally:
+            await admin.close()
 
         # O grant de coluna em mzo_auth_guide_claim, depois da instalacao AUTH (simulada pelo dono).
         owner = await env.login("maezo_native_schema_owner")

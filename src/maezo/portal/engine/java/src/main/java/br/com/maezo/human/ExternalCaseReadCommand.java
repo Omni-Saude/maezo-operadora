@@ -128,6 +128,10 @@ public final class ExternalCaseReadCommand implements Command<ExternalCaseReadCo
     authority.ceilings.add(ExternalCaseStore.instantColumn(current.get("valid_until")));
     return record("checkpoint_ref",statement.get("checkpoint_ref"),"epoch",statement.get("epoch"),"checkpoint_digest",hash(packet));
   }
+  /** D-J.3: the receipt lives in the pinned native schema, validated and quoted, never by search_path. */
+  static String publicationReceiptSql(String nativeSchema){
+    return "SELECT KEY_FINGERPRINT_ FROM \""+StaffCaseStore.schema(nativeSchema)+"\".MZO_PORTAL_READ_PUBLICATION_RECEIPT WHERE ";
+  }
   private Map<String,Object> externalMembership(PortalReadStore db,Map<String,Object> principal,Object audience){
     var row=db.membership(str(principal,"principal_ref"));if(row==null)throw unavailable();
     var m=validate("membership",PortalReadStore.json(row.get("payload_")));var source=validate("source",PortalReadStore.json(row.get("source_")));
@@ -137,7 +141,7 @@ public final class ExternalCaseReadCommand implements Command<ExternalCaseReadCo
     var human=db.human(str(principal,"principal_ref"));if(human==null||!Boolean.TRUE.equals(human.get("active_"))||!principal.get("issuer").equals(human.get("issuer_"))||!principal.get("subject").equals(human.get("subject_")))throw unavailable();
     var flat=new TreeSet<Object>();for(Object mb:list(m.get("memberships")))flat.addAll(list(map(mb).get("groups")));
     var actual=new HashSet<>(list(Jcs.parse(human.get("groups_").toString().getBytes(java.nio.charset.StandardCharsets.UTF_8))));if(!flat.equals(actual))throw unavailable();
-    var receipt=db.one("SELECT KEY_FINGERPRINT_ FROM MZO_PORTAL_READ_PUBLICATION_RECEIPT WHERE "+PortalReadStore.SCOPE+" AND PUBLICATION_=?",db.args(row.get("publication_")));
+    var receipt=db.one(publicationReceiptSql(verified.configuration.nativeSchema())+PortalReadStore.SCOPE+" AND PUBLICATION_=?",db.args(row.get("publication_")));
     if(receipt==null)throw unavailable();
     var publisher=membershipTrust.keys.values().stream().filter(k->k.fingerprint().equals(receipt.get("key_fingerprint_"))).findFirst().orElseThrow(PortalReadModels::unavailable);
     Instant now=Instant.now();if(now.isBefore(publisher.notBefore())||!now.isBefore(publisher.notAfter()))throw unavailable();

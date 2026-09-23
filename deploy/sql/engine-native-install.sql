@@ -481,6 +481,29 @@ GRANT SELECT ON ALL TABLES IN SCHEMA maezo_external TO cibseven_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE maezo_native_schema_owner IN SCHEMA maezo_external
  GRANT SELECT ON TABLES TO cibseven_app;
 
+-- DML do engine (D-J.2c) nas relacoes que ESTE script instala. MZO_HUMAN_*: SELECT,INSERT,UPDATE;
+-- sufixo imutavel (I8) e MZO_PORTAL_READ_*: SELECT,INSERT. Nunca DELETE/TRUNCATE/REFERENCES.
+-- Excecao por evidencia: PortalReadPublication.java:171 faz UPDATE em MZO_PORTAL_READ_DESIGNATION
+-- (catalog-revoke); sem UPDATE o engine recusaria a revogacao. A admissao Q2 fica SELECT (acima);
+-- as MZO_HUMAN_CONSUMER_* e MZO_AUTH_* sao do instalador do engine e nao sao tocadas aqui.
+DO $dml$
+DECLARE r record; privs text;
+BEGIN
+ FOR r IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname='maezo_native' AND c.relkind='r'
+     AND (starts_with(c.relname, 'mzo_human_') OR starts_with(c.relname, 'mzo_portal_read_'))
+     AND NOT starts_with(c.relname, 'mzo_human_consumer_') AND c.relname<>'mzo_portal_read_admission' LOOP
+   privs := CASE
+     WHEN r.relname='mzo_portal_read_designation' THEN 'SELECT, INSERT, UPDATE'
+     WHEN starts_with(r.relname, 'mzo_portal_read_')
+       OR r.relname ~ '_(event|receipt|continuity|cursor|version|dependency|chunk|ledger)$'
+       THEN 'SELECT, INSERT'
+     ELSE 'SELECT, INSERT, UPDATE' END;
+   EXECUTE format('REVOKE ALL ON maezo_native.%I FROM cibseven_app', r.relname);
+   EXECUTE format('GRANT %s ON maezo_native.%I TO cibseven_app', privs, r.relname);
+ END LOOP;
+END $dml$;
+
 -- Postura final: recusa (e desfaz a transacao, se houver) o que as verificacoes do runtime recusariam.
 DO $posture$
 DECLARE
