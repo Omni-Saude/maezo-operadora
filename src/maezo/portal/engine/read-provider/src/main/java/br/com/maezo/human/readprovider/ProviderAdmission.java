@@ -13,12 +13,15 @@ import java.util.Map;
 final class ProviderAdmission implements PortalReadTrust.Admission {
   final InstalledReadProviders provider;
   final AdmissionRecord record;
+  /** The purpose this observation was acquired for; publication qualification requires its own. */
+  final String purpose;
   private final Instant observedAt, validUntil;
 
-  ProviderAdmission(InstalledReadProviders provider, AdmissionRecord record, Instant observedAt,
-      Instant validUntil) {
+  ProviderAdmission(InstalledReadProviders provider, AdmissionRecord record, String purpose,
+      Instant observedAt, Instant validUntil) {
     this.provider = provider;
     this.record = record;
+    this.purpose = purpose;
     this.observedAt = observedAt;
     this.validUntil = validUntil;
   }
