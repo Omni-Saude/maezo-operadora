@@ -63,6 +63,31 @@ def _native_schema(value: str) -> str:
 
 NativeSchema = Annotated[str, AfterValidator(_native_schema)]
 
+#: T1.8b: the PostgreSQL schema of the CIB seven engine tables (`cibseven` in dev), a pin of
+#: the v2 manifest and of the deployment settings, compared exactly. Same rule as the Java
+#: `EngineSchema.require`: never `public`, the catalog/temp/toast namespaces, the native
+#: schema of ADR-0060 (`maezo_native`) nor the native schema pinned next to it.
+RESERVED_ENGINE_SCHEMAS = frozenset({"public", "information_schema", "maezo_native"})
+
+
+def is_engine_schema(value: object, native_schema: object = None) -> bool:
+    return (
+        type(value) is str
+        and re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", value) is not None
+        and value not in RESERVED_ENGINE_SCHEMAS
+        and not value.startswith("pg_")
+        and value != native_schema
+    )
+
+
+def _engine_schema(value: str) -> str:
+    if not is_engine_schema(value):
+        raise ValueError("engine_schema")
+    return value
+
+
+EngineSchema = Annotated[str, AfterValidator(_engine_schema)]
+
 
 class PortalStaffBootstrapError(RuntimeError):
     def __init__(self) -> None:
@@ -138,6 +163,7 @@ class PortalProductionSettings(BaseSettings):
     staff_native_origin: str | None = None
     staff_native_server_spki_sha256: Digest | None = None
     staff_native_schema: NativeSchema | None = None
+    staff_engine_schema: EngineSchema | None = None
     staff_read_key_sha256: Digest | None = None
     staff_witness_key_sha256: Digest | None = None
     staff_maximum_seconds: int | None = Field(default=None, ge=1, le=10)
@@ -166,6 +192,9 @@ class PortalProductionSettings(BaseSettings):
         if all(v is not None for v in human) != (self.capabilities == "identity,staff_cases,human"):
             raise PortalStaffBootstrapError()
         if any(v is not None for v in human) and any(v is None for v in human):
+            raise PortalStaffBootstrapError()
+        # T1.8b: the engine schema is never the native schema pinned next to it.
+        if self.staff_engine_schema is not None and self.staff_engine_schema == self.staff_native_schema:
             raise PortalStaffBootstrapError()
         if any(v is not None for v in human) and (
             self.human_material_version_id == self.staff_material_version_id
@@ -345,6 +374,8 @@ class PublicManifest(Closed):
     native_origin: str
     native_server_spki_sha256: Digest
     native_schema: NativeSchema
+    # T1.8b: added inside v2 without a bump (no v2 package was published yet).
+    engine_schema: EngineSchema
     session_lock_connection: Connection
     native_witness_connection: Connection
     native_relation_pins: dict[str, NativeRelationPin]
@@ -358,6 +389,7 @@ class PublicManifest(Closed):
         fixed_origin(self.native_origin)
         if (
             not 1 <= int(self.native_maximum_seconds) <= 10
+            or not is_engine_schema(self.engine_schema, self.native_schema)
             or set(self.files) != FILES
             or any(self.files[n] is None for n in PUBLIC_FILES)
             or any(self.files[n] is not None for n in PRIVATE_FILES)
