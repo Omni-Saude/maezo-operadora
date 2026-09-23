@@ -1385,6 +1385,14 @@ jobs:
         if: github.event_name != 'schedule'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d  # v4.0.3
         with:
+          # POST-MORTEM (medido ao vivo no PR #470, job 107012533183): SEM este input, o default
+          # `some` faz o pattern positivo `**` casar com QUALQUER arquivo e os `!`-padroes NAO
+          # SUBTRAIEM NADA — a exclusao "docs-only" deste filtro era INERTE desde 2026-09-03 (toda
+          # PR docs-only pagou a lane cheia; o passo decide fail-closed so' garantia que rodasse,
+          # nunca que pulasse). `some-with-excludes`: arquivo conta se casa com >=1 pattern
+          # positivo E com nenhum negado; exclusao e' final, ordem irrelevante. O job `evals`
+          # abaixo nao precisa disto: o filtro dele nao tem `!`-padroes.
+          predicate-quantifier: some-with-excludes
           filters: |
             code:
               - '**'
