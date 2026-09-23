@@ -65,6 +65,12 @@ class EngineSchemaEngineIT {
       s.execute("INSERT INTO cibseven.ACT_RU_TASK VALUES('task-1',1,'"+INSTANCE+"','"+DEFINITION+"','review',now(),'"+TENANT+"')");
       s.execute("GRANT SELECT ON ALL TABLES IN SCHEMA cibseven TO "+runtime);
       s.execute("GRANT UPDATE ON cibseven.ACT_RU_TASK TO "+runtime);
+      s.execute("CREATE TABLE maezo_native.mzo_human_tenant(TENANT_ varchar(64) PRIMARY KEY,REV_ bigint NOT NULL)");
+      s.execute("CREATE TABLE maezo_native.mzo_portal_read_revocation(TENANT_ varchar(64),ENVIRONMENT_ varchar(64),ENGINE_ varchar(64),INCARNATION_ varchar(64),FINGERPRINT_ char(64),PRIMARY KEY(TENANT_,ENVIRONMENT_,ENGINE_,INCARNATION_,FINGERPRINT_))");
+      s.execute("INSERT INTO maezo_native.mzo_human_tenant VALUES('"+TENANT+"',7),('tenant-b',9)");
+      s.execute("INSERT INTO maezo_native.mzo_portal_read_revocation VALUES('"+TENANT+"','dev','engine','inc','"+"a".repeat(64)+"'),('tenant-b','dev','engine','inc','"+"b".repeat(64)+"')");
+      s.execute("GRANT SELECT,UPDATE ON maezo_native.mzo_human_tenant TO "+runtime);
+      s.execute("GRANT SELECT ON maezo_native.mzo_portal_read_revocation TO "+runtime);
       s.execute("RESET ROLE");
       var none=optional(c,"SELECT count(*) AS n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'act\\_%'");
       assertEquals(0L,((Number)none.get("n")).longValue());
@@ -108,6 +114,26 @@ class EngineSchemaEngineIT {
     try(var c=runtime()){c.setAutoCommit(false);
       var r=rows(c,EngineSchema.taskSql(ENGINE),TENANT,INSTANCE);assertEquals(1,r.size());assertEquals("task-1",r.get(0).get("id_"));
       assertEquals(0,rows(c,EngineSchema.taskSql(ENGINE),"tenant-b",INSTANCE).size());c.rollback();}
+  }
+  /** Ressalva #489: the external path reads its native mzo_* rows from the pinned native schema, not public. */
+  @Test void externalStoreReadsNativeRelationsFromThePinnedSchema()throws Exception{
+    try(var c=runtime()){
+      for(String t:ExternalCaseStore.NATIVE_TABLES)EngineSchema.requireTable(optional(c,EngineSchema.PIN,NATIVE,t));
+      for(String t:ExternalCaseStore.NATIVE_TABLES){var row=optional(c,EngineSchema.PIN,"public",t);
+        assertThrows(Rejected.class,()->EngineSchema.requireTable(row),"public."+t);}
+      c.setAutoCommit(false);
+      var tenant=optional(c,ExternalCaseStore.tenantLockSql(NATIVE),TENANT);
+      assertEquals(7L,((Number)tenant.get("rev_")).longValue());
+      var revoked=rows(c,ExternalCaseStore.revokedSql(NATIVE),TENANT,"dev","engine","inc");
+      assertEquals(1,revoked.size());assertEquals("a".repeat(64),revoked.get(0).get("fingerprint_"));
+      c.rollback();
+      assertThrows(SQLException.class,()->rows(c,"SELECT rev_ FROM public.mzo_human_tenant WHERE tenant_=? FOR UPDATE",TENANT));
+      c.rollback();
+      assertThrows(SQLException.class,()->rows(c,ExternalCaseStore.tenantLockSql("engine_empty"),TENANT));
+      c.rollback();
+    }
+    assertThrows(Rejected.class,()->ExternalCaseStore.tenantLockSql("public"));
+    assertThrows(Rejected.class,()->ExternalCaseStore.revokedSql("x\";drop"));
   }
   @Test void wrongSchemaQueriesFailInsteadOfReadingElsewhere()throws Exception{
     try(var c=runtime()){assertThrows(SQLException.class,()->rows(c,EngineSchema.identitySql("engine_empty"),INSTANCE,INSTANCE,DEFINITION));}

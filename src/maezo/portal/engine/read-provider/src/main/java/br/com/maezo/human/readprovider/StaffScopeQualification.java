@@ -21,8 +21,9 @@ import java.util.Map;
  *       {@code portal-identity:<tenant>:membership:<principal_ref>@<revision>}, and
  *       {@code valid_until = observed_at + observation_seconds} (the T1.5 contract);
  *   <li>{@code catalog-designate}: catalog ref, digest and publisher are the ADMITTED ones;
- *   <li>{@code catalog-revoke}, {@code revoke-key}: nothing more; they only reduce authority and the
- *       envelope was already verified with the publication key.
+ *   <li>{@code catalog-revoke}: catalog ref and publisher are the ADMITTED ones;
+ *   <li>{@code revoke-key}: nothing more; it only reduces authority and the envelope was already
+ *       verified with the publication key.
  * </ul>
  * The snapshot lives and dies with the admission it was taken under (see {@link #requireCurrent}).
  */
@@ -91,7 +92,13 @@ final class StaffScopeQualification implements PortalReadTrust.PublicationQualif
               || !record.catalogPublisherRef.equals(source.get("publisher_ref")))
             throw Fields.unavailable();
         }
-        case "catalog-revoke", "revoke-key" -> {}
+        case "catalog-revoke" -> {
+          // Only the admitted catalog publisher may tombstone the admitted catalog.
+          if (!record.catalogRef.equals(payload.get("catalog_ref"))
+              || !record.catalogPublisherRef.equals(source.get("publisher_ref")))
+            throw Fields.unavailable();
+        }
+        case "revoke-key" -> {}
         default -> throw Fields.unavailable();
       }
     } catch (RuntimeException refused) {
