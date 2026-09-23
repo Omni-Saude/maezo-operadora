@@ -337,6 +337,32 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
     `maezo_native`" e ficam fora do path.
   - **Tarefas:** T1.8b (Java e Python). A T1.4 tem que instalar `maezo_external`, com USAGE e SELECT
     para `cibseven_app`. A C1 passa a depender da T1.8b.
+- **D-J [23/09, consulta T1.1 / PR #492 e T1.4 / PR #493].**
+  1. **Composição (T1.1): confirmada** — `staff-deployment-composition.v1` em JCS, campos fixos,
+     caminho por `MAEZO_STAFF_COMPOSITION_FILE`, chaves/senha em arquivos irmãos referenciados por
+     nome, log só do digest. Campo desconhecido ou arquivo irmão ausente = recusa no boot.
+     **Requisito da Onda 4:** composição e segredos montados read-only, modo `0400`, dono diferente
+     do uid do processo (1000) e sem diretório gravável por ele; o boot recusa se o arquivo for
+     gravável pelo processo. Muda em: runbook da Onda 4 + teste em T1.2.
+  2. **T1.4:**
+     a. DDL AUTH e `human-consumer-lineage` são instalados **pelo engine no boot**
+        (`AuthInstallation`/`ConsumerEdgeInstallation` continuam donos e continuam recusando tabela
+        pré-existente). O script da T1.4 só cria o schema e dá a `cibseven_app` `CREATE`+`USAGE`
+        nele; depois do primeiro boot, a Onda 3 revoga `CREATE`. Tarefa: T1.4 (script) + Onda 3/4.
+     b. DDL externo apontando para `public.*`: requalificar para `maezo_external.*`. Tarefa: T1.4
+        (mesmo PR); dono do DDL canônico é o builder da T1.4.
+     c. DML de `cibseven_app`: `MZO_HUMAN_*` = SELECT, INSERT, UPDATE, sem DELETE, exceto tabelas de
+        ledger/recibo (sufixo imutável, I8) = SELECT, INSERT apenas; `MZO_PORTAL_READ_*` = SELECT,
+        INSERT; `MZO_PORTAL_READ_PUBLICATION_RECEIPT` = SELECT, INSERT. Nenhum TRUNCATE/REFERENCES.
+        Vai no `engine-native-install.sql` com teste PG 17 negativo (DELETE recusado). Tarefa: T1.4.
+     d. Ledger do emissor: colunas propostas pelo builder **confirmadas como piso** no DDL da T1.4;
+        a T1.6 só acrescenta por expand (coluna nullable/default), nunca renomeia.
+     e. `CREATE SCHEMA … AUTHORIZATION <dono>` no RDS: a role admin precisa ser membro do dono com
+        SET (PG16+: `GRANT <dono> TO <admin> WITH SET TRUE`; ADMIN implícito do criador da role).
+        Passo explícito no runbook da Onda 3, antes do script; revogar a membership ao final.
+  3. `ExternalCaseReadCommand` lê `MZO_PORTAL_READ_PUBLICATION_RECEIPT` sem schema: qualificar com o
+     pin `maezo_native` validado e quotado, igual a D-I. Tarefa: **T1.8b**; teste com `search_path`
+     vazio.
 
 ---
 
