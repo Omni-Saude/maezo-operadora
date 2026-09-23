@@ -180,6 +180,7 @@ def pins_for(assembled: Assembled) -> dict[str, Any]:
         staff_scope=m["scope"],
         staff_native_origin=m["native_origin"],
         staff_native_server_spki_sha256=m["native_server_spki_sha256"],
+        staff_native_schema=m["native_schema"],
         staff_read_key_sha256=m["read_key_fingerprint"],
         staff_witness_key_sha256=m["witness_key_fingerprint"],
         staff_maximum_seconds=5,
