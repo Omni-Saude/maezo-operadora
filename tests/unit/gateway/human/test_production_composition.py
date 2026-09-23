@@ -568,6 +568,7 @@ def test_human_plane_is_dark_without_the_new_capability_literal():
         },
         staff_native_origin="https://staff.invalid",
         staff_native_server_spki_sha256="5" * 64,
+        staff_native_schema="maezo_native",
         staff_read_key_sha256="6" * 64,
         staff_witness_key_sha256="7" * 64,
         staff_maximum_seconds=5,

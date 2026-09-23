@@ -392,6 +392,7 @@ run "staff_material_delivery" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -449,6 +450,7 @@ run "staff_material_delivery" {
         MAEZO_PORTAL_STAFF_SCOPE                       = jsonencode(var.portal.staff.scope)
         MAEZO_PORTAL_STAFF_NATIVE_ORIGIN               = var.portal.staff.native_origin
         MAEZO_PORTAL_STAFF_NATIVE_SERVER_SPKI_SHA256   = var.portal.staff.native_server_spki_sha256
+        MAEZO_PORTAL_STAFF_NATIVE_SCHEMA               = var.portal.staff.native_schema
         MAEZO_PORTAL_STAFF_READ_KEY_SHA256             = var.portal.staff.read_key_sha256
         MAEZO_PORTAL_STAFF_WITNESS_KEY_SHA256          = var.portal.staff.witness_key_sha256
         MAEZO_PORTAL_STAFF_MAXIMUM_SECONDS             = tostring(var.portal.staff.maximum_seconds)
@@ -499,6 +501,7 @@ run "staff_mutable_version_refused" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -525,6 +528,7 @@ run "staff_duplicate_signer_refused" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -551,6 +555,7 @@ run "staff_unknown_field_refused" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -558,6 +563,61 @@ run "staff_unknown_field_refused" {
       native_database_security_group_id = "sg-00000000000000005"
       native_database_port              = 5432
     }, { arbitrary_environment = "prohibited" }) })
+  }
+  expect_failures = [var.portal]
+}
+# ADR-0060 D3/D5: the native schema is a closed lowercase identifier; a prefix, quote,
+# case or separator variant is refused before any task definition exists.
+run "staff_native_schema_invalid_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = merge({
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    }, { native_schema = "Maezo-native" }) })
+  }
+  expect_failures = [var.portal]
+}
+run "staff_native_schema_missing_refused" {
+  command = plan
+  plan_options { target = [aws_ecs_task_definition.portal] }
+  variables {
+    portal = merge(var.portal, { staff = {
+      material_secret_arn               = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/portaltest/staff-materials-abcdef"
+      material_secret_version_id        = "11111111-2222-3333-4444-555555555555"
+      material_kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      portal_image_digest               = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      public_manifest_sha256            = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      root_key_sha256                   = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      designation_sha256                = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      native_configuration_sha256       = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
+      native_origin                     = "https://native.example.test"
+      native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
+      witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
+      maximum_seconds                   = 5
+      native_https_security_group_id    = "sg-00000000000000004"
+      native_database_security_group_id = "sg-00000000000000005"
+      native_database_port              = 5432
+    } })
   }
   expect_failures = [var.portal]
 }
@@ -582,6 +642,7 @@ run "staff_reuses_exact_existing_database_egress" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -621,6 +682,7 @@ run "staff_db_reuses_https_egress" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -675,6 +737,7 @@ run "staff_https_reuses_aurora_egress" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -733,6 +796,7 @@ run "staff_all_destinations_share_one_egress" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -778,6 +842,7 @@ run "staff_refuses_foreign_security_group_owner" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -809,6 +874,7 @@ run "staff_refuses_different_security_group_identity" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5
@@ -840,6 +906,7 @@ run "staff_refuses_native_security_group_other_vpc" {
       scope                             = { tenant = "portaltest", environment = "explicit-owner-dev", engine_name = "payer", database_incarnation = "native-incarnation-fixture" }
       native_origin                     = "https://native.example.test"
       native_server_spki_sha256         = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      native_schema                     = "maezo_native"
       read_key_sha256                   = "1111111111111111111111111111111111111111111111111111111111111111"
       witness_key_sha256                = "2222222222222222222222222222222222222222222222222222222222222222"
       maximum_seconds                   = 5

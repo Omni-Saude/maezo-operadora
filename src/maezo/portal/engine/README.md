@@ -236,8 +236,14 @@ trust configuration and must compare it to the currently installed D admission; 
 caller-declared release digest alone is insufficient. No production key is included.
 
 Apply `portal-read-schema-postgres.sql` once using the deployment's dedicated
-migration identity, in the same PostgreSQL schema as CIB 2.1 and the existing human
-schema. It creates exactly six additive projection/receipt relations, revokes PUBLIC
+migration identity, in the dedicated native schema of ADR-0060 (`maezo_native`, owned by
+`maezo_native_schema_owner`) together with every other `mzo_*` relation. It is not the CIB
+2.1 schema: the engine path is `currentSchema=maezo_native,cibseven`, so the plugin's
+unqualified SQL resolves `mzo_*` in `maezo_native` and the `ACT_*` tables stay in `cibseven`.
+The staff pin (`StaffCaseInstallation.Configuration.nativeSchema`, manifest
+`portal-staff-material.v2` `native_schema`) names that schema and requires
+`current_schema()` and `to_regclass('<unqualified name>')` to land on the pinned relation.
+It creates exactly six additive projection/receipt relations, revokes PUBLIC
 access, and performs no ACT schema change or role provisioning. Runtime DDL is absent.
 The engine runtime and purpose-specific admission must be qualified separately;
 sharing the engine's enlisted connection does not grant a reader publication rights.

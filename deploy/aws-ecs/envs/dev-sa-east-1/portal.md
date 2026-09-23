@@ -155,6 +155,7 @@ Campos **exatos** de `portal.staff` (nenhum segredo literal):
 | `portal_image_digest` | Imagem portal derivada revisada, publicada no repositório de aplicação existente; fonte concreta, dependências, CA de identidade, SBOM/assinatura e mounts qualificados. |
 | `public_manifest_sha256`, `root_key_sha256`, `designation_sha256`, `native_configuration_sha256` | Pins públicos aprovados independentemente pelo dono. Não calculados de um bundle não confiável nem de URL/recibo fictício. |
 | `scope` | Objeto fechado `tenant`, `environment`, `engine_name`, `database_incarnation`; strings exatas do domínio instalado. Tenant igual ao portal. Nome do diretório Terraform não escolhe engine/incarnation/environment. |
+| `native_schema` | Schema PostgreSQL das relações `mzo_*` (ADR-0060: `maezo_native`). Identificador `^[a-z_][a-z0-9_]{0,62}$`, comparado por igualdade exata com o `native_schema` do manifesto v2. O dono confere no catálogo: dono `maezo_native_schema_owner` e `cibseven_app` sem CREATE nele. |
 | `native_origin`, `native_server_spki_sha256` | Origin DNS HTTPS fixo (porta443 somente), pin real do servidor mTLS, vínculo owner-qualified ao destino SG. Formato/SG não prova que DNS aponta ao endpoint correto. |
 | `read_key_sha256`, `witness_key_sha256` | Pins distintos entre si e do root; papéis/purposes e separação de todas as outras chaves verificados pelo loader/native. |
 | `maximum_seconds` | Inteiro1–10; env decimal; não pode exceder o máximo do native instalado. |
@@ -165,7 +166,7 @@ As entradas públicas viram exatamente `MAEZO_PORTAL_STAFF_MATERIAL_DIRECTORY`
 (`/run/maezo-staff-materials/current`), `..._MATERIAL_VERSION_ID`,
 `..._PUBLIC_MANIFEST_SHA256`, `..._ROOT_KEY_SHA256`, `..._DESIGNATION_SHA256`,
 `..._NATIVE_CONFIGURATION_SHA256`, `..._SCOPE` (JSON com quatro strings),
-`..._NATIVE_ORIGIN`, `..._NATIVE_SERVER_SPKI_SHA256`, `..._READ_KEY_SHA256`,
+`..._NATIVE_ORIGIN`, `..._NATIVE_SERVER_SPKI_SHA256`, `..._NATIVE_SCHEMA`, `..._READ_KEY_SHA256`,
 `..._WITNESS_KEY_SHA256`, `..._MAXIMUM_SECONDS`. Ambos os containers recebem os
 mesmos pins públicos/tenant/issuer. O init recebe **somente** o segredo novo
 `MAEZO_PORTAL_STAFF_SECRET_BUNDLE` por `arn:::version-id`; o BFF recebe somente sua
@@ -175,8 +176,8 @@ transitório; não se alega zeroização ou ausência de exposição à platafor
 
 Bundle: JSON canônico sem números, schema `portal-staff-secret-bundle.v1`, exatamente
 `schema`, `material_version_id`, `public_manifest`, `files` (valores base64), limite
-65.536 bytes. Manifesto schema `portal-staff-material.v1` com os campos fechados no
-bootstrap aprovado. O mapa files tem exatamente12 basenames:
+65.536 bytes. Manifesto schema `portal-staff-material.v2` (ADR-0060: v1 + `native_schema`)
+com os campos fechados no bootstrap aprovado; v1 é recusado no load. O mapa files tem exatamente12 basenames:
 
 - Públicos, SHA256 obrigatório no manifesto: `designation.json`, `installation-proof.json`,
   `installation-root.der`, `native-ca.pem`, `read-client-certificate.pem`,

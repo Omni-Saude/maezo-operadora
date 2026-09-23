@@ -84,7 +84,7 @@ variable "portal" {
         "material_secret_arn", "material_secret_version_id", "material_kms_key_arn",
         "portal_image_digest", "public_manifest_sha256", "root_key_sha256",
         "designation_sha256", "native_configuration_sha256", "scope", "native_origin",
-        "native_server_spki_sha256", "read_key_sha256", "witness_key_sha256", "maximum_seconds",
+        "native_server_spki_sha256", "native_schema", "read_key_sha256", "witness_key_sha256", "maximum_seconds",
         "native_https_security_group_id", "native_database_security_group_id", "native_database_port"
       ]) &&
       toset(keys(var.portal.staff.scope)) == toset(["tenant", "environment", "engine_name", "database_incarnation"]) &&
@@ -110,6 +110,8 @@ variable "portal" {
       startswith(var.portal.staff.material_kms_key_arn, "arn:aws:kms:sa-east-1:${var.aws_account_id}:key/") &&
       can(regex("^arn:aws:kms:sa-east-1:[0-9]{12}:key/[0-9a-f-]{36}$", var.portal.staff.material_kms_key_arn)) &&
       can(regex("^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:443)?$", var.portal.staff.native_origin)) &&
+      # ADR-0060 D3: the mzo_* schema is a pin of the v2 manifest, same regex as the portal.
+      can(regex("^[a-z_][a-z0-9_]{0,62}$", var.portal.staff.native_schema)) &&
       alltrue([for id in [var.portal.staff.native_https_security_group_id, var.portal.staff.native_database_security_group_id] : can(regex("^sg-[0-9a-f]{8,17}$", id))]) &&
       var.portal.staff.maximum_seconds == floor(var.portal.staff.maximum_seconds) &&
       var.portal.staff.maximum_seconds >= 1 && var.portal.staff.maximum_seconds <= 10 &&
@@ -117,7 +119,7 @@ variable "portal" {
       var.portal.staff.native_database_port >= 1 && var.portal.staff.native_database_port <= 65535,
       false
     )
-    error_message = "Staff requires the complete exact public input set, explicit tenant scope, distinct installed key pins, immutable image/secret version, account/regional secret+CMK and fixed native HTTPS/SG/port; no defaults or extra keys."
+    error_message = "Staff requires the complete exact public input set, explicit tenant scope, distinct installed key pins, exact native schema identifier, immutable image/secret version, account/regional secret+CMK and fixed native HTTPS/SG/port; no defaults or extra keys."
   }
 
 }

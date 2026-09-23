@@ -38,6 +38,9 @@ PUBLIC_FILES = frozenset(
     }
 )
 FILES = PRIVATE_FILES | PUBLIC_FILES
+#: ADR-0060 D3: the PostgreSQL schema of the native `mzo_*` relations (`maezo_native` in
+#: dev) is a pin of the v2 manifest and of the deployment settings, compared exactly (D5).
+NATIVE_SCHEMA = r"^[a-z_][a-z0-9_]{0,62}$"
 
 
 class PortalStaffBootstrapError(RuntimeError):
@@ -113,6 +116,7 @@ class PortalProductionSettings(BaseSettings):
     staff_scope: Scope | None = None
     staff_native_origin: str | None = None
     staff_native_server_spki_sha256: Digest | None = None
+    staff_native_schema: str | None = Field(default=None, pattern=NATIVE_SCHEMA)
     staff_read_key_sha256: Digest | None = None
     staff_witness_key_sha256: Digest | None = None
     staff_maximum_seconds: int | None = Field(default=None, ge=1, le=10)
@@ -303,7 +307,9 @@ class RevocationSnapshot(Closed):
 
 
 class PublicManifest(Closed):
-    schema_: Literal["portal-staff-material.v1"] = Field(alias="schema")
+    # v2 (ADR-0060 D3) adds `native_schema`. v1 is refused on load: no v1 package was
+    # ever published, so there is nothing to migrate.
+    schema_: Literal["portal-staff-material.v2"] = Field(alias="schema")
     material_version_id: str = Field(pattern=r"^[A-Za-z0-9-]{32,64}$")
     scope: Scope
     issuer: str
@@ -317,6 +323,7 @@ class PublicManifest(Closed):
     witness_key_fingerprint: Digest
     native_origin: str
     native_server_spki_sha256: Digest
+    native_schema: str = Field(pattern=NATIVE_SCHEMA)
     session_lock_connection: Connection
     native_witness_connection: Connection
     native_relation_pins: dict[str, NativeRelationPin]
