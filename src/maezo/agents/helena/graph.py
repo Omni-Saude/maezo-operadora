@@ -1550,6 +1550,42 @@ def _to_hash_from_state(state: HelenaState) -> str:
     return conv
 
 
+#: PERGUNTA DE IDENTIDADE NAO E' PEDIDO DE HUMANO (bateria de 23/09/2026, caso `A2`).
+#:
+#: O QUE FOI MEDIDO. "quem e voce?" e "voce e uma pessoa ou um robo?" sairam do classificador como
+#: `human_request` e abriram SP-OP-ESCALATION-001: `solicitacao_humano`, P3, fila
+#: `atendimento-humano`, prazo de 4h — trabalho numa fila humana para uma pergunta que a propria
+#: Helena responde, e responde por obrigacao (a transparencia de "sou um assistente virtual" e'
+#: requisito, `response-v9`). O prompt ja' diz que `human_request` exige pedido EXPLICITO; a rota
+#: nao pode depender da obediencia do modelo — o mesmo principio da "saudacao com sintoma" acima.
+#:
+#: A CERCA E' ESTREITA DE PROPOSITO, e o lado que ela protege e' o de quem QUER um humano. So'
+#: converte quando a mensagem (normalizada) e' uma pergunta sobre o que a Helena e' E nao traz
+#: pedido nenhum. "voce e um robo? quero falar com uma pessoa" continua `human_request`: o pedido
+#: explicito vence. Um falso negativo aqui (deixar passar uma pergunta de identidade) custa um
+#: chamado P3 a mais; um falso positivo (engolir um pedido de humano) custaria atendimento — por
+#: isso o padrao de PEDIDO e' largo e o de IDENTIDADE e' estreito.
+_PERGUNTA_DE_IDENTIDADE = re.compile(
+    r"\bquem (?:e|eh|seria|esta falando|fala)\b"
+    r"|\bcom quem (?:eu )?(?:estou|to|tou|falo)\b"
+    r"|\b(?:voce|vc|tu|isso|isto) (?:e|eh|seria)(?: uma?)? (?:pessoa|humano|humana|gente|robo|bot|ia"
+    r"|inteligencia artificial|maquina|sistema|assistente|atendente|real|de verdade)\b"
+    r"|\b(?:e|eh) (?:uma? )?(?:pessoa|humano|humana|robo|bot|ia|maquina)\b"
+)
+_PEDIDO_DE_HUMANO = re.compile(
+    r"\b(?:falar|conversar|atendimento|atender|atendente|transfer\w*|passa\w*|chama\w*|liga\w*"
+    r"|ligue|operador\w*|enfermeir\w*|medic\w*|responsavel|gerente|supervisor\w*)\b"
+    r"|\bquero (?:uma? )?(?:pessoa|humano|alguem)\b"
+    r"|\bpreciso (?:de )?(?:uma? )?(?:pessoa|humano|alguem)\b"
+)
+
+
+def _pergunta_de_identidade_sem_pedido(texto: str) -> bool:
+    """`True` quando a mensagem pergunta O QUE a Helena e' e nao pede humano nenhum."""
+    plano = _normalizar_texto(texto or "")
+    return bool(_PERGUNTA_DE_IDENTIDADE.search(plano)) and not _PEDIDO_DE_HUMANO.search(plano)
+
+
 def _severidade_from_prioridade(prioridade: str) -> Severidade:
     """P1 -> grave; P2 -> moderada; anything else -> leve (contract SP-OP-ESCALATION-001)."""
     if prioridade == "P1":
@@ -2079,6 +2115,19 @@ class HelenaGraph:
         if intent == "greeting" and extraction.get("sintoma_codigo"):
             logger.info("helena_saudacao_com_sintoma", node="classify")
             intent = "symptom"
+            update["intent"] = intent
+
+        # PERGUNTA DE IDENTIDADE NAO E' PEDIDO DE HUMANO (23/09/2026, caso `A2`) — ver
+        # `_PERGUNTA_DE_IDENTIDADE`. Vira `information`: a resposta honesta ("sou um assistente
+        # virtual") e' o atendimento. Sem codigo de sintoma, porque com sintoma o caminho certo e'
+        # a tabela, e o gatilho 1 ja' a consulta antes de qualquer intencao.
+        if (
+            intent == "human_request"
+            and not extraction.get("sintoma_codigo")
+            and _pergunta_de_identidade_sem_pedido(str(state.get("message_body") or ""))
+        ):
+            logger.info("helena_identidade_nao_e_pedido_de_humano", node="classify")
+            intent = "information"
             update["intent"] = intent
 
         # F5 (21/09/2026): CORRECAO DE UM DADO JA' AVALIADO RE-DISPARA A AVALIACAO.
