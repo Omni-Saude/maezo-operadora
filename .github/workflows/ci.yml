@@ -1188,6 +1188,16 @@ jobs:
         # Ver scripts/ci/check_portal_direct_completion.py.
         run: uv run python scripts/ci/check_portal_direct_completion.py
 
+      - name: Cerca do engine-rest aberto so' em dev (decisao N5 — T1.9)
+        # O engine de dev expoe o engine-rest sem autenticacao na 8080 (divida D7), e o plano de
+        # autoridade nativa mantem isso na Onda 4. O dono aceitou SO' em dev (N5, 23/09/2026).
+        # Pelo digest nao da' para saber se a imagem e' aberta ou secured*, entao a cerca e'
+        # declarativa: todo ambiente fora de dev que sobe um engine (deploy/**/envs/*, e o
+        # engine in-cluster do Helm) tem de declarar engine_rest_authentication =
+        # "client-certificate", sem indirecao nao resolvivel e sem a imagem oficial aberta.
+        # Ver scripts/ci/check_engine_rest_auth.py.
+        run: uv run python scripts/ci/check_engine_rest_auth.py
+
       # ── DESABILITADO: tests/unit/platform/test_provision_tenant.py ainda não
       # existe. NetworkPolicy egress tests serão implementados quando o módulo
       # de provisionamento de tenant for construído (post-M13).
