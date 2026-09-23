@@ -74,6 +74,7 @@ def manifest_matches(settings: PortalProductionSettings, manifest: PublicManifes
         settings.staff_native_origin,
         settings.staff_native_server_spki_sha256,
         settings.staff_native_schema,
+        settings.staff_engine_schema,
     )
     actual = (
         manifest.material_version_id,
@@ -87,6 +88,7 @@ def manifest_matches(settings: PortalProductionSettings, manifest: PublicManifes
         manifest.native_origin,
         manifest.native_server_spki_sha256,
         manifest.native_schema,
+        manifest.engine_schema,
     )
     snapshot = manifest.revocation_snapshot
     if (

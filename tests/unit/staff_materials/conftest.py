@@ -135,6 +135,7 @@ def assemble_v2(generated: Generated, now: datetime, *, root: Ed25519PrivateKey 
         native_origin="https://" + summary["native_hostname"],
         native_server_spki_sha256=summary["native_server_spki_sha256"],
         native_schema="maezo_native",
+        engine_schema="cibseven",
         session_lock_connection=dict(
             spec["session_lock_connection"],
             tls_server_name=spec["session_lock_connection"]["host"],
@@ -181,6 +182,7 @@ def pins_for(assembled: Assembled) -> dict[str, Any]:
         staff_native_origin=m["native_origin"],
         staff_native_server_spki_sha256=m["native_server_spki_sha256"],
         staff_native_schema=m["native_schema"],
+        staff_engine_schema=m["engine_schema"],
         staff_read_key_sha256=m["read_key_fingerprint"],
         staff_witness_key_sha256=m["witness_key_fingerprint"],
         staff_maximum_seconds=5,

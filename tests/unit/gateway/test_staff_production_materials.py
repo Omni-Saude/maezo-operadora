@@ -139,6 +139,7 @@ def material_fixture(
         native_origin="https://native.invalid",
         native_server_spki_sha256="d" * 64,
         native_schema="maezo_native",
+        engine_schema="cibseven",
         session_lock_connection=dict(
             host="identity.invalid",
             port="5432",
@@ -192,6 +193,7 @@ def settings_for(manifest: dict[str, Any]) -> PortalProductionSettings:
         staff_native_origin=manifest["native_origin"],
         staff_native_server_spki_sha256=manifest["native_server_spki_sha256"],
         staff_native_schema=manifest["native_schema"],
+        staff_engine_schema=manifest["engine_schema"],
         staff_read_key_sha256=manifest["read_key_fingerprint"],
         staff_witness_key_sha256=manifest["witness_key_fingerprint"],
         staff_maximum_seconds=5,
@@ -363,6 +365,73 @@ def test_native_schema_must_equal_the_deployment_pin_exactly(schema: str) -> Non
     settings = settings.model_copy(update={"staff_native_schema": schema})
     with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
         m.decode_bundle(bundle(manifest, files), settings)
+
+
+def test_engine_schema_is_pinned_from_manifest_and_settings() -> None:
+    settings, manifest, files = material_fixture()
+    parsed, decoded = m.decode_bundle(bundle(manifest, files), settings)
+    loaded = m.verify_materials(settings, parsed, decoded, now=datetime.now(UTC))
+    assert loaded.manifest.engine_schema == settings.staff_engine_schema == "cibseven"
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        "Cibseven",
+        "cib-seven",
+        "1cib",
+        "a" * 64,
+        "",
+        "cibseven;drop",
+        '"cibseven"',
+        "cib.seven",
+        "public",
+        "information_schema",
+        "maezo_native",
+        "pg_catalog",
+        "pg_temp",
+        "pg_toast",
+        "pg_temp_3",
+    ],
+)
+def test_engine_schema_outside_the_rule_is_refused(schema: str) -> None:
+    settings, manifest, files = material_fixture()
+    manifest["engine_schema"] = schema
+    settings = settings.model_copy(update={"staff_public_manifest_sha256": digest(manifest)})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+    with pytest.raises(ValidationError):
+        PortalProductionSettings.model_validate(
+            {**settings.model_dump(), "staff_engine_schema": schema, "staff_scope": manifest["scope"]}
+        )
+
+
+def test_engine_schema_is_never_the_pinned_native_schema() -> None:
+    settings, manifest, files = material_fixture()
+    manifest["native_schema"] = manifest["engine_schema"] = "shared_schema"
+    settings = settings.model_copy(update={"staff_public_manifest_sha256": digest(manifest)})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+    values = {**settings.model_dump(), "staff_scope": manifest["scope"]}
+    values["staff_native_schema"] = values["staff_engine_schema"] = "shared_schema"
+    with pytest.raises(PortalStaffBootstrapError):
+        PortalProductionSettings.model_validate(values)
+
+
+@pytest.mark.parametrize("schema", ["cibseven_v2", "cibsevem", "cibseve"])
+def test_engine_schema_must_equal_the_deployment_pin_exactly(schema: str) -> None:
+    settings, manifest, files = material_fixture()
+    settings = settings.model_copy(update={"staff_engine_schema": schema})
+    with pytest.raises(PortalStaffBootstrapError, match="^portal_staff_bootstrap_unavailable$"):
+        m.decode_bundle(bundle(manifest, files), settings)
+
+
+def test_staff_profile_requires_the_engine_schema() -> None:
+    settings, manifest, _ = material_fixture()
+    values = {**settings.model_dump(), "staff_scope": manifest["scope"]}
+    del values["staff_engine_schema"]
+    with pytest.raises(PortalStaffBootstrapError):
+        PortalProductionSettings.model_validate(values)
 
 
 def test_staff_profile_requires_the_native_schema() -> None:
