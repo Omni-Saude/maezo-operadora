@@ -1083,9 +1083,28 @@ jobs:
   # failsafe, entao este job cobre compilacao + os testes finitos; os `*EngineIT` rodam
   # explicitamente no runner do motor, com a receita de fixture em
   # src/maezo/portal/engine/java/ENGINE-IT.md.
+  #
+  # O provedor Q2 (T1.7a, src/maezo/portal/engine/read-provider/) e' um modulo Maven a parte que
+  # depende do JAR do engine como `provided`: por isso o engine faz `install` (= verify + copia
+  # para o ~/.m2 do runner) antes. Os `*JarIT` do provedor rodam DEPOIS do `package`, contra o
+  # JAR construido (a admissao pina o SHA-256 do JAR carregado), e precisam de um PostgreSQL real
+  # (pin de OID/dono/privilegios da tabela de admissao): sem as tres variaveis eles falham, nunca
+  # pulam.
   java-plugin:
     name: plugin humano Java (mvn verify)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: read_provider_it
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -1096,8 +1115,15 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: mvn verify
-        run: mvn -B -f src/maezo/portal/engine/java/pom.xml verify
+      - name: mvn install (verify + JAR do engine para o provedor)
+        run: mvn -B -f src/maezo/portal/engine/java/pom.xml install
+
+      - name: mvn verify - provedor Q2 (read-provider)
+        env:
+          MAEZO_READ_PROVIDER_IT_JDBC_URL: jdbc:postgresql://localhost:5432/postgres
+          MAEZO_READ_PROVIDER_IT_DB_USER: postgres
+          MAEZO_READ_PROVIDER_IT_DB_PASSWORD: read_provider_it
+        run: mvn -B -f src/maezo/portal/engine/read-provider/pom.xml verify
 
   validate-helm:
     name: helm lint + egress NetworkPolicy CI
