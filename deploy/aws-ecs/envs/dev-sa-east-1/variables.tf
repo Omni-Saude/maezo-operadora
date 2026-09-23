@@ -209,7 +209,7 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "e857e284" # main de 20/09/2026 (merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
+  default     = "79cb6ab3" # main de 22/09/2026 (79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
 }
 
 variable "webhook_receiver_image_tag" {
@@ -235,7 +235,7 @@ variable "webhook_receiver_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "e857e284" # main de 20/09/2026 (#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
+  default = "79cb6ab3" # main de 22/09/2026 (79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
 }
 
 variable "webhook_receiver_desired_count" {
@@ -495,7 +495,7 @@ variable "canal_teste_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "e857e284" # main de 20/09/2026 (#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
+  default = "79cb6ab3" # main de 22/09/2026 (79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
 }
 
 variable "canal_teste_desired_count" {
