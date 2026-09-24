@@ -198,7 +198,8 @@ def world(*, issuer_projections: list[str] | None = None) -> World:
                 POLICY,
                 SOURCE,
                 ["staff_case_grant", "staff_policy_head", "scope_complete"],
-                projections=issuer_projections or ["staff_identity.v1", "staff_summary.v1"],
+                projections=issuer_projections
+                or ["staff_escalation.v1", "staff_identity.v1", "staff_summary.v1"],
                 operations=["detail", "list"],
             ),
             entry(
@@ -404,7 +405,7 @@ async def test_isolation_grant_verifies_for_its_group_member_and_is_denied_to_an
     }
     a_case1 = grants[(A.principal_ref, identity(1).case_ref)]
     verified = verify_grant(w, a_case1, A, identity(1))
-    assert set(verified.fields) == {"staff_summary.v1", "staff_identity.v1"}
+    assert set(verified.fields) == {"staff_summary.v1", "staff_identity.v1", "staff_escalation.v1"}
     # B (enfermagem) apresentando o grant de A: o grant nomeia OUTRO principal -> negado.
     with pytest.raises(StaffCaseError):
         verify_grant(w, a_case1, B, identity(1))
@@ -423,7 +424,7 @@ async def test_no_grant_carries_the_current_task_projection_and_detail_answers_w
     detail = verify_grant(w, grant, A, identity(1))
     assert "staff_current_task.v1" not in detail.fields and detail.task_decisions == ()
     listed = verify_grant(w, grant, A, identity(1), operation="list")
-    assert set(listed.fields) == {"staff_summary.v1"}
+    assert set(listed.fields) == {"staff_summary.v1", "staff_escalation.v1"}
     assert all(p not in canonicalize(grant.wire()).decode() for p in ("staff_current_task", "task_id"))
 
 
@@ -431,8 +432,37 @@ def test_decisions_are_a_closed_constant_without_current_task() -> None:
     assert DECISIONS == (
         ("detail", "staff_identity.v1"),
         ("detail", "staff_summary.v1"),
+        ("detail", "staff_escalation.v1"),
         ("list", "staff_summary.v1"),
+        ("list", "staff_escalation.v1"),
     )
+
+
+async def test_escalation_decisions_carry_exactly_the_dm_fields_without_free_text() -> None:
+    w = world()
+    job, sent = run(w, ESCALATIONS, (A,), MemoryLedger())
+    await job.run_once()
+    grant = next(p for p in sent if p.kind == "case_grant")
+    escalation = [d for d in grant.payload.decisions if d.projection == "staff_escalation.v1"]
+    assert {d.operation for d in escalation} == {"detail", "list"}
+    for decision in escalation:
+        assert set(decision.fields) == {
+            "guide_number",
+            "reason_code",
+            "priority",
+            "ack_due_at",
+            "resolution_due_at",
+        }
+    # O emissor so autoriza a projecao: nenhum valor (guia, motivo) viaja no grant.
+    text = canonicalize(grant.wire()).decode()
+    assert all(word not in text for word in ("motivo", "motivo_fallback", "motivo_categoria"))
+
+
+def test_escalation_projection_outside_the_designation_is_refused() -> None:
+    # A designacao antiga (sem `staff_escalation.v1`) nao autoriza a decisao nova: o plano recusa.
+    w = world(issuer_projections=["staff_identity.v1", "staff_summary.v1"])
+    with pytest.raises(CaseIssuerError):
+        run(w, ESCALATIONS, (A,), MemoryLedger())
 
 
 async def test_checkpoint_lists_exactly_the_grantee_cases_and_verifies() -> None:

@@ -12,7 +12,8 @@ final class EngineSchema {
   private EngineSchema(){}
   static final Set<String> RESERVED=Set.of("public","information_schema","maezo_native");
   /** Relations the plugin reads; each must exist in the pinned schema and be readable. */
-  static final List<String> TABLES=List.of("act_ge_bytearray","act_hi_procinst","act_re_procdef","act_ru_execution","act_ru_task");
+  static final List<String> TABLES=List.of("act_ge_bytearray","act_hi_dec_in","act_hi_dec_out","act_hi_decinst","act_hi_procinst","act_hi_varinst",
+    "act_re_procdef","act_ru_execution","act_ru_task");
   static String require(String value,String nativeSchema){
     if(value==null||!value.matches("[a-z_][a-z0-9_]{0,62}")||RESERVED.contains(value)||value.startsWith("pg_")
         ||value.equals(nativeSchema))throw unavailable();

@@ -2629,6 +2629,27 @@ export interface components {
             /** Tasks Complete */
             tasks_complete: boolean;
         };
+        /**
+         * StaffEscalation
+         * @description `staff_escalation.v1` (D-M): repasse exato do engine; o BFF nao calcula nada.
+         */
+        StaffEscalation: {
+            /** Ack Due At */
+            ack_due_at: string | null;
+            /**
+             * Escalation State
+             * @enum {string}
+             */
+            escalation_state: "resolved" | "unresolved";
+            /** Guide Number */
+            guide_number: string | null;
+            /** Priority */
+            priority: string | null;
+            /** Reason Code */
+            reason_code: string | null;
+            /** Resolution Due At */
+            resolution_due_at: string | null;
+        };
         /** StaffFreshness */
         StaffFreshness: {
             /** Observed At */
@@ -2663,6 +2684,7 @@ export interface components {
         StaffSummary: {
             /** Case Ref */
             case_ref: string;
+            escalation?: components["schemas"]["StaffEscalation"] | null;
             /**
              * Kind
              * @constant

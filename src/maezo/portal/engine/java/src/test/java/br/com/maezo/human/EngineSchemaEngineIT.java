@@ -56,12 +56,20 @@ class EngineSchemaEngineIT {
       s.execute("CREATE TABLE cibseven.ACT_RE_PROCDEF(ID_ varchar(64) PRIMARY KEY,KEY_ varchar(255),VERSION_ integer,DEPLOYMENT_ID_ varchar(64),TENANT_ID_ varchar(64),RESOURCE_NAME_ varchar(4000))");
       s.execute("CREATE TABLE cibseven.ACT_GE_BYTEARRAY(ID_ varchar(64) PRIMARY KEY,DEPLOYMENT_ID_ varchar(64),NAME_ varchar(255),BYTES_ bytea)");
       s.execute("CREATE TABLE cibseven.ACT_RU_EXECUTION(ID_ varchar(64) PRIMARY KEY,PROC_INST_ID_ varchar(64),PROC_DEF_ID_ varchar(64),TENANT_ID_ varchar(64))");
-      s.execute("CREATE TABLE cibseven.ACT_HI_PROCINST(ID_ varchar(64) PRIMARY KEY,PROC_INST_ID_ varchar(64),PROC_DEF_ID_ varchar(64),TENANT_ID_ varchar(64),END_TIME_ timestamp)");
+      s.execute("CREATE TABLE cibseven.ACT_HI_PROCINST(ID_ varchar(64) PRIMARY KEY,PROC_INST_ID_ varchar(64),PROC_DEF_ID_ varchar(64),TENANT_ID_ varchar(64),END_TIME_ timestamp,BUSINESS_KEY_ varchar(255),PROC_DEF_KEY_ varchar(255),START_TIME_ timestamp)");
+      // D-M: the history relations of CIB 2.1 the escalation projection reads (column subset, same names/types).
+      s.execute("CREATE TABLE cibseven.ACT_HI_DECINST(ID_ varchar(64) PRIMARY KEY,DEC_DEF_KEY_ varchar(255),PROC_INST_ID_ varchar(64),TENANT_ID_ varchar(64))");
+      s.execute("CREATE TABLE cibseven.ACT_HI_DEC_IN(ID_ varchar(64) PRIMARY KEY,DEC_INST_ID_ varchar(64),CLAUSE_ID_ varchar(64),VAR_TYPE_ varchar(100),TEXT_ varchar(4000))");
+      s.execute("CREATE TABLE cibseven.ACT_HI_DEC_OUT(ID_ varchar(64) PRIMARY KEY,DEC_INST_ID_ varchar(64),VAR_NAME_ varchar(255),VAR_TYPE_ varchar(100),TEXT_ varchar(4000))");
+      s.execute("CREATE TABLE cibseven.ACT_HI_VARINST(ID_ varchar(64) PRIMARY KEY,PROC_INST_ID_ varchar(64),NAME_ varchar(255),VAR_TYPE_ varchar(100),TEXT_ varchar(4000),TENANT_ID_ varchar(64))");
+      escalation(s,"esc-1","ESC-"+TENANT+"-sla-auth-G1",TENANT,"solicitacao_humano");
+      escalation(s,"esc-2","ESC-"+TENANT+"-sla-auth-G2",TENANT,"falha_tecnica");escalation(s,"esc-3","ESC-"+TENANT+"-sla-auth-G2",TENANT,"falha_tecnica");
+      escalation(s,"esc-4","ESC-tenant-b-sla-auth-G1","tenant-b","red_flag_clinico");
       s.execute("CREATE TABLE cibseven.ACT_RU_TASK(ID_ varchar(64) PRIMARY KEY,REV_ integer,PROC_INST_ID_ varchar(64),PROC_DEF_ID_ varchar(64),TASK_DEF_KEY_ varchar(255),CREATE_TIME_ timestamp,TENANT_ID_ varchar(64))");
       s.execute("INSERT INTO cibseven.ACT_RE_PROCDEF VALUES('"+DEFINITION+"','SP-OP-AUTH-001',1,'dep-1','"+TENANT+"','auth.bpmn')");
       s.execute("INSERT INTO cibseven.ACT_GE_BYTEARRAY VALUES('b-1','dep-1','auth.bpmn',convert_to('<bpmn/>','UTF8'))");
       s.execute("INSERT INTO cibseven.ACT_RU_EXECUTION VALUES('"+INSTANCE+"','"+INSTANCE+"','"+DEFINITION+"','"+TENANT+"')");
-      s.execute("INSERT INTO cibseven.ACT_HI_PROCINST VALUES('h-1','"+INSTANCE+"','"+DEFINITION+"','"+TENANT+"',NULL),('h-2','"+DONE+"','"+DEFINITION+"','"+TENANT+"',now())");
+      s.execute("INSERT INTO cibseven.ACT_HI_PROCINST(ID_,PROC_INST_ID_,PROC_DEF_ID_,TENANT_ID_,END_TIME_) VALUES('h-1','"+INSTANCE+"','"+DEFINITION+"','"+TENANT+"',NULL),('h-2','"+DONE+"','"+DEFINITION+"','"+TENANT+"',now())");
       s.execute("INSERT INTO cibseven.ACT_RU_TASK VALUES('task-1',1,'"+INSTANCE+"','"+DEFINITION+"','review',now(),'"+TENANT+"')");
       s.execute("GRANT SELECT ON ALL TABLES IN SCHEMA cibseven TO "+runtime);
       s.execute("GRANT UPDATE ON cibseven.ACT_RU_TASK TO "+runtime);
@@ -75,6 +83,16 @@ class EngineSchemaEngineIT {
       var none=optional(c,"SELECT count(*) AS n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'act\\_%'");
       assertEquals(0L,((Number)none.get("n")).longValue());
     }
+  }
+  /** One escalation as CIB writes it: the instance, ONE escalation_routing decision (input + 4 outputs), two variables. */
+  static void escalation(Statement s,String id,String key,String tenant,String reason)throws SQLException{
+    s.execute("INSERT INTO cibseven.ACT_HI_PROCINST VALUES('hp-"+id+"','"+id+"','SP-OP-ESCALATION-001:1:x','"+tenant+"',NULL,'"+key+"','SP-OP-ESCALATION-001',TIMESTAMP '2026-09-24 12:00:00')");
+    s.execute("INSERT INTO cibseven.ACT_HI_DECINST VALUES('d-"+id+"','escalation_routing','"+id+"','"+tenant+"')");
+    s.execute("INSERT INTO cibseven.ACT_HI_DEC_IN VALUES('i-"+id+"','d-"+id+"','in_motivo','string','"+reason+"'),('j-"+id+"','d-"+id+"','in_severidade','string','moderada')");
+    s.execute("INSERT INTO cibseven.ACT_HI_DEC_OUT VALUES('o1-"+id+"','d-"+id+"','prioridade','string','P3'),('o2-"+id+"','d-"+id+"','grupo_atendimento','string','atendimento-humano'),"
+      +"('o3-"+id+"','d-"+id+"','sla_ack','string','PT30M'),('o4-"+id+"','d-"+id+"','sla_resolucao','string','PT4H')");
+    s.execute("INSERT INTO cibseven.ACT_HI_VARINST VALUES('v1-"+id+"','"+id+"','motivo_categoria','string','"+reason+"','"+tenant+"'),"
+      +"('v2-"+id+"','"+id+"','roteamento','serializable',NULL,'"+tenant+"'),('v3-"+id+"','"+id+"','motivo','string','texto livre','"+tenant+"')");
   }
   @AfterAll void drop()throws Exception{
     if(database==null)return;
@@ -134,6 +152,30 @@ class EngineSchemaEngineIT {
     }
     assertThrows(Rejected.class,()->ExternalCaseStore.tenantLockSql("public"));
     assertThrows(Rejected.class,()->ExternalCaseStore.revokedSql("x\";drop"));
+  }
+  Map<String,Object> escalationRow(Connection c,String tenant,String guide)throws SQLException{
+    // Raw key: the fixture tenants contain "-", which escalationKey (the anchor rule) refuses by design.
+    return optional(c,StaffEscalation.sql(ENGINE),tenant,"ESC-"+tenant+"-sla-auth-"+guide,tenant,tenant);
+  }
+  /** D-M / T-M2: the exact projection SQL, as the runtime login, in the D-C2 layout. */
+  @Test void escalationProjectionReadsTheDmnHistoryInCibseven()throws Exception{
+    try(var c=runtime()){
+      var e=StaffEscalation.from("G1",escalationRow(c,TENANT,"G1"));
+      assertEquals("resolved",e.get("escalation_state"));assertEquals("solicitacao_humano",e.get("reason_code"));assertEquals("P3",e.get("priority"));
+      var started=java.sql.Timestamp.valueOf("2026-09-24 12:00:00").toInstant();
+      assertEquals(PortalReadModels.time(started.plusSeconds(1800)),e.get("ack_due_at"));
+      assertEquals(PortalReadModels.time(started.plusSeconds(4*3600)),e.get("resolution_due_at"));
+      assertFalse(e.containsValue("texto livre"));
+      // Two escalations under one key: ambiguous, never the first one found.
+      assertEquals("unresolved",StaffEscalation.from("G2",escalationRow(c,TENANT,"G2")).get("escalation_state"));
+      // No escalation: unresolved, guide kept. Another tenant's escalation under the same guide never answers.
+      var absent=StaffEscalation.from("G9",escalationRow(c,TENANT,"G9"));assertEquals("unresolved",absent.get("escalation_state"));assertEquals("G9",absent.get("guide_number"));
+      assertEquals("red_flag_clinico",StaffEscalation.from("G1",escalationRow(c,"tenant-b","G1")).get("reason_code"));
+    }
+    try(var c=admin(database);var s=c.createStatement()){s.execute("UPDATE cibseven.ACT_HI_VARINST SET TEXT_='falha_tecnica' WHERE ID_='v1-esc-1'");}
+    try(var c=runtime()){assertEquals("unresolved",StaffEscalation.from("G1",escalationRow(c,TENANT,"G1")).get("escalation_state"));}
+    finally{try(var c=admin(database);var s=c.createStatement()){s.execute("UPDATE cibseven.ACT_HI_VARINST SET TEXT_='solicitacao_humano' WHERE ID_='v1-esc-1'");}}
+    try(var c=runtime()){assertThrows(SQLException.class,()->rows(c,StaffEscalation.sql("engine_empty"),TENANT,"k",TENANT,TENANT));}
   }
   @Test void wrongSchemaQueriesFailInsteadOfReadingElsewhere()throws Exception{
     try(var c=runtime()){assertThrows(SQLException.class,()->rows(c,EngineSchema.identitySql("engine_empty"),INSTANCE,INSTANCE,DEFINITION));}
