@@ -4,11 +4,16 @@
   "keys": [
     {"tenant": "amh", "numero_guia_tiss": "2026000123", "key": "AUTH-amh-2026000123"},
     {"tenant": "amh", "numero_guia_tiss": "C1GUIA1", "key": "AUTH-amh-C1GUIA1"},
-    {"tenant": "SYN-c1", "numero_guia_tiss": "SYN-C1GUIA1", "key": "AUTH-SYN-c1-SYN-C1GUIA1"},
+    {"tenant": "amh", "numero_guia_tiss": "SYN-C1GUIA1", "key": "AUTH-amh-SYN-C1GUIA1"},
+    {"tenant": "a", "numero_guia_tiss": "b-c", "key": "AUTH-a-b-c"},
     {"tenant": "amh", "numero_guia_tiss": "12.345/67-8", "key": "AUTH-amh-12.345/67-8"}
   ],
   "refused_keys": [
     {"tenant": "", "numero_guia_tiss": "2026000123"},
+    {"tenant": "a-b", "numero_guia_tiss": "c"},
+    {"tenant": "SYN-c1", "numero_guia_tiss": "SYN-C1GUIA1"},
+    {"tenant": "-", "numero_guia_tiss": "1"},
+    {"tenant": "amh-", "numero_guia_tiss": "1"},
     {"tenant": "amh", "numero_guia_tiss": ""},
     {"tenant": "amh", "numero_guia_tiss": " 2026000123"},
     {"tenant": "amh", "numero_guia_tiss": "2026 000123"},

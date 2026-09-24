@@ -32,8 +32,11 @@ public final class AuthDecimalSerializer implements TypedValueSerializer<AuthDec
     return java.util.Map.of("type",NAME,"value",checked(exact.getValue()).toPlainString());
   }
   static Value cents(Object cents){return new Value(BigDecimal.valueOf(PortalReadModels.number(cents),2),false);}
+  /** C1: the widest exact amount is Long.MAX_VALUE cents: 19 digits of precision, 22 chars of text. */
+  static final int MAX_PRECISION=19,MAX_TEXT=22;
   static BigDecimal checked(BigDecimal amount) {
-    try {if(amount==null||amount.scale()!=2||amount.unscaledValue().longValueExact()<0)throw Rejected.invalid();}
+    // Scale and precision first: no exponent-sized value (1e999999999) reaches unscaledValue arithmetic.
+    try {if(amount==null||amount.scale()!=2||amount.precision()>MAX_PRECISION||amount.unscaledValue().longValueExact()<0)throw Rejected.invalid();}
     catch(ArithmeticException failure){throw Rejected.invalid();}return amount;
   }
   @Override public String getName(){return NAME;}
@@ -50,7 +53,7 @@ public final class AuthDecimalSerializer implements TypedValueSerializer<AuthDec
   @Override public Value readValue(ValueFields fields,boolean deserialize,boolean transientValue) {
     if(!"valor_estimado_brl".equals(fields.getName())||!NAME.equals(fields.getTextValue2())
         ||fields.getLongValue()!=null||fields.getDoubleValue()!=null||fields.getByteArrayValue()!=null
-        ||fields.getTextValue()==null||!fields.getTextValue().matches("(?:0|[1-9][0-9]*)\\.[0-9]{2}"))throw Rejected.denied();
+        ||fields.getTextValue()==null||fields.getTextValue().length()>MAX_TEXT||!fields.getTextValue().matches("(?:0|[1-9][0-9]*)\\.[0-9]{2}"))throw Rejected.denied();
     try{return new Value(new BigDecimal(fields.getTextValue()),transientValue);}
     catch(NumberFormatException failure){throw Rejected.invalid();}
   }

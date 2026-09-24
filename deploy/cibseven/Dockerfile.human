@@ -105,9 +105,21 @@ EXPOSE 8443
 # If the base changes underneath us (user missing, different uid, paths the
 # camunda user cannot write), the build FAILS instead of publishing a root image.
 # ---------------------------------------------------------------------------
+# C1 (item 3): the engine descriptor (plugins, authorizationEnabled, whitelist) is fixed at build
+# time and must not be rewritable by the process uid. The file becomes root:root 0444; its parent
+# /camunda/conf becomes root:camunda 1775 (sticky): the runtime may still create files there
+# (Tomcat's conf/Catalina), but cannot unlink or rename a root-owned descriptor to replace it.
+USER root
+RUN chown root:root /camunda/conf/bpm-platform.xml && chmod 0444 /camunda/conf/bpm-platform.xml \
+    && chown root:camunda /camunda/conf && chmod 1775 /camunda/conf
 USER camunda
 RUN set -eu; \
     die() { echo "FATAL (DS-0002): $*" >&2; exit 1; }; \
+    f=/camunda/conf/bpm-platform.xml; \
+    [ "$(stat -c %u:%g:%a "$f")" = "0:0:444" ] || die "$f is not root:root 0444"; \
+    [ ! -w "$f" ] || die "camunda can write $f"; \
+    [ "$(stat -c %u:%a /camunda/conf)" = "0:1775" ] || die "/camunda/conf is not root-owned and sticky"; \
+    if mv "$f" "$f.x" 2>/dev/null || rm -f "$f" 2>/dev/null && [ ! -e "$f" ]; then die "camunda can replace $f"; fi; \
     getent passwd camunda >/dev/null || die "user 'camunda' missing from base image (getent passwd failed)"; \
     [ "$(id -u)" = "1000" ] || die "effective uid $(id -u) != 1000 — USER camunda did not resolve to the proven base uid"; \
     [ "$(id -g)" = "1000" ] || die "effective gid $(id -g) != 1000"; \
