@@ -99,14 +99,18 @@ def auth_business_key(*, tenant_id: object, numero_guia_tiss: object) -> str:
     uma chave colapsada; ver o docstring do modulo para por que a promocao a `EXCLUSIVE` torna
     esse colapso um risco de troca de caso clinico.
 
-    RESIDUAL DECLARADO (nao fechado aqui): a forma `{PREFIXO}-{tenant}-{guia}` e' ambigua se um
-    `tenant_id` contiver `-`, porque o separador tambem aparece dentro de `numero_guia_tiss`
-    (ha' guias com hifen em uso). Nenhum tenant implantado tem hifen hoje, e ESTREITAR o
-    componente aqui reescreveria chaves ja' implantadas — o que o contrato proibe
-    explicitamente ("ADR-0038 continua Proposed; nao autoriza renomear chaves implantadas").
-    A desambiguacao pertence a ratificacao do ADR-0038, nao a este compositor.
+    C1 (ressalva de seguranca): a forma `{PREFIXO}-{tenant}-{guia}` so' e' injetiva se o
+    `tenant_id` NAO contiver `-` (o separador aparece dentro de `numero_guia_tiss`: ha' guias com
+    hifen em uso), senao `("a", "b-c")` e `("a-b", "c")` colapsam em `AUTH-a-b-c`. Nenhum tenant
+    implantado tem hifen, entao recusar aqui nao renomeia chave implantada: fecha o residual.
+    Paridade com `AuthBusinessKeys.java` pelos vetores `auth-business-key-vectors.json`.
     """
     tenant = _component("tenant_id", tenant_id)
+    if "-" in tenant:
+        raise BusinessKeyComponentError(
+            "business key AUTH: componente 'tenant_id' contem '-' — o separador da chave; "
+            "`AUTH-{tenant}-{guia}` deixaria de ser injetiva (a guia pode conter '-')"
+        )
     guia = _component("numero_guia_tiss", numero_guia_tiss)
     return f"{AUTH_BUSINESS_KEY_PREFIX}{tenant}-{guia}"
 

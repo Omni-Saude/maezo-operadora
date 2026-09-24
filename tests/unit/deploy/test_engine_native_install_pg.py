@@ -533,6 +533,9 @@ def test_install_refuses_the_posture_the_runtime_refuses() -> None:
         "GRANT INSERT ON maezo_native.mzo_portal_read_admission TO maezo_native_issuer_witness",
         "GRANT DELETE ON maezo_native.mzo_staff_case_issuer_ledger TO maezo_native_case_issuer",
         "CREATE TABLE maezo_native.act_ru_task(id_ text)",
+        # C1 (item 5): coluna extra nas MZO_PORTAL_READ_* (o pin Java nao cobre estas tabelas).
+        "GRANT SELECT (payload_) ON maezo_native.mzo_portal_read_membership TO maezo_native_issuer_witness",
+        "GRANT UPDATE (tenant_) ON maezo_native.mzo_portal_read_resource TO maezo_native_case_issuer",
     )
 
     async def check(env: Env) -> None:
@@ -631,5 +634,121 @@ def test_roles_refuse_set_role_reachability_bad_verifier_and_foreign_owner() -> 
                 await engine.execute(_sql("engine-native-install.sql"))
         finally:
             await engine.close()
+
+    _run(check)
+
+
+_STAFF_JAVA = _ENGINE / "java/src/main/java/br/com/maezo/human/StaffCaseStore.java"
+
+
+def _designation_lock_sql() -> str:
+    """O DESIGNATION_LOCK do leitor, lido do Java (a cerca segue o codigo)."""
+    found = re.search(r'static final String DESIGNATION_LOCK="(.*?)";', _STAFF_JAVA.read_text(encoding="utf-8"))
+    assert found, "DESIGNATION_LOCK moveu; atualize esta cerca"
+    sql = found.group(1)
+    for n in range(1, 5):
+        sql = sql.replace("?", f"${n}", 1)
+    return sql
+
+
+def test_designation_writer_waits_for_the_reader_shared_lock() -> None:
+    """C1 F1: o gravador da designacao (qualquer um: a trigger toma o lock EXCLUSIVO) nao muda a
+    linha enquanto o leitor segura o lock COMPARTILHADO de mesma chave; muda depois do commit."""
+    key = ("t", "dev", "default", "inc")
+
+    async def check(env: Env) -> None:
+        await env.run_all()
+        owner = await env.login("maezo_native_schema_owner")
+        reader = await env.login("cibseven_app")
+        try:
+            insert_event = (
+                "INSERT INTO maezo_native.mzo_staff_case_designation_event"
+                " VALUES($1,$2,$3,$4,$5,$6,'{}','{}')"
+            )
+            await owner.execute(insert_event, *key, 1, "a" * 64)
+            await owner.execute(
+                "INSERT INTO maezo_native.mzo_staff_case_designation_current VALUES($1,$2,$3,$4,1,$5)",
+                *key,
+                "a" * 64,
+            )
+            await owner.execute(insert_event, *key, 2, "b" * 64)
+            read = reader.transaction()
+            await read.start()
+            await reader.execute(_designation_lock_sql(), *key)
+            before = await reader.fetchval(
+                "SELECT designation_digest FROM maezo_native.mzo_staff_case_designation_current WHERE tenant=$1",
+                key[0],
+            )
+            change = (
+                "UPDATE maezo_native.mzo_staff_case_designation_current"
+                " SET designation_revision=2, designation_digest=$2 WHERE tenant=$1"
+            )
+            write = owner.transaction()
+            await write.start()
+            await owner.execute("SET LOCAL lock_timeout='300ms'")
+            with pytest.raises(asyncpg.LockNotAvailableError):
+                await owner.execute(change, key[0], "b" * 64)
+            await write.rollback()
+            # Outro escopo nao compartilha a chave: nao espera.
+            await owner.execute(insert_event, "outro", *key[1:], 1, "c" * 64)
+            after = await reader.fetchval(
+                "SELECT designation_digest FROM maezo_native.mzo_staff_case_designation_current WHERE tenant=$1",
+                key[0],
+            )
+            assert before == after == "a" * 64
+            await read.commit()
+            await owner.execute("SET lock_timeout='300ms'")
+            await owner.execute(change, key[0], "b" * 64)
+        finally:
+            await reader.close()
+            await owner.close()
+
+    _run(check)
+
+
+def test_portal_read_designation_revocation_is_terminal() -> None:
+    """C1 (item 4): REVOKED_ (NOT NULL) preenchido nao volta atras, nem por UPDATE direto do engine."""
+
+    async def check(env: Env) -> None:
+        await env.run_all()
+        eng = await env.login("cibseven_app")
+        try:
+            await eng.execute(
+                "INSERT INTO maezo_native.mzo_portal_read_designation VALUES"
+                "('t','dev','default','inc','cat',1,$1,'pub','{}','pubr',now(),false)",
+                "a" * 64,
+            )
+            await eng.execute("UPDATE maezo_native.mzo_portal_read_designation SET revoked_=true,publication_='rv'")
+            for sql in (
+                "UPDATE maezo_native.mzo_portal_read_designation SET revoked_=false",
+                "UPDATE maezo_native.mzo_portal_read_designation SET revoked_=NULL",
+            ):
+                with pytest.raises((asyncpg.RaiseError, asyncpg.NotNullViolationError)):
+                    await eng.execute(sql)
+            assert await eng.fetchval("SELECT revoked_ FROM maezo_native.mzo_portal_read_designation") is True
+        finally:
+            await eng.close()
+
+    _run(check)
+
+
+def test_extra_engine_column_grant_on_portal_read_does_not_survive_the_install() -> None:
+    """C1 (item 5): para o proprio engine o script nao recusa, REFAZ: o REVOKE ALL por tabela leva o
+    grant por coluna junto, e a postura exata confere o que sobrou."""
+
+    async def check(env: Env) -> None:
+        await env.run_all()
+        owner = await env.login("maezo_native_schema_owner")
+        try:
+            await owner.execute(
+                "GRANT UPDATE (catalog_) ON maezo_native.mzo_portal_read_designation TO cibseven_app"
+            )
+            await owner.execute(_sql("engine-native-install.sql"))
+            assert not await owner.fetchval(
+                "SELECT has_column_privilege('cibseven_app','maezo_native.mzo_portal_read_designation',"
+                "'catalog_','UPDATE')"
+            )
+        finally:
+            await owner.close()
 
     _run(check)

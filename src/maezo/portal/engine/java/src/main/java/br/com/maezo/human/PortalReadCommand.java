@@ -218,6 +218,7 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
       throw denied();
     if (Boolean.TRUE.equals(row.get("revoked_")))
       throw unavailable();
+    requireSigned(row);
     if (!anchor.get("publisher_ref").equals(row.get("publisher_")))
       throw unavailable();
     var artifact = validate("artifactcatalog", PortalReadStore.json(row.get("artifact_")));
@@ -236,6 +237,19 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
     return record("anchor", anchor, "catalog_revision", row.get("revision_").toString(),
         "catalog_digest", row.get("digest_"), "publication_id", row.get("publication_"), "source",
         src, "valid_until", time(valid), "artifact", artifact);
+  }
+  /**
+   * C1 (item 4): the designation row is MUTABLE (the engine login holds column UPDATE on it for the
+   * publication upsert), the catalog row it joins is insert-only and was written from the same
+   * verified publication. A live designation must therefore equal, field by field, what the signed
+   * publication recorded; a direct UPDATE of DIGEST_/SOURCE_/PUBLISHER_/PUBLICATION_/VALID_UNTIL_
+   * is refused at read time instead of being trusted.
+   */
+  static final List<String> SIGNED = List.of("digest_", "source_", "publisher_", "publication_", "valid_until_");
+  static void requireSigned(Map<String, Object> row) {
+    for (String k : SIGNED)
+      if (row.get(k) == null || !row.get(k).equals(row.get("signed_" + k)))
+        throw unavailable();
   }
   Map<String, Object> designation(Map<String, Object> cat) {
     var d = copy(cat);
@@ -330,7 +344,11 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
             tuple.get("catalog_artifact_"), "digest_", tuple.get("catalog_digest_"), "source_",
             tuple.get("catalog_source_"), "valid_until_", tuple.get("catalog_until_"), "revision_",
             tuple.get("catalog_revision_"), "publication_", tuple.get("catalog_publication_"),
-            "revoked_", tuple.get("catalog_revoked_")));
+            "revoked_", tuple.get("catalog_revoked_"), "signed_digest_",
+            tuple.get("catalog_signed_digest_"), "signed_source_", tuple.get("catalog_signed_source_"),
+            "signed_publisher_", tuple.get("catalog_signed_publisher_"), "signed_publication_",
+            tuple.get("catalog_signed_publication_"), "signed_valid_until_",
+            tuple.get("catalog_signed_until_")));
     var resource = validate("resource", PortalReadStore.json(tuple.get("resource_")));
     var source = PortalReadStore.json(tuple.get("resource_source_"));
     db.proof((String) tuple.get("resource_publication_"), "resource", source);

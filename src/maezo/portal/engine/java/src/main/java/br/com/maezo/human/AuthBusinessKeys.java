@@ -9,7 +9,10 @@ package br.com.maezo.human;
 final class AuthBusinessKeys {
   static final String PREFIX="AUTH-";
   private AuthBusinessKeys() {}
-  static String auth(String tenant,String guide){return PREFIX+component(tenant)+"-"+component(guide);}
+  /** The tenant never contains the separator; the guide may: ("a","b-c") and ("a-b","c") would collide. */
+  static String auth(String tenant,String guide){
+    if(component(tenant).indexOf('-')>=0)throw Rejected.invalid();
+    return PREFIX+tenant+"-"+component(guide);}
   private static String component(String value) {
     if(value==null||value.isEmpty())throw Rejected.invalid();
     // Python: ch.isspace() or ord(ch) < 0x20 or ord(ch) == 0x7F (isspace also covers U+001C..U+001F, U+0085, Zs, U+2028/9).

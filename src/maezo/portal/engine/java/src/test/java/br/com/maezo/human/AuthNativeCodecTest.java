@@ -32,6 +32,20 @@ class AuthNativeCodecTest {
     }
     for(Object bad:List.of("-1","01","1.0","9223372036854775808",1L,true))assertThrows(Rejected.class,()->AuthDecimalSerializer.cents(bad));
   }
+  /** C1 (item 6): exponent-sized and over-long amounts are refused up front, never expanded. */
+  @Test void hugeExponentAndOverlongTextAreRefusedFast() {
+    var serializer=new AuthDecimalSerializer();
+    assertTimeoutPreemptively(java.time.Duration.ofSeconds(2),()->{
+      for(String bad:List.of("1e999999999","1E-999999999","-1e999999999"))
+        assertThrows(Rejected.class,()->AuthDecimalSerializer.checked(new BigDecimal(bad)));
+      for(String text:List.of("1e999999999","1E+999999999.00","9".repeat(100000)+".00","92233720368547758070.00")){
+        var f=new Fields();f.text=text;f.text2=AuthDecimalSerializer.NAME;
+        assertThrows(Rejected.class,()->serializer.readValue(f,false,false));
+      }
+    });
+    var max=new Fields();max.text="92233720368547758.07";max.text2=AuthDecimalSerializer.NAME;
+    assertEquals(new BigDecimal("92233720368547758.07"),serializer.readValue(max,false,false).getValue());
+  }
   @Test void genericNumbersAndResidueDoNotGainCustomType() {
     var serializer=new AuthDecimalSerializer();assertFalse(serializer.canHandle(Variables.doubleValue(1.0)));
     assertNull(AuthDecimalSerializer.wire(Variables.doubleValue(1.0)));

@@ -106,8 +106,9 @@ final class StaffCaseStore {
    * C1 F1: the posture pin above requires the engine login WITHOUT UPDATE on the designation
    * relations (installed by the owner, D-J.4), and FOR UPDATE/FOR SHARE both demand UPDATE. The
    * read is serialized instead by a transaction-scoped SHARED advisory lock whose key is derived
-   * from the designation scope; any designation writer (installer, owner login) takes the
-   * EXCLUSIVE lock with the same key (DESIGNATION_LOCK) before changing the row.
+   * from the designation scope. Every designation writer takes the EXCLUSIVE lock with the same
+   * key: the BEFORE INSERT/UPDATE/DELETE trigger mzo_staff_case_designation_lock
+   * (staff-case-schema-postgres.sql) takes it on both designation relations, whoever writes.
    */
   static final String DESIGNATION_LOCK="SELECT pg_advisory_xact_lock_shared(hashtextextended(CONCAT_WS(chr(31),'mzo_staff_case_designation',CAST(? AS text),CAST(? AS text),CAST(? AS text),CAST(? AS text)),0))";
   Map<String,Object> designation() {
