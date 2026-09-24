@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import type { PortalAudience } from "./caseExperienceModels";
 
@@ -47,11 +47,28 @@ export function StaffNavigation({
 }) {
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
   const activeIndex = staffAreas.findIndex((area) => area.id === active);
+  // Below 40rem the list collapses behind this toggle (CSS); wider screens ignore it.
+  const [open, setOpen] = useState(false);
+  const choose = (area: StaffArea) => {
+    setOpen(false);
+    onChange(area);
+  };
 
   return (
-    <nav className="portal-navigation staff-navigation" aria-label="Áreas do portal">
+    <nav className="portal-navigation staff-navigation" aria-label="Áreas do portal" data-open={open}>
+      <button
+        type="button"
+        className="navigation-toggle"
+        aria-expanded={open}
+        aria-controls="staff-navigation-items"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span>Menu</span>
+        <strong>{staffAreas[activeIndex]?.label}</strong>
+      </button>
       <p className="navigation-label">Área de colaboradores</p>
       <div
+        id="staff-navigation-items"
         className="navigation-items"
         role="tablist"
         aria-label="Áreas de trabalho"
@@ -76,7 +93,7 @@ export function StaffNavigation({
             aria-controls={`area-${area.id}`}
             aria-selected={active === area.id}
             tabIndex={active === area.id ? 0 : -1}
-            onClick={() => onChange(area.id)}
+            onClick={() => choose(area.id)}
           >
             <span>{area.label}</span>
             <small>{area.hint}</small>

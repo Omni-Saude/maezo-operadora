@@ -135,7 +135,7 @@ it("atualiza a primeira página e mantém a origem da validade visível", async 
   const listCases = vi.fn().mockResolvedValue({ kind: "success", value: page([], null) });
   render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
 
-  expect(await screen.findByText(/lista consultada em/i)).toBeInTheDocument();
+  expect(await screen.findByText(/^Atualizado às/)).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Atualizar casos" }));
   await waitFor(() => expect(listCases).toHaveBeenCalledTimes(2));
   expect(listCases).toHaveBeenLastCalledWith(null, expect.any(AbortSignal));

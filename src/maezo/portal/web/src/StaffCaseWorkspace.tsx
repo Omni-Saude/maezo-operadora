@@ -67,12 +67,11 @@ function ValidityWindow({ observedAt, validUntil, label }: {
   const end = Date.parse(validUntil);
   const total = Math.max(1, end - start);
   const remaining = Math.min(total, Math.max(0, end - now));
-  const seconds = Math.ceil(remaining / 1000);
+  const time = new Intl.DateTimeFormat("pt-BR", { timeStyle: "short" }).format(new Date(observedAt));
   return (
     <div className="validity-window">
-      <p>
-        {label} em {formatTimestamp(observedAt)}.{" "}
-        <span>Válida por mais {seconds} s; depois o portal consulta de novo.</span>
+      <p title={`${label} em ${formatTimestamp(observedAt)}; o portal consulta de novo a cada 10 s.`}>
+        Atualizado às {time}
       </p>
       <span className="validity-track" aria-hidden="true">
         <span className="validity-fill" style={{ transform: `scaleX(${remaining / total})` }} />
@@ -136,26 +135,83 @@ function span(ms: number) {
   return `${Math.round(hours / 24)} dias`;
 }
 
-function DueRelative({ dueAt, now, unresolved }: { dueAt: string | null; now: number; unresolved: boolean }) {
+function DueRelative({ dueAt, now, unresolved, compact = false }: { dueAt: string | null; now: number; unresolved: boolean; compact?: boolean }) {
   if (dueAt === null) return <>{unresolved ? "Sem prazo definido" : "Sem prazo"}</>;
   const delta = Date.parse(dueAt) - now;
   return (
     <span title={formatTimestamp(dueAt)}>
       {delta < 0
-        ? <strong className="due-flag">Vencido há {span(-delta)}</strong>
+        ? <strong className="due-flag"><OverdueIcon /> Vencido há {span(-delta)}</strong>
         : <>Vence em {span(delta)}</>}
-      <span className="task-key-raw">{formatTimestamp(dueAt)}</span>
+      {!compact && <span className="task-key-raw">{formatTimestamp(dueAt)}</span>}
     </span>
   );
 }
 
-function byUrgency(left: StaffPage["items"][number], right: StaffPage["items"][number]) {
-  const a = left.escalation?.resolution_due_at;
-  const b = right.escalation?.resolution_due_at;
-  if (!a && !b) return 0;
-  if (!a) return 1;
-  if (!b) return -1;
-  return Date.parse(a) - Date.parse(b);
+// Urgency order: overdue first, then priority (P1 before P2), then the
+// resolution deadline; cases without a deadline go last.
+export function urgencyOrder(now: number) {
+  const key = (item: StaffPage["items"][number]) => {
+    const due = item.escalation?.resolution_due_at ?? null;
+    if (due === null) return [2, 0, 0];
+    const at = Date.parse(due);
+    const rank = Number(/^P(\d{1,2})$/.exec(item.escalation?.priority ?? "")?.[1] ?? 99);
+    return [at < now ? 0 : 1, rank, at];
+  };
+  return (left: StaffPage["items"][number], right: StaffPage["items"][number]) => {
+    const a = key(left);
+    const b = key(right);
+    return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+  };
+}
+
+function OverdueIcon() {
+  return (
+    <svg className="due-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+      <path d="M8 1.5 15 14H1L8 1.5Z" fill="currentColor" />
+      <path d="M8 6v4M8 11.6v.4" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function useNarrow() {
+  const query = "(max-width: 39.99rem)";
+  const [narrow, setNarrow] = useState(() => typeof window.matchMedia === "function" && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia(query);
+    const onChange = () => setNarrow(media.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+  return narrow;
+}
+
+function middleTruncate(value: string) {
+  return value.length <= 16 ? value : `${value.slice(0, 8)}…${value.slice(-6)}`;
+}
+
+function CopyGuide({ guide }: { guide: string }) {
+  const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+  return (
+    <span className="copy-guide">
+      <button
+        type="button"
+        className="primary-action compact-action"
+        onClick={() => {
+          // The guide goes only to the clipboard: never to console, storage or telemetry.
+          const clipboard = navigator.clipboard;
+          if (clipboard === undefined) { setStatus("failed"); return; }
+          clipboard.writeText(guide).then(() => setStatus("copied"), () => setStatus("failed"));
+        }}
+      >
+        Copiar guia
+      </button>
+      <span role="status" aria-live="polite" className="copy-status">
+        {status === "copied" ? "Guia copiada" : status === "failed" ? "Não foi possível copiar a guia" : ""}
+      </span>
+    </span>
+  );
 }
 
 function EscalationFacts({ escalation, now }: { escalation: Escalation; now: number }) {
@@ -164,7 +220,7 @@ function EscalationFacts({ escalation, now }: { escalation: Escalation; now: num
     <section className="case-identity" aria-labelledby="staff-case-escalation-heading">
       <h4 id="staff-case-escalation-heading">Escalonamento</h4>
       <dl className="task-facts">
-        <div><dt>Guia</dt><dd className="exact-value">{escalation.guide_number ?? "Sem guia informada"}</dd></div>
+        <div><dt>Guia</dt><dd className="guide-full">{escalation.guide_number === null ? "Sem guia informada" : <><span className="exact-value">{escalation.guide_number}</span><CopyGuide guide={escalation.guide_number} /></>}</dd></div>
         <div><dt>Motivo</dt><dd><ReasonName code={escalation.reason_code} /></dd></div>
         <div><dt>Prioridade</dt><dd><PriorityBadge priority={escalation.priority} /></dd></div>
         <div><dt>Prazo para assumir</dt><dd><DueRelative dueAt={escalation.ack_due_at} now={now} unresolved={unresolved} /></dd></div>
@@ -222,7 +278,7 @@ function StaffCaseDetail({ detail }: { detail: StaffDetail }) {
                     <tr key={task.task_id}>
                       <th scope="row"><TaskName taskKey={task.task_definition_key} /></th>
                       <td className={due.late ? "due-late" : undefined}>
-                        {due.text}{due.late && <strong className="due-flag"> Vencido</strong>}
+                        {due.text}{due.late && <strong className="due-flag"> <OverdueIcon /> Vencido</strong>}
                       </td>
                       <td>{task.assignee_ref ?? "Sem responsável"}</td>
                       <td>{formatTimestamp(task.created_at)}</td>
@@ -390,8 +446,14 @@ export function StaffCaseWorkspace({
   const items = listState.kind === "ready" ? listState.page.items : [];
   const showEscalation = items.some((item) => item.escalation != null);
   // Wire order is by case_ref (the cursor contract); the screen orders by urgency.
-  const rows = showEscalation ? [...items].sort(byUrgency) : items;
   const observedNow = listState.kind === "ready" ? Date.parse(listState.page.freshness.observed_at) : 0;
+  const rows = showEscalation ? [...items].sort(urgencyOrder(observedNow)) : items;
+  const narrow = useNarrow();
+  const openFromLink = (caseRef: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    select(caseRef);
+  };
 
   if (selected !== null) {
     return (
@@ -446,41 +508,63 @@ export function StaffCaseWorkspace({
               <p className="case-empty-title">Nenhum caso para o seu grupo.</p>
               <p>Quando um caso de autorização for liberado para você, ele aparece aqui. A lista se atualiza sozinha.</p>
             </div>
+          ) : narrow ? (
+            <>
+              {showEscalation && <p className="case-order">Ordenado por urgência: vencidos primeiro, depois prioridade e prazo.</p>}
+              <ul className="case-cards" aria-label="Casos do seu grupo">
+                {rows.map((item) => (
+                  <li key={item.case_ref} className="case-card">
+                    <p className="case-card-lead">
+                      {item.escalation == null ? <StatePill state={item.state} /> : <>
+                        <PriorityBadge priority={item.escalation.priority} />
+                        <span aria-hidden="true"> · </span>
+                        <DueRelative dueAt={item.escalation.resolution_due_at} now={observedNow} unresolved={item.escalation.escalation_state === "unresolved"} compact />
+                      </>}
+                    </p>
+                    {item.escalation != null && (
+                      <dl className="case-card-facts">
+                        <div><dt>Motivo</dt><dd><ReasonName code={item.escalation.reason_code} /></dd></div>
+                        <div><dt>Guia</dt><dd className="exact-value">{item.escalation.guide_number === null ? "Sem guia" : maskGuide(item.escalation.guide_number)}</dd></div>
+                      </dl>
+                    )}
+                    <a className="case-card-link" href={casePath(item.case_ref)} onClick={openFromLink(item.case_ref)}>
+                      <span className="visually-hidden">Abrir caso {item.case_ref}</span>
+                      <span className="exact-value" aria-hidden="true">{middleTruncate(item.case_ref)}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : (
-            <div className="table-scroll case-table" tabIndex={0} aria-label="Tabela de casos do seu grupo">
-              <table>
-                <caption className="visually-hidden">Casos de autorização liberados para o seu grupo</caption>
-                <thead><tr><th scope="col">Caso</th>{showEscalation && <><th scope="col">Prioridade</th><th scope="col">Prazo</th><th scope="col">Motivo</th><th scope="col">Guia</th></>}<th scope="col">Situação</th><th scope="col">Situação observada em</th><th scope="col">Revisão</th></tr></thead>
-                <tbody>
-                  {rows.map((item) => (
-                    <tr key={item.case_ref}>
-                      <th scope="row">
-                        <a
-                          className="table-action case-link"
-                          href={casePath(item.case_ref)}
-                          onClick={(event) => {
-                            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-                            event.preventDefault();
-                            select(item.case_ref);
-                          }}
-                        >
-                          <span className="visually-hidden">Abrir caso </span><span className="exact-value">{item.case_ref}</span>
-                        </a>
-                      </th>
-                      {showEscalation && (item.escalation == null ? <td colSpan={4}>Sem dados de escalonamento</td> : <>
-                        <td><PriorityBadge priority={item.escalation.priority} /></td>
-                        <td><DueRelative dueAt={item.escalation.resolution_due_at} now={observedNow} unresolved={item.escalation.escalation_state === "unresolved"} /></td>
-                        <td><ReasonName code={item.escalation.reason_code} /></td>
-                        <td className="exact-value guide-cell">{item.escalation.guide_number === null ? "Sem guia" : maskGuide(item.escalation.guide_number)}</td>
-                      </>)}
-                      <td><StatePill state={item.state} /></td>
-                      <td>{formatTimestamp(item.state_observed_at)}</td>
-                      <td className="exact-value">{item.record_revision}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {showEscalation && <p className="case-order">Ordenado por urgência: vencidos primeiro, depois prioridade e prazo.</p>}
+              <div className="table-scroll case-table" tabIndex={0} aria-label="Tabela de casos do seu grupo">
+                <table>
+                  <caption className="visually-hidden">Casos de autorização liberados para o seu grupo</caption>
+                  <thead><tr><th scope="col">Caso</th>{showEscalation && <><th scope="col">Prioridade</th><th scope="col">Prazo</th><th scope="col">Motivo</th><th scope="col">Guia</th></>}<th scope="col">Situação</th><th scope="col">Situação observada em</th><th scope="col">Revisão</th></tr></thead>
+                  <tbody>
+                    {rows.map((item) => (
+                      <tr key={item.case_ref} className="case-row">
+                        <th scope="row">
+                          <a className="table-action case-link" href={casePath(item.case_ref)} onClick={openFromLink(item.case_ref)}>
+                            <span className="visually-hidden">Abrir caso </span><span className="exact-value">{item.case_ref}</span>
+                          </a>
+                        </th>
+                        {showEscalation && (item.escalation == null ? <td colSpan={4}>Sem dados de escalonamento</td> : <>
+                          <td><PriorityBadge priority={item.escalation.priority} /></td>
+                          <td><DueRelative dueAt={item.escalation.resolution_due_at} now={observedNow} unresolved={item.escalation.escalation_state === "unresolved"} /></td>
+                          <td><ReasonName code={item.escalation.reason_code} /></td>
+                          <td className="exact-value guide-cell">{item.escalation.guide_number === null ? "Sem guia" : maskGuide(item.escalation.guide_number)}</td>
+                        </>)}
+                        <td><StatePill state={item.state} /></td>
+                        <td>{formatTimestamp(item.state_observed_at)}</td>
+                        <td className="exact-value">{item.record_revision}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
           {listState.page.next_cursor !== null && <button className="secondary-action" type="button" disabled={listState.loadingMore} onClick={() => void loadList(listState.page.next_cursor, true)}>{listState.loadingMore ? "Carregando…" : "Carregar próxima página"}</button>}
         </section>

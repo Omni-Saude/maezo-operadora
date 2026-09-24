@@ -19,6 +19,7 @@ import {
   staffCaseDetail,
   staffCasePage,
   staffCaseRefs,
+  wireInstant,
 } from "./test/staffCaseFixtures";
 
 // Only the fetch boundary is replaced: the real session client, staff case
@@ -74,7 +75,7 @@ it("abre /portal/cases com a fila do grupo e só os campos que o contrato traz",
   expect(within(rows[1]).getByText("Em andamento")).toBeInTheDocument();
   expect(within(rows[3]).getByText("Encerrado")).toBeInTheDocument();
   expect(screen.getByRole("tab", { name: /^Casos/ })).toHaveAttribute("aria-selected", "true");
-  expect(screen.getByText(/válida por mais \d+ s/i)).toBeInTheDocument();
+  expect(screen.getByText(/^Atualizado às [0-9]{2}:[0-9]{2}$/)).toBeInTheDocument();
   expect(screen.queryByText(/prioridade|SLA|motivo/i)).not.toBeInTheDocument();
   const [path, init] = vi.mocked(fetch).mock.calls.find(([p]) => String(p).startsWith("/api/v1/portal/cases?"))!;
   expect(path).toBe("/api/v1/portal/cases?kind=authorization&limit=25");
@@ -266,6 +267,90 @@ it("detalhe sem escalation (engine antigo) não mostra a seção", async () => {
   render(<App />);
   await screen.findByRole("heading", { name: "Caso de autorização" });
   expect(screen.queryByRole("region", { name: "Escalonamento" })).not.toBeInTheDocument();
+});
+
+it("urgência: vencidos primeiro, depois prioridade, depois prazo; sem prazo no fim; ordem explícita", async () => {
+  const now = Date.now();
+  const refs = ["aut_ord_a_0000000001", "aut_ord_b_0000000002", "aut_ord_c_0000000003", "aut_ord_d_0000000004", "aut_ord_e_0000000005"];
+  const base = staffCasePage(now, refs);
+  const esc = (priority: string | null, dueOffset: number | null) => ({
+    escalation_state: priority === null ? "unresolved" as const : "resolved" as const,
+    guide_number: "***1234",
+    reason_code: priority === null ? null : "falha_tecnica",
+    priority,
+    ack_due_at: dueOffset === null ? null : wireInstant(now + dueOffset - 60_000),
+    resolution_due_at: dueOffset === null ? null : wireInstant(now + dueOffset),
+  });
+  const plan = [esc("P2", -600_000), esc("P1", -300_000), esc("P1", 3_600_000), esc("P3", 1_800_000), esc(null, null)];
+  const page = { ...base, items: base.items.map((item, i) => ({ ...item, escalation: plan[i] })) };
+  window.history.replaceState(null, "", "/portal/cases");
+  serve(casesList(() => json(page)));
+  render(<App />);
+
+  const table = await screen.findByRole("table", { name: /casos de autorização liberados/i });
+  const order = within(table).getAllByRole("rowheader").map((cell) => cell.textContent?.replace("Abrir caso ", ""));
+  expect(order).toEqual([refs[1], refs[0], refs[2], refs[3], refs[4]]);
+  expect(screen.getByText(/ordenado por urgência/i)).toBeInTheDocument();
+  const overdue = within(table).getAllByText(/Vencido há/);
+  expect(overdue).toHaveLength(2);
+  overdue.forEach((node) => expect(node.querySelector("svg")).not.toBeNull());
+});
+
+it("mobile: cartões com prioridade e prazo na 1ª linha, dt/dd, ID truncado e link real para o caso", async () => {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("max-width"), media: query,
+    addEventListener: () => undefined, removeEventListener: () => undefined,
+  }));
+  window.history.replaceState(null, "", "/portal/cases");
+  const ref = staffCaseRefs[1];
+  serve((path) => {
+    if (path.startsWith("/api/v1/portal/cases?")) return json(escalatedStaffCasePage());
+    if (path === `/api/v1/portal/cases/${ref}`) return json(escalatedStaffCaseDetail(ref));
+    return undefined;
+  });
+  render(<App />);
+
+  const list = await screen.findByRole("list", { name: "Casos do seu grupo" });
+  expect(screen.queryByRole("table", { name: /casos de autorização liberados/i })).not.toBeInTheDocument();
+  const [first] = within(list).getAllByRole("listitem");
+  expect(first.querySelector(".case-card-lead")).toHaveTextContent(/^P1 · Vencido há 20 min$/);
+  expect(within(first).getByText("Motivo").tagName).toBe("DT");
+  expect(within(first).getByText("***7731").tagName).toBe("DD");
+  expect(within(first).getByText("aut_2026…02nzpa")).toHaveAttribute("aria-hidden", "true");
+  await userEvent.click(within(first).getByRole("link", { name: `Abrir caso ${ref}` }));
+  expect(window.location.pathname).toBe(`/portal/cases/${ref}`);
+});
+
+it("detalhe: Copiar guia manda a guia inteira à área de transferência e confirma, sem logar", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const log = vi.spyOn(console, "log");
+  const ref = staffCaseRefs[1];
+  window.history.replaceState(null, "", `/portal/cases/${ref}`);
+  serve((path) => (path === `/api/v1/portal/cases/${ref}` ? json(escalatedStaffCaseDetail(ref)) : undefined));
+  render(<App />);
+
+  await userEvent.click(await screen.findByRole("button", { name: "Copiar guia" }));
+  expect(writeText).toHaveBeenCalledWith("20260918007731");
+  expect(await screen.findByText("Guia copiada")).toBeInTheDocument();
+  expect(log).not.toHaveBeenCalled();
+});
+
+it("menu mobile e link de pular para o conteúdo existem e controlam a navegação", async () => {
+  window.history.replaceState(null, "", "/portal/cases");
+  serve(casesList(() => json(staffCasePage())));
+  render(<App />);
+  await screen.findByRole("table", { name: /casos de autorização liberados/i });
+
+  expect(screen.getByRole("link", { name: "Pular para o conteúdo" })).toHaveAttribute("href", "#conteudo");
+  expect(document.getElementById("conteudo")).toHaveAttribute("tabindex", "-1");
+  const toggle = screen.getByRole("button", { name: /^Menu/ });
+  expect(toggle).toHaveTextContent("Casos");
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await userEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await userEvent.click(screen.getByRole("tab", { name: /Meu trabalho/ }));
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
 });
 
 it("trocar de área sai do endereço de casos", async () => {
