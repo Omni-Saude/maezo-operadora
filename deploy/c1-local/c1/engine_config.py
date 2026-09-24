@@ -187,15 +187,9 @@ async def main_async() -> None:
     trust = trust_record(_spki_b64(bundle.read_key), bundle.key_ids["portal-task-read"], bundle.read_client_spki)
     record = admission_record(sha256(jcs(trust)))
     record_raw = jcs(record)
-    # D9: `approver.sign-admission` valida `scope` como o Scope de 4 campos (tenant, environment,
-    # engine_name, database_incarnation), e a T1.7a exige {tenant, environment, workload_ref}: a
-    # ferramenta recusa toda admissao valida. Medido aqui; o harness assina no MESMO dominio.
-    try:
-        approver.review_admission(record_raw)
-        sign_admission_ok = True
-    except Exception:
-        sign_admission_ok = False
-    signature = root.sign(approver.ADMISSION_DOMAIN + record_raw)
+    # A admissao Q2 passa pela revisao e pela assinatura do proprio `approver` (F6 corrigido).
+    _, shown, _ = approver.review_admission(record_raw)
+    signature = base64.b64decode(approver.sign_admission(record_raw, root, confirm_digest=shown))
     # 2a passada: o espelho exato do que o engine vai devolver (geracao = revisao = 1).
     mirrored = dict(provisional, capability_digest=sha256(record_raw))
     # Mesmas chaves: reescreve SO o read-admission; o pacote e remontado com as chaves da 1a passada.
@@ -336,8 +330,7 @@ async def main_async() -> None:
         Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()), 0o400)
     step("engine-config", True,
          f"trust/Q2 trust/provider/composicao montados; admissao {sha256(record_raw)[:12]} assinada pela raiz de TESTE; "
-         f"configuration_digest {configuration_digest[:12]}; designacao e AUTH instaladas; "
-         f"approver.sign-admission aceita o registro T1.7a: {sign_admission_ok}")
+         f"configuration_digest {configuration_digest[:12]}; designacao e AUTH instaladas")
 
 
 def _rebuild(first: human_bundle.HumanBundle, admission: dict, common: dict) -> human_bundle.HumanBundle:

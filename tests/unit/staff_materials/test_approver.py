@@ -116,18 +116,37 @@ def test_root_keygen_refuses_the_repository() -> None:
 
 
 def admission(now: datetime, **changes: Any) -> dict[str, Any]:
+    """Registro no shape fechado de `AdmissionRecord.java` (T1.7a)."""
     value: dict[str, Any] = dict(
         schema="portal-read-admission.v1",
-        scope=dict(tenant="amh", environment="dev", engine_name="default", database_incarnation="inc-test-1"),
         admission_ref="admission-amh",
         admission_revision="1",
+        scope=dict(tenant="amh", environment="dev", workload_ref="portal-staff"),
+        engine_name="default",
+        database_incarnation="inc-test-1",
+        read_deployment_ref="read-release-1",
+        read_deployment_digest="c" * 64,
         trust_configuration_digest="a" * 64,
-        catalog_digest="b" * 64,
+        purposes=["portal-read-publication", "portal-task-read"],
+        code_digests=dict(engine="d" * 64, provider="e" * 64),
+        continuity_keys=[
+            dict(
+                key_id="continuity-1",
+                generation="1",
+                commitment="f" * 64,
+                not_before=instant(now),
+                not_after=instant(now + timedelta(days=14)),
+            )
+        ],
+        catalog=dict(catalog_ref="catalog-staff", publisher_ref="portal-staff", catalog_digest="b" * 64),
+        publishers=[
+            dict(kind="membership", publisher_ref="portal-staff", source_ref_prefix="portal-identity:amh:"),
+            dict(kind="catalog-designate", publisher_ref="portal-staff", source_ref_prefix="staff-catalog:amh:"),
+        ],
         statement_timeout_seconds="5",
         observation_seconds="300",
         not_before=instant(now),
         valid_until=instant(now + timedelta(days=14)),
-        revoked=False,
     )
     value.update(changes)
     return value
@@ -137,7 +156,7 @@ def test_admission_signature_is_domain_separated(now: datetime) -> None:
     root = Ed25519PrivateKey.generate()
     raw = canonicalize(admission(now))
     _, shown, lines = approver.review_admission(raw)
-    assert shown == digest(admission(now)) and any(line.startswith("catalog_digest=") for line in lines)
+    assert shown == digest(admission(now)) and any(line.startswith("catalog=") for line in lines)
     with pytest.raises(approver.ReviewRequiredError):
         approver.sign_admission(raw, root, confirm_digest=None)
     signature = base64.b64decode(approver.sign_admission(raw, root, confirm_digest=shown))
@@ -145,6 +164,10 @@ def test_admission_signature_is_domain_separated(now: datetime) -> None:
     # Sem o dominio a assinatura nao vale: ela nao serve como prova de designacao nem de outro tipo.
     with pytest.raises(InvalidSignature):
         root.public_key().verify(signature, raw)
+
+
+def _four_field_scope(value: dict[str, Any]) -> None:
+    value["scope"] = dict(tenant="amh", environment="dev", engine_name="default", database_incarnation="inc-1")
 
 
 @pytest.mark.parametrize(
@@ -155,11 +178,20 @@ def test_admission_signature_is_domain_separated(now: datetime) -> None:
         {"statement_timeout_seconds": "11"},
         {"observation_seconds": "59"},
         {"admission_revision": "0"},
-        {"revoked": True},
+        {"revoked": False},
+        {"purposes": ["portal-task-read", "portal-task-read"]},
+        {"purposes": ["human-authority"]},
+        {"purposes": []},
+        {"publishers": [dict(kind="resource", publisher_ref="p", source_ref_prefix="r:")]},
+        {"publishers": [dict(kind="membership", publisher_ref="p", source_ref_prefix="portal-identity:amh")]},
+        {"continuity_keys": []},
+        {"code_digests": dict(engine="d" * 64)},
+        {"read_deployment_digest": "C" * 64},
+        {"four_field_scope": True},
         {"noncanonical": True},
     ],
 )
-def test_admission_outside_the_plan_is_refused(change: dict[str, Any], now: datetime) -> None:
+def test_admission_outside_the_closed_shape_is_refused(change: dict[str, Any], now: datetime) -> None:
     value = admission(now)
     raw: bytes
     if "noncanonical" in change:
@@ -167,6 +199,8 @@ def test_admission_outside_the_plan_is_refused(change: dict[str, Any], now: date
     else:
         if change.get("valid_until") == "15d":
             change = {"valid_until": instant(now + timedelta(days=15))}
+        if change.pop("four_field_scope", False):
+            _four_field_scope(value)
         value.update(change)
         raw = canonicalize(value)
     with pytest.raises(MaterialError):
