@@ -1,0 +1,23 @@
+src/maezo/portal/contracts/staff_cases.py
+  s_75580744a35de2::t_9f93942ca1f1bb 25-26
+src/maezo/portal/web/openapi.json
+  s_75580744a35de2::t_50cfd3bf44aebc 6251
+tests/unit/portal/test_staff_escalation_contract.py
+  s_75580744a35de2::t_4f279ad0525f4e 123-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d02ce9fe426fdab535036b4a3e920c93049c1537",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
