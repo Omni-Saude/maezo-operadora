@@ -21,7 +21,21 @@ sources `PortalReadPublisher` requires and the job that drives it:
   if an active one was published before. Same tenant counter (`MZO_HUMAN_TENANT.REV_`)
   and the same ledger as the read plane, so the CAS rule is one;
 * `PublicationLedger` is the job's CAS memory: a durable record of what was committed at
-  which authority revision, so a second run with nothing changed publishes nothing.
+  which authority revision, so a second run with nothing changed publishes nothing;
+* RENEWAL: the membership source lives `observation_seconds` (<= 15 min) and the catalog
+  designation `catalog.valid_seconds`; after that the engine refuses `/cases` (503). An entry
+  committed with the same content is therefore "fresh" only while more than HALF its validity
+  remains; past that the job republishes it with a new validity. A membership keeps its
+  revision (the engine accepts a same-revision republish only with an identical payload and a
+  later source `valid_until`); the catalog goes to revision + 1 with the same bytes/digest,
+  because the engine keeps catalog revisions as insert-only history. Idempotency by content
+  is kept inside the first half of the window.
+
+CADENCE the deploy must run `publish` at: strictly less than half the shortest validity,
+i.e. `interval < min(observation_seconds, catalog.valid_seconds) / 2` minus scheduling jitter.
+With `observation_seconds=600` run it every 4-5 min (CronJob `*/4 * * * *` is the safe
+default; `*/5` leaves 5 min of margin only if the run itself is punctual). A failed run exits
+2: alert on it, because two consecutive misses let the membership source expire.
 
 Every refusal is `ReadRefusalError` (`unavailable()`); nothing here logs a DSN, key or row.
 """
@@ -198,6 +212,9 @@ class StaffCatalogConfig(Closed):
 class StaffCatalogPublicationSource(DeploymentCatalogPublicationSource):
     def __init__(self, *, config: StaffCatalogConfig, publisher_ref: str, clock: Clock = _now) -> None:
         self._config, self._publisher, self._clock = config, publisher_ref, clock
+        #: The revision offered; the job raises it (never below the configured one) to renew an
+        #: unchanged catalog, because the engine keeps catalog revisions as insert-only history.
+        self.revision = config.catalog_revision
         self._prefix = _prefix(config.source_ref_prefix)
         self.raw = staff_catalog_artifact(
             catalog_ref=config.catalog_ref,
@@ -211,13 +228,14 @@ class StaffCatalogPublicationSource(DeploymentCatalogPublicationSource):
 
     async def read(self, catalog_ref: str) -> SourceSnapshot:
         c = self._config
-        if catalog_ref != c.catalog_ref:
+        if catalog_ref != c.catalog_ref or self.revision < c.catalog_revision:
             raise unavailable()
+        revision = self.revision
         observed = self._clock()
         until = observed + timedelta(seconds=c.valid_seconds)
         payload = CatalogDesignation(
             catalog_ref=c.catalog_ref,
-            catalog_revision=c.catalog_revision,
+            catalog_revision=revision,
             catalog_digest=c.admitted_catalog_digest,
             catalog_artifact_base64=base64.b64encode(self.raw).decode("ascii"),
             deployment_receipt_ref=c.deployment_receipt_ref,
@@ -227,11 +245,12 @@ class StaffCatalogPublicationSource(DeploymentCatalogPublicationSource):
         provenance = SourceProvenance(
             publisher_ref=self._publisher,
             source_ref=self._prefix + c.catalog_ref,
-            source_revision=c.catalog_revision,
+            source_revision=revision,
             # Stable across runs (valid_until is not in it): the ledger's idempotency key is
-            # (catalog_ref, catalog_revision, catalog digest). Renewal = bump catalog_revision.
+            # (catalog_ref, catalog_revision, catalog digest) while the committed validity is in
+            # its first half; past that the job re-designates the same bytes at revision + 1.
             source_digest=c.admitted_catalog_digest,
-            receipt_ref=f"{c.deployment_receipt_ref}@{c.catalog_revision}",
+            receipt_ref=f"{c.deployment_receipt_ref}@{revision}",
             observed_at=observed,
             valid_until=until,
         )
@@ -313,6 +332,14 @@ class LedgerEntry(Closed):
     source_digest: Sha256Digest
     publication_id: OpaqueRef
     authority_revision: Revision
+    #: The committed source validity (absent in ledgers written before renewal existed, which
+    #: therefore renew on the next run).
+    valid_until: datetime | None = None
+
+
+def renew_margin(validity_seconds: int) -> timedelta:
+    """Republish once no more than half the validity remains (see CADENCE in the module doc)."""
+    return timedelta(seconds=validity_seconds / 2)
 
 
 class LedgerState(Closed):
@@ -332,6 +359,10 @@ class PublicationLedger:
                 if not stat.S_ISREG(self.path.stat().st_mode):
                     raise ValueError
                 value = json.loads(self.path.read_bytes())
+                for entry in value.get("entries", ()):
+                    # pre-renewal ledgers have no validity: read it as "unknown" (renews next run)
+                    if isinstance(entry, dict):
+                        entry.setdefault("valid_until", None)
             else:
                 value = {
                     "schema": "portal-read-publication-ledger.v1",
@@ -356,6 +387,17 @@ class PublicationLedger:
 
     def published(self, source: SourceProvenance, kind: str) -> bool:
         return self.has(kind, source.source_ref, source.source_revision, source.source_digest)
+
+    def fresh(self, source: SourceProvenance, kind: str, *, now: datetime, margin: timedelta) -> bool:
+        """Same content committed AND its validity still beyond `margin` from `now`."""
+        entry = self.entry(kind, source.source_ref)
+        return (
+            entry is not None
+            and (entry.source_revision, entry.source_digest)
+            == (source.source_revision, source.source_digest)
+            and entry.valid_until is not None
+            and entry.valid_until - now > margin
+        )
 
     def has(self, kind: str, ref: str, revision: int, source_digest: str) -> bool:
         return any(
@@ -400,6 +442,7 @@ class PublicationLedger:
             source_digest=source.source_digest,
             publication_id=receipt.publication_id,
             authority_revision=receipt.authority_revision,
+            valid_until=source.valid_until,
         )
         kept = tuple(e for e in self.state.entries if (e.kind, e.source_ref) != (kind, source.source_ref))
         self._write(
@@ -449,7 +492,8 @@ class JobResult:
 
 
 class MembershipPublicationJob:
-    """Catalog first (once), then every staff membership whose revision/digest is not committed."""
+    """Catalog, then every staff membership whose revision/digest is not committed or whose
+    committed validity is in its second half (renewal, see CADENCE in the module doc)."""
 
     def __init__(
         self,
@@ -513,10 +557,28 @@ class MembershipPublicationJob:
 
     async def run(self) -> JobResult:
         ledger = self._ledger
-        catalog_ref = self._catalog._config.catalog_ref
+        config = self._catalog._config
+        catalog_ref = config.catalog_ref
+        prefix = self._catalog._prefix
+        last = ledger.entry("catalog-designate", prefix + catalog_ref)
+        if (
+            last is not None
+            and last.source_digest == config.admitted_catalog_digest
+            and last.source_revision >= config.catalog_revision
+        ):
+            self._catalog.revision = last.source_revision  # same bytes: probe the committed one
         catalog = await self._catalog.read(catalog_ref)
-        catalog_done = ledger.published(catalog.source, "catalog-designate")
+        catalog_done = ledger.fresh(
+            catalog.source,
+            "catalog-designate",
+            now=self._clock(),
+            margin=renew_margin(self._catalog._config.valid_seconds),
+        )
         catalog.lease.uncertain()  # this snapshot was only the idempotency probe
+        if not catalog_done and ledger.published(catalog.source, "catalog-designate"):
+            self._catalog.revision += 1  # renewal: same bytes, next revision (insert-only history)
+            catalog = await self._catalog.read(catalog_ref)  # what the ledger records
+            catalog.lease.uncertain()
         if not catalog_done:
             receipt = await self._publisher.publish_catalog(
                 catalog_ref, expected_revision=ledger.authority_revision
@@ -530,7 +592,12 @@ class MembershipPublicationJob:
             principals += await self._principal(record)
             probe = await self._handshake.freeze(issuer, subject)
             probe.uncertain()
-            if ledger.published(probe.provenance, "membership"):
+            if ledger.fresh(
+                probe.provenance,
+                "membership",
+                now=self._clock(),
+                margin=renew_margin(self._handshake._seconds),
+            ):
                 unchanged += 1
                 continue
             receipt = await self._publisher.publish_membership(
@@ -778,7 +845,10 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--publisher-ref", required=True)
     d.add_argument("--deployment-receipt-ref", required=True)
     d.add_argument("--deployment-receipt-digest", required=True)
-    p = sub.add_parser("publish", help="publish the catalog once and memberships per revision")
+    p = sub.add_parser(
+        "publish",
+        help="publish/renew the catalog and memberships; run every < min(validity)/2 (e.g. 4-5 min)",
+    )
     p.add_argument("--config", required=True)
     p.add_argument("--authority-revision", type=int, default=None)
     args = parser.parse_args(argv)

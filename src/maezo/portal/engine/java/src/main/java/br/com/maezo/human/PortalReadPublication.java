@@ -127,6 +127,8 @@ final class PortalReadPublication implements Command<PortalReadPublication.Resul
                 .equals(payload.get("deployment_receipt_digest")))
           throw unavailable();
         verifyCatalog(context, artifact);
+        // Renewal of an unchanged catalog is a NEW revision (MZO_PORTAL_READ_CATALOG is
+        // insert-only history): the job re-designates the same bytes at revision + 1.
         var prior = db.one("SELECT REVISION_,REVOKED_ FROM MZO_PORTAL_READ_DESIGNATION WHERE "
                 + PortalReadStore.SCOPE + " AND CATALOG_=?",
             db.args(payload.get("catalog_ref")));
@@ -174,11 +176,19 @@ final class PortalReadPublication implements Command<PortalReadPublication.Resul
       }
       case "membership" -> {
         var prior = db.membership(str(payload, "principal_ref"));
+        // Renewal: the SAME revision with a byte-identical payload and a strictly later source
+        // validity refreshes SOURCE_ (the membership source lives minutes; the row does not move).
+        boolean renewal = prior != null
+            && number(payload.get("membership_revision")) == ((Number) prior.get("revision_")).longValue()
+            && text(payload).equals(prior.get("payload_"))
+            && time(source.get("valid_until"))
+                   .isAfter(time(PortalReadStore.json(prior.get("source_")).get("valid_until")));
         if (prior != null
             && (!prior.get("issuer_").equals(payload.get("issuer"))
                 || !prior.get("subject_").equals(payload.get("subject"))
-                || number(payload.get("membership_revision"))
-                    <= ((Number) prior.get("revision_")).longValue()))
+                || (!renewal
+                    && number(payload.get("membership_revision"))
+                        <= ((Number) prior.get("revision_")).longValue())))
           throw conflict();
         if (payload.get("state").equals("active")) {
           current(Instant.now(), payload.get("reviewed_until"));
