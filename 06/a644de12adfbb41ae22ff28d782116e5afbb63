@@ -1,0 +1,21 @@
+deploy/cloudflare/envs/dev/main.tf
+  s_75580744a35de2::t_edc888f384a364 69-76,196-215
+deploy/cloudflare/envs/dev/variables.tf
+  s_75580744a35de2::t_dab0556e5746d9 109-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "06a644de12adfbb41ae22ff28d782116e5afbb63",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
