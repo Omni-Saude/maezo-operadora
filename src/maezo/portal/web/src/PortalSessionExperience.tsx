@@ -28,10 +28,12 @@ function SessionHeading({
   audience,
   expiresAt,
   headingRef,
+  compact = false,
 }: {
   audience: PortalAudience;
   expiresAt: string;
   headingRef: Ref<HTMLHeadingElement>;
+  compact?: boolean;
 }) {
   const heading = audience === "staff"
     ? "Área de colaboradores"
@@ -39,13 +41,13 @@ function SessionHeading({
       ? "Área do beneficiário"
       : "Área do prestador";
   return (
-    <section className="portal-session-card" aria-labelledby="audience-heading">
-      <p className="eyebrow">Sessão ativa</p>
+    <section className={compact ? "portal-session-card portal-session-compact" : "portal-session-card"} aria-labelledby="audience-heading">
+      {!compact && <p className="eyebrow">Sessão ativa</p>}
       <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
         Sessão confirmada. {heading}.
       </p>
       <h1 id="audience-heading" ref={headingRef} tabIndex={-1}>{heading}</h1>
-      <p>Cada recurso é consultado com a autorização atual desta sessão.</p>
+      {!compact && <p>Cada recurso é consultado com a autorização atual desta sessão.</p>}
       <dl className="session-detail">
         <div>
           <dt>Validade desta sessão</dt>
@@ -170,7 +172,7 @@ export function StaffPortalExperience({
 
   return (
     <main className="portal-session-main">
-      <SessionHeading audience="staff" expiresAt={expiresAt} headingRef={headingRef} />
+      <SessionHeading audience="staff" expiresAt={expiresAt} headingRef={headingRef} compact={activeArea !== "overview"} />
       <div className="staff-portal-workspace">
         <StaffNavigation active={activeArea} onChange={setActiveArea} />
         <div className="staff-panel-stack">

@@ -118,6 +118,16 @@
   }
 }
 
+/* Páginas internas: o cabeçalho da sessão vira uma faixa; o hero fica só na casa. */
+.portal-session-compact { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.4rem 1.5rem; padding: 0.9rem 1.25rem; }
+.portal-session-compact h1 { font-size: 1.35rem; letter-spacing: -0.02em; }
+.portal-session-compact .session-detail { display: flex; gap: 0.5rem; align-items: baseline; margin: 0; padding: 0; border: 0; }
+.portal-session-compact .session-detail div { display: flex; flex-wrap: wrap; gap: 0 0.4rem; align-items: baseline; }
+.portal-session-compact .session-detail dd { margin: 0; font-size: 0.9rem; }
+
+.task-name { display: block; }
+.task-key-raw { display: block; margin-top: 0.15rem; color: #526d65; font-size: 0.8rem; font-weight: 500; }
+
 /* Casos do colaborador: fila e detalhe (somente leitura). */
 .staff-panel-stack,
 .staff-panel-stack > .portal-area-panel { min-width: 0; }

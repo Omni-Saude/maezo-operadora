@@ -9,7 +9,10 @@ vi.mock("./StaffOverview", () => ({
   StaffOverview: () => <section aria-label="Visão geral" />,
 }));
 
+import { readFileSync } from "node:fs";
+
 import { App } from "./App";
+import { taskLabels } from "./StaffCaseWorkspace";
 import { staffCaseDetail, staffCasePage, staffCaseRefs } from "./test/staffCaseFixtures";
 
 // Only the fetch boundary is replaced: the real session client, staff case
@@ -144,6 +147,40 @@ it("detalhe com 404 diz que o caso não está liberado para o grupo", async () =
   render(<App />);
 
   expect(await screen.findByRole("alert")).toHaveTextContent(/não está liberado para o seu grupo/i);
+});
+
+it("tarefa conhecida ganha rótulo PT-BR; id fora do mapa aparece cru, nunca some", async () => {
+  const ref = staffCaseRefs[0];
+  window.history.replaceState(null, "", `/portal/cases/${ref}`);
+  serve((path) => (path === `/api/v1/portal/cases/${ref}` ? json(staffCaseDetail(ref)) : undefined));
+  render(<App />);
+
+  const tasks = await screen.findByRole("table", { name: /tarefas ativas do caso/i });
+  const [, first, second] = within(tasks).getAllByRole("row");
+  expect(within(first).getByRole("rowheader")).toHaveTextContent("Análise do médico auditorUT_AnaliseMedicoAuditor");
+  expect(within(second).getByRole("rowheader")).toHaveTextContent(/^UT_ConferenciaDocumental$/);
+});
+
+it("o mapa de rótulos cobre exatamente as userTasks do BPMN de autorização", () => {
+  const bpmn = readFileSync("../../../../spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn", "utf8");
+  const ids = [...bpmn.matchAll(/<bpmn:userTask id="([^"]+)"/g)].map((m) => m[1]);
+  expect(Object.keys(taskLabels).sort()).toEqual([...new Set(ids)].sort());
+});
+
+it("páginas internas usam o cabeçalho compacto; a casa mantém o hero", async () => {
+  window.history.replaceState(null, "", "/portal/cases");
+  serve(casesList(() => json(staffCasePage())));
+  const view = render(<App />);
+  await screen.findByRole("table", { name: /casos de autorização liberados/i });
+  expect(screen.getByRole("heading", { level: 1 }).closest("section")).toHaveClass("portal-session-compact");
+  expect(screen.queryByText(/cada recurso é consultado/i)).not.toBeInTheDocument();
+  expect(screen.getByText("Validade desta sessão")).toBeInTheDocument();
+  view.unmount();
+
+  window.history.replaceState(null, "", "/portal/");
+  render(<App />);
+  expect(await screen.findByText(/cada recurso é consultado/i)).toBeInTheDocument();
+  expect(screen.getByRole("heading", { level: 1 }).closest("section")).not.toHaveClass("portal-session-compact");
 });
 
 it("trocar de área sai do endereço de casos", async () => {

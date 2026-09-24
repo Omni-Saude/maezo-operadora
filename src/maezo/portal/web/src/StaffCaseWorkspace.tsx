@@ -81,6 +81,23 @@ function ValidityWindow({ observedAt, validUntil, label }: {
   );
 }
 
+// Closed map, sourced from the userTask names in
+// spec/processes/bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn (the only process
+// staff cases carry). An id outside it is shown raw, never hidden.
+export const taskLabels: Readonly<Record<string, string>> = {
+  UT_AnaliseMedicoAuditor: "Análise do médico auditor",
+  UT_CoordenacaoAssume: "Coordenação de auditoria médica assume",
+  UT_DecidirPendenciaExpirada: "Decidir destino da guia com pendência expirada",
+  UT_RegistrarParecerJunta: "Registrar parecer da junta médica",
+};
+
+function TaskName({ taskKey }: { taskKey: string }) {
+  const label = Object.hasOwn(taskLabels, taskKey) ? taskLabels[taskKey] : undefined;
+  return label === undefined
+    ? <span className="task-name exact-value">{taskKey}</span>
+    : <><span className="task-name">{label}</span><span className="task-key-raw exact-value">{taskKey}</span></>;
+}
+
 function dueLabel(dueAt: string | null, observedAt: string) {
   if (dueAt === null) return { text: "Sem prazo informado", late: false };
   const late = Date.parse(dueAt) < Date.parse(observedAt);
@@ -124,7 +141,7 @@ function StaffCaseDetail({ detail }: { detail: StaffDetail }) {
                   const due = dueLabel(task.due_at, detail.freshness.observed_at);
                   return (
                     <tr key={task.task_id}>
-                      <th scope="row">{task.task_definition_key}</th>
+                      <th scope="row"><TaskName taskKey={task.task_definition_key} /></th>
                       <td className={due.late ? "due-late" : undefined}>
                         {due.text}{due.late && <strong className="due-flag"> Vencido</strong>}
                       </td>
