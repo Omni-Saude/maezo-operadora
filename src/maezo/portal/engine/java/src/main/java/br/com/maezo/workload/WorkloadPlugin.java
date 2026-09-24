@@ -59,6 +59,32 @@ public final class WorkloadPlugin extends AbstractProcessEnginePlugin {
     WorkloadPlugin value=running;if(value==null)throw Refused.unavailable();return value;
   }
   BoundaryPolicy policy() {policy.current(null);return policy;}
+  /**
+   * C1 F2: E04 separation for the human/staff image (deploy/cibseven/Dockerfile.human), which
+   * never deploys D7: its layout (8080 + mTLS 8443, no BoundaryFilter) is not the D7 secured
+   * layout that {@link #preInit} verifies, so registering this plugin there can never boot.
+   * Without D7 in this process there is no D7 peer to collide with, and the check degrades to the
+   * spki shape only. It stays fail-closed whenever D7 is meant to be here: a running plugin is
+   * always asked; a boundary env, or a root-owned bpm-platform.xml that names this plugin while
+   * it is not running (or a descriptor that cannot be read), is unavailable, never "separated".
+   */
+  public static void requireHumanAuthPeerSeparatedInProcess(String spki) {
+    if(spki==null||!spki.matches("[0-9a-f]{64}"))throw Refused.denied();
+    WorkloadPlugin value=running;
+    if(value!=null){value.requireHumanAuthPeerSeparated(spki);return;}
+    if(System.getenv("MAEZO_ENGINE_BOUNDARY_FILE")!=null||System.getenv("MAEZO_ENGINE_BOUNDARY_SHA256")!=null
+        ||BoundaryPolicyV2.configured())throw Refused.unavailable();
+    // Tomcat publishes its base as the `catalina.base` system property (the env var is optional).
+    String base=System.getProperty("catalina.base");
+    if(base==null||base.isBlank())throw Refused.unavailable();
+    try {
+      String descriptor=java.nio.file.Files.readString(java.nio.file.Path.of(base,"conf","bpm-platform.xml"));
+      if(descriptor.contains(WorkloadPlugin.class.getName()))throw Refused.unavailable();
+    } catch(java.io.IOException|RuntimeException unreadable) {
+      if(unreadable instanceof Refused r)throw r;
+      throw Refused.unavailable();
+    }
+  }
   /** E04 read-only separation check; no peer enumeration or nested-command permit is returned. */
   public void requireHumanAuthPeerSeparated(String spki) {
     if(spki==null||!spki.matches("[0-9a-f]{64}"))throw Refused.denied();

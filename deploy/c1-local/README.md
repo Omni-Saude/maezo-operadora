@@ -98,3 +98,17 @@ Pendências abertas pelos builders (#499/#500): **recomeço de revisão com poli
 policy anterior**: não mensuráveis (F2). **Chave `human-authority` no trust do engine**: registrada aqui
 (D7), mas o job para no catálogo (F4) antes de publicar o principal. **Credencial do emissor no REST**:
 a composição não tem nenhuma, e só funciona com o `engine-rest` aberto (dev, N5).
+
+## Correcao do lado Java/imagem (branch `fix/c1-java`)
+
+| # | Correcao | Por que mantem o controle |
+|---|---|---|
+| F1 | `StaffCaseStore.designation()` sem `FOR UPDATE`: serializa com `pg_advisory_xact_lock_shared` de chave derivada do escopo (tenant, environment, engine, incarnation) | o pin continua exigindo o engine SEM UPDATE em `designation_*` (nada foi concedido); quem trocar a designacao toma o lock EXCLUSIVO da mesma chave (`StaffCaseStore.DESIGNATION_LOCK`). W1 saiu do `run.sh all` |
+| F2 | `WorkloadPlugin.requireHumanAuthPeerSeparatedInProcess`: registrar o `WorkloadPlugin` no `Dockerfile.human` nao sobe nunca (o `preInit` exige o layout D7: 1 conector, `BoundaryFilter`, politica montada), entao a checagem E04 passa a valer "sem D7 neste processo, nao ha par D7 para colidir" | fail-closed: plugin rodando e sempre consultado; env de boundary (v1/v2) presente, ou `conf/bpm-platform.xml` nomeando o plugin sem ele rodar, ou descritor ilegivel -> `unavailable` |
+| F4 | o provedor Q2 resolve o `DataSource` UMA vez no construtor (boot do engine) e reusa; a thread do request so faz lookup se nada foi resolvido | o nome JNDI e o configurado/admitido; nada do request o escolhe |
+| F4b | (medido depois do F4) a publicacao faz `INSERT .. ON CONFLICT DO UPDATE` em `mzo_portal_read_designation/membership/resource`, e o install so dava SELECT,INSERT (+ `revoked_,publication_`): `permission denied` | GRANT UPDATE por COLUNA, exatamente as do `SET` dos upserts; as chaves seguem sem UPDATE (teste `test_engine_native_install_pg.py`) |
+| F8 | contrato do engine CONFIRMADO (`PortalReadTrust`): cada entrada de `public_keys` tem `key_id`, chave Ed25519 E `peer_spki_sha256` UNICOS no arquivo inteiro. Logo `portal-task-read` e `portal-read-publication` exigem par de chaves e certificado de cliente mTLS distintos | lado Python: o cliente Q2 precisa de uma chave/`key_id` e um cert de cliente por proposito |
+
+Medido (`run.sh all`, 23/09/2026): `engine-up` PASS com a composicao staff; `publish` PASS (1a rodada
+publica catalogo + 2 memberships + 2 principais; 2a rodada idempotente). Proximo bloqueio: `issuer`
+rc=1 `staff_case_denied` e `/cases` 403 `operation_forbidden` (provavel F9/Python, nao investigado aqui).

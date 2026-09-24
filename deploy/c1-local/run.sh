@@ -98,10 +98,7 @@ case "${1:-all}" in
     "${DC[@]}" run --rm -T --user 0:0 runner python -m c1 tls
     "${DC[@]}" up -d --wait postgres >/dev/null 2>&1; py db-base
     bootstrap; py materials; py db-native; digests; py engine-config; py assemble
-    engine_up                       # 1a: imagem staff, como a T1.2 entrega (mede F1)
-    py w1; engine_up                # 2a: com o contorno local do F1 (mede F2)
-    export C1_ENGINE_IMAGE=maezo-c1-engine:nostaff
-    engine_up                       # 3a: sem a composicao staff, para medir T1.5/T1.6/portal
+    engine_up                       # imagem staff, como a T1.2 entrega (F1/F2/F4 corrigidos em fix/c1-java; sem W1)
     py seed; py publish || true; py issuer || true; py portal-init || true; py portal || true ;;
   *) echo "passo desconhecido: $1" >&2; exit 2 ;;
 esac

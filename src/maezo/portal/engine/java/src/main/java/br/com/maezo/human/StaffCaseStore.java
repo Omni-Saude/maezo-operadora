@@ -102,8 +102,17 @@ final class StaffCaseStore {
   Map<String,Object> one(String sql,Object...args){return auth.one(sql,args);}
   Map<String,Object> optional(String sql,Object...args){return auth.optional(sql,args);}
   void write(String sql,Object...args){auth.write(sql,args);}
+  /**
+   * C1 F1: the posture pin above requires the engine login WITHOUT UPDATE on the designation
+   * relations (installed by the owner, D-J.4), and FOR UPDATE/FOR SHARE both demand UPDATE. The
+   * read is serialized instead by a transaction-scoped SHARED advisory lock whose key is derived
+   * from the designation scope; any designation writer (installer, owner login) takes the
+   * EXCLUSIVE lock with the same key (DESIGNATION_LOCK) before changing the row.
+   */
+  static final String DESIGNATION_LOCK="SELECT pg_advisory_xact_lock_shared(hashtextextended(CONCAT_WS(chr(31),'mzo_staff_case_designation',CAST(? AS text),CAST(? AS text),CAST(? AS text),CAST(? AS text)),0))";
   Map<String,Object> designation() {
-    return one("SELECT e.canonical_designation,e.installation_proof,c.designation_digest,c.designation_revision FROM mzo_staff_case_designation_current c JOIN mzo_staff_case_designation_event e USING(tenant,environment,engine_name,database_incarnation,designation_revision) WHERE c.tenant=? AND c.environment=? AND c.engine_name=? AND c.database_incarnation=? AND c.designation_digest=e.designation_digest FOR UPDATE OF c",args());
+    one(DESIGNATION_LOCK,args());
+    return one("SELECT e.canonical_designation,e.installation_proof,c.designation_digest,c.designation_revision FROM mzo_staff_case_designation_current c JOIN mzo_staff_case_designation_event e USING(tenant,environment,engine_name,database_incarnation,designation_revision) WHERE c.tenant=? AND c.environment=? AND c.engine_name=? AND c.database_incarnation=? AND c.designation_digest=e.designation_digest",args());
   }
   Map<String,Object> sourceHead(String source){return optional("SELECT * FROM mzo_staff_case_source_head WHERE "+S+" AND source_ref=? FOR UPDATE",args(source));}
   Map<String,Object> grant(String ref){return optional("SELECT * FROM mzo_staff_case_grant WHERE "+S+" AND grant_ref=? FOR UPDATE",args(ref));}

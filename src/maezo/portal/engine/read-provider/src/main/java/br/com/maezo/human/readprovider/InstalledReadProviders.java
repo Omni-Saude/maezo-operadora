@@ -67,6 +67,8 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
       loaded = null;
     }
     state = loaded;
+    if (state != null)
+      dataSource = resolveQuietly(state.configuration.dataSourceJndi);
     highest = state == null ? Long.MAX_VALUE : state.configuration.minimumAdmissionRevision;
     revokedUpTo = 0;
   }
@@ -187,8 +189,34 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
             p -> p.publisherRef().equals(scope.get("workload_ref")));
   }
 
+  /**
+   * C1 F4: `java:` names resolve only on a thread that carries the naming context of the
+   * component that registered them (the engine boot does, a servlet request thread of another
+   * webapp does not). The DataSource is therefore resolved ONCE, at construction (engine boot),
+   * and reused; a request thread only falls back to a lookup while nothing was ever resolved.
+   * The name is the admitted, configured JNDI name: nothing from the request picks it.
+   */
+  private volatile DataSource dataSource;
+
+  private static DataSource resolveQuietly(String name) {
+    try {
+      return (DataSource) new InitialContext().lookup(name);
+    } catch (Exception | LinkageError notHere) {
+      return null;
+    }
+  }
+
+  private DataSource dataSource(ProviderConfiguration c) throws Exception {
+    DataSource resolved = dataSource;
+    if (resolved == null) {
+      resolved = (DataSource) new InitialContext().lookup(c.dataSourceJndi);
+      dataSource = resolved;
+    }
+    return resolved;
+  }
+
   private Row read(ProviderConfiguration c) throws Exception {
-    DataSource source = (DataSource) new InitialContext().lookup(c.dataSourceJndi);
+    DataSource source = dataSource(c);
     try (Connection connection = source.getConnection()) {
       boolean autoCommit = connection.getAutoCommit();
       try {

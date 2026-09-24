@@ -390,13 +390,17 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
                 if (r["sel"], r["ins"], r["upd"]) != want or r["forbidden"]:
                     wrong[name] = tuple(r)
             assert wrong == {}
-            # D-J.4 2.c: UPDATE da designacao so em REVOKED_/PUBLICATION_.
+            # D-J.4 2.c + C1 F4b: UPDATE da designacao so nas colunas que a revogacao e o upsert da
+            # publicacao escrevem; a chave (TENANT_..CATALOG_) nunca.
             cols = await engine.fetch(
                 "SELECT a.attname FROM pg_attribute a"
                 " WHERE a.attrelid='maezo_native.mzo_portal_read_designation'::regclass"
                 " AND a.attnum>0 AND has_column_privilege(a.attrelid,a.attnum,'UPDATE') ORDER BY 1"
             )
-            assert [r["attname"] for r in cols] == ["publication_", "revoked_"]
+            assert [r["attname"] for r in cols] == [
+                "digest_", "publication_", "publisher_", "revision_", "revoked_", "source_",
+                "valid_until_",
+            ]
             assert (
                 await engine.execute(
                     "UPDATE maezo_native.mzo_portal_read_designation"
@@ -407,6 +411,16 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
             await _refused(
                 engine, "UPDATE maezo_native.mzo_portal_read_designation SET catalog_='x' WHERE false"
             )
+            for table, allowed in (
+                ("mzo_portal_read_membership", ["payload_", "publication_", "revision_", "source_"]),
+                ("mzo_portal_read_resource", ["payload_", "publication_", "source_"]),
+            ):
+                cols = await engine.fetch(
+                    "SELECT a.attname FROM pg_attribute a"
+                    f" WHERE a.attrelid='maezo_native.{table}'::regclass"
+                    " AND a.attnum>0 AND has_column_privilege(a.attrelid,a.attnum,'UPDATE') ORDER BY 1"
+                )
+                assert [r["attname"] for r in cols] == allowed, table
             await _refused(engine, "DELETE FROM maezo_native.mzo_human_tenant")
             await _refused(engine, "DELETE FROM maezo_native.mzo_portal_read_publication_receipt")
             await _refused(engine, "TRUNCATE maezo_native.mzo_human_principal")

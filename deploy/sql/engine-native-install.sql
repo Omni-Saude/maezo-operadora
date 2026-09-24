@@ -647,8 +647,16 @@ BEGIN
    EXECUTE format('REVOKE ALL ON maezo_native.%I FROM cibseven_app', r.relname);
    EXECUTE format('GRANT %s ON maezo_native.%I TO cibseven_app', privs, r.relname);
  END LOOP;
- -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) so escreve REVOKED_ e PUBLICATION_.
- GRANT UPDATE (revoked_, publication_) ON maezo_native.mzo_portal_read_designation TO cibseven_app;
+ -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) escreve REVOKED_ e PUBLICATION_; C1 (F4b):
+ -- a publicacao (ON CONFLICT DO UPDATE, PortalReadPublication.java:149) reescreve REVISION_, DIGEST_,
+ -- PUBLICATION_, SOURCE_, PUBLISHER_, VALID_UNTIL_. A chave (TENANT_..CATALOG_) segue sem UPDATE.
+ GRANT UPDATE (revoked_, publication_, revision_, digest_, source_, publisher_, valid_until_)
+   ON maezo_native.mzo_portal_read_designation TO cibseven_app;
+ -- C1 (F4b): idem para os outros dois upserts da publicacao (PortalReadPublication.java:191/257).
+ GRANT UPDATE (revision_, payload_, publication_, source_)
+   ON maezo_native.mzo_portal_read_membership TO cibseven_app;
+ GRANT UPDATE (payload_, publication_, source_)
+   ON maezo_native.mzo_portal_read_resource TO cibseven_app;
 END $dml$;
 
 -- D-J.4: matriz EXATA de AuthInstallation.installSchema e ConsumerEdgeInstallation.installSchema
