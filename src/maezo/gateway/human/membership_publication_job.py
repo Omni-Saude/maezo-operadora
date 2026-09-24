@@ -556,6 +556,19 @@ class AuthorityKeyConfig(Closed):
     max_envelope_seconds: int = Field(ge=1, le=60)
 
 
+class PublicationKeyConfig(Closed):
+    """The `portal-read-publication` key: its OWN key and `key_id`, never the portal read key.
+
+    The engine's Q2 trust registers one key per purpose (F8 of C1); the read key in the human
+    material signs only `portal-task-read`.
+    """
+
+    key_file: str
+    key_id: OpaqueRef
+    fingerprint: Sha256Digest
+    not_after: datetime
+
+
 class JobConfig(Closed):
     schema_: Literal["portal-membership-publication-job.v1"] = Field(alias="schema")
     tenant: OpaqueRef
@@ -564,6 +577,11 @@ class JobConfig(Closed):
     membership_source_ref_prefix: OpaqueRef
     observation_seconds: int = Field(ge=60, le=900)
     catalog: StaffCatalogConfig
+    #: The job's OWN mTLS client identity towards the engine (F7/F8 of C1): the Q2 trust binds
+    #: each key to a distinct peer SPKI, so the job cannot present the portal's read certificate.
+    client_certificate_file: str
+    client_key_file: str
+    publication: PublicationKeyConfig
     authority: AuthorityKeyConfig
 
 
@@ -614,6 +632,44 @@ def authority_lease(config: AuthorityKeyConfig, scope: Any, lifetime: Any) -> An
     )
 
 
+def publication_credentials(config: PublicationKeyConfig, material: Any, lifetime: Any) -> Any:
+    """The job's `portal-read-publication` provider; any mismatch refuses before a request exists."""
+    from cryptography.hazmat.primitives import serialization
+
+    from .read_materials import MaterialPublicationCredentials
+
+    try:
+        key = serialization.load_pem_private_key(_secret_file(config.key_file), password=None)
+    except Exception:
+        raise unavailable() from None
+    return MaterialPublicationCredentials(
+        material,
+        lifetime,
+        key=key,  # type: ignore[arg-type]
+        key_id=config.key_id,
+        key_fingerprint=config.fingerprint,
+        not_after=config.not_after,
+    )
+
+
+def job_tls_context(config: JobConfig, surface: Any, scope: Any, directory: Any) -> Any:
+    """The engine CA from the attested material; the client certificate is the job's own."""
+    import ssl
+
+    from .transport import HumanTLSIdentity
+
+    _secret_file(config.client_key_file)
+    context = HumanTLSIdentity(
+        scope=scope,
+        ca_file=Path(directory) / surface.ca_file,
+        certificate_file=Path(config.client_certificate_file),
+        private_key_file=Path(config.client_key_file),
+    ).context()
+    if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+        raise unavailable()
+    return context
+
+
 def _secret_file(path: str) -> bytes:
     info = os.stat(path)
     if not stat.S_ISREG(info.st_mode) or (os.name == "posix" and info.st_mode & 0o077):
@@ -630,7 +686,6 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
 
     from .assignment_transport import AssignmentPrivateTransport
     from .models import Scope
-    from .production import _surface_context
     from .production_materials import MATERIAL_DIRECTORY, HumanMaterialPin, load_human_materials
     from .read_credentials import ReadCredentialPartition
     from .read_materials import MaterialLifetime, read_providers
@@ -648,8 +703,9 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
     scope = manifest.scope
     if scope.tenant != config.tenant:
         raise unavailable()
-    admission, credentials, _ = read_providers(material, lifetime)
-    context = _surface_context(manifest.read_surface, scope, material.directory)
+    admission, _, _ = read_providers(material, lifetime)
+    credentials = publication_credentials(config.publication, material, lifetime)
+    context = job_tls_context(config, manifest.read_surface, scope, material.directory)
     dsn = _secret_file(config.identity_dsn_file).decode("utf-8").strip()
     engine = create_async_engine(dsn, hide_parameters=True, pool_size=1, max_overflow=0)
     client = PortalReadClient(
@@ -659,7 +715,7 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
         partition=ReadCredentialPartition(
             scope=scope,
             engine_name=manifest.engine_name,
-            key_id=manifest.key("portal-task-read").key_id,
+            key_id=config.publication.key_id,
             credentials=credentials,
             admission=admission,
         ),

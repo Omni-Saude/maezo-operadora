@@ -504,6 +504,14 @@ def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> N
             "source_ref_prefix": "portal-catalog:",
             "valid_seconds": "86400",
         },
+        "client_certificate_file": "/run/job-client.pem",
+        "client_key_file": "/run/job-client-key.pem",
+        "publication": {
+            "key_file": "/run/publication.pem",
+            "key_id": "portal-read-publication-1",
+            "fingerprint": "c" * 64,
+            "not_after": "2026-09-24T12:00:00.000000Z",
+        },
         "authority": {
             "key_file": "/run/authority.pem",
             "key_id": "human-authority-1",
@@ -518,6 +526,7 @@ def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> N
     config = load_config(str(path))
     assert config.authority.key_id == "human-authority-1"
     assert config.authority.max_envelope_seconds == 30
+    assert config.publication.key_id == "portal-read-publication-1"
     raw["authority"]["unknown"] = "x"
     path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(ProfileError):

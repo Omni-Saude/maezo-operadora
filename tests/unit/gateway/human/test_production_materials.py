@@ -87,6 +87,54 @@ async def test_read_credentials_refuse_a_foreign_purpose_or_key_id(tmp_path):
         await credentials.acquire(other, "portal-task-read", read_key_id)
 
 
+async def test_read_key_never_signs_a_publication(tmp_path):
+    """F8 (C1): the engine trust holds one key per Q2 purpose; the read key is only `portal-task-read`."""
+    materials = build_materials(tmp_path / "current")
+    _, credentials, _ = read_providers(materials, MaterialLifetime())
+    read_key_id = materials.manifest.key("portal-task-read").key_id
+    with pytest.raises(ReadRefusalError):
+        await credentials.acquire(materials.manifest.scope, "portal-read-publication", read_key_id)
+
+
+async def test_publication_credentials_use_their_own_key_and_key_id(tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    from maezo.gateway.human.production_materials import fingerprint
+    from maezo.gateway.human.read_materials import MaterialPublicationCredentials
+
+    materials = build_materials(tmp_path / "current")
+    lifetime = MaterialLifetime()
+    scope = materials.manifest.scope
+    read = materials.manifest.key("portal-task-read")
+    until = datetime.now(UTC).replace(year=datetime.now(UTC).year + 1)
+    key = Ed25519PrivateKey.generate()
+    own = MaterialPublicationCredentials(
+        materials, lifetime, key=key, key_id="publication-1", key_fingerprint=fingerprint(key.public_key()),
+        not_after=until,
+    )
+    lease = await own.acquire(scope, "portal-read-publication", "publication-1")
+    assert lease.purpose == "portal-read-publication"
+    assert lease.requester.key_id == "publication-1" != read.key_id
+    assert lease.requester.public_key_sha256 == fingerprint(key.public_key()) != read.fingerprint
+    lease.require_current(datetime.now(UTC))
+    with pytest.raises(ReadRefusalError):
+        await own.acquire(scope, "portal-task-read", "publication-1")
+    with pytest.raises(ReadRefusalError):
+        await own.acquire(scope, "portal-read-publication", read.key_id)
+    # Reusing the read key or its key_id is refused at construction.
+    read_key = materials.private_key("portal-task-read")
+    with pytest.raises(ReadRefusalError):
+        MaterialPublicationCredentials(
+            materials, lifetime, key=read_key, key_id="publication-1", key_fingerprint=read.fingerprint,
+            not_after=until,
+        )
+    with pytest.raises(ReadRefusalError):
+        MaterialPublicationCredentials(
+            materials, lifetime, key=key, key_id=read.key_id, key_fingerprint=fingerprint(key.public_key()),
+            not_after=until,
+        )
+
+
 async def test_closing_the_composition_revokes_every_issued_lease(tmp_path):
     """A lease is a claim that must still hold when exercised, not a decided fact."""
     materials = build_materials(tmp_path / "current")

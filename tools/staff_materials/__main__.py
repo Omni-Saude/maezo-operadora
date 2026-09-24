@@ -1,4 +1,4 @@
-"""CLI da ENGENHARIA: `generate`, `assemble` e `verify`. Nao ha comando de raiz aqui (ver `approver.py`)."""
+"""CLI da ENGENHARIA: `generate`, `assemble`, `verify` e `lock-sql`. Nao ha comando de raiz aqui (ver `approver.py`)."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from maezo.portal.engine.profile import canonicalize
 
 from .assemble import assemble, bundle_bytes, load_input, read_directories
 from .generate import REPO, generate
+from .lock_sql import render as render_lock_sql
 from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, write_new
 from .spec import load_spec
 from .verify import load_pins, manifest_digest, verify_bundle
@@ -36,6 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--pins", type=Path, help="arquivo de pins escrito pelo aprovador")
     check.add_argument("--manifest", type=Path)
     check.add_argument("--print-manifest-digest", action="store_true")
+    lock = commands.add_parser("lock-sql", help="renderiza deploy/sql/portal-identity-lock.sql.tmpl (D-D)")
+    lock.add_argument("--tenant", required=True)
+    lock.add_argument("--tenant-schema", required=True)
+    lock.add_argument("--session-lock-login", required=True)
+    lock.add_argument("--witness-login", required=True)
     return parser
 
 
@@ -67,6 +73,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             write_new(out / "public-manifest.json", canonicalize(public), PUBLIC)
             print(f"saida={out}")
             print(f"public_manifest_sha256={digest(public)} (confira com o verify ANTES de pinar)")
+            return 0
+        if args.command == "lock-sql":
+            sys.stdout.write(
+                render_lock_sql(
+                    tenant=args.tenant,
+                    tenant_schema=args.tenant_schema,
+                    session_lock_login=args.session_lock_login,
+                    witness_login=args.witness_login,
+                )
+            )
             return 0
         if args.print_manifest_digest:
             if args.manifest is None:

@@ -1,0 +1,75 @@
+-- T1.4 (plano portal-autoridade-nativa-dev, D-D): `portal_identity.lock_external_session` por tenant.
+-- Renderize com `python -m tools.staff_materials lock-sql` (nunca a mao): os marcadores sao
+-- {{TENANT}}, {{TENANT_SCHEMA}}, {{SESSION_LOCK_LOGIN}} e {{WITNESS_LOGIN}}, validados como
+-- identificadores. Executar pela role de ADMINISTRACAO do database de identidade, uma vez, depois da
+-- migracao 0012; nunca no boot.
+--
+-- Parte 1, entre os marcadores BEGIN/END: o bloco canonico de `external-case-schema-postgres.sql`
+-- (BEGIN IDENTITY DATABASE INSTALLATION) com UMA diferenca, o schema das tabelas de identidade
+-- (`public.` -> `{{TENANT_SCHEMA}}.`). O teste `test_lock_sql.py` compara byte a byte.
+-- Parte 2: o que a variante por tenant acrescenta. Idempotente. Os verificadores SCRAM dos dois
+-- logins vem da T1.3 (`dba/role-verifiers.json`) como GUC da sessao:
+--   SET maezo.verifier.{{SESSION_LOCK_LOGIN}} = 'SCRAM-SHA-256$...';   (idem para {{WITNESS_LOGIN}})
+
+-- BEGIN CANONICAL IDENTITY BLOCK
+CREATE SCHEMA portal_identity;
+REVOKE ALL ON SCHEMA portal_identity FROM PUBLIC;
+CREATE ROLE portal_external_identity_reader NOLOGIN;
+CREATE ROLE portal_external_identity_bff NOLOGIN;
+GRANT USAGE ON SCHEMA portal_identity TO portal_external_identity_reader,portal_external_identity_bff;
+CREATE TABLE portal_identity.external_login_tenant(login_role name PRIMARY KEY,tenant text NOT NULL);
+REVOKE ALL ON portal_identity.external_login_tenant FROM PUBLIC;
+GRANT SELECT ON portal_identity.external_login_tenant TO portal_external_identity_reader;
+CREATE FUNCTION portal_identity.lock_external_session(requested_secret_hash text)
+ RETURNS TABLE(session_tenant text,secret_hash text,expires_at timestamptz,session_payload text,
+ membership_tenant text,issuer text,subject text,principal_ref text,membership_payload text)
+ LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog,portal_identity AS $identity$
+DECLARE installed_tenant text;s record;m record;identity jsonb;
+BEGIN
+ IF requested_secret_hash IS NULL OR requested_secret_hash !~ '^[0-9a-f]{64}$' THEN RAISE EXCEPTION USING ERRCODE='P7E04',MESSAGE='external_case_denied'; END IF;
+ SELECT x.tenant INTO installed_tenant FROM portal_identity.external_login_tenant x WHERE x.login_role=session_user;
+ IF installed_tenant IS NULL THEN RAISE EXCEPTION USING ERRCODE='P7E04',MESSAGE='external_case_denied'; END IF;
+ SELECT x.* INTO s FROM {{TENANT_SCHEMA}}.portal_sessions x WHERE x.tenant=installed_tenant AND x.secret_hash=requested_secret_hash FOR SHARE;
+ IF NOT FOUND OR s.expires_at<=clock_timestamp() OR octet_length(s.payload)>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E04',MESSAGE='external_case_denied'; END IF;
+ identity:=s.payload::jsonb;
+ IF jsonb_typeof(identity) IS DISTINCT FROM 'object' OR jsonb_typeof(identity->'issuer') IS DISTINCT FROM 'string'
+ OR jsonb_typeof(identity->'subject') IS DISTINCT FROM 'string' THEN RAISE EXCEPTION USING ERRCODE='P7E04',MESSAGE='external_case_denied'; END IF;
+ SELECT x.* INTO m FROM {{TENANT_SCHEMA}}.portal_memberships x WHERE x.tenant=installed_tenant AND x.issuer=identity->>'issuer' AND x.subject=identity->>'subject' FOR SHARE;
+ IF NOT FOUND OR octet_length(s.payload)+octet_length(m.payload)>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E04',MESSAGE='external_case_denied'; END IF;
+ RETURN QUERY SELECT s.tenant,s.secret_hash,s.expires_at,s.payload,m.tenant,m.issuer,m.subject,m.principal_ref,m.payload;
+END $identity$;
+ALTER FUNCTION portal_identity.lock_external_session(text) OWNER TO portal_external_identity_reader;
+REVOKE ALL ON FUNCTION portal_identity.lock_external_session(text) FROM PUBLIC;
+GRANT SELECT,UPDATE(payload) ON {{TENANT_SCHEMA}}.portal_sessions,{{TENANT_SCHEMA}}.portal_memberships TO portal_external_identity_reader;
+GRANT EXECUTE ON FUNCTION portal_identity.lock_external_session(text) TO portal_external_identity_bff;
+-- BFF role gets no membership UPDATE/DELETE or owner membership. Installation owner
+-- alone binds each authenticated LOGIN role to exactly one installed tenant.
+-- END CANONICAL IDENTITY BLOCK
+
+GRANT USAGE ON SCHEMA {{TENANT_SCHEMA}} TO portal_external_identity_reader;
+DO $logins$
+DECLARE login name; verifier text;
+BEGIN
+ FOREACH login IN ARRAY ARRAY['{{SESSION_LOCK_LOGIN}}','{{WITNESS_LOGIN}}']::name[] LOOP
+   verifier := current_setting('maezo.verifier.'||login, true);
+   IF verifier IS NULL OR verifier !~ '^SCRAM-SHA-256\$[0-9]+:[A-Za-z0-9+/=]+\$[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$' THEN
+     RAISE EXCEPTION 'portal-identity-lock: verificador SCRAM ausente ou invalido para %', login;
+   END IF;
+   IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=login) THEN
+     EXECUTE format('CREATE ROLE %I LOGIN', login);
+   END IF;
+   EXECUTE format('ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
+                  login, verifier);
+ END LOOP;
+END $logins$;
+-- So o login do lock executa a funcao, e so para o tenant instalado aqui.
+GRANT USAGE ON SCHEMA portal_identity TO {{SESSION_LOCK_LOGIN}};
+GRANT EXECUTE ON FUNCTION portal_identity.lock_external_session(text) TO {{SESSION_LOCK_LOGIN}};
+INSERT INTO portal_identity.external_login_tenant(login_role,tenant) VALUES('{{SESSION_LOCK_LOGIN}}','{{TENANT}}')
+ ON CONFLICT (login_role) DO NOTHING;
+DO $bound$
+BEGIN
+ IF (SELECT tenant FROM portal_identity.external_login_tenant WHERE login_role='{{SESSION_LOCK_LOGIN}}') IS DISTINCT FROM '{{TENANT}}' THEN
+   RAISE EXCEPTION 'portal-identity-lock: {{SESSION_LOCK_LOGIN}} ja esta ligado a outro tenant';
+ END IF;
+END $bound$;
