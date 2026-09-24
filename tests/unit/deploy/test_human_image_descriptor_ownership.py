@@ -19,12 +19,22 @@ def _instructions() -> list[str]:
 
 def test_descriptor_is_root_owned_read_only_after_its_last_write() -> None:
     lines = _instructions()
-    writes = [i for i, line in enumerate(lines) if line.startswith("RUN") and re.search(r"sed -i[^;&]*" + re.escape(FILE), line)]
-    lock = [i for i, line in enumerate(lines) if f"chown root:root {FILE}" in line and f"chmod 0444 {FILE}" in line]
+    writes = [
+        i
+        for i, line in enumerate(lines)
+        if line.startswith("RUN") and re.search(r"sed -i[^;&]*" + re.escape(FILE), line)
+    ]
+    lock = [
+        i
+        for i, line in enumerate(lines)
+        if f"chown root:root {FILE}" in line and f"chmod 0444 {FILE}" in line
+    ]
     assert writes and len(lock) == 1, "o descriptor tem que ser travado exatamente uma vez"
     assert lock[0] > max(writes), "nenhum sed pode rodar depois da trava"
     assert lines[lock[0] - 1] == "USER root", "chown exige root imediatamente antes"
-    assert "chown root:camunda /camunda/conf" in lines[lock[0]] and "chmod 1775 /camunda/conf" in lines[lock[0]]
+    assert (
+        "chown root:camunda /camunda/conf" in lines[lock[0]] and "chmod 1775 /camunda/conf" in lines[lock[0]]
+    )
 
 
 def test_process_uid_is_camunda_after_the_lock_and_the_build_proves_it() -> None:

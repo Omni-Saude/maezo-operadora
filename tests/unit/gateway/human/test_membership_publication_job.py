@@ -536,7 +536,9 @@ def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> N
 # --- renewal before the source expires (the 503 after 10 min) -----------------------------
 
 
-def _clocked_job(rows: RowStore, publisher: FakePublisher, path: Path, clock, *, seconds=600, catalog_seconds=3600):
+def _clocked_job(
+    rows: RowStore, publisher: FakePublisher, path: Path, clock, *, seconds=600, catalog_seconds=3600
+):
     job = MembershipPublicationJob(
         publisher=publisher,
         ledger=PublicationLedger(path, "amh"),

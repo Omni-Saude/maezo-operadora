@@ -398,7 +398,12 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
                 " AND a.attnum>0 AND has_column_privilege(a.attrelid,a.attnum,'UPDATE') ORDER BY 1"
             )
             assert [r["attname"] for r in cols] == [
-                "digest_", "publication_", "publisher_", "revision_", "revoked_", "source_",
+                "digest_",
+                "publication_",
+                "publisher_",
+                "revision_",
+                "revoked_",
+                "source_",
                 "valid_until_",
             ]
             assert (
@@ -643,7 +648,9 @@ _STAFF_JAVA = _ENGINE / "java/src/main/java/br/com/maezo/human/StaffCaseStore.ja
 
 def _designation_lock_sql() -> str:
     """O DESIGNATION_LOCK do leitor, lido do Java (a cerca segue o codigo)."""
-    found = re.search(r'static final String DESIGNATION_LOCK="(.*?)";', _STAFF_JAVA.read_text(encoding="utf-8"))
+    found = re.search(
+        r'static final String DESIGNATION_LOCK="(.*?)";', _STAFF_JAVA.read_text(encoding="utf-8")
+    )
     assert found, "DESIGNATION_LOCK moveu; atualize esta cerca"
     sql = found.group(1)
     for n in range(1, 5):
@@ -676,7 +683,8 @@ def test_designation_writer_waits_for_the_reader_shared_lock() -> None:
             await read.start()
             await reader.execute(_designation_lock_sql(), *key)
             before = await reader.fetchval(
-                "SELECT designation_digest FROM maezo_native.mzo_staff_case_designation_current WHERE tenant=$1",
+                "SELECT designation_digest FROM maezo_native.mzo_staff_case_designation_current"
+                " WHERE tenant=$1",
                 key[0],
             )
             change = (
@@ -692,7 +700,8 @@ def test_designation_writer_waits_for_the_reader_shared_lock() -> None:
             # Outro escopo nao compartilha a chave: nao espera.
             await owner.execute(insert_event, "outro", *key[1:], 1, "c" * 64)
             after = await reader.fetchval(
-                "SELECT designation_digest FROM maezo_native.mzo_staff_case_designation_current WHERE tenant=$1",
+                "SELECT designation_digest FROM maezo_native.mzo_staff_case_designation_current"
+                " WHERE tenant=$1",
                 key[0],
             )
             assert before == after == "a" * 64
@@ -718,7 +727,9 @@ def test_portal_read_designation_revocation_is_terminal() -> None:
                 "('t','dev','default','inc','cat',1,$1,'pub','{}','pubr',now(),false)",
                 "a" * 64,
             )
-            await eng.execute("UPDATE maezo_native.mzo_portal_read_designation SET revoked_=true,publication_='rv'")
+            await eng.execute(
+                "UPDATE maezo_native.mzo_portal_read_designation SET revoked_=true,publication_='rv'"
+            )
             for sql in (
                 "UPDATE maezo_native.mzo_portal_read_designation SET revoked_=false",
                 "UPDATE maezo_native.mzo_portal_read_designation SET revoked_=NULL",
