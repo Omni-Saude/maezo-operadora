@@ -25,10 +25,9 @@ Com ela, `collectDetail` exigiria publicacao Q2 de cada tarefa (Onda 8); sem ela
 responde sem a lista de tarefas. A designacao gerada pela T1.3 tambem nao da essa projecao ao
 emissor, entao o engine recusaria uma decisao dessas mesmo que este modulo a produzisse.
 
-O que este modulo NAO resolve (bloqueios reportados ao software-architect, ver PR):
-qual caso staff (AUTH, `MZO_AUTH_GUIDE_CLAIM`) uma escalacao nomeia; como o emissor obtem o
-witness de membership sem sessao humana; e onde o estado do emissor e duravel. Cada um e uma porta
-sem implementacao de producao — nada aqui inventa a resposta.
+As tres portas de producao (decisao D-H do plano) moram em `case_issuer_sources.py`:
+`AuthClaimAnchor` (D-H.1), `IssuerWitness` (D-H.2) e `PostgresIssuerLedger` (D-H.3). O
+`policy_ref` e deterministico por designacao (D-H.6, `policy_ref_for`).
 """
 
 from __future__ import annotations
@@ -46,6 +45,7 @@ from maezo.gateway.human.auth_profile import Actor
 from maezo.gateway.human.read_profile import digest as read_digest
 from maezo.gateway.human.read_profile import parse_model, wire
 from maezo.portal.api.records import MembershipRecord
+from maezo.portal.contracts.models import HumanPrincipal, MembershipBinding, SubjectBinding
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
 from .authority import fingerprint
@@ -69,6 +69,17 @@ class CaseIssuerError(RuntimeError):
 
     def __init__(self, reason: str) -> None:
         super().__init__("staff_case_issuer_" + reason)
+
+
+#: D-H.6: `policy_ref = "staff-escalation-routing@d{designation_revision}"`.
+POLICY_PREFIX = "staff-escalation-routing@d"
+
+
+def policy_ref_for(designation_revision: int | str) -> str:
+    value = str(designation_revision)
+    if not value.isdigit() or value != str(int(value)) or int(value) < 1:
+        raise CaseIssuerError("invalid_designation_revision")
+    return POLICY_PREFIX + value
 
 
 # ---------------------------------------------------------------------------- dominio puro
@@ -102,6 +113,10 @@ class StaffGrantee:
     subject: str = field(repr=False)
     membership_revision: int
     groups: frozenset[str]
+    # O witness nativo compara a membership inteira (`NativeMembershipSource.observe`): o emissor
+    # guarda os bindings do registro para montar o principal sem sessao (D-H.2).
+    memberships: tuple[MembershipBinding, ...] = field(default=(), compare=False, repr=False)
+    subject_bindings: tuple[SubjectBinding, ...] = field(default=(), compare=False, repr=False)
 
     @classmethod
     def from_membership(cls, record: MembershipRecord, *, tenant: str, now: datetime) -> StaffGrantee | None:
@@ -114,7 +129,35 @@ class StaffGrantee:
         ):
             return None
         groups = frozenset(group for binding in record.memberships for group in binding.groups)
-        return cls(tenant, record.principal_ref, record.issuer, record.subject, record.revision, groups)
+        return cls(
+            tenant,
+            record.principal_ref,
+            record.issuer,
+            record.subject,
+            record.revision,
+            groups,
+            tuple(record.memberships),
+            tuple(record.subject_bindings),
+        )
+
+    def principal(self, *, session_ref: str, authenticated_at: datetime) -> HumanPrincipal:
+        """O principal que o witness do emissor observa. Nao e sessao humana: `session_ref` e o da
+        rodada (`case-issuer-run:{run_id}`), que o engine nao compara a uma sessao no caminho de
+        publicacao (D-H.2)."""
+        if not self.memberships:
+            raise CaseIssuerError("grantee_without_membership")
+        return HumanPrincipal(
+            schema_version=1,
+            principal_ref=self.principal_ref,
+            issuer=self.issuer,
+            subject=self.subject,
+            tenant=self.tenant,
+            membership_revision=self.membership_revision,
+            memberships=self.memberships,
+            session_ref=session_ref,
+            authenticated_at=authenticated_at,
+            subject_bindings=self.subject_bindings,
+        )
 
     def actor(self) -> Actor:
         return Actor(
@@ -758,13 +801,170 @@ class StaffCaseIssuer:
 
 
 class IssuerLedger(Protocol):
-    """Estado duravel do emissor. A implementacao de producao e um bloqueio aberto (ver PR)."""
+    """Estado duravel do emissor (`MemoryLedger` ou `PostgresIssuerLedger`, sync ou async)."""
 
-    def load(self) -> IssuerState: ...
+    def load(self) -> IssuerState | Awaitable[IssuerState]: ...
 
-    def begin(self, raw: bytes) -> None: ...
+    def begin(self, raw: bytes) -> None | Awaitable[None]: ...
 
-    def commit(self, publication: StaffPublication) -> IssuerState: ...
+    def commit(self, publication: StaffPublication) -> IssuerState | Awaitable[IssuerState]: ...
+
+
+async def _maybe(value: Any) -> Any:
+    return await value if inspect.isawaitable(value) else value
+
+
+def encode_state(state: IssuerState) -> bytes:
+    """Estado emitido (sem o pedido pendente, que tem coluna propria) em JSON canonico."""
+    policy = state.policy
+    return canonicalize(
+        dict(
+            schema="staff-case-issuer-state.v1",
+            source_revision=str(state.source_revision),
+            policy=None
+            if policy is None
+            else dict(
+                policy_revision=str(policy.policy_revision),
+                head_revision=str(policy.head_revision),
+                policy_digest=policy.policy_digest,
+                valid_until=instant(policy.valid_until),
+            ),
+            grants=[
+                dict(
+                    grant_ref=g.grant_ref,
+                    grant_revision=str(g.grant_revision),
+                    case_ref=g.case_ref,
+                    identity_digest=g.identity_digest,
+                    principal_ref=g.principal_ref,
+                    membership_revision=str(g.membership_revision),
+                    intent_digest=g.intent_digest,
+                    grant_digest=g.grant_digest,
+                    source_revision=str(g.source_revision),
+                    valid_until=instant(g.valid_until),
+                    state=g.state,
+                )
+                for _, g in sorted(state.grants.items())
+            ],
+            checkpoints=[
+                dict(
+                    principal_ref=p,
+                    checkpoint_ref=c.checkpoint_ref,
+                    generation=str(c.generation),
+                    digest=c.digest,
+                    membership_revision=str(c.membership_revision),
+                    policy_revision=str(c.policy_revision),
+                    grants_key=[[a, b, str(n)] for a, b, n in c.grants_key],
+                    valid_until=instant(c.valid_until),
+                    active=c.active,
+                )
+                for p, c in sorted(state.checkpoints.items())
+            ],
+        )
+    )
+
+
+_GRANT_KEYS = frozenset(
+    [
+        "grant_ref",
+        "grant_revision",
+        "case_ref",
+        "identity_digest",
+        "principal_ref",
+        "membership_revision",
+        "intent_digest",
+        "grant_digest",
+        "source_revision",
+        "valid_until",
+        "state",
+    ]
+)
+_CHECKPOINT_KEYS = frozenset(
+    [
+        "principal_ref",
+        "checkpoint_ref",
+        "generation",
+        "digest",
+        "membership_revision",
+        "policy_revision",
+        "grants_key",
+        "valid_until",
+        "active",
+    ]
+)
+
+
+def _natural(value: object) -> int:
+    if type(value) is not str or not value.isdigit() or value != str(int(value)):
+        raise ValueError
+    return int(value)
+
+
+def decode_state(raw: bytes, pending: bytes | None) -> IssuerState:
+    """O inverso exato de `encode_state`; qualquer desvio recusa (ledger incoerente nao vira plano)."""
+    try:
+        doc = strict_loads(raw)
+        if (
+            canonicalize(doc) != raw
+            or set(doc) != {"schema", "source_revision", "policy", "grants", "checkpoints"}
+            or doc["schema"] != "staff-case-issuer-state.v1"
+        ):
+            raise ValueError
+        n = _natural
+        policy = None
+        if doc["policy"] is not None:
+            p = doc["policy"]
+            if set(p) != {"policy_revision", "head_revision", "policy_digest", "valid_until"}:
+                raise ValueError
+            policy = PolicyState(
+                n(p["policy_revision"]),
+                n(p["head_revision"]),
+                p["policy_digest"],
+                timestamp(p["valid_until"]),
+            )
+        grants: dict[str, IssuedGrant] = {}
+        for g in doc["grants"]:
+            if set(g) != _GRANT_KEYS or g["state"] not in ("active", "revoked") or g["grant_ref"] in grants:
+                raise ValueError
+            grants[g["grant_ref"]] = IssuedGrant(
+                grant_ref=g["grant_ref"],
+                grant_revision=n(g["grant_revision"]),
+                case_ref=g["case_ref"],
+                identity_digest=g["identity_digest"],
+                principal_ref=g["principal_ref"],
+                membership_revision=n(g["membership_revision"]),
+                intent_digest=g["intent_digest"],
+                grant_digest=g["grant_digest"],
+                source_revision=n(g["source_revision"]),
+                valid_until=timestamp(g["valid_until"]),
+                state=g["state"],
+            )
+        checkpoints: dict[str, CheckpointState] = {}
+        for c in doc["checkpoints"]:
+            if (
+                set(c) != _CHECKPOINT_KEYS
+                or type(c["active"]) is not bool
+                or c["principal_ref"] in checkpoints
+            ):
+                raise ValueError
+            checkpoints[c["principal_ref"]] = CheckpointState(
+                checkpoint_ref=c["checkpoint_ref"],
+                generation=n(c["generation"]),
+                digest=c["digest"],
+                membership_revision=n(c["membership_revision"]),
+                policy_revision=n(c["policy_revision"]),
+                grants_key=tuple((str(a), str(b), n(r)) for a, b, r in c["grants_key"]),
+                valid_until=timestamp(c["valid_until"]),
+                active=c["active"],
+            )
+        return IssuerState(
+            n(doc["source_revision"]),
+            policy,
+            MappingProxyType(grants),
+            MappingProxyType(checkpoints),
+            pending,
+        )
+    except Exception:
+        raise CaseIssuerError("ledger_state_invalid") from None
 
 
 class MemoryLedger:
@@ -830,17 +1030,18 @@ class StaffCaseIssuerJob:
 
     async def _send(self, publication: StaffPublication) -> IssuerState:
         raw = canonicalize(publication.wire())
-        self.ledger.begin(raw)
+        await _maybe(self.ledger.begin(raw))
         receipt = await self.publish(raw)
         if (
             receipt.get("publication_id") != publication.publication_id
             or receipt.get("source_revision") != publication.source_revision
         ):
             raise StaffCaseError("uncertain")
-        return self.ledger.commit(publication)
+        state: IssuerState = await _maybe(self.ledger.commit(publication))
+        return state
 
     async def run_once(self) -> RunReport:
-        state = self.ledger.load()
+        state = await _maybe(self.ledger.load())
         if state.pending is not None:
             # Recuperacao: o MESMO pedido, byte a byte. O engine devolve o recibo tecnico se ja
             # tinha efetivado e nao reaplica admissao (`StaffCasePublicationCommand`).
@@ -848,7 +1049,7 @@ class StaffCaseIssuerJob:
             receipt = await self.publish(state.pending)
             if receipt.get("publication_id") != pending.publication_id:
                 raise StaffCaseError("uncertain")
-            state = self.ledger.commit(pending)
+            state = await _maybe(self.ledger.commit(pending))
         escalations = await _collect(self.escalations)
         grantees = await _collect(self.grantees)
         result = plan(
@@ -861,7 +1062,7 @@ class StaffCaseIssuerJob:
         )
         counts = {"grants": 0, "revokes": 0, "checkpoints": 0, "published": 0}
         for action in result.actions:
-            state = self.ledger.load()
+            state = await _maybe(self.ledger.load())
             next_revision = state.source_revision + 1
             publications: list[StaffPublication]
             if isinstance(action, PolicyHeadAction):

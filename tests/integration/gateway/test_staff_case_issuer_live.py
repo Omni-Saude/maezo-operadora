@@ -120,7 +120,7 @@ async def insert(engine: AsyncEngine, schema: str, *records: MembershipRecord, *
                 ),
                 dict(
                     tenant=override.get("tenant", r.tenant),
-                    issuer=r.issuer,
+                    issuer=override.get("issuer", r.issuer),
                     subject=r.subject,
                     principal_ref=override.get("principal_ref", r.principal_ref),
                     payload=r.model_dump_json(),
@@ -156,7 +156,7 @@ async def test_grantees_are_the_current_staff_memberships_of_the_tenant(pg: tupl
 
 async def test_row_that_disagrees_with_its_payload_is_refused(pg: tuple[AsyncEngine, str]) -> None:
     engine, schema = pg
-    await insert(engine, schema, record("a", "plantao-clinico"), principal_ref="principal-intruso")
+    await insert(engine, schema, record("a", "plantao-clinico"), issuer="https://intruso.test")
     with pytest.raises(CaseIssuerError):
         await PostgresStaffGranteeSource(engine, tenant="amh", schema=schema)()
 

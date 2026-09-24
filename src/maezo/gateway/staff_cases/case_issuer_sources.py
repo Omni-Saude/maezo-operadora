@@ -10,30 +10,51 @@
   (`camunda:candidateGroups="${roteamento.grupo_atendimento}"`); o tenant e o `tenantId` nativo.
   O grupo e lido, nunca calculado, e qualquer divergencia recusa a escalacao.
 
-Qual caso staff a escalacao nomeia e a porta `CaseAnchor`. Nao ha implementacao de producao: o
-engine so reconhece como caso staff uma guia AUTH reivindicada pelo plano humano
-(`MZO_AUTH_GUIDE_CLAIM`, `NativeCaseIdentityReader`), e nenhum artefato do repositorio liga uma
-escalacao a essa reivindicacao (ver o PR). Escalacao sem ancora nao gera grant e entra na contagem
-`unanchored` do relatorio.
+Portas de producao (decisao D-H do plano `portal-autoridade-nativa-dev.md`):
+
+* `AuthClaimAnchor` (D-H.1): so a escalacao `ESC-{tenant}-sla-auth-{guia}` (ADR-0051) e ancorada.
+  Dela sai `AUTH-{tenant}-{guia}`; o engine devolve EXATAMENTE uma instancia SP-OP-AUTH-001 do
+  tenant; a reivindicacao humana (`mzo_auth_guide_claim`, so `tenant_`, `instance_`, `case_`) tem
+  de nomear essa instancia. Qualquer outra forma e `unanchored` (sem grant). Erro de infraestrutura
+  NAO vira `unanchored`: a rodada falha, senao uma queda de banco revogaria todos os grants.
+* `IssuerWitness` (D-H.2): witness de membership pela entrada `identity_verifier` PROPRIA do emissor
+  (`entry_ref=case-issuer-witness`), com `session_ref = case-issuer-run:{run_id}`.
+* `PostgresIssuerLedger` (D-H.3): `maezo_native.mzo_staff_case_issuer_ledger`, uma linha por
+  (escopo, `policy_ref`), escrita CAS por `revision`, sem DELETE.
 """
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from datetime import datetime
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from maezo.gateway.external_cases.models import Identity, now_utc
+from maezo.gateway.external_cases.models import Identity, Scope, now_utc
 from maezo.portal.api.records import MembershipRecord
 
-from .case_issuer import ROUTING_DECISION, ROUTING_OUTPUT, CaseIssuerError, RoutedEscalation, StaffGrantee
+from .authority import fingerprint
+from .case_issuer import (
+    ROUTING_DECISION,
+    ROUTING_OUTPUT,
+    CaseIssuerError,
+    IssuerState,
+    RoutedEscalation,
+    StaffGrantee,
+    apply,
+    decode_state,
+    encode_state,
+)
+from .models import MembershipWitness, StaffPublication
+from .production_config import is_native_schema
+from .publisher import StaffWitnessSource
 
 SCHEMA = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 PROCESS_KEY = "SP-OP-ESCALATION-001"
@@ -68,9 +89,11 @@ class PostgresStaffGranteeSource:
             rows = (
                 await connection.execute(
                     text(
-                        "SELECT tenant, issuer, subject, principal_ref, payload "
+                        # So as colunas que `amh-native-source-grants.sql` concede ao login
+                        # `maezo_native_case_issuer` (sem `principal_ref`: vem do payload).
+                        "SELECT tenant, issuer, subject, payload "
                         f'FROM "{self.schema}".portal_memberships '
-                        "WHERE tenant=:tenant ORDER BY principal_ref"
+                        "WHERE tenant=:tenant ORDER BY issuer, subject"
                     ),
                     {"tenant": self.tenant},
                 )
@@ -79,12 +102,7 @@ class PostgresStaffGranteeSource:
         grantees: list[StaffGrantee] = []
         for row in rows:
             record = MembershipRecord.model_validate_json(row.payload)
-            if (row.tenant, row.issuer, row.subject, row.principal_ref) != (
-                record.tenant,
-                record.issuer,
-                record.subject,
-                record.principal_ref,
-            ):
+            if (row.tenant, row.issuer, row.subject) != (record.tenant, record.issuer, record.subject):
                 raise CaseIssuerError("membership_row_mismatch")
             grantee = StaffGrantee.from_membership(record, tenant=self.tenant, now=now)
             if grantee is not None:
@@ -111,6 +129,8 @@ class EscalationReport:
     unanchored: int = 0
     refused: int = 0
     foreign: int = 0
+    #: Motivo de cada `unanchored` (so contadores; nunca guia, tenant alheio ou PHI).
+    reasons: dict[str, int] = field(default_factory=dict)
 
 
 class EngineEscalationSource:
@@ -220,6 +240,8 @@ class EngineEscalationSource:
                 value = await value
             if value is None:
                 self.report.unanchored += 1
+                reason = getattr(self.anchor, "last_reason", None) or "unanchored"
+                self.report.reasons[reason] = self.report.reasons.get(reason, 0) + 1
                 continue
             routed.append(
                 RoutedEscalation(
@@ -231,3 +253,262 @@ class EngineEscalationSource:
             )
         self.report.anchored = len(routed)
         return tuple(routed)
+
+
+# ---------------------------------------------------------------------------- D-H.1: ancora
+
+AUTH_PROCESS_KEY = "SP-OP-AUTH-001"
+#: A guia e opaca (nunca interpretada): so se limita o alfabeto, para caber em business key/REST.
+GUIDE = re.compile(r"[A-Za-z0-9._-]{1,128}")
+
+
+class AuthClaimAnchor:
+    """Escalacao de SLA da AUTH -> a identidade do caso staff que o engine reconhece.
+
+    Le `mzo_auth_guide_claim` pelo login `maezo_native_case_issuer` (SELECT de coluna so em
+    `tenant_`, `instance_`, `case_`) e o engine REST (instancia, definicao e bytes deployados). A
+    identidade e montada como `NativeCaseIdentityReader.fromClaim`; o engine a revalida no grant
+    (`identity_digest`), entao um erro aqui recusa, nao vaza.
+    """
+
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        engine: AsyncEngine,
+        *,
+        tenant: str,
+        native_schema: str,
+        seconds: int = 5,
+    ):
+        if not tenant or not is_native_schema(native_schema) or not 1 <= seconds <= 30:
+            raise CaseIssuerError("invalid_anchor")
+        self.client, self.engine, self.tenant = client, engine, tenant
+        self.native_schema, self.seconds = native_schema, seconds
+        self.prefix = f"ESC-{tenant}-sla-auth-"
+        self.last_reason: str | None = None
+
+    async def _json(self, path: str, **params: Any) -> Any:
+        response = await self.client.get(path, params=params or None)
+        response.raise_for_status()
+        return response.json()
+
+    def _none(self, reason: str) -> Identity | None:
+        self.last_reason = reason
+        return None
+
+    async def _claims(self, instance: str) -> list[Any]:
+        async with self.engine.connect() as connection:
+            await connection.execute(text("SET TRANSACTION READ ONLY"))
+            await connection.execute(text(f"SET LOCAL statement_timeout = '{int(self.seconds)}s'"))
+            rows = (
+                await connection.execute(
+                    text(
+                        "SELECT tenant_, instance_, case_ "
+                        f'FROM "{self.native_schema}".mzo_auth_guide_claim '
+                        "WHERE tenant_=:tenant AND instance_=:instance"
+                    ),
+                    {"tenant": self.tenant, "instance": instance},
+                )
+            ).all()
+            await connection.rollback()
+        return list(rows)
+
+    async def _definition_digest(self, definition: dict[str, Any]) -> str:
+        deployment, resource = str(definition["deploymentId"]), str(definition["resource"])
+        resources = await self._json(f"/deployment/{deployment}/resources")
+        found = [r for r in resources if r.get("name") == resource]
+        if len(found) != 1:
+            raise CaseIssuerError("definition_resource_unavailable")
+        response = await self.client.get(f"/deployment/{deployment}/resources/{found[0]['id']}/data")
+        response.raise_for_status()
+        # O mesmo que `EngineSchema.identitySql`: sha256 dos BYTES deployados.
+        return hashlib.sha256(response.content).hexdigest()
+
+    async def __call__(self, escalation: LiveEscalation) -> Identity | None:
+        self.last_reason = None
+        if escalation.tenant != self.tenant:
+            return self._none("foreign_tenant")
+        key = escalation.business_key
+        if not key.startswith(self.prefix):
+            return self._none("not_sla_auth")
+        guide = key[len(self.prefix) :]
+        if not GUIDE.fullmatch(guide):
+            return self._none("invalid_guide")
+        instances = await self._json(
+            "/process-instance",
+            businessKey=f"AUTH-{self.tenant}-{guide}",
+            processDefinitionKey=AUTH_PROCESS_KEY,
+            tenantIdIn=self.tenant,
+        )
+        if len(instances) != 1:
+            return self._none("auth_instances_" + ("zero" if not instances else "many"))
+        instance = instances[0]
+        if (
+            instance.get("tenantId") != self.tenant
+            or instance.get("businessKey") != f"AUTH-{self.tenant}-{guide}"
+        ):
+            return self._none("auth_instance_mismatch")
+        instance_id = str(instance["id"])
+        claims = await self._claims(instance_id)
+        if len(claims) != 1:
+            return self._none("claim_absent" if not claims else "claim_ambiguous")
+        claim = claims[0]
+        if claim.tenant_ != self.tenant or claim.instance_ != instance_id or not claim.case_:
+            return self._none("claim_mismatch")
+        definition = await self._json(f"/process-definition/{instance['definitionId']}")
+        if (
+            definition.get("key") != AUTH_PROCESS_KEY
+            or definition.get("tenantId") != self.tenant
+            or definition.get("id") != instance["definitionId"]
+        ):
+            return self._none("definition_mismatch")
+        try:
+            return Identity(
+                upstream_resource_key=guide,
+                case_ref=str(claim.case_),
+                process_instance_ref=instance_id,
+                process_definition_id=str(definition["id"]),
+                process_definition_key=AUTH_PROCESS_KEY,
+                process_definition_version=str(int(definition["version"])),
+                process_definition_digest=await self._definition_digest(definition),
+                kind="authorization",
+            )
+        except CaseIssuerError:
+            raise
+        except (TypeError, ValueError):
+            return self._none("identity_invalid")
+
+
+# ---------------------------------------------------------------------------- D-H.2: witness
+
+WITNESS_ENTRY = "case-issuer-witness"
+
+
+class IssuerWitness:
+    """Witness de membership do emissor, sem sessao humana, pela entrada `identity_verifier` dele."""
+
+    def __init__(
+        self,
+        source: StaffWitnessSource,
+        *,
+        run_id: str,
+        ttl: timedelta = timedelta(minutes=5),
+        clock: Callable[[], datetime] = now_utc,
+    ):
+        entry = source.signer.authority.entries.get(fingerprint(source.signer.key.public_key()))
+        if (
+            entry is None
+            or entry.entry_ref != WITNESS_ENTRY
+            or entry.role != "identity_verifier"
+            or tuple(entry.purposes) != ("membership_current",)
+            or not re.fullmatch(r"[A-Za-z0-9-]{8,64}", run_id)
+            or not timedelta(0) < ttl <= timedelta(minutes=15)
+        ):
+            raise CaseIssuerError("not_the_issuer_witness")
+        self.source, self.session_ref, self.ttl, self.clock = source, f"case-issuer-run:{run_id}", ttl, clock
+
+    async def __call__(self, grantee: StaffGrantee) -> MembershipWitness:
+        now = self.clock()
+        principal = grantee.principal(session_ref=self.session_ref, authenticated_at=now)
+        return await self.source.observe(principal, now + self.ttl)
+
+
+# ---------------------------------------------------------------------------- D-H.3: ledger
+
+
+class PostgresIssuerLedger:
+    """Ledger duravel: uma linha por (escopo, `policy_ref`), CAS por `revision`, sem DELETE."""
+
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        *,
+        scope: Scope,
+        policy_ref: str,
+        login: str = "maezo_native_case_issuer",
+        native_schema: str = "maezo_native",
+        seconds: int = 5,
+    ):
+        if (
+            not is_native_schema(native_schema)
+            or not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", login)
+            or not 1 <= len(policy_ref.encode()) <= 255
+            or not 1 <= seconds <= 30
+        ):
+            raise CaseIssuerError("invalid_ledger")
+        self.engine, self.scope, self.policy_ref, self.login = engine, scope, policy_ref, login
+        self.seconds = seconds
+        self.table = f'"{native_schema}".mzo_staff_case_issuer_ledger'
+        self.key = dict(
+            tenant=scope.tenant,
+            environment=scope.environment,
+            engine_name=scope.engine_name,
+            database_incarnation=scope.database_incarnation,
+            policy_ref=policy_ref,
+        )
+        self.where = (
+            "tenant=:tenant AND environment=:environment AND engine_name=:engine_name "
+            "AND database_incarnation=:database_incarnation AND policy_ref=:policy_ref"
+        )
+        self._revision: int | None = None
+        self._state: IssuerState | None = None
+
+    async def _begin(self, connection: Any) -> None:
+        await connection.execute(text(f"SET LOCAL statement_timeout = '{int(self.seconds)}s'"))
+        user = (await connection.execute(text("SELECT session_user::text, current_user::text"))).one()
+        if tuple(user) != (self.login, self.login):
+            raise CaseIssuerError("ledger_login")
+
+    async def load(self) -> IssuerState:
+        async with self.engine.begin() as connection:
+            await self._begin(connection)
+            await connection.execute(
+                text(
+                    f"INSERT INTO {self.table} (tenant, environment, engine_name, database_incarnation,"
+                    " policy_ref, revision, issued_state, pending_request) VALUES (:tenant, :environment,"
+                    " :engine_name, :database_incarnation, :policy_ref, 0, :state, NULL)"
+                    " ON CONFLICT DO NOTHING"
+                ),
+                dict(self.key, state=encode_state(IssuerState.empty())),
+            )
+            row = (
+                await connection.execute(
+                    text(
+                        f"SELECT revision, issued_state, pending_request FROM {self.table} WHERE {self.where}"
+                    ),
+                    self.key,
+                )
+            ).one()
+        self._revision = int(row.revision)
+        pending = None if row.pending_request is None else bytes(row.pending_request)
+        self._state = decode_state(bytes(row.issued_state), pending)
+        return self._state
+
+    async def _write(self, state: IssuerState) -> IssuerState:
+        if self._revision is None or self._state is None:
+            raise CaseIssuerError("ledger_not_loaded")
+        async with self.engine.begin() as connection:
+            await self._begin(connection)
+            result = await connection.execute(
+                text(
+                    f"UPDATE {self.table} SET revision=revision+1, issued_state=:state,"
+                    f" pending_request=:pending, updated_at=now() WHERE {self.where} AND revision=:old"
+                ),
+                dict(self.key, state=encode_state(state), pending=state.pending, old=self._revision),
+            )
+            if result.rowcount != 1:
+                # Outro emissor (ou uma rodada concorrente) escreveu: nada e sobrescrito.
+                raise CaseIssuerError("ledger_conflict")
+        self._revision += 1
+        self._state = state
+        return state
+
+    async def begin(self, raw: bytes) -> None:
+        state = self._state if self._state is not None else await self.load()
+        if state.pending is not None and state.pending != raw:
+            raise CaseIssuerError("pending_publication")
+        await self._write(replace(state, pending=raw))
+
+    async def commit(self, publication: StaffPublication) -> IssuerState:
+        state = self._state if self._state is not None else await self.load()
+        return await self._write(replace(apply(state, publication), pending=None))
