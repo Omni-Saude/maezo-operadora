@@ -1034,7 +1034,9 @@ imagem (Onda 4) está liberada quando chegar a hora. N6 = a meta é `/cases` (On
 
 9. **N9 [23/09, D-H.1] — Na Onda 7, `/cases` só mostra escalações ancoradas a uma guia AUTH** (risco de SLA, ADR-0051). As escalações conversacionais da Helena (P1, red flag) só entram quando existir um `kind` de caso "escalation", que é programa próprio, com ADR. Proposta: aceitar isso para o teste conjunto do diretor. **Precisa de ciência do dono.**
 
-**Continua aberta: só a N1** (aprovador nomeado). O plano assume Leonardo, que é a proposta, e as
+**[23/09/2026, dono] Decididas N1, N2 e N9 conforme as propostas:** N1 — Leonardo é o aprovador nomeado; a raiz Ed25519 fica só com ele, gerada na máquina dele; nenhum agente a recebe. N2 — pacote válido por 14 dias, lembrete 3 dias antes. N9 — aceito: no teste conjunto do diretor `/cases` mostra só escalações ancoradas a guia AUTH.
+
+~~Continua aberta: só a N1~~ (aprovador nomeado). O plano assume Leonardo, que é a proposta, e as
 Ondas 2 e 5 não começam sem ela.
 
 ---
