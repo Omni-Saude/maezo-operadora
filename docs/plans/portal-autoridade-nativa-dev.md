@@ -415,6 +415,21 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   - **Catálogo:** `catalog_ref` = `amh:maezo-operadora-dev:q2-catalog:1`. `publisher_ref` = `maezo-operadora-dev:workload:catalog-designate`. O recibo de deploy segue a §4.
   - **Admissão:** `admission_ref` = `maezo-operadora-dev:portal-read-admission:1`. `scope.workload_ref` = `maezo-operadora-dev:workload:portal-staff`. Prefixos dos publishers: `amh:maezo-operadora-dev:membership/` e `amh:maezo-operadora-dev:catalog-designate/`.
   - Todo `*_digest` é o SHA-256 do JCS (RFC 8785) do artefato nomeado. Quem gera é a engenharia, com `tools/staff_materials`. O aprovador recalcula com uma implementação JCS independente. Os valores do C1 (de teste) não valem aqui. Tarefa: Onda 2.
+
+- **D-M [24/09, consulta: fila do staff com guia, motivo e prazo (PR #511)].**
+  1. **Quem é autoridade de cada valor:** o **engine** (Java), lendo o próprio `ACT_*`. O emissor **não** carrega valor no grant, só autoriza a projeção; o BFF só repassa e não calcula nada.
+     - **Guia:** sai da business key `AUTH-{tenant}-{numero_guia_tiss}` da instância âncora (D-K.1), que já é revalidada por `identity_digest`.
+     - **Motivo:** a variável `motivo_categoria` da escalação `ESC-{tenant}-sla-auth-{guia}` (entrada da DMN). É um **código** de enum, e o rótulo fica na web. O texto livre `motivo`/`motivo_fallback` **nunca** sai.
+     - **Prioridade e prazo:** o `roteamento` (`prioridade`, `sla_ack`, `sla_resolucao`) da mesma instância. O engine devolve `ack_due_at` e `resolution_due_at` já absolutos (início da ESC + duração ISO-8601). Se a ESC for ausente ou ambígua, os campos ficam `null` com `escalation_state: "unresolved"`, e o caso não some.
+  2. **Projeção nova `staff_escalation.v1`** = {`guide_number`, `reason_code`, `priority`, `ack_due_at`, `resolution_due_at`}. Ela **não** estende `staff_summary.v1`, porque projeção publicada é imutável. `list` recebe a guia mascarada (`***` + 4 últimos) e `detail` recebe a guia inteira.
+  3. **LGPD:** a guia e o motivo, ligados a um beneficiário identificável, são **dado de saúde** (art. 11). O acesso já é mínimo, porque só o grupo que a `escalation_routing` escolheu tem grant (N3), e o staff precisa da guia inteira para agir no Tasy. Por isso a guia inteira fica só no `detail`, que é auditado. Não sai nome, CPF, carteirinha nem CID.
+  4. **Pins: mudam, e entram ANTES da assinatura da Onda 2.** `FIELDS` e as `projections` do `read_requester` e do `case_issuer` estão na designação e no catálogo, e o grant tem uma decisão a mais. Muda o digest da designação e do catálogo, e em cascata o da admissão. O `identity_digest` **não** muda, porque a identidade do caso é a mesma. A Onda 2 só roda depois que T-M1..T-M3 forem mergeadas, e o aprovador ainda não assinou, então não há retrabalho.
+  5. **Tarefas, em ordem:**
+     - **T-M1 (Python):** `models.FIELDS`, `DECISIONS` do `case_issuer`, `CAPABILITIES`/`generate.py`, o `approver`, e testes: o negativo recusa uma projeção fora da designação.
+     - **T-M2 (Java):** a projeção em `staff-case-list`/`detail`, uma ESC por âncora, a máscara no `list`, o `null` com `unresolved`, e IT no layout D-C2.
+     - **T-M3 (BFF):** acrescentar os DTOs em `StaffPage`/`StaffDetail` como campos opcionais `null`-áveis, e um teste de contrato de repasse.
+     - **T-M4 (web):** colunas, ordenação por `resolution_due_at`, e o estado "sem prazo".
+     - T-M1 vem antes de T-M2 e T-M3, que correm em paralelo porque os arquivos são disjuntos. T-M4 fica por último. Só depois delas se gera a Onda 2.
 ---
 
 ## 3. Ondas executáveis
