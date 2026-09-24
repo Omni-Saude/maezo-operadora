@@ -240,7 +240,10 @@ async def test_openapi_exports_exact_closed_fields(h: Harness) -> None:
         "freshness",
         "outcome",
     }
-    assert set(schemas["StaffSummary"]["properties"]) == set(schemas["CaseSummary"]["properties"])
+    # D-M.2: o staff so acrescenta `escalation` (staff_escalation.v1), opcional; o resto e o mesmo resumo.
+    staff_fields = set(schemas["StaffSummary"]["properties"])
+    assert staff_fields == set(schemas["CaseSummary"]["properties"]) | {"escalation"}
+    assert "escalation" not in schemas["StaffSummary"].get("required", [])
     intake = schemas["AuthIntakeSubmission"]
     assert intake["additionalProperties"] is False
     assert set(intake["properties"]) == set(submission()) | {"schema_version"}
