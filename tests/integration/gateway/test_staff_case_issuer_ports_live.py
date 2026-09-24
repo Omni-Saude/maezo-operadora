@@ -39,6 +39,13 @@ pytestmark = pytest.mark.integration
 ISSUER_LOGIN = "maezo_native_case_issuer"
 
 
+def _pg_dsn() -> str:
+    explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    return f"postgresql://maezo:maezo@localhost:{os.environ.get('MAEZO_PG_HOST_PORT', '5433')}/maezo"
+
+
 def _need_db() -> None:
     if not os.environ.get("MAEZO_TEST_DATABASE_URL"):
         pytest.skip("COULD NOT VERIFY: MAEZO_TEST_DATABASE_URL (PG 17 descartavel) ausente")
