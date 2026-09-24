@@ -21,10 +21,11 @@ class StaffFreshness(ObservationTimes):
 
 
 #: D-M.2: guia TISS inteira so no `detail`; o `list` recebe `***` + os 4 ultimos.
-GUIDE_FULL = r"^[0-9A-Za-z]{5,20}$"
-GUIDE_MASKED = r"^\*\*\*[0-9A-Za-z]{4}$"
+GUIDE_FULL = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$"  # = AuthModels.GUIDE_NUMBER (Java)
+GUIDE_MASKED = r"^\*\*\*[A-Za-z0-9._-]{4}$"
 #: Codigo de enum (rotulo fica na web). Texto livre (`motivo`/`motivo_fallback`) nao cabe aqui.
 CODE = r"^[a-z0-9][a-z0-9_]{0,63}$"
+PRIORITY = r"^P[0-9]{1,2}$"  # saida da DMN escalation_routing (P1, P2, P3...)
 
 
 class StaffEscalation(Closed):
@@ -33,7 +34,7 @@ class StaffEscalation(Closed):
     escalation_state: Literal["resolved", "unresolved"]
     guide_number: str | None = Field(pattern=f"{GUIDE_FULL}|{GUIDE_MASKED}")
     reason_code: str | None = Field(pattern=CODE)
-    priority: str | None = Field(pattern=CODE)
+    priority: str | None = Field(pattern=PRIORITY)
     ack_due_at: T | None
     resolution_due_at: T | None
 

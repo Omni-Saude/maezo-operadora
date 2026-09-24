@@ -27,7 +27,7 @@ def esc(**over: Any) -> dict[str, Any]:
         "escalation_state": "resolved",
         "guide_number": "123456789012",
         "reason_code": "sla_vencido",
-        "priority": "alta",
+        "priority": "P3",
         "ack_due_at": ACK,
         "resolution_due_at": DUE,
     }
@@ -128,7 +128,9 @@ def test_list_accepts_only_the_masked_guide() -> None:
         StaffPage.model_validate_json(json.dumps(page(summary(esc()))))
 
 
-@pytest.mark.parametrize("guide", ["**9012", "***012", "***90123", "12***9012", "*** 9012", "1234"])
+@pytest.mark.parametrize(
+    "guide", ["**9012", "***012", "***90123", "12***9012", "*** 9012", "-1234", "123456789012345678901"]
+)
 def test_malformed_mask_or_guide_is_refused(guide: str) -> None:
     with pytest.raises(ValidationError):
         StaffEscalation.model_validate(esc(guide_number=guide))
@@ -183,3 +185,18 @@ def test_detail_carries_the_full_guide_and_refuses_the_mask(staff_identity: dict
         StaffDetail.model_validate_json(
             json.dumps(detail(summary(esc(guide_number="***9012")), staff_identity))
         )
+
+
+@pytest.mark.parametrize("priority", ["P1", "P2", "P3", "P10"])
+def test_priority_accepts_the_dmn_output(priority: str) -> None:
+    assert StaffEscalation.model_validate(esc(priority=priority)).priority == priority
+
+
+@pytest.mark.parametrize("priority", ["alta", "p1", "P", "P123", "P1 "])
+def test_priority_refuses_anything_but_the_dmn_code(priority: str) -> None:
+    with pytest.raises(ValidationError):
+        StaffEscalation.model_validate(esc(priority=priority))
+
+
+def test_full_guide_follows_the_engine_pattern_including_the_synthetic_one() -> None:
+    assert StaffEscalation.model_validate(esc(guide_number="SYN-C1GUIA1")).guide_number == "SYN-C1GUIA1"
