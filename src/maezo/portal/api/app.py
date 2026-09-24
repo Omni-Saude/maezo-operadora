@@ -6,6 +6,7 @@ import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Final
 from urllib.parse import parse_qsl, urlsplit
 
@@ -20,6 +21,7 @@ from maezo.gateway.human.assignment_composition import AssignmentRuntime
 from maezo.gateway.human.engine_reads import EngineReadComposition
 from maezo.gateway.portal_identity import build_human_identity_adapters
 from maezo.gateway.staff_cases.composition import StaffCaseRuntime
+from maezo.portal.api import spa
 from maezo.portal.api.auth import AuthenticationError, HumanAuthenticator
 from maezo.portal.api.cases import CaseServiceFactory, StaffCaseServiceFactory, case_router
 from maezo.portal.api.communications import (
@@ -79,8 +81,11 @@ class PrivacyBoundary:
     cookies and authorization headers. No exception object or request is emitted to telemetry.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *, web_bundle: bool = False) -> None:
         self.app = app
+        # Non-API paths answered by `spa.WebBundle` carry their own CSP/cache headers; the API's
+        # `default-src 'none'` would forbid the bundle's own scripts if appended on top.
+        self.web_bundle = web_bundle
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -89,11 +94,15 @@ class PrivacyBoundary:
         private_scope = dict(scope)
         scope["query_string"] = b""
         started = False
+        own_headers = self.web_bundle and not spa.is_api_path(scope.get("path", ""))
 
         async def safe_send(message: Message) -> None:
             nonlocal started
             if message["type"] == "http.response.start":
                 started = True
+                if own_headers:
+                    await send(message)
+                    return
                 message["headers"] = list(message["headers"]) + [
                     (k.lower().encode(), v.encode()) for k, v in _HEADERS.items()
                 ]
@@ -208,6 +217,7 @@ def create_app(
     intake_recovery_factory: IntakeRecoveryFactory | None = None,
     document_service_factory: DocumentServiceFactory | None = None,
     communication_service_factory: CommunicationServiceFactory | None = None,
+    web_root: Path | None = None,
 ) -> FastAPI:
     """Production factory has no in-memory fallback and no default or agent credentials."""
     try:
@@ -401,5 +411,9 @@ def create_app(
         _delete_cookie(response, _BROWSER)
         return response
 
-    app.add_middleware(PrivacyBoundary)
+    # Registered LAST so every API route above wins; the catch-all refuses `/api/*` itself.
+    bundle = spa.load_bundle(web_root, production=config.mode == "production")
+    if bundle is not None:
+        spa.install(app, bundle)
+    app.add_middleware(PrivacyBoundary, web_bundle=bundle is not None)
     return app
