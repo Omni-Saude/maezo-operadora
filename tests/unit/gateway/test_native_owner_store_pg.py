@@ -32,7 +32,8 @@ def database():
         pytest.skip("COULD NOT VERIFY: MAEZO_TEST_DATABASE_URL required for actual PostgreSQL fence")
     name = "native_owner_receipt_" + uuid4().hex
     with psycopg.connect(dsn, autocommit=True, connect_timeout=5) as admin:
-        assert 160000 <= admin.info.server_version < 170000
+        # 16 (Aurora do Terraform) ou 17 (RDS do dev e compose, 24/09/2026).
+        assert 160000 <= admin.info.server_version < 180000
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
         oid = admin.execute("SELECT oid FROM pg_database WHERE datname=%s", (name,)).fetchone()[0]
         try:

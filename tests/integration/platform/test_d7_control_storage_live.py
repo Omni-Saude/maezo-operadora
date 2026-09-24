@@ -30,7 +30,8 @@ def live(request: pytest.FixtureRequest) -> Any:
             "SELECT pg_catalog.current_setting('server_version_num')::int,SESSION_USER,CURRENT_USER"
         )
         version, session, effective = cursor.fetchone()
-        assert 160000 <= version < 170000 and session == effective
+        # 16 (Aurora do Terraform) ou 17 (RDS do dev e compose, 24/09/2026).
+        assert 160000 <= version < 180000 and session == effective
     assert lane.dynamodb_client.meta.service_model.service_name == "dynamodb"
     return lane
 

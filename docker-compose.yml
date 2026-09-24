@@ -33,7 +33,9 @@ services:
     # repositorio. Mesmo major (16), imagem oficial. `0001_schema_agents` foi tornada tolerante a
     # ausencia da extensao no mesmo PR — sem isso o primeiro passo de `alembic upgrade head` morre
     # aqui com `extension "vector" is not available`.
-    image: postgres:16
+    # 24/09/2026: 16 -> 17, a versao do RDS do dev (amh-data-platform `databases.tf`, 17.9) e a que os
+    # testes do engine nativo (T1.4, D-C2) exigem. Mesmo digest do servico `postgres:17` do `ci.yml`.
+    image: postgres:17@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
     profiles: ["core"]
     environment:
       POSTGRES_USER: ${MAEZO_PG_USER:-maezo}
