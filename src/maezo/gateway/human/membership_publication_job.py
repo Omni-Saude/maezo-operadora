@@ -393,8 +393,7 @@ class PublicationLedger:
         entry = self.entry(kind, source.source_ref)
         return (
             entry is not None
-            and (entry.source_revision, entry.source_digest)
-            == (source.source_revision, source.source_digest)
+            and (entry.source_revision, entry.source_digest) == (source.source_revision, source.source_digest)
             and entry.valid_until is not None
             and entry.valid_until - now > margin
         )
