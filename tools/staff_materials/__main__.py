@@ -1,4 +1,7 @@
-"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql` e `native-secret`. Nao ha comando de raiz aqui (ver `approver.py`)."""
+"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql` e `native-secret`.
+
+Nao ha comando de raiz aqui (ver `approver.py`).
+"""
 
 from __future__ import annotations
 

@@ -33,9 +33,9 @@ o checkout entra por bind read-only em `/repo`; os segredos vivem só no volume.
 | `db-base` | database `maezo` (dono `maezo_app`), schema `cibseven` (dono `cibseven_app`), `amh` com as tabelas da migração 0012 | texto de `0012_portal_identity_session.py` |
 | `bootstrap` | imagem viva (`deploy/cibseven/Dockerfile`) com `currentSchema=cibseven` cria os `ACT_*` (I9) | `deploy/cibseven/Dockerfile` |
 | `materials` | `generate` → raiz de TESTE (`approver.root_keygen`) → `approver.sign_designation` | `tools/staff_materials` |
-| `db-native` | `engine-native-roles.sql` (verificadores SCRAM de `tools.staff_materials.scram`), `engine-native-install.sql` pelo dono, `amh-native-source-grants.sql` pelo `maezo_app`; mede os pins | `deploy/sql/*` (T1.4) |
+| `db-native` | `engine-native-roles.sql` (verificadores SCRAM de `tools.staff_materials.scram`), `engine-native-install.sql` pelo dono, `amh-native-source-grants.sql` pelo `maezo_app`, `portal-identity-lock.sql.tmpl` renderizado (`lock-sql`); mede os pins | `deploy/sql/*` (T1.4), `tools/staff_materials` |
 | `digests` | SHA-256 dos dois JARs carregados, lidos da imagem (a admissão os pina) | — |
-| `engine-config` | o segredo `engine/native-materials` da Onda 4, montado: trusts, provedor, chaves de continuidade, composição staff; admissão Q2 assinada pela raiz de TESTE; designação e instalação AUTH no banco | — (sem gerador, D7) |
+| `engine-config` | o segredo `engine/native-materials` da Onda 4 pelo `native-secret`: trusts (Q2 com uma chave por propósito), provedor, chaves de continuidade, composição staff; admissão Q2 revisada e assinada por `approver.sign_admission` com a raiz de TESTE; designação e instalação AUTH no banco | `tools/staff_materials` (`native-secret`, `approver`) |
 | `assemble` | `assemble` v2 → `verify --print-manifest-digest` → `verify` com os pins do "aprovador" + negativo de 1 byte | `tools/staff_materials` |
 | `engine-up` | 1ª vez: imagem staff como a T1.2 entrega; 2ª: com o contorno W1; 3ª: imagem sem a composição staff | `Dockerfile.human` + provedor |
 | `seed` / `publish` | duas memberships staff (grupo da DMN e outro grupo); o `__main__` do job T1.5, duas rodadas | `membership_publication_job` |
@@ -61,21 +61,26 @@ o checkout entra por bind read-only em `/repo`; os segredos vivem só no volume.
 
 **Critério do C1 (200 no grupo, negado fora dele): NÃO atingido.** Bloqueio principal: F2, depois F4.
 
+**Depois de `fix/c1-python` (F3, F5, F6, F7 em parte, F8, F9 do lado Python):** a tabela acima é a medida
+de 24/09 e **não foi remedida** com as correções (o stack `maezo-c1` estava em uso por outra frente).
+As correções têm testes unitários; o próximo `run.sh all` é que diz o que sobra depois de F1/F2/F4 (Java).
+
 ## Desvios do harness (cada um é uma lacuna do repo, não uma escolha)
 
 | # | O quê | Por quê |
 |---|---|---|
 | D1 | `session-lock-ca.pem`/`native-witness-ca.pem` viram a CA local | o `generate` grava o bundle RDS pinado; mesma troca da prova local da T1.2 |
-| D2 | a designação ganha a entrada `case-issuer-witness` (identity_verifier do emissor, login `maezo_native_issuer_witness`) antes da assinatura | a T1.6 exige (`IssuerWitness`, D-H.2) e o `generate` não produz |
-| D3 | `portal_identity.lock_external_session` variante D-D (`public.` → `amh.`) e os logins `portal_staff_lock_amh`/`portal_staff_witness_amh` | o `deploy/sql/portal-identity-lock.sql.tmpl` da T1.4 não existe |
 | D4 | `GRANT SELECT` do witness do PORTAL em `mzo_portal_read_membership`/`mzo_human_principal` | o install só concede ao witness do emissor |
-| D5 | truststore da 8443 com a CA de clientes do `generate` + uma CA de clientes do job T1.5 | o job não tem certificado de cliente em nenhuma ferramenta |
+| D5 | truststore da 8443 com a CA de clientes do `generate` + a CA do pacote humano | só por causa do D6: o job em si já usa o certificado de cliente do `generate` (`job/`) |
 | D6 | pacote `portal-human-material.v1` do job montado pelo harness (`c1/human_bundle.py`) | nenhum gerador; o formato é o de `tests/support/materials_builder.py` |
-| D7 | trusts, `portal-read-provider.v1`, chaves de continuidade, composição staff, PKCS12 AUTH montados pelo harness | a Onda 4 lista o segredo, mas não há gerador |
+| D7 | só o `observer-dsn.txt` (login `portal_read_source_amh`) | o resto do segredo nativo sai do `native-secret` |
 | D8 | linha `MZO_AUTH_INSTALLATION` inserida pelo dono, com qualificação que não nomeia uma definição deployada | não há instalador AUTH por script nem gerador da qualificação (plano, Onda 3) |
-| D9 | a admissão Q2 é assinada no domínio `maezo/portal-read-admission/v1\0` direto com a raiz de TESTE | `approver.sign-admission` recusa todo registro T1.7a (F6) |
 | W1 | `GRANT UPDATE (designation_revision)` em `designation_current` para `cibseven_app` | contorno do F1, só para medir o que vem depois |
-| W3 | `JobConfig.model_rebuild()` antes do `__main__` do job | contorno do F3 |
+
+Removidos por `fix/c1-python`: **D2** (o `generate` emite a entrada `case-issuer-witness` e a chave
+`issuer/issuer-witness-signing-key.pem`), **D3** (`deploy/sql/portal-identity-lock.sql.tmpl` +
+`python -m tools.staff_materials lock-sql`), **D9** (`sign-admission` confere o shape fechado da T1.7a)
+e **W3** (`JobConfig` carrega sem `model_rebuild`).
 
 `engine.Dockerfile` acrescenta à imagem de `Dockerfile.human` só o JAR do provedor (o `COPY` que a T1.7a
 deixou para depois da T1.2) e o link do `sslrootcert` pinado para a CA local.
@@ -86,13 +91,13 @@ deixou para depois da T1.2) e o link do `sslrootcert` pinado para a CA local.
 |---|---|---|
 | F1 | `StaffCaseStore.designation()` usa `FOR UPDATE OF c`, que exige UPDATE em `designation_current`; o pin do mesmo store exige que o engine NÃO tenha UPDATE ali, e a T1.4 concede só SELECT | backend/Java |
 | F2 | `staffCurrent` e `AuthRuntime.Invocation` chamam `WorkloadPlugin.running()`, mas `Dockerfile.human` não registra o `WorkloadPlugin` (só o secured D7): o engine com composição staff **nunca sobe** | backend/Java + infra (T1.2) |
-| F3 | `JobConfig.authority` é `ForwardRef` e o `_decode` não desce nele: `load_config` recusa todo arquivo; o `__main__` da T1.5 não roda | backend/Python (T1.5) |
+| F3 | `JobConfig.authority` é `ForwardRef` e o `_decode` não desce nele: `load_config` recusa todo arquivo; o `__main__` da T1.5 não roda. **Corrigido** (classe declarada antes) | backend/Python (T1.5) |
 | F4 | o provedor Q2 resolve `java:jdbc/ProcessEngine` com `new InitialContext()`; no boot funciona, na thread do servlet dá `NameNotFoundException`. Toda publicação e todo `staffLease` por request recusam | backend/Java (T1.7a; o README dela marcava NÃO VERIFICADO) |
-| F5 | `assemble` indexa a designação por `role`: com a entrada `case-issuer-witness` (D-H.2) ele confere a errada, a não ser que ela venha antes | backend/Python (T1.3) |
-| F6 | `approver.sign-admission` valida `scope` com o Scope de 4 campos; a T1.7a exige `{tenant, environment, workload_ref}` | backend/Python (T1.3) |
-| F7 | faltam geradores: entrada `case-issuer-witness` (D2), cert de cliente do job (D5), pacote humano (D6), segredo nativo da Onda 4 (D7), instalação AUTH (D8), template D-D do lock com USAGE do login (D3), grant do witness do portal (D4) | T1.3/T1.4 |
-| F8 | o cliente Q2 Python assina `portal-task-read` e `portal-read-publication` com UMA chave/`key_id`; o trust do engine exige chave e `key_id` únicos por propósito. No C1 só o propósito de publicação foi registrado | backend (Python × Java) |
-| F9 | (lido, não medido) a membership publicada tem `source_ref = prefixo + principal_ref`, e a designação confere `source_ref` exato da entrada `identity_verifier`: um só principal casaria | backend |
+| F5 | `assemble` indexa a designação por `role`: com a entrada `case-issuer-witness` (D-H.2) ele confere a errada, a não ser que ela venha antes. **Corrigido** (índice por `entry_ref`, em qualquer ordem) | backend/Python (T1.3) |
+| F6 | `approver.sign-admission` valida `scope` com o Scope de 4 campos; a T1.7a exige `{tenant, environment, workload_ref}`. **Corrigido** (espelho do shape fechado de `AdmissionRecord.java`) | backend/Python (T1.3) |
+| F7 | faltam geradores: entrada `case-issuer-witness` (D2), cert de cliente do job (D5), pacote humano (D6), segredo nativo da Onda 4 (D7), instalação AUTH (D8), template D-D do lock com USAGE do login (D3), grant do witness do portal (D4). **Feitos:** D2, cert do job, D3, D7 (menos o DSN do observador). **Abertos:** D6, D8, D4 | T1.3/T1.4 |
+| F8 | o cliente Q2 Python assina `portal-task-read` e `portal-read-publication` com UMA chave/`key_id`; o trust do engine exige chave, `key_id` **e peer mTLS** únicos por propósito. **Corrigido no Python:** a chave de leitura só assina `portal-task-read`; o job publica com chave, `key_id` e certificado próprios (`JobConfig.publication`, `client_*_file`) | backend (Python × Java) |
+| F9 | a membership publicada tem `source_ref = prefixo + principal_ref` (`PostgresMembershipHandshake.freeze`; o witness lê `m.source_` dessa linha), e a designação conferia `source_ref` exato: um só principal casaria. **Corrigido no Python:** `identity_verifier.source_ref` é prefixo terminado em `:`/`/` (spec recusa outro) e `source_matches` confere por prefixo. **Falta o Java:** `StaffCaseInstallation.entry` ainda compara `equals` (linha 84) | backend (Python × Java) |
 
 Pendências abertas pelos builders (#499/#500): **recomeço de revisão com policy nova** e **revogação da
 policy anterior**: não mensuráveis (F2). **Chave `human-authority` no trust do engine**: registrada aqui

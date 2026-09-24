@@ -18,8 +18,9 @@ Saida, num diretorio NOVO 0700 fora do repositorio:
                     (`staff-deployment-composition.v1`, chave de resultado nativo e o PKCS12 do AUTH)
 ``public/native-secret-summary.json``  os digests que a admissao Q2 e o aprovador conferem
 
-O AUTH nasce aqui (par Ed25519 novo, como o `AuthResultSigner` exige, + certificado autoassinado, PKCS12 cifrado com senha aleatoria) e so
-o SPKI dele sai no resumo. A chave privada raiz nunca passa por aqui.
+O AUTH nasce aqui (par Ed25519 novo, como o `AuthResultSigner` exige, e certificado autoassinado,
+num PKCS12 cifrado com senha aleatoria) e so o SPKI dele sai no resumo. A chave privada raiz nunca
+passa por aqui.
 """
 
 from __future__ import annotations
