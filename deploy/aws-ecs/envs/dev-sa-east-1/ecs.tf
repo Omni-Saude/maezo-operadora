@@ -100,16 +100,33 @@ resource "aws_ecr_lifecycle_policy" "engine" {
   repository = aws_ecr_repository.engine.name
 
   policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Mantem as 10 imagens mais recentes do engine"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 10
-      }
-      action = { type = "expire" }
-    }]
+    rules = [
+      # Mesma razao da regra 2 do repositorio da aplicacao: desde que o
+      # supply-chain.yml assina tambem o engine, `.sig`/`.att` sao imagens tageadas
+      # que, sem esta regra, concorreriam na contagem de 10 e expulsariam imagens
+      # reais (ou expirariam antes da imagem que provam).
+      {
+        rulePriority = 1
+        description  = "Mantem os 60 artefatos de assinatura/atestacao (cosign) mais recentes"
+        selection = {
+          tagStatus      = "tagged"
+          tagPatternList = ["sha256-*"]
+          countType      = "imageCountMoreThan"
+          countNumber    = 60
+        }
+        action = { type = "expire" }
+      },
+      {
+        rulePriority = 2
+        description  = "Mantem as 10 imagens mais recentes do engine"
+        selection = {
+          tagStatus   = "any"
+          countType   = "imageCountMoreThan"
+          countNumber = 10
+        }
+        action = { type = "expire" }
+      },
+    ]
   })
 }
 

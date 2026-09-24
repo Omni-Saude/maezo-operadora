@@ -120,6 +120,15 @@ aws ecr describe-images --repository-name amh/maezo-operadora --region sa-east-1
 3. Sem `-f image`, o alvo é o `image_digest` do `portal.auto.tfvars`.
 4. O job só fica verde depois do `verify` **e** do `verify-attestation`. Assinar sem
    verificar é metade do portão.
+5. **Engine (imagem human, Onda 2):** construir com
+   `aws codebuild start-build --project-name maezo-operadora-dev-imagem --environment-variables-override
+   name=TAG_IMAGEM,value=<tag> name=DOCKERFILE,value=deploy/cibseven/Dockerfile.human
+   name=REPOSITORIO,value=amh/cibseven-maezo "name=BUILD_ARGS,value=INSTALL_STAFF_COMPOSITION=true INSTALL_PORTAL_READ=true"`
+   (DOCKERFILE, REPOSITORIO e cada token de BUILD_ARGS são conferidos contra allowlist
+   fechada no buildspec) e assinar com
+   `gh workflow run supply-chain.yml --ref main -f repository=amh/cibseven-maezo -f image=<digest|tag>`
+   — no engine `image` é obrigatório. Pré-requisito: `terraform apply` deste PR (IAM das
+   roles de supply-chain/verify e regra de retenção `sha256-*` no lifecycle do engine).
 
 ## 6. Rotação da chave (ato declarado, não automático)
 

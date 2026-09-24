@@ -35,22 +35,18 @@ locals {
   # Subs aceitos. Duas entradas, nenhuma com curinga de repositorio:
   #   1) `main` — o caminho permanente (push em main e workflow_dispatch a partir
   #      de main emitem este mesmo sub);
-  #   2) o branch DESTA entrega — temporario, e existe por um motivo mecanico: o
-  #      GitHub so' aceita `workflow_dispatch` de um workflow que ja esteja no
-  #      branch default, entao a PRIMEIRA execucao (a que prova o portao antes do
-  #      merge) so' pode vir por `push` neste branch. Remover depois do merge.
+  #   (o branch temporario da primeira entrega, `ci/supply-chain-sbom-assinatura`, foi
+  #   removido em 24/09/2026 — revisao de seguranca do #507: push nele ganharia kms:Sign.)
   # `pull_request` NAO entra aqui de proposito: num PR o workflow que roda e' o do
   # HEAD do PR, entao qualquer um que abrisse um PR editando `supply-chain.yml`
   # estaria assinando com a chave. Quem roda em PR e' a role VERIFY-ONLY abaixo.
   github_supply_chain_subs = [
     "${local.github_repo_sub}:ref:refs/heads/main",
-    "${local.github_repo_sub}:ref:refs/heads/ci/supply-chain-sbom-assinatura",
   ]
 
   # Role de VERIFICACAO: roda em PR e em main, nao assina nada.
   github_verify_subs = [
     "${local.github_repo_sub}:ref:refs/heads/main",
-    "${local.github_repo_sub}:ref:refs/heads/ci/supply-chain-sbom-assinatura",
     "${local.github_repo_sub}:pull_request",
   ]
 }
@@ -118,7 +114,9 @@ data "aws_iam_policy_document" "github_supply_chain" {
       # `sha256-*.sig`/`.att` publicadas. Leitura de metadado, nao de conteudo.
       "ecr:DescribeImages",
     ]
-    resources = [aws_ecr_repository.app.arn]
+    # Engine (`amh/cibseven-maezo`) incluido para a imagem human (Onda 2): o workflow
+    # aceita os DOIS repositorios por allowlist fechada (`inputs.repository`).
+    resources = [aws_ecr_repository.app.arn, aws_ecr_repository.engine.arn]
   }
 
   # Escrita EXCLUSIVA dos artefatos de assinatura: o cosign publica `.sig` e `.att`
@@ -135,7 +133,9 @@ data "aws_iam_policy_document" "github_supply_chain" {
       "ecr:CompleteLayerUpload",
       "ecr:PutImage",
     ]
-    resources = [aws_ecr_repository.app.arn]
+    # Engine (`amh/cibseven-maezo`) incluido para a imagem human (Onda 2): o workflow
+    # aceita os DOIS repositorios por allowlist fechada (`inputs.repository`).
+    resources = [aws_ecr_repository.app.arn, aws_ecr_repository.engine.arn]
   }
 
   # A chave de assinatura. `kms:Sign` aqui e' metade da historia: a outra metade
@@ -225,7 +225,9 @@ data "aws_iam_policy_document" "github_verify" {
       "ecr:GetDownloadUrlForLayer",
       "ecr:DescribeImages",
     ]
-    resources = [aws_ecr_repository.app.arn]
+    # Engine (`amh/cibseven-maezo`) incluido para a imagem human (Onda 2): o workflow
+    # aceita os DOIS repositorios por allowlist fechada (`inputs.repository`).
+    resources = [aws_ecr_repository.app.arn, aws_ecr_repository.engine.arn]
   }
 
   statement {
