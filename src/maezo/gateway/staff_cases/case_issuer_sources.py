@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from maezo.gateway.external_cases.models import Identity, Scope, now_utc
 from maezo.portal.api.records import MembershipRecord
+from maezo.tools.process_business_keys import auth_business_key
 
 from .authority import fingerprint
 from .case_issuer import (
@@ -339,19 +340,17 @@ class AuthClaimAnchor:
         guide = key[len(self.prefix) :]
         if not GUIDE.fullmatch(guide):
             return self._none("invalid_guide")
+        auth_key = auth_business_key(tenant_id=self.tenant, numero_guia_tiss=guide)
         instances = await self._json(
             "/process-instance",
-            businessKey=f"AUTH-{self.tenant}-{guide}",
+            businessKey=auth_key,
             processDefinitionKey=AUTH_PROCESS_KEY,
             tenantIdIn=self.tenant,
         )
         if len(instances) != 1:
             return self._none("auth_instances_" + ("zero" if not instances else "many"))
         instance = instances[0]
-        if (
-            instance.get("tenantId") != self.tenant
-            or instance.get("businessKey") != f"AUTH-{self.tenant}-{guide}"
-        ):
+        if instance.get("tenantId") != self.tenant or instance.get("businessKey") != auth_key:
             return self._none("auth_instance_mismatch")
         instance_id = str(instance["id"])
         claims = await self._claims(instance_id)

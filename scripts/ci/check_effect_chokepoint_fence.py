@@ -409,6 +409,16 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "gateway/staff_cases/publisher.py",
         "StaffNativeClient.__init__",
     ): "httpx.AsyncClient(verify=tls, timeout=seconds, trust_env=False, follow_redirects=False)",
+    # T1.6: the staff case issuer READS the engine REST (tasks, DMN history, AUTH instance and
+    # deployed bytes) to anchor escalations; it produces no engine effect (publication goes via
+    # `StaffNativeClient` above). `http` is refused by the composition outside loopback.
+    (
+        "gateway/staff_cases/case_issuer_runtime.py",
+        "run_round",
+    ): (
+        "httpx.AsyncClient(base_url=c.engine_rest_url, verify=True, timeout=c.seconds, "
+        "trust_env=False, follow_redirects=False)"
+    ),
     # INTERIM (`docs/decisions-log.md` DL-0049): the direct ESCALATION completion client. It is
     # the ONE seam here with no pinned TLS context or peer SPKI, and that is not an omission —
     # it talks to the engine's own REST surface, which in this distribution has no
