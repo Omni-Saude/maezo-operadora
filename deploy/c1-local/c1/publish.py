@@ -65,15 +65,6 @@ def run_once(path: str) -> tuple[int, str, str]:
 
 
 def main() -> None:
-    # F3/W3: `JobConfig.authority` e um ForwardRef (AuthorityKeyConfig e declarado depois), e o
-    # `_decode` do perfil nao desce nele: `load_config` recusa TODO arquivo (string -> int estrito
-    # falha; numero -> canonicalize recusa). Medido com o arquivo abaixo antes do rebuild.
-    try:
-        job.load_config_probe = job.parse_model(job.JobConfig, json.loads(json.dumps(config())))  # type: ignore[attr-defined]
-        loads_without_rebuild = True
-    except Exception:
-        loads_without_rebuild = False
-    job.JobConfig.model_rebuild(force=True)
     engine = state("engine")
     os.environ["MAEZO_HUMAN_MATERIAL_VERSION_ID"] = engine["human_version"]
     os.environ["MAEZO_HUMAN_PUBLIC_MANIFEST_SHA256"] = engine["human_manifest_sha256"]
@@ -82,7 +73,7 @@ def main() -> None:
     first = run_once(str(path))
     second = run_once(str(path))
     ok = first[0] == 0 and second[0] == 0 and '"memberships_published": 0' in second[1]
-    step("publish", ok, f"load_config sem rebuild: {loads_without_rebuild} | 1a rodada rc={first[0]} {first[1] or first[2]} | 2a rodada rc={second[0]} {second[1] or second[2]}")
+    step("publish", ok, f"1a rodada rc={first[0]} {first[1] or first[2]} | 2a rodada rc={second[0]} {second[1] or second[2]}")
 
 
 if __name__ == "__main__":

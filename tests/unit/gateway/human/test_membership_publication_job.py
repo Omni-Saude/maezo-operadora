@@ -22,6 +22,7 @@ from maezo.gateway.human.membership_publication_job import (
     RefusingRevocationSource,
     StaffCatalogConfig,
     StaffCatalogPublicationSource,
+    load_config,
     main,
     staff_catalog_artifact,
 )
@@ -483,3 +484,41 @@ def test_job_refuses_without_workload(tmp_path):
             engine=None,  # type: ignore[arg-type]
             workload_ref="",
         )
+
+
+def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> None:
+    """F3 (C1): `authority` was a forward reference the profile decoder never resolved."""
+    raw = {
+        "schema": "portal-membership-publication-job.v1",
+        "tenant": "amh",
+        "identity_dsn_file": "/run/dsn",
+        "ledger_file": "/run/ledger.json",
+        "membership_source_ref_prefix": "portal-membership:",
+        "observation_seconds": "600",
+        "catalog": {
+            "catalog_ref": "catalog-staff",
+            "catalog_revision": "1",
+            "admitted_catalog_digest": "a" * 64,
+            "deployment_receipt_ref": "receipt-1",
+            "deployment_receipt_digest": RECEIPT_DIGEST,
+            "source_ref_prefix": "portal-catalog:",
+            "valid_seconds": "86400",
+        },
+        "authority": {
+            "key_file": "/run/authority.pem",
+            "key_id": "human-authority-1",
+            "audience": "maezo-human",
+            "fingerprint": "b" * 64,
+            "not_after": "2026-09-24T12:00:00.000000Z",
+            "max_envelope_seconds": "30",
+        },
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_config(str(path))
+    assert config.authority.key_id == "human-authority-1"
+    assert config.authority.max_envelope_seconds == 30
+    raw["authority"]["unknown"] = "x"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(Exception):
+        load_config(str(path))

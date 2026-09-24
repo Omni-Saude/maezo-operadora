@@ -544,17 +544,6 @@ class MembershipPublicationJob:
 # --- __main__ -----------------------------------------------------------------------------
 
 
-class JobConfig(Closed):
-    schema_: Literal["portal-membership-publication-job.v1"] = Field(alias="schema")
-    tenant: OpaqueRef
-    identity_dsn_file: str
-    ledger_file: str
-    membership_source_ref_prefix: OpaqueRef
-    observation_seconds: int = Field(ge=60, le=900)
-    catalog: StaffCatalogConfig
-    authority: AuthorityKeyConfig
-
-
 class AuthorityKeyConfig(Closed):
     """The `human-authority` key: its OWN key, registered in the engine trust for this workload's
     TLS client SPKI (`Envelope.verify` binds key to peer). Never the read or assignment key."""
@@ -565,6 +554,17 @@ class AuthorityKeyConfig(Closed):
     fingerprint: Sha256Digest
     not_after: datetime
     max_envelope_seconds: int = Field(ge=1, le=60)
+
+
+class JobConfig(Closed):
+    schema_: Literal["portal-membership-publication-job.v1"] = Field(alias="schema")
+    tenant: OpaqueRef
+    identity_dsn_file: str
+    ledger_file: str
+    membership_source_ref_prefix: OpaqueRef
+    observation_seconds: int = Field(ge=60, le=900)
+    catalog: StaffCatalogConfig
+    authority: AuthorityKeyConfig
 
 
 class JobPublisher:
