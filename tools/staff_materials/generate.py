@@ -69,7 +69,7 @@ CAPABILITIES: dict[str, tuple[list[str], list[str], list[str]]] = {
     "native_result": (["native_result"], [], []),
     "case_issuer": (
         ["staff_case_grant", "staff_policy_head", "scope_complete"],
-        ["staff_identity.v1", "staff_summary.v1"],
+        ["staff_escalation.v1", "staff_identity.v1", "staff_summary.v1"],
         ["detail", "list"],
     ),
     "publication_importer": (["staff-case-publication.v1"], [], []),

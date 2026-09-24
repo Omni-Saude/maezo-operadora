@@ -159,7 +159,8 @@ def verify_materials(
     if (
         # Conjunto exato e na ordem canonica (D-H.4): `/cases` exige `list`, o detalhe exige `detail`.
         entry.operations != ("detail", "list")
-        or set(entry.projections) != {"staff_summary.v1", "staff_identity.v1", "staff_current_task.v1"}
+        or set(entry.projections)
+        != {"staff_summary.v1", "staff_identity.v1", "staff_current_task.v1", "staff_escalation.v1"}
         or authority.entries[manifest.witness_key_fingerprint].login_role
         != manifest.native_witness_connection.login
     ):

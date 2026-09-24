@@ -55,7 +55,7 @@ Purpose = Literal[
     "native_result",
 ]
 EnvelopePurpose = Literal["staff-case-publication.v1", "staff-case-read.v1", "staff-case-finalize.v1"]
-Projection = Literal["staff_summary.v1", "staff_identity.v1", "staff_current_task.v1"]
+Projection = Literal["staff_summary.v1", "staff_identity.v1", "staff_current_task.v1", "staff_escalation.v1"]
 ROLE_PURPOSES: dict[str, frozenset[str]] = {
     "installer": frozenset({"installation"}),
     "identity_verifier": frozenset({"membership_current"}),
@@ -77,6 +77,10 @@ FIELDS = {
             "due_at",
             "assignee_ref",
         }
+    ),
+    # D-M.2: projecao propria (a publicada e imutavel). Valores vem do engine; `list` mascara a guia.
+    "staff_escalation.v1": frozenset(
+        {"guide_number", "reason_code", "priority", "ack_due_at", "resolution_due_at"}
     ),
 }
 

@@ -6222,6 +6222,88 @@
         "title": "StaffDetail",
         "type": "object"
       },
+      "StaffEscalation": {
+        "additionalProperties": false,
+        "description": "`staff_escalation.v1` (D-M): repasse exato do engine; o BFF nao calcula nada.",
+        "properties": {
+          "ack_due_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ack Due At"
+          },
+          "escalation_state": {
+            "enum": [
+              "resolved",
+              "unresolved"
+            ],
+            "title": "Escalation State",
+            "type": "string"
+          },
+          "guide_number": {
+            "anyOf": [
+              {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$|^\\*\\*\\*(?:[A-Za-z0-9._-]{4})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guide Number"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "pattern": "^P[0-9]{1,2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "resolution_due_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Due At"
+          }
+        },
+        "required": [
+          "escalation_state",
+          "guide_number",
+          "reason_code",
+          "priority",
+          "ack_due_at",
+          "resolution_due_at"
+        ],
+        "title": "StaffEscalation",
+        "type": "object"
+      },
       "StaffFreshness": {
         "additionalProperties": false,
         "properties": {
@@ -6301,6 +6383,16 @@
             "pattern": "^[A-Za-z0-9_-]{16,128}$",
             "title": "Case Ref",
             "type": "string"
+          },
+          "escalation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StaffEscalation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "kind": {
             "const": "authorization",

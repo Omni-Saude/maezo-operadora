@@ -115,7 +115,10 @@ def _decode(value: Any, annotation: Any) -> Any:
         if type(value) is not dict:
             raise ProfileError("invalid read object")
         fields = {f.alias or k: f for k, f in annotation.model_fields.items()}
-        if value.keys() != fields.keys():
+        required = {name for name, f in fields.items() if f.is_required()}
+        # Um membro opcional so pode faltar se o wire tambem o omite (`exclude_if`); qualquer outro
+        # default reaparece no `wire` e cai no teste canonico de `parse_model` (D-M/T-M3).
+        if not required <= value.keys() <= fields.keys():
             raise ProfileError("invalid read members")
         return {k: _decode(v, fields[k].annotation) for k, v in value.items()}
     return value
