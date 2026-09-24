@@ -24,7 +24,7 @@ import pytest
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from tests.integration.gateway.test_staff_case_issuer_live import _deploy, _drive_to_user_task, record
-from tests.unit.deploy.test_engine_native_install_pg import _AUTH_DDL, Env, _sql, _with_env
+from tests.unit.deploy.test_engine_native_install_pg import Env, _with_env
 from tests.unit.gateway.test_staff_case_issuer import ESCALATIONS, SCOPE, A, B, C, run, world
 
 from maezo.gateway.staff_cases.case_issuer import CaseIssuerError, StaffCaseIssuerJob
@@ -37,6 +37,13 @@ from maezo.gateway.staff_cases.case_issuer_sources import (
 
 pytestmark = pytest.mark.integration
 ISSUER_LOGIN = "maezo_native_case_issuer"
+
+
+def _pg_dsn() -> str:
+    explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
+    if explicit:
+        return explicit
+    return f"postgresql://maezo:maezo@localhost:{os.environ.get('MAEZO_PG_HOST_PORT', '5433')}/maezo"
 
 
 def _need_db() -> None:
@@ -52,15 +59,8 @@ def _engine(env: Env, login: str) -> AsyncEngine:
 
 
 async def _installed(env: Env) -> None:
+    # Desde o #495 o script de instalacao ja cria as tabelas AUTH e o grant de coluna do emissor.
     await env.run_all()
-    owner = await env.login("maezo_native_schema_owner")
-    try:
-        # A instalacao AUTH e do engine no boot (D-J.2a); aqui o dono a simula, como na T1.4.
-        await owner.execute("SET search_path TO maezo_native")
-        await owner.execute(_AUTH_DDL.read_text(encoding="utf-8"))
-        await owner.execute(_sql("engine-native-post-auth-grants.sql"))
-    finally:
-        await owner.close()
 
 
 # ---------------------------------------------------------------- D-H.3: ledger

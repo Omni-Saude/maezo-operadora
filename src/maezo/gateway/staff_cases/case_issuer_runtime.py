@@ -281,7 +281,11 @@ async def run_round(loaded: LoadedComposition) -> RoundReport:
         witness_engine = _engine(witness_url, c.seconds)
         stack.push_async_callback(witness_engine.dispose)
         rest = httpx.AsyncClient(
-            base_url=c.engine_rest_url, timeout=c.seconds, trust_env=False, follow_redirects=False
+            base_url=c.engine_rest_url,
+            verify=True,
+            timeout=c.seconds,
+            trust_env=False,
+            follow_redirects=False,
         )
         stack.push_async_callback(rest.aclose)
         native = StaffNativeClient(
