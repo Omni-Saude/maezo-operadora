@@ -117,3 +117,15 @@ a composição não tem nenhuma, e só funciona com o `engine-rest` aberto (dev,
 Medido (`run.sh all`, 23/09/2026): `engine-up` PASS com a composicao staff; `publish` PASS (1a rodada
 publica catalogo + 2 memberships + 2 principais; 2a rodada idempotente). Proximo bloqueio: `issuer`
 rc=1 `staff_case_denied` e `/cases` 403 `operation_forbidden` (provavel F9/Python, nao investigado aqui).
+
+### Rodada apos o merge de `fix/c1-python` + main (23/09/2026)
+
+F9 Java: `StaffCaseInstallation.sourceMatches` casa o `source_ref` do `identity_verifier` por prefixo
+terminado em `:`/`/` (estritamente menor; `amh:` nao casa `amhx:`); os demais papeis seguem exatos
+(`StaffCaseSourcePrefixTest`). `run.sh all`: tudo PASS ate `publish` (idempotente); `issuer` rc=0 com
+`anchored=0, grants=0, reasons={claim_absent:1}`; `/cases` 200 com `items: []` para os DOIS grupos.
+Bloqueio do criterio: a escalacao so ancora com a linha `mzo_auth_guide_claim`, que so nasce pelo intake
+AUTH (`/v1/auth-start` nativo), e o C1 nao exercita esse intake: falta D8 (instalacao AUTH qualificando a
+definicao DEPLOYADA de SP-OP-AUTH-001, hoje `c1-auth-definition-not-qualified` e deployada so no passo
+`issuer`, depois do `engine-config`) e um produtor do envelope `human-auth-start.v1` assinado pela chave
+de intake (nao ha fixture ponta a ponta no repo).

@@ -79,9 +79,20 @@ public final class StaffCaseInstallation {
   void fresh(Map<String,Object> value,String from,String to){Instant a=time(value.get(from)),b=time(value.get(to)),now=current();
     if(a.isAfter(now)||!now.isBefore(b)||!a.isBefore(b))throw unavailable();ceilings.add(b);}
   void retain(Instant end){ceilings.add(end);current();}
+  /**
+   * C1 F9: the identity_verifier entry designates the membership source by PREFIX (the published
+   * membership carries source_ref = prefix + principal_ref), same rule as T1.7a: the prefix must
+   * end in ':' or '/' and be strictly shorter, so "amh:" never matches "amhx:...". Every other
+   * role keeps the exact match.
+   */
+  static boolean sourceMatches(String role,Object designated,String actual){
+    if(!(designated instanceof String d)||actual==null)return false;
+    if(!"identity_verifier".equals(role))return d.equals(actual);
+    return (d.endsWith(":")||d.endsWith("/"))&&actual.length()>d.length()&&actual.startsWith(d);
+  }
   Map<String,Object> entry(String fingerprint,String role,String purpose,String source,String namespace){
     var e=entries.get(fingerprint);if(e==null||!role.equals(e.get("role"))||!list(e.get("purposes")).contains(purpose)
-        ||store.revoked(fingerprint)||source!=null&&!source.equals(e.get("source_ref"))
+        ||store.revoked(fingerprint)||source!=null&&!sourceMatches(role,e.get("source_ref"),source)
         ||namespace!=null&&!namespace.equals(e.get("source_namespace")))throw denied();
     fresh(e,"not_before","valid_until");usedKeys.add(fingerprint);return e;
   }
