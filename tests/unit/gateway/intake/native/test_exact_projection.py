@@ -156,6 +156,7 @@ def test_start_projection_binds_claimed_request_and_qualified_sources_without_id
         source_ref="source",
         namespace_ref="namespace",
         source_guide_ref="protected-guide",
+        numero_guia_tiss="2026000123",
         cutover_ref="cutover",
         cutover_revision=1,
         legacy_state="absent_at_cutover",

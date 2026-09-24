@@ -144,6 +144,7 @@ def guide() -> GuideIdentity:
         source_ref="synthetic-fixture-source",
         namespace_ref="synthetic-namespace",
         source_guide_ref="synthetic-guide-source",
+        numero_guia_tiss="SYN-0000000001",
         cutover_ref="synthetic-cutover",
         cutover_revision=1,
         legacy_state="absent_at_cutover",

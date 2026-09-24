@@ -138,6 +138,7 @@ def test_a_validly_published_head_of_another_kind_is_not_an_admission():
         source_ref="source",
         namespace_ref="namespace",
         source_guide_ref="source-guide",
+        numero_guia_tiss="2026000456",
         cutover_ref="cutover",
         cutover_revision=1,
         legacy_state="absent_at_cutover",
