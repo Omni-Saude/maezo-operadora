@@ -74,7 +74,7 @@ down() {
 
 py() {  # cada passo roda no servico que tem as montagens dele
   local service=runner
-  case "$1" in publish) service=job ;; issuer) service=issuer ;; portal-init) service=portal-init ;; portal) service=portal ;; esac
+  case "$1" in publish) service=job ;; issuer|auth-install) service=issuer ;; portal-init) service=portal-init ;; portal) service=portal ;; esac
   "${DC[@]}" --profile engine --profile tools run --rm -T "$service" python -m c1 "$1"
 }
 
@@ -91,7 +91,7 @@ case "${1:-all}" in
     fi
     engine_up ;;
   logs) engine_logs "${2:-40}" ;;
-  materials|db-native|engine-config|assemble|w1|seed|publish|issuer|portal-init|portal) py "$1" ;;
+  materials|db-native|engine-config|assemble|w1|auth-install|seed|publish|issuer|portal-init|portal) py "$1" ;;
   down) down ;;
   all)
     down; build
@@ -99,6 +99,7 @@ case "${1:-all}" in
     "${DC[@]}" up -d --wait postgres >/dev/null 2>&1; py db-base
     bootstrap; py materials; py db-native; digests; py engine-config; py assemble
     engine_up                       # imagem staff, como a T1.2 entrega (F1/F2/F4 corrigidos em fix/c1-java; sem W1)
+    py auth-install || true        # D8: qualifica a instalacao AUTH com a definicao deployada
     py seed; py publish || true; py issuer || true; py portal-init || true; py portal || true ;;
   *) echo "passo desconhecido: $1" >&2; exit 2 ;;
 esac

@@ -129,3 +129,38 @@ AUTH (`/v1/auth-start` nativo), e o C1 nao exercita esse intake: falta D8 (insta
 definicao DEPLOYADA de SP-OP-AUTH-001, hoje `c1-auth-definition-not-qualified` e deployada so no passo
 `issuer`, depois do `engine-config`) e um produtor do envelope `human-auth-start.v1` assinado pela chave
 de intake (nao ha fixture ponta a ponta no repo).
+
+### D8 e o intake AUTH (24/09/2026)
+
+**D8 feito, com uma ressalva de ordem.** O novo passo `auth-install` roda logo depois do `engine-up` e
+antes do `seed`. Ele faz o deploy de SP-OP-AUTH-001, da escalação e da DMN no tenant `amh` e atualiza a
+`qualification_` de `MZO_AUTH_INSTALLATION` com o `definition_id`, o `deployment_id` e o SHA-256 dos
+bytes deployados, exatamente o que `AuthRuntime.Invocation.definition` confere. Não dá para rodar
+antes do `engine-config`: sem engine não há deploy. O `AuthRuntime` lê a instalação a cada invocação,
+então a ordem não muda o efeito. Continuam sintéticos, porque nenhum produtor no repo os gera:
+`profile_digest`, `source_freeze_contract_digest`, `cutover_ref`, `review_receipt_ref` e
+`runtime_qualification_ref`.
+
+**Produtor do `human-auth-start.v1`: não implementado. Está fora do escopo do harness, por dois bloqueios lidos no código:**
+1. **Business key.** `HumanAuthStartCommand.java:48` inicia a instância com `"AUTHI-" + guide_identity_ref`.
+   O `AuthClaimAnchor` do emissor procura `AUTH-{tenant}-{numero_guia_tiss}`
+   (`process_business_keys.auth_business_key`, decisão do dono #16). Uma claim criada pelo intake
+   nativo nunca ancora `ESC-amh-sla-auth-{guia}`. O modelo `guide` (`AuthModels.java:19`) não tem
+   `numero_guia_tiss`, então o engine não consegue montar a chave contratual. Fechar isso é mudar o
+   contrato (DTO `GuideIdentity`/`StartFacts`, publicador WP-J1-02, `native_dispatch.py`
+   `AuthIntakeGuideNumberUnavailableError`). É decisão do arquiteto, não do harness.
+2. **Entradas publicadas.** O start exige `input_pins` de `actor`, `resource_authority`, `guide`,
+   `start_facts` e `document_policy` ativos em `MZO_AUTH_INPUT_HEAD`, além de uma chave de intake
+   designada em `MZO_AUTH_TRUST` (`AuthInstallation.designate`). Nenhum gerador ou publicador de
+   ponta a ponta no repo faz isso: `dispatch_prepared_start` não tem chamador em `src/`. Fabricar
+   essas linhas no harness seria inventar a fonte clínica.
+
+Consequência: o critério do C1 (`/cases` com o caso para o grupo) continua dependendo do item 1.
+
+Medido (`run.sh all` do zero, 24/09/2026):
+- **PASS:** todos os passos de `build` a `publish`, inclusive `auth-install` (a qualificação aponta para
+  `SP-OP-AUTH-001:1:…` e o sha256 dos bytes deployados). `publish` publica 2 memberships e 2 principais;
+  a segunda rodada é idempotente.
+- **`issuer`:** `anchored=0` e `reasons={claim_absent:1}`, com o candidato `atendimento-humano` correto.
+- **`/cases`:** 200 com `items: []` para os dois grupos.
+- **Critério:** não atingido, pelo bloqueio 1 acima.
