@@ -146,7 +146,7 @@ def _trace_refusals() -> None:
                 decoded = profile._decode(value, model)
                 again = json.loads(profile.canonicalize(profile.wire(model.model_validate_json(json.dumps(decoded), strict=True))))
                 _ORIGINS.append(f"parse_model({model.__name__}) {diff(again, value)}")
-            except Exception as failure:  # noqa: BLE001
+            except Exception as failure:  # diagnostico: qualquer falha vira resultado, nunca aborta
                 _ORIGINS.append(f"parse_model({model.__name__}) {type(failure).__name__}: {str(failure)[:300]}")
             raise
 
@@ -192,7 +192,7 @@ async def run() -> None:
             async with httpx.AsyncClient(transport=transport, base_url=PUBLIC_ORIGIN, follow_redirects=False) as client:
                 for principal in state("seed")["principals"]:
                     results[principal] = await _cases(client, principal)
-    except Exception as failure:  # noqa: BLE001
+    except Exception as failure:  # diagnostico: qualquer falha vira resultado, nunca aborta
         step("portal", False, f"lifespan/BFF recusou antes das requisicoes ({type(failure).__name__}: {failure})")
         raise SystemExit(1) from None
     inside, outside = results["staff-c1-no-grupo"], results["staff-c1-outro-grupo"]

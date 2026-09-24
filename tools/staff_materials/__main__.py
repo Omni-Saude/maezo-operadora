@@ -16,9 +16,9 @@ from maezo.portal.engine.profile import canonicalize
 from .assemble import assemble, bundle_bytes, load_input, read_directories
 from .generate import REPO, generate
 from .lock_sql import render as render_lock_sql
-from .native_secret import build as build_native_secret
+from .native_secret import build as build_native_materials
 from .native_secret import load_input as load_native_input
-from .native_secret import write as write_native_secret
+from .native_secret import write as write_native_materials
 from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, write_new
 from .spec import load_spec
 from .verify import load_pins, manifest_digest, verify_bundle
@@ -96,13 +96,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         if args.command == "native-secret":
-            files, public = build_native_secret(
+            files, public = build_native_materials(
                 args.materials,
                 (args.approver / "installation-root.der").read_bytes(),
                 load_native_input(args.input.read_bytes()),
             )
-            secret = write_native_secret(args.out, files, public)
-            print(f"saida={secret.directory}")
+            written = write_native_materials(args.out, files, public)
+            # So digests publicos (fingerprints) vao para a saida; nenhum byte de `files` e impresso.
+            print(f"saida={written.directory}")
             print(f"trust_configuration_digest={public['trust_configuration_digest']}")
             print(f"staff_native_configuration_digest={public['staff_native_configuration_digest']}")
             return 0

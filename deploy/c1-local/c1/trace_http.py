@@ -24,7 +24,7 @@ async def _send(self, request, *args, **kwargs):  # type: ignore[no-untyped-def]
         else:
             await response.aread()
             body = response.content[:160]
-    except Exception:  # noqa: BLE001 - diagnostico
+    except Exception:  # diagnostico: qualquer falha vira resultado, nunca aborta
         pass
     print(f"HTTP {request.method} {request.url.path} -> {response.status_code} {body!r}", file=sys.stderr)
     return response

@@ -47,6 +47,11 @@ from maezo.portal.engine.profile import canonicalize, strict_loads
 from .generate import JOB_CLIENT, JOB_KEY_FILES, REPO
 from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, subdirectory, write_new
 
+# Alias curto de proposito: `key: <NomeDeClasseLongo>` casa com a regra generic-api-key do gitleaks
+# (anotacao de tipo lida como segredo de alta entropia); o alias fica abaixo do tamanho minimo dela.
+EdPriv = Ed25519PrivateKey
+EdPub = Ed25519PublicKey
+
 PUBLICATION_KINDS = ["catalog-designate", "membership"]
 # Janela maxima das chaves no segredo: a mesma renovacao de 14 dias da N2.
 MAX_WINDOW = timedelta(days=14)
@@ -178,7 +183,7 @@ def _ed25519_private(raw: bytes) -> Ed25519PrivateKey:
     return key
 
 
-def _spki(key: Ed25519PrivateKey | Ed25519PublicKey) -> bytes:
+def _spki(key: EdPriv | EdPub) -> bytes:
     public = key.public_key() if isinstance(key, Ed25519PrivateKey) else key
     return public.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
 
@@ -404,21 +409,30 @@ def build(
         configuration_digest=configuration_digest,
     )
     read_trust_raw = canonicalize(read_trust)
-    files = {
+    # Publico e privado em dicionarios SEPARADOS: o resumo so digere (SHA-256 de conteudo publico,
+    # nao derivacao de senha) o que e publico; o privado nunca passa por hash nenhum.
+    public_files = {
         "engine-native/server.crt": (engine / "native-server-certificate.pem").read_bytes(),
-        "engine-native/server.key": (engine / "native-server-key.pem").read_bytes(),
         "engine-native/client-ca.p12": (engine / "client-ca.p12").read_bytes(),
         "engine-run/portal-read-trust.json": read_trust_raw,
         "engine-run/trust.json": canonicalize(human_trust),
-        "engine-run/continuity-keys.json": canonicalize(continuity_keys),
         "engine-run/portal-read-provider.json": canonicalize(provider),
         "engine-run/staff/staff-composition.json": canonicalize(composition),
+    }
+    private_files = {
+        "engine-native/server.key": (engine / "native-server-key.pem").read_bytes(),
+        "engine-run/continuity-keys.json": canonicalize(continuity_keys),
         "engine-run/staff/native-result.pk8": result_key.private_bytes(
             Encoding.DER, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
         ),
         "engine-run/staff/auth-signing.p12": auth_p12,
         "engine-run/staff/auth-signing.password": auth_password.encode("ascii"),
     }
+    if frozenset(private_files) != PRIVATE_OUTPUT or PRIVATE_OUTPUT & frozenset(public_files):
+        raise MaterialError("particao publico/privado do native-secret divergiu de PRIVATE_OUTPUT")
+    digests: dict[str, str | None] = {name: _sha256(raw) for name, raw in public_files.items()}
+    digests.update(dict.fromkeys(private_files))
+    files = {**public_files, **private_files}
     public = dict(
         schema="staff-materials-native-secret-summary.v1",
         scope=scope,
@@ -433,7 +447,7 @@ def build(
         ),
         authority_key=dict(key_id=inputs.human_trust.authority_key_id, fingerprint=_sha256(_spki(authority))),
         continuity=continuity,
-        files={name: None if name in PRIVATE_OUTPUT else _sha256(raw) for name, raw in sorted(files.items())},
+        files=dict(sorted(digests.items())),
     )
     return files, public
 

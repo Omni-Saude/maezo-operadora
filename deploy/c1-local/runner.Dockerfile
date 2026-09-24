@@ -12,3 +12,4 @@ RUN uv sync --frozen --no-dev --no-install-project \
 RUN groupadd --gid 1000 c1 && useradd --uid 1000 --gid 1000 --create-home c1
 ENV PATH=/opt/venv/bin:$PATH PYTHONPATH=/repo/src:/repo:/repo/deploy/c1-local
 WORKDIR /repo
+USER c1

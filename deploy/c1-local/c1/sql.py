@@ -29,7 +29,7 @@ async def run(login: str, sql: str) -> None:
                     print(dict(row))
             else:
                 print(await connection.execute(sql))
-    except Exception as failure:  # noqa: BLE001 - diagnostico
+    except Exception as failure:  # diagnostico: qualquer falha vira resultado, nunca aborta
         print(f"{type(failure).__name__}: {failure}")
     finally:
         await connection.close()

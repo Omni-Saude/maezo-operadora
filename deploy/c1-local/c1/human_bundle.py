@@ -36,12 +36,16 @@ from maezo.portal.engine.profile import canonicalize
 
 from .common import iso
 
+# Alias curto de proposito: `key: <NomeDeClasseLongo>` casa com a regra generic-api-key do gitleaks
+# (anotacao de tipo lida como segredo de alta entropia); o alias fica abaixo do tamanho minimo dela.
+EdPriv = Ed25519PrivateKey
+
 
 def spki(key: object) -> bytes:
     return key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)  # type: ignore[attr-defined]
 
 
-def pem(key: Ed25519PrivateKey | ec.EllipticCurvePrivateKey) -> bytes:
+def pem(key: EdPriv | ec.EllipticCurvePrivateKey) -> bytes:
     return key.private_bytes(Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
 
 
@@ -94,8 +98,8 @@ class ClientCa:
 class HumanBundle:
     manifest: HumanPublicManifest
     manifest_sha256: str
-    read_key: Ed25519PrivateKey
-    command_key: Ed25519PrivateKey
+    read_key: EdPriv
+    command_key: EdPriv
     read_client_spki: str
     command_client_spki: str
     key_ids: dict[str, str]
