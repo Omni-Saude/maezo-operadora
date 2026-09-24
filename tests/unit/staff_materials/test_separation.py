@@ -47,4 +47,5 @@ def test_engineering_cli_exposes_no_root_command() -> None:
         if isinstance(action, argparse._SubParsersAction)
         for name in action.choices
     }
-    assert choices == {"generate", "verify"}
+    # `assemble` recebe a raiz PUBLICA do aprovador; nenhum comando gera ou assina com ela.
+    assert choices == {"generate", "assemble", "verify"}

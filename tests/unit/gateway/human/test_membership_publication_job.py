@@ -222,6 +222,7 @@ class FakePublisher:
     def __init__(self) -> None:
         self.revision = 0
         self.calls: list[tuple[str, str]] = []
+        self.principals: list[dict] = []
 
     def _receipt(self, kind: str, expected: int) -> PublicationReceipt:
         if expected != self.revision:
@@ -246,6 +247,20 @@ class FakePublisher:
         self.calls.append(("membership", subject))
         return self._receipt("membership", expected_revision)
 
+    async def publish_principal(self, raw):
+        command = json.loads(raw)
+        if int(command["expected_revision"]) != self.revision:
+            raise ReadRefusalError("read_dependency_unavailable")
+        self.revision += 1
+        self.calls.append(("principal", command["subject"]))
+        self.principals.append(command)
+        return {
+            "schema": "human-authority-receipt.v1",
+            "tenant": command["tenant"],
+            "revision": str(self.revision),
+            "digest": hashlib.sha256(raw).hexdigest(),
+        }
+
 
 class RowStore:
     def __init__(self, *records: MembershipRecord) -> None:
@@ -263,6 +278,7 @@ def _job(rows: RowStore, publisher: FakePublisher, ledger_path: Path) -> Members
         handshake=_handshake(rows.store, clock=lambda: datetime.now(UTC)),
         store=rows.store,
         engine=None,  # type: ignore[arg-type]
+        workload_ref=PUBLISHER,
     )
     job._principals = AsyncMock(side_effect=lambda: sorted(rows.rows))  # type: ignore[method-assign]
     return job
@@ -279,18 +295,23 @@ def _record(name: str, **changes) -> MembershipRecord:
 async def test_second_run_publishes_nothing_and_a_new_revision_publishes_only_that(tmp_path):
     rows, publisher, path = RowStore(_record("a"), _record("b")), FakePublisher(), tmp_path / "ledger.json"
     first = await _job(rows, publisher, path).run()
-    assert (first.catalog_published, first.memberships_published, first.authority_revision) == (True, 2, 3)
+    assert (first.catalog_published, first.memberships_published, first.authority_revision) == (True, 2, 5)
+    assert first.principals_published == 2
     second = await _job(rows, publisher, path).run()  # new process, same durable ledger
     assert (second.catalog_published, second.memberships_published, second.memberships_unchanged) == (
         False,
         0,
         2,
     )
-    assert len(publisher.calls) == 3
+    assert second.principals_published == 0
+    assert len(publisher.calls) == 5
     rows.rows[(_record("a").issuer, "subject-a")] = _record("a", revision=2, revoked=True)
     third = await _job(rows, publisher, path).run()
-    assert (third.memberships_published, third.memberships_unchanged, third.authority_revision) == (1, 1, 4)
-    assert publisher.calls[-1] == ("membership", "subject-a")
+    assert (third.memberships_published, third.memberships_unchanged, third.authority_revision) == (1, 1, 7)
+    assert publisher.calls[-2:] == [("principal", "subject-a"), ("membership", "subject-a")]
+    assert publisher.principals[-1]["active"] is False
+    fourth = await _job(rows, publisher, path).run()  # the deactivation is not re-sent
+    assert (fourth.principals_published, fourth.authority_revision) == (0, 7)
 
 
 @pytest.mark.asyncio
@@ -307,7 +328,7 @@ async def test_stale_ledger_revision_fails_closed_until_rebased(tmp_path):
     with pytest.raises(ReadRefusalError):
         await _job(rows, publisher, path).run()
     PublicationLedger(path, "amh").rebase(7)
-    assert (await _job(rows, publisher, path).run()).authority_revision == 9
+    assert (await _job(rows, publisher, path).run()).authority_revision == 10
 
 
 def test_ledger_of_another_tenant_is_refused(tmp_path):
@@ -361,3 +382,104 @@ def test_publish_without_material_fails_closed_without_echoing(tmp_path, capsys)
     assert main(["publish", "--config", str(config)]) == 2
     err = capsys.readouterr().err
     assert err.startswith("publication refused:") and "{}" not in err
+
+
+# --- T1.5: principal -> /v1/authority -------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_principal_is_the_authority_command_and_precedes_its_membership(tmp_path):
+    rows, publisher = RowStore(_record("a")), FakePublisher()
+    await _job(rows, publisher, tmp_path / "l.json").run()
+    assert publisher.calls == [
+        ("catalog-designate", "catalog-staff"),
+        ("principal", "subject-a"),
+        ("membership", "subject-a"),
+    ]
+    command = publisher.principals[0]
+    record = _record("a")
+    assert set(command) == {
+        "schema",
+        "tenant",
+        "workload_ref",
+        "operation",
+        "expected_revision",
+        "principal_ref",
+        "issuer",
+        "subject",
+        "active",
+        "valid_until",
+        "groups",
+    }
+    assert (command["schema"], command["operation"], command["expected_revision"]) == (
+        "human-authority.v1",
+        "principal",
+        "1",
+    )
+    assert (command["tenant"], command["workload_ref"], command["principal_ref"]) == (
+        "amh",
+        PUBLISHER,
+        "principal-a",
+    )
+    assert command["active"] is True
+    assert command["groups"] == sorted({g for b in record.memberships for g in b.groups})
+    assert command["valid_until"] == str(int(record.reviewed_until.timestamp()))
+
+
+@pytest.mark.asyncio
+async def test_inactive_principal_never_published_is_not_created(tmp_path):
+    rows, publisher = RowStore(_record("a", revoked=True)), FakePublisher()
+    result = await _job(rows, publisher, tmp_path / "l.json").run()
+    assert result.principals_published == 0
+    assert ("principal", "subject-a") not in publisher.calls
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    [
+        lambda r: dict(r, digest="0" * 64),
+        lambda r: dict(r, tenant="outro"),
+        lambda r: dict(r, revision=str(int(r["revision"]) + 1)),
+        lambda r: dict(r, schema="human-authority-receipt.v0"),
+        lambda r: {**r, "extra": "x"},
+    ],
+)
+@pytest.mark.asyncio
+async def test_authority_receipt_that_does_not_match_fails_closed_and_ledger_keeps_nothing(tmp_path, tamper):
+    rows, publisher, path = RowStore(_record("a")), FakePublisher(), tmp_path / "l.json"
+    honest = publisher.publish_principal
+
+    async def lying(raw):
+        return tamper(await honest(raw))
+
+    publisher.publish_principal = lying  # type: ignore[method-assign]
+    with pytest.raises(ReadRefusalError):
+        await _job(rows, publisher, path).run()
+    assert PublicationLedger(path, "amh").entry("principal", "principal-a") is None
+    assert ("membership", "subject-a") not in publisher.calls
+
+
+@pytest.mark.asyncio
+async def test_authority_transport_error_is_a_read_refusal(tmp_path):
+    rows, publisher = RowStore(_record("a")), FakePublisher()
+
+    async def broken(raw):
+        raise RuntimeError("REVISION_CONFLICT")
+
+    publisher.publish_principal = broken  # type: ignore[method-assign]
+    with pytest.raises(ReadRefusalError):
+        await _job(rows, publisher, tmp_path / "l.json").run()
+
+
+def test_job_refuses_without_workload(tmp_path):
+    rows = RowStore(_record("a"))
+    with pytest.raises(ReadRefusalError):
+        MembershipPublicationJob(
+            publisher=FakePublisher(),
+            ledger=PublicationLedger(tmp_path / "l.json", "amh"),
+            catalog=StaffCatalogPublicationSource(config=_catalog_config(), publisher_ref=PUBLISHER),
+            handshake=_handshake(rows.store),
+            store=rows.store,
+            engine=None,  # type: ignore[arg-type]
+            workload_ref="",
+        )

@@ -14,6 +14,12 @@ sources `PortalReadPublisher` requires and the job that drives it:
   `policies=[]`, `forms=[]`) and refuses unless its digest is the one admitted;
 * `resource`, `pagto` and `revocation` always refuse (Onda 8) — fail-closed, never a stub
   that answers;
+* each staff principal goes to `/v1/authority` (`human-authority.v1`, operation
+  `principal`, `AuthorityCommand.java`) BEFORE its membership, so the witness join
+  (`mzo_portal_read_membership` x `mzo_human_principal`) never sees a membership without
+  its principal. A revoked or expired record is published `active=false` once, and only
+  if an active one was published before. Same tenant counter (`MZO_HUMAN_TENANT.REV_`)
+  and the same ledger as the read plane, so the CAS rule is one;
 * `PublicationLedger` is the job's CAS memory: a durable record of what was committed at
   which authority revision, so a second run with nothing changed publishes nothing.
 
@@ -47,6 +53,7 @@ from maezo.portal.contracts.models import OpaqueRef, Revision, Sha256Digest
 from maezo.portal.engine.profile import canonicalize
 
 from .models import Closed
+from .queue import ReadRefusalError
 from .read_credentials import unavailable
 from .read_profile import (
     CatalogDesignation,
@@ -267,8 +274,40 @@ class RefusingRevocationSource(ReadRevocationPublicationSource):
 # --- ledger (CAS memory) ------------------------------------------------------------------
 
 
+class AuthorityReceipt(Closed):
+    schema_: Literal["human-authority-receipt.v1"] = Field(alias="schema")
+    tenant: OpaqueRef
+    revision: str = Field(pattern=r"^(0|[1-9][0-9]{0,18})$")
+    digest: Sha256Digest
+
+
+def principal_body(record: MembershipRecord, *, now: datetime, grace_seconds: int) -> dict[str, Any]:
+    """The `principal` fields `AuthorityCommand` accepts, minus the CAS envelope fields.
+
+    `groups` is the sorted union of the membership bindings' groups: exactly what the witness
+    compares (`staff_cases/postgres.py`, `set(groups) == union(binding.groups)`). An inactive
+    principal still needs `valid_until > now` on the engine, so it carries a short grace window.
+    """
+    active = not record.revoked and record.reviewed_until > now
+    until = record.reviewed_until if active else now + timedelta(seconds=grace_seconds)
+    return dict(
+        principal_ref=record.principal_ref,
+        issuer=record.issuer,
+        subject=record.subject,
+        active=active,
+        valid_until=str(int(until.timestamp())),
+        groups=sorted({group for binding in record.memberships for group in binding.groups}),
+    )
+
+
+def principal_digest(body: dict[str, Any]) -> str:
+    """Idempotency key: the body, minus the `valid_until` of an inactive one (it moves each run)."""
+    stable = body if body["active"] else {k: v for k, v in body.items() if k != "valid_until"}
+    return hashlib.sha256(canonicalize(stable)).hexdigest()
+
+
 class LedgerEntry(Closed):
-    kind: Literal["membership", "catalog-designate"]
+    kind: Literal["membership", "catalog-designate", "principal"]
     source_ref: OpaqueRef
     source_revision: Revision
     source_digest: Sha256Digest
@@ -316,12 +355,39 @@ class PublicationLedger:
         self._write(self.state.model_copy(update={"authority_revision": revision}))
 
     def published(self, source: SourceProvenance, kind: str) -> bool:
+        return self.has(kind, source.source_ref, source.source_revision, source.source_digest)
+
+    def has(self, kind: str, ref: str, revision: int, source_digest: str) -> bool:
         return any(
             e.kind == kind
-            and e.source_ref == source.source_ref
-            and e.source_revision == source.source_revision
-            and e.source_digest == source.source_digest
+            and e.source_ref == ref
+            and e.source_revision == revision
+            and e.source_digest == source_digest
             for e in self.state.entries
+        )
+
+    def entry(self, kind: str, ref: str) -> LedgerEntry | None:
+        return next((e for e in self.state.entries if (e.kind, e.source_ref) == (kind, ref)), None)
+
+    def record_principal(
+        self, ref: str, revision: int, source_digest: str, receipt: AuthorityReceipt
+    ) -> None:
+        """`/v1/authority` answers `human-authority-receipt.v1`: same CAS rule as the read plane."""
+        if int(receipt.revision) != self.state.authority_revision + 1:
+            raise unavailable()
+        entry = LedgerEntry(
+            kind="principal",
+            source_ref=ref,
+            source_revision=revision,
+            source_digest=source_digest,
+            publication_id="authority-" + receipt.digest,
+            authority_revision=int(receipt.revision),
+        )
+        kept = tuple(e for e in self.state.entries if (e.kind, e.source_ref) != ("principal", ref))
+        self._write(
+            self.state.model_copy(
+                update={"authority_revision": entry.authority_revision, "entries": (*kept, entry)}
+            )
         )
 
     def record(self, kind: str, source: SourceProvenance, receipt: PublicationReceipt) -> None:
@@ -370,6 +436,8 @@ class Publisher(Protocol):
         self, catalog_ref: str, *, expected_revision: int
     ) -> Awaitable[PublicationReceipt]: ...
 
+    def publish_principal(self, raw: bytes) -> Awaitable[dict[str, Any]]: ...
+
 
 @dataclass(frozen=True, slots=True)
 class JobResult:
@@ -377,6 +445,7 @@ class JobResult:
     memberships_published: int
     memberships_unchanged: int
     authority_revision: int
+    principals_published: int
 
 
 class MembershipPublicationJob:
@@ -391,11 +460,45 @@ class MembershipPublicationJob:
         handshake: PostgresMembershipHandshake,
         store: PostgresIdentityStore,
         engine: AsyncEngine,
+        workload_ref: str,
+        grace_seconds: int = 300,
+        clock: Clock = _now,
     ) -> None:
-        if ledger.tenant != store.tenant:
+        if ledger.tenant != store.tenant or not workload_ref or not 60 <= grace_seconds <= 900:
             raise unavailable()
         self._publisher, self._ledger, self._catalog = publisher, ledger, catalog
         self._handshake, self._store, self._engine = handshake, store, engine
+        self._workload_ref, self._grace, self._clock = workload_ref, grace_seconds, clock
+
+    async def _principal(self, record: MembershipRecord) -> bool:
+        """Publish the principal to `/v1/authority` unless this exact state is committed."""
+        ledger = self._ledger
+        body = principal_body(record, now=self._clock(), grace_seconds=self._grace)
+        key = principal_digest(body)
+        if ledger.has("principal", record.principal_ref, record.revision, key):
+            return False
+        if not body["active"] and ledger.entry("principal", record.principal_ref) is None:
+            return False  # nothing to deactivate: an inactive principal is never created
+        raw = canonicalize(
+            dict(
+                schema="human-authority.v1",
+                tenant=self._store.tenant,
+                workload_ref=self._workload_ref,
+                operation="principal",
+                expected_revision=str(ledger.authority_revision),
+                **body,
+            )
+        )
+        try:
+            receipt = parse_model(AuthorityReceipt, await self._publisher.publish_principal(raw))
+        except ReadRefusalError:
+            raise
+        except Exception:
+            raise unavailable() from None
+        if receipt.tenant != self._store.tenant or receipt.digest != hashlib.sha256(raw).hexdigest():
+            raise unavailable()
+        ledger.record_principal(record.principal_ref, record.revision, key, receipt)
+        return True
 
     async def _principals(self) -> list[tuple[str, str]]:
         async with self._engine.connect() as connection:
@@ -419,11 +522,12 @@ class MembershipPublicationJob:
                 catalog_ref, expected_revision=ledger.authority_revision
             )
             ledger.record("catalog-designate", catalog.source, receipt)
-        published = unchanged = 0
+        published = unchanged = principals = 0
         for issuer, subject in await self._principals():
             record = await self._store.get_membership(issuer, subject)
             if record is None or record.audience != "staff":
                 continue  # only the staff plane is published here (Onda 1)
+            principals += await self._principal(record)
             probe = await self._handshake.freeze(issuer, subject)
             probe.uncertain()
             if ledger.published(probe.provenance, "membership"):
@@ -434,7 +538,7 @@ class MembershipPublicationJob:
             )
             ledger.record("membership", probe.provenance, receipt)
             published += 1
-        return JobResult(not catalog_done, published, unchanged, ledger.authority_revision)
+        return JobResult(not catalog_done, published, unchanged, ledger.authority_revision, principals)
 
 
 # --- __main__ -----------------------------------------------------------------------------
@@ -448,6 +552,66 @@ class JobConfig(Closed):
     membership_source_ref_prefix: OpaqueRef
     observation_seconds: int = Field(ge=60, le=900)
     catalog: StaffCatalogConfig
+    authority: AuthorityKeyConfig
+
+
+class AuthorityKeyConfig(Closed):
+    """The `human-authority` key: its OWN key, registered in the engine trust for this workload's
+    TLS client SPKI (`Envelope.verify` binds key to peer). Never the read or assignment key."""
+
+    key_file: str
+    key_id: OpaqueRef
+    audience: OpaqueRef
+    fingerprint: Sha256Digest
+    not_after: datetime
+    max_envelope_seconds: int = Field(ge=1, le=60)
+
+
+class JobPublisher:
+    """Read-plane publications through `PortalReadPublisher`; the principal through `/v1/authority`."""
+
+    def __init__(self, read: Any, authority: Any) -> None:
+        self._read, self._authority = read, authority
+
+    def publish_membership(self, issuer: str, subject: str, *, expected_revision: int):  # type: ignore[no-untyped-def]
+        return self._read.publish_membership(issuer, subject, expected_revision=expected_revision)
+
+    def publish_catalog(self, catalog_ref: str, *, expected_revision: int):  # type: ignore[no-untyped-def]
+        return self._read.publish_catalog(catalog_ref, expected_revision=expected_revision)
+
+    def publish_principal(self, raw: bytes):  # type: ignore[no-untyped-def]
+        return self._authority.publish_principal(raw)
+
+
+def authority_lease(config: AuthorityKeyConfig, scope: Any, lifetime: Any) -> Any:
+    """Build the `human-authority` signing lease; any mismatch refuses before a request exists."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    from .credentials import AssignmentSigningLease
+
+    try:
+        key = serialization.load_pem_private_key(_secret_file(config.key_file), password=None)
+    except Exception:
+        raise unavailable() from None
+    if not isinstance(key, Ed25519PrivateKey):
+        raise unavailable()
+    spki = key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    if hashlib.sha256(spki).hexdigest() != config.fingerprint or config.not_after.tzinfo is None:
+        raise unavailable()
+    return AssignmentSigningLease(
+        scope=scope,
+        key_id=config.key_id,
+        purpose="human-authority",
+        audience=config.audience,
+        fingerprint=config.fingerprint,
+        not_before=_now() - timedelta(seconds=1),
+        not_after=config.not_after,
+        max_envelope_seconds=config.max_envelope_seconds,
+        _key=key,
+        _live=lifetime.bounded(config.not_after),
+    )
 
 
 def _secret_file(path: str) -> bytes:
@@ -464,6 +628,8 @@ def load_config(path: str) -> JobConfig:
 async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pragma: no cover - composition
     from sqlalchemy.ext.asyncio import create_async_engine
 
+    from .assignment_transport import AssignmentPrivateTransport
+    from .models import Scope
     from .production import _surface_context
     from .production_materials import MATERIAL_DIRECTORY, HumanMaterialPin, load_human_materials
     from .read_credentials import ReadCredentialPartition
@@ -499,6 +665,17 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
         ),
         timeout_seconds=manifest.read_surface.timeout_seconds,
     )
+    authority_client = AssignmentPrivateTransport(
+        origin=manifest.read_surface.origin,
+        tls_context=context,
+        server_spki_sha256=manifest.read_surface.server_spki_sha256,
+        signing=authority_lease(
+            config.authority,
+            Scope(tenant=scope.tenant, environment=scope.environment, workload_ref=scope.workload_ref),
+            lifetime,
+        ),
+        timeout_seconds=manifest.read_surface.timeout_seconds,
+    )
     try:
         store = PostgresIdentityStore(config.tenant, engine)
         handshake = PostgresMembershipHandshake(
@@ -509,7 +686,7 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
         )
         membership = PostgresMembershipPublicationSource(store=store, handshake=handshake)
         catalog = StaffCatalogPublicationSource(config=config.catalog, publisher_ref=scope.workload_ref)
-        publisher = PortalReadPublisher(
+        read_publisher = PortalReadPublisher(
             client=client,
             membership=membership,
             catalog=catalog,
@@ -517,6 +694,7 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
             pagto=RefusingPagtoSource(),
             revocation=RefusingRevocationSource(),
         )
+        publisher = JobPublisher(read_publisher, authority_client)
         ledger = PublicationLedger(Path(config.ledger_file), config.tenant)
         if rebase is not None:
             ledger.rebase(rebase)
@@ -527,8 +705,10 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
             handshake=handshake,
             store=store,
             engine=engine,
+            workload_ref=scope.workload_ref,
         ).run()
     finally:
+        await authority_client.aclose()
         await client.close()
         lifetime.close()
         await engine.dispose()

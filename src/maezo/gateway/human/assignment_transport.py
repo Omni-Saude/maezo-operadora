@@ -99,6 +99,12 @@ class AssignmentPrivateTransport:
             raise unavailable()
         return await self._send("authority", raw)
 
+    async def publish_principal(self, raw: bytes) -> dict[str, Any]:
+        """`human-authority.v1` principal: the receipt echoes the command digest as `digest`."""
+        if self.purpose != "human-authority" or strict_loads(raw).get("operation") != "principal":
+            raise unavailable()
+        return await self._send("authority", raw, receipt_digest="digest")
+
     async def query(self, request: dict[str, Any]) -> dict[str, Any]:
         if self.purpose != "human-assignment-read" or request.get("operation") not in (
             "context",
@@ -113,7 +119,9 @@ class AssignmentPrivateTransport:
             raise unavailable()
         return await self._send("assignment-receipt-authority", canonicalize(request))
 
-    async def _send(self, route: str, raw: bytes) -> dict[str, Any]:
+    async def _send(
+        self, route: str, raw: bytes, *, receipt_digest: str = "request_digest"
+    ) -> dict[str, Any]:
         try:
             if self._closed:
                 raise unavailable()
@@ -178,7 +186,7 @@ class AssignmentPrivateTransport:
                     raise unavailable()
                 if not isinstance(parsed, dict):
                     raise unavailable()
-                if parsed.get("request_digest") != digest(request):
+                if parsed.get(receipt_digest) != digest(request):
                     raise unavailable()
                 self._signing.guard()
                 return parsed
