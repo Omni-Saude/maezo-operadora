@@ -38,6 +38,42 @@ export function staffCasePage(
   };
 }
 
+type Escalation = NonNullable<StaffPage["items"][number]["escalation"]>;
+
+// D-M escalation per staffCaseRefs position: P2 due in 3 h, P1 overdue by
+// 20 min, and one the engine could not resolve (fields null, guide kept).
+export function staffEscalations(now = Date.now(), full = false): Escalation[] {
+  const guide = (value: string) => (full ? value : `***${value.slice(-4)}`);
+  return [
+    {
+      escalation_state: "resolved", guide_number: guide("20260917004411"),
+      reason_code: "solicitacao_humano", priority: "P2",
+      ack_due_at: wireInstant(now + 1_800_000), resolution_due_at: wireInstant(now + 3 * 3_600_000),
+    },
+    {
+      escalation_state: "resolved", guide_number: guide("20260918007731"),
+      reason_code: "red_flag_clinico", priority: "P1",
+      ack_due_at: wireInstant(now - 50 * 60_000), resolution_due_at: wireInstant(now - 20 * 60_000),
+    },
+    {
+      escalation_state: "unresolved", guide_number: guide("20260920002209"),
+      reason_code: null, priority: null, ack_due_at: null, resolution_due_at: null,
+    },
+  ];
+}
+
+export function escalatedStaffCasePage(now = Date.now()): StaffPage {
+  const page = staffCasePage(now);
+  const escalations = staffEscalations(now);
+  return { ...page, items: page.items.map((item, index) => ({ ...item, escalation: escalations[index] })) };
+}
+
+export function escalatedStaffCaseDetail(caseRef: string = staffCaseRefs[0], now = Date.now()): StaffDetail {
+  const detail = staffCaseDetail(caseRef, now);
+  const index = Math.max(0, staffCaseRefs.indexOf(caseRef as (typeof staffCaseRefs)[number]));
+  return { ...detail, case: { ...detail.case, escalation: staffEscalations(now, true)[index] } };
+}
+
 export function staffCaseDetail(
   caseRef: string = staffCaseRefs[0],
   now = Date.now(),

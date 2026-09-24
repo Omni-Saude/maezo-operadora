@@ -98,6 +98,82 @@ function TaskName({ taskKey }: { taskKey: string }) {
     : <><span className="task-name">{label}</span><span className="task-key-raw exact-value">{taskKey}</span></>;
 }
 
+type Escalation = NonNullable<StaffPage["items"][number]["escalation"]>;
+
+// Closed map, sourced from the motivo_categoria entries of
+// spec/processes/dmn/escalation_routing.dmn. Unknown codes are shown raw.
+export const reasonLabels: Readonly<Record<string, string>> = {
+  falha_tecnica: "Falha técnica",
+  intencao_clinica: "Intenção clínica",
+  red_flag_clinico: "Sinal de alerta clínico",
+  risco_psicossocial: "Risco psicossocial",
+  solicitacao_humano: "Pediu atendimento humano",
+};
+
+function ReasonName({ code }: { code: string | null }) {
+  if (code === null) return <>Sem motivo definido</>;
+  const label = Object.hasOwn(reasonLabels, code) ? reasonLabels[code] : undefined;
+  return label === undefined
+    ? <span className="exact-value">{code}</span>
+    : <><span className="task-name">{label}</span><span className="task-key-raw exact-value">{code}</span></>;
+}
+
+function PriorityBadge({ priority }: { priority: string | null }) {
+  if (priority === null) return <>Sem prioridade definida</>;
+  const tone = priority === "P1" ? "p1" : priority === "P2" ? "p2" : "p3";
+  return <span className={`priority priority-${tone}`}>{priority}</span>;
+}
+
+export function maskGuide(guide: string) {
+  return guide.startsWith("***") ? guide : `***${guide.slice(-4)}`;
+}
+
+function span(ms: number) {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} h`;
+  return `${Math.round(hours / 24)} dias`;
+}
+
+function DueRelative({ dueAt, now, unresolved }: { dueAt: string | null; now: number; unresolved: boolean }) {
+  if (dueAt === null) return <>{unresolved ? "Sem prazo definido" : "Sem prazo"}</>;
+  const delta = Date.parse(dueAt) - now;
+  return (
+    <span title={formatTimestamp(dueAt)}>
+      {delta < 0
+        ? <strong className="due-flag">Vencido há {span(-delta)}</strong>
+        : <>Vence em {span(delta)}</>}
+      <span className="task-key-raw">{formatTimestamp(dueAt)}</span>
+    </span>
+  );
+}
+
+function byUrgency(left: StaffPage["items"][number], right: StaffPage["items"][number]) {
+  const a = left.escalation?.resolution_due_at;
+  const b = right.escalation?.resolution_due_at;
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return Date.parse(a) - Date.parse(b);
+}
+
+function EscalationFacts({ escalation, now }: { escalation: Escalation; now: number }) {
+  const unresolved = escalation.escalation_state === "unresolved";
+  return (
+    <section className="case-identity" aria-labelledby="staff-case-escalation-heading">
+      <h4 id="staff-case-escalation-heading">Escalonamento</h4>
+      <dl className="task-facts">
+        <div><dt>Guia</dt><dd className="exact-value">{escalation.guide_number ?? "Sem guia informada"}</dd></div>
+        <div><dt>Motivo</dt><dd><ReasonName code={escalation.reason_code} /></dd></div>
+        <div><dt>Prioridade</dt><dd><PriorityBadge priority={escalation.priority} /></dd></div>
+        <div><dt>Prazo para assumir</dt><dd><DueRelative dueAt={escalation.ack_due_at} now={now} unresolved={unresolved} /></dd></div>
+        <div><dt>Prazo para resolver</dt><dd><DueRelative dueAt={escalation.resolution_due_at} now={now} unresolved={unresolved} /></dd></div>
+      </dl>
+    </section>
+  );
+}
+
 function dueLabel(dueAt: string | null, observedAt: string) {
   if (dueAt === null) return { text: "Sem prazo informado", late: false };
   const late = Date.parse(dueAt) < Date.parse(observedAt);
@@ -126,6 +202,9 @@ function StaffCaseDetail({ detail }: { detail: StaffDetail }) {
             <>, autorização nº <span className="exact-value">{detail.outcome.authorization_ref}</span></>
           )}
         </p>
+      )}
+      {detail.case.escalation != null && (
+        <EscalationFacts escalation={detail.case.escalation} now={Date.parse(detail.freshness.observed_at)} />
       )}
       <section className="staff-case-tasks" aria-labelledby="staff-case-tasks-heading">
         <h4 id="staff-case-tasks-heading">Tarefas ativas</h4>
@@ -308,6 +387,12 @@ export function StaffCaseWorkspace({
     return () => window.clearTimeout(timer);
   }, [visiblePage, loadList]);
 
+  const items = listState.kind === "ready" ? listState.page.items : [];
+  const showEscalation = items.some((item) => item.escalation != null);
+  // Wire order is by case_ref (the cursor contract); the screen orders by urgency.
+  const rows = showEscalation ? [...items].sort(byUrgency) : items;
+  const observedNow = listState.kind === "ready" ? Date.parse(listState.page.freshness.observed_at) : 0;
+
   if (selected !== null) {
     return (
       <section className="staff-cases" aria-label="Detalhe do caso">
@@ -365,9 +450,9 @@ export function StaffCaseWorkspace({
             <div className="table-scroll case-table" tabIndex={0} aria-label="Tabela de casos do seu grupo">
               <table>
                 <caption className="visually-hidden">Casos de autorização liberados para o seu grupo</caption>
-                <thead><tr><th scope="col">Caso</th><th scope="col">Situação</th><th scope="col">Situação observada em</th><th scope="col">Revisão</th></tr></thead>
+                <thead><tr><th scope="col">Caso</th>{showEscalation && <><th scope="col">Prioridade</th><th scope="col">Prazo</th><th scope="col">Motivo</th><th scope="col">Guia</th></>}<th scope="col">Situação</th><th scope="col">Situação observada em</th><th scope="col">Revisão</th></tr></thead>
                 <tbody>
-                  {listState.page.items.map((item) => (
+                  {rows.map((item) => (
                     <tr key={item.case_ref}>
                       <th scope="row">
                         <a
@@ -382,6 +467,12 @@ export function StaffCaseWorkspace({
                           <span className="visually-hidden">Abrir caso </span><span className="exact-value">{item.case_ref}</span>
                         </a>
                       </th>
+                      {showEscalation && (item.escalation == null ? <td colSpan={4}>Sem dados de escalonamento</td> : <>
+                        <td><PriorityBadge priority={item.escalation.priority} /></td>
+                        <td><DueRelative dueAt={item.escalation.resolution_due_at} now={observedNow} unresolved={item.escalation.escalation_state === "unresolved"} /></td>
+                        <td><ReasonName code={item.escalation.reason_code} /></td>
+                        <td className="exact-value guide-cell">{item.escalation.guide_number === null ? "Sem guia" : maskGuide(item.escalation.guide_number)}</td>
+                      </>)}
                       <td><StatePill state={item.state} /></td>
                       <td>{formatTimestamp(item.state_observed_at)}</td>
                       <td className="exact-value">{item.record_revision}</td>

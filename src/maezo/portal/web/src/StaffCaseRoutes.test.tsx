@@ -12,8 +12,14 @@ vi.mock("./StaffOverview", () => ({
 import { readFileSync } from "node:fs";
 
 import { App } from "./App";
-import { taskLabels } from "./StaffCaseWorkspace";
-import { staffCaseDetail, staffCasePage, staffCaseRefs } from "./test/staffCaseFixtures";
+import { reasonLabels, taskLabels } from "./StaffCaseWorkspace";
+import {
+  escalatedStaffCaseDetail,
+  escalatedStaffCasePage,
+  staffCaseDetail,
+  staffCasePage,
+  staffCaseRefs,
+} from "./test/staffCaseFixtures";
 
 // Only the fetch boundary is replaced: the real session client, staff case
 // client, validators and router run against wire-shaped bodies.
@@ -181,6 +187,85 @@ it("páginas internas usam o cabeçalho compacto; a casa mantém o hero", async 
   render(<App />);
   expect(await screen.findByText(/cada recurso é consultado/i)).toBeInTheDocument();
   expect(screen.getByRole("heading", { level: 1 }).closest("section")).not.toHaveClass("portal-session-compact");
+});
+
+it("com escalonamento: colunas Prioridade/Prazo/Motivo/Guia, ordem por prazo, sem prazo no fim", async () => {
+  window.history.replaceState(null, "", "/portal/cases");
+  serve(casesList(() => json(escalatedStaffCasePage())));
+  render(<App />);
+
+  const table = await screen.findByRole("table", { name: /casos de autorização liberados/i });
+  expect(within(table).getAllByRole("columnheader").map((cell) => cell.textContent)).toEqual([
+    "Caso", "Prioridade", "Prazo", "Motivo", "Guia", "Situação", "Situação observada em", "Revisão",
+  ]);
+  const [, first, second, third] = within(table).getAllByRole("row");
+  expect(within(first).getByRole("rowheader")).toHaveTextContent(staffCaseRefs[1]);
+  expect(first).toHaveTextContent("P1");
+  expect(first).toHaveTextContent(/Vencido há 20 min/);
+  expect(first).toHaveTextContent("Sinal de alerta clínico");
+  expect(first).toHaveTextContent("***7731");
+  expect(second).toHaveTextContent(/Vence em 3 h/);
+  expect(second).toHaveTextContent("Pediu atendimento humano");
+  expect(within(third).getByRole("rowheader")).toHaveTextContent(staffCaseRefs[2]);
+  expect(third).toHaveTextContent("Sem prazo definido");
+  expect(table).not.toHaveTextContent("20260918007731");
+});
+
+it("motivo fora do mapa da DMN aparece cru; mapa bate com a DMN", async () => {
+  const bodies = escalatedStaffCasePage();
+  bodies.items[0].escalation = { ...bodies.items[0].escalation!, reason_code: "motivo_novo_engine" };
+  window.history.replaceState(null, "", "/portal/cases");
+  serve(casesList(() => json(bodies)));
+  render(<App />);
+  expect(await screen.findByText("motivo_novo_engine")).toBeInTheDocument();
+
+  const dmn = readFileSync("../../../../spec/processes/dmn/escalation_routing.dmn", "utf8");
+  const [inputs] = dmn.split("<rule");
+  expect(inputs).toContain("motivo_categoria");
+  const codes = [...dmn.matchAll(/<rule[\s\S]*?<inputEntry[^>]*><text>"([^"]+)"<\/text>/g)].map((m) => m[1]);
+  expect(Object.keys(reasonLabels).sort()).toEqual([...new Set(codes)].sort());
+});
+
+it("engine antigo (sem escalation) esconde as colunas sem erro", async () => {
+  window.history.replaceState(null, "", "/portal/cases");
+  serve(casesList(() => json(staffCasePage())));
+  render(<App />);
+  const table = await screen.findByRole("table", { name: /casos de autorização liberados/i });
+  expect(within(table).queryByRole("columnheader", { name: "Prioridade" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it("detalhe mostra guia inteira, motivo, prioridade e os dois prazos", async () => {
+  const ref = staffCaseRefs[1];
+  window.history.replaceState(null, "", `/portal/cases/${ref}`);
+  serve((path) => (path === `/api/v1/portal/cases/${ref}` ? json(escalatedStaffCaseDetail(ref)) : undefined));
+  render(<App />);
+
+  const section = await screen.findByRole("region", { name: "Escalonamento" });
+  expect(section).toHaveTextContent("20260918007731");
+  expect(section).toHaveTextContent("Sinal de alerta clínico");
+  expect(section).toHaveTextContent("P1");
+  expect(within(section).getByText("Prazo para assumir").nextSibling).toHaveTextContent(/Vencido há 50 min/);
+  expect(within(section).getByText("Prazo para resolver").nextSibling).toHaveTextContent(/Vencido há 20 min/);
+});
+
+it("detalhe com escalation_state=unresolved diz sem prazo definido", async () => {
+  const ref = staffCaseRefs[2];
+  window.history.replaceState(null, "", `/portal/cases/${ref}`);
+  serve((path) => (path === `/api/v1/portal/cases/${ref}` ? json(escalatedStaffCaseDetail(ref)) : undefined));
+  render(<App />);
+  const section = await screen.findByRole("region", { name: "Escalonamento" });
+  expect(within(section).getAllByText("Sem prazo definido")).toHaveLength(2);
+  expect(section).toHaveTextContent("20260920002209");
+});
+
+it("detalhe sem escalation (engine antigo) não mostra a seção", async () => {
+  const ref = staffCaseRefs[0];
+  window.history.replaceState(null, "", `/portal/cases/${ref}`);
+  serve((path) => (path === `/api/v1/portal/cases/${ref}` ? json(staffCaseDetail(ref)) : undefined));
+  render(<App />);
+  await screen.findByRole("heading", { name: "Caso de autorização" });
+  expect(screen.queryByRole("region", { name: "Escalonamento" })).not.toBeInTheDocument();
 });
 
 it("trocar de área sai do endereço de casos", async () => {

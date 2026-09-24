@@ -125,6 +125,13 @@
 .portal-session-compact .session-detail div { display: flex; flex-wrap: wrap; gap: 0 0.4rem; align-items: baseline; }
 .portal-session-compact .session-detail dd { margin: 0; font-size: 0.9rem; }
 
+/* Prioridade: o texto P1/P2/P3 carrega o sentido; a cor só reforça (contraste AA). */
+.priority { display: inline-flex; align-items: center; min-height: 1.8rem; padding: 0.1rem 0.6rem; border-radius: 0.4rem; font-weight: 800; }
+.priority-p1 { color: #fff; background: #9b3a24; }
+.priority-p2 { color: #5a3208; background: #fbe3c4; box-shadow: inset 0 0 0 1px #d79a55; }
+.priority-p3 { color: #173e33; background: #e6efeb; box-shadow: inset 0 0 0 1px #adc3ba; }
+
+.guide-cell { white-space: nowrap; }
 .task-name { display: block; }
 .task-key-raw { display: block; margin-top: 0.15rem; color: #526d65; font-size: 0.8rem; font-weight: 500; }
 
