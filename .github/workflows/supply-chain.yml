@@ -64,10 +64,6 @@ on:
   push:
     branches:
       - main
-      # Branch desta entrega: o GitHub so' aceita `workflow_dispatch` de workflow
-      # que ja esteja no branch default, entao a primeira execucao real — a que
-      # prova o portao ANTES do merge — precisa vir por push aqui.
-      - ci/supply-chain-sbom-assinatura
   pull_request:
     paths:
       - "deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars"
