@@ -7,7 +7,8 @@ Produz, num diretorio NOVO 0700 fora do repositorio:
 ``engine/``  material do listener mTLS e da autoridade nativa (segredo nativo, Onda 4); a CA de
              clientes vai em PEM e em `client-ca.p12` (truststore PKCS12 sem senha, o que o
              Tomcat 10.1/JSSE le)
-``issuer/``  chaves e certificado do emissor de casos e do importador (T1.6)
+``issuer/``  chaves e certificado do emissor de casos e do importador, e a chave do witness PROPRIO
+             do emissor (`case-issuer-witness`, D-H.2) (T1.6)
 ``dba/``     verificadores SCRAM dos dois logins novos (Onda 3; a senha em claro so existe no DSN)
 ``public/summary.json``  o que o aprovador confere: digests, fingerprints e pins de SPKI
 
@@ -34,6 +35,8 @@ from cryptography.hazmat.primitives.serialization import pkcs12
 
 from maezo.gateway.external_cases.models import digest, parse, timestamp
 from maezo.gateway.staff_cases.authority import fingerprint
+from maezo.gateway.staff_cases.case_issuer_runtime import WITNESS_LOGIN as ISSUER_WITNESS_LOGIN
+from maezo.gateway.staff_cases.case_issuer_sources import WITNESS_ENTRY as ISSUER_WITNESS_ENTRY
 from maezo.gateway.staff_cases.models import FIELDS, Designation
 from maezo.portal.engine.profile import canonicalize
 
@@ -68,6 +71,9 @@ CAPABILITIES: dict[str, tuple[list[str], list[str], list[str]]] = {
     ),
     "publication_importer": (["staff-case-publication.v1"], [], []),
 }
+# A entrada `identity_verifier` PROPRIA do emissor (D-H.2): mesma fonte do witness do portal, chave
+# e login dele (`IssuerWitness` recusa a chave do portal). Chave no `summary` sob este nome.
+ISSUER_WITNESS_KEY = "case_issuer_witness"
 
 
 def _private_pem(key: Ed25519PrivateKey) -> bytes:
@@ -148,6 +154,24 @@ def designation_draft(
                 valid_until=spec.designation.valid_until,
             )
         )
+    witness = spec.identity_verifier
+    entries.append(
+        dict(
+            entry_ref=ISSUER_WITNESS_ENTRY,
+            role="identity_verifier",
+            source_namespace=witness.source_namespace,
+            source_ref=witness.source_ref,
+            key_fingerprint=fingerprint(keys[ISSUER_WITNESS_KEY].public_key()),
+            certificate_spki=None,
+            public_key=_public_der_b64(keys[ISSUER_WITNESS_KEY]),
+            login_role=ISSUER_WITNESS_LOGIN,
+            purposes=CAPABILITIES["identity_verifier"][0],
+            projections=[],
+            operations=[],
+            not_before=spec.designation.not_before,
+            valid_until=spec.designation.valid_until,
+        )
+    )
     value = dict(
         schema="staff-case-designation.v1",
         scope=spec.scope.wire(),
@@ -185,7 +209,7 @@ def generate(spec: MaterialsSpec, out: Path) -> Generated:
         role: issue_leaf(client_ca, f"maezo {role.replace('_', '-')}", "client", start, end)
         for role in ("read_requester", "publication_importer")
     }
-    keys = {role: Ed25519PrivateKey.generate() for role in CAPABILITIES}
+    keys = {role: Ed25519PrivateKey.generate() for role in (*CAPABILITIES, ISSUER_WITNESS_KEY)}
     designation = designation_draft(spec, keys, {role: c.spki_sha256() for role, c in clients.items()})
     continuity_key = secrets.token_bytes(32)
     continuity_ref = "continuity-" + secrets.token_hex(16)
@@ -222,6 +246,7 @@ def generate(spec: MaterialsSpec, out: Path) -> Generated:
         (engine / "native-result-signing-key.pem", _private_pem(keys["native_result"]), PRIVATE),
         (engine / "portal-read-continuity-key.bin", continuity_key, PRIVATE),
         (issuer / "case-issuer-signing-key.pem", _private_pem(keys["case_issuer"]), PRIVATE),
+        (issuer / "issuer-witness-signing-key.pem", _private_pem(keys[ISSUER_WITNESS_KEY]), PRIVATE),
         (
             issuer / "publication-importer-signing-key.pem",
             _private_pem(keys["publication_importer"]),

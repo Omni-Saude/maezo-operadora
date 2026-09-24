@@ -37,7 +37,7 @@ from maezo.gateway.human.read_profile import (
 from maezo.gateway.human.read_publisher import PostgresMembershipPublicationSource, PublicationReceipt
 from maezo.portal.api.postgres import PostgresIdentityStore
 from maezo.portal.api.records import MembershipRecord
-from maezo.portal.engine.profile import canonicalize
+from maezo.portal.engine.profile import ProfileError, canonicalize
 
 VECTOR = Path(__file__).resolve().parents[3] / "fixtures" / "portal_read" / "jcs-membership-vector.json"
 NOW = datetime(2026, 9, 23, 12, tzinfo=UTC)
@@ -520,5 +520,5 @@ def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> N
     assert config.authority.max_envelope_seconds == 30
     raw["authority"]["unknown"] = "x"
     path.write_text(json.dumps(raw), encoding="utf-8")
-    with pytest.raises(Exception):
+    with pytest.raises(ProfileError):
         load_config(str(path))

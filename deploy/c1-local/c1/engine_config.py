@@ -46,6 +46,7 @@ from .common import (
     ENVIRONMENT,
     INCARNATION,
     MATERIALS,
+    MEMBERSHIP_PREFIX,
     NATIVE_HOSTNAME,
     NATIVE_SCHEMA,
     OBSERVER_LOGIN,
@@ -76,7 +77,6 @@ READ_DEPLOYMENT_REF = "c1-read-deployment"
 READ_DEPLOYMENT_DIGEST = sha256(b"c1 read deployment")
 READ_AUDIENCE = "c1-engine-read"
 HUMAN_AUDIENCE = "c1-engine-human"
-MEMBERSHIP_PREFIX = f"portal-identity:{TENANT}:"
 CATALOG_PREFIX = f"staff-catalog:{TENANT}:"
 DEPLOYMENT_RECEIPT_REF = "c1-deployment-receipt"
 DEPLOYMENT_RECEIPT_DIGEST = sha256(b"c1 deployment receipt")

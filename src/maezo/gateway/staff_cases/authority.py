@@ -72,6 +72,19 @@ def fingerprint(key: Ed25519PublicKey) -> str:
     ).hexdigest()
 
 
+def source_matches(role: str, designated: str, observed: str) -> bool:
+    """Fonte da prova contra a fonte designada.
+
+    A membership publicada tem `source_ref = prefixo + principal_ref` (T1.5), entao a entrada
+    `identity_verifier` designa um PREFIXO, com a mesma regra da admissao T1.7a
+    (`AdmissionRecord`): termina em `:` ou `/`, para `...:amh:` nunca casar `...:amhx:...`.
+    Os demais papeis conferem valor exato.
+    """
+    if role == "identity_verifier" and designated.endswith((":", "/")):
+        return observed.startswith(designated) and len(observed) > len(designated)
+    return observed == designated
+
+
 def _window(start: str, end: str, now: datetime) -> datetime:
     a, b = timestamp(start), timestamp(end)
     if not a <= now < b:
@@ -171,7 +184,7 @@ class InstalledStaffAuthority:
             or entry.role != role
             or purpose not in entry.purposes
             or entry.key_fingerprint in self.revoked_fingerprints
-            or (source_ref is not None and entry.source_ref != source_ref)
+            or (source_ref is not None and not source_matches(role, entry.source_ref, source_ref))
         ):
             raise StaffCaseError("denied")
         if projection is not None and (

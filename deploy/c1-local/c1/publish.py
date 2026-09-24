@@ -17,13 +17,12 @@ from urllib.parse import quote
 
 from maezo.gateway.human import membership_publication_job as job
 
-from .common import ADMIN, ROOT, STATE, TENANT, iso, now, read_text, state, step, write
+from .common import ADMIN, MEMBERSHIP_PREFIX, ROOT, STATE, TENANT, iso, now, read_text, state, step, write
 from .engine_config import (
     CATALOG_PREFIX,
     DEPLOYMENT_RECEIPT_DIGEST,
     DEPLOYMENT_RECEIPT_REF,
     HUMAN_AUDIENCE,
-    MEMBERSHIP_PREFIX,
 )
 from .seed import BFF_LOGIN
 

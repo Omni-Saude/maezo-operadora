@@ -46,7 +46,7 @@ def spec_value(now: datetime, **changes: Any) -> dict[str, Any]:
         identity_verifier=dict(
             login_role="portal_native_witness",
             source_namespace="portal-identity",
-            source_ref="membership-amh",
+            source_ref="portal-identity:amh:",
         ),
         native_result=dict(login_role="cibseven_app", source_namespace="engine", source_ref="engine-result"),
         case_issuer=dict(

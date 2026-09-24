@@ -34,7 +34,7 @@ def test_signing_requires_the_digest_of_what_was_shown(generated: Generated, now
     root = Ed25519PrivateKey.generate()
     _, shown, lines = approver.review_designation(raw)
     # A revisao mostra cada papel, com a chave e as capacidades, e nenhum segredo.
-    assert len([line for line in lines if line.startswith("- ")]) == 5
+    assert len([line for line in lines if line.startswith("- ")]) == 6
     assert all("PRIVATE" not in line for line in lines)
     with pytest.raises(approver.ReviewRequiredError):
         approver.sign_designation(raw, root, confirm_digest=None, expires_at=now + timedelta(days=1), now=now)

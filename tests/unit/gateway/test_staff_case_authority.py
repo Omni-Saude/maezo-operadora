@@ -11,7 +11,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from maezo.gateway.external_cases.models import Identity, Scope, digest, instant
 from maezo.gateway.human.auth_profile import Actor
 from maezo.gateway.human.read_profile import parse_model, wire
-from maezo.gateway.staff_cases.authority import InstalledStaffAuthority, actor_digest, fingerprint
+from maezo.gateway.staff_cases.authority import (
+    InstalledStaffAuthority,
+    actor_digest,
+    fingerprint,
+    source_matches,
+)
 from maezo.gateway.staff_cases.models import (
     FIELDS,
     MembershipWitness,
@@ -714,3 +719,16 @@ async def test_service_preserves_expired_session_authentication_error():
     service.resolver = Resolver()
     with pytest.raises(AuthenticationError):
         await service.read("s" * 43, case_ref=identity.case_ref)
+
+
+def test_membership_source_is_matched_by_separator_terminated_prefix() -> None:
+    """F9 do C1: a membership publicada pela T1.5 tem `source_ref = prefixo + principal_ref`."""
+    prefix = "portal-identity:amh:"
+    for principal in ("human-1", "human-2"):
+        assert source_matches("identity_verifier", prefix, prefix + principal)
+    assert not source_matches("identity_verifier", prefix, prefix)
+    assert not source_matches("identity_verifier", prefix, "portal-identity:amhx:human-1")
+    assert not source_matches("identity_verifier", "portal-identity:amh", "portal-identity:amhx")
+    assert source_matches("identity_verifier", "membership-source", "membership-source")
+    # Os outros papeis continuam em valor exato, mesmo com separador no fim.
+    assert not source_matches("case_issuer", prefix, prefix + "human-1")
