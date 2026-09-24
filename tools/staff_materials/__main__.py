@@ -1,4 +1,4 @@
-"""CLI da ENGENHARIA: `generate` e `verify`. Nao ha comando de raiz aqui (ver `approver.py`)."""
+"""CLI da ENGENHARIA: `generate`, `assemble` e `verify`. Nao ha comando de raiz aqui (ver `approver.py`)."""
 
 from __future__ import annotations
 
@@ -7,8 +7,12 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from .generate import generate
-from .secure_io import MaterialError
+from maezo.gateway.external_cases.models import digest
+from maezo.portal.engine.profile import canonicalize
+
+from .assemble import assemble, bundle_bytes, load_input, read_directories
+from .generate import REPO, generate
+from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, write_new
 from .spec import load_spec
 from .verify import load_pins, manifest_digest, verify_bundle
 
@@ -19,6 +23,14 @@ def build_parser() -> argparse.ArgumentParser:
     make = commands.add_parser("generate", help="gera chaves, CAs, certificados, DSNs e o rascunho")
     make.add_argument("--spec", type=Path, required=True)
     make.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
+    pack = commands.add_parser("assemble", help="monta o pacote portal-staff-material.v2 (sem tocar a raiz)")
+    pack.add_argument("--materials", type=Path, required=True, help="saida do generate")
+    pack.add_argument("--spec", type=Path, required=True, help="o mesmo spec do generate")
+    pack.add_argument(
+        "--approver", type=Path, required=True, help="installation-root.der + installation-proof.json"
+    )
+    pack.add_argument("--input", type=Path, required=True, help="staff-materials-assemble.v1")
+    pack.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     check = commands.add_parser("verify", help="confere um pacote com o loader do portal")
     check.add_argument("--bundle", type=Path)
     check.add_argument("--pins", type=Path, help="arquivo de pins escrito pelo aprovador")
@@ -40,6 +52,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"key_sha256[{role}]={value}")
             print(f"continuity_commitment={summary['continuity']['commitment']}")
             print("falta do aprovador: installation-root.der e installation-proof.json")
+            return 0
+        if args.command == "assemble":
+            portal, approver_files, summary = read_directories(args.materials, args.approver)
+            public, files = assemble(
+                portal,
+                approver_files,
+                summary,
+                load_spec(args.spec.read_bytes()),
+                load_input(args.input.read_bytes()),
+            )
+            out = new_private_directory(args.out, forbidden=(REPO,))
+            write_new(out / "bundle.json", bundle_bytes(public, files), PRIVATE)
+            write_new(out / "public-manifest.json", canonicalize(public), PUBLIC)
+            print(f"saida={out}")
+            print(f"public_manifest_sha256={digest(public)} (confira com o verify ANTES de pinar)")
             return 0
         if args.print_manifest_digest:
             if args.manifest is None:

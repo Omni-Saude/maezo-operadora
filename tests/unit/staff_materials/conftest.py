@@ -6,8 +6,6 @@ Nenhum destes fixtures roda `approver root-keygen` nem le chave de fora: a raiz 
 
 from __future__ import annotations
 
-import base64
-import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -17,12 +15,13 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from tools.staff_materials import approver
+from tools.staff_materials.assemble import assemble, load_input
+from tools.staff_materials.assemble import bundle_bytes as tool_bundle_bytes
 from tools.staff_materials.generate import Generated, generate
 from tools.staff_materials.spec import load_spec
 
 from maezo.gateway.external_cases.models import digest, instant
-from maezo.gateway.staff_cases.authority import fingerprint
-from maezo.gateway.staff_cases.production_config import PRIVATE_FILES, PortalProductionSettings
+from maezo.gateway.staff_cases.production_config import PortalProductionSettings
 from maezo.portal.engine.profile import canonicalize
 
 
@@ -99,69 +98,58 @@ class Assembled:
     manifest: dict[str, Any]
 
 
-def assemble_v2(generated: Generated, now: datetime, *, root: Ed25519PrivateKey | None = None) -> Assembled:
-    """Monta um pacote v2 NO TESTE, so para exercitar o loader.
-
-    O `assemble` da ferramenta e v2 e espera a T1.8/Python; este monta o que o loader de HOJE
-    aceita, a partir da saida real do `generate` e de uma assinatura real do aprovador.
-    """
-    root = Ed25519PrivateKey.generate() if root is None else root
-    portal = generated.directory / "portal"
-    files = {path.name: path.read_bytes() for path in portal.iterdir()}
-    designation_raw = files["designation.json"]
-    _, shown, _ = approver.review_designation(designation_raw)
-    files["installation-proof.json"] = approver.sign_designation(
-        designation_raw, root, confirm_digest=shown, expires_at=now + timedelta(days=12), now=now
-    )
-    files["installation-root.der"] = root.public_key().public_bytes(
-        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    summary = generated.summary
-    scope = summary["scope"]
-    spec = spec_value(now)
-    manifest: dict[str, Any] = dict(
-        schema="portal-staff-material.v2",
+def assemble_input(now: datetime) -> dict[str, Any]:
+    return dict(
+        schema="staff-materials-assemble.v1",
         material_version_id="11111111-2222-3333-4444-555555555555",
-        scope=scope,
         issuer="https://cognito-idp.sa-east-1.amazonaws.com/sa-east-1_test",
         issued_at=instant(now - timedelta(minutes=1)),
         valid_until=instant(now + timedelta(days=12)),
-        root_key_fingerprint=fingerprint(root.public_key()),
-        designation_digest=summary["designation_sha256"],
         native_configuration_digest="c" * 64,
         native_maximum_seconds="5",
-        read_key_fingerprint=summary["key_fingerprints"]["read_requester"],
-        witness_key_fingerprint=summary["key_fingerprints"]["identity_verifier"],
-        native_origin="https://" + summary["native_hostname"],
-        native_server_spki_sha256=summary["native_server_spki_sha256"],
         native_schema="maezo_native",
         engine_schema="cibseven",
-        session_lock_connection=dict(
-            spec["session_lock_connection"],
-            tls_server_name=spec["session_lock_connection"]["host"],
-            ca_file="session-lock-ca.pem",
-            function_pin=dict(oid="12", owner="portal_external_identity_reader", definition_sha256="e" * 64),
-        ),
-        native_witness_connection=dict(
-            spec["native_witness_connection"],
-            tls_server_name=spec["native_witness_connection"]["host"],
-            ca_file="native-witness-ca.pem",
-            function_pin=None,
+        session_lock_function_pin=dict(
+            oid="12", owner="portal_external_identity_reader", definition_sha256="e" * 64
         ),
         native_relation_pins={
             n: dict(oid=str(i), owner="maezo_native_schema_owner")
             for i, n in enumerate(("mzo_portal_read_membership", "mzo_human_principal"), start=20)
         },
-        revocation_snapshot=dict(
-            scope=scope,
-            designation_digest=summary["designation_sha256"],
+        revocation=dict(
             source_ref="revocations",
             revision="1",
             observed_at=instant(now - timedelta(minutes=1)),
             valid_until=instant(now + timedelta(days=1)),
             revoked_fingerprints=[],
         ),
-        files={n: None if n in PRIVATE_FILES else hashlib.sha256(v).hexdigest() for n, v in files.items()},
+    )
+
+
+def approver_files(generated: Generated, root: Ed25519PrivateKey, now: datetime) -> dict[str, bytes]:
+    """O que o APROVADOR entrega. A raiz de teste assina aqui; a ferramenta so recebe a publica."""
+    designation_raw = (generated.directory / "portal" / "designation.json").read_bytes()
+    _, shown, _ = approver.review_designation(designation_raw)
+    return {
+        "installation-proof.json": approver.sign_designation(
+            designation_raw, root, confirm_digest=shown, expires_at=now + timedelta(days=12), now=now
+        ),
+        "installation-root.der": root.public_key().public_bytes(
+            serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+        ),
+    }
+
+
+def assemble_v2(generated: Generated, now: datetime, *, root: Ed25519PrivateKey | None = None) -> Assembled:
+    """Monta o pacote v2 com o `assemble` REAL da ferramenta (`tools.staff_materials.assemble`)."""
+    root = Ed25519PrivateKey.generate() if root is None else root
+    portal = {path.name: path.read_bytes() for path in (generated.directory / "portal").iterdir()}
+    manifest, files = assemble(
+        portal,
+        approver_files(generated, root, now),
+        generated.summary,
+        load_spec(spec_bytes(spec_value(now))),
+        load_input(canonicalize(assemble_input(now))),
     )
     return Assembled(generated, root, files, manifest)
 
@@ -190,14 +178,7 @@ def pins_for(assembled: Assembled) -> dict[str, Any]:
 
 
 def bundle_bytes(assembled: Assembled) -> bytes:
-    return canonicalize(
-        dict(
-            schema="portal-staff-secret-bundle.v1",
-            material_version_id=assembled.manifest["material_version_id"],
-            public_manifest=assembled.manifest,
-            files={n: base64.b64encode(v).decode() for n, v in assembled.files.items()},
-        )
-    )
+    return tool_bundle_bytes(assembled.manifest, assembled.files)
 
 
 def settings(pins: dict[str, Any]) -> PortalProductionSettings:

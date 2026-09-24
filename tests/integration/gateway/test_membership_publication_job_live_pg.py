@@ -132,6 +132,7 @@ class CasPublisher:
     ):
         self.membership, self.catalog, self.revision = membership, catalog, 0
         self.published: list[tuple[str, str]] = []
+        self.principals: list[dict] = []
 
     def _receipt(self, kind: str, expected: int, payload_digest: str) -> PublicationReceipt:
         if expected != self.revision:
@@ -161,6 +162,23 @@ class CasPublisher:
         assert snapshot.source.source_digest == digest(snapshot.payload)
         self.published.append(("membership", subject))
         return self._receipt("membership", expected_revision, digest(snapshot.payload))
+
+    async def publish_principal(self, raw: bytes) -> dict:
+        import hashlib
+        import json
+
+        command = json.loads(raw)
+        if int(command["expected_revision"]) != self.revision:
+            raise ReadRefusalError("read_dependency_unavailable")
+        self.revision += 1
+        self.published.append(("principal", command["subject"]))
+        self.principals.append(command)
+        return {
+            "schema": "human-authority-receipt.v1",
+            "tenant": command["tenant"],
+            "revision": str(self.revision),
+            "digest": hashlib.sha256(raw).hexdigest(),
+        }
 
 
 def compose(engine: AsyncEngine, ledger: Path, tenant: str = "amh"):
@@ -229,10 +247,12 @@ async def test_job_publishes_catalog_once_and_each_revision_once(
             handshake=handshake,
             store=store,
             engine=engine,
+            workload_ref=PUBLISHER,
         )
 
     first = await job().run()
-    assert (first.catalog_published, first.memberships_published, first.authority_revision) == (True, 2, 3)
+    assert (first.catalog_published, first.memberships_published, first.authority_revision) == (True, 2, 5)
+    assert first.principals_published == 2
     assert ("membership", "subject-x") not in publisher.published  # other tenant never read
     second = await job().run()
     assert (second.catalog_published, second.memberships_published, second.memberships_unchanged) == (
@@ -240,11 +260,12 @@ async def test_job_publishes_catalog_once_and_each_revision_once(
         0,
         2,
     )
-    assert publisher.revision == 3  # CAS untouched on the second run
+    assert publisher.revision == 5  # CAS untouched on the second run
     await upsert(engine, record("b", revision=2, revoked=True))
     third = await job().run()
-    assert (third.memberships_published, third.authority_revision) == (1, 4)
-    assert publisher.published[-1] == ("membership", "subject-b")
+    assert (third.memberships_published, third.authority_revision) == (1, 7)
+    assert publisher.published[-2:] == [("principal", "subject-b"), ("membership", "subject-b")]
+    assert publisher.principals[-1]["active"] is False
 
 
 async def test_row_changed_after_freeze_is_refused_live(pg: tuple[AsyncEngine, str], tmp_path: Path) -> None:
