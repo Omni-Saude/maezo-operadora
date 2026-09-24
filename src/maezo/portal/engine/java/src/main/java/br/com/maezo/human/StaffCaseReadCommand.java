@@ -113,6 +113,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     var fields=installed.grant(publication,principal,identity,policies);
     var event=new StaffCaseEventStore(store.auth).read(caseRef);
     if(!identity.get("process_instance_ref").equals(event.get("process_instance_id")))throw unavailable();
+    var escalation=escalation(store,identityState,fields);
     var tasks=new ArrayList<Object>();var created=new ArrayList<Object>();
     var required=new HashSet<>(StaffCaseModels.FIELDS.get("staff_current_task.v1"));required.remove("created_at");
     boolean taskFields=required.equals(fields.get("staff_current_task.v1"));
@@ -141,7 +142,7 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
     if("ended".equals(obj(identityState,"native").get("state"))&&!tasks.isEmpty())throw unavailable();
     q2.current();installed.current();
     return record("operation","detail","identity",identityState,"membership",member,"publication",publication,"policies",policies,
-      "event",event,"tasks",tasks,"created",created,"q2",q2.semantic());
+      "event",event,"tasks",tasks,"created",created,"escalation",escalation,"q2",q2.semantic());
   }
   static Map<String,Object> collectList(StaffCaseStore store,StaffCaseInstallation installed,Q2Intersection q2,Map<String,Object> request){
     var query=StaffCaseModels.shape("list",request.get("query"));var principal=obj(request,"principal");var witness=obj(request,"membership_witness");
@@ -166,10 +167,13 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       var row=store.exactGrant(caseRef,principal);if(row==null||!entry.get("grant_ref").equals(row.get("grant_ref")))throw unavailable();
       var publication=store.publication(str(row,"publication_id"));if(publication==null)throw unavailable();var grant=obj(publication,"payload");var policies=store.policyPins(grant);
       store.requireRecordedPolicies(row,policies);var identityState=new NativeCaseIdentityReader(store.auth,store.engineSchema).read(caseRef);var identity=obj(identityState,"identity");
-      installed.grant(publication,principal,identity,policies,"list");var event=new StaffCaseEventStore(store.auth).read(caseRef);
+      var fields=installed.grant(publication,principal,identity,policies,"list");var event=new StaffCaseEventStore(store.auth).read(caseRef);
       if(!identity.get("process_instance_ref").equals(event.get("process_instance_id")))throw unavailable();
-      if(items.size()<limit){items.add(record("case_ref",caseRef,"kind","authorization","state",obj(identityState,"native").get("state"),
-          "record_revision",event.get("revision"),"state_observed_at",event.get("observed_at")));last=caseRef;
+      if(items.size()<limit){var item=record("case_ref",caseRef,"kind","authorization","state",obj(identityState,"native").get("state"),
+          "record_revision",event.get("revision"),"state_observed_at",event.get("observed_at"));
+        var escalation=escalation(store,identityState,fields);
+        if(escalation!=null)item.put("escalation",StaffEscalation.forOperation(escalation,"list"));
+        items.add(item);last=caseRef;
         pins.add(pin("identity",caseRef,identity.get("process_definition_version"),hash(identity),installed.until()));
         pins.add(pin("case_grant",str(grant,"grant_ref"),grant.get("grant_revision"),hash(grant),installed.until()));
         pins.add(pin("native_case",caseRef,event.get("revision"),hash(event),installed.until()));
@@ -188,6 +192,11 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
         "checkpoint_digest",hash(checkpoint),"case_ref",null,"native_revision",null,"after_ref",last,"limit",query.get("limit"));}
     q2.current();installed.current();return record("operation","list","membership",member,"checkpoint",checkpoint,"accepted",acceptedCheckpoint(accepted),
       "items",items,"cursor_template",cursor,"pins",pins,"q2",q2.semantic());
+  }
+  /** D-M: null when the grant does not authorize staff_escalation.v1 (the key is then omitted). */
+  static Map<String,Object> escalation(StaffCaseStore store,Map<String,Object> identityState,Map<String,Set<String>> fields){
+    if(!StaffEscalation.authorized(fields))return null;
+    return StaffEscalation.read(store.auth,store.engineSchema,str(identityState,"guide_number"));
   }
   static Map<String,Object> acceptedCheckpoint(Map<String,Object> row){
     // A JDBC row is not number-free wire. Preserve its exact closed acceptance
@@ -244,10 +253,13 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       "items",state.get("items"),"next_cursor",null,"freshness",record("observed_at",time(observed),
       "source_observed_at",checkpoint.get("observed_at"),"valid_until",time(until),"refresh_after_seconds","10"));}
     var identityState=obj(state,"identity");var identity=obj(identityState,"identity");var event=obj(state,"event");
-    return record("schema","portal-staff-case-detail.v1","case",record("case_ref",identity.get("case_ref"),"kind","authorization",
+    var detail=record("schema","portal-staff-case-detail.v1","case",record("case_ref",identity.get("case_ref"),"kind","authorization",
       "state",obj(identityState,"native").get("state"),"record_revision",event.get("revision"),"state_observed_at",event.get("observed_at")),
       "identity",identity,"active_tasks",state.get("tasks"),"next_task_cursor",null,"tasks_complete",true,
       "freshness",record("observed_at",time(observed),"source_observed_at",event.get("observed_at"),"valid_until",time(until),"refresh_after_seconds","10"));
+    // Contract (#514, StaffSummary.escalation): inside `case`, like each list item; omitted, never null, when not granted.
+    if(state.get("escalation")!=null)obj(detail,"case").put("escalation",StaffEscalation.forOperation(obj(state,"escalation"),"detail"));
+    return detail;
   }
   static List<Object> readPins(StaffCaseStore store,StaffCaseInstallation installed,Map<String,Object> request,Map<String,Object> state,Instant until){
     if("list".equals(state.get("operation")))return new ArrayList<>(list(state.get("pins")));

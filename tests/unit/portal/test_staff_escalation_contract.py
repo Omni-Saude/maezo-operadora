@@ -120,6 +120,13 @@ def test_unresolved_refuses_invented_values(field: str) -> None:
         StaffEscalation.model_validate(UNRESOLVED | {field: esc()[field]})
 
 
+def test_list_accepts_the_fully_masked_short_guide() -> None:
+    # Guia de ate 4 caracteres: o engine emite `***` puro (StaffEscalation.mask); nao pode derrubar a pagina.
+    short = StaffPage.model_validate_json(json.dumps(page(summary(esc(guide_number="***")))))
+    escalation = short.items[0].escalation
+    assert escalation is not None and escalation.guide_number == "***" and escalation.masked() is True
+
+
 def test_list_accepts_only_the_masked_guide() -> None:
     masked = StaffPage.model_validate_json(json.dumps(page(summary(esc(guide_number="***9012")))))
     escalation = masked.items[0].escalation

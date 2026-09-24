@@ -22,7 +22,8 @@ class StaffFreshness(ObservationTimes):
 
 #: D-M.2: guia TISS inteira so no `detail`; o `list` recebe `***` + os 4 ultimos.
 GUIDE_FULL = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$"  # = AuthModels.GUIDE_NUMBER (Java)
-GUIDE_MASKED = r"^\*\*\*[A-Za-z0-9._-]{4}$"
+#: Guia de 4 caracteres ou menos sai so `***` (`StaffEscalation.mask`, Java): nada dela vaza no `list`.
+GUIDE_MASKED = r"^\*\*\*(?:[A-Za-z0-9._-]{4})?$"
 #: Codigo de enum (rotulo fica na web). Texto livre (`motivo`/`motivo_fallback`) nao cabe aqui.
 CODE = r"^[a-z0-9][a-z0-9_]{0,63}$"
 PRIORITY = r"^P[0-9]{1,2}$"  # saida da DMN escalation_routing (P1, P2, P3...)
