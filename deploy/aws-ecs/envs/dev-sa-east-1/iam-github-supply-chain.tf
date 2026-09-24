@@ -118,7 +118,9 @@ data "aws_iam_policy_document" "github_supply_chain" {
       # `sha256-*.sig`/`.att` publicadas. Leitura de metadado, nao de conteudo.
       "ecr:DescribeImages",
     ]
-    resources = [aws_ecr_repository.app.arn]
+    # Engine (`amh/cibseven-maezo`) incluido para a imagem human (Onda 2): o workflow
+    # aceita os DOIS repositorios por allowlist fechada (`inputs.repository`).
+    resources = [aws_ecr_repository.app.arn, aws_ecr_repository.engine.arn]
   }
 
   # Escrita EXCLUSIVA dos artefatos de assinatura: o cosign publica `.sig` e `.att`
@@ -135,7 +137,9 @@ data "aws_iam_policy_document" "github_supply_chain" {
       "ecr:CompleteLayerUpload",
       "ecr:PutImage",
     ]
-    resources = [aws_ecr_repository.app.arn]
+    # Engine (`amh/cibseven-maezo`) incluido para a imagem human (Onda 2): o workflow
+    # aceita os DOIS repositorios por allowlist fechada (`inputs.repository`).
+    resources = [aws_ecr_repository.app.arn, aws_ecr_repository.engine.arn]
   }
 
   # A chave de assinatura. `kms:Sign` aqui e' metade da historia: a outra metade
@@ -225,7 +229,9 @@ data "aws_iam_policy_document" "github_verify" {
       "ecr:GetDownloadUrlForLayer",
       "ecr:DescribeImages",
     ]
-    resources = [aws_ecr_repository.app.arn]
+    # Engine (`amh/cibseven-maezo`) incluido para a imagem human (Onda 2): o workflow
+    # aceita os DOIS repositorios por allowlist fechada (`inputs.repository`).
+    resources = [aws_ecr_repository.app.arn, aws_ecr_repository.engine.arn]
   }
 
   statement {

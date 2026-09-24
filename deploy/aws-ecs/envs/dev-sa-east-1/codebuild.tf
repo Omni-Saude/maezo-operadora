@@ -154,6 +154,18 @@ resource "aws_codebuild_project" "imagem" {
       name  = "DOCKERFILE"
       value = "deploy/Dockerfile"
     }
+
+    # Build-args por ALLOWLIST FECHADA: tokens `NOME=valor` separados por espaco,
+    # cada um conferido LITERALMENTE contra a lista do buildspec. Nada do valor chega
+    # ao shell sem ter casado um literal — string livre aqui seria injecao de flag
+    # no `docker build`. Vazio (default) = build de hoje, sem --build-arg.
+    # Ex. imagem human: DOCKERFILE=deploy/cibseven/Dockerfile.human
+    #   REPOSITORIO=amh/cibseven-maezo
+    #   BUILD_ARGS="INSTALL_STAFF_COMPOSITION=true INSTALL_PORTAL_READ=true"
+    environment_variable {
+      name  = "BUILD_ARGS"
+      value = ""
+    }
   }
 
   source {
@@ -166,6 +178,7 @@ resource "aws_codebuild_project" "imagem" {
       version: 0.2
 
       env:
+        shell: bash
         variables:
           DOCKER_BUILDKIT: "1"
 
@@ -175,6 +188,28 @@ resource "aws_codebuild_project" "imagem" {
             # A tag vem de fora (TAG_IMAGEM). Sem default de proposito: um build sem
             # tag explicita produziria uma imagem que ninguem sabe identificar depois.
             - test -n "$TAG_IMAGEM" || { echo "TAG_IMAGEM nao informada"; exit 1; }
+            # Allowlists fechadas. DOCKERFILE/REPOSITORIO/BUILD_ARGS sao sobrescritiveis
+            # no start-build; o que nao casar um literal abaixo aborta o build.
+            - |
+              case "$DOCKERFILE" in
+                deploy/Dockerfile|deploy/cibseven/Dockerfile|deploy/cibseven/Dockerfile.human) ;;
+                *) echo "DOCKERFILE fora da allowlist: $DOCKERFILE"; exit 1 ;;
+              esac
+              case "$REPOSITORIO" in
+                ${aws_ecr_repository.app.name}|${aws_ecr_repository.engine.name}) ;;
+                *) echo "REPOSITORIO fora da allowlist: $REPOSITORIO"; exit 1 ;;
+              esac
+              ARGS_DOCKER=()
+              for token in $BUILD_ARGS; do
+                case "$token" in
+                  INSTALL_STAFF_COMPOSITION=true|INSTALL_STAFF_COMPOSITION=false|INSTALL_PORTAL_READ=true|INSTALL_PORTAL_READ=false)
+                    ARGS_DOCKER+=(--build-arg "$token") ;;
+                  *) echo "BUILD_ARGS fora da allowlist: $token"; exit 1 ;;
+                esac
+              done
+              : > /tmp/build-args.txt
+              if [ "$${#ARGS_DOCKER[@]}" -gt 0 ]; then printf '%s\n' "$${ARGS_DOCKER[@]}" > /tmp/build-args.txt; fi
+              echo "build-args: $${ARGS_DOCKER[*]:-(nenhum)}"
             - echo "construindo $REPOSITORIO:$TAG_IMAGEM a partir de $DOCKERFILE"
             - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REGISTRO
         build:
@@ -182,7 +217,8 @@ resource "aws_codebuild_project" "imagem" {
             # `--provenance=false`: o buildx com provenance gera uma entrada
             # "unknown/unknown" no manifest list que confunde o Fargate ao resolver a
             # plataforma. A imagem que roda hoje foi construida sem provenance.
-            - docker build --provenance=false -f "$DOCKERFILE" -t "$REGISTRO/$REPOSITORIO:$TAG_IMAGEM" .
+            # Os argumentos vem do arquivo gerado no pre_build (so' literais validados).
+            - mapfile -t ARGS_DOCKER < /tmp/build-args.txt; docker build --provenance=false "$${ARGS_DOCKER[@]}" -f "$DOCKERFILE" -t "$REGISTRO/$REPOSITORIO:$TAG_IMAGEM" .
         post_build:
           commands:
             - docker push "$REGISTRO/$REPOSITORIO:$TAG_IMAGEM"

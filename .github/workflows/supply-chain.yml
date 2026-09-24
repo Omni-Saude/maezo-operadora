@@ -49,6 +49,18 @@ on:
         type: string
         required: false
         default: ""
+      # ALLOWLIST FECHADA (choice + conferencia literal no job): so' os dois
+      # repositorios do maezo. O engine (`amh/cibseven-maezo`) entrou para a imagem
+      # human da Onda 2 (Dockerfile.human); nele `image` e' OBRIGATORIO — o default
+      # do tfvars e' o digest do PORTAL, que mora no repositorio da aplicacao.
+      repository:
+        description: "Repositorio ECR do alvo."
+        type: choice
+        options:
+          - amh/maezo-operadora
+          - amh/cibseven-maezo
+        required: false
+        default: amh/maezo-operadora
   push:
     branches:
       - main
@@ -68,7 +80,9 @@ permissions:
 
 env:
   AWS_REGION: "sa-east-1"
-  ECR_REPOSITORY: "amh/maezo-operadora"
+  # Default = aplicacao (comportamento de sempre em push/PR). So' o dispatch troca,
+  # e o job `assinar` confere o valor contra a allowlist antes de qualquer uso.
+  ECR_REPOSITORY: ${{ github.event.inputs.repository || 'amh/maezo-operadora' }}
   PORTAL_TFVARS: "deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars"
   # Roles auditaveis no proprio arquivo (nao sao segredo: sao ARNs de roles cuja
   # confianca esta restrita a este repositorio). `vars.*` sobrescreve se o
@@ -94,7 +108,7 @@ env:
   REFERRERS_MODE: "legacy"
 
 concurrency:
-  group: supply-chain-${{ github.event.inputs.image || github.ref }}
+  group: supply-chain-${{ github.event.inputs.repository || 'app' }}-${{ github.event.inputs.image || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -112,6 +126,21 @@ jobs:
       skip: ${{ steps.target.outputs.skip }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Antes de credencial: repositorio fora da allowlist nao chega a assumir role.
+      - name: Repositorio alvo (allowlist)
+        env:
+          REQUESTED: ${{ github.event.inputs.image }}
+        run: |
+          set -euo pipefail
+          case "${ECR_REPOSITORY}" in
+            amh/maezo-operadora) ;;
+            amh/cibseven-maezo)
+              [ -n "${REQUESTED}" ] || {
+                echo "::error title=image obrigatorio::no engine o default (digest do portal) nao se aplica; informe digest ou tag."; exit 1; } ;;
+            *) echo "::error title=Repositorio fora da allowlist::${ECR_REPOSITORY}"; exit 1 ;;
+          esac
+          echo "Repositorio alvo: ${ECR_REPOSITORY}"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
@@ -264,6 +293,10 @@ jobs:
     needs: [assinar]
     if: ${{ !cancelled() && (needs.assinar.result == 'success' || needs.assinar.result == 'skipped') }}
     timeout-minutes: 20
+    # O portao do PORTAL e' sempre sobre o repositorio da aplicacao, qualquer que
+    # seja o alvo do dispatch.
+    env:
+      ECR_REPOSITORY: "amh/maezo-operadora"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
