@@ -244,9 +244,13 @@ public final class StaffCaseReadCommand implements Command<StaffCaseReadCommand.
       "items",state.get("items"),"next_cursor",null,"freshness",record("observed_at",time(observed),
       "source_observed_at",checkpoint.get("observed_at"),"valid_until",time(until),"refresh_after_seconds","10"));}
     var identityState=obj(state,"identity");var identity=obj(identityState,"identity");var event=obj(state,"event");
+    // Contract (WP-J1-07, StaffDetailShape.outcome): the key is mandatory on the wire and present exactly when
+    // `ended`. The staff read has no closed outcome projection yet, so an ended case refuses instead of lying.
+    var caseState=obj(identityState,"native").get("state");
+    if(!"active".equals(caseState))throw unavailable();
     return record("schema","portal-staff-case-detail.v1","case",record("case_ref",identity.get("case_ref"),"kind","authorization",
-      "state",obj(identityState,"native").get("state"),"record_revision",event.get("revision"),"state_observed_at",event.get("observed_at")),
-      "identity",identity,"active_tasks",state.get("tasks"),"next_task_cursor",null,"tasks_complete",true,
+      "state",caseState,"record_revision",event.get("revision"),"state_observed_at",event.get("observed_at")),
+      "identity",identity,"active_tasks",state.get("tasks"),"next_task_cursor",null,"tasks_complete",true,"outcome",null,
       "freshness",record("observed_at",time(observed),"source_observed_at",event.get("observed_at"),"valid_until",time(until),"refresh_after_seconds","10"));
   }
   static List<Object> readPins(StaffCaseStore store,StaffCaseInstallation installed,Map<String,Object> request,Map<String,Object> state,Instant until){
