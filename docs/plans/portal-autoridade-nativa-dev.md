@@ -381,6 +381,34 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
        (a revogação faz UPDATE em `PortalReadPublication.java:171`). O UPDATE é por coluna, só nas
        colunas de revogação, com teste negativo de UPDATE em outra coluna.
 
+- **D-K [23/09, bloqueios do C1: `/cases` 200 com `items: []` e `claim_absent`].**
+  1. **A chave canônica é `AUTH-{tenant}-{numero_guia_tiss}`** (decisão do dono #16, compositor
+     `tools/process_business_keys.py`). O `AUTHI-{guide_identity_ref}` de
+     `HumanAuthStartCommand.java:48` sai.
+     - **Ponte:** a entrada `guide` publicada ganha `numero_guia_tiss` no DTO assinado (publicador
+       WP-J1-02), e o engine compõe a chave no start com o mesmo algoritmo do compositor.
+     - **O emissor (D-H.1) não muda.** A âncora continua não forjável: o número vem de entrada
+       assinada, e o grant revalida a reivindicação (`identity_digest`).
+     - **Rejeitado:** lookup no emissor, porque criaria uma fonte nova de mapeamento guia→ref
+       fora da assinatura.
+     - **Tarefa:** T1.11 nova (Java: modelo `guide` + start; Python: DTO/publicador + teste de
+       paridade com o compositor). É pré-requisito do C1.
+  2. **Entradas do start:**
+     - **No C1:** um publicador de fixture **sintética** em `deploy/c1-local/`, nunca na imagem.
+       Limites:
+       - tenant e guia com prefixo `SYN-`;
+       - assina com uma chave de teste gerada no próprio harness, que não entra em pacote nem pin;
+       - recusa rodar fora do Postgres local do harness (checa host e marcador de schema);
+       - não entra dado clínico, só campos estruturais mínimos.
+       Tarefa: C1.
+     - **No dev real (Ondas 6-7):** as entradas vêm só do intake real de autorização, pelo
+       publicador WP-J1-02. A chave de intake é registrada no runbook da Onda 5.
+     - **NÃO VERIFICADO:** se esse intake roda em dev hoje. Se não rodar, bloqueia a Onda 7 e fica
+       para o dono.
+  3. **N9:** o escopo de produto não muda. O critério do teste conjunto ganha uma pré-condição:
+     pelo menos uma guia AUTH real, com escalação de SLA, publicada pelo WP-J1-02 no dev, e nenhum
+     item `SYN-` visível.
+
 ---
 
 ## 3. Ondas executáveis
