@@ -6,6 +6,7 @@ A raiz e gerada no teste (`Ed25519PrivateKey.generate()` ou `root_keygen` num tm
 from __future__ import annotations
 
 import base64
+import json
 import stat
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -27,6 +28,21 @@ from maezo.portal.engine.profile import canonicalize
 
 def _designation(generated: Generated) -> bytes:
     return (generated.directory / "portal/designation.json").read_bytes()
+
+
+@pytest.mark.parametrize("role", ["case_issuer", "read_requester"])
+def test_designation_without_the_escalation_projection_is_refused(generated: Generated, role: str) -> None:
+    value = json.loads(_designation(generated))
+    for entry in value["entries"]:
+        if entry["role"] == role:
+            entry["projections"] = [p for p in entry["projections"] if p != "staff_escalation.v1"]
+    with pytest.raises(MaterialError, match="staff_escalation.v1"):
+        approver.review_designation(canonicalize(value))
+
+
+def test_review_shows_the_escalation_projection(generated: Generated) -> None:
+    _, _, lines = approver.review_designation(_designation(generated))
+    assert sum("staff_escalation.v1" in line for line in lines) == 2
 
 
 def test_signing_requires_the_digest_of_what_was_shown(generated: Generated, now: datetime) -> None:

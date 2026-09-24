@@ -134,9 +134,15 @@ def test_capabilities_follow_the_loader_and_the_onda7_restriction(generated: Gen
     read = entries["read_requester"]
     # `materials.py`: operations == ("detail", "list") e as tres projecoes (D-H.4).
     assert read.operations == ("detail", "list")
-    assert set(read.projections) == {"staff_summary.v1", "staff_identity.v1", "staff_current_task.v1"}
+    assert set(read.projections) == {
+        "staff_summary.v1",
+        "staff_identity.v1",
+        "staff_current_task.v1",
+        "staff_escalation.v1",
+    }
     issuer = entries["case_issuer"]
     assert "staff_current_task.v1" not in issuer.projections
+    assert "staff_escalation.v1" in issuer.projections  # D-M.2
     assert set(issuer.purposes) == {"staff_case_grant", "staff_policy_head", "scope_complete"}
     assert issuer.operations == ("detail", "list")
     assert entries["identity_verifier"].login_role == "portal_native_witness"
