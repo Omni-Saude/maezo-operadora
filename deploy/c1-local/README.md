@@ -172,3 +172,13 @@ Medido (`run.sh all` do zero, 24/09/2026):
 `atendimento-humano`; 200 `items: []` para o outro grupo). Em 1 de 4 execuções completas o `/cases` do grupo deu
 503 `dependency_unavailable` sem erro no engine (NÃO investigado; lado BFF). **D10:** o tenant da fixture continua
 `amh` (instalação e schema do harness); o prefixo `SYN-` vai na guia e em todas as referências.
+
+## Resultado medido (24/09/2026, D-M: main com #514, #515, #516 e #511, `run.sh all` depois de `down`)
+
+18/18 PASS. O passo novo `portal-dm` confere a `staff_escalation.v1` (D-M) nos dois lados:
+
+- **Fila:** `guide_number` `***UIA1`, `reason_code` `solicitacao_humano`, `priority` `P3`, `ack_due_at` antes de `resolution_due_at`, `escalation_state` `resolved`.
+- **Detalhe:** `/cases/{ref}` 200 com a guia inteira `SYN-C1GUIA1`.
+- **Outro grupo:** segue `items: []`.
+
+Antes do #516, o detalhe dava 503 `dependency_unavailable`: o engine não emitia a chave `outcome` que o `StaffDetailShape` exige desde o #392. O C1 não pegava porque só chamava a fila.

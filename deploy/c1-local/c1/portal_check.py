@@ -91,6 +91,8 @@ class HarnessAuthenticator:
 
 
 _ORIGINS: list[str] = []
+_BODIES: dict[str, str] = {}
+_DETAILS: dict[str, tuple[int, str]] = {}
 
 
 def _trace_refusals() -> None:
@@ -165,6 +167,13 @@ async def _cases(client: httpx.AsyncClient, principal: str) -> tuple[int, str]:
     if callback.status_code != 303:
         return callback.status_code, "callback " + callback.text[:120]
     response = await client.get("/api/v1/portal/cases")
+    _BODIES[principal] = response.text
+    if response.status_code == 200:
+        # D-M: o detalhe (auditado) de cada caso visivel, na mesma sessao.
+        for ref in re.findall(r'"case_ref":"([^"]+)"', response.text):
+            _ORIGINS.clear()
+            detail = await client.get(f"/api/v1/portal/cases/{ref}")
+            _DETAILS[ref] = (detail.status_code, detail.text + (" | origem: " + " || ".join(_ORIGINS[:4]) if detail.status_code >= 500 else ""))
     text = response.text[:200]
     if response.status_code >= 500 and _ORIGINS:
         text += " | origem: " + " || ".join(_ORIGINS[:3])
@@ -204,6 +213,31 @@ async def run() -> None:
     seen = cases(inside[1])
     ok = inside[0] == 200 and len(seen) >= 1 and (outside[0] != 200 or not set(seen) & set(cases(outside[1])))         and (outside[0] != 200 or cases(outside[1]) == [])
     step("portal", ok, f"{lifespan}; /cases no grupo -> {inside[0]} {inside[1]!r}; outro grupo -> {outside[0]} {outside[1]!r}")
+    _check_dm()
+
+
+def _check_dm() -> None:
+    """D-M: `staff_escalation.v1` na fila (guia mascarada) e no detalhe (guia inteira)."""
+    from .auth_fixture import GUIDE_NUMBER
+
+    try:
+        items = json.loads(_BODIES["staff-c1-no-grupo"])["items"]
+        listed = items[0]["escalation"]
+        ref = items[0]["case_ref"]
+        status, raw = _DETAILS[ref]
+        detailed = json.loads(raw)["case"]["escalation"] if status == 200 else None
+    except (KeyError, IndexError, TypeError, ValueError) as failure:
+        step("portal-dm", False, f"escalation ausente ({type(failure).__name__}: {failure})")
+        return
+    problems = []
+    if listed.get("guide_number") != "***" + GUIDE_NUMBER[-4:]:
+        problems.append(f"list guide={listed.get('guide_number')!r}")
+    if detailed is None or detailed.get("guide_number") != GUIDE_NUMBER:
+        problems.append(f"detail {status} guide={None if detailed is None else detailed.get('guide_number')!r}")
+    for name, esc in (("list", listed), ("detail", detailed or {})):
+        if esc.get("escalation_state") != "resolved" or esc.get("reason_code") != "solicitacao_humano"                 or not re.fullmatch(r"P[1-9]", esc.get("priority") or "") or not esc.get("ack_due_at")                 or not esc.get("resolution_due_at") or esc["ack_due_at"] > esc["resolution_due_at"]:
+            problems.append(f"{name} {esc!r}")
+    step("portal-dm", not problems, "; ".join(problems) or f"list={listed!r}; detail={detailed!r}")
 
 
 def main() -> None:
