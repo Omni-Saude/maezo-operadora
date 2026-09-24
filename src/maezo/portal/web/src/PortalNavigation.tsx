@@ -17,7 +17,7 @@ const staffAreas: readonly Readonly<{ id: StaffArea; label: string; hint: string
   { id: "overview", label: "Visão geral", hint: "Resumo do trabalho e prazos" },
   { id: "my-work", label: "Meu trabalho", hint: "Tarefas sob sua responsabilidade" },
   { id: "team-queues", label: "Filas da equipe", hint: "Tarefas elegíveis do seu grupo" },
-  { id: "cases", label: "Casos", hint: "Dossiê e histórico autorizados" },
+  { id: "cases", label: "Casos", hint: "Fila do seu grupo e detalhe" },
   { id: "documents", label: "Documentos", hint: "Pedidos, verificação e acesso" },
   { id: "operations", label: "Operações", hint: "Comandos, recibos e dependências" },
   { id: "administration", label: "Administração", hint: "Vínculos e permissões governados" },

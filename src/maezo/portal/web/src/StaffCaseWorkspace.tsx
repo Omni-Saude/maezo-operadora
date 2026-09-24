@@ -19,13 +19,21 @@ type DetailState =
   | Readonly<{ kind: "error"; caseRef: string; failure: StaffCaseFailure }>;
 
 const errorMessage: Readonly<Record<StaffCaseFailure, string>> = {
-  invalid_request: "Confira os dados desta consulta.",
+  invalid_request: "Confira a referência: ela tem de 16 a 128 letras, números, _ ou -.",
   authentication_unavailable: "Sua sessão não está mais disponível.",
-  operation_forbidden: "Sua sessão atual não autoriza esta consulta.",
-  resource_unavailable: "O caso não foi encontrado ou não está autorizado para esta sessão.",
+  operation_forbidden: "Sua sessão não tem permissão para ver os casos do seu grupo. Peça o vínculo ao administrador do portal.",
+  resource_unavailable: "O caso não foi encontrado ou não está liberado para o seu grupo.",
   conflict: "Os casos mudaram durante a consulta. Atualize a lista.",
-  dependency_unavailable: "A fonte autorizada de casos está temporariamente indisponível.",
-  "invalid-response": "O portal recusou uma resposta inesperada do serviço de casos.",
+  dependency_unavailable: "O serviço de casos está indisponível: fora do ar ou não habilitado neste ambiente. Nenhum caso foi exibido.",
+  "invalid-response": "O portal recusou uma resposta inesperada do serviço de casos. Nenhum caso foi exibido.",
+};
+
+const outcomeLabel: Readonly<Record<NonNullable<StaffDetail["outcome"]>["desfecho"], string>> = {
+  aprovada_automatica: "Aprovada automaticamente",
+  aprovada_auditor: "Aprovada pelo auditor",
+  negada_auditor: "Negada pelo auditor",
+  nao_requer_autorizacao: "Não requer autorização",
+  cancelada_pendencia: "Cancelada por pendência",
 };
 
 function formatTimestamp(value: string) {
@@ -35,56 +43,114 @@ function formatTimestamp(value: string) {
   }).format(new Date(value));
 }
 
+function StatePill({ state }: { state: "active" | "ended" }) {
+  return (
+    <span className={`case-state case-state-${state}`}>
+      {state === "active" ? "Em andamento" : "Encerrado"}
+    </span>
+  );
+}
+
+// The contract hands every read a closed validity window. This strip is that
+// window: it drains until valid_until, when the screen retires the data.
+function ValidityWindow({ observedAt, validUntil, label }: {
+  observedAt: string;
+  validUntil: string;
+  label: string;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const start = Date.parse(observedAt);
+  const end = Date.parse(validUntil);
+  const total = Math.max(1, end - start);
+  const remaining = Math.min(total, Math.max(0, end - now));
+  const seconds = Math.ceil(remaining / 1000);
+  return (
+    <div className="validity-window">
+      <p>
+        {label} em {formatTimestamp(observedAt)}.{" "}
+        <span>Válida por mais {seconds} s; depois o portal consulta de novo.</span>
+      </p>
+      <span className="validity-track" aria-hidden="true">
+        <span className="validity-fill" style={{ transform: `scaleX(${remaining / total})` }} />
+      </span>
+    </div>
+  );
+}
+
+function dueLabel(dueAt: string | null, observedAt: string) {
+  if (dueAt === null) return { text: "Sem prazo informado", late: false };
+  const late = Date.parse(dueAt) < Date.parse(observedAt);
+  return { text: formatTimestamp(dueAt), late };
+}
+
 function StaffCaseDetail({ detail }: { detail: StaffDetail }) {
   return (
     <section className="staff-case-detail" aria-labelledby="staff-case-detail-heading">
-      <div className="section-heading">
+      <div className="case-detail-heading">
         <div>
-          <p className="eyebrow">Projeção autorizada do caso</p>
           <h3 id="staff-case-detail-heading" tabIndex={-1}>Caso de autorização</h3>
+          <p className="exact-value case-detail-ref">{detail.case.case_ref}</p>
         </div>
-        <p className="freshness">Consultado em {formatTimestamp(detail.freshness.observed_at)}</p>
+        <StatePill state={detail.case.state} />
       </div>
-      <p>
-        Esta consulta mostra a identidade do processo e as tarefas ativas autorizadas. Dossiê,
-        histórico e documentos exigem projeções próprias.
-      </p>
-      <dl className="task-facts">
-        <div><dt>Referência do caso</dt><dd className="exact-value">{detail.case.case_ref}</dd></div>
-        <div><dt>Situação</dt><dd>{detail.case.state === "active" ? "Ativo" : "Encerrado"}</dd></div>
-        <div><dt>Revisão do caso</dt><dd className="exact-value">{detail.case.record_revision}</dd></div>
-        <div><dt>Estado observado em</dt><dd>{formatTimestamp(detail.case.state_observed_at)}</dd></div>
-        <div><dt>Processo</dt><dd>{detail.identity.process_definition_key}</dd></div>
-        <div><dt>Versão do processo</dt><dd className="exact-value">{detail.identity.process_definition_version}</dd></div>
-        <div><dt>Instância do processo</dt><dd className="exact-value">{detail.identity.process_instance_ref}</dd></div>
-        <div><dt>Fonte observada em</dt><dd>{formatTimestamp(detail.freshness.source_observed_at)}</dd></div>
-        <div><dt>Consulta válida até</dt><dd>{formatTimestamp(detail.freshness.valid_until)}</dd></div>
-      </dl>
+      <ValidityWindow
+        observedAt={detail.freshness.observed_at}
+        validUntil={detail.freshness.valid_until}
+        label="Consultado"
+      />
+      {detail.outcome !== null && (
+        <p className="case-outcome">
+          Desfecho: <strong>{outcomeLabel[detail.outcome.desfecho]}</strong>
+          {detail.outcome.authorization_ref !== null && (
+            <>, autorização nº <span className="exact-value">{detail.outcome.authorization_ref}</span></>
+          )}
+        </p>
+      )}
       <section className="staff-case-tasks" aria-labelledby="staff-case-tasks-heading">
         <h4 id="staff-case-tasks-heading">Tarefas ativas</h4>
         {detail.active_tasks.length === 0 ? (
-          <p>Nenhuma tarefa ativa foi liberada nesta consulta.</p>
+          <p>{detail.case.state === "ended" ? "O caso está encerrado e não tem tarefas ativas." : "Nenhuma tarefa ativa neste momento."}</p>
         ) : (
           <div className="table-scroll" tabIndex={0} aria-label="Tabela de tarefas ativas do caso">
             <table>
-              <caption className="visually-hidden">Tarefas ativas autorizadas para este caso</caption>
-              <thead><tr><th scope="col">Tarefa</th><th scope="col">Responsável</th><th scope="col">Criada em</th><th scope="col">Prazo</th><th scope="col">Revisão</th></tr></thead>
+              <caption className="visually-hidden">Tarefas ativas do caso, com responsável e prazo</caption>
+              <thead><tr><th scope="col">Tarefa</th><th scope="col">Prazo</th><th scope="col">Responsável</th><th scope="col">Criada em</th><th scope="col">Revisão</th></tr></thead>
               <tbody>
-                {detail.active_tasks.map((task) => (
-                  <tr key={task.task_id}>
-                    <th scope="row">{task.task_definition_key}</th>
-                    <td>{task.assignee_ref ?? "Sem responsável"}</td>
-                    <td>{formatTimestamp(task.created_at)}</td>
-                    <td>{task.due_at === null ? "Sem prazo informado" : formatTimestamp(task.due_at)}</td>
-                    <td className="exact-value">{task.task_revision}</td>
-                  </tr>
-                ))}
+                {detail.active_tasks.map((task) => {
+                  const due = dueLabel(task.due_at, detail.freshness.observed_at);
+                  return (
+                    <tr key={task.task_id}>
+                      <th scope="row">{task.task_definition_key}</th>
+                      <td className={due.late ? "due-late" : undefined}>
+                        {due.text}{due.late && <strong className="due-flag"> Vencido</strong>}
+                      </td>
+                      <td>{task.assignee_ref ?? "Sem responsável"}</td>
+                      <td>{formatTimestamp(task.created_at)}</td>
+                      <td className="exact-value">{task.task_revision}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
-        <p className="freshness-detail">A resposta confirmou a página completa de tarefas desta consulta.</p>
       </section>
+      <section className="case-identity" aria-labelledby="staff-case-identity-heading">
+        <h4 id="staff-case-identity-heading">Processo e revisão</h4>
+        <dl className="task-facts">
+          <div><dt>Processo</dt><dd>{detail.identity.process_definition_key}</dd></div>
+          <div><dt>Versão do processo</dt><dd className="exact-value">{detail.identity.process_definition_version}</dd></div>
+          <div><dt>Instância do processo</dt><dd className="exact-value">{detail.identity.process_instance_ref}</dd></div>
+          <div><dt>Revisão do caso</dt><dd className="exact-value">{detail.case.record_revision}</dd></div>
+          <div><dt>Situação observada em</dt><dd>{formatTimestamp(detail.case.state_observed_at)}</dd></div>
+          <div><dt>Fonte observada em</dt><dd>{formatTimestamp(detail.freshness.source_observed_at)}</dd></div>
+        </dl>
+      </section>
+      <p className="freshness-detail">Somente leitura. Para agir numa tarefa, abra-a em Meu trabalho ou Filas da equipe.</p>
     </section>
   );
 }
@@ -109,12 +175,24 @@ function joinedPage(previous: StaffPage, next: StaffPage): StaffPage | null {
 export function StaffCaseWorkspace({
   service,
   onSessionUnavailable,
+  selectedCaseRef,
+  onSelectCase,
 }: {
   service: StaffCaseClient;
   onSessionUnavailable: () => void;
+  /** Routed selection: when onSelectCase is given, the URL owns which case is open. */
+  selectedCaseRef?: string | null;
+  onSelectCase?: (caseRef: string | null) => void;
 }) {
   const inputId = useId();
   const [caseRef, setCaseRef] = useState("");
+  const [localSelection, setLocalSelection] = useState<string | null>(null);
+  const routed = onSelectCase !== undefined;
+  const selected = routed ? selectedCaseRef ?? null : localSelection;
+  const select = useCallback((next: string | null) => {
+    if (onSelectCase !== undefined) onSelectCase(next);
+    else setLocalSelection(next);
+  }, [onSelectCase]);
   const [listState, setListState] = useState<ListState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState | null>(null);
   const request = useRef<AbortController | null>(null);
@@ -175,15 +253,21 @@ export function StaffCaseWorkspace({
     }
   }, [onSessionUnavailable, service]);
 
+  // One effect owns every read: the selection (local or routed) decides
+  // whether the list or one case is consulted, and any change aborts the other.
   useEffect(() => {
-    setCaseRef("");
-    void loadList(null, false);
+    if (selected === null) {
+      setCaseRef("");
+      void loadList(null, false);
+    } else {
+      void readCase(selected);
+    }
     return () => {
       epoch.current += 1;
       request.current?.abort();
       request.current = null;
     };
-  }, [loadList]);
+  }, [loadList, readCase, selected]);
 
   useEffect(() => {
     if (detailState?.kind === "ready" || detailState?.kind === "error" || listState.kind === "error") resultHeading.current?.focus();
@@ -199,7 +283,7 @@ export function StaffCaseWorkspace({
 
   // The displayed page keeps its retirement timer while pagination is pending.
   // loadingMore changes do not replace the retained page or extend its deadline.
-  const visiblePage = detailState === null && listState.kind === "ready" ? listState.page : null;
+  const visiblePage = selected === null && detailState === null && listState.kind === "ready" ? listState.page : null;
   useEffect(() => {
     if (visiblePage === null) return;
     const delay = Math.min(visiblePage.freshness.refresh_after_seconds * 1000, expiryDelay(visiblePage.freshness.valid_until));
@@ -207,67 +291,106 @@ export function StaffCaseWorkspace({
     return () => window.clearTimeout(timer);
   }, [visiblePage, loadList]);
 
-  if (detailState !== null) {
+  if (selected !== null) {
     return (
-      <section aria-labelledby="staff-case-heading">
-        <button className="secondary-action" type="button" onClick={() => void loadList(null, false)}>Voltar para casos</button>
+      <section className="staff-cases" aria-label="Detalhe do caso">
+        <button className="secondary-action compact-action" type="button" onClick={() => select(null)}>Voltar para casos</button>
         <div aria-live="polite" aria-atomic="false">
-          {detailState.kind === "loading" && <p className="queue-message">Consultando o caso autorizado.</p>}
-          {detailState.kind === "error" && (
+          {(detailState === null || detailState.kind === "loading") && <p className="queue-message">Consultando o caso.</p>}
+          {detailState?.kind === "error" && (
             <section className="queue-message queue-error" aria-labelledby="staff-case-error-heading">
               <h2 id="staff-case-error-heading" ref={resultHeading} tabIndex={-1}>Não foi possível consultar o caso</h2>
               <p role="alert">{errorMessage[detailState.failure]}</p>
               {detailState.failure !== "authentication_unavailable" && <button className="secondary-action" type="button" onClick={() => void readCase(detailState.caseRef)}>Consultar novamente</button>}
             </section>
           )}
-          {detailState.kind === "ready" && <div ref={(node) => { resultHeading.current = node?.querySelector("h3") ?? null; }}><StaffCaseDetail detail={detailState.detail} /></div>}
         </div>
+        {detailState?.kind === "ready" && <div ref={(node) => { resultHeading.current = node?.querySelector("h3") ?? null; }}><StaffCaseDetail detail={detailState.detail} /></div>}
       </section>
     );
   }
 
   return (
-    <section aria-labelledby="staff-case-heading">
-      <div className="portal-guidance">
-        <p className="eyebrow">Casos autorizados</p>
-        <h2 id="staff-case-heading">Casos de autorização</h2>
-        <p>A lista mostra somente a página liberada para sua sessão atual, sem totais de casos ocultos.</p>
-        <button className="secondary-action" type="button" onClick={() => void loadList(null, false)} disabled={listState.kind === "loading"}>Atualizar casos</button>
-        <form className="intake-form" onSubmit={(event) => { event.preventDefault(); void readCase(caseRef.trim()); }}>
-          <div className="form-grid">
-            <label htmlFor={inputId}>Abrir pela referência exata
-              <input id={inputId} name="case-reference" value={caseRef} onChange={(event) => setCaseRef(event.target.value)} autoComplete="off" spellCheck={false} required minLength={16} maxLength={128} aria-describedby={`${inputId}-help`} />
-            </label>
-            <small id={`${inputId}-help`}>A referência permanece somente nesta tela e não é incluída na URL.</small>
-          </div>
-          <button className="primary-action" type="submit">Consultar caso</button>
-        </form>
+    <section className="staff-cases" aria-labelledby="staff-case-heading">
+      <div className="case-queue-heading">
+        <div>
+          <h2 id="staff-case-heading">Casos de autorização</h2>
+          <p>Casos liberados para o seu grupo. A lista não mostra totais de casos que você não pode ver.</p>
+        </div>
+        <button className="secondary-action compact-action" type="button" onClick={() => void loadList(null, false)} disabled={listState.kind === "loading"}>Atualizar casos</button>
       </div>
       <div aria-live="polite" aria-atomic="false">
         {listState.kind === "loading" && <p className="queue-message">Consultando seus casos autorizados.</p>}
         {listState.kind === "error" && (
           <section className="queue-message queue-error" aria-labelledby="staff-case-list-error-heading">
-            <h3 id="staff-case-list-error-heading" ref={resultHeading} tabIndex={-1}>Não foi possível carregar os casos</h3>
+            <h3 id="staff-case-list-error-heading" ref={resultHeading} tabIndex={-1}>
+              {listState.failure === "dependency_unavailable" ? "Serviço de casos indisponível" : "Não foi possível carregar os casos"}
+            </h3>
             <p role="alert">{errorMessage[listState.failure]}</p>
             {listState.failure !== "authentication_unavailable" && <button className="secondary-action" type="button" onClick={() => void loadList(null, false)}>Tentar novamente</button>}
           </section>
         )}
-        {listState.kind === "ready" && (
-          <section aria-labelledby="staff-case-list-heading">
-            <div className="section-heading"><div><h3 id="staff-case-list-heading">Página atual</h3></div><p className="freshness">Consultada em {formatTimestamp(listState.page.freshness.observed_at)}</p></div>
-            {listState.page.items.length === 0 ? <p>Nenhum caso autorizado nesta página.</p> : (
-              <ul className="case-list">
-                {listState.page.items.map((item) => <li key={item.case_ref}>
-                  <button type="button" className="secondary-action" onClick={() => void readCase(item.case_ref)}>Abrir caso <span className="exact-value">{item.case_ref}</span></button>
-                  <span>{item.state === "active" ? "Ativo" : "Encerrado"} · observado em {formatTimestamp(item.state_observed_at)}</span>
-                </li>)}
-              </ul>
-            )}
-            <p className="freshness-detail">Lista válida até {formatTimestamp(listState.page.freshness.valid_until)}.</p>
-            {listState.page.next_cursor !== null && <button className="secondary-action" type="button" disabled={listState.loadingMore} onClick={() => void loadList(listState.page.next_cursor, true)}>{listState.loadingMore ? "Carregando…" : "Carregar próxima página"}</button>}
-          </section>
-        )}
       </div>
+      {listState.kind === "ready" && (
+        <section aria-labelledby="staff-case-list-heading">
+          <h3 id="staff-case-list-heading" className="visually-hidden">Casos do seu grupo</h3>
+          <ValidityWindow
+            observedAt={listState.page.freshness.observed_at}
+            validUntil={listState.page.freshness.valid_until}
+            label="Lista consultada"
+          />
+          {listState.page.items.length === 0 ? (
+            <div className="case-empty">
+              <p className="case-empty-title">Nenhum caso para o seu grupo.</p>
+              <p>Quando um caso de autorização for liberado para você, ele aparece aqui. A lista se atualiza sozinha.</p>
+            </div>
+          ) : (
+            <div className="table-scroll case-table" tabIndex={0} aria-label="Tabela de casos do seu grupo">
+              <table>
+                <caption className="visually-hidden">Casos de autorização liberados para o seu grupo</caption>
+                <thead><tr><th scope="col">Caso</th><th scope="col">Situação</th><th scope="col">Situação observada em</th><th scope="col">Revisão</th></tr></thead>
+                <tbody>
+                  {listState.page.items.map((item) => (
+                    <tr key={item.case_ref}>
+                      <th scope="row">
+                        <a
+                          className="table-action case-link"
+                          href={casePath(item.case_ref)}
+                          onClick={(event) => {
+                            if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
+                            event.preventDefault();
+                            select(item.case_ref);
+                          }}
+                        >
+                          <span className="visually-hidden">Abrir caso </span><span className="exact-value">{item.case_ref}</span>
+                        </a>
+                      </th>
+                      <td><StatePill state={item.state} /></td>
+                      <td>{formatTimestamp(item.state_observed_at)}</td>
+                      <td className="exact-value">{item.record_revision}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {listState.page.next_cursor !== null && <button className="secondary-action" type="button" disabled={listState.loadingMore} onClick={() => void loadList(listState.page.next_cursor, true)}>{listState.loadingMore ? "Carregando…" : "Carregar próxima página"}</button>}
+        </section>
+      )}
+      <form className="case-lookup" onSubmit={(event) => { event.preventDefault(); select(caseRef.trim()); }}>
+        <label htmlFor={inputId}>Abrir pela referência exata</label>
+        <div className="case-lookup-row">
+          <input id={inputId} name="case-reference" value={caseRef} onChange={(event) => setCaseRef(event.target.value)} autoComplete="off" spellCheck={false} required minLength={16} maxLength={128} aria-describedby={`${inputId}-help`} />
+          <button className="primary-action" type="submit">Consultar caso</button>
+        </div>
+        <small id={`${inputId}-help`}>A referência completa tem de 16 a 128 caracteres.</small>
+      </form>
     </section>
   );
+}
+
+export const caseRoutePrefix = "/portal/cases";
+
+export function casePath(caseRef: string | null) {
+  return caseRef === null ? caseRoutePrefix : `${caseRoutePrefix}/${encodeURIComponent(caseRef)}`;
 }

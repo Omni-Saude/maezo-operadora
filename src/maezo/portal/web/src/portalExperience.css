@@ -117,3 +117,50 @@
     justify-self: stretch;
   }
 }
+
+/* Casos do colaborador: fila e detalhe (somente leitura). */
+.staff-panel-stack,
+.staff-panel-stack > .portal-area-panel { min-width: 0; }
+.staff-cases { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; min-width: 0; }
+.staff-cases > .compact-action { justify-self: start; }
+.case-queue-heading,
+.case-detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.case-queue-heading h2 { margin-bottom: 0.35rem; }
+.case-queue-heading p { margin: 0; color: #42675d; }
+.case-detail-heading h3 { margin: 0; color: #143d31; font-size: 1.5rem; letter-spacing: -0.02em; }
+.case-detail-ref { margin: 0.35rem 0 0; color: #355e52; }
+
+/* Assinatura: a janela de validade que o contrato impõe a cada leitura. */
+.validity-window { display: grid; gap: 0.45rem; }
+.validity-window p { margin: 0; color: #42675d; font-size: 0.88rem; }
+.validity-track { display: block; height: 0.3rem; overflow: hidden; border-radius: 1rem; background: #d7e5de; }
+.validity-fill { display: block; height: 100%; background: #1b604c; transform-origin: left; transition: transform 1s linear; }
+@media (prefers-reduced-motion: reduce) { .validity-fill { transition: none; } }
+
+.case-state { display: inline-flex; align-items: center; min-height: 1.8rem; padding: 0.15rem 0.65rem; border-radius: 999px; font-size: 0.85rem; font-weight: 750; white-space: nowrap; }
+.case-state-active { color: #124a3a; background: #dcefe6; box-shadow: inset 0 0 0 1px #9cc9b5; }
+.case-state-ended { color: #4a5a55; background: #eef1f0; box-shadow: inset 0 0 0 1px #c9d3cf; }
+
+.case-table table { min-width: 36rem; }
+.case-link { display: inline-flex; align-items: center; min-height: 2.75rem; text-align: left; }
+.case-empty { padding: 1.4rem; border: 1px dashed #adc3ba; border-radius: 0.85rem; background: #f8fbf9; }
+.case-empty p { margin: 0.3rem 0 0; color: #42675d; }
+.case-empty .case-empty-title { margin: 0; color: #143d31; font-size: 1.1rem; font-weight: 800; }
+
+.case-outcome { margin: 0; padding: 0.8rem 1rem; border-left: 4px solid #1b604c; background: #eff7f3; }
+.staff-case-tasks h4,
+.case-identity h4 { margin: 0.5rem 0 0; color: #143d31; font-size: 1.05rem; }
+.due-late { color: #73301f; }
+.due-flag { color: #a9452d; }
+
+.case-lookup { display: grid; gap: 0.4rem; margin-top: 0.5rem; padding-top: 1rem; border-top: 1px solid #d8e4de; }
+.case-lookup label { color: #173e33; font-weight: 750; }
+.case-lookup small { color: #526d65; }
+.case-lookup-row { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.case-lookup input { flex: 1 1 18rem; min-width: 0; min-height: 2.9rem; padding: 0.6rem 0.8rem; border: 1px solid #6f8d83; border-radius: 0.65rem; font: inherit; color: #143d31; background: #fff; }
+
+@media (max-width: 42rem) {
+  .case-queue-heading,
+  .case-detail-heading { flex-direction: column; }
+  .case-lookup-row .primary-action { width: 100%; }
+}

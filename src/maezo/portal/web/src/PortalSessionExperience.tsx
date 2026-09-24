@@ -1,9 +1,9 @@
-import { useId, useMemo, useState, type Ref } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type Ref } from "react";
 
 import { AudienceAuthorizationExperience } from "./AudienceAuthorizationExperience";
 import { EmployeeQueues } from "./EmployeeQueues";
 import { StaffOverview } from "./StaffOverview";
-import { StaffCaseWorkspace } from "./StaffCaseWorkspace";
+import { StaffCaseWorkspace, casePath, caseRoutePrefix } from "./StaffCaseWorkspace";
 import {
   StaffAreaPanel,
   StaffNavigation,
@@ -67,6 +67,26 @@ function UnavailableArea({ title, children }: { title: string; children: React.R
   );
 }
 
+type StaffRoute = Readonly<{ area: StaffArea; caseRef: string | null }>;
+
+// Only the Cases area has an address: /portal/cases and /portal/cases/:ref.
+// Every other area lives at /portal/ as before.
+function readStaffRoute(): StaffRoute {
+  const path = window.location.pathname.replace(/\/+$/, "");
+  if (path === caseRoutePrefix) return { area: "cases", caseRef: null };
+  if (path.startsWith(`${caseRoutePrefix}/`)) {
+    const tail = path.slice(caseRoutePrefix.length + 1);
+    if (!tail.includes("/")) {
+      try {
+        return { area: "cases", caseRef: decodeURIComponent(tail) };
+      } catch {
+        return { area: "cases", caseRef: null };
+      }
+    }
+  }
+  return { area: "overview", caseRef: null };
+}
+
 export function StaffPortalExperience({
   expiresAt,
   csrfToken,
@@ -80,7 +100,26 @@ export function StaffPortalExperience({
   headingRef: Ref<HTMLHeadingElement>;
   onSessionUnavailable: () => void;
 }) {
-  const [activeArea, setActiveArea] = useState<StaffArea>("overview");
+  const [route, setRoute] = useState(readStaffRoute);
+  const activeArea = route.area;
+  useEffect(() => {
+    const onPop = () => setRoute(readStaffRoute());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const navigate = useCallback((next: StaffRoute) => {
+    const path = next.area === "cases" ? casePath(next.caseRef) : "/portal/";
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    setRoute(next);
+  }, []);
+  const setActiveArea = useCallback(
+    (area: StaffArea) => navigate({ area, caseRef: null }),
+    [navigate],
+  );
+  const selectCase = useCallback(
+    (caseRef: string | null) => navigate({ area: "cases", caseRef }),
+    [navigate],
+  );
   const staffCaseClient = useMemo(() => createStaffCaseClient(), [sessionBinding]);
 
   let content: React.ReactNode;
@@ -108,6 +147,8 @@ export function StaffPortalExperience({
       <StaffCaseWorkspace
         service={staffCaseClient}
         onSessionUnavailable={onSessionUnavailable}
+        selectedCaseRef={route.caseRef}
+        onSelectCase={selectCase}
       />
     );
   } else if (activeArea === "documents") {
