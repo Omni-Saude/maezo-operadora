@@ -205,7 +205,7 @@ _BOOTSTRAP_DB_SCRIPT_REASON = (
     "by reading that file directly; never `src/`."
 )
 _CODEBUILD_BUILDSPEC_REASON = (
-    "Read by codebuild.tf's own buildspec shell commands (`$REGISTRO`/`$REPOSITORIO`/`$DOCKERFILE`, "
+    "Read by codebuild.tf's own buildspec shell commands (`$REGISTRO`/`$REPOSITORIO`/`$DOCKERFILE`/`$BUILD_ARGS`, "
     "deploy/aws-ecs/envs/dev-sa-east-1/codebuild.tf) — a CodeBuild pipeline variable, never `src/`."
 )
 _PYTHON_INTERPRETER_REASON = (
@@ -285,7 +285,7 @@ _BOOTSTRAP_DB_SCRIPT_NAMES: tuple[str, ...] = (
 )
 
 #: Names read by codebuild.tf's own buildspec shell — see `_CODEBUILD_BUILDSPEC_REASON`.
-_CODEBUILD_BUILDSPEC_NAMES: tuple[str, ...] = ("DOCKERFILE", "REGISTRO", "REPOSITORIO")
+_CODEBUILD_BUILDSPEC_NAMES: tuple[str, ...] = ("BUILD_ARGS", "DOCKERFILE", "REGISTRO", "REPOSITORIO")
 
 #: OpenTelemetry SDK's own env-var contract — see `_OTEL_SDK_REASON`.
 _OTEL_SDK_NAMES: tuple[str, ...] = ("OTEL_EXPORTER_OTLP_PROTOCOL", "OTEL_RESOURCE_ATTRIBUTES")
