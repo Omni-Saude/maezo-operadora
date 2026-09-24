@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import os
 import sys
 from datetime import UTC, datetime, timedelta
@@ -123,7 +124,13 @@ async def run() -> None:
         step("portal", False, f"lifespan/BFF recusou antes das requisicoes ({type(failure).__name__}: {failure})")
         raise SystemExit(1) from None
     inside, outside = results["staff-c1-no-grupo"], results["staff-c1-outro-grupo"]
-    ok = inside[0] == 200 and '"items"' in inside[1] and outside[0] != 200
+    # Criterio C1: o grupo ve o caso; o de fora e NEGADO. Numa LISTA a negacao e nao ver nada (200 com
+    # `items: []`) ou uma recusa; o que reprova e o caso do grupo aparecer para quem esta fora.
+    def cases(body: str) -> list[str]:
+        # o corpo guardado e truncado para o log: le os case_ref pelo texto, nao por json.loads
+        return re.findall(r'"case_ref":"([^"]+)"', body)
+    seen = cases(inside[1])
+    ok = inside[0] == 200 and len(seen) >= 1 and (outside[0] != 200 or not set(seen) & set(cases(outside[1])))         and (outside[0] != 200 or cases(outside[1]) == [])
     step("portal", ok, f"{lifespan}; /cases no grupo -> {inside[0]} {inside[1]!r}; outro grupo -> {outside[0]} {outside[1]!r}")
 
 

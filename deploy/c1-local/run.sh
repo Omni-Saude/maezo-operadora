@@ -2,7 +2,7 @@
 # C1 — checkpoint de integracao LOCAL (plano portal-autoridade-nativa-dev, Onda 1). Ver README.md.
 #   run.sh all       roda tudo do zero (down -v, build, passos) e imprime uma linha medida por passo
 #   run.sh <passo>   um passo so: build tls db-base bootstrap materials db-native digests engine-config
-#                    engine-up seed publish issuer portal
+#                    engine-up auth-install auth-fixture seed publish issuer portal
 #   run.sh logs      linhas relevantes do log do engine
 #   run.sh down      apaga containers, rede e o volume c1private (chaves, senhas, raiz de TESTE)
 set -euo pipefail
@@ -74,7 +74,7 @@ down() {
 
 py() {  # cada passo roda no servico que tem as montagens dele
   local service=runner
-  case "$1" in publish) service=job ;; issuer|auth-install) service=issuer ;; portal-init) service=portal-init ;; portal) service=portal ;; esac
+  case "$1" in publish) service=job ;; issuer|auth-install|auth-fixture) service=issuer ;; portal-init) service=portal-init ;; portal) service=portal ;; esac
   "${DC[@]}" --profile engine --profile tools run --rm -T "$service" python -m c1 "$1"
 }
 
@@ -91,7 +91,7 @@ case "${1:-all}" in
     fi
     engine_up ;;
   logs) engine_logs "${2:-40}" ;;
-  materials|db-native|engine-config|assemble|w1|auth-install|seed|publish|issuer|portal-init|portal) py "$1" ;;
+  materials|db-native|engine-config|assemble|w1|auth-install|auth-fixture|seed|publish|issuer|portal-init|portal) py "$1" ;;
   down) down ;;
   all)
     down; build
@@ -100,6 +100,7 @@ case "${1:-all}" in
     bootstrap; py materials; py db-native; digests; py engine-config; py assemble
     engine_up                       # imagem staff, como a T1.2 entrega (F1/F2/F4 corrigidos em fix/c1-java; sem W1)
     py auth-install || true        # D8: qualifica a instalacao AUTH com a definicao deployada
+    py auth-fixture || true        # D-K.2: entradas SYN- publicadas + human-auth-start assinado
     py seed; py publish || true; py issuer || true; py portal-init || true; py portal || true ;;
   *) echo "passo desconhecido: $1" >&2; exit 2 ;;
 esac

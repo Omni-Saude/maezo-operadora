@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import asyncpg
 
-from .common import ADMIN, DATABASE, TENANT, admin_dsn, read_text, step, tls_context
+from .common import ADMIN, DATABASE, HARNESS_MARKER, HARNESS_MARKER_SCHEMA, TENANT, admin_dsn, read_text, step, tls_context
 
 MIGRATION = Path("/repo/src/maezo/platform/migrations/versions/0012_portal_identity_session.py")
 
@@ -52,6 +52,9 @@ async def main_async() -> None:
     su = await asyncpg.connect(admin_dsn(), ssl=ssl, timeout=10)
     try:
         await su.execute("CREATE SCHEMA IF NOT EXISTS cibseven AUTHORIZATION cibseven_app")
+        # Marcador do Postgres DESCARTAVEL do harness: o passo `auth-fixture` recusa rodar sem ele.
+        await su.execute(f"CREATE SCHEMA IF NOT EXISTS {HARNESS_MARKER_SCHEMA}")
+        await su.execute(f"COMMENT ON SCHEMA {HARNESS_MARKER_SCHEMA} IS '{HARNESS_MARKER}'")
     finally:
         await su.close()
     app = await asyncpg.connect(

@@ -111,7 +111,9 @@ final class AuthStore {
   }
 
   Map<String,Object> guide(String guide) {
-    return optional("SELECT * FROM MZO_AUTH_GUIDE_CLAIM WHERE TENANT_=? AND GUIDE_=? FOR UPDATE",tenant,guide);
+    // No FOR UPDATE: the runtime role has SELECT,INSERT only (D-J.4 matrix); the tenant row lock taken by
+    // lock() serializes starts and PK(TENANT_,GUIDE_) refuses a racing second claim.
+    return optional("SELECT * FROM MZO_AUTH_GUIDE_CLAIM WHERE TENANT_=? AND GUIDE_=?",tenant,guide);
   }
   Map<String,Object> caseLink(String caseRef) {
     return optional("SELECT * FROM MZO_AUTH_GUIDE_CLAIM WHERE TENANT_=? AND CASE_=?",tenant,caseRef);

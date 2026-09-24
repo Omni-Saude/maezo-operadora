@@ -47,6 +47,11 @@ MEMBERSHIP_PREFIX = f"portal-identity:{TENANT}:"
 OBSERVER_LOGIN = "portal_read_source_amh"
 OWNER_LOGIN = "maezo_native_schema_owner"
 NATIVE_LOGINS = (OWNER_LOGIN, ISSUER_LOGIN, ISSUER_WITNESS_LOGIN, OBSERVER_LOGIN)
+#: Marcador do Postgres descartavel do harness (criado pelo `db-base`, exigido pelo `auth-fixture`).
+HARNESS_MARKER_SCHEMA = "c1_local_harness"
+HARNESS_MARKER = "maezo-c1-local-harness-descartavel"
+#: Cliente mTLS da fixture sintetica AUTH (emitido no `engine-config` pela CA D6; so no volume)
+AUTH_FIXTURE = ROOT / "auth-fixture"
 
 
 def now() -> datetime:

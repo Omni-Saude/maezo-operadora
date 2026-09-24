@@ -15,6 +15,7 @@ STEPS = {
     "seed": "c1.seed",
     "publish": "c1.publish",
     "auth-install": "c1.auth_install",
+    "auth-fixture": "c1.auth_fixture",
     "issuer": "c1.issuer",
     "w1": "c1.w1",
     "portal-init": "c1.portal_check",

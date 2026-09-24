@@ -35,6 +35,7 @@ from maezo.portal.engine.profile import strict_loads
 from . import human_bundle
 from .common import (
     ADMIN,
+    AUTH_FIXTURE,
     APPROVER_OUT,
     CATALOG_REF,
     DATABASE,
@@ -116,6 +117,11 @@ async def main_async() -> None:
     )
     # D5/D6: o pacote humano (D6) emite os certificados dele por esta CA; o truststore do 8443 a soma.
     job_ca = human_bundle.ClientCa.new("c1 human bundle client CA (D6)", start, end)
+    # Cliente mTLS da fixture sintetica AUTH (D-K.2): a mesma CA D6, um peer proprio, so no volume.
+    fixture_cert, fixture_key, fixture_spki = job_ca.client("c1-auth-fixture-SYN", start, end)
+    write(AUTH_FIXTURE / "client-certificate.pem", fixture_cert, 0o444)
+    write(AUTH_FIXTURE / "client-key.pem", fixture_key, 0o400)
+    write(AUTH_FIXTURE / "client-spki-sha256.txt", fixture_spki, 0o444)
     # O trust Q2 precisa da chave de leitura do pacote humano, que precisa da admissao (espelho):
     # gera o pacote em dois tempos com as chaves fixas.
     continuity = summary["continuity"]

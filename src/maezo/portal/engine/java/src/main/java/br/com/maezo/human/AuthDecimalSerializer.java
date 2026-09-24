@@ -9,12 +9,20 @@ import org.cibseven.bpm.engine.variable.value.*;
 /** Exact AUTH money in native TEXT_ columns; no Double or Java ObjectValue fallback. */
 public final class AuthDecimalSerializer implements TypedValueSerializer<AuthDecimalSerializer.Value> {
   static final String NAME="maezo-auth-exact-decimal.v1";
+  /**
+   * Concrete value type. ValueType.NUMBER is ABSTRACT, and CIB's DefaultVariableSerializers refuses every value of an
+   * abstract type ("Cannot serialize value of abstract type number") before consulting any serializer — measured in C1.
+   */
+  static final PrimitiveValueType TYPE=new org.cibseven.bpm.engine.variable.impl.type.PrimitiveValueTypeImpl(NAME,BigDecimal.class){
+    private static final long serialVersionUID=1L;
+    @Override public TypedValue createValue(Object value,java.util.Map<String,Object> info){throw Rejected.invalid();}
+  };
   static final class Value implements NumberValue {
     private static final long serialVersionUID=1L;
     private final BigDecimal value;private final boolean transientValue;
     Value(BigDecimal value,boolean transientValue){this.value=checked(value);this.transientValue=transientValue;}
     @Override public BigDecimal getValue(){return value;}
-    @Override public PrimitiveValueType getType(){return ValueType.NUMBER;}
+    @Override public PrimitiveValueType getType(){return TYPE;}
     @Override public boolean isTransient(){return transientValue;}
   }
   /** Read-only export of this serializer's exact private value. Unknown number classes get no adaptation. */
@@ -29,7 +37,7 @@ public final class AuthDecimalSerializer implements TypedValueSerializer<AuthDec
     catch(ArithmeticException failure){throw Rejected.invalid();}return amount;
   }
   @Override public String getName(){return NAME;}
-  @Override public ValueType getType(){return ValueType.NUMBER;}
+  @Override public ValueType getType(){return TYPE;}
   @Override public String getSerializationDataformat(){return null;}
   @Override public boolean isMutableValue(Value value){return false;}
   @Override public boolean canHandle(TypedValue value){return value!=null&&value.getClass()==Value.class;}

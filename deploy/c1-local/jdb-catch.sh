@@ -17,5 +17,6 @@ classes="${JDB_CLASSES:-br.com.maezo.human.Rejected}"
     jdb -attach engine:5005 2>&1 | grep -E "Exception occurred|\[[0-9]+\] br\.com|\[[0-9]+\] java" | head -60 &
 sleep 8
 if [ "$step" = publish ]; then docker compose run --rm -T job python -m c1 "$step" >/dev/null 2>&1 || true
+elif [ "$step" = auth-fixture ] || [ "$step" = issuer ]; then docker compose --profile engine --profile tools run --rm -T issuer python -m c1 "$step" >/dev/null 2>&1 || true
 else docker compose run --rm -T runner python -m c1 "$step" >/dev/null 2>&1 || true; fi
 wait

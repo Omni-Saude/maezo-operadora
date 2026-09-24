@@ -164,3 +164,11 @@ Medido (`run.sh all` do zero, 24/09/2026):
 - **`issuer`:** `anchored=0` e `reasons={claim_absent:1}`, com o candidato `atendimento-humano` correto.
 - **`/cases`:** 200 com `items: []` para os dois grupos.
 - **Critério:** não atingido, pelo bloqueio 1 acima.
+
+## Resultado medido (24/09/2026, `feat/t1-11-chave-auth`, `run.sh all` depois de `down`)
+
+17/17 PASS, com `auth-fixture` (6 publicações `SYN-` → 200; `human-auth-start` → 200 `started`, instância
+`AUTH-amh-SYN-C1GUIA1`), `issuer` (`anchored: 1`, `grants: 1`) e `portal` (`/cases` → 200 com o caso para o grupo
+`atendimento-humano`; 200 `items: []` para o outro grupo). Em 1 de 4 execuções completas o `/cases` do grupo deu
+503 `dependency_unavailable` sem erro no engine (NÃO investigado; lado BFF). **D10:** o tenant da fixture continua
+`amh` (instalação e schema do harness); o prefixo `SYN-` vai na guia e em todas as referências.

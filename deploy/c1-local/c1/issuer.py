@@ -2,13 +2,13 @@
 
 1. deploy (tenant `amh`) de SP-OP-AUTH-001, SP-OP-ESCALATION-001 e da DMN `escalation_routing`, os
    arquivos de `spec/processes`, pelo `engine-rest` da 8080 (o mesmo caminho do deploy de dev);
-2. a escalacao `ESC-amh-sla-auth-C1GUIA1` com `motivo_categoria=solicitacao_humano` (a DMN escolhe
-   `atendimento-humano`), com as duas tarefas externas antes da tarefa humana concluidas como worker;
-   e a instancia `AUTH-amh-C1GUIA1` da guia;
+2. a escalacao `ESC-amh-sla-auth-SYN-C1GUIA1` com `motivo_categoria=solicitacao_humano` (a DMN escolhe
+   `atendimento-humano`), com as duas tarefas externas antes da tarefa humana concluidas como worker.
+   A instancia `AUTH-amh-SYN-C1GUIA1` NAO nasce aqui: vem do start nativo do passo `auth-fixture`;
 3. a composicao `staff-case-issuer-composition.v1` com o material do `generate` e uma rodada do
    `python -m maezo.gateway.staff_cases`, cuja linha JSON e o resultado medido.
-A reivindicacao humana (`mzo_auth_guide_claim`) NAO e fabricada: ela so nasce pelo intake AUTH
-(`/v1/auth-start`), que o C1 nao exercita. O resultado esperado sem ela e a escalacao nao ancorada.
+A reivindicacao humana (`mzo_auth_guide_claim`) NAO e fabricada: ela nasce pelo intake AUTH
+(`/v1/auth-start`) da fixture sintetica (`auth_fixture.py`, D-K.2).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from .common import ADMIN, APPROVER_OUT, ISSUER_LOGIN, ISSUER_WITNESS_LOGIN, MAT
 
 REST = "http://localhost:8080/engine-rest"
 SPEC = Path("/repo/spec/processes")
-GUIDE = "C1GUIA1"
+from .auth_fixture import GUIDE_NUMBER as GUIDE  # noqa: E402
 RUN = ROOT / "issuer-run"
 
 
@@ -46,9 +46,11 @@ def _deploy(client: httpx.Client) -> dict:
     return response.json()
 
 
-def _complete(client: httpx.Client, topic: str) -> int:
+def _complete(client: httpx.Client, topic: str, business_key: str) -> int:
+    # So as tarefas DESTA escalacao: a instancia AUTH nativa (auth-fixture) usa os mesmos topicos.
     locked = client.post("/external-task/fetchAndLock", json={
-        "workerId": "c1-worker", "maxTasks": 5, "topics": [{"topicName": topic, "lockDuration": 60000}]}).json()
+        "workerId": "c1-worker", "maxTasks": 5,
+        "topics": [{"topicName": topic, "lockDuration": 60000, "businessKey": business_key}]}).json()
     for task in locked:
         client.post(f"/external-task/{task['id']}/complete", json={"workerId": "c1-worker"}).raise_for_status()
     return len(locked)
@@ -64,21 +66,15 @@ def _escalation(client: httpx.Client) -> tuple[str, list[str]]:
         client.post(f"/process-definition/key/SP-OP-ESCALATION-001/tenant-id/{TENANT}/start",
                     json={"businessKey": key, "variables": variables}).raise_for_status()
         for topic in ("operadora.events.publish", "operadora.escalation.notify_team"):
-            _complete(client, topic)
+            _complete(client, topic, key)
     tasks = client.get("/task", params={"processInstanceBusinessKey": key, "taskDefinitionKey": "UT_TratarEscalonamento"}).json()
     groups = []
     for task in tasks:
         links = client.get(f"/task/{task['id']}/identity-links", params={"type": "candidate"}).json()
         groups += [link["groupId"] for link in links if link.get("groupId")]
     auth_key = f"AUTH-{TENANT}-{GUIDE}"
-    if not client.get("/process-instance", params={"businessKey": auth_key}).json():
-        variables = {name: {"value": value, "type": "String"} for name, value in dict(
-            tenant_id=TENANT, numero_guia_tiss=GUIDE, beneficiario_pseudo_id="c1-pseudo", prestador_id="c1-prestador",
-            codigo_procedimento_tuss="10101012", carater_atendimento="eletivo").items()}
-        started = client.post(f"/process-definition/key/SP-OP-AUTH-001/tenant-id/{TENANT}/start",
-                              json={"businessKey": auth_key, "variables": variables})
-        if started.status_code >= 400:
-            groups.append(f"AUTH start {started.status_code}")
+    found = client.get("/process-instance", params={"businessKey": auth_key, "tenantIdIn": TENANT}).json()
+    groups.append(f"{auth_key}={len(found)}")
     return str(len(tasks)), groups
 
 

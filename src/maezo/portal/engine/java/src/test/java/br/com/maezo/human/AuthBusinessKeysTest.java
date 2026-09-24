@@ -28,6 +28,13 @@ class AuthBusinessKeysTest {
     for(Object n:PortalReadModels.list(v.get("guide_numbers_valid")))assertTrue(AuthModels.GUIDE_NUMBER.matcher((String)n).matches(),(String)n);
     for(Object n:PortalReadModels.list(v.get("guide_numbers_invalid")))assertFalse(AuthModels.GUIDE_NUMBER.matcher((String)n).matches(),(String)n);
   }
+  @Test void caseUpstreamKeyIsTheGuideNumberRecoveredFromTheBusinessKey() {
+    var claim=java.util.Map.<String,Object>of("tenant_","amh");
+    assertEquals("SYN-C1GUIA1",NativeCaseIdentityReader.guideNumber(claim,java.util.Map.of("historic_business_key","AUTH-amh-SYN-C1GUIA1")));
+    for(String bad:new String[]{"AUTHI-guide-ref","AUTH-other-123","AUTH-amh-","AUTH-amh-12/3"})
+      assertThrows(RuntimeException.class,()->NativeCaseIdentityReader.guideNumber(claim,java.util.Map.of("historic_business_key",bad)),bad);
+    assertThrows(RuntimeException.class,()->NativeCaseIdentityReader.guideNumber(claim,java.util.Map.of()));
+  }
   @Test void legacyIntakePrefixIsNotTheContractualOne() {
     assertFalse(AuthBusinessKeys.auth("amh","G1").startsWith("AUTHI-"));
   }

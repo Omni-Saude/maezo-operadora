@@ -47,6 +47,7 @@ from .common import (
 )
 
 SQL = Path("/repo/deploy/sql")
+EXTERNAL_DDL = Path("/repo/src/maezo/portal/engine/java/src/main/resources/external-case-schema-postgres.sql")
 STAFF_OWNED = (
     "mzo_staff_case_designation_event mzo_staff_case_designation_current mzo_staff_case_source_event "
     "mzo_staff_case_source_head mzo_staff_case_publication_receipt mzo_staff_case_grant "
@@ -85,6 +86,10 @@ async def main_async() -> None:
         await owner.execute(
             "INSERT INTO maezo_native.mzo_human_tenant(tenant_,rev_) VALUES($1,0) ON CONFLICT DO NOTHING", TENANT
         )
+        # README de deploy/sql, passo 4 (faltava no C1): o schema D-I que NativeCaseIdentityReader le
+        # (`maezo_external.mzo_external_source_head`); DDL nao idempotente, entao so na 1a vez.
+        if not await owner.fetchval("SELECT to_regclass('maezo_external.mzo_external_source_head')"):
+            await owner.execute((EXTERNAL_DDL).read_text(encoding="utf-8"))
         relations = await owner.fetchval(
             "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace "
             "WHERE n.nspname=$1 AND c.relkind='r'",
@@ -92,6 +97,11 @@ async def main_async() -> None:
         )
     finally:
         await owner.close()
+    su = await asyncpg.connect(admin_dsn(), ssl=ssl, timeout=10)
+    try:
+        await su.execute((SQL / "external-case-owners.sql").read_text(encoding="utf-8"))
+    finally:
+        await su.close()
     app = await asyncpg.connect(admin_dsn(user="maezo_app", password_file="maezo-app-password"), ssl=ssl, timeout=10)
     try:
         await app.execute((SQL / "amh-native-source-grants.sql").read_text(encoding="utf-8"))
