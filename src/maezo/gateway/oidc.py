@@ -39,6 +39,19 @@ def opaque_secret() -> str:
     return secrets.token_urlsafe(32)
 
 
+def opaque_ref() -> str:
+    """Opaque server-side ref in the shared ref grammar `^[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}$`.
+
+    `token_urlsafe` starts with `-`/`_` in 2 of 64 draws; such a `session_ref` was accepted at login
+    and refused later by every `Ref` consumer (staff witness -> `/cases` 503). Rejection sampling keeps
+    the length and the per-character entropy of the accepted draws.
+    """
+    while True:
+        value = secrets.token_urlsafe(32)
+        if value[0].isascii() and value[0].isalnum():
+            return value
+
+
 def authorization_url(settings: PortalSettings, transaction: LoginTransaction, state: str) -> str:
     challenge = (
         base64.urlsafe_b64encode(hashlib.sha256(transaction.verifier.encode("ascii")).digest())

@@ -11,6 +11,7 @@ from maezo.portal.api.auth import (
     HumanAuthenticator,
     authorization_url,
     digest,
+    opaque_ref,
     opaque_secret,
 )
 from maezo.portal.api.config import PortalSettings
@@ -150,7 +151,7 @@ class HumanSessionService:
         secret = opaque_secret()
         session = SessionRecord(
             secret_hash=digest(secret),
-            session_ref=opaque_secret(),
+            session_ref=opaque_ref(),
             csrf_token=opaque_secret(),
             issuer=identity.issuer,
             subject=identity.subject,

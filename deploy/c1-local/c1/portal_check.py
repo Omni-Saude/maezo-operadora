@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import secrets
 import os
 import sys
 from datetime import UTC, datetime, timedelta
@@ -76,7 +77,9 @@ class HarnessAuthenticator:
     async def exchange(self, code, transaction):  # type: ignore[no-untyped-def]
         from maezo.gateway.oidc import AuthenticationError, VerifiedIdentity
 
-        subject = self._subjects.get(code)
+        # `c1-code-<principal>.<nonce>`: o store queima cada codigo (anti-replay de 1 dia), entao cada
+        # login do harness usa um codigo novo; a identidade vem so do prefixo do principal.
+        subject = self._subjects.get(code.rsplit(".", 1)[0])
         if subject is None:
             raise AuthenticationError()
         now = datetime.now(UTC)
@@ -87,17 +90,85 @@ class HarnessAuthenticator:
         return None
 
 
+_ORIGINS: list[str] = []
+
+
+def _trace_refusals() -> None:
+    """Diagnostico do harness: onde cada StaffCaseError nasceu (e a excecao em voo, se houver).
+
+    O BFF devolve so `dependency_unavailable` sem log, de proposito; o C1 precisa do motivo.
+    """
+    import traceback
+
+    from maezo.gateway.staff_cases import models
+
+    original = models.StaffCaseError.__init__
+
+    def init(self, code):  # type: ignore[no-untyped-def]
+        frame = traceback.extract_stack(limit=6)[:-1]
+        where = " <- ".join(f"{f.name}:{f.lineno}" for f in reversed(frame) if "maezo" in (f.filename or ""))
+        inflight = sys.exc_info()[1]
+        cause = ""
+        if inflight:
+            tb = traceback.extract_tb(inflight.__traceback__)
+            cause = f" em voo={type(inflight).__name__}: {str(inflight)[:160]} @ " + " > ".join(
+                f"{f.name}:{f.lineno}" for f in tb if "maezo" in (f.filename or ""))
+        _ORIGINS.append(f"{code} @ {where}{cause}")
+        original(self, code)
+
+    models.StaffCaseError.__init__ = init  # type: ignore[method-assign]
+
+    from maezo.gateway.human import read_profile as profile
+    from maezo.gateway.staff_cases import postgres, publisher, service
+
+    parse = profile.parse_model
+
+    def diff(a, b, path="$"):  # type: ignore[no-untyped-def]
+        if isinstance(a, dict) and isinstance(b, dict):
+            for k in sorted(set(a) | set(b)):
+                found = diff(a.get(k), b.get(k), f"{path}.{k}")
+                if found:
+                    return found
+            return None
+        if isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
+            for i, (x, y) in enumerate(zip(a, b)):
+                found = diff(x, y, f"{path}[{i}]")
+                if found:
+                    return found
+            return None
+        return None if a == b else f"{path}: nativo={str(b)[:80]!r} canonico={str(a)[:80]!r}"
+
+    def checked(model, value):  # type: ignore[no-untyped-def]
+        try:
+            return parse(model, value)
+        except profile.ProfileError:
+            try:
+                decoded = profile._decode(value, model)
+                again = json.loads(profile.canonicalize(profile.wire(model.model_validate_json(json.dumps(decoded), strict=True))))
+                _ORIGINS.append(f"parse_model({model.__name__}) {diff(again, value)}")
+            except Exception as failure:  # noqa: BLE001
+                _ORIGINS.append(f"parse_model({model.__name__}) {type(failure).__name__}: {str(failure)[:300]}")
+            raise
+
+    for module in (service, publisher, postgres):
+        module.parse_model = checked  # type: ignore[assignment]
+
+
 async def _cases(client: httpx.AsyncClient, principal: str) -> tuple[int, str]:
+    _ORIGINS.clear()
     client.cookies.clear()
     login = await client.get("/api/v1/portal/auth/login")
     if login.status_code != 303:
         return login.status_code, "login " + login.text[:120]
     state_value = parse_qs(urlsplit(login.headers["location"]).query)["state"][0]
-    callback = await client.get("/api/v1/portal/auth/callback", params={"state": state_value, "code": f"c1-code-{principal}"})
+    callback = await client.get("/api/v1/portal/auth/callback", params={"state": state_value, "code": f"c1-code-{principal}.{secrets.token_urlsafe(8)}"})
     if callback.status_code != 303:
         return callback.status_code, "callback " + callback.text[:120]
     response = await client.get("/api/v1/portal/cases")
-    return response.status_code, response.text[:200]
+    text = response.text[:200]
+    if response.status_code >= 500 and _ORIGINS:
+        text += " | origem: " + " || ".join(_ORIGINS[:3])
+    return response.status_code, text
 
 
 async def run() -> None:
@@ -109,6 +180,7 @@ async def run() -> None:
     import maezo.gateway.portal_identity as identity
 
     identity.CognitoAuthenticator = HarnessAuthenticator  # type: ignore[misc,assignment]
+    _trace_refusals()
     from maezo.portal.api.production import create_production_app
 
     app = create_production_app()
