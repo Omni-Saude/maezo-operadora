@@ -29,6 +29,7 @@ from contextlib import AsyncExitStack
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 from cryptography.hazmat.primitives import serialization
@@ -150,6 +151,11 @@ def load_composition(environ: dict[str, str] | None = None) -> LoadedComposition
             set(composition.relation_pins) != set(NativeMembershipSource.TABLES)
             or not is_native_schema(composition.native_schema)
             or composition.membership_schema != composition.tenant
+            # `http` so para o engine no proprio host; fora dele, so `https`.
+            or (
+                urlsplit(composition.engine_rest_url).scheme != "https"
+                and urlsplit(composition.engine_rest_url).hostname not in ("localhost", "127.0.0.1")
+            )
         ):
             raise IssuerCompositionError()
         loaded = LoadedComposition(composition, hashlib.sha256(raw).hexdigest(), path.parent.resolve())

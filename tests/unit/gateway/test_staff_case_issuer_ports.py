@@ -345,7 +345,7 @@ def composition(**changes: Any) -> dict[str, Any]:
             "mzo_portal_read_membership": {"oid": 10, "owner": "maezo_native_schema_owner"},
             "mzo_human_principal": {"oid": 11, "owner": "maezo_native_schema_owner"},
         },
-        "engine_rest_url": "http://cibseven:8080/engine-rest",
+        "engine_rest_url": "https://cibseven:8443/engine-rest",
         "native": {
             "origin": "https://engine.internal",
             "ca_file": "native-ca.pem",
@@ -385,6 +385,7 @@ def test_valid_composition_loads_with_the_explicit_tenant(tmp_path: Path) -> Non
         composition(native_schema="public"),
         composition(designation_file="../designation.json"),
         composition(seconds=0),
+        composition(engine_rest_url="http://engine.remoto:8080/engine-rest"),
         composition(relation_pins={"mzo_portal_read_membership": {"oid": 10, "owner": "x"}}),
     ],
 )
@@ -418,3 +419,51 @@ def test_main_refuses_invalid_materials_with_2_before_touching_any_backend(
     # Arquivos irmaos presentes mas invalidos (chave/designacao lixo): recusa de composicao, sem rede.
     assert main(_write(tmp_path, composition())) == 2
     assert json.loads(capsys.readouterr().out)["reason"] == "composition"
+
+
+def test_http_engine_is_accepted_only_on_localhost(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for url in ("http://localhost:8080/engine-rest", "http://127.0.0.1:8080/engine-rest", "https://e.x/r"):
+        assert load_composition(_write(tmp_path, composition(engine_rest_url=url)))
+    assert main(_write(tmp_path, composition(engine_rest_url="http://cibseven:8080/engine-rest"))) == 2
+
+
+async def test_majority_of_zero_auth_instances_fails_the_round_and_revokes_nothing() -> None:
+    from maezo.gateway.staff_cases.case_issuer_sources import EngineEscalationSource
+    from tests.unit.gateway.test_staff_case_issuer import identity
+
+    lives = tuple(
+        LiveEscalation("amh", f"esc-{n}", f"ESC-amh-sla-auth-{n}", f"t{n}", "plantao-clinico")
+        for n in range(4)
+    )
+    zero = {"now": False}
+
+    class Fixed(EngineEscalationSource):
+        async def live(self) -> tuple[LiveEscalation, ...]:
+            return lives
+
+    class Anchor:
+        last_reason: str | None = None
+
+        def __call__(self, e: LiveEscalation) -> Any:
+            n = int(e.escalation_ref[-1])
+            if zero["now"] and n < 3:
+                self.last_reason = "auth_instances_zero"
+                return None
+            self.last_reason = None
+            return identity(n + 1)
+
+    w = world()
+    ledger = MemoryLedger()
+    source = Fixed(httpx.AsyncClient(), tenant="amh", anchor=Anchor())
+    job, sent = run(w, (), (A,), ledger)
+    job.escalations = source
+    await job.run_once()
+    before = ledger.load()
+    assert len([g for g in before.grants.values() if g.state == "active"]) == 4
+    zero["now"] = True
+    count = len(sent)
+    with pytest.raises(CaseIssuerError, match="anchor_zero_quorum"):
+        await job.run_once()
+    assert len(sent) == count and ledger.load() == before

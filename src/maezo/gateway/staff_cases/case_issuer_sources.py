@@ -252,6 +252,11 @@ class EngineEscalationSource:
                 )
             )
         self.report.anchored = len(routed)
+        # Revisao de seguranca do #500: um engine que responde 200 com `[]` para a AUTH faria o plano
+        # revogar tudo. Maioria zerada (com pelo menos 3 vivas) e falha da rodada, nunca revogacao.
+        zero = self.report.reasons.get("auth_instances_zero", 0)
+        if len(live) >= 3 and 2 * zero > len(live):
+            raise CaseIssuerError("anchor_zero_quorum")
         return tuple(routed)
 
 
