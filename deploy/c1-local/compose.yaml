@@ -1,0 +1,171 @@
+# C1 — checkpoint de integracao LOCAL do plano portal-autoridade-nativa-dev (Onda 1).
+# Tudo descartavel: `run.sh down` apaga containers, rede e o volume `c1private` (chaves, senhas e a
+# raiz de TESTE). Nada aqui fala com a AWS. Portas publicadas so em 127.0.0.1.
+name: maezo-c1
+
+x-private: &private
+  type: volume
+  source: c1private
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /c1/admin/postgres-password
+      POSTGRES_DB: postgres
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/c1/pgtls/server.crt
+      - -c
+      - ssl_key_file=/c1/pgtls/server.key
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      - <<: *private
+        target: /c1
+        read_only: true
+    ports: ["127.0.0.1:15499:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+
+  # Primeiro boot do banco vazio: a imagem VIVA de dev (deploy/cibseven/Dockerfile) com
+  # currentSchema=cibseven cria os 49 ACT_* (ADR-0060 Consequencia 4; I9 do plano).
+  engine-bootstrap:
+    image: maezo-c1-legacy:local
+    profiles: [bootstrap]
+    entrypoint: ["/sbin/tini", "--", "sh", "-c", "DB_PASSWORD=\"$$(cat /c1/admin/cibseven-password)\" exec ./cibseven.sh"]
+    environment:
+      DB_DRIVER: org.postgresql.Driver
+      DB_URL: jdbc:postgresql://postgres:5432/maezo?currentSchema=cibseven
+      DB_USERNAME: cibseven_app
+    volumes:
+      - <<: *private
+        target: /c1
+        read_only: true
+
+  # Imagem de Dockerfile.human (INSTALL_STAFF_COMPOSITION=true, INSTALL_PORTAL_READ=true) + provedor Q2.
+  engine:
+    image: ${C1_ENGINE_IMAGE:-maezo-c1-engine:local}
+    profiles: [engine]
+    entrypoint: ["/sbin/tini", "--", "sh", "-c", "DB_PASSWORD=\"$$(cat /run/maezo/c1/cibseven-password)\" exec ./cibseven.sh"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: maezo
+      DB_USERNAME: cibseven_app
+      MAEZO_HUMAN_TRUST_FILE: /run/maezo/c1/trust.json
+      MAEZO_PORTAL_READ_TRUST_FILE: /run/maezo/c1/portal-read-trust.json
+      MAEZO_PORTAL_READ_PROVIDER_FILE: /run/maezo/c1/portal-read-provider.json
+      MAEZO_STAFF_COMPOSITION_FILE: /run/maezo/c1/staff/staff-composition.json
+      JAVA_OPTS: ${C1_JAVA_OPTS:--Xms256m -Xmx768m}
+    volumes:
+      - <<: *private
+        target: /run/maezo/c1
+        read_only: true
+        volume: {subpath: engine-run}
+      - <<: *private
+        target: /run/maezo/native
+        read_only: true
+        volume: {subpath: engine-native}
+    ports: ["127.0.0.1:18499:8080"]
+
+  # O NLB TCP 443 -> 8443 da Onda 4, local: o nome do SAN do servidor nativo resolve para ca.
+  native:
+    image: alpine/socat:1.8.0.3
+    profiles: [engine]
+    command: ["TCP-LISTEN:443,fork,reuseaddr", "TCP:engine:8443"]
+    networks:
+      default:
+        aliases: [engine-native.c1.internal]
+
+  # Ferramentas (materiais, SQL, job, emissor, portal). O checkout entra read-only; nada e copiado.
+  runner:
+    image: maezo-c1-runner:local
+    profiles: [tools]
+    user: "1000:1000"
+    environment:
+      TMPDIR: /tmp
+    volumes:
+      - type: bind
+        source: ../..
+        target: /repo
+        read_only: true
+      - <<: *private
+        target: /c1
+
+  # O mesmo runner com o pacote humano no caminho fixo que o job T1.5 le (read-only, dono uid 1000).
+  job:
+    image: maezo-c1-runner:local
+    profiles: [tools]
+    user: "1000:1000"
+    volumes:
+      - type: bind
+        source: ../..
+        target: /repo
+        read_only: true
+      - <<: *private
+        target: /c1
+      - <<: *private
+        target: /run/maezo-human-materials
+        read_only: true
+        volume: {subpath: human-materials}
+
+  # O emissor da T1.6 na rede do engine: o `engine_rest_url` so aceita http em localhost.
+  issuer:
+    image: maezo-c1-runner:local
+    profiles: [tools]
+    user: "1000:1000"
+    network_mode: "service:engine"
+    volumes:
+      - type: bind
+        source: ../..
+        target: /repo
+        read_only: true
+      - <<: *private
+        target: /c1
+
+  # Init do portal (o `materialize` da task ECS): escreve /run/maezo-staff-materials/current UMA vez.
+  portal-init:
+    image: maezo-c1-runner:local
+    profiles: [tools]
+    user: "1000:1000"
+    volumes:
+      - type: bind
+        source: ../..
+        target: /repo
+        read_only: true
+      - <<: *private
+        target: /c1
+      - <<: *private
+        target: /run/maezo-staff-materials
+        volume: {subpath: staff-materials}
+
+  # O BFF (capabilities=identity,staff_cases) com o volume de material READ-ONLY e o scratch 0700.
+  portal:
+    image: maezo-c1-runner:local
+    profiles: [tools]
+    user: "1000:1000"
+    environment:
+      TMPDIR: /run/maezo-staff-scratch
+    tmpfs:
+      - /run/maezo-staff-scratch:mode=0700,uid=1000,gid=1000
+    volumes:
+      - type: bind
+        source: ../..
+        target: /repo
+        read_only: true
+      - <<: *private
+        target: /c1
+      - <<: *private
+        target: /run/maezo-staff-materials
+        read_only: true
+        volume: {subpath: staff-materials}
+
+volumes:
+  c1private: {}
