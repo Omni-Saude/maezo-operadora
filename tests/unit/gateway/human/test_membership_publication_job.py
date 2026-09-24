@@ -22,6 +22,7 @@ from maezo.gateway.human.membership_publication_job import (
     RefusingRevocationSource,
     StaffCatalogConfig,
     StaffCatalogPublicationSource,
+    load_config,
     main,
     staff_catalog_artifact,
 )
@@ -36,7 +37,7 @@ from maezo.gateway.human.read_profile import (
 from maezo.gateway.human.read_publisher import PostgresMembershipPublicationSource, PublicationReceipt
 from maezo.portal.api.postgres import PostgresIdentityStore
 from maezo.portal.api.records import MembershipRecord
-from maezo.portal.engine.profile import canonicalize
+from maezo.portal.engine.profile import ProfileError, canonicalize
 
 VECTOR = Path(__file__).resolve().parents[3] / "fixtures" / "portal_read" / "jcs-membership-vector.json"
 NOW = datetime(2026, 9, 23, 12, tzinfo=UTC)
@@ -483,3 +484,50 @@ def test_job_refuses_without_workload(tmp_path):
             engine=None,  # type: ignore[arg-type]
             workload_ref="",
         )
+
+
+def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> None:
+    """F3 (C1): `authority` was a forward reference the profile decoder never resolved."""
+    raw = {
+        "schema": "portal-membership-publication-job.v1",
+        "tenant": "amh",
+        "identity_dsn_file": "/run/dsn",
+        "ledger_file": "/run/ledger.json",
+        "membership_source_ref_prefix": "portal-membership:",
+        "observation_seconds": "600",
+        "catalog": {
+            "catalog_ref": "catalog-staff",
+            "catalog_revision": "1",
+            "admitted_catalog_digest": "a" * 64,
+            "deployment_receipt_ref": "receipt-1",
+            "deployment_receipt_digest": RECEIPT_DIGEST,
+            "source_ref_prefix": "portal-catalog:",
+            "valid_seconds": "86400",
+        },
+        "client_certificate_file": "/run/job-client.pem",
+        "client_key_file": "/run/job-client-key.pem",
+        "publication": {
+            "key_file": "/run/publication.pem",
+            "key_id": "portal-read-publication-1",
+            "fingerprint": "c" * 64,
+            "not_after": "2026-09-24T12:00:00.000000Z",
+        },
+        "authority": {
+            "key_file": "/run/authority.pem",
+            "key_id": "human-authority-1",
+            "audience": "maezo-human",
+            "fingerprint": "b" * 64,
+            "not_after": "2026-09-24T12:00:00.000000Z",
+            "max_envelope_seconds": "30",
+        },
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_config(str(path))
+    assert config.authority.key_id == "human-authority-1"
+    assert config.authority.max_envelope_seconds == 30
+    assert config.publication.key_id == "portal-read-publication-1"
+    raw["authority"]["unknown"] = "x"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ProfileError):
+        load_config(str(path))

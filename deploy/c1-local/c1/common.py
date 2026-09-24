@@ -42,6 +42,8 @@ SESSION_LOCK_LOGIN = "portal_staff_lock_amh"
 WITNESS_LOGIN = "portal_staff_witness_amh"
 ISSUER_LOGIN = "maezo_native_case_issuer"
 ISSUER_WITNESS_LOGIN = "maezo_native_issuer_witness"
+# Prefixo da membership publicada pelo job T1.5: admissao T1.7a E entrada `identity_verifier` (F9).
+MEMBERSHIP_PREFIX = f"portal-identity:{TENANT}:"
 OBSERVER_LOGIN = "portal_read_source_amh"
 OWNER_LOGIN = "maezo_native_schema_owner"
 NATIVE_LOGINS = (OWNER_LOGIN, ISSUER_LOGIN, ISSUER_WITNESS_LOGIN, OBSERVER_LOGIN)

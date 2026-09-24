@@ -5,11 +5,11 @@
 2. dono nativo (`maezo_native_schema_owner`, TLS): `engine-native-install.sql`;
 3. dono de `amh` (`maezo_app`): `amh-native-source-grants.sql`.
 
+4. admin: `deploy/sql/portal-identity-lock.sql.tmpl` renderizado por `tools.staff_materials.lock_sql`
+   (variante D-D do lock de sessao e os logins do portal, com os verificadores de
+   `dba/role-verifiers.json` como GUC da sessao).
+
 Depois, o que o repo ainda NAO tem e o harness faz (pendencias listadas no README):
-* D3 a variante D-D de `portal_identity.lock_external_session` (plano T1.4 cita
-  `deploy/sql/portal-identity-lock.sql.tmpl`, que nao existe): o bloco canonico de
-  `external-case-schema-postgres.sql` com `public.` -> `amh.`, e os logins do portal
-  (`portal_staff_lock_amh`, `portal_staff_witness_amh`) com os verificadores de `dba/role-verifiers.json`;
 * D4 o witness do PORTAL sem grant em `mzo_portal_read_membership`/`mzo_human_principal` (o install so
   concede ao witness do emissor);
 * a linha `MZO_HUMAN_TENANT(amh,0)` (bootstrap explicito, comentario do proprio DDL).
@@ -20,11 +20,11 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import re
 from pathlib import Path
 
 import asyncpg
 from tools.staff_materials import scram
+from tools.staff_materials.lock_sql import render as render_lock_sql
 
 from maezo.portal.engine.profile import strict_loads
 
@@ -47,7 +47,6 @@ from .common import (
 )
 
 SQL = Path("/repo/deploy/sql")
-EXTERNAL = Path("/repo/src/maezo/portal/engine/java/src/main/resources/external-case-schema-postgres.sql")
 STAFF_OWNED = (
     "mzo_staff_case_designation_event mzo_staff_case_designation_current mzo_staff_case_source_event "
     "mzo_staff_case_source_head mzo_staff_case_publication_receipt mzo_staff_case_grant "
@@ -56,16 +55,6 @@ STAFF_OWNED = (
     "mzo_staff_case_policy_current mzo_staff_case_policy_dependency"
 ).split()
 PORTAL_PINNED = ("mzo_portal_read_membership", "mzo_human_principal")
-
-
-def _identity_block() -> str:
-    text = EXTERNAL.read_text(encoding="utf-8")
-    block = re.search(r"/\* BEGIN IDENTITY DATABASE INSTALLATION.*?\n\n(.*?)\nEND IDENTITY DATABASE INSTALLATION \*/", text, re.S)
-    assert block, "bloco canonico de identidade mudou de forma"
-    body = block.group(1).replace("public.portal_sessions", f"{TENANT}.portal_sessions")
-    body = body.replace("public.portal_memberships", f"{TENANT}.portal_memberships")
-    assert "public." not in body
-    return body
 
 
 async def _login(role: str) -> asyncpg.Connection:
@@ -109,36 +98,20 @@ async def main_async() -> None:
     finally:
         await app.close()
 
-    # D3/D4 (harness): identidade D-D e os dois logins do portal.
+    # Passo 4: o template D-D da T1.4, renderizado pela ferramenta (o bloco canonico cria o schema:
+    # roda uma vez por volume; `run.sh all` sempre parte do zero).
+    lock_sql = render_lock_sql(
+        tenant=TENANT, tenant_schema=TENANT, session_lock_login=SESSION_LOCK_LOGIN, witness_login=WITNESS_LOGIN
+    )
     su = await asyncpg.connect(admin_dsn(), ssl=ssl, timeout=10)
     try:
         if not await su.fetchval("SELECT to_regnamespace('portal_identity')"):
             async with su.transaction():
-                await su.execute(_identity_block())
-        for login in (SESSION_LOCK_LOGIN, WITNESS_LOGIN):
-            exists = await su.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login)
-            await su.execute(
-                f"{'ALTER' if exists else 'CREATE'} ROLE {login} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
-                f"NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD '{verifiers[login]}'"
-            )
-        await su.execute(f"GRANT USAGE ON SCHEMA portal_identity TO {SESSION_LOCK_LOGIN}")
-        await su.execute(f"GRANT EXECUTE ON FUNCTION portal_identity.lock_external_session(text) TO {SESSION_LOCK_LOGIN}")
-        await su.execute(
-            "INSERT INTO portal_identity.external_login_tenant VALUES($1,$2) ON CONFLICT DO NOTHING",
-            SESSION_LOCK_LOGIN,
-            TENANT,
-        )
+                for login in (SESSION_LOCK_LOGIN, WITNESS_LOGIN):
+                    await su.execute("SELECT set_config($1,$2,true)", f"maezo.verifier.{login}", verifiers[login])
+                await su.execute(lock_sql)
     finally:
         await su.close()
-    app = await asyncpg.connect(admin_dsn(user="maezo_app", password_file="maezo-app-password"), ssl=ssl, timeout=10)
-    try:
-        await app.execute(f"GRANT USAGE ON SCHEMA {TENANT} TO portal_external_identity_reader")
-        await app.execute(
-            f"GRANT SELECT, UPDATE(payload) ON {TENANT}.portal_sessions, {TENANT}.portal_memberships "
-            "TO portal_external_identity_reader"
-        )
-    finally:
-        await app.close()
     owner = await _login(OWNER_LOGIN)
     try:
         await owner.execute(f"GRANT USAGE ON SCHEMA {NATIVE_SCHEMA} TO {WITNESS_LOGIN}")
@@ -177,7 +150,7 @@ async def main_async() -> None:
         "db-native",
         roles_ok and not missing,
         f"roles.sql+install.sql+amh-grants ok; {relations} relacoes em {NATIVE_SCHEMA}; "
-        f"pins medidos (faltando: {missing or 'nenhum'}); D3/D4 aplicados",
+        f"pins medidos (faltando: {missing or 'nenhum'}); lock-sql (T1.4) e D4 aplicados",
     )
 
 

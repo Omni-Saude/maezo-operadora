@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Literal
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -29,8 +28,10 @@ from .read_credentials import (
 )
 from .read_profile import Requester
 
-#: The Q2 read plane signs with exactly one key for both of its purposes; the
-#: purposes remain distinct on the wire and are checked per acquisition.
+#: The two Q2 purposes. Each is signed by ITS OWN key and `key_id`: the engine's Q2 trust
+#: (`portal-read-trust.v1`) registers one key per purpose and refuses a key or `key_id` shared
+#: between purposes (F8 of C1). The portal holds only the read key (`portal-task-read`); the
+#: publication key lives with the publication job (`MaterialPublicationCredentials`).
 READ_PURPOSES = ("portal-task-read", "portal-read-publication")
 
 
@@ -116,21 +117,80 @@ class MaterialReadCredentials(ReadCredentialProvider):
         if (
             Scope.model_validate(scope) != self.scope
             or key_id != self._designation.key_id
-            or purpose not in READ_PURPOSES
+            # The read key never signs a publication (F8): that purpose has its own key.
+            or purpose != "portal-task-read"
         ):
             raise unavailable()
-        # Narrowed by the membership test above; the wire purpose is never free text.
-        wire_purpose: Literal["portal-task-read", "portal-read-publication"] = (
-            "portal-task-read" if purpose == "portal-task-read" else "portal-read-publication"
-        )
         return ReadSigningLease(
             scope=self.scope,
-            purpose=wire_purpose,
+            purpose="portal-task-read",
             requester=self._requester,
             audience=self._designation.audience,
             not_before=self._not_before,
             not_after=self._not_after,
             max_envelope_seconds=self._designation.max_envelope_seconds,
+            generation=1,
+            _key=self._key,
+            _live=self._lifetime.bounded(self._not_after),
+        )
+
+
+class MaterialPublicationCredentials(ReadCredentialProvider):
+    """The `portal-read-publication` signing lease, from the publication job's OWN key.
+
+    Scope, audience, envelope ceiling and window come from the attested human material; the key
+    and its `key_id` do not, and they must differ from the read key's: one key per purpose (F8).
+    """
+
+    def __init__(
+        self,
+        materials: HumanMaterials,
+        lifetime: MaterialLifetime,
+        *,
+        key: Ed25519PrivateKey,
+        key_id: str,
+        key_fingerprint: str,
+        not_after: datetime,
+    ) -> None:
+        manifest = materials.manifest
+        read = manifest.key("portal-task-read")
+        if (
+            not isinstance(key, Ed25519PrivateKey)
+            or fingerprint(key.public_key()) != key_fingerprint
+            or key_fingerprint in {k.fingerprint for k in manifest.keys}
+            or key_id in {k.key_id for k in manifest.keys}
+            or not_after.tzinfo is None
+        ):
+            raise unavailable()
+        self.scope = manifest.scope
+        self._key, self._key_id = key, key_id
+        self._audience, self._max = read.audience, read.max_envelope_seconds
+        self._lifetime = lifetime
+        self._requester = Requester(
+            issuer=manifest.scope.workload_ref,
+            key_id=key_id,
+            public_key_sha256=key_fingerprint,
+            peer_spki_sha256=manifest.read_surface.server_spki_sha256,
+        )
+        self._not_before = manifest.issued_at
+        self._not_after = min(materials.not_after, not_after)
+
+    async def acquire(self, scope: Scope, purpose: str, key_id: str) -> ReadSigningLease:
+        self._lifetime.check()
+        if (
+            Scope.model_validate(scope) != self.scope
+            or key_id != self._key_id
+            or purpose != "portal-read-publication"
+        ):
+            raise unavailable()
+        return ReadSigningLease(
+            scope=self.scope,
+            purpose="portal-read-publication",
+            requester=self._requester,
+            audience=self._audience,
+            not_before=self._not_before,
+            not_after=self._not_after,
+            max_envelope_seconds=self._max,
             generation=1,
             _key=self._key,
             _live=self._lifetime.bounded(self._not_after),

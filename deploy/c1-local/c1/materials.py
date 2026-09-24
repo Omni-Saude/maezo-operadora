@@ -5,30 +5,25 @@ aprovador (regra D-F): o C1 prova o encadeamento das ferramentas, nao a aprovaca
 
 Desvios do harness (cada um e uma pendencia medida, listada no README):
 * D1 `session-lock-ca.pem`/`native-witness-ca.pem`: o `generate` grava o bundle RDS pinado; aqui o
-  banco e local, entao os dois viram a CA local ANTES do `assemble` (que hasheia o que esta no disco);
-* D2 a designacao do `generate` nao traz a entrada `identity_verifier` PROPRIA do emissor
-  (`entry_ref=case-issuer-witness`, D-H.2), que `IssuerWitness` exige. O harness acrescenta essa
-  entrada (chave nova, login `maezo_native_issuer_witness`) ao rascunho e ao `summary.json` antes de
-  assinar. Sem isso a T1.6 nao roda com material da ferramenta.
+  banco e local, entao os dois viram a CA local ANTES do `assemble` (que hasheia o que esta no disco).
+
+A entrada `case-issuer-witness` (D-H.2) e a chave `issuer/issuer-witness-signing-key.pem` vem do
+proprio `generate` (F7); o `identity_verifier` designa o PREFIXO da membership publicada (F9).
 """
 
 from __future__ import annotations
 
-import base64
 import os
 from datetime import timedelta
 from pathlib import Path
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from tools.staff_materials import approver
 from tools.staff_materials.generate import generate
 from tools.staff_materials.spec import load_spec
 
-from maezo.gateway.external_cases.models import digest, instant, parse, timestamp
+from maezo.gateway.external_cases.models import instant, timestamp
 from maezo.gateway.staff_cases.authority import fingerprint
 from maezo.gateway.staff_cases.case_issuer import policy_ref_for
-from maezo.gateway.staff_cases.models import Designation
 from maezo.portal.engine.profile import strict_loads
 
 from .common import (
@@ -38,8 +33,8 @@ from .common import (
     ENVIRONMENT,
     INCARNATION,
     ISSUER_LOGIN,
-    ISSUER_WITNESS_LOGIN,
     MATERIALS,
+    MEMBERSHIP_PREFIX,
     NATIVE_HOSTNAME,
     PG_HOST,
     PGTLS,
@@ -77,7 +72,7 @@ def spec() -> dict:
         ),
         read_requester=dict(login_role="portal_staff_read_amh", source_namespace="portal", source_ref="portal-read"),
         identity_verifier=dict(
-            login_role=WITNESS_LOGIN, source_namespace="portal-identity", source_ref="membership-amh"
+            login_role=WITNESS_LOGIN, source_namespace="portal-identity", source_ref=MEMBERSHIP_PREFIX
         ),
         native_result=dict(login_role="cibseven_app", source_namespace="engine", source_ref="engine-result"),
         case_issuer=dict(
@@ -109,46 +104,8 @@ def main() -> None:
     for name in ("session-lock-ca.pem", "native-witness-ca.pem"):  # D1
         _replace(portal / name, ca)
 
-    # D2: a entrada `case-issuer-witness` que a T1.6 exige e o generate nao produz.
-    issuer_witness = Ed25519PrivateKey.generate()
     designation = strict_loads((portal / "designation.json").read_bytes())
-    public = issuer_witness.public_key().public_bytes(
-        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    # Inserida ANTES da entrada do portal: o `assemble` indexa as entradas por `role` (dict) e so
-    # confere a ultima `identity_verifier`; na ordem inversa ele recusa (F5 no README).
-    designation["entries"].insert(
-        0,
-        dict(
-            entry_ref="case-issuer-witness",
-            role="identity_verifier",
-            source_namespace="portal-identity",
-            source_ref="membership-amh",
-            key_fingerprint=fingerprint(issuer_witness.public_key()),
-            certificate_spki=None,
-            public_key=base64.b64encode(public).decode("ascii"),
-            login_role=ISSUER_WITNESS_LOGIN,
-            purposes=["membership_current"],
-            projections=[],
-            operations=[],
-            not_before=designation["entries"][0]["not_before"],
-            valid_until=designation["entries"][0]["valid_until"],
-        )
-    )
-    parse(Designation, jcs(designation))
-    _replace(portal / "designation.json", jcs(designation))
-    summary_path = MATERIALS / "public" / "summary.json"
-    summary = strict_loads(summary_path.read_bytes())
-    summary["designation_sha256"] = digest(designation)
-    _replace(summary_path, jcs(summary))
-    issuer = MATERIALS / "issuer"
-    os.chmod(issuer, 0o700)
-    write(
-        issuer / "issuer-witness-signing-key.pem",
-        issuer_witness.private_bytes(
-            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-        ),
-    )
+    summary = strict_loads((MATERIALS / "public" / "summary.json").read_bytes())
 
     # Raiz de TESTE (descartavel) e a assinatura da designacao, pelas funcoes do `approver`.
     approver.root_keygen(TEST_ROOT, passphrase=None, plaintext=True)
@@ -176,7 +133,7 @@ def main() -> None:
         "materials",
         True,
         f"generate={count} arquivos; raiz de TESTE {fingerprint(root.public_key())[:12]}; "
-        f"designacao {designation_digest[:12]} assinada (6 entradas, D2)",
+        f"designacao {designation_digest[:12]} assinada ({len(designation['entries'])} entradas)",
     )
 
 

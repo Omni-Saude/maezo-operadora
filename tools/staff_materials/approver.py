@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import base64
 import getpass
+import re
 import sys
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -36,7 +37,7 @@ from typing import Any
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from maezo.gateway.external_cases.models import Scope, digest, instant, now_utc, parse, revision, timestamp
+from maezo.gateway.external_cases.models import digest, instant, now_utc, parse, timestamp
 from maezo.gateway.staff_cases.authority import InstalledStaffAuthority, fingerprint
 from maezo.gateway.staff_cases.models import Designation, Proof
 from maezo.portal.engine.profile import canonicalize, strict_loads
@@ -168,11 +169,136 @@ def sign_designation(
     return signed
 
 
-def review_admission(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:
-    """Confere o que o plano §3.1 ja fixa do `portal-read-admission.v1`.
+ADMISSION_KEYS = frozenset(
+    {
+        "schema",
+        "admission_ref",
+        "admission_revision",
+        "scope",
+        "engine_name",
+        "database_incarnation",
+        "read_deployment_ref",
+        "read_deployment_digest",
+        "trust_configuration_digest",
+        "purposes",
+        "code_digests",
+        "continuity_keys",
+        "catalog",
+        "publishers",
+        "statement_timeout_seconds",
+        "observation_seconds",
+        "not_before",
+        "valid_until",
+    }
+)
+ADMISSION_PURPOSES = frozenset({"portal-task-read", "portal-read-publication"})
+ADMISSION_SOURCE_KINDS = frozenset({"membership", "catalog-designate"})
+_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}")
+_HASH = re.compile(r"[0-9a-f]{64}")
+_DECIMAL = re.compile(r"0|[1-9][0-9]{0,17}")
+_INSTANT = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{6}Z")
 
-    O shape fechado do registro e da T1.7a (ainda nao mergeada). Aqui se exige o que o plano fixa
-    e o resto e EXIBIDO campo a campo para o aprovador conferir contra as fontes da §4.
+
+def _closed(value: Any, keys: set[str] | frozenset[str]) -> dict[str, Any]:
+    if type(value) is not dict or set(value) != set(keys):
+        raise ValueError
+    return value
+
+
+def _ref(value: Any) -> str:
+    if type(value) is not str or not _REF.fullmatch(value):
+        raise ValueError
+    return value
+
+
+def _hash(value: Any) -> str:
+    if type(value) is not str or not _HASH.fullmatch(value):
+        raise ValueError
+    return value
+
+
+def _decimal(value: Any, low: int, high: int) -> int:
+    if type(value) is not str or not _DECIMAL.fullmatch(value) or not low <= int(value) <= high:
+        raise ValueError
+    return int(value)
+
+
+def _instant(value: Any) -> datetime:
+    if type(value) is not str or not _INSTANT.fullmatch(value) or instant(timestamp(value)) != value:
+        raise ValueError
+    return timestamp(value)
+
+
+def _admission_shape(value: Any) -> None:
+    """O shape FECHADO do `portal-read-admission.v1`, espelho de `AdmissionRecord.java` (T1.7a).
+
+    Qualquer registro que passe aqui o provedor le; qualquer um que o provedor recusaria e
+    recusado ANTES de o aprovador assinar (F6 do C1: a versao anterior exigia o Scope de 4 campos
+    e o provedor exige ``{tenant, environment, workload_ref}``).
+    """
+    record = _closed(value, ADMISSION_KEYS)
+    if record["schema"] != "portal-read-admission.v1":
+        raise ValueError
+    _ref(record["admission_ref"])
+    _decimal(record["admission_revision"], 1, 2**63 - 2)
+    for key in ("tenant", "environment", "workload_ref"):
+        _ref(_closed(record["scope"], {"tenant", "environment", "workload_ref"})[key])
+    for key in ("engine_name", "database_incarnation", "read_deployment_ref"):
+        _ref(record[key])
+    _hash(record["read_deployment_digest"])
+    _hash(record["trust_configuration_digest"])
+    purposes = record["purposes"]
+    if (
+        type(purposes) is not list
+        or not purposes
+        or len(set(purposes)) != len(purposes)
+        or not all(type(p) is str and p in ADMISSION_PURPOSES for p in purposes)
+    ):
+        raise ValueError
+    code = _closed(record["code_digests"], {"engine", "provider"})
+    _hash(code["engine"])
+    _hash(code["provider"])
+    keys = record["continuity_keys"]
+    if type(keys) is not list or not keys:
+        raise ValueError
+    key_ids, commitments = set(), set()
+    for item in keys:
+        key = _closed(item, {"key_id", "generation", "commitment", "not_before", "not_after"})
+        key_ids.add(_ref(key["key_id"]))
+        _decimal(key["generation"], 0, 2**63 - 2)
+        commitments.add(_hash(key["commitment"]))
+        if not _instant(key["not_before"]) < _instant(key["not_after"]):
+            raise ValueError
+    if len(key_ids) != len(keys) or len(commitments) != len(keys):
+        raise ValueError
+    catalog = _closed(record["catalog"], {"catalog_ref", "publisher_ref", "catalog_digest"})
+    _ref(catalog["catalog_ref"])
+    _ref(catalog["publisher_ref"])
+    _hash(catalog["catalog_digest"])
+    publishers = record["publishers"]
+    if type(publishers) is not list:
+        raise ValueError
+    kinds = set()
+    for item in publishers:
+        publisher = _closed(item, {"kind", "publisher_ref", "source_ref_prefix"})
+        if publisher["kind"] not in ADMISSION_SOURCE_KINDS or publisher["kind"] in kinds:
+            raise ValueError
+        kinds.add(publisher["kind"])
+        _ref(publisher["publisher_ref"])
+        # O prefixo termina num separador: `...:amh:` nunca admite `...:amhx:...`.
+        if not _ref(publisher["source_ref_prefix"]).endswith((":", "/")):
+            raise ValueError
+    _decimal(record["statement_timeout_seconds"], 1, 10)
+    _decimal(record["observation_seconds"], 60, 900)
+    start, end = _instant(record["not_before"]), _instant(record["valid_until"])
+    if not start < end or end - start > MAX_WINDOW:
+        raise ValueError
+
+
+def review_admission(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:
+    """Confere o registro `portal-read-admission.v1` contra o shape fechado da T1.7a.
+
+    O que passa e EXIBIDO campo a campo para o aprovador conferir contra as fontes da §4.
     """
     try:
         value = strict_loads(raw)
@@ -181,20 +307,9 @@ def review_admission(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:
     if type(value) is not dict or canonicalize(value) != raw:
         raise MaterialError("o registro de admissao precisa estar em JCS canonico")
     try:
-        if value.get("schema") != "portal-read-admission.v1":
-            raise ValueError
-        Scope.model_validate(value["scope"], strict=True)
-        start, end = timestamp(value["not_before"]), timestamp(value["valid_until"])
-        if not start < end or end - start > MAX_WINDOW or revision(value["admission_revision"]) < 1:
-            raise ValueError
-        if not 1 <= revision(value["statement_timeout_seconds"]) <= 10:
-            raise ValueError
-        if not 60 <= revision(value["observation_seconds"]) <= 900:
-            raise ValueError
-        if value.get("revoked", False) is not False:
-            raise ValueError
+        _admission_shape(value)
     except (KeyError, TypeError, ValueError):
-        raise MaterialError("registro de admissao fora do que o plano §3.1 fixa") from None
+        raise MaterialError("registro de admissao fora do shape fechado da T1.7a (AdmissionRecord)") from None
     lines = [f"{key}={canonicalize(value[key]).decode()}" for key in sorted(value)]
     return value, digest(value), lines
 

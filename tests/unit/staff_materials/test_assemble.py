@@ -15,6 +15,7 @@ from tools.staff_materials.secure_io import MaterialError
 from tools.staff_materials.spec import load_spec
 from tools.staff_materials.verify import verify_bundle
 
+from maezo.gateway.external_cases.models import digest
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
 from .conftest import (
@@ -48,7 +49,7 @@ def test_manifest_is_v2_with_schemas_operations_and_own_witness_key(
     assert m["schema"] == "portal-staff-material.v2"
     assert (m["native_schema"], m["engine_schema"]) == ("maezo_native", "cibseven")
     assert m["witness_key_fingerprint"] != m["read_key_fingerprint"]
-    entries = {e["role"]: e for e in strict_loads(assembled.files["designation.json"])["entries"]}
+    entries = {e["entry_ref"]: e for e in strict_loads(assembled.files["designation.json"])["entries"]}
     assert entries["read_requester"]["operations"] == ["detail", "list"]
     assert entries["identity_verifier"]["key_fingerprint"] == m["witness_key_fingerprint"]
     verify_bundle(bundle_bytes(assembled), settings(pins_for(assembled)))
@@ -70,6 +71,32 @@ def test_refuses_shared_witness_key(generated: Generated, now: datetime) -> None
     keys["identity_verifier"] = keys["read_requester"]
     with pytest.raises(MaterialError, match="D-H.2"):
         _run(generated, now, summary=dict(generated.summary, key_fingerprints=keys))
+
+
+@pytest.mark.parametrize("first", [True, False])
+def test_two_identity_verifiers_in_any_order_check_the_portal_entry(
+    generated: Generated, now: datetime, first: bool
+) -> None:
+    """F5 do C1: com a `case-issuer-witness` (D-H.2) o `assemble` conferia a ultima por papel."""
+    portal = {p.name: p.read_bytes() for p in (generated.directory / "portal").iterdir()}
+    designation = strict_loads(portal["designation.json"])
+    own = next(e for e in designation["entries"] if e["entry_ref"] == "case-issuer-witness")
+    rest = [e for e in designation["entries"] if e is not own]
+    designation["entries"] = [own, *rest] if first else [*rest, own]
+    portal["designation.json"] = canonicalize(designation)
+    summary = dict(generated.summary, designation_sha256=digest(designation))
+    manifest, _ = _run(generated, now, portal=portal, summary=summary)
+    assert manifest["witness_key_fingerprint"] == generated.summary["key_fingerprints"]["identity_verifier"]
+
+
+def test_refuses_without_the_issuer_witness_entry(generated: Generated, now: datetime) -> None:
+    portal = {p.name: p.read_bytes() for p in (generated.directory / "portal").iterdir()}
+    designation = strict_loads(portal["designation.json"])
+    designation["entries"] = [e for e in designation["entries"] if e["entry_ref"] != "case-issuer-witness"]
+    portal["designation.json"] = canonicalize(designation)
+    summary = dict(generated.summary, designation_sha256=digest(designation))
+    with pytest.raises(MaterialError, match="case-issuer-witness"):
+        _run(generated, now, portal=portal, summary=summary)
 
 
 @pytest.mark.parametrize(

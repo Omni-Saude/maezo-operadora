@@ -1,16 +1,16 @@
-"""Passo `engine-config`: o segredo `engine/native-materials` da Onda 4, montado localmente.
+"""Passo `engine-config`: o segredo `engine/native-materials` da Onda 4, pela ferramenta.
 
-Nenhum gerador do repo produz estes arquivos (D7 no README: a Onda 4 lista o segredo, a T1.3 so gera
-as chaves); o harness os monta com o material do `generate` e com a raiz de TESTE:
+`python -m tools.staff_materials native-secret` (a funcao `native_secret.build`) monta, da saida do
+`generate` e da raiz PUBLICA de TESTE: trusts (Q2 com uma chave por proposito, humano com o
+`human-authority` do job), `portal-read-provider.json`, `continuity-keys.json` e a composicao staff
+com o PKCS12 do AUTH. O harness so acrescenta:
 
-engine-native/  server.crt, server.key (do `generate`) e client-ca.p12 = CA de clientes do `generate`
-                + CA de clientes do job T1.5 (D5)
-engine-run/     trust.json (human-trust.v1, com a chave `human-authority` do job registrada),
-                portal-read-trust.json, portal-read-provider.json, continuity-keys.json,
-                observer-dsn.txt e staff/ (staff-deployment-composition.v1 + irmaos)
+engine-native/  client-ca.p12 = CA de clientes do `generate` + CA do pacote humano do job (D5, por
+                causa do D6)
+engine-run/     observer-dsn.txt
 banco           a admissao Q2 assinada pela raiz de TESTE (`approver.sign_admission`), a designacao
                 instalada (event + current) e a linha MZO_AUTH_INSTALLATION (D8: sem instalador AUTH)
-/c1/human-materials/current  o pacote humano do job (human_bundle.py)
+/c1/human-materials/current  o pacote humano do job (human_bundle.py, D6)
 """
 
 from __future__ import annotations
@@ -24,11 +24,10 @@ from urllib.parse import quote
 
 import asyncpg
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, pkcs12
-from cryptography.x509.oid import NameOID
-from tools.staff_materials import approver
+from tools.staff_materials import approver, native_secret
 
 from maezo.gateway.human.membership_publication_job import staff_catalog_artifact
 from maezo.portal.engine.profile import strict_loads
@@ -46,6 +45,7 @@ from .common import (
     ENVIRONMENT,
     INCARNATION,
     MATERIALS,
+    MEMBERSHIP_PREFIX,
     NATIVE_HOSTNAME,
     NATIVE_SCHEMA,
     OBSERVER_LOGIN,
@@ -76,34 +76,17 @@ READ_DEPLOYMENT_REF = "c1-read-deployment"
 READ_DEPLOYMENT_DIGEST = sha256(b"c1 read deployment")
 READ_AUDIENCE = "c1-engine-read"
 HUMAN_AUDIENCE = "c1-engine-human"
-MEMBERSHIP_PREFIX = f"portal-identity:{TENANT}:"
 CATALOG_PREFIX = f"staff-catalog:{TENANT}:"
 DEPLOYMENT_RECEIPT_REF = "c1-deployment-receipt"
 DEPLOYMENT_RECEIPT_DIGEST = sha256(b"c1 deployment receipt")
+PUBLICATION_KEY_ID = "c1-portal-read-publication"
+AUTHORITY_KEY_ID = "c1-human-authority"
 AUTH_SCOPE = dict(tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME, database_incarnation=INCARNATION,
                   installation_ref="c1-auth-installation", installation_revision="1")
 
 
 def _spki_b64(key: Ed25519PrivateKey) -> str:
     return b64(key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo))
-
-
-def _fp(key: Ed25519PrivateKey) -> str:
-    return sha256(key.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo))
-
-
-def _auth_p12(password: str) -> tuple[bytes, str]:
-    key = Ed25519PrivateKey.generate()
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "c1-auth-result")])
-    cert = (
-        x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
-        .serial_number(x509.random_serial_number()).not_valid_before(now() - timedelta(minutes=5))
-        .not_valid_after(now() + timedelta(days=2)).sign(key, None)
-    )
-    raw = pkcs12.serialize_key_and_certificates(
-        b"auth-result", key, cert, None, serialization.BestAvailableEncryption(password.encode())
-    )
-    return raw, sha256(cert.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo))
 
 
 def _code_digests() -> dict[str, str]:
@@ -131,24 +114,12 @@ async def main_async() -> None:
         catalog_ref=CATALOG_REF, publisher_ref=PORTAL_WORKLOAD,
         deployment_receipt_ref=DEPLOYMENT_RECEIPT_REF, deployment_receipt_digest=DEPLOYMENT_RECEIPT_DIGEST,
     )
-    job_ca = human_bundle.ClientCa.new("c1 job client CA (D5)", start, end)
+    # D5/D6: o pacote humano (D6) emite os certificados dele por esta CA; o truststore do 8443 a soma.
+    job_ca = human_bundle.ClientCa.new("c1 human bundle client CA (D6)", start, end)
     # O trust Q2 precisa da chave de leitura do pacote humano, que precisa da admissao (espelho):
     # gera o pacote em dois tempos com as chaves fixas.
     continuity = summary["continuity"]
     admission_times = (iso(start), iso(now() + timedelta(days=4)))
-
-    def trust_record(read_key_b64: str, read_key_id: str, peer: str) -> dict:
-        return dict(
-            schema="portal-read-trust.v1", scope=scope, engine_name=ENGINE_NAME, database_incarnation=INCARNATION,
-            audience=READ_AUDIENCE, read_deployment_ref=READ_DEPLOYMENT_REF,
-            read_deployment_digest=READ_DEPLOYMENT_DIGEST, validity_policy_ref="c1-validity",
-            validity_policy_digest=sha256(b"c1 validity"), max_envelope_seconds="60",
-            public_keys=[dict(
-                key_id=read_key_id, purpose="portal-read-publication", workload_ref=PORTAL_WORKLOAD,
-                peer_spki_sha256=peer, public_key_spki_base64=read_key_b64, not_before=iso(start),
-                not_after=iso(end), publication_kinds=["catalog-designate", "membership"], catalog_ref=CATALOG_REF,
-            )],
-        )
 
     def admission_record(trust_digest: str) -> dict:
         return dict(
@@ -184,98 +155,75 @@ async def main_async() -> None:
                        runtime_admission_generation="1", capability_digest="0" * 64, observed_at=iso(start),
                        valid_until=admission_times[1], provider_ref=ADMISSION_REF, provider_revision="1")
     bundle = human_bundle.build(admission=provisional, **common)
-    trust = trust_record(_spki_b64(bundle.read_key), bundle.key_ids["portal-task-read"], bundle.read_client_spki)
-    record = admission_record(sha256(jcs(trust)))
+    # O segredo nativo da Onda 4 sai da ferramenta (`native-secret`), com a chave de leitura e a de
+    # comando do pacote humano; publicacao e `human-authority` sao do job (`generate`, job/).
+    native_input = dict(
+        schema="staff-materials-native-secret.v1", scope=scope, engine_name=ENGINE_NAME,
+        database_incarnation=INCARNATION, not_before=iso(start), not_after=iso(end),
+        read_trust=dict(
+            audience=READ_AUDIENCE, read_deployment_ref=READ_DEPLOYMENT_REF,
+            read_deployment_digest=READ_DEPLOYMENT_DIGEST, validity_policy_ref="c1-validity",
+            validity_policy_digest=sha256(b"c1 validity"), max_envelope_seconds="60", catalog_ref=CATALOG_REF,
+            portal_read_key=dict(key_id=bundle.key_ids["portal-task-read"], workload_ref=PORTAL_WORKLOAD,
+                                 public_key_spki_base64=_spki_b64(bundle.read_key),
+                                 peer_spki_sha256=bundle.read_client_spki),
+            publication_key_id=PUBLICATION_KEY_ID,
+        ),
+        human_trust=dict(
+            audience=HUMAN_AUDIENCE, max_lifetime_seconds="60",
+            command_key=dict(key_id="c1-human-command", workload_ref=PORTAL_WORKLOAD + "-command",
+                             public_key_spki_base64=_spki_b64(bundle.command_key),
+                             peer_spki_sha256=bundle.command_client_spki),
+            authority_key_id=AUTHORITY_KEY_ID,
+        ),
+        provider=dict(
+            admission_ref=ADMISSION_REF, minimum_admission_revision="1", native_schema=NATIVE_SCHEMA,
+            admission_table=dict(oid=pins["mzo_portal_read_admission"]["oid"],
+                                 owner=pins["mzo_portal_read_admission"]["owner"]),
+            continuity_keys_file="/run/maezo/c1/continuity-keys.json", continuity_generation="1",
+            membership_source=dict(dsn_file="/run/maezo/c1/observer-dsn.txt", ca_file="/run/maezo/c1/pg-ca.pem",
+                                   source_schema=TENANT, publisher_ref=PORTAL_WORKLOAD),
+        ),
+        staff=dict(
+            auth_scope=AUTH_SCOPE, native_role="cibseven_app", native_schema=NATIVE_SCHEMA,
+            engine_schema=ENGINE_SCHEMA,
+            relation_pins={t: dict(oid=pins[t]["oid"], owner=pins[t]["owner"]) for t in STAFF_OWNED},
+            maximum_seconds="10", catalog_ref=CATALOG_REF, catalog_publisher_ref=PORTAL_WORKLOAD,
+            auth=dict(audience="c1-engine-auth", max_lifetime_seconds="60", timeout_seconds="5",
+                      alias="auth-result", key_id="c1-auth-result-1", issuer="c1-engine"),
+        ),
+    )
+    native_files, native_public = native_secret.build(
+        MATERIALS, root_spki, native_secret.load_input(jcs(native_input))
+    )
+    native_secret.write(ROOT / "native-secret", native_files, native_public)
+    record = admission_record(native_public["trust_configuration_digest"])
     record_raw = jcs(record)
-    # D9: `approver.sign-admission` valida `scope` como o Scope de 4 campos (tenant, environment,
-    # engine_name, database_incarnation), e a T1.7a exige {tenant, environment, workload_ref}: a
-    # ferramenta recusa toda admissao valida. Medido aqui; o harness assina no MESMO dominio.
-    try:
-        approver.review_admission(record_raw)
-        sign_admission_ok = True
-    except Exception:
-        sign_admission_ok = False
-    signature = root.sign(approver.ADMISSION_DOMAIN + record_raw)
+    # A admissao Q2 passa pela revisao e pela assinatura do proprio `approver` (F6 corrigido).
+    _, shown, _ = approver.review_admission(record_raw)
+    signature = base64.b64decode(approver.sign_admission(record_raw, root, confirm_digest=shown))
     # 2a passada: o espelho exato do que o engine vai devolver (geracao = revisao = 1).
     mirrored = dict(provisional, capability_digest=sha256(record_raw))
     # Mesmas chaves: reescreve SO o read-admission; o pacote e remontado com as chaves da 1a passada.
     bundle = _rebuild(bundle, mirrored, common)
 
-    # --- trust.json (human-trust.v1) -----------------------------------------------------------
-    authority_key = Ed25519PrivateKey.generate()
-    epoch = lambda d: str(int(d.timestamp()))  # noqa: E731
-    human_trust = dict(
-        schema="human-trust.v1", tenant=TENANT, audience=HUMAN_AUDIENCE, engine_name=ENGINE_NAME,
-        max_lifetime_seconds="60", enable_synthetic_fixture=False,
-        keys=[
-            dict(id="c1-human-command", purpose="human-command", workload=PORTAL_WORKLOAD + "-command",
-                 peer_spki_sha256=bundle.command_client_spki, public_key_spki_base64=_spki_b64(bundle.command_key),
-                 not_before=epoch(start), not_after=epoch(end)),
-            # Pendencia #499 "chave human-authority no trust do engine": registrada aqui, para o peer TLS do job.
-            dict(id="c1-human-authority", purpose="human-authority", workload=PORTAL_WORKLOAD,
-                 peer_spki_sha256=bundle.read_client_spki, public_key_spki_base64=_spki_b64(authority_key),
-                 not_before=epoch(start), not_after=epoch(end)),
-        ],
-    )
-
-    # --- arquivos do engine --------------------------------------------------------------------
-    write(ENGINE_NATIVE / "server.crt", (engine_dir / "native-server-certificate.pem").read_bytes(), 0o444)
-    write(ENGINE_NATIVE / "server.key", (engine_dir / "native-server-key.pem").read_bytes(), 0o400)
+    # --- arquivos do engine: os do `native-secret`, com o truststore somando a CA do pacote humano (D6)
+    for name, raw in native_files.items():
+        if name == "engine-native/client-ca.p12":
+            continue
+        base = ENGINE_NATIVE if name.startswith("engine-native/") else ENGINE_RUN
+        target = base / name.split("/", 1)[1]
+        target.parent.mkdir(mode=0o755, exist_ok=True)
+        os.chmod(target.parent, 0o755)
+        write(target, raw, 0o400 if name in native_secret.PRIVATE_OUTPUT else 0o444)
     generate_client_ca = x509.load_pem_x509_certificate((engine_dir / "native-client-ca.pem").read_bytes())
     write(ENGINE_NATIVE / "client-ca.p12", pkcs12.serialize_java_truststore(
         [pkcs12.PKCS12Certificate(generate_client_ca, b"maezo-native-client-ca"),
-         pkcs12.PKCS12Certificate(job_ca.certificate, b"c1-job-client-ca")],
+         pkcs12.PKCS12Certificate(job_ca.certificate, b"c1-human-bundle-client-ca")],
         serialization.NoEncryption()), 0o444)
-    write(ENGINE_RUN / "trust.json", jcs(human_trust), 0o444)
-    write(ENGINE_RUN / "portal-read-trust.json", jcs(trust), 0o444)
-    continuity_key = (engine_dir / "portal-read-continuity-key.bin").read_bytes()
-    write(ENGINE_RUN / "continuity-keys.json", jcs(dict(
-        schema="portal-read-continuity-keys.v1",
-        keys=[dict(key_id=continuity["key_ref"], generation="1", secret_base64=b64(continuity_key),
-                   not_before=iso(start), not_after=iso(end))])), 0o400)
     write(ENGINE_RUN / "observer-dsn.txt",
           f"postgresql://{OBSERVER_LOGIN}:{quote(observer_password, safe='')}@{PG_HOST}:5432/{DATABASE}", 0o400)
-    write(ENGINE_RUN / "portal-read-provider.json", jcs(dict(
-        schema="portal-read-provider.v1", root_public_key_spki_base64=b64(root_spki),
-        root_public_key_sha256=sha256(root_spki), admission_ref=ADMISSION_REF, minimum_admission_revision="1",
-        datasource_jndi="java:jdbc/ProcessEngine", native_schema=NATIVE_SCHEMA,
-        admission_table_oid=pins["mzo_portal_read_admission"]["oid"],
-        admission_table_owner=pins["mzo_portal_read_admission"]["owner"],
-        continuity_keys_file="/run/maezo/c1/continuity-keys.json",
-        membership_source=dict(dsn_file="/run/maezo/c1/observer-dsn.txt", ca_file="/run/maezo/c1/pg-ca.pem",
-                               source_schema=TENANT, publisher_ref=PORTAL_WORKLOAD))), 0o444)
-
-    # --- composicao staff (staff-deployment-composition.v1) ------------------------------------
-    staff = ENGINE_RUN / "staff"
-    staff.mkdir(mode=0o755, exist_ok=True)
-    os.chmod(staff, 0o755)
-    result_key = serialization.load_pem_private_key((engine_dir / "native-result-signing-key.pem").read_bytes(), None)
-    assert isinstance(result_key, Ed25519PrivateKey)
-    write(staff / "native-result.pk8", result_key.private_bytes(
-        Encoding.DER, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()), 0o400)
-    auth_password = base64.b32encode(os.urandom(20)).decode().rstrip("=")
-    p12, auth_spki = _auth_p12(auth_password)
-    write(staff / "auth-signing.p12", p12, 0o400)
-    write(staff / "auth-signing.password", auth_password, 0o400)
-    relation_pins = {t: dict(oid=pins[t]["oid"], owner=pins[t]["owner"]) for t in STAFF_OWNED}
-    configuration = dict(
-        schema="staff-case-native-configuration.v2", auth_scope=AUTH_SCOPE, designation_digest=designation_digest,
-        root_key_fingerprint=sha256(root_spki), result_key_fingerprint=_fp(result_key), native_role="cibseven_app",
-        native_schema=NATIVE_SCHEMA, engine_schema=ENGINE_SCHEMA, relation_pins=relation_pins, maximum_seconds="10",
-    )
-    configuration_digest = sha256(jcs(configuration))  # = StaffCaseInstallation.Configuration.digest()
-    anchor = dict(scope=scope, catalog_ref=CATALOG_REF, publisher_ref=PORTAL_WORKLOAD)
-    composition = dict(
-        schema="staff-deployment-composition.v1", auth_scope=AUTH_SCOPE, designation_digest=designation_digest,
-        root_public_key=b64(root_spki), result_public_key=_spki_b64(result_key),
-        result_private_key_file="native-result.pk8", native_role="cibseven_app", native_schema=NATIVE_SCHEMA,
-        engine_schema=ENGINE_SCHEMA, relation_pins=relation_pins, maximum_seconds="10", catalog_anchor=anchor,
-        auth=dict(audience="c1-engine-auth", max_lifetime_seconds="60", timeout_seconds="5",
-                  signing_pkcs12_file="auth-signing.p12", signing_password_file="auth-signing.password",
-                  alias="auth-result", key_id="c1-auth-result-1", issuer="c1-engine", signing_spki_sha256=auth_spki),
-        configuration_digest=configuration_digest,
-    )
-    write(staff / "staff-composition.json", jcs(composition), 0o444)
+    configuration_digest = native_public["staff_native_configuration_digest"]
 
     # --- banco: admissao, designacao instalada, instalacao AUTH (D8) ---------------------------
     designation_raw = (MATERIALS / "portal" / "designation.json").read_bytes()
@@ -329,15 +277,14 @@ async def main_async() -> None:
     save_state("engine", dict(
         human_manifest_sha256=bundle.manifest_sha256, human_version=bundle.manifest.material_version_id,
         configuration_digest=configuration_digest, admission_digest=sha256(record_raw),
-        authority_fingerprint=_fp(authority_key), catalog_digest=sha256(catalog_raw),
+        authority_fingerprint=summary["job_key_fingerprints"]["human-authority"],
+        publication_fingerprint=summary["job_key_fingerprints"]["portal-read-publication"],
+        catalog_digest=sha256(catalog_raw),
         read_key_id=bundle.key_ids["portal-task-read"],
     ))
-    write(STATE / "authority-key.pem", authority_key.private_bytes(
-        Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()), 0o400)
     step("engine-config", True,
          f"trust/Q2 trust/provider/composicao montados; admissao {sha256(record_raw)[:12]} assinada pela raiz de TESTE; "
-         f"configuration_digest {configuration_digest[:12]}; designacao e AUTH instaladas; "
-         f"approver.sign-admission aceita o registro T1.7a: {sign_admission_ok}")
+         f"configuration_digest {configuration_digest[:12]}; designacao e AUTH instaladas")
 
 
 def _rebuild(first: human_bundle.HumanBundle, admission: dict, common: dict) -> human_bundle.HumanBundle:

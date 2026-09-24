@@ -48,8 +48,12 @@ PRIVATE = {
     "engine/native-result-signing-key.pem",
     "engine/portal-read-continuity-key.bin",
     "issuer/case-issuer-signing-key.pem",
+    "issuer/issuer-witness-signing-key.pem",
     "issuer/publication-importer-signing-key.pem",
     "issuer/publication-importer-client-key.pem",
+    "job/job-client-key.pem",
+    "job/publication-signing-key.pem",
+    "job/authority-signing-key.pem",
     "dba/role-verifiers.json",
 }
 
@@ -100,13 +104,14 @@ def test_designation_draft_binds_every_generated_key_and_is_unsigned(generated: 
     raw = (generated.directory / "portal/designation.json").read_bytes()
     designation = parse(Designation, raw)
     assert digest(designation.wire()) == generated.summary["designation_sha256"]
-    entries: dict[str, DesignationEntry] = {e.role: e for e in designation.entries}
+    entries: dict[str, DesignationEntry] = {e.entry_ref: e for e in designation.entries}
     on_disk = {
         "read_requester": "portal/read-signing-key.pem",
         "identity_verifier": "portal/witness-signing-key.pem",
         "native_result": "engine/native-result-signing-key.pem",
         "case_issuer": "issuer/case-issuer-signing-key.pem",
         "publication_importer": "issuer/publication-importer-signing-key.pem",
+        "case-issuer-witness": "issuer/issuer-witness-signing-key.pem",
     }
     assert set(entries) == set(on_disk)
     for role, path in on_disk.items():
@@ -117,7 +122,7 @@ def test_designation_draft_binds_every_generated_key_and_is_unsigned(generated: 
     ):
         cert = x509.load_pem_x509_certificate((generated.directory / path).read_bytes())
         assert entries[role].certificate_spki == spki_sha256(cert)
-    for role in ("identity_verifier", "native_result", "case_issuer"):
+    for role in ("identity_verifier", "native_result", "case_issuer", "case-issuer-witness"):
         assert entries[role].certificate_spki is None
     # Rascunho: nenhum campo de prova/assinatura existe na designacao.
     assert b"signature" not in raw and b"proof" not in raw
@@ -125,7 +130,7 @@ def test_designation_draft_binds_every_generated_key_and_is_unsigned(generated: 
 
 def test_capabilities_follow_the_loader_and_the_onda7_restriction(generated: Generated) -> None:
     designation = parse(Designation, (generated.directory / "portal/designation.json").read_bytes())
-    entries = {e.role: e for e in designation.entries}
+    entries = {e.entry_ref: e for e in designation.entries}
     read = entries["read_requester"]
     # `materials.py`: operations == ("detail", "list") e as tres projecoes (D-H.4).
     assert read.operations == ("detail", "list")
@@ -136,6 +141,29 @@ def test_capabilities_follow_the_loader_and_the_onda7_restriction(generated: Gen
     assert issuer.operations == ("detail", "list")
     assert entries["identity_verifier"].login_role == "portal_native_witness"
     assert entries["publication_importer"].source_ref == issuer.source_ref
+    # D-H.2 (F7 do C1): o witness PROPRIO do emissor, mesma fonte do portal, chave e login dele.
+    own = entries["case-issuer-witness"]
+    portal = entries["identity_verifier"]
+    assert own.role == "identity_verifier" and tuple(own.purposes) == ("membership_current",)
+    assert own.login_role == "maezo_native_issuer_witness"
+    assert (own.source_namespace, own.source_ref) == (portal.source_namespace, portal.source_ref)
+    assert own.key_fingerprint != portal.key_fingerprint
+    assert generated.summary["key_fingerprints"]["case_issuer_witness"] == own.key_fingerprint
+
+
+def test_membership_source_is_a_separator_terminated_prefix(now: datetime) -> None:
+    """F9 do C1: a membership publicada e `prefixo + principal_ref`; a designacao guarda o prefixo."""
+    value = spec_value(now)
+    value["identity_verifier"]["source_ref"] = "portal-identity:amh"
+    with pytest.raises(MaterialError, match="prefixo"):
+        load_spec(spec_bytes(value))
+
+
+def test_issuer_witness_login_cannot_repeat_another_role(now: datetime) -> None:
+    value = spec_value(now)
+    value["native_result"]["login_role"] = "maezo_native_issuer_witness"
+    with pytest.raises(MaterialError, match="login proprio"):
+        load_spec(spec_bytes(value))
 
 
 def test_dsns_are_accepted_by_the_loader_codec_and_carry_the_scram_password(
@@ -272,3 +300,22 @@ def test_output_must_be_new_and_outside_the_repository(now: datetime, tmp_path: 
     assert not (REPO / "tmp-materials-should-never-exist").exists()
     with pytest.raises(MaterialError, match="absoluto"):
         generate(spec, Path("relative-out"))
+
+
+def test_job_has_its_own_client_certificate_and_one_key_per_purpose(generated: Generated) -> None:
+    """F7/F8 do C1: o job T1.5 nao usa o certificado nem a chave de leitura do portal."""
+    job = generated.directory / "job"
+    certificate = x509.load_pem_x509_certificate((job / "job-client-certificate.pem").read_bytes())
+    assert spki_sha256(certificate) == generated.summary["client_certificate_spki_sha256"]["publication_job"]
+    ca = x509.load_pem_x509_certificate((generated.directory / "engine/native-client-ca.pem").read_bytes())
+    assert certificate.issuer == ca.subject
+    assert len(set(generated.summary["client_certificate_spki_sha256"].values())) == 3
+    keys = generated.summary["job_key_fingerprints"]
+    assert set(keys) == {"portal-read-publication", "human-authority"}
+    for purpose, name in (
+        ("portal-read-publication", "publication-signing-key.pem"),
+        ("human-authority", "authority-signing-key.pem"),
+    ):
+        assert keys[purpose] == fingerprint(_key(job / name).public_key())
+    everything = set(keys.values()) | set(generated.summary["key_fingerprints"].values())
+    assert len(everything) == len(keys) + len(generated.summary["key_fingerprints"])
