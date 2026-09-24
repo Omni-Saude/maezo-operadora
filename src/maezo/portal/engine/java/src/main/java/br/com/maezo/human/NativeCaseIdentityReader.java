@@ -47,9 +47,22 @@ final class NativeCaseIdentityReader {
         "definition_claim_digest",hash(definition));
   }
 
+  /**
+   * T1.11 (D-K): the upstream key of an AUTH case is the TISS guide number, the same component the case issuer reads from
+   * `ESC-{tenant}-sla-auth-{numero_guia_tiss}`. The claim keeps the opaque guide ref, so the number is recovered from the
+   * instance business key the start composed (`AUTH-{tenant}-{numero}`) and re-composed to prove it round-trips.
+   */
+  static String guideNumber(Map<String,Object> claim,Map<String,Object> row) {
+    Object key=row.get("historic_business_key");String tenant=str(claim,"tenant_");
+    String prefix=AuthBusinessKeys.PREFIX+tenant+"-";
+    if(!(key instanceof String bk)||!bk.startsWith(prefix))throw unavailable();
+    String number=bk.substring(prefix.length());
+    if(!AuthModels.GUIDE_NUMBER.matcher(number).matches()||!AuthBusinessKeys.auth(tenant,number).equals(bk))throw unavailable();
+    return number;
+  }
   static Map<String,Object> fromClaim(Map<String,Object> claim,Map<String,Object> definition,
       Map<String,Object> row) {
-    var identity = record("upstream_resource_key",claim.get("guide_"),"case_ref",claim.get("case_"),
+    var identity = record("upstream_resource_key",guideNumber(claim,row),"case_ref",claim.get("case_"),
       "process_instance_ref",claim.get("instance_"),"process_definition_id",definition.get("definition_id"),
       "process_definition_key",definition.get("process_key"),"process_definition_version",
       Long.toString(ExternalCaseStore.numberColumn(row,"definition_version")),

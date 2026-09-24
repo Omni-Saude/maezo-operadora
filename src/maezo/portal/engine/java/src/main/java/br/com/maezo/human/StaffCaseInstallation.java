@@ -79,9 +79,20 @@ public final class StaffCaseInstallation {
   void fresh(Map<String,Object> value,String from,String to){Instant a=time(value.get(from)),b=time(value.get(to)),now=current();
     if(a.isAfter(now)||!now.isBefore(b)||!a.isBefore(b))throw unavailable();ceilings.add(b);}
   void retain(Instant end){ceilings.add(end);current();}
+  /**
+   * C1 F9: the identity_verifier entry designates the membership source by PREFIX (the published
+   * membership carries source_ref = prefix + principal_ref), same rule as T1.7a: the prefix must
+   * end in ':' or '/' and be strictly shorter, so "amh:" never matches "amhx:...". Every other
+   * role keeps the exact match.
+   */
+  static boolean sourceMatches(String role,Object designated,String actual){
+    if(!(designated instanceof String d)||actual==null)return false;
+    if(!"identity_verifier".equals(role))return d.equals(actual);
+    return (d.endsWith(":")||d.endsWith("/"))&&actual.length()>d.length()&&actual.startsWith(d);
+  }
   Map<String,Object> entry(String fingerprint,String role,String purpose,String source,String namespace){
     var e=entries.get(fingerprint);if(e==null||!role.equals(e.get("role"))||!list(e.get("purposes")).contains(purpose)
-        ||store.revoked(fingerprint)||source!=null&&!source.equals(e.get("source_ref"))
+        ||store.revoked(fingerprint)||source!=null&&!sourceMatches(role,e.get("source_ref"),source)
         ||namespace!=null&&!namespace.equals(e.get("source_namespace")))throw denied();
     fresh(e,"not_before","valid_until");usedKeys.add(fingerprint);return e;
   }
@@ -138,7 +149,7 @@ public final class StaffCaseInstallation {
     var heads=new HashMap<String,Map<String,Object>>();for(var pin:pins){var head=obj(pin,"head");policy(head);heads.put(str(head,"policy_ref"),head);}
     var subject=principal.containsKey("audience")?AuthModels.validate("actor",principal):StaffCaseModels.actor(principal);
     if(!"staff".equals(subject.get("audience")))throw denied();
-    var fields=new HashMap<String,Set<String>>();
+    var fields=new HashMap<String,Set<String>>();var slots=new HashSet<String>();
     for(Object value:list(grant.get("decisions"))){var d=shape("decision",value);String projection=str(d,"projection");
       var head=heads.get(str(d,"policy_ref"));if(head==null||!"active".equals(d.get("state"))
         ||!d.get("membership_revision").equals(principal.get("membership_revision"))||!d.get("subject_identity_digest").equals(hash(subject))
@@ -149,7 +160,13 @@ public final class StaffCaseInstallation {
       if((operation==null||operation.equals(d.get("operation")))&&d.get("resource_identity_digest").equals(hash(identity))){
         var fs=new HashSet<String>();for(Object f:list(d.get("fields")))fs.add((String)f);
         if(projection.equals("staff_current_task.v1"))fs.remove("created_at");
-        if(fields.put(projection,Set.copyOf(fs))!=null)throw denied();
+        // Publication-time check (operation==null) sees every operation: the issuer grants staff_summary.v1 for BOTH
+        // detail and list (case_issuer.DECISIONS), so uniqueness is per (operation, projection) there — measured in C1.
+        if(!slots.add(operation==null?d.get("operation")+"/"+projection:projection))throw denied();
+        fields.put(projection,Set.copyOf(fs));
+      }else if(d.get("resource_identity_digest").equals(hash(identity))){
+        // Same resource, another operation's decision of the SAME signed grant (issuer grants detail AND list):
+        // verified above, simply not used by this operation.
       }else if(!projection.equals("staff_current_task.v1")||!list(d.get("fields")).contains("created_at"))throw denied();
     }
     var required=operation==null?List.<String>of():operation.equals("list")?List.of("staff_summary.v1"):List.of("staff_summary.v1","staff_identity.v1");

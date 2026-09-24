@@ -16,6 +16,13 @@ from maezo.portal.contracts.models import HumanPrincipal, OpaqueRef, Sha256Diges
 from .read_profile import ArtifactPin, Closed, MembershipProjection, SourceProvenance, digest
 
 N = Annotated[int, Field(ge=0, le=2**63 - 1)]
+# Numero da guia TISS (`numeroGuiaPrestador`, st_texto20): o componente da business key
+# `AUTH-{tenant}-{numero_guia_tiss}` (T1.11, D-K). O mesmo padrao e' conferido pelo engine
+# (`AuthModels.GUIDE_NUMBER`) e o vetor compartilhado prova a paridade dos dois lados.
+GUIDE_NUMBER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,19}$"
+NumeroGuiaTiss = Annotated[
+    str, StringConstraints(strict=True, min_length=1, max_length=20, pattern=GUIDE_NUMBER_PATTERN)
+]
 EngineId = Annotated[
     str, StringConstraints(strict=True, min_length=1, max_length=512, pattern=r"^[^\x00-\x1f\x7f/?#]+$")
 ]
@@ -184,6 +191,7 @@ class GuideIdentity(Closed):
     source_ref: OpaqueRef
     namespace_ref: OpaqueRef
     source_guide_ref: OpaqueRef = Field(repr=False)
+    numero_guia_tiss: NumeroGuiaTiss = Field(repr=False)
     cutover_ref: OpaqueRef
     cutover_revision: N
     legacy_state: Literal["absent_at_cutover", "existing", "ambiguous", "unreconciled"]

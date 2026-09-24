@@ -22,6 +22,7 @@ from maezo.gateway.human.membership_publication_job import (
     RefusingRevocationSource,
     StaffCatalogConfig,
     StaffCatalogPublicationSource,
+    load_config,
     main,
     staff_catalog_artifact,
 )
@@ -36,7 +37,7 @@ from maezo.gateway.human.read_profile import (
 from maezo.gateway.human.read_publisher import PostgresMembershipPublicationSource, PublicationReceipt
 from maezo.portal.api.postgres import PostgresIdentityStore
 from maezo.portal.api.records import MembershipRecord
-from maezo.portal.engine.profile import canonicalize
+from maezo.portal.engine.profile import ProfileError, canonicalize
 
 VECTOR = Path(__file__).resolve().parents[3] / "fixtures" / "portal_read" / "jcs-membership-vector.json"
 NOW = datetime(2026, 9, 23, 12, tzinfo=UTC)
@@ -483,3 +484,136 @@ def test_job_refuses_without_workload(tmp_path):
             engine=None,  # type: ignore[arg-type]
             workload_ref="",
         )
+
+
+def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> None:
+    """F3 (C1): `authority` was a forward reference the profile decoder never resolved."""
+    raw = {
+        "schema": "portal-membership-publication-job.v1",
+        "tenant": "amh",
+        "identity_dsn_file": "/run/dsn",
+        "ledger_file": "/run/ledger.json",
+        "membership_source_ref_prefix": "portal-membership:",
+        "observation_seconds": "600",
+        "catalog": {
+            "catalog_ref": "catalog-staff",
+            "catalog_revision": "1",
+            "admitted_catalog_digest": "a" * 64,
+            "deployment_receipt_ref": "receipt-1",
+            "deployment_receipt_digest": RECEIPT_DIGEST,
+            "source_ref_prefix": "portal-catalog:",
+            "valid_seconds": "86400",
+        },
+        "client_certificate_file": "/run/job-client.pem",
+        "client_key_file": "/run/job-client-key.pem",
+        "publication": {
+            "key_file": "/run/publication.pem",
+            "key_id": "portal-read-publication-1",
+            "fingerprint": "c" * 64,
+            "not_after": "2026-09-24T12:00:00.000000Z",
+        },
+        "authority": {
+            "key_file": "/run/authority.pem",
+            "key_id": "human-authority-1",
+            "audience": "maezo-human",
+            "fingerprint": "b" * 64,
+            "not_after": "2026-09-24T12:00:00.000000Z",
+            "max_envelope_seconds": "30",
+        },
+    }
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_config(str(path))
+    assert config.authority.key_id == "human-authority-1"
+    assert config.authority.max_envelope_seconds == 30
+    assert config.publication.key_id == "portal-read-publication-1"
+    raw["authority"]["unknown"] = "x"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(ProfileError):
+        load_config(str(path))
+
+
+# --- renewal before the source expires (the 503 after 10 min) -----------------------------
+
+
+def _clocked_job(
+    rows: RowStore, publisher: FakePublisher, path: Path, clock, *, seconds=600, catalog_seconds=3600
+):
+    job = MembershipPublicationJob(
+        publisher=publisher,
+        ledger=PublicationLedger(path, "amh"),
+        catalog=StaffCatalogPublicationSource(
+            config=_catalog_config(valid_seconds=catalog_seconds), publisher_ref=PUBLISHER, clock=clock
+        ),
+        handshake=_handshake(rows.store, clock=clock, seconds=seconds),
+        store=rows.store,
+        engine=None,  # type: ignore[arg-type]
+        workload_ref=PUBLISHER,
+        clock=clock,
+    )
+    job._principals = AsyncMock(side_effect=lambda: sorted(rows.rows))  # type: ignore[method-assign]
+    return job
+
+
+def _live_record(name: str) -> MembershipRecord:
+    return _record(name, reviewed_until=NOW + timedelta(days=30), revoked=False)
+
+
+@pytest.mark.asyncio
+async def test_unchanged_membership_is_renewed_once_half_its_validity_is_gone(tmp_path):
+    clock, rows, publisher, path = Clock(), RowStore(_live_record("a")), FakePublisher(), tmp_path / "l.json"
+    first = await _clocked_job(rows, publisher, path, clock).run()
+    assert first.memberships_published == 1
+    clock.now = NOW + timedelta(seconds=299)  # first half: idempotent by content
+    assert (await _clocked_job(rows, publisher, path, clock).run()).memberships_unchanged == 1
+    clock.now = NOW + timedelta(seconds=300)  # half gone: renew the SAME revision/digest
+    renewed = await _clocked_job(rows, publisher, path, clock).run()
+    assert (renewed.memberships_published, renewed.principals_published) == (1, 0)
+    assert publisher.calls[-1] == ("membership", "subject-a")
+    entry = PublicationLedger(path, "amh").entry("membership", "portal-identity:amh:membership:principal-a")
+    assert entry is not None and entry.valid_until == NOW + timedelta(seconds=900)
+    clock.now = NOW + timedelta(seconds=599)  # the renewed window is fresh again
+    assert (await _clocked_job(rows, publisher, path, clock).run()).memberships_published == 0
+
+
+@pytest.mark.asyncio
+async def test_a_five_minute_cadence_never_lets_the_source_expire(tmp_path):
+    clock, rows, publisher, path = Clock(), RowStore(_live_record("a")), FakePublisher(), tmp_path / "l.json"
+    ledger_ref = "portal-identity:amh:membership:principal-a"
+    for minute in range(0, 61, 5):
+        clock.now = NOW + timedelta(minutes=minute, seconds=7)  # jitter of the scheduler
+        await _clocked_job(rows, publisher, path, clock).run()
+        entry = PublicationLedger(path, "amh").entry("membership", ledger_ref)
+        # before the NEXT run the committed validity still covers it
+        assert entry is not None and entry.valid_until > clock.now + timedelta(minutes=5)
+
+
+@pytest.mark.asyncio
+async def test_catalog_is_redesignated_before_its_validity_ends(tmp_path):
+    clock, rows, publisher, path = Clock(), RowStore(), FakePublisher(), tmp_path / "l.json"
+    assert (await _clocked_job(rows, publisher, path, clock).run()).catalog_published is True
+    clock.now = NOW + timedelta(seconds=1799)
+    assert (await _clocked_job(rows, publisher, path, clock).run()).catalog_published is False
+    clock.now = NOW + timedelta(seconds=1800)
+    assert (await _clocked_job(rows, publisher, path, clock).run()).catalog_published is True
+    assert publisher.calls == [("catalog-designate", "catalog-staff")] * 2
+    entry = PublicationLedger(path, "amh").entry("catalog-designate", "portal-read-catalog:amh:catalog-staff")
+    assert entry is not None and entry.source_revision == 2  # same bytes, next revision
+    clock.now = NOW + timedelta(seconds=1900)  # the renewed revision is probed, not the config one
+    assert (await _clocked_job(rows, publisher, path, clock).run()).catalog_published is False
+
+
+@pytest.mark.asyncio
+async def test_ledger_without_validity_renews_and_a_failed_renewal_fails_closed(tmp_path):
+    clock, rows, publisher, path = Clock(), RowStore(_live_record("a")), FakePublisher(), tmp_path / "l.json"
+    await _clocked_job(rows, publisher, path, clock).run()
+    legacy = json.loads(path.read_bytes())
+    for entry in legacy["entries"]:
+        entry.pop("valid_until", None)  # a ledger written before renewal existed
+    path.write_text(json.dumps(legacy), encoding="utf-8")
+    renewed = await _clocked_job(rows, publisher, path, clock).run()
+    assert (renewed.catalog_published, renewed.memberships_published) == (True, 1)
+    clock.now = NOW + timedelta(seconds=400)
+    publisher.revision += 1  # engine moved: the renewal CAS must refuse, not skip silently
+    with pytest.raises(ReadRefusalError):
+        await _clocked_job(rows, publisher, path, clock).run()

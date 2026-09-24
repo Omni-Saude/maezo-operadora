@@ -31,7 +31,7 @@ from maezo.gateway.human.read_profile import digest, parse_model, utc, wire
 from maezo.portal.contracts.models import HumanPrincipal
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
-from .authority import InstalledStaffAuthority, fingerprint
+from .authority import InstalledStaffAuthority, fingerprint, source_matches
 from .models import MembershipWitness, Proof, StaffCaseError, StaffPublication
 from .postgres import NativeMembershipSource
 
@@ -105,7 +105,7 @@ class StaffWitnessSource:
         source, native, until = await self.source.observe(principal)
         now = self.signer.guard("membership_current")
         entry = self.signer.authority.entries[fingerprint(self.signer.key.public_key())]
-        if entry.source_ref != source.source_ref:
+        if not source_matches(entry.role, entry.source_ref, source.source_ref):
             raise StaffCaseError("denied")
         end = min(until, session_until, self.signer.until("membership_current"))
         value = dict(

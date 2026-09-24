@@ -105,8 +105,16 @@ BEGIN
    EXECUTE format('REVOKE ALL ON maezo_native.%I FROM cibseven_app', r.relname);
    EXECUTE format('GRANT %s ON maezo_native.%I TO cibseven_app', privs, r.relname);
  END LOOP;
- -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) so escreve REVOKED_ e PUBLICATION_.
- GRANT UPDATE (revoked_, publication_) ON maezo_native.mzo_portal_read_designation TO cibseven_app;
+ -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) escreve REVOKED_ e PUBLICATION_; C1 (F4b):
+ -- a publicacao (ON CONFLICT DO UPDATE, PortalReadPublication.java:149) reescreve REVISION_, DIGEST_,
+ -- PUBLICATION_, SOURCE_, PUBLISHER_, VALID_UNTIL_. A chave (TENANT_..CATALOG_) segue sem UPDATE.
+ GRANT UPDATE (revoked_, publication_, revision_, digest_, source_, publisher_, valid_until_)
+   ON maezo_native.mzo_portal_read_designation TO cibseven_app;
+ -- C1 (F4b): idem para os outros dois upserts da publicacao (PortalReadPublication.java:191/257).
+ GRANT UPDATE (revision_, payload_, publication_, source_)
+   ON maezo_native.mzo_portal_read_membership TO cibseven_app;
+ GRANT UPDATE (payload_, publication_, source_)
+   ON maezo_native.mzo_portal_read_resource TO cibseven_app;
 END $dml$;
 
 -- D-J.4: matriz EXATA de AuthInstallation.installSchema e ConsumerEdgeInstallation.installSchema
@@ -142,6 +150,7 @@ DECLARE
  t oid := 'maezo_native.mzo_portal_read_admission'::regclass;
  l oid := 'maezo_native.mzo_staff_case_issuer_ledger'::regclass;
  anything text := 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE';
+ colacl text;
 BEGIN
  -- SoD do schema inteiro: o engine nao alcanca o dono nem por heranca nem por SET ROLE.
  IF pg_has_role('cibseven_app', 'maezo_native_schema_owner', 'USAGE')
@@ -157,6 +166,27 @@ BEGIN
               AND NOT (x.grantee='cibseven_app'::regrole AND x.grantor=c.relowner
                        AND x.privilege_type='SELECT' AND NOT x.is_grantable)) THEN
    RAISE EXCEPTION 'engine-native-install: postura da tabela de admissao recusada';
+ END IF;
+ -- C1 (item 5): o pin Java (native-catalog-pin-*) nao cobre MZO_PORTAL_READ_*; o attacl destas
+ -- colunas e conferido aqui, EXATO: so os tres UPDATE por coluna acima, do dono para o engine.
+ SELECT COALESCE(string_agg(format('%s.%s:%s:%s:%s:%s', c.relname, a.attname,
+            CASE x.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee) END,
+            CASE WHEN x.grantor=c.relowner THEN 'owner' ELSE pg_get_userbyid(x.grantor) END,
+            x.privilege_type, x.is_grantable), ',' ORDER BY format('%s.%s:%s:%s', c.relname, a.attname,
+            x.grantee, x.privilege_type) COLLATE "C"), '')
+     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND a.attacl IS NOT NULL
+     CROSS JOIN LATERAL aclexplode(a.attacl) x
+     WHERE n.nspname='maezo_native' AND starts_with(c.relname, 'mzo_portal_read_') INTO colacl;
+ IF colacl IS DISTINCT FROM (SELECT string_agg(format('%s:cibseven_app:owner:UPDATE:f', e), ',' ORDER BY e COLLATE "C")
+     FROM unnest(ARRAY['mzo_portal_read_designation.revoked_','mzo_portal_read_designation.publication_',
+       'mzo_portal_read_designation.revision_','mzo_portal_read_designation.digest_',
+       'mzo_portal_read_designation.source_','mzo_portal_read_designation.publisher_',
+       'mzo_portal_read_designation.valid_until_','mzo_portal_read_membership.revision_',
+       'mzo_portal_read_membership.payload_','mzo_portal_read_membership.publication_',
+       'mzo_portal_read_membership.source_','mzo_portal_read_resource.payload_',
+       'mzo_portal_read_resource.publication_','mzo_portal_read_resource.source_']) e) THEN
+   RAISE EXCEPTION 'engine-native-install: postura das colunas mzo_portal_read_* recusada: %', colacl;
  END IF;
  IF has_table_privilege('maezo_native_case_issuer', l, 'DELETE,TRUNCATE')
     OR has_table_privilege('cibseven_app', l, anything)

@@ -18,6 +18,27 @@ CREATE TABLE mzo_staff_case_designation_current (
  FOREIGN KEY(tenant,environment,engine_name,database_incarnation,designation_revision,designation_digest)
  REFERENCES mzo_staff_case_designation_event(tenant,environment,engine_name,database_incarnation,designation_revision,designation_digest)
 );
+-- C1 F1: EVERY designation writer takes the EXCLUSIVE transaction-scoped advisory lock whose key
+-- is StaffCaseStore.DESIGNATION_LOCK (same text, same hashtextextended seed); the reader holds the
+-- SHARED form, so a change cannot interleave with a read. Enforced here, not left to the writer.
+CREATE FUNCTION mzo_staff_case_designation_lock() RETURNS trigger LANGUAGE plpgsql AS $mzo_lock$
+DECLARE k record;
+BEGIN
+ IF TG_OP='DELETE' THEN k:=OLD; ELSE k:=NEW; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(CONCAT_WS(chr(31),'mzo_staff_case_designation',
+   CAST(k.tenant AS text),CAST(k.environment AS text),CAST(k.engine_name AS text),CAST(k.database_incarnation AS text)),0));
+ IF TG_OP='UPDATE' AND (OLD.tenant,OLD.environment,OLD.engine_name,OLD.database_incarnation)
+    IS DISTINCT FROM (NEW.tenant,NEW.environment,NEW.engine_name,NEW.database_incarnation) THEN
+  RAISE EXCEPTION 'designation scope is immutable';
+ END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
+END $mzo_lock$;
+REVOKE ALL ON FUNCTION mzo_staff_case_designation_lock() FROM PUBLIC;
+CREATE TRIGGER mzo_staff_case_designation_event_lock BEFORE INSERT OR UPDATE OR DELETE
+ ON mzo_staff_case_designation_event FOR EACH ROW EXECUTE FUNCTION mzo_staff_case_designation_lock();
+CREATE TRIGGER mzo_staff_case_designation_current_lock BEFORE INSERT OR UPDATE OR DELETE
+ ON mzo_staff_case_designation_current FOR EACH ROW EXECUTE FUNCTION mzo_staff_case_designation_lock();
 CREATE TABLE mzo_staff_case_source_event (
  tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
  source_ref text NOT NULL, source_revision bigint NOT NULL CHECK(source_revision>0), publication_id text NOT NULL,

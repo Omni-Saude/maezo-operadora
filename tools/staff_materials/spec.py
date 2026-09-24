@@ -11,7 +11,12 @@ ate ele:
 * `case_issuer.source_namespace` = `policy_ref` da politica staff (o engine resolve o emissor da
   decisao por `entry(..., namespace=policy_ref)`, `StaffCaseInstallation.grant`);
 * logins distintos em todas as entradas (`Designation.independent_entries`);
-* janela da designacao de no maximo 14 dias (decisao N2 do dono, 23/09/2026).
+* janela da designacao de no maximo 14 dias (decisao N2 do dono, 23/09/2026);
+* `identity_verifier.source_ref` e um PREFIXO terminado em `:` ou `/`: a membership publicada
+  pela T1.5 tem `source_ref = prefixo + principal_ref` (F9 do C1), e a regra do separador e a da
+  admissao T1.7a. O job da T1.5 publica com esse mesmo prefixo (`membership_source_ref_prefix`);
+* o login do witness PROPRIO do emissor (`case-issuer-witness`, D-H.2) e o da composicao T1.6
+  e nao pode repetir o de outro papel.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from typing import Literal, Self
 from pydantic import Field, model_validator
 
 from maezo.gateway.external_cases.models import Ref, Scope, timestamp
+from maezo.gateway.staff_cases.case_issuer_runtime import WITNESS_LOGIN as ISSUER_WITNESS_LOGIN
 from maezo.gateway.staff_cases.models import Closed, N, T
 from maezo.gateway.staff_cases.production_config import Connection, PortalStaffBootstrapError
 from maezo.portal.engine.profile import strict_loads
@@ -95,7 +101,7 @@ class MaterialsSpec(Closed):
         start = timestamp(self.designation.not_before)
         end = timestamp(self.designation.valid_until)
         certificate_end = timestamp(self.certificate_not_after)
-        logins = [role.login_role for role in self.roles().values()]
+        logins = [role.login_role for role in self.roles().values()] + [ISSUER_WITNESS_LOGIN]
         if not start < end or end - start > MAX_DESIGNATION_WINDOW:
             raise ValueError("janela da designacao invalida ou maior que 14 dias")
         if not end <= certificate_end or certificate_end - start > MAX_CERTIFICATE_WINDOW:
@@ -106,6 +112,8 @@ class MaterialsSpec(Closed):
             raise ValueError("hostname nativo invalido")
         if len(set(logins)) != len(logins):
             raise ValueError("cada papel precisa de um login proprio")
+        if not self.identity_verifier.source_ref.endswith((":", "/")):
+            raise ValueError("identity_verifier.source_ref e um prefixo terminado em ':' ou '/'")
         if self.identity_verifier.login_role != self.native_witness_connection.login:
             raise ValueError("o papel identity_verifier e o login do DSN witness")
         if self.publication_importer.source_ref != self.case_issuer.source_ref:

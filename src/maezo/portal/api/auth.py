@@ -7,6 +7,7 @@ from maezo.gateway.oidc import (
     VerifiedIdentity,
     authorization_url,
     digest,
+    opaque_ref,
     opaque_secret,
 )
 
@@ -17,5 +18,6 @@ __all__ = [
     "VerifiedIdentity",
     "authorization_url",
     "digest",
+    "opaque_ref",
     "opaque_secret",
 ]

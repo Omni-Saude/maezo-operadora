@@ -41,6 +41,7 @@ from maezo.gateway.staff_cases.production_config import (
 )
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
+from .generate import ISSUER_WITNESS_ENTRY
 from .secure_io import MaterialError
 from .spec import MaterialsSpec
 
@@ -79,7 +80,9 @@ def load_input(raw: bytes) -> AssembleInput:
 
 
 def _designation_entries(designation: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {entry["role"]: entry for entry in designation.get("entries", [])}
+    # Por `entry_ref`, nunca por `role`: a designacao tem DUAS entradas `identity_verifier` (a do
+    # portal e a `case-issuer-witness` do emissor, D-H.2), e indexar por papel conferia a ultima.
+    return {entry["entry_ref"]: entry for entry in designation.get("entries", [])}
 
 
 def assemble(
@@ -106,6 +109,7 @@ def assemble(
         raise MaterialError("designation.json nao e a do summary do generate")
     entries = _designation_entries(designation)
     read, witness = entries.get("read_requester"), entries.get("identity_verifier")
+    issuer_witness = entries.get(ISSUER_WITNESS_ENTRY)
     keys = summary["key_fingerprints"]
     if read is None or witness is None:
         raise MaterialError("designacao sem read_requester ou identity_verifier")
@@ -116,8 +120,17 @@ def assemble(
         or witness["key_fingerprint"] != keys["identity_verifier"]
         or read["key_fingerprint"] != keys["read_requester"]
         or witness["login_role"] != spec.native_witness_connection.login
+        or witness["role"] != "identity_verifier"
+        or read["role"] != "read_requester"
     ):
         raise MaterialError("identity_verifier precisa de chave propria e do login witness (D-H.2)")
+    if (
+        issuer_witness is None
+        or issuer_witness["role"] != "identity_verifier"
+        or issuer_witness["key_fingerprint"] != keys.get("case_issuer_witness")
+        or issuer_witness["key_fingerprint"] == witness["key_fingerprint"]
+    ):
+        raise MaterialError("designacao sem a entrada case-issuer-witness com chave propria (D-H.2)")
     scope = summary["scope"]
     lock = spec.session_lock_connection.validated("session-lock-ca.pem").wire()
     lock["function_pin"] = inputs.session_lock_function_pin.wire()

@@ -45,7 +45,9 @@ final class HumanAuthStartCommand implements Command<AuthRuntime.Result> {
     if(!PortalReadModels.hash(AuthValues.descriptor(invocation.store.tenant,guideRef,facts)).equals(c.get("projected_variables_digest")))throw Rejected.denied();
     inputs.current(Instant.now());invocation.current();
     var instance=runtime.configuration.getRuntimeService().startProcessInstanceById(
-      Jcs.ref(definition,"definition_id"),"AUTHI-"+guideRef,projected);
+      Jcs.ref(definition,"definition_id"),
+      // T1.11 (D-K): the contractual key from the SIGNED guide number, same algorithm as tools/process_business_keys.py.
+      AuthBusinessKeys.auth(db.tenant,Jcs.string(guide,"numero_guia_tiss")),projected);
     if(instance==null||!definition.get("definition_id").equals(instance.getProcessDefinitionId())||!db.tenant.equals(instance.getTenantId()))throw Rejected.denied();
     String caseRef=UUID.randomUUID().toString();
     db.claimGuide(guideRef,intake,command,invocation.envelope.digest(),Jcs.ref(actor,"principal_ref"),instance.getId(),caseRef,definition);

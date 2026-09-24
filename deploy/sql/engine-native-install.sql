@@ -196,6 +196,18 @@ CREATE TABLE MZO_PORTAL_READ_DESIGNATION (
  REVOKED_ boolean NOT NULL,
  PRIMARY KEY(TENANT_,ENVIRONMENT_,ENGINE_,INCARNATION_,CATALOG_)
 );
+-- C1 (item 4): a revocation is terminal. REVOKED_ is NOT NULL, and once true no UPDATE (the
+-- publication upsert never touches it; a direct UPDATE by the runtime login would) may clear it.
+CREATE FUNCTION MZO_PORTAL_READ_REVOCATION_TERMINAL() RETURNS trigger LANGUAGE plpgsql AS $mzo_rt$
+BEGIN
+ IF OLD.REVOKED_ AND NEW.REVOKED_ IS DISTINCT FROM true THEN
+  RAISE EXCEPTION 'portal read designation revocation is terminal';
+ END IF;
+ RETURN NEW;
+END $mzo_rt$;
+REVOKE ALL ON FUNCTION MZO_PORTAL_READ_REVOCATION_TERMINAL() FROM PUBLIC;
+CREATE TRIGGER MZO_PORTAL_READ_REVOCATION_TERMINAL BEFORE UPDATE ON MZO_PORTAL_READ_DESIGNATION
+ FOR EACH ROW EXECUTE FUNCTION MZO_PORTAL_READ_REVOCATION_TERMINAL();
 CREATE TABLE MZO_PORTAL_READ_MEMBERSHIP (
  TENANT_ varchar(255) NOT NULL, ENVIRONMENT_ varchar(255) NOT NULL,
  ENGINE_ varchar(255) NOT NULL, INCARNATION_ varchar(255) NOT NULL,
@@ -256,6 +268,27 @@ CREATE TABLE mzo_staff_case_designation_current (
  FOREIGN KEY(tenant,environment,engine_name,database_incarnation,designation_revision,designation_digest)
  REFERENCES mzo_staff_case_designation_event(tenant,environment,engine_name,database_incarnation,designation_revision,designation_digest)
 );
+-- C1 F1: EVERY designation writer takes the EXCLUSIVE transaction-scoped advisory lock whose key
+-- is StaffCaseStore.DESIGNATION_LOCK (same text, same hashtextextended seed); the reader holds the
+-- SHARED form, so a change cannot interleave with a read. Enforced here, not left to the writer.
+CREATE FUNCTION mzo_staff_case_designation_lock() RETURNS trigger LANGUAGE plpgsql AS $mzo_lock$
+DECLARE k record;
+BEGIN
+ IF TG_OP='DELETE' THEN k:=OLD; ELSE k:=NEW; END IF;
+ PERFORM pg_advisory_xact_lock(hashtextextended(CONCAT_WS(chr(31),'mzo_staff_case_designation',
+   CAST(k.tenant AS text),CAST(k.environment AS text),CAST(k.engine_name AS text),CAST(k.database_incarnation AS text)),0));
+ IF TG_OP='UPDATE' AND (OLD.tenant,OLD.environment,OLD.engine_name,OLD.database_incarnation)
+    IS DISTINCT FROM (NEW.tenant,NEW.environment,NEW.engine_name,NEW.database_incarnation) THEN
+  RAISE EXCEPTION 'designation scope is immutable';
+ END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
+END $mzo_lock$;
+REVOKE ALL ON FUNCTION mzo_staff_case_designation_lock() FROM PUBLIC;
+CREATE TRIGGER mzo_staff_case_designation_event_lock BEFORE INSERT OR UPDATE OR DELETE
+ ON mzo_staff_case_designation_event FOR EACH ROW EXECUTE FUNCTION mzo_staff_case_designation_lock();
+CREATE TRIGGER mzo_staff_case_designation_current_lock BEFORE INSERT OR UPDATE OR DELETE
+ ON mzo_staff_case_designation_current FOR EACH ROW EXECUTE FUNCTION mzo_staff_case_designation_lock();
 CREATE TABLE mzo_staff_case_source_event (
  tenant text NOT NULL, environment text NOT NULL, engine_name text NOT NULL, database_incarnation text NOT NULL,
  source_ref text NOT NULL, source_revision bigint NOT NULL CHECK(source_revision>0), publication_id text NOT NULL,
@@ -647,8 +680,16 @@ BEGIN
    EXECUTE format('REVOKE ALL ON maezo_native.%I FROM cibseven_app', r.relname);
    EXECUTE format('GRANT %s ON maezo_native.%I TO cibseven_app', privs, r.relname);
  END LOOP;
- -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) so escreve REVOKED_ e PUBLICATION_.
- GRANT UPDATE (revoked_, publication_) ON maezo_native.mzo_portal_read_designation TO cibseven_app;
+ -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) escreve REVOKED_ e PUBLICATION_; C1 (F4b):
+ -- a publicacao (ON CONFLICT DO UPDATE, PortalReadPublication.java:149) reescreve REVISION_, DIGEST_,
+ -- PUBLICATION_, SOURCE_, PUBLISHER_, VALID_UNTIL_. A chave (TENANT_..CATALOG_) segue sem UPDATE.
+ GRANT UPDATE (revoked_, publication_, revision_, digest_, source_, publisher_, valid_until_)
+   ON maezo_native.mzo_portal_read_designation TO cibseven_app;
+ -- C1 (F4b): idem para os outros dois upserts da publicacao (PortalReadPublication.java:191/257).
+ GRANT UPDATE (revision_, payload_, publication_, source_)
+   ON maezo_native.mzo_portal_read_membership TO cibseven_app;
+ GRANT UPDATE (payload_, publication_, source_)
+   ON maezo_native.mzo_portal_read_resource TO cibseven_app;
 END $dml$;
 
 -- D-J.4: matriz EXATA de AuthInstallation.installSchema e ConsumerEdgeInstallation.installSchema
@@ -684,6 +725,7 @@ DECLARE
  t oid := 'maezo_native.mzo_portal_read_admission'::regclass;
  l oid := 'maezo_native.mzo_staff_case_issuer_ledger'::regclass;
  anything text := 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE';
+ colacl text;
 BEGIN
  -- SoD do schema inteiro: o engine nao alcanca o dono nem por heranca nem por SET ROLE.
  IF pg_has_role('cibseven_app', 'maezo_native_schema_owner', 'USAGE')
@@ -699,6 +741,27 @@ BEGIN
               AND NOT (x.grantee='cibseven_app'::regrole AND x.grantor=c.relowner
                        AND x.privilege_type='SELECT' AND NOT x.is_grantable)) THEN
    RAISE EXCEPTION 'engine-native-install: postura da tabela de admissao recusada';
+ END IF;
+ -- C1 (item 5): o pin Java (native-catalog-pin-*) nao cobre MZO_PORTAL_READ_*; o attacl destas
+ -- colunas e conferido aqui, EXATO: so os tres UPDATE por coluna acima, do dono para o engine.
+ SELECT COALESCE(string_agg(format('%s.%s:%s:%s:%s:%s', c.relname, a.attname,
+            CASE x.grantee WHEN 0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee) END,
+            CASE WHEN x.grantor=c.relowner THEN 'owner' ELSE pg_get_userbyid(x.grantor) END,
+            x.privilege_type, x.is_grantable), ',' ORDER BY format('%s.%s:%s:%s', c.relname, a.attname,
+            x.grantee, x.privilege_type) COLLATE "C"), '')
+     FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND a.attacl IS NOT NULL
+     CROSS JOIN LATERAL aclexplode(a.attacl) x
+     WHERE n.nspname='maezo_native' AND starts_with(c.relname, 'mzo_portal_read_') INTO colacl;
+ IF colacl IS DISTINCT FROM (SELECT string_agg(format('%s:cibseven_app:owner:UPDATE:f', e), ',' ORDER BY e COLLATE "C")
+     FROM unnest(ARRAY['mzo_portal_read_designation.revoked_','mzo_portal_read_designation.publication_',
+       'mzo_portal_read_designation.revision_','mzo_portal_read_designation.digest_',
+       'mzo_portal_read_designation.source_','mzo_portal_read_designation.publisher_',
+       'mzo_portal_read_designation.valid_until_','mzo_portal_read_membership.revision_',
+       'mzo_portal_read_membership.payload_','mzo_portal_read_membership.publication_',
+       'mzo_portal_read_membership.source_','mzo_portal_read_resource.payload_',
+       'mzo_portal_read_resource.publication_','mzo_portal_read_resource.source_']) e) THEN
+   RAISE EXCEPTION 'engine-native-install: postura das colunas mzo_portal_read_* recusada: %', colacl;
  END IF;
  IF has_table_privilege('maezo_native_case_issuer', l, 'DELETE,TRUNCATE')
     OR has_table_privilege('cibseven_app', l, anything)

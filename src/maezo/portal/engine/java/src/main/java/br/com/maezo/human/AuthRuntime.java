@@ -60,7 +60,7 @@ final class AuthRuntime {
     Invocation(CommandContext context,byte[] raw,String peer,String purpose) {
       this.context=context;store=new AuthStore(context,scope,timeout,staffConfiguration);store.lock();
       qualification=AuthInstallation.runtime(store);qualificationUntil=PortalReadModels.time(qualification.get("valid_until"));
-      br.com.maezo.workload.WorkloadPlugin.running().requireHumanAuthPeerSeparated(peer);
+      br.com.maezo.workload.WorkloadPlugin.requireHumanAuthPeerSeparatedInProcess(peer);
       trust=new AuthTrust(store,audience,maxLifetime);envelope=AuthEnvelope.verify(raw,trust,purpose,peer,Instant.now());
       current();
     }

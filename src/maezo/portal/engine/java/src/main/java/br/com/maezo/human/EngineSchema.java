@@ -39,7 +39,8 @@ final class EngineSchema {
        encode(sha256(b.BYTES_),'hex') AS definition_digest,
        r.ID_ AS active_id,r.PROC_INST_ID_ AS active_instance,r.PROC_DEF_ID_ AS active_definition,
        r.TENANT_ID_ AS active_tenant,h.PROC_INST_ID_ AS historic_instance,
-       h.PROC_DEF_ID_ AS historic_definition,h.TENANT_ID_ AS historic_tenant,h.END_TIME_ AS ended_at
+       h.PROC_DEF_ID_ AS historic_definition,h.TENANT_ID_ AS historic_tenant,h.END_TIME_ AS ended_at,
+       h.BUSINESS_KEY_ AS historic_business_key
       FROM %1$s.ACT_RE_PROCDEF d
       JOIN %1$s.ACT_GE_BYTEARRAY b ON b.DEPLOYMENT_ID_=d.DEPLOYMENT_ID_ AND b.NAME_=d.RESOURCE_NAME_
       LEFT JOIN %1$s.ACT_RU_EXECUTION r ON r.ID_=? AND r.PROC_INST_ID_=r.ID_

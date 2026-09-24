@@ -172,7 +172,7 @@ public final class HumanCommandPlugin extends AbstractProcessEnginePlugin {
       String peer=PortalReadModels.str(entry,"certificate_spki");
       if(peers.contains(peer)||used.contains(peer))throw Rejected.denied();
       if(store.auth.optional("SELECT KEY_ID_ FROM MZO_AUTH_TRUST WHERE TENANT_=? AND (DESIGNATION_::jsonb->>'peer_spki_sha256'=? OR encode(sha256(decode(DESIGNATION_::jsonb->>'public_key_base64','base64')),'hex')=?) LIMIT 1",store.auth.tenant,peer,peer)!=null)throw Rejected.denied();
-      br.com.maezo.workload.WorkloadPlugin.running().requireHumanAuthPeerSeparated(peer);
+      br.com.maezo.workload.WorkloadPlugin.requireHumanAuthPeerSeparatedInProcess(peer);
     }
     if(startup){
       // Activation requires genuine heads for existing claims. No old event is

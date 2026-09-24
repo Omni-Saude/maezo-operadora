@@ -171,3 +171,15 @@ a71a14e15fde4515567d65564a019ce9a7c0f021:deploy/cibseven/secured/prepare_fixture
 # execucao, a chave que o keytool acabou de gerar no proprio teste — nao e' chave versionada.
 # O literal ja' foi partido no commit seguinte; este fingerprint cobre so' o commit antigo.
 0749aae105f7d755541afeafc6d68c566cf8c26f:src/maezo/portal/engine/read-provider/src/test/java/br/com/maezo/human/readprovider/ServerTls.java:private-key:72
+
+# False positive (PR #505, T1.11): the generic-api-key rule matched Python TYPE ANNOTATIONS of
+# Ed25519 key parameters (a parameter name ending in 'key' followed by the class name), not values.
+# No key material is in the source; keys are generated at runtime. Code fixed in the same PR (short
+# type aliases). These fingerprints only cover the immutable historical commits of the PR, including
+# b9f71757, whose comment in this file quoted the annotations (the rule: describe, never reproduce).
+81cd648529027cec62b5f72043e692e2ebd7e9b8:deploy/c1-local/c1/human_bundle.py:generic-api-key:44
+81cd648529027cec62b5f72043e692e2ebd7e9b8:deploy/c1-local/c1/human_bundle.py:generic-api-key:97
+81cd648529027cec62b5f72043e692e2ebd7e9b8:deploy/c1-local/c1/human_bundle.py:generic-api-key:98
+c562f270c4cd59c78558c077d410c5d5cdbac143:tools/staff_materials/native_secret.py:generic-api-key:180
+b9f7175791c887fd21b3e25cc544dfaff6e03631:.gitleaksignore:generic-api-key:176
+b9f7175791c887fd21b3e25cc544dfaff6e03631:.gitleaksignore:generic-api-key:177

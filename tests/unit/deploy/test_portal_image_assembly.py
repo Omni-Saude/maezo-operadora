@@ -109,8 +109,13 @@ def test_staged_read_webapp_copy_is_owned_by_declared_nonroot_user() -> None:
     # DS-0002 finding returns and non-root stops being enforced by this repo),
     # demoted to root (`USER root` / `USER 0`), renamed to another user, or if the
     # build-time assertion is stripped.
+    # C1 (item 3): exactly one transient `USER root`, immediately around the RUN that makes
+    # bpm-platform.xml root-owned (test_human_image_descriptor_ownership.py); camunda stays last.
     users = [line for line in logical if line.startswith("USER ")]
-    assert users == ["USER camunda"]
+    assert users == ["USER root", "USER camunda"]
+    root_at = logical.index("USER root")
+    assert logical[root_at + 1].startswith("RUN chown root:root /camunda/conf/bpm-platform.xml")
+    assert logical[root_at + 2] == "USER camunda"
     assert any(line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line for line in logical)
 
 
@@ -141,8 +146,13 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str, c
     # Same DS-0002 fence as above: the declared runtime user is exactly `USER
     # camunda` (never root, never absent — absence re-hides the trivy finding),
     # and the fail-closed build assertion pinning uid 1000 is still there.
+    # C1 (item 3): exactly one transient `USER root`, immediately around the RUN that makes
+    # bpm-platform.xml root-owned (test_human_image_descriptor_ownership.py); camunda stays last.
     users = [line for line in logical if line.startswith("USER ")]
-    assert users == ["USER camunda"]
+    assert users == ["USER root", "USER camunda"]
+    root_at = logical.index("USER root")
+    assert logical[root_at + 1].startswith("RUN chown root:root /camunda/conf/bpm-platform.xml")
+    assert logical[root_at + 2] == "USER camunda"
     assert any(line.startswith("RUN set -eu;") and "DS-0002" in line and "1000" in line for line in logical)
     camunda = tmp_path / "camunda"
     stage = tmp_path / "tmp/maezo-human-read"

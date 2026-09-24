@@ -5,6 +5,8 @@ import java.util.*;
 /** Exact E04 private closed records. Valid shape never supplies native authority. */
 final class AuthModels {
   private AuthModels() {}
+  /** TISS `numeroGuiaPrestador` (st_texto20); same pattern as Python `auth_profile.GUIDE_NUMBER_PATTERN` (T1.11). */
+  static final java.util.regex.Pattern GUIDE_NUMBER=java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,19}");
   static final Set<String> INPUT_KINDS=Set.of("actor","resource_authority","guide","start_facts","document_custody","document_policy","audit_intent");
   static final Map<String,String> SHAPES=Map.ofEntries(
     Map.entry("scope","tenant:r environment:r engine_name:r database_incarnation:r installation_ref:r installation_revision:p"),
@@ -16,7 +18,7 @@ final class AuthModels {
     Map.entry("binding","request_ref:r generation:p request_revision:n binding_revision:p process_instance_id:r definition:@definition scope_execution_id:r subscription_id:r subscription_revision:p subscription_execution_id:r execution_revision:p timer_job_id:r timer_deadline:t"),
     Map.entry("start","schema:human-auth-start.v1 scope:@scope workload_ref:r actor:@actor intake_ref:r command_id:r admission:@audit guide_identity_ref:r definition:@definition input_pins:[@pin start_facts_ref:r start_facts_digest:h projected_variables_digest:h"),
     Map.entry("documents","schema:human-auth-documents.v1 scope:@scope workload_ref:r actor:@actor case_ref:r command_id:r admission:@audit occurrence:@binding input_pins:[@pin document_refs:[@document document_set_digest:h assessment_ref:r assessment_digest:h documentacao_completa:bool"),
-    Map.entry("guide","guide_identity_ref:r source_ref:r namespace_ref:r source_guide_ref:r cutover_ref:r cutover_revision:n legacy_state:absent_at_cutover|existing|ambiguous|unreconciled prior_instance_id:?r prior_case_ref:?r source:@source"),
+    Map.entry("guide","guide_identity_ref:r source_ref:r namespace_ref:r source_guide_ref:r numero_guia_tiss:s cutover_ref:r cutover_revision:n legacy_state:absent_at_cutover|existing|ambiguous|unreconciled prior_instance_id:?r prior_case_ref:?r source:@source"),
     Map.entry("facts","facts_ref:r intake_ref:r guide_identity_ref:r beneficiary_pseudo_id:r provider_ref:r procedure_code:s category:consulta|exame_simples|exame_especial|terapia|internacao|opme|alta_complexidade character:urgencia|eletivo claimed_amount_cents:n document_refs:[@document requer_autorizacao:bool beneficiario_ativo:bool carencia_cumprida:bool documentacao_completa:bool missing_requirement_codes:[r documentary_assessment_ref:r request_digest:h factual_sources:[@source policy_artifacts:[@artifact"),
     Map.entry("occurrence","request_ref:r scope:@scope case_ref:r process_instance_id:r definition:@definition generation:p request_revision:n binding_revision:n creator_execution_id:r producer_external_task_id:r publication_external_task_id:?r state:created|awaiting_publication_worker|bound|consumed|expired|cancelled|replaced created_at:t policy_ref:?r policy_digest:?h binding:?@binding successor_ref:?r terminal_command_id:?r"),
     Map.entry("authority","authority_ref:r actor:@actor beneficiary_ref:r provider_ref:?r resource_kind:guide|intake|case resource_ref:r action:auth.start|auth.documents.respond|auth.receipt.read|auth.document_context.read request_ref:?r relationship_revision:n consent_revision:n grant_ref:r basis_ref:r legal_basis:consent|other_qualified_basis consent_state:valid|not_required|revoked state:active|revoked valid_from:t valid_until:t source:@source"),
@@ -49,6 +51,7 @@ final class AuthModels {
     for(String key:List.of("document_refs","effective_document_refs"))if(result.containsKey(key))documents(result.get(key));
     if(result.containsKey("input_pins"))pins(result.get("input_pins"));
     if(shape.equals("guide")) {
+      if(!GUIDE_NUMBER.matcher(Jcs.string(result,"numero_guia_tiss")).matches())throw Rejected.invalid();
       boolean existing=result.get("legacy_state").equals("existing");
       if(existing!=(result.get("prior_instance_id")!=null)||existing!=(result.get("prior_case_ref")!=null))throw Rejected.invalid();
     }

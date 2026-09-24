@@ -1,0 +1,28 @@
+{
+  "schema": "auth-business-key-vectors.v1",
+  "note": "T1.11 (D-K): shared by AuthBusinessKeysTest (Java) and tests/unit/tools/test_auth_business_key_parity.py (Python).",
+  "keys": [
+    {"tenant": "amh", "numero_guia_tiss": "2026000123", "key": "AUTH-amh-2026000123"},
+    {"tenant": "amh", "numero_guia_tiss": "C1GUIA1", "key": "AUTH-amh-C1GUIA1"},
+    {"tenant": "amh", "numero_guia_tiss": "SYN-C1GUIA1", "key": "AUTH-amh-SYN-C1GUIA1"},
+    {"tenant": "a", "numero_guia_tiss": "b-c", "key": "AUTH-a-b-c"},
+    {"tenant": "amh", "numero_guia_tiss": "12.345/67-8", "key": "AUTH-amh-12.345/67-8"}
+  ],
+  "refused_keys": [
+    {"tenant": "", "numero_guia_tiss": "2026000123"},
+    {"tenant": "a-b", "numero_guia_tiss": "c"},
+    {"tenant": "SYN-c1", "numero_guia_tiss": "SYN-C1GUIA1"},
+    {"tenant": "-", "numero_guia_tiss": "1"},
+    {"tenant": "amh-", "numero_guia_tiss": "1"},
+    {"tenant": "amh", "numero_guia_tiss": ""},
+    {"tenant": "amh", "numero_guia_tiss": " 2026000123"},
+    {"tenant": "amh", "numero_guia_tiss": "2026 000123"},
+    {"tenant": "amh", "numero_guia_tiss": "2026000123\t"},
+    {"tenant": "am\u0000h", "numero_guia_tiss": "2026000123"},
+    {"tenant": "amh", "numero_guia_tiss": "2026\u007f000"},
+    {"tenant": "amh", "numero_guia_tiss": "2026 000"},
+    {"tenant": "amh", "numero_guia_tiss": "2026 000"}
+  ],
+  "guide_numbers_valid": ["2026000123", "C1GUIA1", "SYN-C1GUIA1", "a.b_c-d", "12345678901234567890"],
+  "guide_numbers_invalid": ["", "-2026", ".2026", "123456789012345678901", "2026 000", "2026/000", "guia#1", "ção1"]
+}
