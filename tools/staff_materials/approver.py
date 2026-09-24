@@ -93,12 +93,20 @@ def load_root(path: Path, passphrase: bytes | None = None) -> Ed25519PrivateKey:
     return key
 
 
+ESCALATION = "staff_escalation.v1"
+
+
 def review_designation(raw: bytes) -> tuple[Designation, str, list[str]]:
     """O texto que o aprovador le antes de assinar. Nenhum campo de chave privada existe aqui."""
     try:
         designation = parse(Designation, raw)
     except ValueError:
         raise MaterialError("designacao fora do perfil fechado staff-case-designation.v1") from None
+    # D-M.2/.4: o emissor e o leitor do portal sao designados para `staff_escalation.v1`. Sem ela o
+    # engine nunca aceitaria a decisao nova, e a fila sairia sem guia/motivo/prazo: recusar aqui.
+    for entry in designation.entries:
+        if entry.role in {"case_issuer", "read_requester"} and ESCALATION not in entry.projections:
+            raise MaterialError(f"a entrada {entry.role} nao autoriza a projecao {ESCALATION} (D-M)")
     lines = [
         f"designation_ref={designation.designation_ref} revision={designation.designation_revision}"
         f" (anterior {designation.expected_previous_revision}) state={designation.state}",

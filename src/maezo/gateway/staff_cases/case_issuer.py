@@ -57,7 +57,9 @@ from .publisher import StaffSigner
 DECISIONS: tuple[tuple[Literal["detail", "list"], str], ...] = (
     ("detail", "staff_identity.v1"),
     ("detail", "staff_summary.v1"),
+    ("detail", "staff_escalation.v1"),
     ("list", "staff_summary.v1"),
+    ("list", "staff_escalation.v1"),
 )
 ROUTING_DECISION = "escalation_routing"
 ROUTING_OUTPUT = "grupo_atendimento"
