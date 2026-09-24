@@ -9,13 +9,15 @@ final class StaffCaseModels {
   static final Map<String,Set<String>> FIELDS=Map.of(
     "staff_summary.v1",Set.of("case_ref","kind","state","record_revision","state_observed_at"),
     "staff_identity.v1",Set.of("upstream_resource_key","case_ref","process_instance_ref","process_definition_id","process_definition_key","process_definition_version","process_definition_digest","kind"),
-    "staff_current_task.v1",Set.of("task_id","task_definition_key","task_revision","created_at","due_at","assignee_ref"));
+    "staff_current_task.v1",Set.of("task_id","task_definition_key","task_revision","created_at","due_at","assignee_ref"),
+    // D-M: optional, never required by a read; emitted only when the grant authorizes it (StaffEscalation).
+    StaffEscalation.PROJECTION,StaffEscalation.FIELDS);
   static final Map<String,Set<String>> PURPOSES=Map.of(
     "installer",Set.of("installation"),"publication_importer",Set.of("staff-case-publication.v1"),
     "identity_verifier",Set.of("membership_current"),"case_issuer",Set.of("staff_case_grant","staff_policy_head","scope_complete"),
     "native_facts",Set.of("native_case_facts"),"native_result",Set.of("native_result"),
     "read_requester",Set.of("staff-case-read.v1","staff-case-finalize.v1"));
-  static final String PROJECTIONS="staff_summary.v1|staff_identity.v1|staff_current_task.v1";
+  static final String PROJECTIONS="staff_summary.v1|staff_identity.v1|staff_current_task.v1|staff_escalation.v1";
   static final Map<String,String> SHAPES=Map.ofEntries(
     Map.entry("proof","schema:staff-case-proof.v1 purpose:installation|membership_current|staff_case_grant|staff_policy_head|scope_complete|native_case_facts|native_result algorithm:Ed25519 key_fingerprint:h issued_at:t expires_at:t statement_digest:h signature:b64"),
     Map.entry("entry","entry_ref:r role:installer|publication_importer|identity_verifier|case_issuer|native_facts|read_requester|native_result source_namespace:r source_ref:r key_fingerprint:h certificate_spki:?h public_key:b64 login_role:r purposes:[purpose projections:[projection operations:[detail|list not_before:t valid_until:t"),
@@ -39,7 +41,7 @@ final class StaffCaseModels {
     Map.entry("receipt","schema:staff-case-publication-receipt.v1 publication_id:r request_digest:h scope:@scope source_ref:r source_revision:n payload_digest:h disposition:committed committed_at:t native_receipt_ref:r valid_until:t proof:@proof")
   );
   static void requireReadCapabilities(Map<String,Object> entry,String operation){
-    var required=operation.equals("list")?Set.of("staff_summary.v1"):FIELDS.keySet();
+    var required=operation.equals("list")?Set.of("staff_summary.v1"):Set.of("staff_summary.v1","staff_identity.v1","staff_current_task.v1");
     if(!"read_requester".equals(entry.get("role"))||!list(entry.get("operations")).contains(operation)
         ||!new HashSet<>(list(entry.get("projections"))).containsAll(required))throw denied();
   }

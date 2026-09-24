@@ -43,7 +43,8 @@ final class NativeCaseIdentityReader {
     }
     // Reuse the existing exact runtime/historic/tenant/deployed-bytes predicate.
     var projection = ExternalCaseStore.nativeProjection(identity,db.tenant,row);
-    return record("identity",identity,"native",projection,"claim_digest",hash(claim),
+    // D-M: the guide of the ANCHOR business key, never the reconciled upstream key.
+    return record("identity",identity,"native",projection,"guide_number",guideNumber(claim,row),"claim_digest",hash(claim),
         "definition_claim_digest",hash(definition));
   }
 
