@@ -20,7 +20,9 @@ ARGS = dict(
 def _canonical_block() -> str:
     text = CANONICAL.read_text(encoding="utf-8")
     block = re.search(
-        r"/\* BEGIN IDENTITY DATABASE INSTALLATION.*?\n\n(.*?)\nEND IDENTITY DATABASE INSTALLATION \*/", text, re.S
+        r"/\* BEGIN IDENTITY DATABASE INSTALLATION.*?\n\n(.*?)\nEND IDENTITY DATABASE INSTALLATION \*/",
+        text,
+        re.S,
     )
     assert block is not None
     return block.group(1)
@@ -28,7 +30,9 @@ def _canonical_block() -> str:
 
 def _template_block() -> str:
     text = TEMPLATE.read_text(encoding="ascii")
-    block = re.search(r"-- BEGIN CANONICAL IDENTITY BLOCK\n(.*?)\n-- END CANONICAL IDENTITY BLOCK", text, re.S)
+    block = re.search(
+        r"-- BEGIN CANONICAL IDENTITY BLOCK\n(.*?)\n-- END CANONICAL IDENTITY BLOCK", text, re.S
+    )
     assert block is not None
     return block.group(1)
 
@@ -52,7 +56,8 @@ def test_render_binds_the_lock_login_to_its_tenant() -> None:
     assert "FROM amh.portal_sessions" in sql and "ON amh.portal_sessions,amh.portal_memberships" in sql
     assert "GRANT USAGE ON SCHEMA amh TO portal_external_identity_reader;" in sql
     assert (
-        "GRANT EXECUTE ON FUNCTION portal_identity.lock_external_session(text) TO portal_staff_lock_amh;" in sql
+        "GRANT EXECUTE ON FUNCTION portal_identity.lock_external_session(text) TO portal_staff_lock_amh;"
+        in sql
     )
     assert "VALUES('portal_staff_lock_amh','amh')" in sql
     assert "ARRAY['portal_staff_lock_amh','portal_staff_witness_amh']" in sql

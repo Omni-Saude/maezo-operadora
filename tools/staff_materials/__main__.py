@@ -1,4 +1,4 @@
-"""CLI da ENGENHARIA: `generate`, `assemble`, `verify` e `lock-sql`. Nao ha comando de raiz aqui (ver `approver.py`)."""
+"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql` e `native-secret`. Nao ha comando de raiz aqui (ver `approver.py`)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,9 @@ from maezo.portal.engine.profile import canonicalize
 from .assemble import assemble, bundle_bytes, load_input, read_directories
 from .generate import REPO, generate
 from .lock_sql import render as render_lock_sql
+from .native_secret import build as build_native_secret
+from .native_secret import load_input as load_native_input
+from .native_secret import write as write_native_secret
 from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, write_new
 from .spec import load_spec
 from .verify import load_pins, manifest_digest, verify_bundle
@@ -42,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     lock.add_argument("--tenant-schema", required=True)
     lock.add_argument("--session-lock-login", required=True)
     lock.add_argument("--witness-login", required=True)
+    native = commands.add_parser("native-secret", help="monta o segredo engine/native-materials da Onda 4")
+    native.add_argument("--materials", type=Path, required=True, help="saida do generate")
+    native.add_argument("--approver", type=Path, required=True, help="diretorio com installation-root.der")
+    native.add_argument("--input", type=Path, required=True, help="staff-materials-native-secret.v1")
+    native.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     return parser
 
 
@@ -83,6 +91,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                     witness_login=args.witness_login,
                 )
             )
+            return 0
+        if args.command == "native-secret":
+            files, public = build_native_secret(
+                args.materials,
+                (args.approver / "installation-root.der").read_bytes(),
+                load_native_input(args.input.read_bytes()),
+            )
+            secret = write_native_secret(args.out, files, public)
+            print(f"saida={secret.directory}")
+            print(f"trust_configuration_digest={public['trust_configuration_digest']}")
+            print(f"staff_native_configuration_digest={public['staff_native_configuration_digest']}")
             return 0
         if args.print_manifest_digest:
             if args.manifest is None:

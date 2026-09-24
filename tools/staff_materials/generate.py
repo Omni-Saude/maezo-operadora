@@ -9,6 +9,9 @@ Produz, num diretorio NOVO 0700 fora do repositorio:
              Tomcat 10.1/JSSE le)
 ``issuer/``  chaves e certificado do emissor de casos e do importador, e a chave do witness PROPRIO
              do emissor (`case-issuer-witness`, D-H.2) (T1.6)
+``job/``     identidade do job de publicacao da T1.5: certificado de cliente mTLS (CA de clientes
+             nativa) e as chaves PROPRIAS dos propositos `portal-read-publication` e
+             `human-authority` (uma chave por proposito, F8 do C1)
 ``dba/``     verificadores SCRAM dos dois logins novos (Onda 3; a senha em claro so existe no DSN)
 ``public/summary.json``  o que o aprovador confere: digests, fingerprints e pins de SPKI
 
@@ -74,6 +77,13 @@ CAPABILITIES: dict[str, tuple[list[str], list[str], list[str]]] = {
 # A entrada `identity_verifier` PROPRIA do emissor (D-H.2): mesma fonte do witness do portal, chave
 # e login dele (`IssuerWitness` recusa a chave do portal). Chave no `summary` sob este nome.
 ISSUER_WITNESS_KEY = "case_issuer_witness"
+# O job T1.5 assina com uma chave por proposito; nenhuma e a de leitura do portal.
+JOB_PURPOSES = ("portal-read-publication", "human-authority")
+JOB_KEY_FILES = {
+    "portal-read-publication": "publication-signing-key.pem",
+    "human-authority": "authority-signing-key.pem",
+}
+JOB_CLIENT = "publication_job"
 
 
 def _private_pem(key: Ed25519PrivateKey) -> bytes:
@@ -192,8 +202,8 @@ def designation_draft(
 
 def generate(spec: MaterialsSpec, out: Path) -> Generated:
     root = new_private_directory(out, forbidden=(REPO,))
-    portal, engine, issuer, dba, public = (
-        subdirectory(root, name) for name in ("portal", "engine", "issuer", "dba", "public")
+    portal, engine, issuer, job, dba, public = (
+        subdirectory(root, name) for name in ("portal", "engine", "issuer", "job", "dba", "public")
     )
     # X.509 guarda segundos inteiros: sem truncar, a folha "passaria" da CA por microssegundos.
     start = (timestamp(spec.designation.not_before) - timedelta(minutes=5)).replace(microsecond=0)
@@ -207,10 +217,13 @@ def generate(spec: MaterialsSpec, out: Path) -> Generated:
     server = issue_leaf(server_ca, spec.native_hostname, "server", start, end, hostname=spec.native_hostname)
     clients: dict[str, Issued] = {
         role: issue_leaf(client_ca, f"maezo {role.replace('_', '-')}", "client", start, end)
-        for role in ("read_requester", "publication_importer")
+        for role in ("read_requester", "publication_importer", JOB_CLIENT)
     }
+    job_keys = {purpose: Ed25519PrivateKey.generate() for purpose in JOB_PURPOSES}
     keys = {role: Ed25519PrivateKey.generate() for role in (*CAPABILITIES, ISSUER_WITNESS_KEY)}
-    designation = designation_draft(spec, keys, {role: c.spki_sha256() for role, c in clients.items()})
+    designation = designation_draft(
+        spec, keys, {role: c.spki_sha256() for role, c in clients.items() if role != JOB_CLIENT}
+    )
     continuity_key = secrets.token_bytes(32)
     continuity_ref = "continuity-" + secrets.token_hex(16)
     rds = rds_bundle()
@@ -258,6 +271,12 @@ def generate(spec: MaterialsSpec, out: Path) -> Generated:
             clients["publication_importer"].certificate_pem(),
             PUBLIC,
         ),
+        (job / "job-client-key.pem", clients[JOB_CLIENT].key_pem(), PRIVATE),
+        (job / "job-client-certificate.pem", clients[JOB_CLIENT].certificate_pem(), PUBLIC),
+        *(
+            (job / JOB_KEY_FILES[purpose], _private_pem(key), PRIVATE)
+            for purpose, key in sorted(job_keys.items())
+        ),
         (
             dba / "role-verifiers.json",
             canonicalize(
@@ -275,6 +294,9 @@ def generate(spec: MaterialsSpec, out: Path) -> Generated:
         certificate_not_after=spec.certificate_not_after,
         key_fingerprints={role: fingerprint(key.public_key()) for role, key in sorted(keys.items())},
         client_certificate_spki_sha256={role: c.spki_sha256() for role, c in sorted(clients.items())},
+        job_key_fingerprints={
+            purpose: fingerprint(key.public_key()) for purpose, key in sorted(job_keys.items())
+        },
         native_server_spki_sha256=server.spki_sha256(),
         native_ca_sha256=hashlib.sha256(server_ca.certificate_pem()).hexdigest(),
         native_client_ca_sha256=hashlib.sha256(client_ca.certificate_pem()).hexdigest(),

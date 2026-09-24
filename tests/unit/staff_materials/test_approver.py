@@ -141,7 +141,9 @@ def admission(now: datetime, **changes: Any) -> dict[str, Any]:
         catalog=dict(catalog_ref="catalog-staff", publisher_ref="portal-staff", catalog_digest="b" * 64),
         publishers=[
             dict(kind="membership", publisher_ref="portal-staff", source_ref_prefix="portal-identity:amh:"),
-            dict(kind="catalog-designate", publisher_ref="portal-staff", source_ref_prefix="staff-catalog:amh:"),
+            dict(
+                kind="catalog-designate", publisher_ref="portal-staff", source_ref_prefix="staff-catalog:amh:"
+            ),
         ],
         statement_timeout_seconds="5",
         observation_seconds="300",
@@ -167,7 +169,9 @@ def test_admission_signature_is_domain_separated(now: datetime) -> None:
 
 
 def _four_field_scope(value: dict[str, Any]) -> None:
-    value["scope"] = dict(tenant="amh", environment="dev", engine_name="default", database_incarnation="inc-1")
+    value["scope"] = dict(
+        tenant="amh", environment="dev", engine_name="default", database_incarnation="inc-1"
+    )
 
 
 @pytest.mark.parametrize(

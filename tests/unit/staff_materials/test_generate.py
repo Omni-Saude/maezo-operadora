@@ -51,6 +51,9 @@ PRIVATE = {
     "issuer/issuer-witness-signing-key.pem",
     "issuer/publication-importer-signing-key.pem",
     "issuer/publication-importer-client-key.pem",
+    "job/job-client-key.pem",
+    "job/publication-signing-key.pem",
+    "job/authority-signing-key.pem",
     "dba/role-verifiers.json",
 }
 
@@ -297,3 +300,22 @@ def test_output_must_be_new_and_outside_the_repository(now: datetime, tmp_path: 
     assert not (REPO / "tmp-materials-should-never-exist").exists()
     with pytest.raises(MaterialError, match="absoluto"):
         generate(spec, Path("relative-out"))
+
+
+def test_job_has_its_own_client_certificate_and_one_key_per_purpose(generated: Generated) -> None:
+    """F7/F8 do C1: o job T1.5 nao usa o certificado nem a chave de leitura do portal."""
+    job = generated.directory / "job"
+    certificate = x509.load_pem_x509_certificate((job / "job-client-certificate.pem").read_bytes())
+    assert spki_sha256(certificate) == generated.summary["client_certificate_spki_sha256"]["publication_job"]
+    ca = x509.load_pem_x509_certificate((generated.directory / "engine/native-client-ca.pem").read_bytes())
+    assert certificate.issuer == ca.subject
+    assert len(set(generated.summary["client_certificate_spki_sha256"].values())) == 3
+    keys = generated.summary["job_key_fingerprints"]
+    assert set(keys) == {"portal-read-publication", "human-authority"}
+    for purpose, name in (
+        ("portal-read-publication", "publication-signing-key.pem"),
+        ("human-authority", "authority-signing-key.pem"),
+    ):
+        assert keys[purpose] == fingerprint(_key(job / name).public_key())
+    everything = set(keys.values()) | set(generated.summary["key_fingerprints"].values())
+    assert len(everything) == len(keys) + len(generated.summary["key_fingerprints"])

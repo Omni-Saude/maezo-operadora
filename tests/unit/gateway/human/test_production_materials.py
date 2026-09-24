@@ -109,7 +109,11 @@ async def test_publication_credentials_use_their_own_key_and_key_id(tmp_path):
     until = datetime.now(UTC).replace(year=datetime.now(UTC).year + 1)
     key = Ed25519PrivateKey.generate()
     own = MaterialPublicationCredentials(
-        materials, lifetime, key=key, key_id="publication-1", key_fingerprint=fingerprint(key.public_key()),
+        materials,
+        lifetime,
+        key=key,
+        key_id="publication-1",
+        key_fingerprint=fingerprint(key.public_key()),
         not_after=until,
     )
     lease = await own.acquire(scope, "portal-read-publication", "publication-1")
@@ -125,12 +129,20 @@ async def test_publication_credentials_use_their_own_key_and_key_id(tmp_path):
     read_key = materials.private_key("portal-task-read")
     with pytest.raises(ReadRefusalError):
         MaterialPublicationCredentials(
-            materials, lifetime, key=read_key, key_id="publication-1", key_fingerprint=read.fingerprint,
+            materials,
+            lifetime,
+            key=read_key,
+            key_id="publication-1",
+            key_fingerprint=read.fingerprint,
             not_after=until,
         )
     with pytest.raises(ReadRefusalError):
         MaterialPublicationCredentials(
-            materials, lifetime, key=key, key_id=read.key_id, key_fingerprint=fingerprint(key.public_key()),
+            materials,
+            lifetime,
+            key=key,
+            key_id=read.key_id,
+            key_fingerprint=fingerprint(key.public_key()),
             not_after=until,
         )
 
