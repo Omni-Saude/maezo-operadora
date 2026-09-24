@@ -43,6 +43,26 @@ BEGIN
  END LOOP;
 END $roles$;
 
+-- D-J.4 2.b: papeis do DDL externo (antes em external-case-schema-postgres.sql). NOLOGIN, sem
+-- atributo privilegiado e sem membership em nenhuma direcao com o dono nativo.
+DO $external$
+DECLARE r name; owner oid;
+BEGIN
+ SELECT oid INTO owner FROM pg_roles WHERE rolname='maezo_native_schema_owner';
+ FOREACH r IN ARRAY ARRAY['portal_external_source_importer','portal_external_case_publisher',
+   'portal_external_case_runtime','portal_external_source_definer','portal_external_ingress_reader',
+   'portal_external_checkpoint_definer','portal_external_publisher_definer']::name[] LOOP
+   IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN
+     EXECUTE format('CREATE ROLE %I NOLOGIN', r);
+   END IF;
+   EXECUTE format('ALTER ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD NULL', r);
+   IF EXISTS(SELECT 1 FROM pg_auth_members a JOIN pg_roles x ON x.rolname=r
+             WHERE (a.member=x.oid AND a.roleid=owner) OR (a.member=owner AND a.roleid=x.oid)) THEN
+     RAISE EXCEPTION 'engine-native-roles: % tem membership com o dono nativo', r;
+   END IF;
+ END LOOP;
+END $external$;
+
 DO $schemas$
 DECLARE s name; owner name; g record;
 BEGIN
