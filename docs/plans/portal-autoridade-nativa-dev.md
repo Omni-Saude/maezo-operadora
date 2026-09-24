@@ -363,6 +363,23 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   3. `ExternalCaseReadCommand` lê `MZO_PORTAL_READ_PUBLICATION_RECEIPT` sem schema: qualificar com o
      pin `maezo_native` validado e quotado, igual a D-I. Tarefa: **T1.8b**; teste com `search_path`
      vazio.
+  4. **[23/09, revisão após PR #495] Correções da D-J 2.a/2.b e 2.c:**
+     - **2.a substituída:** o engine **não** cria tabela no boot, porque o dono seria o runtime
+       (contra ADR-0060 D1) e `ConsumerEdgeInstallation.session` exige que a sessão seja do dono.
+       O script da T1.4 instala o DDL AUTH e `human-consumer-lineage` **como dono**. Os instaladores
+       passam a aceitar tabela pré-existente **somente se ela for idêntica**: comparam o digest do
+       catálogo (colunas, tipos, constraints, dono e grants) com o pin, e recusam se divergir.
+       `cibseven_app` continua sem CREATE. A ideia de Job "install" do engine rodando como dono foi
+       rejeitada, porque põe a credencial do dono na imagem do runtime. Tarefa: T1.4 (script e
+       instaladores Java, com teste de divergência recusada).
+     - **2.b ajustada:** `mzo_human_tenant` e `mzo_portal_read_revocation` ficam em `maezo_native`
+       (confirmado); `maezo_external` guarda só o DDL externo de casos. Os `CREATE ROLE
+       portal_external_*` saem do DDL e vão para `deploy/sql/engine-native-roles.sql` (já existe na main), que roda pela role admin
+       (com CREATEROLE) no início da Onda 3. Os roles são NOLOGIN e sem membership com o dono; os
+       GRANTs sobre objetos continuam no DDL, executados pelo dono. Tarefa: T1.4.
+     - **2.c, exceção ratificada:** `cibseven_app` tem UPDATE em `MZO_PORTAL_READ_DESIGNATION`
+       (a revogação faz UPDATE em `PortalReadPublication.java:171`). O UPDATE é por coluna, só nas
+       colunas de revogação, com teste negativo de UPDATE em outra coluna.
 
 ---
 
