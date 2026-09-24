@@ -425,8 +425,152 @@ CREATE TABLE MZO_AUTH_PRODUCER_QUERY (
 );
 REVOKE ALL ON MZO_AUTH_PRODUCER_DESIGNATION,MZO_AUTH_PRODUCER_QUERY FROM PUBLIC;
 $mzo_ddl_7$;
- -- 8. src/maezo/portal/engine/read-provider/src/main/resources/portal-read-admission-postgres.sql
+ -- 8. src/maezo/portal/engine/java/src/main/resources/human-auth-intake-documents-postgres.sql
  EXECUTE $mzo_ddl_8$
+-- E04 approved construction profile; owner-applied to the SAME CIB database/schema.
+-- No executable designation, source grant or profile activation is bootstrapped here.
+-- Runtime grants are installed/read back by AuthInstallation, never PUBLIC.
+CREATE TABLE MZO_AUTH_INSTALLATION (
+ TENANT_ varchar(255) PRIMARY KEY REFERENCES MZO_HUMAN_TENANT(TENANT_),
+ INCARNATION_ varchar(255) NOT NULL, REV_ bigint NOT NULL CHECK(REV_>0),
+ SCOPE_ text NOT NULL, BINDING_ text NOT NULL, QUALIFICATION_ text NOT NULL
+);
+CREATE TABLE MZO_AUTH_TRUST (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ KEY_ID_ varchar(255) NOT NULL, DESIGNATION_ text NOT NULL,
+ PRIMARY KEY(TENANT_,KEY_ID_)
+);
+CREATE TABLE MZO_AUTH_REVOKED_KEY (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ KEY_ID_ varchar(255) NOT NULL, REV_ bigint NOT NULL CHECK(REV_>0),
+ PRIMARY KEY(TENANT_,KEY_ID_)
+);
+CREATE TABLE MZO_AUTH_INPUT_HEAD (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ KIND_ varchar(32) NOT NULL CHECK(KIND_ IN ('actor','resource_authority','guide','start_facts','document_custody','document_policy','audit_intent')),
+ RESOURCE_ varchar(255) NOT NULL, GENERATION_ bigint NOT NULL CHECK(GENERATION_>0),
+ STATE_ varchar(16) NOT NULL CHECK(STATE_ IN ('active','frozen','revoked')),
+ PUBLICATION_ varchar(255) NOT NULL, PUBLICATION_DIGEST_ char(64) NOT NULL,
+ PUBLISHER_KEY_ varchar(255) NOT NULL, PUBLISHER_DIGEST_ char(64) NOT NULL,
+ SOURCE_ text NOT NULL, PAYLOAD_ text, PAYLOAD_DIGEST_ char(64), VALID_UNTIL_ timestamptz NOT NULL,
+ CHECK((STATE_='active')=(PAYLOAD_ IS NOT NULL)),
+ CHECK((PAYLOAD_ IS NULL)=(PAYLOAD_DIGEST_ IS NULL)),
+ PRIMARY KEY(TENANT_,KIND_,RESOURCE_)
+);
+CREATE TABLE MZO_AUTH_INPUT_VERSION (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ KIND_ varchar(32) NOT NULL, RESOURCE_ varchar(255) NOT NULL, GENERATION_ bigint NOT NULL CHECK(GENERATION_>0),
+ PUBLISHER_KEY_ varchar(255) NOT NULL, PUBLISHER_DIGEST_ char(64) NOT NULL,
+ PUBLICATION_ varchar(255) NOT NULL, DIGEST_ char(64) NOT NULL, REQUEST_ text NOT NULL, RECEIPT_ text NOT NULL,
+ PRIMARY KEY(TENANT_,KIND_,RESOURCE_,GENERATION_), UNIQUE(TENANT_,PUBLICATION_)
+);
+CREATE TABLE MZO_AUTH_GUIDE_CLAIM (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ GUIDE_ varchar(255) NOT NULL, INTAKE_ varchar(255) NOT NULL,
+ COMMAND_ varchar(255) NOT NULL, DIGEST_ char(64) NOT NULL,
+ PRINCIPAL_ varchar(255) NOT NULL, INSTANCE_ varchar(255) NOT NULL, CASE_ varchar(255) NOT NULL,
+ DEFINITION_ text NOT NULL,
+ PRIMARY KEY(TENANT_,GUIDE_), UNIQUE(TENANT_,INTAKE_), UNIQUE(TENANT_,INSTANCE_), UNIQUE(TENANT_,CASE_)
+);
+CREATE TABLE MZO_AUTH_INSTANCE_HEAD (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ INSTANCE_ varchar(255) NOT NULL, REV_ bigint NOT NULL CHECK(REV_>=0),
+ GENERATION_ bigint NOT NULL CHECK(GENERATION_>=0), CURRENT_REQUEST_ varchar(255),
+ PRIMARY KEY(TENANT_,INSTANCE_),
+ FOREIGN KEY(TENANT_,INSTANCE_) REFERENCES MZO_AUTH_GUIDE_CLAIM(TENANT_,INSTANCE_)
+);
+CREATE TABLE MZO_AUTH_DOC_OCCURRENCE (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ REQUEST_ varchar(255) NOT NULL, INSTANCE_ varchar(255) NOT NULL,
+ GENERATION_ bigint NOT NULL CHECK(GENERATION_>0), REV_ bigint NOT NULL CHECK(REV_>=0),
+ PRODUCER_TASK_ varchar(255) NOT NULL, PUBLICATION_TASK_ varchar(255),
+ SUBSCRIPTION_ varchar(255), STATE_ varchar(32) NOT NULL CHECK(STATE_ IN
+ ('created','awaiting_publication_worker','bound','consumed','expired','cancelled','replaced')),
+ RECORD_ text NOT NULL,
+ PRIMARY KEY(TENANT_,REQUEST_), UNIQUE(TENANT_,INSTANCE_,PRODUCER_TASK_),
+ UNIQUE(TENANT_,INSTANCE_,GENERATION_), UNIQUE(TENANT_,PUBLICATION_TASK_), UNIQUE(TENANT_,SUBSCRIPTION_),
+ FOREIGN KEY(TENANT_,INSTANCE_) REFERENCES MZO_AUTH_INSTANCE_HEAD(TENANT_,INSTANCE_)
+);
+CREATE TABLE MZO_AUTH_EFFECT_RECEIPT (
+ TENANT_ varchar(255) NOT NULL REFERENCES MZO_AUTH_INSTALLATION(TENANT_),
+ COMMAND_ varchar(255) NOT NULL, DIGEST_ char(64) NOT NULL,
+ OPERATION_ varchar(32) NOT NULL CHECK(OPERATION_ IN ('auth.start','auth.documents.respond')),
+ PRINCIPAL_ varchar(255) NOT NULL, ADMISSION_ varchar(255) NOT NULL,
+ REQUEST_ varchar(255), RECEIPT_ text NOT NULL,
+ CHECK((OPERATION_='auth.documents.respond')=(REQUEST_ IS NOT NULL)),
+ PRIMARY KEY(TENANT_,COMMAND_), UNIQUE(TENANT_,REQUEST_)
+);
+REVOKE ALL ON TABLE MZO_AUTH_INSTALLATION,MZO_AUTH_TRUST,MZO_AUTH_REVOKED_KEY,
+ MZO_AUTH_INPUT_HEAD,MZO_AUTH_INPUT_VERSION,MZO_AUTH_GUIDE_CLAIM,
+ MZO_AUTH_INSTANCE_HEAD,MZO_AUTH_DOC_OCCURRENCE,MZO_AUTH_EFFECT_RECEIPT FROM PUBLIC;
+$mzo_ddl_8$;
+ -- 9. src/maezo/portal/engine/java/src/main/resources/human-consumer-lineage-postgres.sql
+ EXECUTE $mzo_ddl_9$
+-- P2: owner-installed, same native schema. No default qualification or production grant.
+CREATE TABLE MZO_HUMAN_CONSUMER_DATABASE (
+  TENANT_ varchar(255) PRIMARY KEY REFERENCES MZO_HUMAN_TENANT(TENANT_),
+  BINDING_ text NOT NULL
+);
+CREATE TABLE MZO_HUMAN_CONSUMER_TRUST (
+  TENANT_ varchar(255) NOT NULL REFERENCES MZO_HUMAN_CONSUMER_DATABASE(TENANT_),
+  KEY_ID_ varchar(255) NOT NULL, DESIGNATION_ text NOT NULL,
+  PRIMARY KEY(TENANT_,KEY_ID_)
+);
+CREATE TABLE MZO_HUMAN_CONSUMER_REVOKED (
+  TENANT_ varchar(255) NOT NULL, KEY_ID_ varchar(255) NOT NULL,
+  GENERATION_ bigint NOT NULL CHECK(GENERATION_>0),
+  PRIMARY KEY(TENANT_,KEY_ID_),
+  FOREIGN KEY(TENANT_,KEY_ID_) REFERENCES MZO_HUMAN_CONSUMER_TRUST(TENANT_,KEY_ID_)
+);
+CREATE TABLE MZO_HUMAN_CONSUMER_QUALIFICATION (
+  TENANT_ varchar(255) NOT NULL REFERENCES MZO_HUMAN_CONSUMER_DATABASE(TENANT_),
+  GENERATION_ bigint NOT NULL CHECK(GENERATION_>0),
+  AUTHORITY_REV_ bigint NOT NULL CHECK(AUTHORITY_REV_>=0),
+  QUALIFICATION_ varchar(255) NOT NULL, ENVELOPE_ text NOT NULL,
+  PRIMARY KEY(TENANT_,GENERATION_), UNIQUE(TENANT_,QUALIFICATION_)
+);
+CREATE TABLE MZO_HUMAN_CONSUMER_HEAD (
+  TENANT_ varchar(255) PRIMARY KEY REFERENCES MZO_HUMAN_CONSUMER_DATABASE(TENANT_),
+  GENERATION_ bigint NOT NULL CHECK(GENERATION_>=0),
+  QUALIFICATION_GENERATION_ bigint,
+  FOREIGN KEY(TENANT_,QUALIFICATION_GENERATION_) REFERENCES MZO_HUMAN_CONSUMER_QUALIFICATION(TENANT_,GENERATION_)
+);
+CREATE TABLE MZO_HUMAN_CONSUMER_POINTER (
+  TENANT_ varchar(255) NOT NULL, SCOPE_DIGEST_ char(64) NOT NULL,
+  TASK_ varchar(255) NOT NULL, COMMAND_ varchar(255) NOT NULL,
+  EXECUTION_ varchar(255) NOT NULL, GENERATION_ bigint NOT NULL,
+  POINTER_ text NOT NULL,
+  PRIMARY KEY(TENANT_,TASK_,COMMAND_),
+  FOREIGN KEY(TENANT_,GENERATION_) REFERENCES MZO_HUMAN_CONSUMER_QUALIFICATION(TENANT_,GENERATION_),
+  FOREIGN KEY(TENANT_,TASK_,COMMAND_) REFERENCES MZO_HUMAN_RECEIPT(TENANT_,TASK_,COMMAND_) DEFERRABLE INITIALLY DEFERRED
+);
+CREATE TABLE MZO_HUMAN_CONSUMER_POINTER_HEAD (
+  TENANT_ varchar(255) NOT NULL, SCOPE_DIGEST_ char(64) NOT NULL,
+  EXECUTION_ varchar(255) NOT NULL, TASK_ varchar(255) NOT NULL, COMMAND_ varchar(255) NOT NULL,
+  PRIMARY KEY(TENANT_,SCOPE_DIGEST_,EXECUTION_),
+  FOREIGN KEY(TENANT_,TASK_,COMMAND_) REFERENCES MZO_HUMAN_CONSUMER_POINTER(TENANT_,TASK_,COMMAND_)
+);
+CREATE TABLE MZO_HUMAN_CONSUMER_LINK (
+  TENANT_ varchar(255) NOT NULL, SCOPE_DIGEST_ char(64) NOT NULL,
+  EXTERNAL_TASK_ varchar(255) NOT NULL, TASK_ varchar(255) NOT NULL, COMMAND_ varchar(255) NOT NULL,
+  GENERATION_ bigint NOT NULL, LINK_ text NOT NULL, LINK_DIGEST_ char(64) NOT NULL,
+  CONSUMER_KIND_ varchar(255) NOT NULL, CONSUMER_DIGEST_ char(64) NOT NULL,
+  OUTCOME_ varchar(255) NOT NULL,
+  PRIMARY KEY(TENANT_,SCOPE_DIGEST_,EXTERNAL_TASK_),
+  FOREIGN KEY(TENANT_,TASK_,COMMAND_) REFERENCES MZO_HUMAN_CONSUMER_POINTER(TENANT_,TASK_,COMMAND_),
+  FOREIGN KEY(TENANT_,GENERATION_) REFERENCES MZO_HUMAN_CONSUMER_QUALIFICATION(TENANT_,GENERATION_)
+);
+CREATE FUNCTION MZO_HUMAN_CONSUMER_IMMUTABLE() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'immutable consumer evidence'; END $$;
+CREATE TRIGGER MZO_HUMAN_CONSUMER_DATABASE_IMMUTABLE BEFORE UPDATE OR DELETE OR TRUNCATE ON MZO_HUMAN_CONSUMER_DATABASE FOR EACH STATEMENT EXECUTE FUNCTION MZO_HUMAN_CONSUMER_IMMUTABLE();
+CREATE TRIGGER MZO_HUMAN_CONSUMER_TRUST_IMMUTABLE BEFORE UPDATE OR DELETE OR TRUNCATE ON MZO_HUMAN_CONSUMER_TRUST FOR EACH STATEMENT EXECUTE FUNCTION MZO_HUMAN_CONSUMER_IMMUTABLE();
+CREATE TRIGGER MZO_HUMAN_CONSUMER_REVOKED_IMMUTABLE BEFORE UPDATE OR DELETE OR TRUNCATE ON MZO_HUMAN_CONSUMER_REVOKED FOR EACH STATEMENT EXECUTE FUNCTION MZO_HUMAN_CONSUMER_IMMUTABLE();
+CREATE TRIGGER MZO_HUMAN_CONSUMER_QUAL_IMMUTABLE BEFORE UPDATE OR DELETE OR TRUNCATE ON MZO_HUMAN_CONSUMER_QUALIFICATION FOR EACH STATEMENT EXECUTE FUNCTION MZO_HUMAN_CONSUMER_IMMUTABLE();
+CREATE TRIGGER MZO_HUMAN_CONSUMER_POINTER_IMMUTABLE BEFORE UPDATE OR DELETE OR TRUNCATE ON MZO_HUMAN_CONSUMER_POINTER FOR EACH STATEMENT EXECUTE FUNCTION MZO_HUMAN_CONSUMER_IMMUTABLE();
+CREATE TRIGGER MZO_HUMAN_CONSUMER_LINK_IMMUTABLE BEFORE UPDATE OR DELETE OR TRUNCATE ON MZO_HUMAN_CONSUMER_LINK FOR EACH STATEMENT EXECUTE FUNCTION MZO_HUMAN_CONSUMER_IMMUTABLE();
+$mzo_ddl_9$;
+ -- 10. src/maezo/portal/engine/read-provider/src/main/resources/portal-read-admission-postgres.sql
+ EXECUTE $mzo_ddl_10$
 -- Q2 installed admission (portal-read-admission.v1, T1.7a). Apply once, in the pinned native schema
 -- (maezo_native, ADR-0060), as its owner login (maezo_native_schema_owner), never at startup.
 -- One row per admission revision. RECORD_ holds the exact JCS bytes the approver's installation root
@@ -445,9 +589,9 @@ CREATE TABLE MZO_PORTAL_READ_ADMISSION (
  PRIMARY KEY(ADMISSION_REF_,REVISION_)
 );
 REVOKE ALL ON MZO_PORTAL_READ_ADMISSION FROM PUBLIC;
-$mzo_ddl_8$;
- -- 9. deploy/sql/staff-case-issuer-ledger-postgres.sql
- EXECUTE $mzo_ddl_9$
+$mzo_ddl_10$;
+ -- 11. deploy/sql/staff-case-issuer-ledger-postgres.sql
+ EXECUTE $mzo_ddl_11$
 -- D-H.3 (plano portal-autoridade-nativa-dev, T1.4): estado duravel do emissor de casos staff.
 -- Instalado pelo dono (maezo_native_schema_owner) em maezo_native, dentro de engine-native-install.sql.
 -- Uma linha por (escopo, policy_ref). A escrita e CAS por revision (UPDATE ... WHERE revision=$old).
@@ -463,7 +607,7 @@ CREATE TABLE mzo_staff_case_issuer_ledger (
  PRIMARY KEY(tenant,environment,engine_name,database_incarnation,policy_ref)
 );
 REVOKE ALL ON mzo_staff_case_issuer_ledger FROM PUBLIC;
-$mzo_ddl_9$;
+$mzo_ddl_11$;
 END $install$;
 
 -- Grants (idempotentes; reaplicados a cada execucao).
@@ -480,6 +624,59 @@ GRANT SELECT ON mzo_portal_read_membership, mzo_human_principal TO maezo_native_
 GRANT SELECT ON ALL TABLES IN SCHEMA maezo_external TO cibseven_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE maezo_native_schema_owner IN SCHEMA maezo_external
  GRANT SELECT ON TABLES TO cibseven_app;
+
+-- DML do engine (D-J.2c) nas relacoes que ESTE script instala. MZO_HUMAN_*: SELECT,INSERT,UPDATE;
+-- sufixo imutavel (I8) e MZO_PORTAL_READ_*: SELECT,INSERT. Nunca DELETE/TRUNCATE/REFERENCES.
+-- Excecao por evidencia: PortalReadPublication.java:171 faz UPDATE em MZO_PORTAL_READ_DESIGNATION
+-- (catalog-revoke); sem UPDATE o engine recusaria a revogacao. A admissao Q2 fica SELECT (acima);
+-- as MZO_HUMAN_CONSUMER_* e MZO_AUTH_* sao do instalador do engine e nao sao tocadas aqui.
+DO $dml$
+DECLARE r record; privs text;
+BEGIN
+ FOR r IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+   WHERE n.nspname='maezo_native' AND c.relkind='r'
+     AND (starts_with(c.relname, 'mzo_human_') OR starts_with(c.relname, 'mzo_portal_read_'))
+     AND NOT starts_with(c.relname, 'mzo_human_consumer_') AND c.relname<>'mzo_portal_read_admission' LOOP
+   privs := CASE
+     WHEN r.relname='mzo_portal_read_designation' THEN 'SELECT, INSERT'
+     WHEN r.relname='mzo_human_decision_binding' THEN 'SELECT'
+     WHEN starts_with(r.relname, 'mzo_portal_read_')
+       OR r.relname ~ '_(event|receipt|continuity|cursor|version|dependency|chunk|ledger)$'
+       THEN 'SELECT, INSERT'
+     ELSE 'SELECT, INSERT, UPDATE' END;
+   EXECUTE format('REVOKE ALL ON maezo_native.%I FROM cibseven_app', r.relname);
+   EXECUTE format('GRANT %s ON maezo_native.%I TO cibseven_app', privs, r.relname);
+ END LOOP;
+ -- D-J.4 2.c: a revogacao (PortalReadPublication.java:171) so escreve REVOKED_ e PUBLICATION_.
+ GRANT UPDATE (revoked_, publication_) ON maezo_native.mzo_portal_read_designation TO cibseven_app;
+END $dml$;
+
+-- D-J.4: matriz EXATA de AuthInstallation.installSchema e ConsumerEdgeInstallation.installSchema
+-- (o pin do catalogo inclui os grants; divergir aqui faz o instalador Java recusar).
+DO $engine_owned$
+DECLARE t text; privs text;
+BEGIN
+ FOREACH t IN ARRAY ARRAY['installation','trust','revoked_key','input_head','input_version','guide_claim',
+                          'instance_head','doc_occurrence','effect_receipt'] LOOP
+   privs := 'SELECT'
+     || CASE WHEN t IN ('input_head','input_version','guide_claim','instance_head',
+                        'doc_occurrence','effect_receipt') THEN ',INSERT' ELSE '' END
+     || CASE WHEN t IN ('input_head','instance_head','doc_occurrence') THEN ',UPDATE' ELSE '' END;
+   EXECUTE format('REVOKE ALL ON TABLE maezo_native.%I FROM PUBLIC, cibseven_app', 'mzo_auth_'||t);
+   EXECUTE format('GRANT %s ON TABLE maezo_native.%I TO cibseven_app', privs, 'mzo_auth_'||t);
+ END LOOP;
+ FOREACH t IN ARRAY ARRAY['database','trust','revoked','qualification','head','pointer',
+                          'pointer_head','link'] LOOP
+   privs := 'SELECT'
+     || CASE WHEN t IN ('pointer','pointer_head','link') THEN ',INSERT' ELSE '' END
+     || CASE WHEN t = 'pointer_head' THEN ',UPDATE' ELSE '' END;
+   EXECUTE format('REVOKE ALL ON TABLE maezo_native.%I FROM PUBLIC, cibseven_app', 'mzo_human_consumer_'||t);
+   EXECUTE format('GRANT %s ON TABLE maezo_native.%I TO cibseven_app', privs, 'mzo_human_consumer_'||t);
+ END LOOP;
+ -- D-H.1/3: o emissor le so tenant_, instance_, case_ da reivindicacao AUTH (entra no pin AUTH).
+ REVOKE ALL ON maezo_native.mzo_auth_guide_claim FROM maezo_native_case_issuer;
+ GRANT SELECT (tenant_, instance_, case_) ON maezo_native.mzo_auth_guide_claim TO maezo_native_case_issuer;
+END $engine_owned$;
 
 -- Postura final: recusa (e desfaz a transacao, se houver) o que as verificacoes do runtime recusariam.
 DO $posture$

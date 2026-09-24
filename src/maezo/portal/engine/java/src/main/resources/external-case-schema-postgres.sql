@@ -1,15 +1,9 @@
 -- W6A approved interface, installation-only additive PostgreSQL migration.
 -- Execute only as migration owner after effective-role review. No ACT_* DDL or startup migration.
 -- Actual LOGIN roles and scope bindings are independently provisioned; no default tenant/data.
-CREATE SCHEMA maezo_external;
+-- D-J.4: o schema e os papeis portal_external_* vem de deploy/sql/engine-native-roles.sql (admin);
+-- a posse das funcoes SECURITY DEFINER, de deploy/sql/external-case-owners.sql (admin, depois).
 REVOKE ALL ON SCHEMA maezo_external FROM PUBLIC;
-CREATE ROLE portal_external_source_importer NOLOGIN;
-CREATE ROLE portal_external_case_publisher NOLOGIN;
-CREATE ROLE portal_external_case_runtime NOLOGIN;
-CREATE ROLE portal_external_source_definer NOLOGIN;
-CREATE ROLE portal_external_ingress_reader NOLOGIN;
-CREATE ROLE portal_external_checkpoint_definer NOLOGIN;
-CREATE ROLE portal_external_publisher_definer NOLOGIN;
 GRANT USAGE ON SCHEMA maezo_external TO portal_external_source_importer,
  portal_external_case_publisher,portal_external_case_runtime,
  portal_external_source_definer,portal_external_checkpoint_definer,portal_external_publisher_definer,portal_external_ingress_reader;
@@ -192,7 +186,7 @@ BEGIN
  WHERE tenant=scope_binding->>'tenant' AND environment=scope_binding->>'environment'
  AND engine_name=scope_binding->>'engine_name' AND database_incarnation=scope_binding->>'database_incarnation' FOR UPDATE;
 
- PERFORM 1 FROM public.mzo_human_tenant WHERE tenant_=scope_binding->>'tenant' FOR UPDATE;
+ PERFORM 1 FROM maezo_native.mzo_human_tenant WHERE tenant_=scope_binding->>'tenant' FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  SELECT c.designation_digest INTO d FROM maezo_external.mzo_external_authority_current c
  JOIN maezo_external.mzo_external_authority_event a USING (tenant,environment,engine_name,database_incarnation,designation_revision)
@@ -202,7 +196,6 @@ BEGIN
  IF d IS NULL THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  RETURN d;
 END $$;
-ALTER FUNCTION maezo_external.lock_ingress(jsonb) OWNER TO portal_external_source_definer;
 REVOKE ALL ON FUNCTION maezo_external.lock_ingress(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.lock_ingress(jsonb) TO portal_external_checkpoint_definer;
 
@@ -304,10 +297,6 @@ BEGIN
 END $$;
 
 -- Function owners cannot be assumed by caller roles. No direct importer table writes.
-ALTER FUNCTION maezo_external.reserve_external_case_ref(jsonb,text) OWNER TO portal_external_source_definer;
-ALTER FUNCTION maezo_external.accept_external_case_source(jsonb,text,bigint,text,bytea) OWNER TO portal_external_source_definer;
-ALTER FUNCTION maezo_external.revoke_external_case_source(jsonb,text,bigint,text,bytea) OWNER TO portal_external_source_definer;
-ALTER FUNCTION maezo_external.accept_external_scope_checkpoint(jsonb,text,bigint,text,bytea) OWNER TO portal_external_checkpoint_definer;
 REVOKE ALL ON ALL TABLES IN SCHEMA maezo_external FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA maezo_external FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.reserve_external_case_ref(jsonb,text),
@@ -322,7 +311,7 @@ GRANT SELECT ON maezo_external.mzo_external_caller_scope,maezo_external.mzo_exte
 GRANT SELECT ON maezo_external.mzo_external_checkpoint_event,maezo_external.mzo_external_checkpoint_accepted
  TO portal_external_checkpoint_definer;
 GRANT UPDATE(epoch) ON maezo_external.mzo_external_checkpoint_accepted TO portal_external_source_definer;
-GRANT SELECT,UPDATE(rev_) ON public.mzo_human_tenant TO portal_external_source_definer;
+GRANT SELECT,UPDATE(rev_) ON maezo_native.mzo_human_tenant TO portal_external_source_definer;
 GRANT UPDATE(accepted_generation) ON maezo_external.mzo_external_source_generation TO portal_external_source_definer;
 GRANT INSERT ON maezo_external.mzo_external_case_reservation,maezo_external.mzo_external_source_event,
  maezo_external.mzo_external_ingress_receipt,maezo_external.mzo_external_publication_outbox TO portal_external_source_definer;
@@ -391,7 +380,7 @@ BEGIN
  PERFORM 1 FROM maezo_external.mzo_external_checkpoint_accepted c WHERE
  c.tenant=scope_binding->>'tenant' AND c.environment=scope_binding->>'environment'
  AND c.engine_name=scope_binding->>'engine_name' AND c.database_incarnation=scope_binding->>'database_incarnation' FOR UPDATE;
- SELECT h.rev_ INTO native_rev FROM public.mzo_human_tenant h
+ SELECT h.rev_ INTO native_rev FROM maezo_native.mzo_human_tenant h
  WHERE h.tenant_=scope_binding->>'tenant' FOR UPDATE;
  IF native_rev IS NULL THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  SELECT e.* INTO a FROM maezo_external.mzo_external_authority_current c
@@ -415,7 +404,7 @@ BEGIN
  IF stored_digest IS NOT NULL AND stored_digest IS DISTINCT FROM request_digest
  THEN RAISE EXCEPTION USING ERRCODE='P7E02',MESSAGE='external_case_conflict'; END IF;
  IF octet_length(historic)>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
- FOR rowref IN SELECT r.fingerprint_ FROM public.mzo_portal_read_revocation r
+ FOR rowref IN SELECT r.fingerprint_ FROM maezo_native.mzo_portal_read_revocation r
  WHERE r.tenant_=scope_binding->>'tenant' AND r.environment_=scope_binding->>'environment'
  AND r.engine_=scope_binding->>'engine_name' AND r.incarnation_=scope_binding->>'database_incarnation'
  ORDER BY r.fingerprint_ COLLATE "C" LOOP
@@ -432,7 +421,6 @@ BEGIN
  RETURN QUERY SELECT scope_binding,a.designation_digest::text,a.canonical_designation,
  a.installation_receipt,native_rev,pins,historic;
 END $$;
-ALTER FUNCTION maezo_external.lock_external_ingress_authority(jsonb,text,text,text) OWNER TO portal_external_ingress_reader;
 REVOKE ALL ON FUNCTION maezo_external.lock_external_ingress_authority(jsonb,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.lock_external_ingress_authority(jsonb,text,text,text) TO portal_external_source_importer;
 GRANT EXECUTE ON FUNCTION maezo_external.receipt_json(jsonb) TO portal_external_ingress_reader;
@@ -440,11 +428,11 @@ GRANT SELECT ON maezo_external.mzo_external_caller_scope,maezo_external.mzo_exte
  maezo_external.mzo_external_source_head,maezo_external.mzo_external_checkpoint_accepted,
  maezo_external.mzo_external_authority_current,maezo_external.mzo_external_authority_event,
  maezo_external.mzo_external_ingress_receipt,maezo_external.mzo_external_checkpoint_event,
- public.mzo_human_tenant,public.mzo_portal_read_revocation TO portal_external_ingress_reader;
+ maezo_native.mzo_human_tenant,maezo_native.mzo_portal_read_revocation TO portal_external_ingress_reader;
 GRANT UPDATE(accepted_generation) ON maezo_external.mzo_external_source_generation TO portal_external_ingress_reader;
 GRANT UPDATE(payload_digest) ON maezo_external.mzo_external_source_head TO portal_external_ingress_reader;
 GRANT UPDATE(epoch) ON maezo_external.mzo_external_checkpoint_accepted TO portal_external_ingress_reader;
-GRANT UPDATE(rev_) ON public.mzo_human_tenant TO portal_external_ingress_reader;
+GRANT UPDATE(rev_) ON maezo_native.mzo_human_tenant TO portal_external_ingress_reader;
 
 -- Publisher mutation capability: closed operations, no direct outbox UPDATE.
 CREATE FUNCTION maezo_external.lock_publisher(scope_binding jsonb) RETURNS void
@@ -459,10 +447,9 @@ BEGIN
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  FOR item IN SELECT source_ref FROM maezo_external.mzo_external_source_head WHERE tenant=scope_binding->>'tenant' AND environment=scope_binding->>'environment' AND engine_name=scope_binding->>'engine_name' AND database_incarnation=scope_binding->>'database_incarnation' ORDER BY source_ref COLLATE "C" FOR UPDATE LOOP NULL; END LOOP;
  PERFORM 1 FROM maezo_external.mzo_external_checkpoint_accepted WHERE tenant=scope_binding->>'tenant' AND environment=scope_binding->>'environment' AND engine_name=scope_binding->>'engine_name' AND database_incarnation=scope_binding->>'database_incarnation' FOR UPDATE;
- PERFORM 1 FROM public.mzo_human_tenant WHERE tenant_=scope_binding->>'tenant' FOR UPDATE;
+ PERFORM 1 FROM maezo_native.mzo_human_tenant WHERE tenant_=scope_binding->>'tenant' FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
 END $$;
-ALTER FUNCTION maezo_external.lock_publisher(jsonb) OWNER TO portal_external_publisher_definer;
 REVOKE ALL ON FUNCTION maezo_external.lock_publisher(jsonb) FROM PUBLIC;
 
 CREATE FUNCTION maezo_external.capture_external_case(scope_binding jsonb, publication text, claimant text, deadline timestamptz)
@@ -479,10 +466,10 @@ BEGIN
  IF packet IS NULL OR ingress IS NULL OR octet_length(packet)>65536 OR octet_length(ingress)>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  SELECT r.canonical_receipt INTO native FROM maezo_external.mzo_external_publication_receipt r WHERE r.tenant=scope_binding->>'tenant' AND r.environment=scope_binding->>'environment' AND r.engine_name=scope_binding->>'engine_name' AND r.database_incarnation=scope_binding->>'database_incarnation' AND r.publication_id=publication;
  SELECT r.canonical_receipt INTO covering FROM maezo_external.mzo_external_event_terminal t JOIN maezo_external.mzo_external_publication_receipt r USING(tenant,environment,engine_name,database_incarnation,publication_id) WHERE t.tenant=scope_binding->>'tenant' AND t.environment=scope_binding->>'environment' AND t.engine_name=scope_binding->>'engine_name' AND t.database_incarnation=scope_binding->>'database_incarnation' AND t.source_ref=o.source_ref AND t.source_revision=o.source_revision AND t.terminal_kind='covered';
- SELECT e.*,h.rev_ AS native_revision INTO a FROM maezo_external.mzo_external_authority_current c JOIN maezo_external.mzo_external_authority_event e USING(tenant,environment,engine_name,database_incarnation,designation_revision) JOIN public.mzo_human_tenant h ON h.tenant_=c.tenant
+ SELECT e.*,h.rev_ AS native_revision INTO a FROM maezo_external.mzo_external_authority_current c JOIN maezo_external.mzo_external_authority_event e USING(tenant,environment,engine_name,database_incarnation,designation_revision) JOIN maezo_native.mzo_human_tenant h ON h.tenant_=c.tenant
  WHERE c.tenant=scope_binding->>'tenant' AND c.environment=scope_binding->>'environment' AND c.engine_name=scope_binding->>'engine_name' AND c.database_incarnation=scope_binding->>'database_incarnation' AND c.designation_digest=e.designation_digest AND c.authority_revision=e.authority_revision;
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
- FOR pin IN SELECT r.fingerprint_ FROM public.mzo_portal_read_revocation r WHERE r.tenant_=scope_binding->>'tenant' AND r.environment_=scope_binding->>'environment' AND r.engine_=scope_binding->>'engine_name' AND r.incarnation_=scope_binding->>'database_incarnation' ORDER BY r.fingerprint_ COLLATE "C" LOOP
+ FOR pin IN SELECT r.fingerprint_ FROM maezo_native.mzo_portal_read_revocation r WHERE r.tenant_=scope_binding->>'tenant' AND r.environment_=scope_binding->>'environment' AND r.engine_=scope_binding->>'engine_name' AND r.incarnation_=scope_binding->>'database_incarnation' ORDER BY r.fingerprint_ COLLATE "C" LOOP
   pins:=pins||jsonb_build_array(pin.fingerprint_);IF octet_length(pins::text)>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  END LOOP;
  IF greatest(octet_length(packet),octet_length(ingress),coalesce(octet_length(o.canonical_request),0),coalesce(octet_length(native),0),coalesce(octet_length(covering),0),octet_length(a.canonical_designation),octet_length(a.installation_receipt),octet_length(pins::text))>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
@@ -542,9 +529,6 @@ BEGIN
  UPDATE maezo_external.mzo_external_publication_outbox x SET delivery_state='committed',native_receipt=receipt WHERE x.tenant=scope_binding->>'tenant' AND x.environment=scope_binding->>'environment' AND x.engine_name=scope_binding->>'engine_name' AND x.database_incarnation=scope_binding->>'database_incarnation' AND x.publication_id=publication;
  RETURN true;
 END $$;
-ALTER FUNCTION maezo_external.capture_external_case(jsonb,text,text,timestamptz) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.persist_external_case(jsonb,text,text,bigint,bytea) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.transition_external_case(jsonb,text,text,bigint,text,bytea,text) OWNER TO portal_external_publisher_definer;
 REVOKE ALL ON FUNCTION maezo_external.capture_external_case(jsonb,text,text,timestamptz),maezo_external.persist_external_case(jsonb,text,text,bigint,bytea),maezo_external.transition_external_case(jsonb,text,text,bigint,text,bytea,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.capture_external_case(jsonb,text,text,timestamptz),maezo_external.persist_external_case(jsonb,text,text,bigint,bytea),maezo_external.transition_external_case(jsonb,text,text,bigint,text,bytea,text) TO portal_external_case_publisher;
 
@@ -562,10 +546,10 @@ BEGIN
  IF packet IS NULL OR ingress IS NULL OR octet_length(packet)>65536 OR octet_length(ingress)>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  SELECT r.canonical_receipt INTO native FROM maezo_external.mzo_external_publication_receipt r WHERE r.tenant=scope_binding->>'tenant' AND r.environment=scope_binding->>'environment' AND r.engine_name=scope_binding->>'engine_name' AND r.database_incarnation=scope_binding->>'database_incarnation' AND r.publication_id=publication;
 
- SELECT e.*,h.rev_ AS native_revision INTO a FROM maezo_external.mzo_external_authority_current c JOIN maezo_external.mzo_external_authority_event e USING(tenant,environment,engine_name,database_incarnation,designation_revision) JOIN public.mzo_human_tenant h ON h.tenant_=c.tenant
+ SELECT e.*,h.rev_ AS native_revision INTO a FROM maezo_external.mzo_external_authority_current c JOIN maezo_external.mzo_external_authority_event e USING(tenant,environment,engine_name,database_incarnation,designation_revision) JOIN maezo_native.mzo_human_tenant h ON h.tenant_=c.tenant
  WHERE c.tenant=scope_binding->>'tenant' AND c.environment=scope_binding->>'environment' AND c.engine_name=scope_binding->>'engine_name' AND c.database_incarnation=scope_binding->>'database_incarnation' AND c.designation_digest=e.designation_digest AND c.authority_revision=e.authority_revision;
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
- FOR pin IN SELECT r.fingerprint_ FROM public.mzo_portal_read_revocation r WHERE r.tenant_=scope_binding->>'tenant' AND r.environment_=scope_binding->>'environment' AND r.engine_=scope_binding->>'engine_name' AND r.incarnation_=scope_binding->>'database_incarnation' ORDER BY r.fingerprint_ COLLATE "C" LOOP
+ FOR pin IN SELECT r.fingerprint_ FROM maezo_native.mzo_portal_read_revocation r WHERE r.tenant_=scope_binding->>'tenant' AND r.environment_=scope_binding->>'environment' AND r.engine_=scope_binding->>'engine_name' AND r.incarnation_=scope_binding->>'database_incarnation' ORDER BY r.fingerprint_ COLLATE "C" LOOP
   pins:=pins||jsonb_build_array(pin.fingerprint_);IF octet_length(pins::text)>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
  END LOOP;
  IF greatest(octet_length(packet),octet_length(ingress),coalesce(octet_length(o.canonical_request),0),coalesce(octet_length(native),0),coalesce(octet_length(covering),0),octet_length(a.canonical_designation),octet_length(a.installation_receipt),octet_length(pins::text))>65536 THEN RAISE EXCEPTION USING ERRCODE='P7E03',MESSAGE='external_case_unavailable'; END IF;
@@ -606,9 +590,6 @@ BEGIN
  UPDATE maezo_external.mzo_external_checkpoint_outbox x SET delivery_state='committed',native_receipt=receipt WHERE x.tenant=scope_binding->>'tenant' AND x.environment=scope_binding->>'environment' AND x.engine_name=scope_binding->>'engine_name' AND x.database_incarnation=scope_binding->>'database_incarnation' AND x.publication_id=publication;
  RETURN true;
 END $$;
-ALTER FUNCTION maezo_external.capture_external_checkpoint(jsonb,text,text,timestamptz) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.persist_external_checkpoint(jsonb,text,text,bigint,bytea) OWNER TO portal_external_publisher_definer;
-ALTER FUNCTION maezo_external.transition_external_checkpoint(jsonb,text,text,bigint,text,bytea,text) OWNER TO portal_external_publisher_definer;
 REVOKE ALL ON FUNCTION maezo_external.capture_external_checkpoint(jsonb,text,text,timestamptz),maezo_external.persist_external_checkpoint(jsonb,text,text,bigint,bytea),maezo_external.transition_external_checkpoint(jsonb,text,text,bigint,text,bytea,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION maezo_external.capture_external_checkpoint(jsonb,text,text,timestamptz),maezo_external.persist_external_checkpoint(jsonb,text,text,bigint,bytea),maezo_external.transition_external_checkpoint(jsonb,text,text,bigint,text,bytea,text) TO portal_external_case_publisher;
 
@@ -619,19 +600,19 @@ GRANT SELECT ON maezo_external.mzo_external_caller_scope,maezo_external.mzo_exte
  maezo_external.mzo_external_checkpoint_outbox,maezo_external.mzo_external_checkpoint_accepted,
  maezo_external.mzo_external_checkpoint_event,maezo_external.mzo_external_authority_current,
  maezo_external.mzo_external_authority_event,maezo_external.mzo_external_publication_receipt,
- maezo_external.mzo_external_event_terminal,public.mzo_human_tenant,public.mzo_portal_read_revocation
+ maezo_external.mzo_external_event_terminal,maezo_native.mzo_human_tenant,maezo_native.mzo_portal_read_revocation
  TO portal_external_publisher_definer;
 GRANT UPDATE(accepted_generation) ON maezo_external.mzo_external_source_generation TO portal_external_publisher_definer;
 GRANT UPDATE(payload_digest) ON maezo_external.mzo_external_source_head TO portal_external_publisher_definer;
 GRANT UPDATE(epoch) ON maezo_external.mzo_external_checkpoint_accepted TO portal_external_publisher_definer;
-GRANT UPDATE(rev_) ON public.mzo_human_tenant TO portal_external_publisher_definer;
+GRANT UPDATE(rev_) ON maezo_native.mzo_human_tenant TO portal_external_publisher_definer;
 GRANT UPDATE(canonical_request,request_digest,delivery_state,native_receipt,claimant_ref,claim_epoch,claim_expires_at,covering_publication_id)
  ON maezo_external.mzo_external_publication_outbox,maezo_external.mzo_external_checkpoint_outbox TO portal_external_publisher_definer;
 -- Native lock privileges, separate from installer and source mutation authority.
 GRANT UPDATE(payload_digest) ON maezo_external.mzo_external_source_head TO portal_external_case_runtime;
 GRANT UPDATE(epoch) ON maezo_external.mzo_external_checkpoint_accepted TO portal_external_case_runtime;
-GRANT SELECT,UPDATE(rev_) ON public.mzo_human_tenant TO portal_external_case_runtime;
-GRANT SELECT ON public.mzo_portal_read_revocation TO portal_external_case_runtime;
+GRANT SELECT,UPDATE(rev_) ON maezo_native.mzo_human_tenant TO portal_external_case_runtime;
+GRANT SELECT ON maezo_native.mzo_portal_read_revocation TO portal_external_case_runtime;
 
 /* BEGIN IDENTITY DATABASE INSTALLATION
  * Execute the SQL between these markers separately against the existing dedicated

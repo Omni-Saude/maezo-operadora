@@ -51,6 +51,12 @@ class ExternalCaseUnitTest {
     ExternalCaseStore.checkpointBarrier(obj(f.checkpoint,"statement"),List.of(),0,0);
   }
   /** Ressalva #489: the external configuration pins the native schema and binds both schemas in its digest. */
+  @Test void publicationReceiptIsQualifiedByThePinnedSchema(){
+    assertEquals("SELECT KEY_FINGERPRINT_ FROM \"maezo_native\".MZO_PORTAL_READ_PUBLICATION_RECEIPT WHERE ",
+        ExternalCaseReadCommand.publicationReceiptSql("maezo_native"));
+    for(String bad:new String[]{null,"public","pg_temp","Maezo","maezo_native\";--"})
+      assertThrows(RuntimeException.class,()->ExternalCaseReadCommand.publicationReceiptSql(bad));
+  }
   @Test void configurationPinsTheNativeSchema()throws Exception{
     var f=new Fixture();
     for(String[] bad:new String[][]{{"cibseven",null},{"cibseven","public"},{"cibseven","cibseven"},{"maezo_x","maezo_x"},{"cibseven","Bad"}})
