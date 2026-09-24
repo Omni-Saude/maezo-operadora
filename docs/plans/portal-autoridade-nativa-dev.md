@@ -409,6 +409,12 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
      pelo menos uma guia AUTH real, com escalação de SLA, publicada pelo WP-J1-02 no dev, e nenhum
      item `SYN-` visível.
 
+- **D-L [24/09, valores do dev para a Onda 2].** Os pins vão na §4; a ordem de montagem é native-secret → trust digest → catálogo → registro.
+  - **Native secret:** `read_deployment_ref` = `maezo-operadora-dev:engine-native:read:1`, e o digest é o da composição D-J.1. `audience` = `https://engine-native.maezo-operadora-dev.internal`. `validity_policy_ref` = `maezo-operadora-dev:validity-policy:staff:1`. As chaves são `amh-dev-read-20260924` e `amh-dev-command-20260924`. Janela: `not_before` = instante do `generate`; `not_after` = `2026-10-08T04:44:25Z`, igual ao fim da designação e dentro dos 14 d do N2. Quando a designação for renovada, as chaves também são geradas de novo (D-H).
+  - **Trust digest:** calculado pelo `assemble` a partir do native secret já montado (só a parte pública). O aprovador recalcula do arquivo, nunca da saída do gerador.
+  - **Catálogo:** `catalog_ref` = `amh:maezo-operadora-dev:q2-catalog:1`. `publisher_ref` = `maezo-operadora-dev:workload:catalog-designate`. O recibo de deploy segue a §4.
+  - **Admissão:** `admission_ref` = `maezo-operadora-dev:portal-read-admission:1`. `scope.workload_ref` = `maezo-operadora-dev:workload:portal-staff`. Prefixos dos publishers: `amh:maezo-operadora-dev:membership/` e `amh:maezo-operadora-dev:catalog-designate/`.
+  - Todo `*_digest` é o SHA-256 do JCS (RFC 8785) do artefato nomeado. Quem gera é a engenharia, com `tools/staff_materials`. O aprovador recalcula com uma implementação JCS independente. Os valores do C1 (de teste) não valem aqui. Tarefa: Onda 2.
 ---
 
 ## 3. Ondas executáveis
@@ -955,6 +961,10 @@ Pin que o aprovador não consegue recalcular sozinho não é aprovado.
 | **[23/09]** *(admissão Q2)* `catalog_digest` | digest do catálogo mínimo do staff | o artefato de catálogo da T1.5 | `sha256` do JCS do artefato, que o aprovador lê (tem que ter `entries=[]`) |
 | **[23/09]** *(admissão Q2)* escopo, engine, incarnation, janela | iguais aos do staff | as mesmas fontes das linhas `scope.*` acima | igual. `valid_until − not_before ≤ 14 d` (N2) |
 | **[23/09]** *(provedor Q2, T1.7a)* `portal_read_root_sha256` / `capability_digest` | SHA-256 do SPKI da raiz que o provedor **carregou** (`root_public_key_sha256` do `portal-read-provider.v1`) e SHA-256 dos bytes da admissão que ele aceitou | **A chave do próprio aprovador** (D-F) e **o registro de admissão que ele assinou**, contra **o engine vivo** (linha pública do 1º `acquire`) | `aws logs filter-log-events --log-group-name /ecs/maezo-operadora-dev/cibseven --filter-pattern portal_read_provider` na última task. `root_sha256` tem que ser igual ao `openssl pkey -in root.pem -pubout -outform DER \| sha256sum` da máquina dele, e `capability_digest` igual ao `sha256sum` do JCS que o `sign-admission` assinou. `admission_ref`/`revision`/`engine_code`/`provider_code` batem com a admissão e com a linha `code_digests` acima. Sem essa conferência, quem monta o arquivo do provedor pode trocar par e pin e se auto-admitir |
+| `read_deployment_ref` / `read_deployment_digest` **[D-L]** | `maezo-operadora-dev:engine-native:read:1`; SHA-256 do JCS do arquivo `staff-deployment-composition.v1` (D-J.1) | o arquivo montado no engine **e** o digest do log do boot | JCS independente (`python -m rfc8785`) do arquivo \| `sha256sum`, comparado com o `aws logs filter-log-events` do boot |
+| `validity_policy_ref` / `validity_policy_digest` **[D-L]** | `maezo-operadora-dev:validity-policy:staff:1`; SHA-256 do JCS do documento de política que o `generate` (T1.3) emite | o texto da política que o aprovador leu | JCS independente \| `sha256sum` |
+| `audience`, IDs das chaves **[D-L]** | `https://engine-native.maezo-operadora-dev.internal`; `amh-dev-read-20260924`, `amh-dev-command-20260924` | `native_origin` e a designação assinada | igualdade textual |
+| `deployment_receipt_ref` / `deployment_receipt_digest` **[D-L]** | `maezo-operadora-dev:engine-native:deployment-receipt:1`; SHA-256 do JCS do recibo que o engine grava na instalação (Onda 3/4) | a linha do recibo no banco do engine | `psql` com o login de leitura → JCS \| `sha256sum` |
 
 Não aprova: nenhum agente. Um agente pode **rodar** os comandos acima para mostrar a saída, mas
 o valor aprovado é o que o aprovador obteve na sessão dele. A aprovação fica registrada por ele,
