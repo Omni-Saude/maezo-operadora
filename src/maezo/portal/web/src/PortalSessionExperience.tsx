@@ -1,9 +1,9 @@
-import { useId, useMemo, useState, type Ref } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type Ref } from "react";
 
 import { AudienceAuthorizationExperience } from "./AudienceAuthorizationExperience";
 import { EmployeeQueues } from "./EmployeeQueues";
 import { StaffOverview } from "./StaffOverview";
-import { StaffCaseWorkspace } from "./StaffCaseWorkspace";
+import { StaffCaseWorkspace, casePath, caseRoutePrefix } from "./StaffCaseWorkspace";
 import {
   StaffAreaPanel,
   StaffNavigation,
@@ -28,10 +28,12 @@ function SessionHeading({
   audience,
   expiresAt,
   headingRef,
+  compact = false,
 }: {
   audience: PortalAudience;
   expiresAt: string;
   headingRef: Ref<HTMLHeadingElement>;
+  compact?: boolean;
 }) {
   const heading = audience === "staff"
     ? "Área de colaboradores"
@@ -39,13 +41,13 @@ function SessionHeading({
       ? "Área do beneficiário"
       : "Área do prestador";
   return (
-    <section className="portal-session-card" aria-labelledby="audience-heading">
-      <p className="eyebrow">Sessão ativa</p>
+    <section className={compact ? "portal-session-card portal-session-compact" : "portal-session-card"} aria-labelledby="audience-heading">
+      {!compact && <p className="eyebrow">Sessão ativa</p>}
       <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
         Sessão confirmada. {heading}.
       </p>
       <h1 id="audience-heading" ref={headingRef} tabIndex={-1}>{heading}</h1>
-      <p>Cada recurso é consultado com a autorização atual desta sessão.</p>
+      {!compact && <p>Cada recurso é consultado com a autorização atual desta sessão.</p>}
       <dl className="session-detail">
         <div>
           <dt>Validade desta sessão</dt>
@@ -67,6 +69,26 @@ function UnavailableArea({ title, children }: { title: string; children: React.R
   );
 }
 
+type StaffRoute = Readonly<{ area: StaffArea; caseRef: string | null }>;
+
+// Only the Cases area has an address: /portal/cases and /portal/cases/:ref.
+// Every other area lives at /portal/ as before.
+function readStaffRoute(): StaffRoute {
+  const path = window.location.pathname.replace(/\/+$/, "");
+  if (path === caseRoutePrefix) return { area: "cases", caseRef: null };
+  if (path.startsWith(`${caseRoutePrefix}/`)) {
+    const tail = path.slice(caseRoutePrefix.length + 1);
+    if (!tail.includes("/")) {
+      try {
+        return { area: "cases", caseRef: decodeURIComponent(tail) };
+      } catch {
+        return { area: "cases", caseRef: null };
+      }
+    }
+  }
+  return { area: "overview", caseRef: null };
+}
+
 export function StaffPortalExperience({
   expiresAt,
   csrfToken,
@@ -80,7 +102,26 @@ export function StaffPortalExperience({
   headingRef: Ref<HTMLHeadingElement>;
   onSessionUnavailable: () => void;
 }) {
-  const [activeArea, setActiveArea] = useState<StaffArea>("overview");
+  const [route, setRoute] = useState(readStaffRoute);
+  const activeArea = route.area;
+  useEffect(() => {
+    const onPop = () => setRoute(readStaffRoute());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+  const navigate = useCallback((next: StaffRoute) => {
+    const path = next.area === "cases" ? casePath(next.caseRef) : "/portal/";
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+    setRoute(next);
+  }, []);
+  const setActiveArea = useCallback(
+    (area: StaffArea) => navigate({ area, caseRef: null }),
+    [navigate],
+  );
+  const selectCase = useCallback(
+    (caseRef: string | null) => navigate({ area: "cases", caseRef }),
+    [navigate],
+  );
   const staffCaseClient = useMemo(() => createStaffCaseClient(), [sessionBinding]);
 
   let content: React.ReactNode;
@@ -108,6 +149,8 @@ export function StaffPortalExperience({
       <StaffCaseWorkspace
         service={staffCaseClient}
         onSessionUnavailable={onSessionUnavailable}
+        selectedCaseRef={route.caseRef}
+        onSelectCase={selectCase}
       />
     );
   } else if (activeArea === "documents") {
@@ -129,7 +172,7 @@ export function StaffPortalExperience({
 
   return (
     <main className="portal-session-main">
-      <SessionHeading audience="staff" expiresAt={expiresAt} headingRef={headingRef} />
+      <SessionHeading audience="staff" expiresAt={expiresAt} headingRef={headingRef} compact={activeArea !== "overview"} />
       <div className="staff-portal-workspace">
         <StaffNavigation active={activeArea} onChange={setActiveArea} />
         <div className="staff-panel-stack">

@@ -106,12 +106,12 @@ it("lista a página autorizada na entrada e abre o detalhe existente pela linha"
     />,
   );
 
-  expect(await screen.findByRole("heading", { name: "Página atual" })).toBeInTheDocument();
-  expect(screen.getByText(/somente a página liberada/i)).toBeInTheDocument();
-  expect(screen.queryByText(/total/i)).not.toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Casos do seu grupo" })).toBeInTheDocument();
+  expect(screen.getByText(/não mostra totais de casos/i)).toBeInTheDocument();
+  expect(screen.queryByText(/d+ casos|total de/i)).not.toBeInTheDocument();
   expect(listCases).toHaveBeenCalledWith(null, expect.any(AbortSignal));
 
-  await userEvent.click(screen.getByRole("button", { name: new RegExp(caseRef) }));
+  await userEvent.click(screen.getByRole("link", { name: new RegExp(caseRef) }));
   expect(await screen.findByRole("heading", { name: "Caso de autorização" })).toHaveFocus();
   expect(screen.getByText("UT_AnaliseMedicoAuditor")).toBeInTheDocument();
   expect(readCase).toHaveBeenCalledWith(caseRef, expect.any(AbortSignal));
@@ -125,8 +125,8 @@ it("acrescenta somente a próxima página ligada ao cursor opaco", async () => {
   render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
 
   await userEvent.click(await screen.findByRole("button", { name: "Carregar próxima página" }));
-  expect(await screen.findByRole("button", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: new RegExp(caseRef) })).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: new RegExp(caseRef) })).toBeInTheDocument();
   expect(listCases).toHaveBeenNthCalledWith(2, "cursor.staff-page-2", expect.any(AbortSignal));
   expect(screen.queryByRole("button", { name: "Carregar próxima página" })).not.toBeInTheDocument();
 });
@@ -135,7 +135,7 @@ it("atualiza a primeira página e mantém a origem da validade visível", async 
   const listCases = vi.fn().mockResolvedValue({ kind: "success", value: page([], null) });
   render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
 
-  expect(await screen.findByText(/lista válida até/i)).toBeInTheDocument();
+  expect(await screen.findByText(/^Atualizado às/)).toBeInTheDocument();
   await userEvent.click(screen.getByRole("button", { name: "Atualizar casos" }));
   await waitFor(() => expect(listCases).toHaveBeenCalledTimes(2));
   expect(listCases).toHaveBeenLastCalledWith(null, expect.any(AbortSignal));
@@ -185,7 +185,7 @@ it("aborta e descarta a lista protegida quando o serviço da sessão muda", asyn
     />,
   );
   expect(oldSignal.aborted).toBe(true);
-  expect(await screen.findByRole("button", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
+  expect(await screen.findByRole("link", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
 
   old.resolve({ kind: "success", value: page([caseRef], null) });
   await act(async () => Promise.resolve());
@@ -199,7 +199,7 @@ it("mostra indisponibilidade da fonte sem inventar uma lista", async () => {
   });
   render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
 
-  expect(await screen.findByRole("alert")).toHaveTextContent(/fonte autorizada de casos/i);
+  expect(await screen.findByRole("alert")).toHaveTextContent(/serviço de casos está indisponível/i);
   expect(screen.queryByRole("list")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
 });
@@ -226,9 +226,9 @@ it("volta do detalhe por uma nova leitura da primeira página", async () => {
   const listCases = vi.fn().mockResolvedValue({ kind: "success", value: page() });
   render(<StaffCaseWorkspace service={service(undefined, listCases)} onSessionUnavailable={vi.fn()} />);
 
-  await userEvent.click(await screen.findByRole("button", { name: new RegExp(caseRef) }));
+  await userEvent.click(await screen.findByRole("link", { name: new RegExp(caseRef) }));
   await userEvent.click(await screen.findByRole("button", { name: "Voltar para casos" }));
-  expect(await screen.findByRole("heading", { name: "Página atual" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Casos do seu grupo" })).toBeInTheDocument();
   expect(listCases).toHaveBeenNthCalledWith(2, null, expect.any(AbortSignal));
 });
 
@@ -239,7 +239,7 @@ it("renova o detalhe selecionado na cadência autorizada", async () => {
   render(<StaffCaseWorkspace service={service(readCase, listCases)} onSessionUnavailable={vi.fn()} />);
   await act(async () => Promise.resolve());
 
-  fireEvent.click(screen.getByRole("button", { name: new RegExp(caseRef) }));
+  fireEvent.click(screen.getByRole("link", { name: new RegExp(caseRef) }));
   await act(async () => Promise.resolve());
   expect(readCase).toHaveBeenCalledTimes(1);
   await act(async () => vi.advanceTimersByTimeAsync(10_000));
@@ -261,11 +261,11 @@ it("retira a página ao expirar mesmo com paginação pendente e recusa o append
   await act(async () => vi.advanceTimersByTimeAsync(9_000));
   fireEvent.click(screen.getByRole("button", { name: "Carregar próxima página" }));
   const pageSignal = listCases.mock.calls[1][1] as AbortSignal;
-  expect(screen.getByRole("button", { name: new RegExp(caseRef) })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: new RegExp(caseRef) })).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(1_001));
   expect(pageSignal.aborted).toBe(true);
   expect(listCases).toHaveBeenNthCalledWith(3, null, expect.any(AbortSignal));
-  expect(screen.queryByRole("button", { name: new RegExp(caseRef) })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: new RegExp(caseRef) })).not.toBeInTheDocument();
   const laterPage = page([nextCaseRef], null);
   laterPage.freshness.valid_until = "2099-09-10T12:00:30.000000Z";
   await act(async () => {
@@ -291,10 +291,10 @@ it("retém o prazo anterior ao acrescentar uma página com validade posterior", 
   await act(async () => vi.advanceTimersByTimeAsync(4_000));
   fireEvent.click(screen.getByRole("button", { name: "Carregar próxima página" }));
   await act(async () => Promise.resolve());
-  expect(screen.getByRole("button", { name: new RegExp(caseRef) })).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: new RegExp(caseRef) })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: new RegExp(nextCaseRef) })).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(6_001));
   expect(listCases).toHaveBeenNthCalledWith(3, null, expect.any(AbortSignal));
-  expect(screen.queryByRole("button", { name: new RegExp(caseRef) })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: new RegExp(nextCaseRef) })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: new RegExp(caseRef) })).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: new RegExp(nextCaseRef) })).not.toBeInTheDocument();
 });

@@ -414,6 +414,8 @@ it("encerra por POST com credenciais same-origin, no-store e CSRF apenas no head
   const logout = await screen.findByRole("button", { name: "Sair com segurança" });
   const user = userEvent.setup();
   await user.tab();
+  expect(screen.getByRole("link", { name: "Pular para o conteúdo" })).toHaveFocus();
+  await user.tab();
   await user.tab();
   expect(logout).toHaveFocus();
   await user.click(logout);

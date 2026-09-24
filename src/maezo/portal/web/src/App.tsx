@@ -162,6 +162,7 @@ export function App() {
   if (state.kind === "authenticated") {
     return (
       <div className="app-shell">
+        <a className="skip-link" href="#conteudo">Pular para o conteúdo</a>
         <header className="app-header">
           <a className="brand" href="/portal/" aria-label="Portal Maezo, início">
             Maezo
@@ -174,6 +175,7 @@ export function App() {
             Sair com segurança
           </button>
         </header>
+        <div id="conteudo" className="skip-target" tabIndex={-1}>
         {state.session.audience === "staff" ? (
           <StaffPortalExperience
             expiresAt={state.session.expires_at}
@@ -200,6 +202,7 @@ export function App() {
             onSessionUnavailable={invalidateSession}
           />
         )}
+        </div>
       </div>
     );
   }

@@ -58,7 +58,7 @@ a { color: inherit; }
   font-weight: 800;
 }
 
-.eyebrow { margin: 0 0 0.6rem; color: #356d5d; font-size: 0.78rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.eyebrow { margin: 0 0 0.6rem; color: #356d5d; font-size: 0.85rem; font-weight: 800; letter-spacing: 0.01em; }
 
 h1, h2 { color: #143d31; line-height: 1.1; }
 h1 { margin: 0; font-size: clamp(2rem, 6vw, 3.5rem); letter-spacing: -0.035em; }
@@ -145,7 +145,7 @@ p { max-width: 65ch; line-height: 1.65; }
 .table-scroll { overflow-x: auto; margin-top: 1rem; border: 1px solid #d5e2dc; border-radius: 0.85rem; }
 table { width: 100%; min-width: 48rem; border-collapse: collapse; text-align: left; }
 th, td { padding: 0.85rem 0.9rem; border-bottom: 1px solid #dce7e2; vertical-align: top; }
-thead th { color: #42675d; background: #f1f6f3; font-size: 0.78rem; letter-spacing: 0.035em; text-transform: uppercase; }
+thead th { color: #42675d; background: #f1f6f3; font-size: 0.85rem; font-weight: 750; }
 tbody th { color: #173e33; }
 tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .exact-value { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
@@ -223,8 +223,6 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
   color: #365e53;
   font-size: 0.78rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .navigation-items {
