@@ -17,12 +17,14 @@ from urllib.parse import quote
 
 from maezo.gateway.human import membership_publication_job as job
 
-from .common import ADMIN, MEMBERSHIP_PREFIX, ROOT, STATE, TENANT, iso, now, read_text, state, step, write
+from .common import ADMIN, MATERIALS, MEMBERSHIP_PREFIX, ROOT, TENANT, iso, now, read_text, state, step, write
 from .engine_config import (
+    AUTHORITY_KEY_ID,
     CATALOG_PREFIX,
     DEPLOYMENT_RECEIPT_DIGEST,
     DEPLOYMENT_RECEIPT_REF,
     HUMAN_AUDIENCE,
+    PUBLICATION_KEY_ID,
 )
 from .seed import BFF_LOGIN
 
@@ -48,8 +50,16 @@ def config() -> dict:
             deployment_receipt_ref=DEPLOYMENT_RECEIPT_REF, deployment_receipt_digest=DEPLOYMENT_RECEIPT_DIGEST,
             source_ref_prefix=CATALOG_PREFIX, valid_seconds="86400",
         ),
+        # O job com a identidade PROPRIA do `generate` (job/): certificado de cliente e uma chave por proposito.
+        client_certificate_file=str(MATERIALS / "job" / "job-client-certificate.pem"),
+        client_key_file=str(MATERIALS / "job" / "job-client-key.pem"),
+        publication=dict(
+            key_file=str(MATERIALS / "job" / "publication-signing-key.pem"), key_id=PUBLICATION_KEY_ID,
+            fingerprint=engine["publication_fingerprint"], not_after=iso(now() + timedelta(hours=12)),
+        ),
         authority=dict(
-            key_file=str(STATE / "authority-key.pem"), key_id="c1-human-authority", audience=HUMAN_AUDIENCE,
+            key_file=str(MATERIALS / "job" / "authority-signing-key.pem"), key_id=AUTHORITY_KEY_ID,
+            audience=HUMAN_AUDIENCE,
             fingerprint=engine["authority_fingerprint"], not_after=iso(now() + timedelta(hours=12)),
             max_envelope_seconds="30",
         ),
