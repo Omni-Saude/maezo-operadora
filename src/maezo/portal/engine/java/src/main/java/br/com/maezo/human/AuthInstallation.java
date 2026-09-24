@@ -64,7 +64,9 @@ public final class AuthInstallation {
     var b=binding(database);AuthModels.validate("scope",scope);var q=qualification(approvedQualification);
     session(owner,b,true);String tenant=Jcs.ref(scope,"tenant");lock(owner,tenant);
     if(PortalReadModels.number(scope.get("installation_revision"))!=1)throw Rejected.invalid();
-    for(String suffix:TABLES)if(!Boolean.TRUE.equals(one(owner,"SELECT to_regclass(?) IS NULL AS absent",b.get("schema_name")+".mzo_auth_"+suffix.toLowerCase(Locale.ROOT)).get("absent")))throw Rejected.conflict();
+    var names=new ArrayList<String>();for(String suffix:TABLES)names.add("mzo_auth_"+suffix.toLowerCase(Locale.ROOT));
+    // D-J.4: the owner script may have installed these tables; accepted only if identical to the pin.
+    if(NativeCatalogPin.absent(owner,NativeCatalogPin.AUTH,Jcs.string(b,"schema_name"),names,Jcs.string(b,"owner_role"),Jcs.string(b,"runtime_role")))
     try(var resource=AuthInstallation.class.getResourceAsStream("/human-auth-intake-documents-postgres.sql");var statement=owner.createStatement()) {
       if(resource==null)throw EngineStore.unavailable();statement.setQueryTimeout(5);statement.execute(new String(resource.readAllBytes(),StandardCharsets.UTF_8));
       String role=identifier(Jcs.string(b,"runtime_role"));

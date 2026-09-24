@@ -104,7 +104,9 @@ public final class ConsumerEdgeInstallation {
   /** Owner-only explicit migration. Caller transaction must commit before any runtime/readback use. */
   public static void installSchema(Connection owner,Map<String,Object> input){
     var b=database(input);session(owner,b,true);String tenant=str(Jcs.object(b.get("scope")),"tenant");lock(owner,tenant);
-    for(String name:TABLES)need(one(owner,"SELECT to_regclass(?) IS NULL AS absent",b.get("schema_name")+"."+(PREFIX+name).toLowerCase(Locale.ROOT)).get("absent").equals(true));
+    var names=new ArrayList<String>();for(String name:TABLES)names.add((PREFIX+name).toLowerCase(Locale.ROOT));
+    // D-J.4: the owner script may have installed these tables; accepted only if identical to the pin.
+    if(NativeCatalogPin.absent(owner,NativeCatalogPin.CONSUMER,str(b,"schema_name"),names,str(b,"owner_role"),str(b,"runtime_role")))
     try(var in=ConsumerEdgeInstallation.class.getResourceAsStream("/human-consumer-lineage-postgres.sql");var statement=owner.createStatement()){
       need(in!=null);statement.setQueryTimeout(5);statement.execute(new String(in.readAllBytes(),StandardCharsets.UTF_8));
       String role=identifier(str(b,"runtime_role"));

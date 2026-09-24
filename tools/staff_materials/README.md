@@ -36,8 +36,16 @@ Nenhum agente roda os comandos do `approver`. O módulo de engenharia não impor
 - `dba/role-verifiers.json` — verificadores SCRAM dos dois logins novos (Onda 3).
 - `public/summary.json` — o que o aprovador confere contra as fontes independentes da §4.
 
+## `assemble` (v2)
+
+`python -m tools.staff_materials assemble --materials <saida do generate> --spec <spec> --approver <dir> --input <staff-materials-assemble.v1> --out <dir novo>`
+monta `portal-staff-material.v2` (`native_schema`, `engine_schema`). Do aprovador entram só
+`installation-root.der` (chave PÚBLICA) e `installation-proof.json`; a raiz privada nunca passa
+aqui. Recusa se a designação não for a do `generate`, se `read_requester` não tiver
+`operations ["detail","list"]` ou se o `identity_verifier` não tiver chave própria (D-H.2).
+O manifesto passa pelo `PublicManifest` do loader antes de sair; confira com o `verify` antes de pinar.
+
 ## O que ainda não existe
 
-- `assemble` v2: monta `portal-staff-material.v2` com `native_schema` e `engine_schema` (`cibseven`, T1.8b). Espera a T1.8/Python.
 - O shape fechado do `portal-read-admission.v1` é da T1.7a. O `sign-admission` exige só o que o
   plano §3.1 já fixa e mostra o resto ao aprovador.
