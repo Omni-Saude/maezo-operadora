@@ -1,0 +1,59 @@
+src/maezo/gateway/human/read_profile.py
+  s_75580744a35de2::t_09490c9db58c9e 118-121
+src/maezo/gateway/staff_cases/case_issuer.py
+  s_75580744a35de2::t_26e3d110a1ac03 60,62
+src/maezo/gateway/staff_cases/materials.py
+  s_75580744a35de2::t_3433d2c900f9e4 162-163
+src/maezo/gateway/staff_cases/models.py
+  s_75580744a35de2::t_ff74d3566275a6 58,81-84
+src/maezo/portal/contracts/staff_cases.py
+  s_75580744a35de2::t_e03bbc1d71dcd5 23-56,63-65,104-105,124-125
+src/maezo/portal/engine/java/src/main/java/br/com/maezo/human/EngineSchema.java
+  s_75580744a35de2::t_164fffb5cc4e9c 15-16
+src/maezo/portal/engine/java/src/main/java/br/com/maezo/human/NativeCaseIdentityReader.java
+  s_75580744a35de2::t_8e3b71b27b5c37 46-47
+src/maezo/portal/engine/java/src/main/java/br/com/maezo/human/StaffCaseModels.java
+  s_75580744a35de2::t_336f01aa68c540 12-14,20,44
+src/maezo/portal/engine/java/src/main/java/br/com/maezo/human/StaffCaseReadCommand.java
+  s_75580744a35de2::t_5874abc7664d05 116,145,170,172-176,196-200,260,264-266
+src/maezo/portal/engine/java/src/main/java/br/com/maezo/human/StaffEscalation.java
+  s_75580744a35de2::t_5554527ad3f5ba 1-94
+src/maezo/portal/engine/java/src/test/java/br/com/maezo/human/EngineSchemaEngineIT.java
+  s_75580744a35de2::t_03cb9a3fd2a2c1 59-67,72,87-96,156-179
+src/maezo/portal/engine/java/src/test/java/br/com/maezo/human/StaffEscalationTest.java
+  s_75580744a35de2::t_2598a56d91f7cf 1-88
+src/maezo/portal/web/openapi.json
+  s_75580744a35de2::t_c48ae86cf5a920 6225-6306,6387-6396
+src/maezo/portal/web/src/generated/api.ts
+  s_75580744a35de2::t_5e67ef4e2b4d4d 2632-2652,2687
+tests/unit/gateway/test_staff_case_issuer.py
+  s_75580744a35de2::t_46c7204f465980 201-202,408,427,435,437,441-467
+tests/unit/portal/test_intake_documents.py
+  s_75580744a35de2::t_5ffb15c2e7a79b 243-246
+tests/unit/portal/test_staff_escalation_contract.py
+  s_75580744a35de2::t_313301965c93e9 1-209
+tests/unit/staff_materials/test_approver.py
+  s_75580744a35de2::t_7b9705ef81db37 9,33-47
+tests/unit/staff_materials/test_generate.py
+  s_75580744a35de2::t_96497bfd037ab2 137-142,145
+tools/staff_materials/approver.py
+  s_75580744a35de2::t_0b17be4ccd2c0d 96-98,105-109
+tools/staff_materials/generate.py
+  s_75580744a35de2::t_61138c6f928460 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0e482c3f85a438b6f7e62950391b6aacfaddce9b",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
