@@ -178,6 +178,7 @@ export function App() {
         <div id="conteudo" className="skip-target" tabIndex={-1}>
         {state.session.audience === "staff" ? (
           <StaffPortalExperience
+            capabilities={state.session.capabilities}
             expiresAt={state.session.expires_at}
             csrfToken={state.session.csrf_token}
             sessionBinding={[

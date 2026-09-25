@@ -33,6 +33,7 @@ function session() {
     roles: ["authorized-role"],
     expires_at: new Date(Date.now() + 60_000).toISOString(),
     csrf_token: "csrf-secret",
+    capabilities: ["identity", "staff_cases", "human"],
   } as const;
 }
 

@@ -19,7 +19,24 @@ const exactSessionKeys = [
   "roles",
   "expires_at",
   "csrf_token",
+  "capabilities",
 ] as const;
+
+export type PortalCapability = SessionDTO["capabilities"][number];
+
+const canonicalCapabilities: readonly PortalCapability[] = ["identity", "staff_cases", "human"];
+
+// Canonical order, no duplicates, nothing outside the three literals.
+function isCapabilityList(value: unknown): value is PortalCapability[] {
+  if (!Array.isArray(value)) return false;
+  let previous = -1;
+  return value.every((item) => {
+    const index = canonicalCapabilities.indexOf(item as PortalCapability);
+    if (index <= previous) return false;
+    previous = index;
+    return true;
+  });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,7 +69,8 @@ export function validateSession(value: unknown): SessionDTO | null {
     !value.roles.every((role) => typeof role === "string") ||
     !isAwareTimestamp(value.expires_at) ||
     typeof value.csrf_token !== "string" ||
-    value.csrf_token.length === 0
+    value.csrf_token.length === 0 ||
+    !isCapabilityList(value.capabilities)
   ) {
     return null;
   }
