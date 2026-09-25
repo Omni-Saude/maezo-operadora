@@ -85,6 +85,11 @@ class EngineReadBundle:
         # INTERIM completion (DL-0049): at most one completion per task per bundle, and a
         # bundle is one BFF request. A retry is a new request, a new read and a new authority.
         self._completed: set[str] = set()
+        #: D12 (D-N): the ADMITTED Q2 revision this read context observed. The material's signed
+        #: admission is the floor (the approver admitted at least that revision); a later revision
+        #: installed by the owner (H1 human block, a new catalog) is read from the engine's own
+        #: continuity binding, and every stage of ONE context must agree on it.
+        self._generation: int | None = None
         self._closed = False
 
     def guard(self) -> None:
@@ -127,7 +132,7 @@ class EngineReadBundle:
             or b.database_incarnation != a.database_incarnation
             or b.read_deployment_ref != a.read_deployment_ref
             or b.read_deployment_digest != a.read_deployment_digest
-            or b.runtime_admission_generation != a.runtime_admission_generation
+            or not self._admitted_generation(b.runtime_admission_generation, a.runtime_admission_generation)
             or b.read_context_id != self._context
             or b.requester != signing.requester
             or c.origin_request_digest != result.request_digest
@@ -141,6 +146,13 @@ class EngineReadBundle:
             or c.valid_until <= self.client.partition.guard()
         ):
             raise unavailable()
+
+    def _admitted_generation(self, observed: int, floor: int) -> bool:
+        """Never below the material's admitted revision; never two revisions in one context."""
+        if observed < floor or (self._generation is not None and observed != self._generation):
+            return False
+        self._generation = observed
+        return True
 
     def task_entry(self, task: AuthoritativeTask) -> _TaskEntry:
         self.guard()
