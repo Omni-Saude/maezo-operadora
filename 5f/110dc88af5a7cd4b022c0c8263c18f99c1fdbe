@@ -1,0 +1,66 @@
+src/maezo/tools/mcp_cibseven/transport.py
+  s_75580744a35de2::t_35b6d8c2cfd219 485-538,711
+  s_75580744a35de2::t_8b4327e5635104 171-205
+  s_75580744a35de2::t_d9843fd124fbda 539-544,697-710,712-718
+tests/unit/platform/integrations/test_agent_resume_flow.py
+  s_75580744a35de2::t_6d42523a22c753 1-226
+  s_75580744a35de2::t_71c864f80f0c9e 227-232
+src/maezo/platform/integrations/agent_resume.py
+  s_75580744a35de2::t_dac884243eb646 1-514
+  s_75580744a35de2::t_a78ad518912341 515-531
+tests/unit/platform/integrations/test_agent_resume.py
+  s_75580744a35de2::t_5b0c4c004e3bf8 1-372
+  s_75580744a35de2::t_46c5f4a9bd6abd 373-385
+deploy/aws-ecs/envs/dev-sa-east-1/service-agent-resume.tf
+  s_75580744a35de2::t_a2097798e0a617 1-130
+  s_75580744a35de2::t_4c0f33d588f920 131-138
+tests/unit/agents/test_helena_retomada.py
+  s_75580744a35de2::t_aaad345b0d3e6d 1-301
+  s_75580744a35de2::t_5aa7b4dacdc297 302-313
+deploy/aws-ecs/envs/dev-sa-east-1/variables.tf
+  s_75580744a35de2::t_038fba45bc0556 253-270
+docs/processes/contracts/SP-OP-ESCALATION-001.md
+  s_75580744a35de2::t_934d97f3e70130 296
+docs/processes/journeys/AGJ-HELENA-TRIAGE.md
+  s_75580744a35de2::t_c45bb3a244a4ac 19,54-63
+docs/reports/business-logic-audit-improvement-plan.md
+  s_75580744a35de2::t_8805b21f357f16 107,124,170
+spec/policies/autonomy/action-approvals.yaml
+  s_75580744a35de2::t_54119d78f60c30 535-536,568-573,740
+src/maezo/agents/helena/graph.py
+  s_75580744a35de2::t_adcf2dd13fe3d7 11-17,219,610-707,801-808,832,894-896,1630-1655,1670-1677,3354-3468,3471-3481,3792,3794,3806
+src/maezo/gateway/effect_classes.py
+  s_75580744a35de2::t_a14e38c130b612 381-389
+src/maezo/gateway/seams/cibseven.py
+  s_75580744a35de2::t_743a03c96753a8 50-54,60,133-152,154-158,161-162,170
+src/maezo/platform/integrations/notifications_bridge.py
+  s_75580744a35de2::t_47e766c2c04286 197-216,224-229
+src/maezo/platform/webhooks/whatsapp/dispatch.py
+  s_75580744a35de2::t_5c5612b6e6e3da 72-82,94-100,501-596,648
+src/maezo/runtime/turn_telemetry.py
+  s_75580744a35de2::t_abea06ca6e04db 180-189,273
+src/maezo/tools/mcp_cibseven/__init__.py
+  s_75580744a35de2::t_1f8a431cf61b82 33-34,59-60
+tests/unit/agents/corpus_cercas_de_saida.json
+  s_75580744a35de2::t_ad6d9bf7f6f125 1432-1442
+tests/unit/gateway/seams/test_manifest_choked_surfaces.py
+  s_75580744a35de2::t_ea3b5e6fec76eb 78
+tests/unit/platform/integrations/test_notifications_bridge.py
+  s_75580744a35de2::t_ef204bf628d72d 1105-1106,1112-1117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5f110dc88af5a7cd4b022c0c8263c18f99c1fdbe",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
