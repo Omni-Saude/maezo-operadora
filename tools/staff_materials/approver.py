@@ -18,6 +18,11 @@ Comandos (``python -m tools.staff_materials.approver <comando>``):
 * ``sign-admission --record F --root-key K [--confirm-digest H] --out P``  assina o registro
   `portal-read-admission.v1` da T1.7 no dominio separado
   ``"maezo/portal-read-admission/v1\\0" || JCS(registro)`` (plano §3.1).
+* ``sign-human-admission --record F --root-key K [--confirm-digest H] --out P``  assina o registro
+  `ReadAdmission` do pacote humano e grava `human-read-admission.json`
+  (`portal-human-read-admission.v1`: Ed25519 sobre o JCS do `record`, SEM dominio, exatamente o
+  que `production_materials.verify_read_admission` confere), que o `human-bundle package` recebe.
+  Sem `--passphrase-file`, a senha da raiz cifrada e pedida por `getpass`.
 
 Este modulo pode importar o de engenharia; o contrario e proibido e testado.
 """
@@ -330,6 +335,43 @@ def sign_admission(raw: bytes, root: Ed25519PrivateKey, *, confirm_digest: str |
     return base64.b64encode(signature)
 
 
+HUMAN_ADMISSION_SCHEMA = "portal-human-read-admission.v1"
+
+
+def review_human_admission(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:
+    """Confere o `ReadAdmission` (plano humano) no perfil do loader e o exibe campo a campo."""
+    from maezo.gateway.human.read_credentials import ReadAdmission
+    from maezo.gateway.human.read_profile import parse_model, wire
+
+    try:
+        value = strict_loads(raw)
+        record = wire(parse_model(ReadAdmission, value))
+    except Exception:
+        raise MaterialError("registro fora do perfil fechado ReadAdmission (plano humano)") from None
+    if canonicalize(record) != raw:
+        raise MaterialError("o registro de admissao humana precisa estar em JCS canonico")
+    start, end = _instant(value["observed_at"]), _instant(value["valid_until"])
+    if not start < end or end - start > MAX_WINDOW:
+        raise MaterialError("janela da admissao humana invalida ou maior que 14 dias")
+    lines = [f"{key}={canonicalize(value[key]).decode()}" for key in sorted(value)]
+    return record, digest(record), lines
+
+
+def sign_human_admission(raw: bytes, root: Ed25519PrivateKey, *, confirm_digest: str | None) -> bytes:
+    """Devolve o `human-read-admission.json` completo (documento, nao so a assinatura)."""
+    record, record_digest, _ = review_human_admission(raw)
+    _confirm(record_digest, confirm_digest)
+    signature = root.sign(raw)
+    root.public_key().verify(signature, raw)
+    return canonicalize(
+        {
+            "schema": HUMAN_ADMISSION_SCHEMA,
+            "record": record,
+            "signature": base64.b64encode(signature).decode(),
+        }
+    )
+
+
 def _passphrase(path: Path | None) -> bytes | None:
     return path.read_bytes().rstrip(b"\r\n") if path is not None else None
 
@@ -342,7 +384,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     keygen.add_argument(
         "--no-encrypt", action="store_true", help="grava a chave raiz EM CLARO (so com decisao explicita)"
     )
-    for name in ("sign-designation", "sign-admission"):
+    for name in ("sign-designation", "sign-admission", "sign-human-admission"):
         command = commands.add_parser(name)
         command.add_argument("--root-key", type=Path, required=True)
         command.add_argument("--passphrase-file", type=Path)
@@ -361,7 +403,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 raise MaterialError("as senhas nao conferem")
             print(f"root_key_sha256={root_keygen(args.out, passphrase=secret, plaintext=args.no_encrypt)}")
             return 0
-        root = load_root(args.root_key, _passphrase(args.passphrase_file))
+        secret = _passphrase(args.passphrase_file)
+        if secret is None and args.command == "sign-human-admission":
+            try:
+                root = load_root(args.root_key)
+            except MaterialError:
+                root = load_root(args.root_key, getpass.getpass("senha da raiz: ").encode())
+        else:
+            root = load_root(args.root_key, secret)
         if args.out.exists():
             raise MaterialError("o arquivo de saida precisa ser NOVO")
         print(f"root_key_sha256={fingerprint(root.public_key())}")
@@ -373,6 +422,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             signed = sign_designation(
                 raw, root, confirm_digest=args.confirm_digest, expires_at=timestamp(args.expires_at)
             )
+        elif args.command == "sign-human-admission":
+            raw = args.record.read_bytes()
+            _, shown, lines = review_human_admission(raw)
+            print("\n".join(lines))
+            print(f"human_admission_sha256={shown}")
+            signed = sign_human_admission(raw, root, confirm_digest=args.confirm_digest)
         else:
             raw = args.record.read_bytes()
             _, shown, lines = review_admission(raw)

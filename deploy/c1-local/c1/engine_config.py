@@ -10,14 +10,13 @@ engine-native/  client-ca.p12 = CA de clientes do `generate` + CA do pacote huma
 engine-run/     observer-dsn.txt
 banco           a admissao Q2 assinada pela raiz de TESTE (`approver.sign_admission`), a designacao
                 instalada (event + current) e a linha MZO_AUTH_INSTALLATION (D8: sem instalador AUTH)
-/c1/human-materials/current  o pacote humano do job (human_bundle.py, D6)
+/c1/human-materials/current  o pacote humano do job (`human-bundle` da ferramenta, via human_bundle.py)
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import os
 from datetime import timedelta
 from urllib.parse import quote
@@ -30,7 +29,6 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat,
 from tools.staff_materials import approver, native_secret
 
 from maezo.gateway.human.membership_publication_job import staff_catalog_artifact
-from maezo.portal.engine.profile import strict_loads
 
 from . import human_bundle
 from .common import (
@@ -295,38 +293,7 @@ async def main_async() -> None:
 
 def _rebuild(first: human_bundle.HumanBundle, admission: dict, common: dict) -> human_bundle.HumanBundle:
     """Rescreve o pacote humano com as MESMAS chaves e certificados e a admissao-espelho final."""
-    import json
-
-    from maezo.gateway.human.production_materials import HumanPublicManifest
-    from maezo.gateway.human.read_credentials import ReadAdmission
-    from maezo.gateway.human.read_profile import parse_model, wire
-    from maezo.portal.engine.profile import canonicalize
-
-    current = common["directory"] / "current"
-    os.chmod(current, 0o700)
-    files = {p.name: p.read_bytes() for p in current.iterdir()}
-    # A raiz humana nao foi guardada de proposito na 1a passada; aqui ela e regerada e o manifesto
-    # passa a apontar para ela (o pacote e todo local e de teste).
-    root = Ed25519PrivateKey.generate()
-    record = parse_model(ReadAdmission, admission)
-    files["installation-root.der"] = root.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
-    files["read-admission.json"] = json.dumps({
-        "schema": "portal-human-read-admission.v1", "record": wire(record),
-        "signature": base64.b64encode(root.sign(canonicalize(wire(record)))).decode("ascii")}).encode()
-    manifest = strict_loads(files.pop("manifest.json"))
-    manifest["root_key_fingerprint"] = sha256(files["installation-root.der"])
-    for name in ("installation-root.der", "read-admission.json"):
-        manifest["files"][name] = sha256(files[name])
-    parsed = parse_model(HumanPublicManifest, manifest)
-    for child in current.iterdir():
-        child.unlink()
-    for name, raw in {**files, "manifest.json": parsed.canonical()}.items():
-        (current / name).write_bytes(raw)
-        os.chmod(current / name, 0o400)
-    os.chmod(current, 0o500)
-    first.manifest = parsed
-    first.manifest_sha256 = hashlib.sha256(parsed.canonical()).hexdigest()
-    return first
+    return human_bundle.rebuild(first, admission, common)
 
 
 def main() -> None:
