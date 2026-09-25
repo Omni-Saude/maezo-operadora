@@ -54,6 +54,9 @@ _KEYS = {
     "identity_search_path",
     "auth",
 }
+#: Opcional (D14, Onda 8): o login da fonte de tarefas do job T1.5 e os grants de
+#: `deploy/sql/portal-task-source-grants.sql`, cada parte pelo dono do schema dela.
+_OPTIONAL = {"task_source"}
 _AUTH_SCOPE = {
     "tenant",
     "environment",
@@ -66,7 +69,7 @@ _NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
 def parse(document: dict[str, Any]) -> dict[str, Any]:
-    if set(document) != _KEYS or document["schema"] != SCHEMA:
+    if not _KEYS <= set(document) <= _KEYS | _OPTIONAL or document["schema"] != SCHEMA:
         raise OpsError(f"segredo de linhas: esperado {SCHEMA} com {sorted(_KEYS)}")
     scope = document["scope"]
     if not isinstance(scope, dict) or set(scope) != {
@@ -103,6 +106,15 @@ def parse(document: dict[str, Any]) -> dict[str, Any]:
         or not 1 <= auth["valid_days"] <= 14
     ):
         raise OpsError("auth.valid_days: 1 a 14")
+    task_source = document.get("task_source")
+    if task_source is not None and (
+        not isinstance(task_source, dict)
+        or set(task_source) != {"login", "password_secret_arn", "engine_schema"}
+        or not _NAME.fullmatch(str(task_source["login"]))
+        or not _NAME.fullmatch(str(task_source["engine_schema"]))
+        or not str(task_source["password_secret_arn"]).startswith("arn:aws:secretsmanager:")
+    ):
+        raise OpsError("task_source invalido")
     rows = dict(document)
     rows["designation"] = b64(document["designation_b64"], "designation")
     rows["proof"] = b64(document["installation_proof_b64"], "installation_proof")
@@ -229,6 +241,37 @@ async def bootstrap(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
         )
         actions["auth_installation"] = "inserida"
     return actions
+
+
+GRANTS_SQL = "deploy/sql/portal-task-source-grants.sql"
+
+
+async def task_source(owner: Any, admin: Any, engine_owner: Any, rows: dict[str, Any], password: str) -> str:
+    """D14: cria (ou realinha a senha de) o login e aplica as DUAS partes do SQL do repo."""
+    from pathlib import Path
+
+    from tools.staff_materials import scram
+
+    spec = rows["task_source"]
+    login, engine_schema = spec["login"], spec["engine_schema"]
+    exists = await admin.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login)
+    verb = "ALTER" if exists else "CREATE"
+    # Verificador SCRAM calculado aqui: a senha em claro nunca vira texto de SQL nem de log.
+    verifier = scram.verifier(password).replace("'", "")
+    await admin.execute(
+        f"{verb} ROLE {login} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
+        f"NOBYPASSRLS PASSWORD '{verifier}'"
+    )
+    sql = (Path("/app") / GRANTS_SQL).read_text(encoding="utf-8")
+    for part, connection in (("native", owner), ("engine", engine_owner)):
+        async with connection.transaction():
+            await connection.execute("SELECT set_config('maezo.task_source.login', $1, true)", login)
+            await connection.execute("SELECT set_config('maezo.task_source.part', $1, true)", part)
+            await connection.execute(
+                "SELECT set_config('maezo.task_source.engine_schema', $1, true)", engine_schema
+            )
+            await connection.execute(sql)
+    return f"{login} {'realinhado' if exists else 'criado'}; grants native+engine"
 
 
 async def install(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, Any]:
@@ -368,6 +411,19 @@ def main() -> int:
             client.get_secret_value(SecretId=env("STAFF_ADMIN_SECRET_ARN"))["SecretString"]
         )
         context: ssl.SSLContext = tls_context(None)
+        engine_credentials: tuple[str, str] = ("", "")
+        task_source_password = ""
+        if rows.get("task_source") is not None:
+            engine_credentials = parse_admin(
+                client.get_secret_value(SecretId=env("STAFF_ENGINE_DB_SECRET_ARN"))["SecretString"]
+            )
+            if engine_credentials[0] != "cibseven_app":
+                raise OpsError("segredo do engine nao e do cibseven_app")
+            login = rows["task_source"]["login"]
+            task_source_password = parse_credential(
+                client.get_secret_value(SecretId=rows["task_source"]["password_secret_arn"])["SecretString"],
+                login,
+            )
 
         async def run() -> dict[str, Any]:
             owner = await asyncpg.connect(
@@ -391,6 +447,23 @@ def main() -> int:
             try:
                 actions = await bootstrap(owner, rows)
                 actions.update(await install(owner, admin, rows))
+                if rows.get("task_source") is not None:
+                    engine_user, engine_password = engine_credentials
+                    engine_owner = await asyncpg.connect(
+                        host=host,
+                        port=port,
+                        user=engine_user,
+                        password=engine_password,
+                        database=database,
+                        ssl=context,
+                        timeout=15,
+                    )
+                    try:
+                        actions["task_source"] = await task_source(
+                            owner, admin, engine_owner, rows, task_source_password
+                        )
+                    finally:
+                        await engine_owner.close()
                 proof = await prove(owner, admin, rows)
                 tls = await owner.fetchval("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
             finally:

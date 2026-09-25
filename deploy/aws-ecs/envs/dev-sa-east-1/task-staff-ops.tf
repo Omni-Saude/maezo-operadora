@@ -25,6 +25,8 @@ variable "staff_ops" {
     human_material_version_id = string
     human_manifest_sha256     = string
     job_schedule_enabled      = bool
+    # Onda 8 (D14): senha do login da fonte de tarefas (`portal_task_source_amh`), lida pelo `rows`.
+    task_source_secret_arn = optional(string)
   })
   default = null
 
@@ -76,8 +78,13 @@ resource "aws_iam_role" "staff_ops" {
 
 locals {
   staff_ops_task_secrets = var.staff_ops == null ? {} : {
-    rows = [var.staff_ops.rows_secret_arn, local.staff_ops_owner_arn, local.aurora_master_secret_arn]
-    syn  = [var.staff_ops.syn_secret_arn, local.staff_ops_owner_arn]
+    rows = compact([
+      var.staff_ops.rows_secret_arn, local.staff_ops_owner_arn, local.aurora_master_secret_arn,
+      # D14: o `rows` aplica a parte `engine` do SQL de grants como dono do schema do engine.
+      var.staff_ops.task_source_secret_arn == null ? null : data.aws_secretsmanager_secret.cibseven_app_db.arn,
+      var.staff_ops.task_source_secret_arn,
+    ])
+    syn = [var.staff_ops.syn_secret_arn, local.staff_ops_owner_arn]
   }
 }
 
@@ -96,6 +103,19 @@ data "aws_iam_policy_document" "staff_ops_task" {
       test     = "StringEquals"
       variable = "kms:ViaService"
       values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+    }
+  }
+  dynamic "statement" {
+    for_each = each.key == "rows" && var.staff_ops.task_source_secret_arn != null && try(length(data.aws_secretsmanager_secret.cibseven_app_db.kms_key_id), 0) > 0 ? [data.aws_secretsmanager_secret.cibseven_app_db.kms_key_id] : []
+    content {
+      sid       = "DecifrarSegredoDoEngine"
+      actions   = ["kms:Decrypt"]
+      resources = [statement.value]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+      }
     }
   }
   dynamic "statement" {

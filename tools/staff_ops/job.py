@@ -40,6 +40,8 @@ JOB_FILES = frozenset(
         "identity-dsn.txt",
     }
 )
+#: Onda 8 (H2): a fonte nativa de tarefas e o catalogo/admissao que ela publica. Tudo ou nada.
+TASK_FILES = frozenset({"native-dsn.txt", "task-catalog.json", "task-admission.json"})
 LEDGER_PATH = Path("/run/staff-job-ledger/ledger.json")
 CONFIG_PATH = "/run/maezo-job/config.json"
 
@@ -62,7 +64,7 @@ def decode(raw: str) -> tuple[dict[str, bytes], dict[str, bytes]]:
         if target is None:
             raise OpsError("prefixo invalido no segredo do job")
         target[leaf] = b64(value, "arquivo do job")
-    if frozenset(human) != human_files() or frozenset(job) != JOB_FILES:
+    if frozenset(human) != human_files() or frozenset(job) not in (JOB_FILES, JOB_FILES | TASK_FILES):
         raise OpsError("segredo do job fora da allowlist fechada")
     return human, job
 
