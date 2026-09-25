@@ -104,17 +104,39 @@ final class ProviderAdmission implements PortalReadTrust.Admission {
     }
   }
 
-  /** Task identity policy is Onda 8: nothing in the staff scope may be admitted through here. */
+  /**
+   * H1: the task row and candidate links carry only the identifiers the approver admitted for this
+   * catalog entry ({@link HumanAdmission#verifyIdentityPolicy}). A staff-only admission (no
+   * {@code human} block) refuses every task.
+   */
   @Override
   public void verifyIdentityPolicy(
       Map<String, Object> policy, Map<String, Object> task, List<Object> links) {
-    throw Fields.unavailable();
+    requireCurrent();
+    try {
+      if (record.human == null)
+        throw Fields.unavailable();
+      record.human.verifyIdentityPolicy(policy, task, links, (String) record.scope.get("tenant"));
+    } catch (RuntimeException refused) {
+      throw Fields.unavailable();
+    }
   }
 
-  /** Task field classification is Onda 8: always refused. */
+  /**
+   * H1: the stored classification is exactly the admitted one for the catalog entry, bound to its
+   * disclosure policy, and never retained past this admission ({@link
+   * HumanAdmission#verifyClassification}).
+   */
   @Override
   public void verifyClassification(Map<String, Object> classification, Map<String, Object> entry) {
-    throw Fields.unavailable();
+    requireCurrent();
+    try {
+      if (record.human == null)
+        throw Fields.unavailable();
+      record.human.verifyClassification(classification, entry, record.validUntil);
+    } catch (RuntimeException refused) {
+      throw Fields.unavailable();
+    }
   }
 
   @Override
