@@ -155,10 +155,16 @@ portal = {
     "52.67.144.206/32",
     "54.20.171.151/32",
     "54.94.110.228/32",
+    // [25/09/2026] enderecos atuais medidos (o login quebrava: JWKS inalcancavel a partir do SG).
+    "177.71.135.231/32",
+    "54.207.182.198/32",
+    "56.126.35.144/32",
     // amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com — POST /oauth2/token (via NAT).
     "52.67.250.153/32",
     "52.67.98.193/32",
     "54.20.130.20/32",
+    // [25/09/2026] endereco atual medido.
+    "52.67.104.18/32",
     // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
     "10.40.40.27/32",
     "10.40.41.104/32",
