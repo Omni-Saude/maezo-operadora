@@ -320,8 +320,12 @@ jobs:
         with:
           cosign-release: ${{ env.SIGSTORE_CLI_VERSION }}
 
+      # B11: TODO digest que o portal consome (app e `staff.portal_image_digest`),
+      # pelo mesmo verificador; nao ha isencao para imagem nao assinada aqui.
       - name: Verify (assinatura + SBOM)
         if: steps.target.outputs.skip != 'true'
         env:
-          IMAGE_REF: ${{ steps.target.outputs.image_ref }}
-        run: ./scripts/ci/verify_image_signature.sh "${IMAGE_REF}"
+          IMAGE_REFS: ${{ steps.target.outputs.image_refs }}
+        run: |
+          set -euo pipefail
+          for ref in ${IMAGE_REFS}; do ./scripts/ci/verify_image_signature.sh "${ref}"; done
