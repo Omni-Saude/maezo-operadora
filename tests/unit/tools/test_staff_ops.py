@@ -265,7 +265,9 @@ class _Identity:
 
 def test_rows_identity_login_and_search_path_pass_the_name_fence() -> None:
     parsed = rows.parse(_rows_doc())
-    assert rows._NAME.fullmatch(parsed["identity_login"]) and rows._NAME.fullmatch(parsed["identity_search_path"])
+    assert rows._NAME.fullmatch(parsed["identity_login"]) and rows._NAME.fullmatch(
+        parsed["identity_search_path"]
+    )
 
 
 def test_rows_search_path_uses_own_credential_and_refuses_other_login() -> None:
