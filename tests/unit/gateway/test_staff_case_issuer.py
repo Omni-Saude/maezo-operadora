@@ -27,7 +27,9 @@ from maezo.gateway.human.read_profile import parse_model, wire
 from maezo.gateway.staff_cases.authority import InstalledStaffAuthority, fingerprint
 from maezo.gateway.staff_cases.case_issuer import (
     DECISIONS,
+    TASK_DECISION,
     CaseIssuerError,
+    CaseTask,
     GrantAction,
     IssuerState,
     MemoryLedger,
@@ -41,9 +43,17 @@ from maezo.gateway.staff_cases.case_issuer import (
     StaffCasePolicy,
     StaffGrantee,
     plan,
+    task_resource_digest,
     visible_cases,
 )
-from maezo.gateway.staff_cases.models import MembershipWitness, Proof, StaffCaseError, StaffPublication
+from maezo.gateway.staff_cases.models import (
+    FIELDS,
+    MembershipWitness,
+    Proof,
+    StaffCaseError,
+    StaffCurrentTaskResource,
+    StaffPublication,
+)
 from maezo.gateway.staff_cases.publisher import StaffSigner
 from maezo.portal.api.records import MembershipRecord
 from maezo.portal.contracts.models import HumanPrincipal, MembershipBinding
@@ -199,7 +209,7 @@ def world(*, issuer_projections: list[str] | None = None) -> World:
                 SOURCE,
                 ["staff_case_grant", "staff_policy_head", "scope_complete"],
                 projections=issuer_projections
-                or ["staff_escalation.v1", "staff_identity.v1", "staff_summary.v1"],
+                or ["staff_current_task.v1", "staff_escalation.v1", "staff_identity.v1", "staff_summary.v1"],
                 operations=["detail", "list"],
             ),
             entry(
@@ -413,22 +423,82 @@ async def test_isolation_grant_verifies_for_its_group_member_and_is_denied_to_an
     assert not any(case == identity(1).case_ref and who != A.principal_ref for who, case in grants)
 
 
-async def test_no_grant_carries_the_current_task_projection_and_detail_answers_without_tasks() -> None:
+async def test_case_without_live_tasks_gets_no_task_decision_and_detail_answers_without_tasks() -> None:
     w = world()
     job, sent = run(w, ESCALATIONS, (A,), MemoryLedger())
     await job.run_once()
     grant = next(p for p in sent if p.kind == "case_grant")
-    projections = {d.projection for d in grant.payload.decisions}
-    assert "staff_current_task.v1" not in projections
     assert {(d.operation, d.projection) for d in grant.payload.decisions} == set(DECISIONS)
     detail = verify_grant(w, grant, A, identity(1))
     assert "staff_current_task.v1" not in detail.fields and detail.task_decisions == ()
     listed = verify_grant(w, grant, A, identity(1), operation="list")
     assert set(listed.fields) == {"staff_summary.v1", "staff_escalation.v1"}
-    assert all(p not in canonicalize(grant.wire()).decode() for p in ("staff_current_task", "task_id"))
 
 
-def test_decisions_are_a_closed_constant_without_current_task() -> None:
+TASKS = (CaseTask("0b1c-task-a", "UT_AnaliseMedicoAuditor"), CaseTask("9f2e-task-b", "UT_CoordenacaoAssume"))
+
+
+def _with_tasks(escalation: RoutedEscalation, tasks: tuple[CaseTask, ...]) -> RoutedEscalation:
+    return replace(escalation, case_tasks=tasks)
+
+
+async def test_h3_each_current_task_of_the_case_gets_its_own_exact_resource_decision() -> None:
+    w = world()
+    live = (_with_tasks(escalation(1, GROUPS["plantao"]), TASKS),)
+    job, sent = run(w, live, (A,), MemoryLedger())
+    await job.run_once()
+    grant = next(p for p in sent if p.kind == "case_grant")
+    tasks = [d for d in grant.payload.decisions if d.projection == "staff_current_task.v1"]
+    assert [d.decision_ref for d in tasks] == [f"detail/staff_current_task.v1/{t.task_id}" for t in TASKS]
+    assert all(d.operation == "detail" and "created_at" in d.fields for d in tasks)
+    # O digest e o `StaffCurrentTaskResource` que o engine recalcula da linha nativa.
+    for decision, task in zip(tasks, TASKS, strict=True):
+        resource = StaffCurrentTaskResource(
+            scope=SCOPE,
+            case_ref=identity(1).case_ref,
+            process_instance_id=identity(1).process_instance_ref,
+            task_id=task.task_id,
+            task_definition_key=task.task_definition_key,
+        )
+        assert decision.resource_identity_digest == digest(resource.wire())
+        assert decision.resource_identity_digest == task_resource_digest(SCOPE, identity(1), task)
+    detail = verify_grant(w, grant, A, identity(1))
+    assert {d.decision_ref for d in detail.task_decisions} == {d.decision_ref for d in tasks}
+    # `list` nunca carrega decisao de tarefa.
+    assert verify_grant(w, grant, A, identity(1), operation="list").task_decisions == ()
+
+
+async def test_h3_a_task_that_ends_or_appears_reissues_the_grant() -> None:
+    w = world()
+    ledger = MemoryLedger()
+    job, sent = run(w, (_with_tasks(escalation(1, GROUPS["plantao"]), TASKS),), (A,), ledger)
+    await job.run_once()
+    job, again = run(w, (_with_tasks(escalation(1, GROUPS["plantao"]), TASKS),), (A,), ledger)
+    await job.run_once()
+    assert not [p for p in again if p.kind == "case_grant"]  # nada mudou: nada reemitido
+    job, changed = run(w, (_with_tasks(escalation(1, GROUPS["plantao"]), TASKS[:1]),), (A,), ledger)
+    await job.run_once()
+    reissued = [p for p in changed if p.kind == "case_grant"]
+    assert len(reissued) == 1 and reissued[0].payload.grant_revision == "2"
+    assert [
+        d.decision_ref for d in reissued[0].payload.decisions if d.projection == "staff_current_task.v1"
+    ] == [f"detail/staff_current_task.v1/{TASKS[0].task_id}"]
+
+
+@pytest.mark.parametrize("tasks", [(TASKS[1], TASKS[0]), (TASKS[0], TASKS[0])])
+def test_h3_case_tasks_out_of_order_or_repeated_are_refused(tasks) -> None:
+    with pytest.raises(CaseIssuerError):
+        _with_tasks(escalation(1, GROUPS["plantao"]), tasks)
+
+
+def test_h3_task_decision_outside_the_designation_is_refused() -> None:
+    # A designacao da Onda 7 (emissor sem `staff_current_task.v1`) nao emite a decisao nova.
+    w = world(issuer_projections=["staff_escalation.v1", "staff_identity.v1", "staff_summary.v1"])
+    with pytest.raises(CaseIssuerError):
+        run(w, ESCALATIONS, (A,), MemoryLedger())
+
+
+def test_decisions_are_a_closed_constant_plus_one_per_current_task() -> None:
     assert DECISIONS == (
         ("detail", "staff_identity.v1"),
         ("detail", "staff_summary.v1"),
@@ -436,6 +506,7 @@ def test_decisions_are_a_closed_constant_without_current_task() -> None:
         ("list", "staff_summary.v1"),
         ("list", "staff_escalation.v1"),
     )
+    assert TASK_DECISION == ("detail", "staff_current_task.v1")
 
 
 async def test_escalation_decisions_carry_exactly_the_dm_fields_without_free_text() -> None:
@@ -651,8 +722,15 @@ def test_issuer_refuses_a_signer_that_is_not_the_designated_case_issuer() -> Non
         )
 
 
-def test_policy_document_names_the_dmn_and_excludes_current_task() -> None:
+def test_policy_document_names_the_dmn_and_the_current_task_decision() -> None:
     document = world().policy.document()
     assert document["decision_source"] == {"decision": "escalation_routing", "output": "grupo_atendimento"}
-    assert "staff_current_task.v1" not in canonicalize(document).decode()
+    # H3: a politica publicada declara a decisao de tarefa corrente (digest novo -> head novo).
+    assert [d for d in document["decisions"] if d["projection"] == "staff_current_task.v1"] == [
+        {
+            "operation": "detail",
+            "projection": "staff_current_task.v1",
+            "fields": sorted(FIELDS["staff_current_task.v1"]),
+        }
+    ]
     assert world().policy.digest == digest(document)

@@ -1,79 +1,64 @@
-"""Passo `h1-task` (servico `job`): H1 da D-N, a tarefa humana VIVA lida pelo Q2 no engine real.
+"""Passo `h1-task` (servico `job`): H1-H4 da D-N, a tarefa humana VIVA publicada pela fonte real.
 
 Roda depois do `issuer` (a `UT_TratarEscalonamento` da escalacao `SYN-` esta viva, com o candidato
-que a DMN `escalation_routing` escolheu). O que ele faz, na ordem:
+que a DMN `escalation_routing` escolheu). Sem os contornos D11-D13 do H1:
 
-1. renova as memberships (o job da T1.5, uma rodada) — elas valem `observation_seconds`;
-2. le do banco os fatos DEPLOYADOS (definicao, DMN, bytes) e monta o catalogo v2 com a entrada da
+1. le do banco os fatos DEPLOYADOS (definicao, DMN, bytes) e monta o catalogo com a entrada da
    tarefa (form/policies sinteticos `SYN-`, o compilado de `PortalReadCommand.COMPILED`);
-3. a raiz de TESTE assina a admissao Q2 revisao 2 = revisao 1 + catalogo v2 + publicador `resource` +
-   bloco `human` (classificacao e politica de identidade da tarefa), e o dono a instala;
-4. publica o catalogo v2 (`catalog-designate`), a evidencia da tarefa (`human-authority`
-   `evidence`) e o recurso da tarefa (`resource`) pelo contrato do vetor
-   `tests/fixtures/portal_read/jcs-resource-vector.json`;
-5. le o Q2 como os DOIS principais (`catalog` -> `discover` team; `task`): a tarefa aparece para o
-   grupo `atendimento-humano` e NAO aparece para `enfermagem-triagem`, embora o recurso conceda os
-   dois (o que separa e o candidato real da tarefa).
+2. o aprovador (raiz de TESTE) revisa a admissao Q2 revisao 2 = revisao 1 + catalogo com tarefas +
+   publicador `resource` + bloco `human` CONTRA o catalogo (`approver.review_admission(..,
+   catalog)`, H4) e assina; o dono a instala. A revisao 2 so pode existir depois do deploy: ela
+   pina o digest dos bytes deployados (nao e desvio, e a ordem da instalacao);
+3. a instalacao cria o login da fonte de tarefas e aplica `deploy/sql/portal-task-source-grants.sql`
+   (duas partes, cada uma pelo dono do schema dela);
+4. o `__main__` do job T1.5 (duas rodadas) com `native_source` + `tasks`: segue o contador real do
+   tenant (D13), designa o catalogo com tarefas, renova as memberships e publica evidencia +
+   recurso da tarefa pela fonte REAL (H2). A chave do job ja tem `resource` no trust (H4, fim do D11);
+5. le o Q2 pelo cliente Python de producao (`EngineReadBundle`, D12: a revisao admitida vem do
+   engine, o pacote humano pina so o piso): catalogo -> fila `team` de cada principal -> `task`. A
+   tarefa aparece para `atendimento-humano` e NAO para `enfermagem-triagem`, embora o recurso
+   conceda os dois (quem separa e o candidato real, `verifyIdentityPolicy`).
 
-**D11/D12 (desvios, ver README):** a chave de publicacao do job recebe o kind `resource` no trust
-(`native_secret.PUBLICATION_KINDS` no `engine-config`, H4 decide o de dev), e os envelopes deste
-passo sao assinados aqui, com as chaves do volume: o cliente Python (`PortalReadClient`) pina a
-admissao revisao 1 no pacote humano, e a revisao 2 so existe depois do deploy. A fonte `resource`
-e sintetica (`SYN-`): a real e a H2.
+Unico desvio: D14 (README) — o login da fonte de tarefas nasce aqui, como os outros logins de teste.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import json
 import os
-import secrets
-import ssl
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import asyncpg
-import httpx
-from cryptography.hazmat.primitives import serialization
 from tools.staff_materials import approver
 
 from .common import (
+    ADMIN,
     CATALOG_REF,
-    ENGINE_NAME,
     ENGINE_SCHEMA,
-    ENVIRONMENT,
-    INCARNATION,
-    MATERIALS,
-    NATIVE_HOSTNAME,
     NATIVE_SCHEMA,
     OWNER_LOGIN,
     PORTAL_WORKLOAD,
-    ROOT,
     TENANT,
     TEST_ROOT,
     admin_dsn,
     iso,
     jcs,
     now,
+    password,
+    read_text,
     save_state,
     sha256,
     state,
     step,
     tls_context,
+    write,
 )
-from .engine_config import (
-    ADMISSION_REF,
-    AUTHORITY_KEY_ID,
-    CATALOG_PREFIX,
-    HUMAN_AUDIENCE,
-    PUBLICATION_KEY_ID,
-    READ_AUDIENCE,
-    READ_DEPLOYMENT_DIGEST,
-    READ_DEPLOYMENT_REF,
-)
+from .engine_config import ADMISSION_REF
 from .seed import ISSUER, PRINCIPALS
 
 TASK_KEY = "UT_TratarEscalonamento"
@@ -82,9 +67,10 @@ DMN_KEY = "escalation_routing"
 #: `PortalReadCommand.COMPILED["SP-OP-ESCALATION-001/UT_TratarEscalonamento"]` (form_key, status, inputs).
 COMPILED = ("escalation", "BPMN_FORMDATA", ["resultado", "notas_resolucao"])
 RESOURCE_PREFIX = f"portal-resource:{TENANT}:task:"
-HUMAN_BUNDLE = ROOT / "human-materials" / "current"
 IN_GROUP, OUTSIDE = "staff-c1-no-grupo", "staff-c1-outro-grupo"
-SCOPE = dict(tenant=TENANT, environment=ENVIRONMENT, workload_ref=PORTAL_WORKLOAD)
+TASK_SOURCE_LOGIN = f"portal_task_source_{TENANT}"
+GRANTS_SQL = Path("/repo/deploy/sql/portal-task-source-grants.sql")
+JOB = Path("/c1/job")
 
 
 def _pin(name: str) -> dict[str, str]:
@@ -107,92 +93,10 @@ CLASSIFICATION = dict(
 )
 
 
-def _key(path: Path) -> Any:
-    return serialization.load_pem_private_key(path.read_bytes(), password=None)
-
-
-def _sign(key: Any, outer: dict) -> dict:
-    outer = dict(outer)
-    outer["signature"] = base64.urlsafe_b64encode(key.sign(jcs(outer))).rstrip(b"=").decode("ascii")
-    return outer
-
-
-class Engine:
-    """mTLS para o listener nativo (8443 via `engine-native.c1.internal:443`), com o SAN verificado."""
-
-    def __init__(self, certificate: Path, key: Path) -> None:
-        context = ssl.create_default_context(cafile=str(MATERIALS / "portal" / "native-ca.pem"))
-        context.load_cert_chain(str(certificate), str(key))
-        self.http = httpx.AsyncClient(verify=context, timeout=20, trust_env=False)
-
-    async def post(self, path: str, body: dict) -> tuple[int, Any]:
-        response = await self.http.post(
-            f"https://{NATIVE_HOSTNAME}{path}", content=jcs(body),
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-        )
-        try:
-            return response.status_code, json.loads(response.content)
-        except ValueError:
-            return response.status_code, None
-
-    async def close(self) -> None:
-        await self.http.aclose()
-
-
-async def _revision(pg: asyncpg.Connection) -> int:
-    return int(await pg.fetchval(f"SELECT rev_ FROM {NATIVE_SCHEMA}.mzo_human_tenant WHERE tenant_=$1", TENANT))
-
-
-def _common() -> dict:
-    return dict(
-        scope=SCOPE, engine_name=ENGINE_NAME, database_incarnation=INCARNATION,
-        read_deployment_ref=READ_DEPLOYMENT_REF, read_deployment_digest=READ_DEPLOYMENT_DIGEST,
-    )
-
-
-async def _publish(job: Engine, key: Any, pg: asyncpg.Connection, kind: str, source: dict, payload: dict):
-    request = dict(
-        _common(), schema="portal-read-publication.v1", publication_id="publication-" + secrets.token_hex(32),
-        expected_authority_revision=str(await _revision(pg)), source=source, kind=kind, payload=payload,
-    )
-    issued = int(now().timestamp())
-    outer = _sign(key, dict(
-        schema="portal-read-envelope.v1", purpose="portal-read-publication", algorithm="Ed25519",
-        audience=READ_AUDIENCE, issuer=PORTAL_WORKLOAD, tenant=TENANT, key_id=PUBLICATION_KEY_ID,
-        issued_at=str(issued), expires_at=str(issued + 30), digest=sha256(jcs(request)), request=request,
-    ))
-    return await job.post("/maezo-human-read/v1/publications", outer)
-
-
-async def _read(reader: Engine, key: Any, key_id: str, operation: str, extra: dict):
-    request = dict(
-        _common(), schema="portal-engine-read.v1", operation=operation,
-        request_id=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode(),
-        read_context_id=base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode(), **extra,
-    )
-    issued = int(now().timestamp())
-    outer = _sign(key, dict(
-        schema="portal-read-envelope.v1", purpose="portal-task-read", algorithm="Ed25519",
-        audience=READ_AUDIENCE, issuer=PORTAL_WORKLOAD, tenant=TENANT, key_id=key_id,
-        issued_at=str(issued), expires_at=str(issued + 30), digest=sha256(jcs(request)), request=request,
-    ))
-    return await reader.post(f"/maezo-human-read/v1/{operation}", outer)
-
-
-def _principal(name: str) -> dict:
-    subject, group = PRINCIPALS[name]
-    return dict(
-        schema_version="1", principal_ref=name, issuer=ISSUER, subject=subject, tenant=TENANT,
-        membership_revision="1",
-        memberships=[dict(membership_ref=f"{name}-m1", roles=["atendente"], groups=[group])],
-        session_ref=f"SYN-session-{name}", authenticated_at=iso(now() - timedelta(seconds=5)), subject_bindings=[],
-    )
-
-
 async def _facts(pg: asyncpg.Connection) -> dict:
     s = ENGINE_SCHEMA
     task = await pg.fetchrow(
-        f"SELECT t.id_, t.rev_, t.proc_def_id_ FROM {s}.act_ru_task t JOIN {s}.act_re_procdef d ON d.id_=t.proc_def_id_ "
+        f"SELECT t.id_, t.proc_def_id_ FROM {s}.act_ru_task t JOIN {s}.act_re_procdef d ON d.id_=t.proc_def_id_ "
         f"WHERE t.tenant_id_=$1 AND t.task_def_key_=$2 AND d.key_=$3 AND t.suspension_state_=1 "
         "ORDER BY t.create_time_ DESC LIMIT 1", TENANT, TASK_KEY, PROCESS_KEY,
     )
@@ -211,11 +115,10 @@ async def _facts(pg: asyncpg.Connection) -> dict:
     return dict(task=task, groups=groups, definition=definition, dmn=dmn)
 
 
-def _catalog(facts: dict) -> tuple[dict, dict]:
+def _catalog(facts: dict, deployment: tuple[str, str]) -> tuple[dict, dict]:
     d, m = facts["definition"], facts["dmn"]
     form_key, status, inputs = COMPILED
-    form = _artifact(f"read-form-{form_key}")
-    form = dict(form, artifact_ref=form_key)
+    form = dict(_artifact(f"read-form-{form_key}"), artifact_ref=form_key)
     entry = dict(
         process_definition_id=d["id_"], process_definition_key=d["key_"], process_definition_version=str(d["version_"]),
         process_definition_digest=sha256(bytes(d["bytes_"])), task_definition_key=TASK_KEY, form_key=form_key,
@@ -229,10 +132,11 @@ def _catalog(facts: dict) -> tuple[dict, dict]:
             dmn_resource_digest=sha256(bytes(m["bytes_"])),
         ),
     )
+    # O recibo de deploy e o do catalogo staff (config do job): o job confere os dois no artefato.
     artifact = dict(
         schema="portal-read-catalog.v1", catalog_ref=CATALOG_REF, publisher_ref=PORTAL_WORKLOAD, entries=[entry],
-        policies=[_artifact(p) for p in POLICIES], forms=[form], deployment_receipt_ref="SYN-c1-h1-deployment",
-        deployment_receipt_digest=sha256(jcs([entry])),
+        policies=[_artifact(p) for p in POLICIES], forms=[form], deployment_receipt_ref=deployment[0],
+        deployment_receipt_digest=deployment[1],
     )
     return entry, artifact
 
@@ -241,15 +145,19 @@ def _human(entry: dict) -> dict:
     return dict(entries=[dict(
         process_definition_id=entry["process_definition_id"], task_definition_key=TASK_KEY,
         classification=CLASSIFICATION, identity_policy=_pin("opaque-task-id-policy"),
-        # Medido no C1 (25/09): a imagem de Dockerfile.human gera ids UUID (nao o DbIdGenerator do standalone).
+        # H4: a imagem de Dockerfile.human (o engine de dev) gera ids UUID, nao o DbIdGenerator decimal.
         task_id_format="uuid", candidate_groups=entry["group_domain"]["groups"], user_candidates="refused",
     )])
 
 
-async def _admission_rev2(catalog_digest: str, human: dict) -> tuple[dict, str]:
-    owner = await asyncpg.connect(
+async def _owner() -> asyncpg.Connection:
+    return await asyncpg.connect(
         admin_dsn(user=OWNER_LOGIN, password_file=f"{OWNER_LOGIN}-password"), ssl=tls_context(), timeout=10
     )
+
+
+async def _admission_rev2(catalog_raw: bytes, human: dict) -> tuple[bytes, str, int]:
+    owner = await _owner()
     try:
         raw = await owner.fetchval(
             f"SELECT record_ FROM {NATIVE_SCHEMA}.mzo_portal_read_admission WHERE admission_ref_=$1 AND revision_=1",
@@ -261,156 +169,183 @@ async def _admission_rev2(catalog_digest: str, human: dict) -> tuple[dict, str]:
         )
         record = json.loads(bytes(raw))
         record["admission_revision"] = str(revision)
-        record["catalog"]["catalog_digest"] = catalog_digest
+        record["catalog"]["catalog_digest"] = sha256(catalog_raw)
         record["publishers"].append(dict(kind="resource", publisher_ref=PORTAL_WORKLOAD, source_ref_prefix=RESOURCE_PREFIX))
         record["human"] = human
         record_raw = jcs(record)
-        _, shown, _ = approver.review_admission(record_raw)  # o espelho do shape Java, com o bloco human
+        # H4: o aprovador revisa a admissao CONTRA o catalogo com tarefas (sem ele, recusa).
+        _, shown, lines = approver.review_admission(record_raw, catalog_raw)
         root = approver.load_root(TEST_ROOT / "installation-root-key.pem")
-        signature = base64.b64decode(approver.sign_admission(record_raw, root, confirm_digest=shown))
+        signature = base64.b64decode(approver.sign_admission(record_raw, root, confirm_digest=shown, catalog=catalog_raw))
         await owner.execute(
             f"INSERT INTO {NATIVE_SCHEMA}.mzo_portal_read_admission(admission_ref_,revision_,record_,signature_) "
             "VALUES($1,$2,$3,$4)", ADMISSION_REF, revision, record_raw, signature,
         )
-        return record, shown
+        return record_raw, shown, revision
     finally:
         await owner.close()
+
+
+async def _task_source_login() -> str:
+    """D14: o login da fonte de tarefas (no dev, a instalacao da Onda 3 cria; aqui, o harness)."""
+    secret_file = ADMIN / f"{TASK_SOURCE_LOGIN}-password"
+    if not secret_file.exists():
+        write(secret_file, password(), 0o400)
+    secret = read_text(secret_file)
+    su = await asyncpg.connect(admin_dsn(), ssl=tls_context(), timeout=10)
+    try:
+        exists = await su.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", TASK_SOURCE_LOGIN)
+        await su.execute(
+            f"{'ALTER' if exists else 'CREATE'} ROLE {TASK_SOURCE_LOGIN} LOGIN NOINHERIT PASSWORD '{secret}'"
+        )
+    finally:
+        await su.close()
+    sql = GRANTS_SQL.read_text(encoding="utf-8")
+    for part, connection in (
+        ("native", await _owner()),
+        ("engine", await asyncpg.connect(
+            admin_dsn(user="cibseven_app", password_file="cibseven-password"), ssl=tls_context(), timeout=10)),
+    ):
+        try:
+            await connection.execute(f"SET maezo.task_source.login = '{TASK_SOURCE_LOGIN}'")
+            await connection.execute(f"SET maezo.task_source.part = '{part}'")
+            await connection.execute(f"SET maezo.task_source.engine_schema = '{ENGINE_SCHEMA}'")
+            await connection.execute(sql)
+        finally:
+            await connection.close()
+    return f"postgresql+asyncpg://{TASK_SOURCE_LOGIN}:{quote(secret, safe='')}@postgres:5432/maezo"
+
+
+def _principal(name: str) -> Any:
+    from maezo.gateway.human.read_profile import parse_model
+    from maezo.portal.contracts.models import HumanPrincipal
+
+    subject, group = PRINCIPALS[name]
+    return parse_model(HumanPrincipal, dict(
+        schema_version="1", principal_ref=name, issuer=ISSUER, subject=subject, tenant=TENANT,
+        membership_revision="1",
+        memberships=[dict(membership_ref=f"{name}-m1", roles=["atendente"], groups=[group])],
+        session_ref=f"SYN-session-{name}", authenticated_at=iso(now() - timedelta(seconds=5)), subject_bindings=[],
+    ))
+
+
+async def _read_as(name: str, task_id: str | None) -> tuple[list[str], Any]:
+    """Uma requisicao do BFF: um `EngineReadBundle` novo, como `compose_human_plane.new_bundle`."""
+    from maezo.gateway.human.engine_reads import (
+        EngineCatalogExpectationSource,
+        EngineHumanTaskQuery,
+        EngineHumanTaskTransport,
+        EngineReadBundle,
+    )
+    from maezo.gateway.human.production import _surface_context
+    from maezo.gateway.human.production_materials import MATERIAL_DIRECTORY, HumanMaterialPin, load_human_materials
+    from maezo.gateway.human.queue import CatalogTrustAnchor
+    from maezo.gateway.human.queue_cursor import AeadQueueCursorCustody
+    from maezo.gateway.human.read_credentials import ReadCredentialPartition
+    from maezo.gateway.human.read_materials import MaterialLifetime, read_providers
+    from maezo.gateway.human.read_transport import PortalReadClient
+    from maezo.portal.contracts.queues import TaskQueueRequest
+
+    engine_state = state("engine")
+    material = load_human_materials(MATERIAL_DIRECTORY, HumanMaterialPin(
+        tenant=TENANT, material_version_id=engine_state["human_version"],
+        public_manifest_sha256=engine_state["human_manifest_sha256"],
+    ))
+    lifetime = MaterialLifetime()
+    manifest = material.manifest
+    admission, credentials, cursor_keys = read_providers(material, lifetime)
+    partition = ReadCredentialPartition(
+        scope=manifest.scope, engine_name=manifest.engine_name, key_id=manifest.key("portal-task-read").key_id,
+        credentials=credentials, admission=admission,
+    )
+    client = PortalReadClient(
+        origin=manifest.read_surface.origin,
+        tls_context=_surface_context(manifest.read_surface, manifest.scope, material.directory),
+        server_spki_sha256=manifest.read_surface.server_spki_sha256, partition=partition,
+        timeout_seconds=manifest.read_surface.timeout_seconds,
+    )
+    anchor = CatalogTrustAnchor(scope=manifest.scope, catalog_ref=manifest.catalog_ref, publisher_ref=manifest.publisher_ref)
+    bundle = EngineReadBundle(client=client, anchor=anchor, cursor=AeadQueueCursorCustody(
+        partition=partition, provider=cursor_keys, key_id=manifest.current_cursor().key_id))
+    try:
+        expectation = await EngineCatalogExpectationSource(bundle).current_catalog(anchor=anchor)
+        window = await EngineHumanTaskQuery(bundle).discover(
+            _principal(name), TaskQueueRequest(queue="team", limit=25), expected_catalog=expectation
+        )
+        task = await EngineHumanTaskTransport(bundle).read_task(task_id) if task_id else None
+        return list(window.task_ids), task
+    finally:
+        await client.close()
+        lifetime.close()
 
 
 async def main_async() -> None:
     from . import publish
 
-    # 1. memberships frescas (o job da T1.5, uma rodada, ANTES da revisao 2 trocar o catalogo admitido)
     engine_state = state("engine")
     os.environ["MAEZO_HUMAN_MATERIAL_VERSION_ID"] = engine_state["human_version"]
     os.environ["MAEZO_HUMAN_PUBLIC_MANIFEST_SHA256"] = engine_state["human_manifest_sha256"]
-    # O ledger do job fica atras da revisao depois do `issuer`; renovar e melhor-esforco (as memberships
-    # do `publish` valem observation_seconds e este passo roda logo depois).
-    # Melhor-esforco: depois da revisao 2 o job recusa (o catalogo admitido mudou) e o ledger fica
-    # atras da revisao do `issuer`; por isso o run.sh roda este passo LOGO depois do `issuer`, com as
-    # memberships do `publish` ainda dentro de observation_seconds.
-    code, out, err = publish.run_once(str(publish.JOB / "config.json"))
-    renewed = (code, (out or err)[:120])
+    detail: list[str] = []
     pg = await asyncpg.connect(admin_dsn(), ssl=tls_context(), timeout=10)
-    job = Engine(MATERIALS / "job" / "job-client-certificate.pem", MATERIALS / "job" / "job-client-key.pem")
-    reader = Engine(HUMAN_BUNDLE / "read-client-certificate.pem", HUMAN_BUNDLE / "read-client-key.pem")
-    publication_key = _key(MATERIALS / "job" / "publication-signing-key.pem")
-    authority_key = _key(MATERIALS / "job" / "authority-signing-key.pem")
-    read_key = _key(HUMAN_BUNDLE / "read-signing-key.pem")
-    read_key_id = engine_state["read_key_id"]
-    detail: list[str] = [f"renovacao rc={renewed[0]} {renewed[1]}"]
     try:
         facts = await _facts(pg)
         task_id = facts["task"]["id_"]
         detail.append(f"tarefa {task_id} candidatos={facts['groups']}")
-        # 2-3. catalogo v2 + admissao revisao 2 (a raiz de TESTE)
-        entry, artifact = _catalog(facts)
-        catalog_digest = sha256(jcs(artifact))
-        record, admission_digest = await _admission_rev2(catalog_digest, _human(entry))
-        detail.append(f"admissao rev{record['admission_revision']} {admission_digest[:12]}")
-        observation = int(record["observation_seconds"])
-        # 4a. catalogo v2
-        observed = now() - timedelta(seconds=1)
-        until = observed + timedelta(hours=6)
-        catalog_revision = str(1 + await pg.fetchval(
+        base = publish.config()
+        deployment = (base["catalog"]["deployment_receipt_ref"], base["catalog"]["deployment_receipt_digest"])
+        entry, artifact = _catalog(facts, deployment)
+        catalog_raw = jcs(artifact)
+        record_raw, admission_digest, revision = await _admission_rev2(catalog_raw, _human(entry))
+        detail.append(f"admissao rev{revision} {admission_digest[:12]} (aprovador conferiu o catalogo)")
+        designated = await pg.fetchval(
             f"SELECT revision_ FROM {NATIVE_SCHEMA}.mzo_portal_read_designation WHERE tenant_=$1 AND catalog_=$2",
-            TENANT, CATALOG_REF))
-        designation = dict(
-            catalog_ref=CATALOG_REF, catalog_revision=catalog_revision, catalog_digest=catalog_digest,
-            catalog_artifact_base64=base64.b64encode(jcs(artifact)).decode(),
-            deployment_receipt_ref=artifact["deployment_receipt_ref"],
-            deployment_receipt_digest=artifact["deployment_receipt_digest"], valid_until=iso(until),
+            TENANT, CATALOG_REF)
+    finally:
+        await pg.close()
+    try:
+        dsn = await _task_source_login()
+        write(JOB / "native-dsn.txt", dsn, 0o400)
+        write(JOB / "task-catalog.json", catalog_raw, 0o444)
+        write(JOB / "task-admission.json", record_raw, 0o444)
+        config = dict(base)
+        config["catalog"] = dict(
+            base["catalog"], admitted_catalog_digest=sha256(catalog_raw), catalog_revision=str(int(designated) + 1),
+            artifact_file=str(JOB / "task-catalog.json"),
         )
-        source = dict(publisher_ref=PORTAL_WORKLOAD, source_ref=CATALOG_PREFIX + catalog_revision,
-                      source_revision=catalog_revision,
-                      source_digest=sha256(jcs(designation)), receipt_ref=f"SYN-catalog-{CATALOG_REF}@{catalog_revision}",
-                      observed_at=iso(observed), valid_until=iso(until))
-        code, body = await _publish(job, publication_key, pg, "catalog-designate", source, designation)
-        detail.append(f"catalogo v2 -> {code}")
-        if code != 200:
-            raise RuntimeError(f"catalog-designate {code} {body}")
-        # 4b. evidencia da tarefa (human-authority `evidence`)
-        evidence = dict(
-            schema="human-authority.v1", tenant=TENANT, workload_ref=PORTAL_WORKLOAD, operation="evidence",
-            expected_revision=str(await _revision(pg)), task_id=task_id,
-            process_definition_id=entry["process_definition_id"], evidence_ref=f"SYN-evidence-{task_id}",
-            evidence_digest=sha256(f"SYN evidence {task_id}".encode()),
-            valid_until=str(int((now() + timedelta(hours=6)).timestamp())),
+        config["native_source"] = dict(
+            dsn_file=str(JOB / "native-dsn.txt"), native_schema=NATIVE_SCHEMA, engine_schema=ENGINE_SCHEMA
         )
-        issued = int(now().timestamp())
-        outer = _sign(authority_key, dict(
-            schema="human-envelope.v1", purpose="human-authority", algorithm="Ed25519", audience=HUMAN_AUDIENCE,
-            issuer=PORTAL_WORKLOAD, tenant=TENANT, key_id=AUTHORITY_KEY_ID, issued_at=str(issued),
-            expires_at=str(issued + 30), digest=sha256(jcs(evidence)), command=evidence,
-        ))
-        code, body = await job.post("/maezo-human/v1/authority", outer)
-        detail.append(f"evidencia -> {code}")
-        if code != 200:
-            raise RuntimeError(f"evidence {code} {body}")
-        ev = await pg.fetchrow(f"SELECT rev_, ref_, digest_ FROM {NATIVE_SCHEMA}.mzo_human_evidence "
-                               "WHERE tenant_=$1 AND task_=$2", TENANT, task_id)
-        rev = await pg.fetchval(f"SELECT rev_ FROM {ENGINE_SCHEMA}.act_ru_task WHERE id_=$1", task_id)
-        # 4c. recurso da tarefa: o recurso concede OS DOIS principais (revisao acima da ja publicada)
-        prior = await pg.fetchval(
-            f"SELECT (source_::jsonb->>'source_revision')::bigint FROM {NATIVE_SCHEMA}.mzo_portal_read_resource "
-            "WHERE tenant_=$1 AND task_=$2", TENANT, task_id)
-        resource_revision = str((prior or 0) + 1)
-        valid = now() + timedelta(hours=6)
-        grants = []
-        for name in (IN_GROUP, OUTSIDE):
-            subject, _ = PRINCIPALS[name]
-            grants.append(dict(
-                issuer=ISSUER, subject=subject, principal_ref=name, membership_revision="1", consent_scopes=[],
-                decision_receipt_ref=f"SYN-decision-{task_id}-{name}", decision_digest=sha256(f"SYN {name}".encode()),
-                valid_until=iso(valid),
-            ))
-        payload = dict(
-            task_id=task_id, process_definition_id=entry["process_definition_id"],
-            process_definition_digest=entry["process_definition_digest"], observed_task_revision=str(rev),
-            evidence_ref=ev["ref_"], evidence_revision=str(ev["rev_"]), evidence_digest=ev["digest_"],
-            resource_ref=f"SYN-resource-{task_id}", resource_revision=resource_revision, resource_digest=sha256(b"SYN resource"),
-            resource_policy=_pin("resource-policy"), classification=dict(CLASSIFICATION, valid_until=iso(valid)),
-            required_subject_bindings=[], required_consent_scopes=[], positive_grants=grants,
-            read_only_evidence=None, state="complete", valid_until=iso(valid),
-        )
-        observed = now() - timedelta(seconds=1)
-        source = dict(
-            publisher_ref=PORTAL_WORKLOAD, source_ref=RESOURCE_PREFIX + task_id, source_revision=resource_revision,
-            source_digest=sha256(jcs(payload)), receipt_ref=f"portal-resource:{TENANT}:task:{task_id}@{resource_revision}",
-            observed_at=iso(observed), valid_until=iso(observed + timedelta(seconds=observation)),
-        )
-        code, body = await _publish(job, publication_key, pg, "resource", source, payload)
-        detail.append(f"recurso -> {code}")
-        if code != 200:
-            raise RuntimeError(f"resource {code} {body}")
-        # 5. Q2 como os dois principais
-        anchor = dict(scope=SCOPE, catalog_ref=CATALOG_REF, publisher_ref=PORTAL_WORKLOAD)
+        config["tasks"] = dict(admission_record_file=str(JOB / "task-admission.json"), evidence_seconds="21600")
+        path = JOB / "config-tasks.json"
+        write(path, json.dumps(config), 0o400)
+        # O `__main__` do job chama asyncio.run: fora do loop deste passo (numa thread). Chamado
+        # direto de dentro do loop ele morre com RuntimeError antes de publicar nada: era o rc=2
+        # que o H1 anotou como D13.
+        first = await asyncio.to_thread(publish.run_once, str(path))
+        second = await asyncio.to_thread(publish.run_once, str(path))
+        detail.append(f"job rc={first[0]} {first[1] or first[2]}")
+        detail.append(f"2a rc={second[0]} {second[1] or second[2]}")
+        published = first[0] == 0 and '"tasks_published": 1' in first[1]
+        idempotent = second[0] == 0 and '"tasks_published": 0' in second[1] and '"tasks_unchanged": 1' in second[1]
         seen: dict[str, Any] = {}
         for name in (IN_GROUP, OUTSIDE):
-            code, catalog = await _read(reader, read_key, read_key_id, "catalog", dict(anchor=anchor))
-            if code != 200:
-                raise RuntimeError(f"catalog {code} {catalog}")
-            code, team = await _read(reader, read_key, read_key_id, "discover", dict(
-                principal=_principal(name), expectation=catalog["value"]["expectation"], queue="team",
-                limit="25", after_task_id=None,
-            ))
-            seen[name] = (code, (team or {}).get("value", {}).get("task_ids") if code == 200 else team)
-        code, task = await _read(reader, read_key, read_key_id, "task", dict(anchor=anchor, task_id=task_id))
-        groups = task["value"]["task"]["snapshot"]["eligible_candidate_groups"] if code == 200 else task
-        detail.append(f"team[{IN_GROUP}]={seen[IN_GROUP]} team[{OUTSIDE}]={seen[OUTSIDE]} task->{code} {groups}")
+            try:
+                ids, task = await _read_as(name, task_id if name == IN_GROUP else None)
+                seen[name] = (ids, task)
+            except Exception as failure:  # medido: a causa vai na linha
+                seen[name] = (f"{type(failure).__name__}: {str(failure)[:120]}", None)
+        groups = list(seen[IN_GROUP][1].snapshot.eligible_candidate_groups) if seen[IN_GROUP][1] else None
+        detail.append(f"team[{IN_GROUP}]={seen[IN_GROUP][0]} team[{OUTSIDE}]={seen[OUTSIDE][0]} task {groups}")
         ok = (
-            seen[IN_GROUP][0] == 200 and task_id in seen[IN_GROUP][1]
-            and seen[OUTSIDE][0] == 200 and task_id not in seen[OUTSIDE][1]
-            and code == 200 and groups == ["atendimento-humano"]
+            published and idempotent
+            and isinstance(seen[IN_GROUP][0], list) and task_id in seen[IN_GROUP][0]
+            and seen[OUTSIDE][0] == []
+            and groups == ["atendimento-humano"]
         )
-        save_state("h1", dict(task_id=task_id, admission_digest=admission_digest, catalog_digest=catalog_digest))
+        save_state("h1", dict(task_id=task_id, admission_digest=admission_digest, catalog_digest=sha256(catalog_raw)))
         step("h1-task", ok, "; ".join(detail))
     except Exception as failure:  # o passo mede; a causa vai na linha
         step("h1-task", False, "; ".join(detail) + f"; {type(failure).__name__}: {str(failure)[:300]}")
-    finally:
-        await job.close()
-        await reader.close()
-        await pg.close()
 
 
 def main() -> None:

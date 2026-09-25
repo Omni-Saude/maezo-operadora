@@ -537,7 +537,14 @@ def test_load_config_accepts_a_complete_file_with_authority(tmp_path: Path) -> N
 
 
 def _clocked_job(
-    rows: RowStore, publisher: FakePublisher, path: Path, clock, *, seconds=600, catalog_seconds=3600
+    rows: RowStore,
+    publisher: FakePublisher,
+    path: Path,
+    clock,
+    *,
+    seconds=600,
+    catalog_seconds=3600,
+    counter=None,
 ):
     job = MembershipPublicationJob(
         publisher=publisher,
@@ -550,6 +557,7 @@ def _clocked_job(
         engine=None,  # type: ignore[arg-type]
         workload_ref=PUBLISHER,
         clock=clock,
+        counter=counter,
     )
     job._principals = AsyncMock(side_effect=lambda: sorted(rows.rows))  # type: ignore[method-assign]
     return job
@@ -617,3 +625,66 @@ async def test_ledger_without_validity_renews_and_a_failed_renewal_fails_closed(
     publisher.revision += 1  # engine moved: the renewal CAS must refuse, not skip silently
     with pytest.raises(ReadRefusalError):
         await _clocked_job(rows, publisher, path, clock).run()
+
+
+# --- D13 (C1): the tenant counter is shared; the job follows the real one -----------------
+
+
+@pytest.mark.asyncio
+async def test_d13_renewal_in_the_same_cycle_after_another_publisher_advanced_the_counter(tmp_path):
+    """Regression of D13: after the staff issuer (or any other writer of `MZO_HUMAN_TENANT`)
+    advanced the counter, the renewal inside the same cycle failed rc=2 until a manual rebase."""
+    clock, rows, publisher, path = Clock(), RowStore(_live_record("a")), FakePublisher(), tmp_path / "l.json"
+
+    async def counter() -> int:
+        return publisher.revision  # what `SELECT rev_ FROM mzo_human_tenant` answers
+
+    await _clocked_job(rows, publisher, path, clock, counter=counter).run()
+    publisher.revision += 3  # issuer/relay/intake publications in the same tenant counter
+    clock.now = NOW + timedelta(seconds=300)  # half gone: the membership must be renewed NOW
+    renewed = await _clocked_job(rows, publisher, path, clock, counter=counter).run()
+    assert renewed.memberships_published == 1
+    assert renewed.authority_revision == publisher.revision == 7
+    # without the counter the same situation still fails closed (the old behaviour, now avoidable)
+    publisher.revision += 1
+    clock.now = NOW + timedelta(seconds=600)
+    with pytest.raises(ReadRefusalError):
+        await _clocked_job(rows, publisher, path, clock).run()
+
+
+@pytest.mark.asyncio
+async def test_d13_the_counter_is_followed_between_publications_of_one_run(tmp_path):
+    rows, publisher, path = RowStore(_record("a"), _record("b")), FakePublisher(), tmp_path / "l.json"
+    real = {"bump": True}
+
+    async def counter() -> int:
+        if real["bump"] and publisher.calls:  # another writer lands after the first publication
+            publisher.revision += 1
+            real["bump"] = False
+        return publisher.revision
+
+    result = await _clocked_job(rows, publisher, path, Clock(), counter=counter).run()
+    assert result.memberships_published == 2 and result.authority_revision == publisher.revision
+
+
+@pytest.mark.asyncio
+async def test_d13_a_counter_below_the_ledger_is_another_database_and_refuses(tmp_path):
+    rows, publisher, path = RowStore(_record("a")), FakePublisher(), tmp_path / "l.json"
+    await _clocked_job(rows, publisher, path, Clock()).run()
+
+    async def restored() -> int:
+        return 1  # restore / other incarnation: never trust it, never publish from it
+
+    rows.rows[(_record("a").issuer, "subject-a")] = _record("a", revision=2)
+    with pytest.raises(ReadRefusalError):
+        await _clocked_job(rows, publisher, path, Clock(), counter=restored).run()
+    assert PublicationLedger(path, "amh").authority_revision == 3  # the ledger did not move back
+
+
+def test_ledger_observe_moves_forward_only(tmp_path):
+    ledger = PublicationLedger(tmp_path / "l.json", "amh")
+    ledger.observe(4)
+    assert PublicationLedger(tmp_path / "l.json", "amh").authority_revision == 4
+    ledger.observe(4)
+    with pytest.raises(ReadRefusalError):
+        ledger.observe(3)

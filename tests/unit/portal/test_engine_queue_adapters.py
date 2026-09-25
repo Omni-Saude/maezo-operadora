@@ -69,9 +69,14 @@ async def bundle_fixture(change=None):
     c["binding"]["read_context_id"] = context
     c["binding"]["requester"] = wire(partition.signing.requester)
     c["origin_request_digest"] = "1" * 64
+    generations = change.split(":")[1:] if change and change.startswith("gen:") else None
+    if generations:
+        c["binding"]["runtime_admission_generation"] = generations[0]
     ct = parse_model(NativeContinuity, data["task_continuity"])
     c = data["authority_continuity"]["claims"]
     c["binding"] = wire(ct.claims.binding)
+    if generations:
+        c["binding"]["runtime_admission_generation"] = generations[1]
     c["origin_request_digest"] = "2" * 64
     c["task_continuity_digest"] = digest(ct)
     ca = parse_model(NativeContinuity, data["authority_continuity"])
@@ -196,4 +201,30 @@ async def test_invalid_native_binding_is_rejected_at_its_own_stage(change):
         task = await EngineHumanTaskTransport(bundle).read_task("task-1")
         with pytest.raises(ReadRefusalError):
             await EngineTaskAuthority(bundle).current_authority(principal, task)
+    assert bundle._closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("change", "accepted"),
+    [
+        # D12 (D-N): the material admits revision 8; the owner installed 9 (H1 human block).
+        ("gen:9:9", True),
+        ("gen:8:8", True),
+        # Below the signed floor: an older admission is never read as current.
+        ("gen:7:7", False),
+        # One read context, two admitted revisions: the second stage refuses and poisons.
+        ("gen:9:8", False),
+    ],
+)
+async def test_admitted_revision_is_read_from_the_engine_never_below_the_material(change, accepted):
+    bundle, principal = await bundle_fixture(change)
+    if accepted:
+        task = await EngineHumanTaskTransport(bundle).read_task("task-1")
+        await EngineTaskAuthority(bundle).current_authority(principal, task)
+        assert not bundle._closed
+        return
+    with pytest.raises(ReadRefusalError):
+        task = await EngineHumanTaskTransport(bundle).read_task("task-1")
+        await EngineTaskAuthority(bundle).current_authority(principal, task)
     assert bundle._closed
