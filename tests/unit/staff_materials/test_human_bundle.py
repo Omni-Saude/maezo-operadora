@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import pkcs12
-from tools.staff_materials import human_bundle
+from tools.staff_materials import approver, human_bundle
 from tools.staff_materials.__main__ import main
 from tools.staff_materials.generate import Generated
 from tools.staff_materials.native_secret import build, load_input
@@ -50,8 +50,8 @@ def spec_value(now: datetime, **changes: Any) -> dict[str, Any]:
         material_version_prefix="amhdev-human-",
         certificate_label="amh dev",
         read_key=dict(key_id="amh-dev-read-20260924", audience=READ_AUDIENCE),
-        assignment_key=dict(key_id="amh-dev-assignment-20260924", audience="engine-human-assignment"),
-        command_key=dict(key_id="amh-dev-command-20260924", audience="engine-human-command"),
+        assignment_key=dict(key_id="amh-dev-assignment-20260924", audience=READ_AUDIENCE + ":assignment"),
+        command_key=dict(key_id="amh-dev-command-20260924", audience=READ_AUDIENCE + ":command"),
         max_envelope_seconds="30",
         timeout_seconds="10",
         outbox_connection=dict(connection, login="human_outbox"),
@@ -293,3 +293,109 @@ def test_native_secret_refuses_keys_given_twice(keys_dir: Path, now: datetime) -
     summary = strict_loads((keys_dir / "public" / human_bundle.SUMMARY).read_bytes())
     with pytest.raises(MaterialError):
         load_input(canonicalize(native_input(now)), summary)
+
+
+def _admission_record(now: datetime) -> bytes:
+    record = parse_model(
+        ReadAdmission,
+        dict(
+            scope=SCOPE,
+            engine_name="default",
+            database_incarnation="inc-test-1",
+            read_deployment_ref="maezo-operadora-dev:engine-native:read:1",
+            read_deployment_digest="a" * 64,
+            runtime_admission_generation="1",
+            capability_digest="b" * 64,
+            observed_at=instant(now - timedelta(minutes=5)),
+            valid_until=instant(now + timedelta(days=4)),
+            provider_ref="maezo-operadora-dev:portal-read-admission:1",
+            provider_revision="1",
+        ),
+    )
+    return canonicalize(wire(record))
+
+
+def test_round_trip_keys_approver_signs_package_loader_accepts(
+    tmp_path: Path,
+    spec_file: Path,
+    keys_dir: Path,
+    generated: Generated,
+    now: datetime,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """keys -> `approver sign-human-admission` (raiz cifrada) -> package -> `verify_materials`."""
+    passphrase = tmp_path / "passphrase"
+    passphrase.write_bytes(b"uma senha longa de teste\n")
+    root_dir = tmp_path / "root"
+    approver.root_keygen(root_dir, passphrase=b"uma senha longa de teste")
+    record = tmp_path / "human-record.json"
+    record.write_bytes(_admission_record(now))
+    human_approver = tmp_path / "approver-human"
+    human_approver.mkdir()
+    (human_approver / "installation-root.der").write_bytes((root_dir / "installation-root.der").read_bytes())
+    out = human_approver / "human-read-admission.json"
+    base = [
+        "sign-human-admission",
+        "--record",
+        str(record),
+        "--root-key",
+        str(root_dir / "installation-root-key.pem"),
+        "--passphrase-file",
+        str(passphrase),
+        "--out",
+        str(out),
+    ]
+    # 1a rodada: mostra campos e digest, sai 2 e nao assina.
+    assert approver.main(base) == 2
+    assert not out.exists()
+    shown = next(
+        line.split("=", 1)[1]
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("human_admission_sha256=")
+    )
+    assert approver.main([*base, "--confirm-digest", "0" * 64]) == 1
+    assert approver.main([*base, "--confirm-digest", shown]) == 0
+    dsns = tmp_path / "dsns-rt"
+    dsns.mkdir()
+    (dsns / "outbox-dsn.txt").write_bytes(
+        b"postgresql+asyncpg://human_outbox:pw@db.example.internal:5432/maezo"
+    )
+    (dsns / "source-dsn.txt").write_bytes(
+        b"postgresql+asyncpg://human_source:pw@db.example.internal:5432/maezo"
+    )
+    assert (
+        main(
+            [
+                "human-bundle",
+                "package",
+                "--spec",
+                str(spec_file),
+                "--keys",
+                str(keys_dir),
+                "--materials",
+                str(generated.directory),
+                "--approver",
+                str(human_approver),
+                "--dsns",
+                str(dsns),
+                "--out",
+                str(tmp_path / "rt-package"),
+            ]
+        )
+        == 0
+    )
+    manifest, files = human_bundle.load_package(tmp_path / "rt-package" / "current")
+    human_bundle.verify(manifest, files, now=now)
+    assert {k.purpose: k.audience for k in manifest.keys} == {
+        "portal-task-read": READ_AUDIENCE,
+        "human-assignment-read": READ_AUDIENCE + ":assignment",
+        "human-command": READ_AUDIENCE + ":command",
+    }
+
+
+def test_sign_human_admission_refuses_a_noncanonical_record(tmp_path: Path, now: datetime) -> None:
+    raw = strict_loads(_admission_record(now))
+    with pytest.raises(MaterialError):
+        approver.review_human_admission(json.dumps(raw, indent=1).encode())
+    with pytest.raises(MaterialError):
+        approver.review_human_admission(canonicalize(dict(raw, extra="x")))

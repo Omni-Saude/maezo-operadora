@@ -20,6 +20,7 @@ gravar qualquer coisa.
 | `python -m tools.staff_materials.approver root-keygen --out D` | **aprovador** | **máquina dele** | par Ed25519 `installation-root`, com a privada **cifrada por senha** por padrão (`--no-encrypt` só por decisão explícita); ela não sai da máquina dele e a saída fica fora do repositório |
 | `python -m tools.staff_materials.approver sign-designation ...` | **aprovador** | **máquina dele** | mostra cada entrada; só assina com `--confirm-digest` igual ao digest exibido |
 | `python -m tools.staff_materials.approver sign-admission ...` | **aprovador** | **máquina dele** | assina o `portal-read-admission.v1` (T1.7) no domínio `maezo/portal-read-admission/v1\0` |
+| `python -m tools.staff_materials.approver sign-human-admission --record F --root-key K --out human-read-admission.json` | **aprovador** | **máquina dele** | mostra o `ReadAdmission` do pacote humano e o digest (sai 2); com `--confirm-digest` grava o `portal-human-read-admission.v1` (Ed25519 sobre o JCS do `record`, sem domínio), que o `human-bundle package` recebe em `--approver` |
 
 Nenhum agente roda os comandos do `approver`. O módulo de engenharia não importa o do aprovador
 (`tests/unit/staff_materials/test_separation.py`).
@@ -50,11 +51,7 @@ O manifesto passa pelo `PublicManifest` do loader antes de sair; confira com o `
 
 ## O que ainda não existe
 
-- O aprovador ainda não tem comando para assinar o `portal-human-read-admission.v1` que o
-  `human-bundle package` recebe (assinatura Ed25519 sobre o JCS do `record`, **sem** o domínio do
-  `sign-admission`; `production_materials.verify_read_admission`). No C1 quem assina é uma raiz de
-  TESTE do harness.
 - A `audience` das chaves humanas é `OpaqueRef` no loader do job (sem `/`): a forma URL da D-L
-  (`https://engine-native...`) é recusada pelo spec do `human-bundle`.
+  (`https://engine-native...`) é recusada pelo spec do `human-bundle`; no dev vale `engine-native.maezo-operadora-dev.internal` (emenda D-L de 24/09).
 - O shape fechado do `portal-read-admission.v1` é da T1.7a. O `sign-admission` exige só o que o
   plano §3.1 já fixa e mostra o resto ao aprovador.
