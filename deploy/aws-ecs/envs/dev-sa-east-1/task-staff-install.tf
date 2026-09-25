@@ -25,7 +25,8 @@ variable "staff_install" {
   default = null
 
   validation {
-    condition = var.staff_install == null || (
+    # Ternario, nao `||`: o Terraform 1.10 do CI nao faz curto-circuito e avaliaria o lado direito com null.
+    condition = var.staff_install == null ? true : (
       can(regex("^sha256:[0-9a-f]{64}$", var.staff_install.image_digest)) &&
       toset(keys(var.staff_install.login_secret_arns)) == toset([
         "maezo_native_schema_owner", "maezo_native_case_issuer", "maezo_native_issuer_witness",

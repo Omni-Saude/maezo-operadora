@@ -1,8 +1,8 @@
 """O instalador da Onda 3 contra um PostgreSQL REAL, com um admin NAO superusuario (como no Aurora).
 
 Cria papeis de CLUSTER (os 6 logins, os NOLOGIN do DDL externo): so roda num PostgreSQL
-DESCARTAVEL, e so com `MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1` alem de `MAEZO_TEST_DATABASE_URL`
-(superusuario desse Postgres). Sem isso, skip ALTO. Exemplo (bash), um container NOVO por
+DESCARTAVEL, e so com `MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1` e `MAEZO_TEST_DATABASE_URL`
+(superusuario desse Postgres; sem ela, o Postgres do compose). Sem isso, skip ALTO. Exemplo (bash), um container NOVO por
 execucao (os papeis sao do cluster):
 
     docker run -d --rm --name si-pg -e POSTGRES_PASSWORD=maezo -p 127.0.0.1:55432:5432 postgres:17-alpine
@@ -33,11 +33,19 @@ pytestmark = pytest.mark.integration
 ADMIN = "staff_install_admin_like_rds"
 
 
+def _dsn() -> str:
+    """Mesma resolucao do resto do repo (fence `test_live_suite_defaults_are_served`)."""
+    explicit = os.environ.get("MAEZO_TEST_DATABASE_URL")
+    if explicit:
+        return explicit.replace("postgresql+asyncpg://", "postgresql://", 1)
+    return f"postgresql://maezo:maezo@localhost:{os.environ.get('MAEZO_PG_HOST_PORT', '5433')}/maezo"
+
+
 def _base() -> Any:
-    url = os.environ.get("MAEZO_TEST_DATABASE_URL")
-    if not url or os.environ.get("MAEZO_STAFF_INSTALL_DISPOSABLE_PG") != "1":
-        pytest.skip("COULD NOT VERIFY: exige MAEZO_TEST_DATABASE_URL + MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1")
-    return urlsplit(url.replace("postgresql+asyncpg://", "postgresql://", 1))
+    # Os papeis sao do CLUSTER: mesmo com o Postgres do compose no ar, so com opt-in explicito.
+    if os.environ.get("MAEZO_STAFF_INSTALL_DISPOSABLE_PG") != "1":
+        pytest.skip("COULD NOT VERIFY: exige MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1 (Postgres descartavel)")
+    return urlsplit(_dsn())
 
 
 def test_install_on_real_postgres_with_non_superuser_admin_is_idempotent() -> None:

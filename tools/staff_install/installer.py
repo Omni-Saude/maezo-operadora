@@ -537,7 +537,7 @@ def main(
     except InstallError as failure:
         print(f"recusado: {failure}", file=sys.stderr)
         return 1
-    except Exception as failure:  # noqa: BLE001 - so o tipo e a mensagem do servidor, nunca o SQL
+    except Exception as failure:  # so o tipo e a mensagem do servidor, nunca o SQL
         message = getattr(failure, "message", None) if hasattr(failure, "sqlstate") else None
         print(f"falhou: {type(failure).__name__}{': ' + message if message else ''}", file=sys.stderr)
         return 1
