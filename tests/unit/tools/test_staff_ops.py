@@ -308,7 +308,21 @@ def test_bootstrap_inserts_tenant_and_auth_only_when_absent() -> None:
         "human_tenant": "inserida",
         "auth_installation": "inserida",
     }
-    same = _BootOwner({"scope_": json.dumps(parsed["auth"]["auth_scope"])})
+    same = _BootOwner(
+        {
+            "scope_": json.dumps(parsed["auth"]["auth_scope"]),
+            "qualification_": json.dumps({"native_code_digest": "a" * 64}),
+        }
+    )
     assert asyncio.run(rows.bootstrap(same, parsed))["auth_installation"] == "igual"
     with pytest.raises(OpsError):
-        asyncio.run(rows.bootstrap(_BootOwner({"scope_": '{"tenant":"outro"}'}), parsed))
+        asyncio.run(
+            rows.bootstrap(_BootOwner({"scope_": '{"tenant":"outro"}', "qualification_": "{}"}), parsed)
+        )
+    moved = _BootOwner(
+        {
+            "scope_": json.dumps(parsed["auth"]["auth_scope"]),
+            "qualification_": json.dumps({"native_code_digest": "b" * 64}),
+        }
+    )
+    assert asyncio.run(rows.bootstrap(moved, parsed))["auth_installation"].startswith("requalificada")

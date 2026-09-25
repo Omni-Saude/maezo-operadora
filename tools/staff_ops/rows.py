@@ -203,12 +203,25 @@ async def bootstrap(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
         )
         actions["human_tenant"] = "inserida" if inserted.endswith(" 1") else "igual"
         row = await owner.fetchrow(
-            "SELECT scope_ FROM mzo_auth_installation WHERE tenant_=$1 FOR UPDATE", tenant
+            "SELECT scope_, qualification_ FROM mzo_auth_installation WHERE tenant_=$1 FOR UPDATE", tenant
         )
         if row is not None:
             if json.loads(row["scope_"]) != scope:
                 raise OpsError("mzo_auth_installation com outro escopo: recusado")
-            actions["auth_installation"] = "igual"
+            # Imagem nova do engine = codigo novo: a qualificacao AUTH pina o SHA-256 do JAR nativo
+            # carregado (`AuthRuntime.java:49`). O dono re-qualifica SO esse campo (a definicao e
+            # a validade ficam; quem as renova e a fixture/instalacao AUTH).
+            qualification = json.loads(row["qualification_"])
+            if qualification.get("native_code_digest") != auth["native_code_digest"]:
+                qualification["native_code_digest"] = auth["native_code_digest"]
+                await owner.execute(
+                    "UPDATE mzo_auth_installation SET qualification_=$2 WHERE tenant_=$1",
+                    tenant,
+                    _canonical(qualification),
+                )
+                actions["auth_installation"] = "requalificada (codigo nativo)"
+            else:
+                actions["auth_installation"] = "igual"
             return actions
         ids = await owner.fetchrow(
             "SELECT d.oid::bigint AS db, n.oid::bigint AS ns, current_database() AS name FROM pg_database d, "
