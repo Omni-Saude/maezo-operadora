@@ -1,0 +1,108 @@
+tools/staff_materials/README.md
+  s_75580744a35de2::t_9b9c777eb97895 17-19,23,54-55
+scripts/ci/check_chart_env_reconciliation.py
+  s_75580744a35de2::t_9b9c777eb97895 266-286,351-352
+deploy/c1-local/c1/issuer.py
+  s_75580744a35de2::t_9b9c777eb97895 25-26,36,40-42
+deploy/aws-ecs/envs/dev-sa-east-1/service-cibseven.tf
+  s_75580744a35de2::t_9b9c777eb97895 69-76,88-90,92,99-100,108,133,159-172
+  s_75580744a35de2::t_96d4c7ff50940e 173
+deploy/cibseven/Dockerfile.human
+  s_75580744a35de2::t_9b9c777eb97895 16-30,37
+tests/unit/staff_materials/test_human_bundle.py
+  s_75580744a35de2::t_9b9c777eb97895 1-401
+scripts/ci/resolve_image_digest.sh
+  s_75580744a35de2::t_9b9c777eb97895 12-18,29,32-38,47,50-57,81-83
+src/maezo/portal/api/app.py
+  s_75580744a35de2::t_9b9c777eb97895 9,24,84,86-88,97,103-105,220,414-418
+deploy/c1-local/c1/engine_config.py
+  s_75580744a35de2::t_9b9c777eb97895 13,296
+tests/unit/tools/test_dev_syn_fixture.py
+  s_75580744a35de2::t_9b9c777eb97895 1-306
+deploy/aws-ecs/envs/dev-sa-east-1/tests/engine-native.tftest.hcl
+  s_75580744a35de2::t_9b9c777eb97895 1-267
+src/maezo/portal/engine/read-provider/README.md
+  s_75580744a35de2::t_9b9c777eb97895 5-7
+tools/dev_syn_fixture/core.py
+  s_75580744a35de2::t_9b9c777eb97895 1-767
+tools/staff_materials/approver.py
+  s_75580744a35de2::t_9b9c777eb97895 21-25,338-374,387,406-413,425-430
+tools/dev_syn_fixture/guards.py
+  s_75580744a35de2::t_9b9c777eb97895 1-43
+tools/staff_materials/native_secret.py
+  s_75580744a35de2::t_9b9c777eb97895 158-165,172-199,268-284,286-290,292-296,476
+deploy/Dockerfile
+  s_75580744a35de2::t_9b9c777eb97895 84-94,139-141
+  s_75580744a35de2::t_77e9d06044efad 142
+tests/unit/staff_materials/test_separation.py
+  s_75580744a35de2::t_395c1d1c8f9202 51-53
+tests/unit/ci/test_resolve_image_digest.py
+  s_75580744a35de2::t_9b9c777eb97895 1-100
+tools/staff_materials/__main__.py
+  s_75580744a35de2::t_395c1d1c8f9202 1-2,59-60
+  s_75580744a35de2::t_9b9c777eb97895 15,17,107-108,110,114-115
+tests/unit/deploy/test_portal_image_assembly.py
+  s_75580744a35de2::t_9b9c777eb97895 39-45,209-260
+.dockerignore
+  s_75580744a35de2::t_9b9c777eb97895 99-104
+docs/plans/portal-autoridade-nativa-dev.md
+  s_75580744a35de2::t_9b9c777eb97895 414,982
+tests/unit/deploy/test_engine_native_dev.py
+  s_75580744a35de2::t_9b9c777eb97895 1-184
+deploy/c1-local/README.md
+  s_75580744a35de2::t_9b9c777eb97895 74,84-85,97
+tools/dev_syn_fixture/__init__.py
+  s_75580744a35de2::t_9b9c777eb97895 1-11
+deploy/c1-local/c1/auth_fixture.py
+  s_75580744a35de2::t_9b9c777eb97895 19-21,29,36-38,64,66-68,70,73,80,104,113,116-118,120-123,141-147,150-155,158-160
+deploy/c1-local/c1/human_bundle.py
+  s_75580744a35de2::t_9b9c777eb97895 3-7,12-13,27-28,30,37,49-70,73,86-103,107-113,117-125
+  s_75580744a35de2::t_1f13981de1d0db 126-127
+deploy/aws-ecs/envs/dev-sa-east-1/engine-native.tf
+  s_75580744a35de2::t_9b9c777eb97895 1-331
+deploy/cibseven/Dockerfile.human.dockerignore
+  s_75580744a35de2::t_9b9c777eb97895 18-24
+deploy/cloudflare/envs/dev/variables.tf
+  s_75580744a35de2::t_9b9c777eb97895 109-120
+deploy/c1-local/c1/auth_install.py
+  s_75580744a35de2::t_9b9c777eb97895 24,26-27,35,43
+src/maezo/platform/engine_native_materialize.py
+  s_75580744a35de2::t_9b9c777eb97895 1-211
+docs/runbooks/portal-dev-provisionamento.md
+  s_75580744a35de2::t_9b9c777eb97895 852-910
+src/maezo/portal/api/spa.py
+  s_75580744a35de2::t_9b9c777eb97895 1-132
+tools/dev_syn_fixture/__main__.py
+  s_75580744a35de2::t_9b9c777eb97895 1-313
+deploy/cloudflare/envs/dev/main.tf
+  s_75580744a35de2::t_9b9c777eb97895 69-76,196-214
+  s_75580744a35de2::t_cf6e6bbf10014a 215
+tools/staff_materials/human_bundle.py
+  s_75580744a35de2::t_9b9c777eb97895 1-577
+docs/runbooks/supply-chain-imagem.md
+  s_75580744a35de2::t_9b9c777eb97895 105-108,122-123
+deploy/c1-local/engine.Dockerfile
+  s_75580744a35de2::t_9b9c777eb97895 3-6
+tests/unit/platform/test_engine_native_materialize.py
+  s_75580744a35de2::t_9b9c777eb97895 1-142
+tests/unit/portal/test_portal_web_bundle.py
+  s_75580744a35de2::t_9b9c777eb97895 1-163
+.github/workflows/supply-chain.yml
+  s_75580744a35de2::t_9b9c777eb97895 323-324,328-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "16e6a069906d2dc2ece47a0b16c6bba737ebe7f5",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
