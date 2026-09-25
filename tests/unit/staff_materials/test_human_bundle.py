@@ -297,6 +297,9 @@ def test_native_secret_takes_the_read_and_command_keys_from_the_summary(
     human = {k["purpose"]: k for k in strict_loads(files["engine-run/trust.json"])["keys"]}
     assert human["human-command"]["id"] == "amh-dev-command-20260924"
     assert human["human-command"]["peer_spki_sha256"] == summary["peers"]["command"]
+    # Trust.java recusa dois propositos no mesmo workload (INVALID_COMMAND no boot de 25/09).
+    assert human["human-command"]["workload"] != human["human-authority"]["workload"]
+    assert human["human-command"]["workload"] == summary["keys"]["human-command"]["workload_ref"] + "-command"
     store = pkcs12.load_pkcs12(files["engine-native/client-ca.p12"], None)
     assert len(store.additional_certs) == 2
 

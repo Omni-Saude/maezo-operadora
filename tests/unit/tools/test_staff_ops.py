@@ -178,6 +178,19 @@ def _rows_doc(**over: Any) -> dict[str, Any]:
         "admission_sha256": "1" * 64,
         "identity_login": "portal_read_source_amh",
         "identity_search_path": "amh",
+        "auth": {
+            "auth_scope": {
+                "tenant": "amh",
+                "environment": "dev",
+                "engine_name": "default",
+                "database_incarnation": "i:1",
+                "installation_ref": "ref:auth:1",
+                "installation_revision": "1",
+            },
+            "native_code_digest": "a" * 64,
+            "runtime_role": "cibseven_app",
+            "valid_days": 12,
+        },
     }
     doc.update(over)
     return doc
@@ -194,6 +207,10 @@ def test_rows_parse_fences() -> None:
         _rows_doc(identity_search_path="amh,public"),
         _rows_doc(designation_revision=0),
         {**_rows_doc(), "extra": 1},
+        _rows_doc(auth={**_rows_doc()["auth"], "valid_days": 30}),
+        _rows_doc(
+            auth={**_rows_doc()["auth"], "auth_scope": {**_rows_doc()["auth"]["auth_scope"], "tenant": "x"}}
+        ),
     ):
         with pytest.raises(OpsError):
             rows.parse(bad)
@@ -267,3 +284,31 @@ def test_rows_install_is_idempotent_and_refuses_divergence() -> None:
 def test_rows_verify_rejects_wrong_digest() -> None:
     with pytest.raises(OpsError):
         rows.verify(rows.parse(_rows_doc()))
+
+
+class _BootOwner(_Owner):
+    def __init__(self, auth_row: Any = None) -> None:
+        super().__init__()
+        self.auth_row = auth_row
+
+    async def execute(self, query: str, *args: Any) -> str:
+        await super().execute(query, *args)
+        return "INSERT 0 1"
+
+    async def fetchrow(self, query: str, *args: Any) -> Any:
+        if "mzo_auth_installation" in query:
+            return self.auth_row
+        return {"db": 1, "ns": 2, "name": "maezo"}
+
+
+def test_bootstrap_inserts_tenant_and_auth_only_when_absent() -> None:
+    parsed = rows.parse(_rows_doc())
+    fresh = _BootOwner()
+    assert asyncio.run(rows.bootstrap(fresh, parsed)) == {
+        "human_tenant": "inserida",
+        "auth_installation": "inserida",
+    }
+    same = _BootOwner({"scope_": json.dumps(parsed["auth"]["auth_scope"])})
+    assert asyncio.run(rows.bootstrap(same, parsed))["auth_installation"] == "igual"
+    with pytest.raises(OpsError):
+        asyncio.run(rows.bootstrap(_BootOwner({"scope_": '{"tenant":"outro"}'}), parsed))

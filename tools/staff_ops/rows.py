@@ -9,6 +9,12 @@ Entradas (nenhuma por env/override alem de ARNs e do endereco do banco):
 * `STAFF_ADMIN_SECRET_ARN` -> credencial mestre, SO para `ALTER ROLE <identity_login> SET
   search_path` (o job T1.5 le `portal_memberships` sem qualificar o schema).
 
+Bootstrap que o engine nativo exige ANTES do 1o boot (`HumanCommandPlugin.staffCurrent`, medido no
+apply de 25/09) e que o DDL deixa explicito por comentario: `MZO_HUMAN_TENANT(<tenant>,0)` e a linha
+`MZO_AUTH_INSTALLATION` do tenant (escopo AUTH da composicao, binding medido no proprio banco e uma
+qualificacao `not-qualified` que a fixture SYN substitui pela definicao deployada — o mesmo D8 do
+C1). Ambas so se ausentes; presente com outro escopo = recusa.
+
 Antes de escrever, confere por conta propria: SHA-256 da designacao, que a prova assina ESSE digest
 com a raiz instalada (verificador do portal), e a assinatura da admissao no dominio
 `maezo/portal-read-admission/v1\\0`. Idempotente: linha igual = nada muda; linha diferente na mesma
@@ -46,6 +52,15 @@ _KEYS = {
     "admission_sha256",
     "identity_login",
     "identity_search_path",
+    "auth",
+}
+_AUTH_SCOPE = {
+    "tenant",
+    "environment",
+    "engine_name",
+    "database_incarnation",
+    "installation_ref",
+    "installation_revision",
 }
 _NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
@@ -66,6 +81,28 @@ def parse(document: dict[str, Any]) -> dict[str, Any]:
     for name in ("identity_login", "identity_search_path"):
         if not isinstance(document[name], str) or not _NAME.fullmatch(document[name]):
             raise OpsError(f"{name} invalido")
+    auth = document["auth"]
+    if not isinstance(auth, dict) or set(auth) != {
+        "auth_scope",
+        "native_code_digest",
+        "runtime_role",
+        "valid_days",
+    }:
+        raise OpsError("auth invalido")
+    if not isinstance(auth["auth_scope"], dict) or set(auth["auth_scope"]) != _AUTH_SCOPE:
+        raise OpsError("auth_scope invalido")
+    if any(auth["auth_scope"][k] != scope[k] for k in scope):
+        raise OpsError("auth_scope diverge do escopo da designacao")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(auth["native_code_digest"])) or not _NAME.fullmatch(
+        str(auth["runtime_role"])
+    ):
+        raise OpsError("auth: digest ou role invalido")
+    if (
+        not isinstance(auth["valid_days"], int)
+        or isinstance(auth["valid_days"], bool)
+        or not 1 <= auth["valid_days"] <= 14
+    ):
+        raise OpsError("auth.valid_days: 1 a 14")
     rows = dict(document)
     rows["designation"] = b64(document["designation_b64"], "designation")
     rows["proof"] = b64(document["installation_proof_b64"], "installation_proof")
@@ -118,6 +155,80 @@ def verify(rows: dict[str, Any]) -> None:
         rows["admission_revision"]
     ):
         raise OpsError("admission_ref/revision divergem do registro assinado")
+
+
+def _canonical(value: dict[str, Any]) -> str:
+    from maezo.portal.engine.profile import canonicalize
+
+    return canonicalize(value).decode()
+
+
+async def bootstrap(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
+    """`MZO_HUMAN_TENANT` e `MZO_AUTH_INSTALLATION` do tenant, so se ausentes."""
+    from datetime import UTC, datetime, timedelta
+
+    auth, tenant = rows["auth"], rows["scope"]["tenant"]
+    scope = auth["auth_scope"]
+    actions: dict[str, str] = {}
+    async with owner.transaction():
+        await owner.execute(f"SET LOCAL search_path = {NATIVE_SCHEMA}")
+        inserted = await owner.execute(
+            "INSERT INTO mzo_human_tenant(tenant_,rev_) VALUES($1,0) ON CONFLICT DO NOTHING", tenant
+        )
+        actions["human_tenant"] = "inserida" if inserted.endswith(" 1") else "igual"
+        row = await owner.fetchrow(
+            "SELECT scope_ FROM mzo_auth_installation WHERE tenant_=$1 FOR UPDATE", tenant
+        )
+        if row is not None:
+            if json.loads(row["scope_"]) != scope:
+                raise OpsError("mzo_auth_installation com outro escopo: recusado")
+            actions["auth_installation"] = "igual"
+            return actions
+        ids = await owner.fetchrow(
+            "SELECT d.oid::bigint AS db, n.oid::bigint AS ns, current_database() AS name FROM pg_database d, "
+            "pg_namespace n WHERE d.datname=current_database() AND n.nspname=$1",
+            NATIVE_SCHEMA,
+        )
+        binding = dict(
+            schema="human-auth-native-database.v1",
+            database_name=ids["name"],
+            database_oid=str(ids["db"]),
+            schema_name=NATIVE_SCHEMA,
+            schema_oid=str(ids["ns"]),
+            owner_role=OWNER,
+            runtime_role=auth["runtime_role"],
+        )
+        tag = b"dev not-qualified"
+        until = datetime.now(UTC) + timedelta(days=auth["valid_days"])
+        qualification = dict(
+            schema="human-auth-installation-qualification.v1",
+            definition=dict(
+                process_key="SP-OP-AUTH-001",
+                definition_id="dev-auth-definition-not-qualified",
+                definition_digest=hashlib.sha256(tag).hexdigest(),
+                deployment_id="dev-not-deployed",
+                input_profile="portal-auth-intake.v1",
+                profile_digest=hashlib.sha256(tag + b" profile").hexdigest(),
+            ),
+            native_code_digest=auth["native_code_digest"],
+            source_freeze_contract_digest=hashlib.sha256(tag + b" freeze").hexdigest(),
+            cutover_ref="SYN-dev-cutover",
+            review_receipt_ref="SYN-dev-review",
+            runtime_qualification_ref="SYN-dev-runtime",
+            valid_until=until.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        )
+        await owner.execute(
+            "INSERT INTO mzo_auth_installation(tenant_,incarnation_,rev_,scope_,binding_,qualification_) "
+            "VALUES($1,$2,$3,$4,$5,$6)",
+            tenant,
+            scope["database_incarnation"],
+            int(scope["installation_revision"]),
+            _canonical(scope),
+            _canonical(binding),
+            _canonical(qualification),
+        )
+        actions["auth_installation"] = "inserida"
+    return actions
 
 
 async def install(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, Any]:
@@ -278,7 +389,8 @@ def main() -> int:
                 timeout=15,
             )
             try:
-                actions = await install(owner, admin, rows)
+                actions = await bootstrap(owner, rows)
+                actions.update(await install(owner, admin, rows))
                 proof = await prove(owner, admin, rows)
                 tls = await owner.fetchval("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
             finally:
