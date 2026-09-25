@@ -82,8 +82,8 @@ Removidos por `fix/c1-python`: **D2** (o `generate` emite a entrada `case-issuer
 `python -m tools.staff_materials lock-sql`), **D9** (`sign-admission` confere o shape fechado da T1.7a)
 e **W3** (`JobConfig` carrega sem `model_rebuild`).
 
-`engine.Dockerfile` acrescenta à imagem de `Dockerfile.human` só o JAR do provedor (o `COPY` que a T1.7a
-deixou para depois da T1.2) e o link do `sslrootcert` pinado para a CA local.
+`engine.Dockerfile` acrescenta à imagem de `Dockerfile.human` só o link do `sslrootcert` pinado para a
+CA local; o JAR do provedor já vem da base (`Dockerfile.human` com `INSTALL_PORTAL_READ=true`, B1).
 
 ## Achados (o que falhou, com a causa medida)
 

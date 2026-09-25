@@ -102,8 +102,10 @@ aws ecr describe-images --repository-name amh/maezo-operadora --region sa-east-1
 ## 4. Quando verificar é obrigatório
 
 1. **No PR** — o job `verificar` roda em `pull_request` que toque
-   `portal.auto.tfvars` e confere o `image_digest` declarado ali. Um PR que aponta o portal
-   para um artefato não assinado **reprova**. É este job que faz a assinatura virar portão em
+   `portal.auto.tfvars` e confere o `image_digest` declarado ali **e**, quando existir, o
+   `staff.portal_image_digest` (init + BFF do perfil staff), cada um pelo mesmo verificador. Um
+   PR que aponta o portal para um artefato não assinado **reprova**; não há isenção de dev para
+   imagem não assinada neste job. É este job que faz a assinatura virar portão em
    vez de enfeite.
 2. **Antes de `terraform apply`** que mude o digest de qualquer serviço — rode o script acima
    com o digest novo. Leva segundos.
@@ -117,7 +119,8 @@ aws ecr describe-images --repository-name amh/maezo-operadora --region sa-east-1
    implanta nada, só acrescenta e confere prova.
 2. `gh workflow run supply-chain.yml --ref main -f image=sha256:<64 hex>` (aceita tag também;
    o workflow resolve para o digest antes de assinar — assinar por tag é assinar alvo móvel).
-3. Sem `-f image`, o alvo é o `image_digest` do `portal.auto.tfvars`.
+3. Sem `-f image`, o alvo é o `image_digest` do `portal.auto.tfvars`. O
+   `staff.portal_image_digest`, se diferente, assina-se com `-f image=<esse digest>`.
 4. O job só fica verde depois do `verify` **e** do `verify-attestation`. Assinar sem
    verificar é metade do portão.
 5. **Engine (imagem human, Onda 2):** construir com

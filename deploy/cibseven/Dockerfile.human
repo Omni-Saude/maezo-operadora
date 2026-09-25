@@ -13,12 +13,28 @@ RUN case "$INSTALL_STAFF_COMPOSITION" in \
       false) true ;; \
       *) exit 1 ;; \
     esac
+# B1: the Q2 provider package (src/maezo/portal/engine/read-provider/README.md) is part of the read
+# composition: PortalReadPlugin refuses to start without it. Built only when INSTALL_PORTAL_READ=true
+# (it compiles against the human JAR installed here); /build/provider stays empty otherwise, so
+# the runtime COPY below adds nothing to a non-read image.
+ARG INSTALL_PORTAL_READ=false
+COPY src/maezo/portal/engine/read-provider/pom.xml ./read-provider/pom.xml
+COPY src/maezo/portal/engine/read-provider/src/main ./read-provider/src/main
+RUN mkdir /build/provider \
+    && case "$INSTALL_PORTAL_READ" in \
+      true) mvn -B -q -DskipTests install \
+        && mvn -B -q -f read-provider/pom.xml -DskipTests package \
+        && cp read-provider/target/maezo-portal-read-provider-1.0.0.jar /build/provider/maezo-portal-read-provider.jar ;; \
+      false) true ;; \
+      *) exit 1 ;; \
+    esac
 FROM cibseven/cibseven:tomcat-2.1.0@sha256:20a2135bbc634924838b6a067ac27172bb95d68ddec035e01b40d2b9e95a1169
 RUN rm -rf /camunda/webapps/camunda-invoice /camunda/webapps/camunda-invoice.war \
     && rm -f /camunda/lib/camunda-invoice*.jar \
     && test ! -e /camunda/webapps/camunda-invoice \
     && test ! -e /camunda/webapps/camunda-invoice.war
 COPY --from=human-build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar
+COPY --from=human-build /build/provider/ /camunda/lib/
 COPY deploy/cibseven/human-webapp /camunda/webapps/maezo-human
 # T1.2: the mTLS connector serves ONLY this appBase (its own Service/Host in native-deploy/
 # server.xml). The same descriptor stays under webapps/ so the plaintext 8080 keeps answering the
