@@ -108,6 +108,12 @@ _ROOT_FIXTURE_SUITES: Final[dict[str, str]] = {
         "envelopes prepared inside the gateway boundary plus a ROOT-issued browser session; "
         "`required()` fails (pytrace=False) instead of skipping."
     ),
+    "tests/integration/test_staff_installer_live_pg.py": (
+        "MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1 plus a DISPOSABLE PostgreSQL 17 superuser DSN — the Onda 3 "
+        "installer (tools/staff_install) creates the 6 native logins as CLUSTER roles with fixed "
+        "contract names, which test_engine_native_install_pg.py requires absent; sharing the lane's "
+        "Postgres would make the two suites fight over the same roles."
+    ),
     "tests/integration/platform/test_d7_control_storage_live.py": (
         "the `d7_live_storage_lane` fixture — real PostgreSQL 16 owner connections and the actual "
         "qualified DynamoDB adapter, supplied only by ROOT; without it the module skips with "

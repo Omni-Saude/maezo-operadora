@@ -8,7 +8,7 @@ DESCARTAVEL, e so com `MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1` e `MAEZO_TEST_DATABA
     docker run -d --rm --name si-pg -e POSTGRES_PASSWORD=maezo -p 127.0.0.1:55432:5432 postgres:17-alpine
     export MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1
     export MAEZO_TEST_DATABASE_URL=postgresql://postgres:maezo@127.0.0.1:55432/postgres
-    uv run pytest tests/unit/staff_install/test_installer_live_pg.py
+    MAEZO_ROOT_FIXTURES=1 uv run pytest tests/integration/test_staff_installer_live_pg.py
 
 O superusuario so monta o cenario do `bootstrap-db` (maezo_app dono do database e de `amh`,
 cibseven_app, o admin membro de maezo_app). Toda a Onda 3 roda pelo admin `CREATEROLE`
@@ -28,7 +28,10 @@ import pytest
 from tools.staff_install import installer
 from tools.staff_install.installer import ALL_LOGINS, OWNER_LOGIN, Credentials
 
-pytestmark = pytest.mark.integration
+# `root_fixture`: exige um PostgreSQL DESCARTAVEL (os 6 logins sao papeis de CLUSTER, com os mesmos
+# nomes fixos que tests/unit/deploy/test_engine_native_install_pg.py exige ausentes); fora da lane
+# global, registrado em tests/unit/ci/test_root_fixture_deselection.py.
+pytestmark = [pytest.mark.integration, pytest.mark.root_fixture]
 
 ADMIN = "staff_install_admin_like_rds"
 
