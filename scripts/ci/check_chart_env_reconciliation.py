@@ -301,6 +301,22 @@ _STAFF_INSTALL_REASON = (
     "consumed by tools/staff_install/installer.py inside the ops image "
     "(deploy/ops/staff-install.Dockerfile) - tooling outside src/, never the application"
 )
+_STAFF_OPS_NAMES: tuple[str, ...] = (
+    "STAFF_OWNER_SECRET_ARN",
+    "STAFF_ROWS_SECRET_ARN",
+    "STAFF_ADMIN_SECRET_ARN",
+    "STAFF_SYN_SECRET_ARN",
+    "STAFF_JOB_MATERIALS",
+    "STAFF_JOB_LEDGER_BUCKET",
+    "STAFF_JOB_LEDGER_KEY",
+    "MAEZO_DEV_SYN_AWS_ACCOUNT_ID",
+    "MAEZO_DEV_SYN_ENVIRONMENT",
+)
+_STAFF_OPS_REASON = (
+    "inputs of the staff operation tasks (deploy/aws-ecs/envs/dev-sa-east-1/task-staff-ops.tf and the "
+    "portal human init), consumed by tools/staff_ops and tools/dev_syn_fixture inside the ops image "
+    "(deploy/ops/staff-install.Dockerfile) - tooling outside src/, never the application"
+)
 _BOOTSTRAP_DB_SCRIPT_NAMES: tuple[str, ...] = (
     "APP_ROLE",
     "BOOTSTRAP_DB",
@@ -358,6 +374,9 @@ INFRA_OWNED_DECLARED: dict[str, str] = {
     # operacao deploy/ops/staff-install.Dockerfile). ARNs, nao segredos.
     "STAFF_INSTALL_ADMIN_SECRET_ARN": _STAFF_INSTALL_REASON,
     "STAFF_INSTALL_LOGIN_SECRET_ARNS": _STAFF_INSTALL_REASON,
+    # task-staff-ops.tf (Ondas 4-8): lidos por `tools/staff_ops` e `tools/dev_syn_fixture` (fora de
+    # src/, na mesma imagem de operacao). ARNs, pins e o segredo injetado no init; nunca o app.
+    **dict.fromkeys(_STAFF_OPS_NAMES, _STAFF_OPS_REASON),
     **dict.fromkeys(_OTEL_SDK_NAMES, _OTEL_SDK_REASON),
     **dict.fromkeys(_CLOUDFLARED_NAMES, _CLOUDFLARED_REASON),
     **dict.fromkeys(_ADOT_COLLECTOR_NAMES, _ADOT_COLLECTOR_REASON),

@@ -446,6 +446,44 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   5. **NÃO VERIFICADO:** que o `HumanServlet` sobe no motor dev hoje (nunca executado lá); que a fila vazia (sem User Task viva) não é confundida com falha; volume real de tarefas.
 ---
 
+## 2.9 Estado da execução (25/09/2026) — retomar daqui
+
+**Código: tudo na `main`.** Os bloqueios B1–B12 do runbook de execução no dev (levantados em 24/09) foram fechados por PR:
+
+| Bloqueio | PR | O que entrou |
+|---|---|---|
+| B1, B11 | #520 | JAR do provedor Q2 no `Dockerfile.human` (`INSTALL_PORTAL_READ=true`); `verificar` confere também `staff.portal_image_digest` |
+| B8 | #521 | `tools/staff_materials human-bundle keys/package`; `approver sign-human-admission`; audiences sem `/` (emenda à D-L) |
+| B5, B6 | #522 | imagem `deploy/ops/staff-install.Dockerfile` + task `staff-install` (Onda 3 inteira na VPC); `login-secrets`; SQL da Onda 3 corrigido para admin **não superusuário** (Aurora) |
+| B2, B3, B4, B7 | #523 | `engine-native.tf` (NLB interno 443→8443, registro na zona do Cloud Map, init container materializador, emissor como sidecar), atrás de `var.engine_native` (null = no-op) |
+| B9, B12 | #524 | `tools/dev_syn_fixture`: guia `SYN-DEVGUIA1`, escalação red_flag_clinico/grave → `plantao-clinico`, qualificação AUTH sintética; travas só-dev |
+| CI | #518 | integração em PostgreSQL 17 (a do RDS do dev) |
+
+**Decisões do Leonardo (24–25/09), não reabrir:**
+- Imagens do engine e do portal **sem assinatura cosign aceitas só no dev** (o `verificar` fica vermelho no PR que liga `portal.staff`; não é check obrigatório).
+- Emissor de casos como **sidecar** do cibseven (localhost:8080), sem afrouxar a regra https do código.
+- Fixture `SYN-` e qualificação AUTH sintética no dev **com travas**.
+- Teste do diretor (Onda 7): **`plantao.teste` vê** (red_flag_clinico/grave, P1); `atendimento.teste` é o negativo.
+- `scope.database_incarnation` = `maezo-operadora-dev:amh-aurora-hapi-dev:maezo:1`.
+- Aprovador (N1) = **Leonardo**.
+
+**Onda 2: parcial, e NÃO portátil entre máquinas.** Em 24/09 o `generate` rodou numa estação (volume Docker `maezo-dev-materials`, designação-rascunho `73392157…`), mas a raiz do aprovador **não** foi gerada. Os materiais contêm chaves privadas, e não se copiam de uma máquina para outra. **Ao retomar noutra estação: gerar de novo** (o spec é o mesmo; só muda o `not_before` e o digest da designação), e o aprovador gera a raiz **na máquina onde ela vai ficar**. Spec do dev e valores: ver o runbook de execução (seção "Part 1/2.1" do levantamento de 24/09), reproduzidos aqui:
+- Aurora `amh-aurora-hapi-dev.cluster-c3iw2s2gk0bw.sa-east-1.rds.amazonaws.com:5432/maezo`; engine `default`; hostname nativo `engine-native.maezo-operadora-dev.internal`; fim da designação `2026-10-08T04:44:25.000000Z`.
+- Prefixo de membership (D-L): `amh:maezo-operadora-dev:membership/` (o harness usa outro; no dev vale a D-L).
+- A ferramenta recusa o Windows (modos POSIX) e o bundle RDS precisa de checkout **LF** (`core.autocrlf=false`); rodar num container Linux com o repo montado.
+
+**Acesso AWS:** SSO (`amh-data-platform/infrastructure/org-sa-east-1/scripts/configurar-acesso-aws.ps1`, perfis `adm-dev`/`adm-mgmt`). Segredos só pelo `OrganizationAccountAccessRole` assumido de `adm-mgmt` (a SCP `p-9m8f47yd` nega `PutSecretValue` ao SSO).
+
+**Próximo passo, em ordem:**
+1. Onda 2 na estação definitiva: `generate` → aprovador `root-keygen` + `sign-designation`.
+2. Imagens: engine (`Dockerfile.human`, `INSTALL_STAFF_COMPOSITION=true INSTALL_PORTAL_READ=true`), ops (`staff-install`) e app (materializador do #523), via CodeBuild `maezo-operadora-dev-imagem`.
+3. Snapshot do Aurora → Onda 3 (task `staff-install`) → Onda 4 (`engine_native` + `engine_image_digest`) → Onda 5 (pacote e segredo) → Onda 6 (`portal.staff`) → Onda 7 (fixture SYN- + teste do diretor).
+4. Atenção ao drift pré-existente: o próximo `apply` do state do dev recria as task definitions do portal e do diagnóstico (normalização do JSON dos containers), então fazer isso na janela da Onda 4.
+
+**Fora do portal, também na `main`:** GAP-XHITL-4 (retomada da Helena após `devolvido_agente`, #525) — cofre cifrado do telefone (ADR-0061, **Proposto: exige ciência do DPO antes de ligar**), envio só dentro da janela de 24h da Meta, redação B; serviço `agent-resume` desligado por padrão. WhatsApp real (+55 17 99644-0109) ativo no dev pelo app Austa Bot com `override_callback_uri` para `https://whatsapp-dev.austa.com.br/webhook` (#519).
+
+---
+
 ## 3. Ondas executáveis
 
 Convenção: **Artefatos · Onde roda · Pré-requisito · Pronto quando (medível) · Reversão**.

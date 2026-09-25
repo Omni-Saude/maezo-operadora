@@ -210,7 +210,7 @@ run "ligado_com_emissor" {
     condition = (
       [for c in jsondecode(aws_ecs_task_definition.cibseven.container_definitions) : c.name] == ["cibseven", "engine-native-materialize", "staff-case-issuer"] &&
       !jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].essential &&
-      jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].mountPoints == [{ sourceVolume = "staff-issuer", containerPath = "/run/maezo/staff-issuer", readOnly = true }, { sourceVolume = "staff-issuer-tmp", containerPath = "/tmp", readOnly = false }] &&
+      jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].mountPoints == [{ sourceVolume = "staff-issuer", containerPath = "/run/maezo/staff-issuer", readOnly = true }, { sourceVolume = "staff-issuer-tmp", containerPath = "/run/maezo/staff-issuer-scratch", readOnly = false }] &&
       jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].environment[0] == { name = "MAEZO_STAFF_CASE_ISSUER_FILE", value = "/run/maezo/staff-issuer/composition.json" } &&
       [for v in aws_ecs_task_definition.cibseven.volume : v.name] == ["engine-native", "engine-run", "staff-issuer", "staff-issuer-tmp"] &&
       aws_vpc_security_group_ingress_rule.engine_native_nlb_from_issuer["this"].referenced_security_group_id == "sg-00000000000000010"
