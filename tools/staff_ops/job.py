@@ -84,21 +84,22 @@ def materialize(
         write_private(current / name, data, owner=owner)
     for name, data in sorted(job.items()):
         write_private(job_root / name, data, owner=owner)
+    # chmod ANTES do chown: o init roda sem FOWNER, entao root nao muda o modo do que ja e de 1000.
     for directory in (current, job_root):
+        os.chmod(directory, 0o500)
         if owner is not None:
             os.chown(directory, owner, owner)
-        os.chmod(directory, 0o500)
+    os.chmod(human_root, 0o555)
     if owner is not None:
         os.chown(human_root, owner, owner)
-    os.chmod(human_root, 0o555)
 
 
 def init_main() -> int:
     try:
         human, job = decode(env("STAFF_JOB_MATERIALS"))
         materialize(human, job)
-    except Exception:
-        print("job-init recusado", file=sys.stderr)  # sem nome nem conteudo
+    except Exception as failure:
+        print(f"job-init recusado: {type(failure).__name__}", file=sys.stderr)  # sem nome nem conteudo
         return 1
     print(f"job-init ok human={len(human)} job={len(job)}")
     return 0

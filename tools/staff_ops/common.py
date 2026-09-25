@@ -67,9 +67,10 @@ def write_private(path: Path, data: bytes, *, owner: int | None = None, mode: in
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     try:
         os.write(fd, data)
+        # fchmod ANTES do fchown: sem FOWNER, root nao muda o modo de um arquivo que ja e de 1000.
+        os.fchmod(fd, mode)
         if owner is not None:
             os.fchown(fd, owner, owner)
-        os.fchmod(fd, mode)
         os.fsync(fd)
     finally:
         os.close(fd)
