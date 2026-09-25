@@ -296,6 +296,11 @@ _DSN_COMPOSER_SCRIPT_NAMES: tuple[str, ...] = (
 
 #: Names read by task-bootstrap-db.tf's own inline bootstrap script — see
 #: `_BOOTSTRAP_DB_SCRIPT_REASON`.
+_STAFF_INSTALL_REASON = (
+    "ARN inputs of the one-off Onda 3 task (deploy/aws-ecs/envs/dev-sa-east-1/task-staff-install.tf), "
+    "consumed by tools/staff_install/installer.py inside the ops image "
+    "(deploy/ops/staff-install.Dockerfile) - tooling outside src/, never the application"
+)
 _BOOTSTRAP_DB_SCRIPT_NAMES: tuple[str, ...] = (
     "APP_ROLE",
     "BOOTSTRAP_DB",
@@ -349,6 +354,10 @@ INFRA_OWNED_DECLARED: dict[str, str] = {
     **dict.fromkeys(_BOOTSTRAP_DB_SCRIPT_NAMES, _BOOTSTRAP_DB_SCRIPT_REASON),
     **dict.fromkeys(_CODEBUILD_BUILDSPEC_NAMES, _CODEBUILD_BUILDSPEC_REASON),
     "PYTHONDONTWRITEBYTECODE": _PYTHON_INTERPRETER_REASON,
+    # task-staff-install.tf: lidos por `tools/staff_install/installer.py` (fora de src/, na imagem de
+    # operacao deploy/ops/staff-install.Dockerfile). ARNs, nao segredos.
+    "STAFF_INSTALL_ADMIN_SECRET_ARN": _STAFF_INSTALL_REASON,
+    "STAFF_INSTALL_LOGIN_SECRET_ARNS": _STAFF_INSTALL_REASON,
     **dict.fromkeys(_OTEL_SDK_NAMES, _OTEL_SDK_REASON),
     **dict.fromkeys(_CLOUDFLARED_NAMES, _CLOUDFLARED_REASON),
     **dict.fromkeys(_ADOT_COLLECTOR_NAMES, _ADOT_COLLECTOR_REASON),

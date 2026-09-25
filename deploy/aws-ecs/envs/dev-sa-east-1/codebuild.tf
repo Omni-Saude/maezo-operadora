@@ -192,7 +192,7 @@ resource "aws_codebuild_project" "imagem" {
             # no start-build; o que nao casar um literal abaixo aborta o build.
             - |
               case "$DOCKERFILE" in
-                deploy/Dockerfile|deploy/cibseven/Dockerfile|deploy/cibseven/Dockerfile.human) ;;
+                deploy/Dockerfile|deploy/cibseven/Dockerfile|deploy/cibseven/Dockerfile.human|deploy/portal.Dockerfile|deploy/ops/staff-install.Dockerfile) ;;
                 *) echo "DOCKERFILE fora da allowlist: $DOCKERFILE"; exit 1 ;;
               esac
               case "$REPOSITORIO" in
@@ -203,6 +203,13 @@ resource "aws_codebuild_project" "imagem" {
               for token in $BUILD_ARGS; do
                 case "$token" in
                   INSTALL_STAFF_COMPOSITION=true|INSTALL_STAFF_COMPOSITION=false|INSTALL_PORTAL_READ=true|INSTALL_PORTAL_READ=false)
+                    ARGS_DOCKER+=(--build-arg "$token") ;;
+                  # Base das imagens derivadas (portal.Dockerfile, ops/staff-install.Dockerfile):
+                  # SO o repositorio do app desta conta, e SO por digest completo (nunca tag).
+                  APP_REPOSITORY=${aws_ecr_repository.app.repository_url})
+                    ARGS_DOCKER+=(--build-arg "$token") ;;
+                  APP_DIGEST=sha256:*)
+                    [[ "$token" =~ ^APP_DIGEST=sha256:[0-9a-f]{64}$ ]] || { echo "BUILD_ARGS fora da allowlist: $token"; exit 1; }
                     ARGS_DOCKER+=(--build-arg "$token") ;;
                   *) echo "BUILD_ARGS fora da allowlist: $token"; exit 1 ;;
                 esac

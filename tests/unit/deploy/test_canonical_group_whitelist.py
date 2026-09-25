@@ -425,6 +425,10 @@ def test_repository_root_copy_and_narrow_ignore_exception_are_retained() -> None
         "!deploy/certificates/",
         "!deploy/certificates/install_rds_roots.py",
         "!deploy/certificates/sa-east-1-bundle.pem",
+        # B5 (Onda 3): so os .sql/.tmpl de deploy/sql entram, para a imagem de operacao staff-install.
+        "!deploy/sql/",
+        "!deploy/sql/*.sql",
+        "!deploy/sql/*.sql.tmpl",
     ]
     assert {".env", ".env.*", "*.env"}.issubset(ignore)
     assert not (ROOT / "deploy/cibseven/Dockerfile.dockerignore").exists()

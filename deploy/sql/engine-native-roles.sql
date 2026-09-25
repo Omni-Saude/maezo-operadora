@@ -25,8 +25,14 @@ BEGIN
    IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=login) THEN
      EXECUTE format('CREATE ROLE %I LOGIN', login);
    END IF;
-   -- Normaliza sempre: sem super/createdb/createrole/replication/bypassrls, NOINHERIT.
-   EXECUTE format('ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
+   -- SUPERUSER/REPLICATION/BYPASSRLS: recusa, nao normaliza. So um superusuario pode escrever esses
+   -- atributos, mesmo para NO* (PG 16+), e o admin do Aurora nao e superusuario: o ALTER com
+   -- NOSUPERUSER morreria ali. Um login nativo com um deles foi mexido por alguem de proposito.
+   IF (SELECT rolsuper OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=login) THEN
+     RAISE EXCEPTION 'engine-native-roles: % tem SUPERUSER, REPLICATION ou BYPASSRLS', login;
+   END IF;
+   -- Normaliza sempre: sem createdb/createrole, NOINHERIT.
+   EXECUTE format('ALTER ROLE %I LOGIN NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L',
                   login, verifier);
    -- Membro de nenhum papel (ADR-0060 D1; T1.7b). Um papel alcancavel por SET ROLE foi concedido
    -- por alguem de proposito: nao se desfaz em silencio, recusa.
@@ -55,7 +61,10 @@ BEGIN
    IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN
      EXECUTE format('CREATE ROLE %I NOLOGIN', r);
    END IF;
-   EXECUTE format('ALTER ROLE %I NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD NULL', r);
+   IF (SELECT rolsuper OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=r) THEN
+     RAISE EXCEPTION 'engine-native-roles: % tem SUPERUSER, REPLICATION ou BYPASSRLS', r;
+   END IF;
+   EXECUTE format('ALTER ROLE %I NOLOGIN NOCREATEDB NOCREATEROLE PASSWORD NULL', r);
    IF EXISTS(SELECT 1 FROM pg_auth_members a JOIN pg_roles x ON x.rolname=r
              WHERE (a.member=x.oid AND a.roleid=owner) OR (a.member=owner AND a.roleid=x.oid)) THEN
      RAISE EXCEPTION 'engine-native-roles: % tem membership com o dono nativo', r;

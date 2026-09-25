@@ -25,3 +25,22 @@ roda no boot nem pelo portal. Os verificadores SCRAM vêm de `tools/staff_materi
    `external-case-owners.sql`, que entrega as funções SECURITY DEFINER aos papéis definer
    (`ALTER ... OWNER TO` exige poder assumir o papel de destino; o dono nativo não é membro de
    nada, por isso esse passo é do admin).
+
+## Em dev (Aurora): a task `staff-install`
+
+A ordem acima roda inteira, idempotente, por `python -m tools.staff_install` na imagem
+`deploy/ops/staff-install.Dockerfile` (task `staff-install`, `task-staff-install.tf`). As senhas
+vêm do Secrets Manager por `GetSecretValue` (as 4 nativas de
+`python -m tools.staff_materials login-secrets`, as 2 do portal das DSNs do `generate`); os
+verificadores SCRAM são calculados dentro da task. O admin do Aurora não é superusuário, e o
+PostgreSQL 16+ cobra dele o que o `postgres` do harness pula; o instalador resolve assim
+(detalhes no docstring de `tools/staff_install/installer.py`):
+
+- os atributos SUPERUSER/REPLICATION/BYPASSRLS só um superusuário escreve, mesmo `NO*`. Os dois
+  scripts de logins **recusam** um login que os tenha, em vez de normalizá-los;
+- o GRANT do dono ao admin (D-J.2e) entra entre os blocos `$roles$`/`$external$` e `$schemas$` de
+  `engine-native-roles.sql`: antes dele, o próprio script recusaria o membro;
+- os passos com `ALTER ... OWNER TO` (4 e o lock) ganham, só dentro da transação, SET no papel de
+  destino e CREATE no schema para ele;
+- no fim, depois do `REVOKE`, só `$roles$`/`$external$` são reexecutados (`$schemas$` exige ser
+  dono do schema).
