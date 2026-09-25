@@ -10,6 +10,7 @@ import {
   type StaffArea,
 } from "./PortalNavigation";
 import type { PortalAudience } from "./caseExperienceModels";
+import type { PortalCapability } from "./sessionClient";
 import {
   createCaseExperienceService,
   type AuthorizationIntakeFormProvider,
@@ -69,6 +70,26 @@ function UnavailableArea({ title, children }: { title: string; children: React.R
   );
 }
 
+export const notEnabledMessage = "Esta área ainda não está habilitada neste ambiente.";
+
+// Which deployed capability each staff area depends on (session `capabilities`).
+const areaCapability: Partial<Record<StaffArea, PortalCapability>> = {
+  "my-work": "human",
+  "team-queues": "human",
+  cases: "staff_cases",
+  documents: "staff_cases",
+};
+
+const areaTitle: Record<StaffArea, string> = {
+  overview: "Visão geral",
+  "my-work": "Meu trabalho",
+  "team-queues": "Filas da equipe",
+  cases: "Casos",
+  documents: "Documentos",
+  operations: "Operações",
+  administration: "Administração",
+};
+
 type StaffRoute = Readonly<{ area: StaffArea; caseRef: string | null }>;
 
 // Only the Cases area has an address: /portal/cases and /portal/cases/:ref.
@@ -90,18 +111,26 @@ function readStaffRoute(): StaffRoute {
 }
 
 export function StaffPortalExperience({
+  capabilities,
   expiresAt,
   csrfToken,
   sessionBinding,
   headingRef,
   onSessionUnavailable,
 }: {
+  capabilities: readonly PortalCapability[];
   expiresAt: string;
   csrfToken: string;
   sessionBinding: string;
   headingRef: Ref<HTMLHeadingElement>;
   onSessionUnavailable: () => void;
 }) {
+  const notEnabled = useMemo(
+    () => new Set((Object.keys(areaCapability) as StaffArea[]).filter(
+      (area) => !capabilities.includes(areaCapability[area]!),
+    )),
+    [capabilities],
+  );
   const [route, setRoute] = useState(readStaffRoute);
   const activeArea = route.area;
   useEffect(() => {
@@ -125,9 +154,15 @@ export function StaffPortalExperience({
   const staffCaseClient = useMemo(() => createStaffCaseClient(), [sessionBinding]);
 
   let content: React.ReactNode;
-  if (activeArea === "overview") {
+  if (notEnabled.has(activeArea)) {
+    // Not a failure: nothing is requested, so there is nothing to retry.
+    content = <UnavailableArea title={areaTitle[activeArea]}>{notEnabledMessage}</UnavailableArea>;
+  } else if (activeArea === "overview") {
     content = (
       <StaffOverview
+        queuesNotice={notEnabled.has("my-work")
+          ? <UnavailableArea title="Filas de trabalho">{notEnabledMessage}</UnavailableArea>
+          : undefined}
         csrfToken={csrfToken}
         sessionBinding={sessionBinding}
         onSessionUnavailable={onSessionUnavailable}
@@ -174,7 +209,7 @@ export function StaffPortalExperience({
     <main className="portal-session-main">
       <SessionHeading audience="staff" expiresAt={expiresAt} headingRef={headingRef} compact={activeArea !== "overview"} />
       <div className="staff-portal-workspace">
-        <StaffNavigation active={activeArea} onChange={setActiveArea} />
+        <StaffNavigation active={activeArea} onChange={setActiveArea} notEnabled={notEnabled} />
         <div className="staff-panel-stack">
           <StaffAreaPanel area={activeArea} active>
             {content}

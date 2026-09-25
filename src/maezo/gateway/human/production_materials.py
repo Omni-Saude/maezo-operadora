@@ -469,6 +469,24 @@ def verify_materials(
     now: datetime,
     directory: str = MATERIAL_DIRECTORY,
 ) -> HumanMaterials:
+    """Fail-closed at its own boundary: any parse failure of the bundle bytes (a tampered PEM
+    raises the library's ValueError) is a refusal, not an exception type the caller must know."""
+    try:
+        return _verify_materials(pin, manifest, files, now=now, directory=directory)
+    except HumanMaterialError:
+        raise
+    except Exception:
+        raise HumanMaterialError() from None
+
+
+def _verify_materials(
+    pin: HumanMaterialPin,
+    manifest: HumanPublicManifest,
+    files: dict[str, bytes],
+    *,
+    now: datetime,
+    directory: str = MATERIAL_DIRECTORY,
+) -> HumanMaterials:
     # The out-of-band pin is checked FIRST, before the bundle's own bytes are read or
     # any key material is loaded: the tenant cross-check is not a post-condition of a
     # composed plane, it is a precondition of trusting the directory at all.

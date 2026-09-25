@@ -197,6 +197,9 @@ async def main_async() -> None:
                       alias="auth-result", key_id="c1-auth-result-1", issuer="c1-engine"),
         ),
     )
+    # D11 (H1): a chave de publicacao do job pode publicar `resource`; quem admite e a admissao Q2
+    # (revisao 2 do passo `h1-task`). O default da ferramenta segue staff-only ate a H4 decidir o de dev.
+    native_secret.PUBLICATION_KINDS = [*native_secret.PUBLICATION_KINDS, "resource"]
     native_files, native_public = native_secret.build(
         MATERIALS, root_spki, native_secret.load_input(jcs(native_input))
     )

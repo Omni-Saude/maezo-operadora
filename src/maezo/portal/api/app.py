@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal, cast
 from urllib.parse import parse_qsl, urlsplit
 
 import httpx
@@ -396,7 +396,10 @@ def create_app(
     @app.get(f"{_PREFIX}/session", response_model=SessionDTO)
     async def session(request: Request) -> SessionDTO:
         _query(request, set())
-        return (await resolver.resolve(_cookie(request, _SESSION))).projection()
+        capabilities = cast(
+            'tuple[Literal["identity", "staff_cases", "human"], ...]', tuple(config.capabilities.split(","))
+        )
+        return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities)
 
     @app.post(f"{_PREFIX}/auth/logout", status_code=204)
     async def logout(request: Request) -> Response:

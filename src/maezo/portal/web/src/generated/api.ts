@@ -2590,6 +2590,8 @@ export interface components {
              * @enum {string}
              */
             audience: "staff" | "beneficiary" | "provider";
+            /** Capabilities */
+            capabilities: ("identity" | "staff_cases" | "human")[];
             /** Csrf Token */
             csrf_token: string;
             /**

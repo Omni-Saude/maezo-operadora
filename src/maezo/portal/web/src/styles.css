@@ -255,6 +255,20 @@ tbody tr:last-child th, tbody tr:last-child td { border-bottom: 0; }
 .staff-navigation button small { display: block; }
 .staff-navigation button small { margin-top: 0.18rem; font-size: 0.73rem; font-weight: 550; line-height: 1.35; }
 .staff-navigation button[aria-selected="true"] small { color: #e2f2eb; }
+.navigation-soon {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0 0.4rem;
+  border: 1px solid #8fb1a4;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-style: normal;
+  font-weight: 650;
+  line-height: 1.5;
+  vertical-align: 0.08em;
+  color: #185643;
+}
+.navigation-items button[aria-selected="true"] .navigation-soon { color: #fff; border-color: #e2f2eb; }
 
 .staff-panel-stack { min-width: 0; }
 .portal-area-panel { min-width: 0; }

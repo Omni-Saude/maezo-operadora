@@ -101,7 +101,7 @@ portal = {
   // `maezo-operadora-dev-imagem` e assinada/atestada/verificada pelo `supply-chain.yml`
   // (workflow_dispatch com o digest). Traz os 3 criticos da bateria (#460), a conclusao pelo
   // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
-  image_digest = "sha256:e83d428c5efdb1f426c33b44b509d4dc4e0138616d0efabac8cbbb780b726fa3"
+  image_digest = "sha256:871ecc0b1dc460fae93d1b70d83cbd868c5abb44972b3d80480e2985973e5864"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
@@ -155,10 +155,16 @@ portal = {
     "52.67.144.206/32",
     "54.20.171.151/32",
     "54.94.110.228/32",
+    // [25/09/2026] enderecos atuais medidos (o login quebrava: JWKS inalcancavel a partir do SG).
+    "177.71.135.231/32",
+    "54.207.182.198/32",
+    "56.126.35.144/32",
     // amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com — POST /oauth2/token (via NAT).
     "52.67.250.153/32",
     "52.67.98.193/32",
     "54.20.130.20/32",
+    // [25/09/2026] endereco atual medido.
+    "52.67.104.18/32",
     // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
     "10.40.40.27/32",
     "10.40.41.104/32",

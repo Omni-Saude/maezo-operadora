@@ -5,6 +5,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from maezo.portal.api.auth import (
     AuthenticationError,
@@ -26,8 +27,9 @@ class ResolvedHumanSession:
     record: SessionRecord
     membership: MembershipRecord
 
-    def projection(self) -> SessionDTO:
+    def projection(self, capabilities: tuple[Literal["identity", "staff_cases", "human"], ...]) -> SessionDTO:
         return SessionDTO(
+            capabilities=capabilities,
             principal_ref=self.principal.principal_ref,
             audience=self.membership.audience,
             roles=tuple(sorted({r for m in self.membership.memberships for r in m.roles})),

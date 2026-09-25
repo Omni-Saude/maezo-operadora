@@ -4,10 +4,13 @@ export function StaffOverview({
   csrfToken,
   sessionBinding,
   onSessionUnavailable,
+  queuesNotice,
 }: {
   csrfToken: string;
   sessionBinding: string;
   onSessionUnavailable: () => void;
+  /** Rendered instead of the queues when this environment has not enabled them. */
+  queuesNotice?: React.ReactNode;
 }) {
   return (
     <section aria-labelledby="staff-overview-heading">
@@ -23,11 +26,13 @@ export function StaffOverview({
           projeção. Abra a tarefa para consultar os próximos passos permitidos na sessão atual.
         </p>
       </div>
-      <EmployeeQueues
-        csrfToken={csrfToken}
-        sessionBinding={sessionBinding}
-        onSessionUnavailable={onSessionUnavailable}
-      />
+      {queuesNotice ?? (
+        <EmployeeQueues
+          csrfToken={csrfToken}
+          sessionBinding={sessionBinding}
+          onSessionUnavailable={onSessionUnavailable}
+        />
+      )}
     </section>
   );
 }
