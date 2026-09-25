@@ -47,11 +47,12 @@ variable "staff_ops" {
 }
 
 locals {
-  staff_ops           = var.staff_ops == null ? {} : { this = var.staff_ops }
-  staff_ops_schedule  = { for key, ops in local.staff_ops : key => ops if ops.job_schedule_enabled }
-  staff_ops_image     = var.staff_ops == null ? null : "${aws_ecr_repository.app.repository_url}@${var.staff_ops.image_digest}"
-  staff_ops_owner_arn = var.staff_install == null ? null : var.staff_install.login_secret_arns["maezo_native_schema_owner"]
-  staff_ops_cmk_arn   = aws_kms_key.native_materials["engine-native"].arn
+  staff_ops              = var.staff_ops == null ? {} : { this = var.staff_ops }
+  staff_ops_schedule     = { for key, ops in local.staff_ops : key => ops if ops.job_schedule_enabled }
+  staff_ops_image        = var.staff_ops == null ? null : "${aws_ecr_repository.app.repository_url}@${var.staff_ops.image_digest}"
+  staff_ops_owner_arn    = var.staff_install == null ? null : var.staff_install.login_secret_arns["maezo_native_schema_owner"]
+  staff_ops_identity_arn = var.staff_install == null ? null : var.staff_install.login_secret_arns["portal_read_source_amh"]
+  staff_ops_cmk_arn      = aws_kms_key.native_materials["engine-native"].arn
 }
 
 resource "aws_cloudwatch_log_group" "staff_ops" {
@@ -61,8 +62,11 @@ resource "aws_cloudwatch_log_group" "staff_ops" {
   tags              = local.base_tags
 }
 
-data "aws_kms_key" "staff_ops_master" {
-  for_each = var.staff_ops == null ? {} : { for k, s in { admin = data.aws_secretsmanager_secret.staff_install["admin"] } : k => s.kms_key_id if try(length(s.kms_key_id), 0) > 0 }
+# O `rows` NAO le a credencial mestre do Aurora: o `ALTER ROLE CURRENT_USER SET search_path` roda
+# com a credencial do proprio identity_login (portal_read_source_amh). Se o segredo dele estiver sob
+# outra CMK que nao a engine-native, o Decrypt dela entra aqui (so via Secrets Manager).
+data "aws_kms_key" "staff_ops_identity" {
+  for_each = var.staff_ops == null ? {} : { for k, s in { identity = data.aws_secretsmanager_secret.staff_install["portal_read_source_amh"] } : k => s.kms_key_id if try(length(s.kms_key_id), 0) > 0 }
   key_id   = each.value
 }
 
@@ -76,7 +80,7 @@ resource "aws_iam_role" "staff_ops" {
 
 locals {
   staff_ops_task_secrets = var.staff_ops == null ? {} : {
-    rows = [var.staff_ops.rows_secret_arn, local.staff_ops_owner_arn, local.aurora_master_secret_arn]
+    rows = [var.staff_ops.rows_secret_arn, local.staff_ops_owner_arn, local.staff_ops_identity_arn]
     syn  = [var.staff_ops.syn_secret_arn, local.staff_ops_owner_arn]
   }
 }
@@ -99,9 +103,9 @@ data "aws_iam_policy_document" "staff_ops_task" {
     }
   }
   dynamic "statement" {
-    for_each = each.key == "rows" ? data.aws_kms_key.staff_ops_master : {}
+    for_each = each.key == "rows" ? { for k, key in data.aws_kms_key.staff_ops_identity : k => key if key.arn != local.staff_ops_cmk_arn } : {}
     content {
-      sid       = "DecifrarSegredoMestre"
+      sid       = "DecifrarSegredoIdentidade"
       actions   = ["kms:Decrypt"]
       resources = [statement.value.arn]
       condition {
@@ -306,7 +310,7 @@ resource "aws_ecs_task_definition" "staff_ops_oneshot" {
         { name = "STAFF_OWNER_SECRET_ARN", value = local.staff_ops_owner_arn },
         ], each.key == "rows" ? [
         { name = "STAFF_ROWS_SECRET_ARN", value = var.staff_ops.rows_secret_arn },
-        { name = "STAFF_ADMIN_SECRET_ARN", value = local.aurora_master_secret_arn },
+        { name = "STAFF_IDENTITY_SECRET_ARN", value = local.staff_ops_identity_arn },
         ] : [
         { name = "STAFF_SYN_SECRET_ARN", value = var.staff_ops.syn_secret_arn },
         # Cercas da ferramenta (explicitas, sem default): so esta conta e so dev.
@@ -508,6 +512,30 @@ resource "aws_sns_topic" "staff_alerts" {
   for_each = local.staff_ops
   name     = "${local.name}-staff-alerts"
   tags     = local.base_tags
+}
+
+variable "staff_alerts_email" {
+  description = "E-mail que assina o topico de alertas do staff (o destinatario confirma a assinatura). Vazio = topico sem assinante (o plan avisa)."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.staff_alerts_email == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.staff_alerts_email))
+    error_message = "staff_alerts_email: vazio ou um endereco de e-mail."
+  }
+}
+
+resource "aws_sns_topic_subscription" "staff_alerts_email" {
+  for_each  = var.staff_alerts_email == "" ? {} : local.staff_ops
+  topic_arn = aws_sns_topic.staff_alerts[each.key].arn
+  protocol  = "email"
+  endpoint  = var.staff_alerts_email
+}
+
+check "staff_alerts_sem_assinante" {
+  assert {
+    condition     = length(local.staff_ops) == 0 || var.staff_alerts_email != ""
+    error_message = "staff_alerts_email vazio: o topico de alertas do staff nao tem assinante e os alarmes do job T1.5 nao chegam a ninguem."
+  }
 }
 
 resource "aws_cloudwatch_metric_alarm" "staff_job_failing" {
