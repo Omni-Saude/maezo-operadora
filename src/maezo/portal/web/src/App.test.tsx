@@ -20,6 +20,7 @@ function session(audience: Audience = "staff", expiresAt?: string) {
     roles: ["authorized-role"],
     expires_at: expiresAt ?? new Date(Date.now() + 60_000).toISOString(),
     csrf_token: "csrf-secret",
+    capabilities: ["identity", "staff_cases", "human"],
   } as const;
 }
 

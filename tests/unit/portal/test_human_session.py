@@ -197,6 +197,38 @@ async def h() -> Harness:
     await oidc.aclose()
 
 
+@pytest.mark.parametrize(
+    ("declared", "projected"),
+    [
+        ("identity", ["identity"]),
+        ("identity,staff_cases", ["identity", "staff_cases"]),
+        ("identity,staff_cases,human", ["identity", "staff_cases", "human"]),
+    ],
+)
+async def test_session_projects_exactly_the_configured_capabilities(
+    declared: str, projected: list[str]
+) -> None:
+    store = LocalTestIdentityStore("test-tenant")
+    store.memberships[(ISSUER, SUBJECT)] = membership()
+    idp = SignedTestIdP()
+    oidc = httpx.AsyncClient(transport=httpx.MockTransport(idp.handle))
+    app = create_app(config(capabilities=declared), store=store, oidc_client=oidc)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url=ORIGIN) as client:
+        harness = Harness(client, store, idp, app)
+        assert (await harness.login()).status_code == 303
+        data = (await client.get(PREFIX + "/session")).json()
+    await oidc.aclose()
+    assert data["capabilities"] == projected
+
+
+@pytest.mark.parametrize(
+    "declared", ["staff_cases", "identity,human", "identity,staff_cases,human,phi", "IDENTITY"]
+)
+def test_capabilities_outside_the_three_profiles_are_refused(declared: str) -> None:
+    with pytest.raises(ValueError):
+        config(capabilities=declared)
+
+
 async def test_real_pkce_cookie_session_projection_and_logout(h: Harness) -> None:
     login = await h.client.get(PREFIX + "/auth/login")
     cookie = login.headers["set-cookie"]
@@ -212,7 +244,16 @@ async def test_real_pkce_cookie_session_projection_and_logout(h: Harness) -> Non
     response = await h.client.get(PREFIX + "/session")
     assert response.status_code == 200
     data = response.json()
-    assert set(data) == {"schema_version", "principal_ref", "audience", "roles", "expires_at", "csrf_token"}
+    assert set(data) == {
+        "schema_version",
+        "principal_ref",
+        "audience",
+        "roles",
+        "expires_at",
+        "csrf_token",
+        "capabilities",
+    }
+    assert data["capabilities"] == ["identity"]
     assert data["principal_ref"] == "human-internal-1"
     assert data["roles"] == ["staff"]
     assert all(x not in response.text for x in (ISSUER, SUBJECT, "medico-auditor", h.idp.last_token))
