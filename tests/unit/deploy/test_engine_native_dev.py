@@ -58,7 +58,8 @@ def test_variavel_tem_default_null() -> None:
         ("aws_lb", "engine_native"),
         ("aws_lb_target_group", "engine_native"),
         ("aws_lb_listener", "engine_native"),
-        ("aws_route53_record", "engine_native"),
+        ("aws_service_discovery_service", "engine_native"),
+        ("aws_service_discovery_instance", "engine_native"),
         ("aws_iam_role_policy", "task_execution_engine_native"),
     ],
 )
@@ -124,8 +125,14 @@ def test_ingress_8443_das_tasks_so_do_sg_do_nlb() -> None:
 
 
 def test_registro_na_zona_do_cloud_map_sem_zona_nova() -> None:
-    body = direct_attrs(_resource("aws_route53_record", "engine_native"))
-    assert attr_raw(body, "zone_id") == "aws_service_discovery_private_dns_namespace.this.hosted_zone"
+    # A zona do namespace e' gerida pelo Cloud Map: registro direto nela e' recusado (403).
+    assert 'resource "aws_route53_record"' not in NATIVE
+    service = _resource("aws_service_discovery_service", "engine_native")
+    assert "aws_service_discovery_private_dns_namespace.this.id" in service
+    assert 'routing_policy = "WEIGHTED"' in service
+    assert "AWS_ALIAS_DNS_NAME = aws_lb.engine_native[each.key].dns_name" in _resource(
+        "aws_service_discovery_instance", "engine_native"
+    )
     assert 'resource "aws_route53_zone"' not in NATIVE
     assert re.search(
         r'engine_native_hostname\s*=\s*"engine-native\.\$\{aws_service_discovery_private_dns_namespace\.this\.name\}"',
@@ -182,3 +189,16 @@ def test_materializador_e_emissor_sao_os_modulos_do_repo() -> None:
     assert (root / "maezo" / "platform" / "engine_native_materialize.py").is_file()
     assert "python -m maezo.gateway.staff_cases" in NATIVE
     assert (root / "maezo" / "gateway" / "staff_cases" / "__main__.py").is_file()
+
+
+def test_descricoes_de_regra_de_sg_so_com_caracteres_aceitos_pela_api() -> None:
+    # AuthorizeSecurityGroup*: a-zA-Z0-9. _-:/()#,@[]+=&;{}!$* (400 InvalidParameterValue, 25/09).
+    rules = [
+        ("aws_vpc_security_group_ingress_rule", "engine_native_nlb_from_portal"),
+        ("aws_vpc_security_group_ingress_rule", "engine_native_nlb_from_issuer"),
+        ("aws_vpc_security_group_egress_rule", "engine_native_nlb_to_engine"),
+        ("aws_vpc_security_group_ingress_rule", "tasks_engine_native_from_nlb"),
+    ]
+    for kind, name in rules:
+        description = re.search(r'description\s*=\s*"([^"]*)"', _resource(kind, name)).group(1)  # type: ignore[union-attr]
+        assert re.fullmatch(r"[a-zA-Z0-9. _\-:/()#,@\[\]+=&;{}!$*]*", description), description

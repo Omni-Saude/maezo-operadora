@@ -91,11 +91,11 @@ variables {
 
 run "null_nao_cria_nada" {
   command = apply
-  plan_options { target = [aws_ecs_service.cibseven, aws_route53_record.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
+  plan_options { target = [aws_ecs_service.cibseven, aws_service_discovery_instance.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
   assert {
     condition = (
       length(aws_lb.engine_native) == 0 && length(aws_security_group.engine_native_nlb) == 0 &&
-      length(aws_route53_record.engine_native) == 0 && length(aws_iam_role_policy.task_execution_engine_native) == 0 &&
+      length(aws_service_discovery_instance.engine_native) == 0 && length(aws_iam_role_policy.task_execution_engine_native) == 0 &&
       length(aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb) == 0 &&
       length(aws_ecs_task_definition.cibseven.volume) == 0 && length(aws_ecs_service.cibseven.load_balancer) == 0 &&
       length(jsondecode(aws_ecs_task_definition.cibseven.container_definitions)) == 1 &&
@@ -110,7 +110,7 @@ run "null_nao_cria_nada" {
 
 run "ligado_sem_emissor" {
   command = apply
-  plan_options { target = [aws_ecs_service.cibseven, aws_route53_record.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_issuer, aws_vpc_security_group_egress_rule.engine_native_nlb_to_engine, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
+  plan_options { target = [aws_ecs_service.cibseven, aws_service_discovery_instance.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_issuer, aws_vpc_security_group_egress_rule.engine_native_nlb_to_engine, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
   variables {
     engine_native = {
       native_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-abcdef"
@@ -145,8 +145,8 @@ run "ligado_sem_emissor" {
   }
   assert {
     condition = (
-      aws_route53_record.engine_native["this"].zone_id == "Z0000000000000CLOUDMAP" &&
-      aws_route53_record.engine_native["this"].name == "engine-native.maezo-operadora-dev.internal" &&
+      aws_service_discovery_service.engine_native["this"].name == "engine-native" &&
+      aws_service_discovery_service.engine_native["this"].dns_config[0].routing_policy == "WEIGHTED" &&
       output.engine_native_origin == "https://engine-native.maezo-operadora-dev.internal" &&
       output.engine_native_nlb_sg_id == "sg-00000000000000020"
     )
