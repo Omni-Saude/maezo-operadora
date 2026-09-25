@@ -81,6 +81,17 @@ COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable
 
+# ── Stage 1b: portal-web ────────────────────────────────────
+# Interface do portal humano (src/maezo/portal/web, Vite), servida pelo proprio BFF na
+# mesma origem (cookies __Host- de sessao/CSRF). Node pinado por digest; `npm ci` a partir
+# do package-lock. Só `dist/` sai deste stage — node_modules nunca chega ao runtime.
+FROM node:22.22.2-bookworm-slim@sha256:9f6d5975c7dca860947d3915877f85607946403fc55349f39b4bc3688448bb6e AS portal-web
+WORKDIR /web
+COPY src/maezo/portal/web/package.json src/maezo/portal/web/package-lock.json ./
+RUN npm ci --no-audit --no-fund --ignore-scripts
+COPY src/maezo/portal/web/ ./
+RUN npx vite build
+
 # ── Stage 2: runtime ────────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
@@ -124,6 +135,10 @@ COPY --from=builder --chown=maezo:maezo /app/pyproject.toml ./
 # alembic.ini — necessário para o Job de migrations (`alembic upgrade head`); script_location
 # aponta para src/maezo/platform/migrations (relativo a /app).
 COPY --chown=maezo:maezo alembic.ini ./
+
+# Bundle da SPA do portal (maezo.portal.api.spa.DEFAULT_WEB_ROOT). Sem ele o BFF loga
+# `portal_web_bundle_missing` e responde 404 fora de /api.
+COPY --from=portal-web --chown=maezo:maezo /web/dist/ ./portal-web/
 
 # NÃO copie `spec/` para dentro da imagem por aqui.
 #

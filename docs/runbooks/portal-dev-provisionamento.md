@@ -849,3 +849,62 @@ decisao do dono.
 | 9 | Senhas temporarias dos 2 usuarios expiram em **28/09/2026** | quem testar |
 | 10 | **Policy do endpoint S3 `vpce-09e34704570f7f756`** (secao 8) — proposta e medida, **nao aplicada**: o endpoint e' compartilhado por 5 route tables e pertence ao state do `amh-data-platform` | dono do `amh-data-platform` + dono do produto |
 | 11 | Isolamento **real** do egresso S3 do portal exige subnets + route table + gateway endpoint dedicados (um gateway S3 por route table, secao 8, item 3) | dono da rede da plataforma |
+
+## 10. Guia sintetica `SYN-` do teste do diretor (SO dev, dado sintetico)
+
+Decisao do dono (24/09/2026): o dev nao tem intake AUTH real, entao o teste conjunto do diretor
+(Onda 7) usa a guia sintetica `SYN-DEVGUIA1`. **Tudo o que esta ferramenta escreve e sintetico** (prefixo
+`SYN-`, procedimento de consulta, valor simbolico, nenhum dado clinico) e so vale na conta
+**203312548462**, ambiente **`dev`**, tenant **`amh`**. Staging e prod: proibido.
+
+`python -m tools.dev_syn_fixture` (ferramenta de operacao em `tools/`, FORA de `src/` e da imagem, como
+`tools/staff_materials`; o nucleo `tools.dev_syn_fixture.core` e o MESMO que o harness C1 usa em
+`auth_install`/`auth_fixture`/`issuer`) faz, idempotente:
+
+1. **B12** — linha `MZO_AUTH_INSTALLATION` do `amh` com qualificacao sintetica apontando a
+   SP-OP-AUTH-001 deployada (insere se ausente; se presente, confere o `scope_` e so atualiza a definicao);
+2. as 6 publicacoes `SYN-` + o `human-auth-start.v1` nativo -> `AUTH-amh-SYN-DEVGUIA1` (pulado se ja existe;
+   chaves Ed25519 efemeras, so em memoria, designadas pelo dono nativo em `MZO_AUTH_TRUST`);
+3. a escalacao `ESC-amh-sla-auth-SYN-DEVGUIA1` com `motivo_categoria=red_flag_clinico`, `severidade=grave`
+   (DMN `escalation_routing` r1 -> `plantao-clinico`, P1). Sai com `ok=true` so se o grupo candidato de
+   `UT_TratarEscalonamento` for exatamente `plantao-clinico` e a instancia AUTH existir.
+
+**Cercas (fail-closed, testadas em `tests/unit/tools/test_dev_syn_fixture.py`):** `MAEZO_DEV_SYN_AWS_ACCOUNT_ID`
+tem de ser `203312548462` e `MAEZO_DEV_SYN_ENVIRONMENT` tem de ser `dev` (explicitos, sem default); o
+`auth_scope` da configuracao tem de ser `environment=dev`, `tenant=amh`; a guia tem de casar `^SYN-[A-Z0-9]+$`;
+e a ferramenta recusa ANTES de escrever se `mzo_auth_guide_claim` do tenant tiver qualquer guia nao-`SYN-`.
+Recusa sai com codigo 3; falha medida, 1.
+
+**Como rodar** (dentro da VPC: precisa do pacote `maezo` instalado + o checkout em `PYTHONPATH`, o mesmo
+arranjo do `runner.Dockerfile` do C1 — codigo nao entra na imagem de producao):
+
+```sh
+# configuracao JSON montada em arquivo (segredos so por ARQUIVO; nunca por containerOverrides, secao 5)
+cat > /run/dev-syn/config.json <<'JSON'
+{"schema": "dev-syn-fixture.v1", "guide_number": "SYN-DEVGUIA1",
+ "auth_scope": {"tenant": "amh", "environment": "dev", "engine_name": "default",
+                "database_incarnation": "<do native-secret>", "installation_ref": "<...>", "installation_revision": "1"},
+ "engine_rest_url": "http://<engine interno>:8080/engine-rest",
+ "native": {"origin": "https://engine-native.maezo-operadora-dev.internal", "ca_file": "/run/dev-syn/native-ca.pem",
+            "client_certificate_file": "/run/dev-syn/client.pem", "client_key_file": "/run/dev-syn/client-key.pem",
+            "audience": "<staff.auth.audience do engine>"},
+ "database": {"owner_dsn_file": "/run/dev-syn/owner-dsn", "ca_file": "/app/rds-ca.pem",
+              "native_schema": "maezo_native", "runtime_role": "cibseven_app"},
+ "installation": {"native_code_digest": "<sha256 do JAR nativo>", "valid_days": 14},
+ "result_signer": {"certificate_file": "/run/dev-syn/auth-result.pem", "key_id": "<...>", "issuer": "<...>"}}
+JSON
+MAEZO_DEV_SYN_AWS_ACCOUNT_ID=203312548462 MAEZO_DEV_SYN_ENVIRONMENT=dev \
+MAEZO_DEV_SYN_FIXTURE_FILE=/run/dev-syn/config.json PYTHONPATH=/repo python -m tools.dev_syn_fixture
+# uma linha JSON: installation, publications, auth_start, escalation{key,groups,tasks}, ok
+```
+
+- **Pendente (fora deste PR):** a task definition avulsa que monta o checkout e os arquivos acima
+  (a receita da secao 5 nao serve: o pacote passa do teto de 8192 bytes do override). Por que fora de
+  `src/`: as cercas `check_start_process_fence` e `check_effect_chokepoint_fence` proibem, em `src/maezo`,
+  POST cru de start e `httpx.Client` fora das seams — corretas para codigo de produto.
+- O cliente mTLS precisa ser um peer que o truststore do 8443 do engine aceita; `result_signer` e opcional
+  (omitir se o signatario de resultado ja estiver designado).
+- Rodar de novo e seguro: instalacao atualizada no lugar, start pulado se `AUTH-amh-SYN-DEVGUIA1` existe,
+  escalacao nao duplicada.
+- Conferencia do diretor: `plantao.teste` (grupo `plantao-clinico`) ve o caso em `/cases`;
+  `atendimento.teste` (grupo `atendimento-humano`) nao ve.
