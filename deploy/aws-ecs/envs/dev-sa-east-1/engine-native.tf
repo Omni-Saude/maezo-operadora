@@ -251,6 +251,7 @@ locals {
   # Volumes da task: um por prefixo do segredo; o do emissor so com o sidecar.
   # Scratch do sidecar (NAO passa pelo materializador, que so conhece os volumes acima).
   engine_native_scratch_volumes = [for native in local.engine_native_issuer : "staff-issuer-tmp"]
+  engine_native_scratch_root    = "/run/maezo-engine-scratch" # FORA do ROOT do materializador
   engine_native_volumes = concat(
     [for native in local.engine_native_list : "engine-native"],
     [for native in local.engine_native_list : "engine-run"],
@@ -281,7 +282,10 @@ locals {
     name      = "engine-native-materialize"
     image     = "${aws_ecr_repository.app.repository_url}@${native.app_image_digest}"
     essential = false
-    command   = ["python", "-m", "maezo.platform.engine_native_materialize"]
+    # Antes do materializador, o scratch do sidecar vira 0700 uid 1000: o volume vazio do Fargate
+    # nasce root:root 0755 e o sidecar (1000) nao escreve nele (medido 25/09). chmod ANTES do chown:
+    # sem FOWNER, root nao altera o modo de arquivo alheio.
+    command = ["sh", "-c", "set -e; for d in ${local.engine_native_scratch_root}/*; do [ -d \"$d\" ] || continue; chmod 0700 \"$d\"; chown 1000:1000 \"$d\"; done; exec python -m maezo.platform.engine_native_materialize"]
     # root SO para o fchown -> 1000 (volume vazio do Fargate nasce root:root). Todas as
     # capabilities padrao caem exceto CHOWN; o Fargate nao permite `add` alem de SYS_PTRACE.
     user                   = "0:0"
@@ -290,9 +294,14 @@ locals {
       "AUDIT_WRITE", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD", "NET_BIND_SERVICE",
       "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"
     ] } }
-    mountPoints = [for volume in local.engine_native_volumes :
-      { sourceVolume = volume, containerPath = "${local.engine_native_init_root}/${volume}", readOnly = false }
-    ]
+    mountPoints = concat(
+      [for volume in local.engine_native_volumes :
+        { sourceVolume = volume, containerPath = "${local.engine_native_init_root}/${volume}", readOnly = false }
+      ],
+      [for volume in local.engine_native_scratch_volumes :
+        { sourceVolume = volume, containerPath = "${local.engine_native_scratch_root}/${volume}", readOnly = false }
+      ],
+    )
     environment = [
       { name = "MAEZO_ENGINE_NATIVE_STAFF_ISSUER", value = tostring(native.staff_case_issuer) },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },

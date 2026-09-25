@@ -185,7 +185,7 @@ def test_env_do_engine_nativo_usa_os_nomes_do_harness() -> None:
 
 def test_materializador_e_emissor_sao_os_modulos_do_repo() -> None:
     root = Path(__file__).resolve().parents[3] / "src"
-    assert '["python", "-m", "maezo.platform.engine_native_materialize"]' in NATIVE
+    assert "exec python -m maezo.platform.engine_native_materialize" in NATIVE
     assert (root / "maezo" / "platform" / "engine_native_materialize.py").is_file()
     assert "python -m maezo.gateway.staff_cases" in NATIVE
     assert (root / "maezo" / "gateway" / "staff_cases" / "__main__.py").is_file()

@@ -162,7 +162,7 @@ run "ligado_sem_emissor" {
       ] &&
       [for p in jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[0].portMappings : p.containerPort] == [8080, 8443] &&
       !jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].essential &&
-      jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].command == ["python", "-m", "maezo.platform.engine_native_materialize"] &&
+      endswith(jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].command[2], "exec python -m maezo.platform.engine_native_materialize") &&
       jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].secrets == [{ name = "MAEZO_ENGINE_NATIVE_SECRET", valueFrom = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-abcdef:::00000000-0000-0000-0000-000000000001" }] &&
       jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].image == "203312548462.dkr.ecr.sa-east-1.amazonaws.com/test/app@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" &&
       [for v in aws_ecs_task_definition.cibseven.volume : v.name] == ["engine-native", "engine-run"]
