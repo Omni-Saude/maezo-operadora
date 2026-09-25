@@ -458,3 +458,78 @@ def test_tls_context_verifies_chain_and_hostname() -> None:
 
     context = installer.tls_context(None)
     assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
+
+
+# ----------------------------------------------------------------------- Onda 8 (passo 9)
+
+
+class _ExtraDb:
+    def __init__(self, roles: set[str], settings: dict[str, str], good: dict[str, str]) -> None:
+        self.roles, self.settings, self.good = roles, settings, good
+        self.statements: list[str] = []
+
+    async def connect(self, user: str, password: str) -> Any:
+        if user != ADMIN and self.good.get(user) != password:
+            raise RuntimeError("password authentication failed")
+        db = self
+
+        class _C:
+            async def fetchval(self, query: str, *args: Any) -> Any:
+                if "FROM pg_roles" in query:
+                    return 1 if args[0] in db.roles else None
+                if "pg_db_role_setting" in query:
+                    return db.settings.get(args[0])
+                raise AssertionError(query)
+
+            async def execute(self, query: str, *args: Any) -> str:
+                db.statements.append(query)
+                return "OK"
+
+            async def close(self) -> None:
+                return None
+
+        return _C()
+
+
+def test_extra_login_arns_allowlist() -> None:
+    assert installer.parse_extra_login_arns(None) == {}
+    arn = "arn:aws:secretsmanager:sa-east-1:1:secret:x"
+    assert installer.parse_extra_login_arns(json.dumps({"portal_human_outbox_amh": arn}))
+    for bad in (json.dumps({"postgres": arn}), json.dumps({"portal_human_outbox_amh": "x"}), "{", "{}"):
+        with pytest.raises(installer.InstallError):
+            installer.parse_extra_login_arns(bad)
+
+
+def test_extra_logins_create_then_idempotent() -> None:
+    import asyncio
+
+    passwords = {"portal_task_source_amh": "a" * 32, "portal_human_outbox_amh": "b" * 32}
+    db = _ExtraDb(set(), {}, {})
+    first = asyncio.run(installer.ensure_extra_logins(db.connect, credentials(), passwords))
+    assert first["portal_task_source_amh"] == "criado"
+    assert first["portal_human_outbox_amh"] == "criado; search_path=amh aplicado"
+    creates = [s for s in db.statements if s.startswith("CREATE ROLE")]
+    assert len(creates) == 2 and all("SCRAM-SHA-256$" in s and "NOBYPASSRLS" in s for s in creates)
+    assert not any(p in "".join(db.statements) for p in passwords.values())
+    # Segunda execucao: senha ja autentica e search_path igual -> nenhum SQL de escrita.
+    again = _ExtraDb(set(passwords), {"portal_human_outbox_amh": "search_path=amh"}, passwords)
+    second = asyncio.run(installer.ensure_extra_logins(again.connect, credentials(), passwords))
+    assert again.statements == []
+    assert second == {
+        "portal_human_outbox_amh": "igual; search_path=amh igual",
+        "portal_task_source_amh": "igual",
+    }
+    # Senha divergente: so realinha a senha (sem re-declarar atributos, que o RDS recusa).
+    drift = _ExtraDb(set(passwords), {"portal_human_outbox_amh": "search_path=amh"}, {})
+    asyncio.run(installer.ensure_extra_logins(drift.connect, credentials(), passwords))
+    assert len(drift.statements) == 2
+    assert all("LOGIN PASSWORD" in s and "BYPASSRLS" not in s for s in drift.statements)
+
+
+def test_extra_logins_refuse_outside_allowlist() -> None:
+    import asyncio
+
+    with pytest.raises(installer.InstallError):
+        asyncio.run(
+            installer.ensure_extra_logins(_ExtraDb(set(), {}, {}).connect, credentials(), {"postgres": "x"})
+        )

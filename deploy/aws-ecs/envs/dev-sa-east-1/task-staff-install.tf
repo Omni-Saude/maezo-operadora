@@ -45,9 +45,21 @@ variable "staff_install" {
 locals {
   staff_install = var.staff_install == null ? {} : { this = var.staff_install }
 
+  # Onda 8: os logins que o `staff_ops rows` criava com a credencial mestre agora nascem aqui
+  # (passo 9 do instalador), para que o `rows` nunca leia o segredo mestre.
+  staff_install_extra_login_arns = var.staff_install == null || var.staff_ops == null ? {} : {
+    for login, arn in {
+      portal_task_source_amh      = var.staff_ops.task_source_secret_arn
+      portal_human_outbox_amh     = var.staff_ops.human_outbox_secret_arn
+      portal_human_source_amh     = var.staff_ops.human_source_secret_arn
+      portal_assignment_admin_amh = var.staff_ops.assignment_admin_secret_arn
+    } : login => arn if arn != null
+  }
+
   staff_install_secret_arns = var.staff_install == null ? {} : merge(
     { admin = local.aurora_master_secret_arn },
     var.staff_install.login_secret_arns,
+    local.staff_install_extra_login_arns,
   )
 }
 
@@ -142,6 +154,7 @@ resource "aws_ecs_task_definition" "staff_install" {
     environment = concat(local.db_env, [
       { name = "STAFF_INSTALL_ADMIN_SECRET_ARN", value = local.aurora_master_secret_arn },
       { name = "STAFF_INSTALL_LOGIN_SECRET_ARNS", value = jsonencode(each.value.login_secret_arns) },
+      { name = "STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS", value = length(local.staff_install_extra_login_arns) == 0 ? "" : jsonencode(local.staff_install_extra_login_arns) },
       { name = "AWS_REGION", value = var.aws_region },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ])

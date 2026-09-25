@@ -13,7 +13,13 @@ Referencia executavel: `deploy/c1-local/c1/db_native.py` (harness local). A orde
 7. admin: `REVOKE maezo_native_schema_owner FROM <admin>` e os blocos `$roles$`/`$external$` de
    `engine-native-roles.sql` de novo, que agora provam a postura (recusam qualquer membro alem do
    ADMIN implicito sem INHERIT/SET). O `$schemas$` nao: ele exige ser dono do schema;
-8. mede e imprime os pins PUBLICOS.
+8. mede e imprime os pins PUBLICOS;
+9. (opcional, `STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS`) admin: os logins das Ondas 8 que antes o
+   `staff_ops rows` criava com a credencial mestre — `portal_task_source_amh` (D14) e
+   `portal_human_outbox_amh`/`portal_human_source_amh` (H5, com `search_path` do tenant) e
+   `portal_assignment_admin_amh` (administracao da fonte de atribuicao). Senha por
+   verificador SCRAM calculado aqui; idempotente: login existente cuja senha ja autentica nao e
+   tocado, `search_path` igual nao e reescrito. Assim o `rows` nao precisa do segredo mestre.
 
 O que difere do harness, e por que: la o admin e `postgres` (superusuario); no Aurora ele e so
 `rds_superuser`/CREATEROLE, e o PostgreSQL 16+ exige, para `CREATE SCHEMA ... AUTHORIZATION`,
@@ -88,6 +94,16 @@ STAFF_OWNED = (
 )
 PORTAL_PINNED = ("mzo_portal_read_membership", "mzo_human_principal")
 REQUIRED_RELATIONS = (*STAFF_OWNED, *PORTAL_PINNED, "mzo_portal_read_admission")
+
+# Onda 8: login -> search_path (None = nao ajustar). Allowlist fechada: nada fora disto e aceito.
+EXTRA_LOGINS: dict[str, str | None] = {
+    f"portal_task_source_{TENANT}": None,
+    f"portal_human_outbox_{TENANT}": TENANT,
+    f"portal_human_source_{TENANT}": TENANT,
+    # Plano de atribuicao: os grants de `portal-assignment-admin-grants.sql` vem do `rows`.
+    f"portal_assignment_admin_{TENANT}": None,
+}
+_LOGIN_ATTRIBUTES = "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 
 LOCK_ALTER_LINE = f"ALTER FUNCTION portal_identity.lock_external_session(text) OWNER TO {IDENTITY_READER};"
 PINS_SCHEMA = "maezo-staff-install-pins.v1"
@@ -174,6 +190,69 @@ def parse_login_arns(raw: str) -> dict[str, str]:
         if not isinstance(arn, str) or not arn.startswith("arn:aws:secretsmanager:"):
             raise InstallError(f"STAFF_INSTALL_LOGIN_SECRET_ARNS: ARN invalido para {login}")
     return value
+
+
+def parse_extra_login_arns(raw: str | None) -> dict[str, str]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        raise InstallError("STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS: JSON invalido") from None
+    if not isinstance(value, dict) or not value or set(value) - set(EXTRA_LOGINS):
+        raise InstallError(f"STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS: so {sorted(EXTRA_LOGINS)}")
+    for login, arn in value.items():
+        if not isinstance(arn, str) or not arn.startswith("arn:aws:secretsmanager:"):
+            raise InstallError(f"STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS: ARN invalido para {login}")
+    return value
+
+
+async def ensure_extra_logins(
+    connect: Connector, credentials: Credentials, passwords: Mapping[str, str]
+) -> dict[str, str]:
+    """Passo 9: cria/realinha os logins da Onda 8 como admin. Nunca imprime senha nem verificador."""
+    result: dict[str, str] = {}
+    su = await connect(credentials.admin_user, credentials.admin_password)
+    try:
+        for login in sorted(passwords):
+            if login not in EXTRA_LOGINS:
+                raise InstallError(f"login fora da allowlist da Onda 8: {login}")
+            password = passwords[login]
+            exists = await su.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login)
+            if not exists:
+                verifier = scram.verifier(password).replace("'", "")
+                await su.execute(f"CREATE ROLE {login} LOGIN {_LOGIN_ATTRIBUTES} PASSWORD '{verifier}'")
+                action = "criado"
+            else:
+                try:
+                    probe = await connect(login, password)
+                except Exception:  # senha divergente (ou login sem LOGIN): realinha
+                    probe = None
+                if probe is not None:
+                    await probe.close()
+                    action = "igual"
+                else:
+                    # ALTER so realinha a senha: no RDS o mestre nao e superusuario e nao pode
+                    # re-declarar NOBYPASSRLS/NOREPLICATION num ALTER (medido 25/09).
+                    verifier = scram.verifier(password).replace("'", "")
+                    await su.execute(f"ALTER ROLE {login} LOGIN PASSWORD '{verifier}'")
+                    action = "realinhado"
+            path = EXTRA_LOGINS[login]
+            if path is not None:
+                setting = await su.fetchval(
+                    "SELECT array_to_string(setconfig, ',') FROM pg_db_role_setting s JOIN pg_roles r "
+                    "ON r.oid=s.setrole WHERE r.rolname=$1 AND s.setdatabase=0",
+                    login,
+                )
+                if f"search_path={path}" not in (setting or "").split(","):
+                    await su.execute(f"ALTER ROLE {login} SET search_path = {path}")
+                    action += f"; search_path={path} aplicado"
+                else:
+                    action += f"; search_path={path} igual"
+            result[login] = action
+    finally:
+        await su.close()
+    return result
 
 
 @dataclass(frozen=True)
@@ -507,6 +586,7 @@ def main(
         host, port, database = _env("DB_HOST"), int(_env("DB_PORT")), _env("DB_NAME")
         admin_arn = _env("STAFF_INSTALL_ADMIN_SECRET_ARN")
         login_arns = parse_login_arns(_env("STAFF_INSTALL_LOGIN_SECRET_ARNS"))
+        extra_arns = parse_extra_login_arns(os.environ.get("STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS"))
         if secrets_client is None:
             import boto3  # type: ignore[import-untyped]
 
@@ -514,6 +594,14 @@ def main(
                 "secretsmanager", region_name=os.environ.get("AWS_REGION", "sa-east-1")
             )
         credentials = fetch_credentials(secrets_client, admin_arn, login_arns)
+        extra_passwords = {
+            login: parse_credential(secrets_client.get_secret_value(SecretId=arn)["SecretString"], login)
+            for login, arn in extra_arns.items()
+        }
+        if set(extra_passwords.values()) & set(credentials.passwords.values()) or len(
+            set(extra_passwords.values())
+        ) != len(extra_passwords):
+            raise InstallError("login da Onda 8 com senha repetida: recuse e gere de novo")
         if connector is None:
             import asyncpg  # type: ignore[import-untyped]
 
@@ -532,6 +620,8 @@ def main(
                 return connection
 
         pins = asyncio.run(install(connector, credentials))
+        if extra_passwords:
+            pins["extra_logins"] = asyncio.run(ensure_extra_logins(connector, credentials, extra_passwords))
         if not all(pins["session_tls"].values()):
             pins["ok"] = False
     except InstallError as failure:

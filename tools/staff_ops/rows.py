@@ -6,8 +6,11 @@ Entradas (nenhuma por env/override alem de ARNs e do endereco do banco):
   esperados. O conteudo e publico (assinado), mas a fonte unica e o segredo pinado, para que o
   que se instala seja exatamente o que o aprovador assinou;
 * `STAFF_OWNER_SECRET_ARN` -> credencial de `maezo_native_schema_owner`;
-* `STAFF_ADMIN_SECRET_ARN` -> credencial mestre, SO para `ALTER ROLE <identity_login> SET
-  search_path` (o job T1.5 le `portal_memberships` sem qualificar o schema).
+* `STAFF_IDENTITY_SECRET_ARN` -> credencial do PROPRIO `identity_login`, SO para
+  `ALTER ROLE CURRENT_USER SET search_path` (o job T1.5 le `portal_memberships` sem qualificar o
+  schema). A credencial mestre do Aurora NAO entra nesta task: os logins das Ondas 8
+  (`task_source`, `human_plane`, `assignment.admin`) sao criados pela task `staff-install`; aqui
+  so se confere que existem e se aplicam os grants pelos donos dos schemas.
 
 Bootstrap que o engine nativo exige ANTES do 1o boot (`HumanCommandPlugin.staffCurrent`, medido no
 apply de 25/09) e que o DDL deixa explicito por comentario: `MZO_HUMAN_TENANT(<tenant>,0)` e a linha
@@ -297,22 +300,19 @@ async def bootstrap(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
 GRANTS_SQL = "deploy/sql/portal-task-source-grants.sql"
 
 
-async def task_source(owner: Any, admin: Any, engine_owner: Any, rows: dict[str, Any], password: str) -> str:
-    """D14: cria (ou realinha a senha de) o login e aplica as DUAS partes do SQL do repo."""
-    from pathlib import Path
+async def require_login(connection: Any, login: str) -> None:
+    """Fail-closed: o login e criado pela task `staff-install` (credencial mestre), nunca aqui."""
+    if not await connection.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login):
+        raise OpsError(f"login {login} ausente: rode a task staff-install antes do rows")
 
-    from tools.staff_materials import scram
+
+async def task_source(owner: Any, engine_owner: Any, rows: dict[str, Any]) -> str:
+    """D14: o login ja existe (staff-install); aplica as DUAS partes do SQL do repo."""
+    from pathlib import Path
 
     spec = rows["task_source"]
     login, engine_schema = spec["login"], spec["engine_schema"]
-    exists = await admin.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login)
-    verb = "ALTER" if exists else "CREATE"
-    # Verificador SCRAM calculado aqui: a senha em claro nunca vira texto de SQL nem de log.
-    verifier = scram.verifier(password).replace("'", "")
-    # ALTER so realinha a senha: no RDS o mestre nao e superusuario e nao pode re-declarar
-    # NOBYPASSRLS/NOREPLICATION num ALTER ("permission denied to alter role", medido 25/09).
-    attributes = "" if exists else "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS "
-    await admin.execute(f"{verb} ROLE {login} LOGIN {attributes}PASSWORD '{verifier}'")
+    await require_login(owner, login)
     sql = (Path("/app") / GRANTS_SQL).read_text(encoding="utf-8")
     for part, connection in (("native", owner), ("engine", engine_owner)):
         async with connection.transaction():
@@ -322,37 +322,22 @@ async def task_source(owner: Any, admin: Any, engine_owner: Any, rows: dict[str,
                 "SELECT set_config('maezo.task_source.engine_schema', $1, true)", engine_schema
             )
             await connection.execute(sql)
-    return f"{login} {'realinhado' if exists else 'criado'}; grants native+engine"
+    return f"{login} presente; grants native+engine"
 
 
 PLANE_SQL = "deploy/sql/portal-human-plane-grants.sql"
 
 
-async def ensure_login(admin: Any, login: str, password: str) -> str:
-    from tools.staff_materials import scram
-
-    exists = await admin.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login)
-    verifier = scram.verifier(password).replace("'", "")
-    attributes = "" if exists else "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS "
-    await admin.execute(
-        f"{'ALTER' if exists else 'CREATE'} ROLE {login} LOGIN {attributes}PASSWORD '{verifier}'"
-    )
-    return "realinhado" if exists else "criado"
-
-
-async def human_plane(admin: Any, schema_owner: Any, rows: dict[str, Any], passwords: dict[str, str]) -> str:
-    """H5: logins outbox/source do BFF e os grants do SQL do repo, pelo dono do schema do tenant."""
+async def human_plane(schema_owner: Any, rows: dict[str, Any]) -> str:
+    """H5: os logins outbox/source (e o search_path do tenant deles) vem da task `staff-install`;
+    aqui so os grants do SQL do repo, pelo dono do schema do tenant."""
     from pathlib import Path
 
     plane = rows["human_plane"]
-    done = [
-        f"{plane[k]['login']} {await ensure_login(admin, plane[k]['login'], passwords[k])}"
-        for k in ("outbox", "source")
-    ]
-    # As tabelas do outbox moram no schema do tenant e o codigo nao as qualifica (mesmo arranjo do
-    # portal_bff_amh): sem isto o relay do BFF morre no boot com "relation does not exist".
+    done = []
     for key in ("outbox", "source"):
-        await admin.execute(f"ALTER ROLE {plane[key]['login']} SET search_path = {plane['schema']}")
+        await require_login(schema_owner, plane[key]["login"])
+        done.append(f"{plane[key]['login']} presente")
     sql = (Path("/app") / PLANE_SQL).read_text(encoding="utf-8")
     async with schema_owner.transaction():
         await schema_owner.execute("SELECT set_config('maezo.human_plane.schema', $1, true)", plane["schema"])
@@ -369,9 +354,7 @@ async def human_plane(admin: Any, schema_owner: Any, rows: dict[str, Any], passw
 ASSIGNMENT_SQL = "deploy/sql/portal-assignment-admin-grants.sql"
 
 
-async def assignment_plane(
-    owner: Any, admin: Any, schema_owner: Any, rows: dict[str, Any], password: str
-) -> str:
+async def assignment_plane(owner: Any, schema_owner: Any, rows: dict[str, Any]) -> str:
     """Onda 8: instalacao nativa do plano de atribuicao (dono nativo) + login da administracao da
     fonte e os grants do SQL do repo (dono do schema do tenant). A fonte em si (a linha
     `portal_assignment_source`) NAO nasce aqui: so o `assignment-activate`, pelo codigo."""
@@ -386,7 +369,8 @@ async def assignment_plane(
         owner,
         parse_installation(spec["installation"], tenant=tenant, runtime_role=rows["auth"]["runtime_role"]),
     )
-    created = await ensure_login(admin, login, password)
+    # O login da administracao nasce na task `staff-install` (credencial mestre), nunca aqui.
+    await require_login(schema_owner, login)
     sql = (Path("/app") / ASSIGNMENT_SQL).read_text(encoding="utf-8")
     async with schema_owner.transaction():
         await schema_owner.execute(
@@ -394,10 +378,10 @@ async def assignment_plane(
         )
         await schema_owner.execute("SELECT set_config('maezo.assignment_admin.login', $1, true)", login)
         await schema_owner.execute(sql)
-    return f"instalacao {installed}; {login} {created}; grants da administracao"
+    return f"instalacao {installed}; {login} presente; grants da administracao"
 
 
-async def install(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, Any]:
+async def install(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, Any]:
     scope = rows["scope"]
     key = (scope["tenant"], scope["environment"], scope["engine_name"], scope["database_incarnation"])
     revision, digest = rows["designation_revision"], rows["designation_sha256"]
@@ -477,12 +461,14 @@ async def install(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, Any
         else:
             actions["admission"] = "igual"
     login, path = rows["identity_login"], rows["identity_search_path"]
-    await admin.execute(f"ALTER ROLE {login} SET search_path = {path}")
+    if await identity.fetchval("SELECT current_user") != login:
+        raise OpsError("credencial de identidade nao e o identity_login: recusado")
+    await identity.execute(f"ALTER ROLE CURRENT_USER SET search_path = {path}")
     actions["identity_search_path"] = f"{login}={path}"
     return actions
 
 
-async def prove(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, bool]:
+async def prove(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, bool]:
     scope = rows["scope"]
     key = (scope["tenant"], scope["environment"], scope["engine_name"], scope["database_incarnation"])
     async with owner.transaction():
@@ -500,7 +486,7 @@ async def prove(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, bool]
             rows["admission_ref"],
             rows["admission_revision"],
         )
-    setting = await admin.fetchval(
+    setting = await identity.fetchval(
         "SELECT array_to_string(setconfig, ',') FROM pg_db_role_setting s JOIN pg_roles r ON r.oid=s.setrole "
         "WHERE r.rolname=$1 AND s.setdatabase=0",
         rows["identity_login"],
@@ -530,42 +516,23 @@ def main() -> int:
         owner_password = parse_credential(
             client.get_secret_value(SecretId=env("STAFF_OWNER_SECRET_ARN"))["SecretString"], OWNER
         )
-        admin_user, admin_password = parse_admin(
-            client.get_secret_value(SecretId=env("STAFF_ADMIN_SECRET_ARN"))["SecretString"]
+        identity_password = parse_credential(
+            client.get_secret_value(SecretId=env("STAFF_IDENTITY_SECRET_ARN"))["SecretString"],
+            rows["identity_login"],
         )
         context: ssl.SSLContext = tls_context(None)
         app_credentials: tuple[str, str] = ("", "")
-        plane_passwords: dict[str, str] = {}
-        assignment_password = ""
-        if rows.get("assignment") is not None:
-            spec = rows["assignment"]["admin"]
-            assignment_password = parse_credential(
-                client.get_secret_value(SecretId=spec["password_secret_arn"])["SecretString"], spec["login"]
-            )
         if rows.get("human_plane") is not None or rows.get("assignment") is not None:
             app_credentials = parse_admin(
                 client.get_secret_value(SecretId=env("STAFF_APP_DB_SECRET_ARN"))["SecretString"]
             )
-        if rows.get("human_plane") is not None:
-            for key in ("outbox", "source"):
-                spec = rows["human_plane"][key]
-                plane_passwords[key] = parse_credential(
-                    client.get_secret_value(SecretId=spec["password_secret_arn"])["SecretString"],
-                    spec["login"],
-                )
         engine_credentials: tuple[str, str] = ("", "")
-        task_source_password = ""
         if rows.get("task_source") is not None:
             engine_credentials = parse_admin(
                 client.get_secret_value(SecretId=env("STAFF_ENGINE_DB_SECRET_ARN"))["SecretString"]
             )
             if engine_credentials[0] != "cibseven_app":
                 raise OpsError("segredo do engine nao e do cibseven_app")
-            login = rows["task_source"]["login"]
-            task_source_password = parse_credential(
-                client.get_secret_value(SecretId=rows["task_source"]["password_secret_arn"])["SecretString"],
-                login,
-            )
 
         async def run() -> dict[str, Any]:
             owner = await asyncpg.connect(
@@ -577,18 +544,18 @@ def main() -> int:
                 ssl=context,
                 timeout=15,
             )
-            admin = await asyncpg.connect(
+            identity = await asyncpg.connect(
                 host=host,
                 port=port,
-                user=admin_user,
-                password=admin_password,
+                user=rows["identity_login"],
+                password=identity_password,
                 database=database,
                 ssl=context,
                 timeout=15,
             )
             try:
                 actions = await bootstrap(owner, rows)
-                actions.update(await install(owner, admin, rows))
+                actions.update(await install(owner, identity, rows))
                 if rows.get("task_source") is not None:
                     engine_user, engine_password = engine_credentials
                     engine_owner = await asyncpg.connect(
@@ -601,9 +568,7 @@ def main() -> int:
                         timeout=15,
                     )
                     try:
-                        actions["task_source"] = await task_source(
-                            owner, admin, engine_owner, rows, task_source_password
-                        )
+                        actions["task_source"] = await task_source(owner, engine_owner, rows)
                     finally:
                         await engine_owner.close()
                 if rows.get("human_plane") is not None or rows.get("assignment") is not None:
@@ -619,20 +584,16 @@ def main() -> int:
                     )
                     try:
                         if rows.get("human_plane") is not None:
-                            actions["human_plane"] = await human_plane(
-                                admin, app_owner, rows, plane_passwords
-                            )
+                            actions["human_plane"] = await human_plane(app_owner, rows)
                         if rows.get("assignment") is not None:
-                            actions["assignment"] = await assignment_plane(
-                                owner, admin, app_owner, rows, assignment_password
-                            )
+                            actions["assignment"] = await assignment_plane(owner, app_owner, rows)
                     finally:
                         await app_owner.close()
-                proof = await prove(owner, admin, rows)
+                proof = await prove(owner, identity, rows)
                 tls = await owner.fetchval("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
             finally:
                 await owner.close()
-                await admin.close()
+                await identity.close()
             return dict(actions=actions, proof=proof, owner_tls=bool(tls))
 
         result = asyncio.run(run())
