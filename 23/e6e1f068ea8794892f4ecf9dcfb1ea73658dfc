@@ -1,0 +1,43 @@
+tests/unit/staff_materials/test_separation.py
+  s_75580744a35de2::t_f61abba903a40e 51
+deploy/c1-local/README.md
+  s_75580744a35de2::t_7795980d833b73 74
+  s_75580744a35de2::t_d5ac1bd3a6e02a 97
+deploy/c1-local/c1/human_bundle.py
+  s_75580744a35de2::t_12ee8e41eb3b1c 3-7,12-13,27-28,30,37,49-70,73,86-103,107-113,117-125
+  s_75580744a35de2::t_0957ea296a60cf 126-127
+tests/unit/staff_materials/test_human_bundle.py
+  s_75580744a35de2::t_b206f5ff68ad36 1-34,36-51,53-71,83-102,106-115,122-126,145-154,159-178,184-203,207-223,242-249,253-261,266-295
+  s_75580744a35de2::t_a2d0ca8eb8ebe2 35,52,72-82,103-105,116-121,127-144,155-158,179-183,204-206,224-241,250-252,262-265
+tools/staff_materials/native_secret.py
+  s_75580744a35de2::t_a2d0ca8eb8ebe2 188-193,286-290
+  s_75580744a35de2::t_bc3400044b8cb9 158-165,172-187,194-199,268-281,292-296,476
+  s_75580744a35de2::t_e1d4c1b1994315 282-284
+tools/staff_materials/__main__.py
+  s_75580744a35de2::t_bc3400044b8cb9 1,14,16,57-58,101-102,104,108-109
+tools/staff_materials/human_bundle.py
+  s_75580744a35de2::t_a2d0ca8eb8ebe2 30,116-118,137-138,207-210,292-305,344-346,426-433,437-450,456-463,533-535,537-539
+  s_75580744a35de2::t_5b818230d3efd0 576
+  s_75580744a35de2::t_dd38563522b3c2 1-29,31-33,35-115,119-136,139-206,211-291,306-343,347-391,393-425,434-436,451-455,464-532,536,540-575,577
+  s_75580744a35de2::t_b8546a9c16bd24 34,392
+deploy/c1-local/c1/engine_config.py
+  s_75580744a35de2::t_a2d0ca8eb8ebe2 13,296
+tools/staff_materials/README.md
+  s_75580744a35de2::t_dafa2f4d09678f 17-19,53-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23e6e1f068ea8794892f4ecf9dcfb1ea73658dfc",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
