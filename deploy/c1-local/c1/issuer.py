@@ -24,7 +24,7 @@ import httpx
 
 from tools.dev_syn_fixture import core
 
-from .common import ADMIN, APPROVER_OUT, ISSUER_LOGIN, ISSUER_WITNESS_LOGIN, MATERIALS, ROOT, TENANT, read_text, state, step, write
+from .common import ADMIN, APPROVER_OUT, ISSUER_LOGIN, ISSUER_WITNESS_LOGIN, MATERIALS, PGTLS, ROOT, TENANT, read_text, state, step, write
 
 REST = "http://localhost:8080/engine-rest"
 SPEC = Path("/repo/spec/processes")
@@ -92,7 +92,9 @@ def main() -> None:
         tasks, groups = _escalation(client)
     path = composition()
     completed = subprocess.run([sys.executable, "-m", "maezo.gateway.staff_cases"], capture_output=True, text=True,
-                               env={**os.environ, "MAEZO_STAFF_CASE_ISSUER_FILE": str(path)})
+                               env={**os.environ, "MAEZO_STAFF_CASE_ISSUER_FILE": str(path),
+                                    # verify-full: no C1 a raiz e a CA descartavel do postgres local
+                                    "SSL_CERT_FILE": str(PGTLS / "ca.pem")})
     line = (completed.stdout.strip().splitlines() or [completed.stderr.strip()[-300:]])[-1]
     step("issuer", completed.returncode == 0 and '"grants": 1' in line,
          f"deploy {deployment.get('id', '?')[:8]} (tenant {TENANT}); UT_TratarEscalonamento={tasks} grupo(s) candidato {groups}; "

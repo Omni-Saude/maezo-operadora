@@ -773,7 +773,14 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
     credentials = publication_credentials(config.publication, material, lifetime)
     context = job_tls_context(config, manifest.read_surface, scope, material.directory)
     dsn = _secret_file(config.identity_dsn_file).decode("utf-8").strip()
-    engine = create_async_engine(dsn, hide_parameters=True, pool_size=1, max_overflow=0)
+    import ssl
+
+    tls = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)  # raizes RDS da imagem, verify-full
+    if not tls.check_hostname or tls.verify_mode != ssl.CERT_REQUIRED:
+        raise unavailable()
+    engine = create_async_engine(
+        dsn, hide_parameters=True, pool_size=1, max_overflow=0, connect_args={"ssl": tls}
+    )
     client = PortalReadClient(
         origin=manifest.read_surface.origin,
         tls_context=context,
