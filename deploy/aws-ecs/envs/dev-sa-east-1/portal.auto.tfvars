@@ -101,7 +101,7 @@ portal = {
   // `maezo-operadora-dev-imagem` e assinada/atestada/verificada pelo `supply-chain.yml`
   // (workflow_dispatch com o digest). Traz os 3 criticos da bateria (#460), a conclusao pelo
   // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
-  image_digest = "sha256:e83d428c5efdb1f426c33b44b509d4dc4e0138616d0efabac8cbbb780b726fa3"
+  image_digest = "sha256:871ecc0b1dc460fae93d1b70d83cbd868c5abb44972b3d80480e2985973e5864"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
