@@ -675,7 +675,7 @@ variable "metrics_collector_image" {
   # do repositorio publico troca o binario no proximo restart sem nenhum commit aqui. O digest e o
   # do INDICE OCI de v0.43.1 (sha256 dos bytes do manifest list; o ECS resolve a plataforma), e
   # todas as outras imagens deste ambiente ja sao digest-pinned. Para subir de versao: novo digest.
-  default     = "public.ecr.aws/aws-observability/aws-otel-collector@sha256:db725ac7007ef1d9b5a357a59f3b964ab9e1df23ebb0dfc694275019048b489b"
+  default = "public.ecr.aws/aws-observability/aws-otel-collector@sha256:db725ac7007ef1d9b5a357a59f3b964ab9e1df23ebb0dfc694275019048b489b"
 }
 
 variable "metrics_collector_desired_count" {

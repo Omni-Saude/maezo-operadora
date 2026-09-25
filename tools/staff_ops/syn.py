@@ -87,7 +87,6 @@ def deploy_for_tenant(config: dict) -> str:  # type: ignore[type-arg]
     duplicata (a fixture exige a AUTH deployada no tenant; o deploy do dev e sem tenant). Os bytes
     sao os da propria imagem (wheel), o mesmo caminho do `deploy-processes`."""
     import httpx
-
     from tools.dev_syn_fixture import core
 
     tenant = config["auth_scope"]["tenant"]
