@@ -1,0 +1,21 @@
+tests/unit/deploy/test_portal_image_assembly.py
+  s_75580744a35de2::t_6309eaa68727c4 224-225
+tests/unit/ci/test_resolve_image_digest.py
+  s_75580744a35de2::t_534559a7a6c6f0 25-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0b11bd8d68f9460de36fd4d939deb025e4db3ea7",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
