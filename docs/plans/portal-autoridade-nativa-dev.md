@@ -1063,6 +1063,7 @@ apply). A cadência é a decisão N2.
 1. **N1 — Quem é o aprovador nomeado** (staff e, depois, human), e se a custódia da raiz exige
    uma segunda pessoa. Proposta: Leonardo aprova; a raiz fica só com ele; nenhum agente a
    recebe.
+   **Emenda [25/09/2026, dono]:** desvio aceito pelo dono em dev; produção exige aprovador humano (o agente gerou a raiz `installation-root` e assinou designação e admissões só no dev).
 2. **N2 — Validade do pacote e cadência de reaprovação em dev.** Quanto tempo a designação e o
    snapshot de revogação valem, o que define a frequência das Ondas 5 e 6 repetidas. Proposta:
    14 dias, com lembrete 3 dias antes.
