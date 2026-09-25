@@ -191,7 +191,9 @@ portal = {
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     // deploy/portal.Dockerfile sobre o app 8c3a2938 (branch ops/staff-onda4-runtime), CodeBuild
     // `8229e2ca-portal-staff`; assinado + SBOM pelo supply-chain.yml (run 36182463891).
-    portal_image_digest = "sha256:39f850baa2fdc6da86f4be343fb22efc559160933446e06efbe20e3cfa0a1a42"
+    // Onda 8: mesma derivacao sobre o app a3b5ba68 (branch ops/onda8-human, com H2-H4/#540: o cliente
+    // de leitura humano declara o SPKI do CLIENTE como peer, D12). Assinado (run 36187465950).
+    portal_image_digest = "sha256:59be1a14a2ebc5748456e8c16079ed7ce7a2007ad1342a924beb29f7481a2668"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
     public_manifest_sha256 = "6ffe3a5d692f81b37a38fea066c1f259b80a882d381189019733815a7b1637ad"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
@@ -219,5 +221,17 @@ portal = {
     native_https_security_group_id    = "sg-07f59839f3e19a8f2"
     native_database_security_group_id = "sg-0a8364a76c605d782"
     native_database_port              = 5432
+  }
+
+  // Plano humano (Onda 8 / H5, D-N). `portal-human-material.v1` remontado com os logins reais de
+  // outbox/source (portal_human_outbox_amh/portal_human_source_amh, tools.staff_ops rows) e a
+  // admissao humana rev 2; segredo D-G sob a CMK portal-staff, VersionId = material_version_id.
+  human = {
+    material_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/human-materials-FAErGt"
+    material_secret_version_id = "amh-dev-human-ee279b1d15419586d51d724310"
+    material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
+    public_manifest_sha256     = "b2f074c563f3c271f6602bec1584a981c57ebefb813eb80f96cd2f1bd7a14105"
+    // Imagem de operacao (tools.staff_ops human-init), CodeBuild c6d87c59-staff-ops, assinada.
+    init_image_digest = "sha256:1b439ef5894b0ef8bf69c7fffa3f622e5f5001cc451a261626b452ba81b9c274"
   }
 }
