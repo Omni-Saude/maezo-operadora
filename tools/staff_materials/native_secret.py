@@ -155,11 +155,46 @@ class NativeSecretInput(Closed):
     staff: StaffInput
 
 
-def load_input(raw: bytes) -> NativeSecretInput:
+def load_input(raw: bytes, human_keys: dict[str, Any] | None = None) -> NativeSecretInput:
+    """`human_keys` = `public/human-keys-summary.json` do `human-bundle keys`.
+
+    Com ele, `read_trust.portal_read_key` e `human_trust.command_key` saem DO RESUMO (e nao podem
+    vir tambem na entrada): uma so fonte para a chave publica, o `key_id`, o workload e o peer.
+    """
+    if human_keys is not None:
+        raw = _with_human_keys(raw, human_keys)
     try:
         return parse(NativeSecretInput, raw)
     except Exception as failure:
         raise MaterialError(f"entrada do native-secret invalida: {failure}") from None
+
+
+def _with_human_keys(raw: bytes, summary: dict[str, Any]) -> bytes:
+    try:
+        value = strict_loads(raw)
+        read_trust, human_trust = value["read_trust"], value["human_trust"]
+    except Exception:
+        raise MaterialError("entrada do native-secret invalida") from None
+    if not isinstance(summary, dict) or summary.get("schema") != "staff-materials-human-keys.v1":
+        raise MaterialError("--human-keys nao e um staff-materials-human-keys.v1")
+    if "portal_read_key" in read_trust or "command_key" in human_trust:
+        raise MaterialError("com --human-keys, portal_read_key e command_key saem so do resumo")
+    for field in ("scope", "engine_name", "database_incarnation"):
+        if summary.get(field) != value.get(field):
+            raise MaterialError(f"--human-keys e de outro {field}")
+
+    def public(purpose: str, peer: str) -> dict[str, str]:
+        key = summary["keys"][purpose]
+        return dict(
+            key_id=key["key_id"],
+            workload_ref=key["workload_ref"],
+            public_key_spki_base64=key["public_key_spki_base64"],
+            peer_spki_sha256=summary["peers"][peer],
+        )
+
+    read_trust["portal_read_key"] = public("portal-task-read", "read")
+    human_trust["command_key"] = public("human-command", "command")
+    return canonicalize(value)
 
 
 @dataclass(frozen=True)
@@ -230,10 +265,35 @@ def _auth_pkcs12(inputs: NativeSecretInput, password: str) -> tuple[bytes, str]:
     )
 
 
+def _truststore(engine: Path, human_client_ca: bytes | None) -> bytes:
+    if human_client_ca is None:
+        return (engine / "client-ca.p12").read_bytes()
+    try:
+        human = x509.load_pem_x509_certificate(human_client_ca)
+    except Exception:
+        raise MaterialError("CA de clientes do pacote humano invalida") from None
+    generated = x509.load_pem_x509_certificate((engine / "native-client-ca.pem").read_bytes())
+    return pkcs12.serialize_java_truststore(
+        [
+            pkcs12.PKCS12Certificate(generated, b"maezo-native-client-ca"),
+            pkcs12.PKCS12Certificate(human, b"maezo-human-client-ca"),
+        ],
+        serialization.NoEncryption(),
+    )
+
+
 def build(
-    materials: Path, root_public_key: bytes, inputs: NativeSecretInput
+    materials: Path,
+    root_public_key: bytes,
+    inputs: NativeSecretInput,
+    *,
+    human_client_ca: bytes | None = None,
 ) -> tuple[dict[str, bytes], dict[str, Any]]:
-    """Devolve ({caminho relativo: bytes}, resumo publico). Nao escreve disco."""
+    """Devolve ({caminho relativo: bytes}, resumo publico). Nao escreve disco.
+
+    `human_client_ca` (PEM, do `human-bundle keys`) entra no `client-ca.p12` ao lado da CA de
+    clientes do `generate`: e ela que emite os certificados `read`/`command` do pacote humano.
+    """
     summary = strict_loads((materials / "public" / "summary.json").read_bytes())
     engine, job = materials / "engine", materials / "job"
     try:
@@ -413,7 +473,7 @@ def build(
     # nao derivacao de senha) o que e publico; o privado nunca passa por hash nenhum.
     public_files = {
         "engine-native/server.crt": (engine / "native-server-certificate.pem").read_bytes(),
-        "engine-native/client-ca.p12": (engine / "client-ca.p12").read_bytes(),
+        "engine-native/client-ca.p12": _truststore(engine, human_client_ca),
         "engine-run/portal-read-trust.json": read_trust_raw,
         "engine-run/trust.json": canonicalize(human_trust),
         "engine-run/portal-read-provider.json": canonicalize(provider),

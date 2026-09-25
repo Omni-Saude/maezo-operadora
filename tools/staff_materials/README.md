@@ -14,6 +14,9 @@ gravar qualquer coisa.
 | `python -m tools.staff_materials generate --spec S --out D` | engenharia | estação da engenharia | chaves Ed25519 dos 5 papéis, 2 CAs nativas (chaves das CAs não são gravadas), certificados de servidor e de cliente com AKI/SKI, DSNs com senha gerada e verificador SCRAM, rascunho da designação **sem assinatura** |
 | `python -m tools.staff_materials verify --bundle B --pins P` | engenharia ou aprovador | qualquer | roda o **loader do portal** (`decode_bundle`) com os pins que o aprovador escreveu |
 | `python -m tools.staff_materials verify --manifest M --print-manifest-digest` | aprovador | máquina dele | o `staff_public_manifest_sha256`, calculado por último |
+| `python -m tools.staff_materials native-secret --materials G --approver A --input I --out D [--human-keys K]` | engenharia | estação da engenharia | segredo `engine/native-materials` da Onda 4; com `--human-keys` (o `human-keys-summary.json` abaixo) a chave de leitura e a de comando saem do resumo, não da entrada, e o `client-ca.p12` soma a CA de clientes do pacote humano |
+| `python -m tools.staff_materials human-bundle keys --spec S --out D` | engenharia | estação da engenharia | 1º tempo do pacote `portal-human-material.v1` do job (T1.5): 3 chaves Ed25519 por propósito, CA de clientes própria (chave não gravada), certificados `read`/`command`, chaves de cursor; `private/` 0400 e `public/human-keys-summary.json` (SPKIs, fingerprints, peers) |
+| `python -m tools.staff_materials human-bundle package --spec S --keys D --materials G --approver A --dsns N --out P` | engenharia | estação da engenharia | 2º tempo: `P/current/` (0500, 15 arquivos 0400) com a raiz PÚBLICA e o `human-read-admission.json` já assinado do aprovador; passa pelo `verify_materials` do job antes de gravar e imprime `MAEZO_HUMAN_MATERIAL_VERSION_ID` e `MAEZO_HUMAN_PUBLIC_MANIFEST_SHA256` |
 | `python -m tools.staff_materials.approver root-keygen --out D` | **aprovador** | **máquina dele** | par Ed25519 `installation-root`, com a privada **cifrada por senha** por padrão (`--no-encrypt` só por decisão explícita); ela não sai da máquina dele e a saída fica fora do repositório |
 | `python -m tools.staff_materials.approver sign-designation ...` | **aprovador** | **máquina dele** | mostra cada entrada; só assina com `--confirm-digest` igual ao digest exibido |
 | `python -m tools.staff_materials.approver sign-admission ...` | **aprovador** | **máquina dele** | assina o `portal-read-admission.v1` (T1.7) no domínio `maezo/portal-read-admission/v1\0` |
@@ -47,5 +50,11 @@ O manifesto passa pelo `PublicManifest` do loader antes de sair; confira com o `
 
 ## O que ainda não existe
 
+- O aprovador ainda não tem comando para assinar o `portal-human-read-admission.v1` que o
+  `human-bundle package` recebe (assinatura Ed25519 sobre o JCS do `record`, **sem** o domínio do
+  `sign-admission`; `production_materials.verify_read_admission`). No C1 quem assina é uma raiz de
+  TESTE do harness.
+- A `audience` das chaves humanas é `OpaqueRef` no loader do job (sem `/`): a forma URL da D-L
+  (`https://engine-native...`) é recusada pelo spec do `human-bundle`.
 - O shape fechado do `portal-read-admission.v1` é da T1.7a. O `sign-admission` exige só o que o
   plano §3.1 já fixa e mostra o resto ao aprovador.

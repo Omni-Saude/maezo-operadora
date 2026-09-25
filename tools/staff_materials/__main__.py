@@ -1,4 +1,4 @@
-"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql` e `native-secret`.
+"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql`, `native-secret` e `human-bundle`.
 
 Nao ha comando de raiz aqui (ver `approver.py`).
 """
@@ -11,8 +11,9 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from maezo.gateway.external_cases.models import digest
-from maezo.portal.engine.profile import canonicalize
+from maezo.portal.engine.profile import canonicalize, strict_loads
 
+from . import human_bundle
 from .assemble import assemble, bundle_bytes, load_input, read_directories
 from .generate import REPO, generate
 from .lock_sql import render as render_lock_sql
@@ -53,6 +54,8 @@ def build_parser() -> argparse.ArgumentParser:
     native.add_argument("--approver", type=Path, required=True, help="diretorio com installation-root.der")
     native.add_argument("--input", type=Path, required=True, help="staff-materials-native-secret.v1")
     native.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
+    native.add_argument("--human-keys", type=Path, help="public/human-keys-summary.json do human-bundle keys")
+    human_bundle.add_parser(commands)
     return parser
 
 
@@ -95,11 +98,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "human-bundle":
+            return human_bundle.run(args)
         if args.command == "native-secret":
+            human = strict_loads(args.human_keys.read_bytes()) if args.human_keys else None
             files, public = build_native_materials(
                 args.materials,
                 (args.approver / "installation-root.der").read_bytes(),
-                load_native_input(args.input.read_bytes()),
+                load_native_input(args.input.read_bytes(), human),
+                human_client_ca=human["client_ca_pem"].encode("ascii") if human else None,
             )
             written = write_native_materials(args.out, files, public)
             # So digests publicos (fingerprints) vao para a saida; nenhum byte de `files` e impresso.
