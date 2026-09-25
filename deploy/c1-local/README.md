@@ -181,3 +181,19 @@ Medido (`run.sh all` do zero, 24/09/2026):
 - **Outro grupo:** segue `items: []`.
 
 Antes do #516, o detalhe dava 503 `dependency_unavailable`: o engine não emitia a chave `outcome` que o `StaffDetailShape` exige desde o #392. O C1 não pegava porque só chamava a fila.
+
+## H1 (D-N): tarefa humana pelo Q2 (25/09/2026, `feat/h1-q2-tarefas-humanas`, `run.sh all` do zero)
+
+Passo novo `h1-task` (servico `job`, logo depois do `issuer`): admissao Q2 revisao 2 assinada pela raiz de
+TESTE (revisao 1 + catalogo v2 com a entrada `UT_TratarEscalonamento` + publicador `resource` + bloco `human`),
+catalogo v2, evidencia (`human-authority` `evidence`) e recurso `SYN-` da tarefa viva, depois `catalog` ->
+`discover team` como os dois principais e `task`. Medido: catalogo 200, evidencia 200, recurso 200;
+`team[staff-c1-no-grupo]` = `[<tarefa>]`, `team[staff-c1-outro-grupo]` = `[]` (o recurso concede os DOIS: o
+que separa e o candidato real); `task` 200 com `eligible_candidate_groups=['atendimento-humano']`; `/cases`
+segue 200/`[]` sob a revisao 2. **A imagem gera ids UUID** (`task_id_format=uuid`), nao decimais.
+
+| # | Desvio | Por que |
+|---|---|---|
+| D11 | `engine-config` soma `resource` aos `publication_kinds` da chave do job | o default da ferramenta segue staff-only ate a H4 decidir o trust de dev; quem admite e a admissao |
+| D12 | os envelopes do `h1-task` sao assinados no passo, com as chaves do volume | o `PortalReadClient` pina a admissao revisao 1 no pacote humano; a revisao 2 so existe depois do deploy |
+| D13 | a renovacao das memberships no `h1-task` e melhor-esforco (rc=2 medido) | depois do `issuer` o ledger do job fica atras da revisao, e depois da revisao 2 o job recusa o catalogo v1; o passo roda dentro de `observation_seconds` do `publish` |

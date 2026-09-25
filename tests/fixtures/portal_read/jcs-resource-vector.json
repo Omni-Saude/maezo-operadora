@@ -1,0 +1,89 @@
+{
+  "schema": "portal-read-jcs-resource-vector.v1",
+  "about": "H1/H2 parity (D-N): the `human` block of portal-read-admission.v1 and the `resource` publication contract. payload_jcs = JCS(wire(ResourceProjection)); source_digest = SHA-256(payload_jcs); source_ref = <admitted resource source_ref_prefix> + task_id; source_revision = resource_revision; receipt_ref = portal-resource:<tenant>:task:<task_id>@<resource_revision>; valid_until = observed_at + observation_seconds. The classification (minus valid_until) must equal the admitted one of the entry, and its valid_until may not pass the admission's valid_until. Read by the Java provider (HumanAdmissionTest, ResourceQualificationJarIT); H2 reads it from Python. Synthetic data only.",
+  "tenant": "amh",
+  "source_ref_prefix": "portal-resource:amh:task:",
+  "observation_seconds": "600",
+  "human": {
+    "entries": [
+      {
+        "process_definition_id": "SP-OP-ESCALATION-001:1:4",
+        "task_definition_key": "UT_TratarEscalonamento",
+        "classification": {
+          "classification_ref": "SYN-classification-escalation",
+          "classification_digest": "42294b9ca56109c2309dccb9cf672373a682052199170e2c0af549fa18f94171",
+          "policy_ref": "SYN-disclosure-policy",
+          "policy_digest": "13b2c1e3630cbbcb808dbe3381c3ed2233b9a2237d0724b3b9df5dba05477d73",
+          "projection": "full_task_detail.v1",
+          "fields_digest": "970e400e6d4c265b3d90cc14578510eb1b99416b0acfd1d39e11aef99618ba06"
+        },
+        "identity_policy": {
+          "artifact_ref": "SYN-opaque-task-id-policy",
+          "digest": "d8c9fa613cf86d44699798ffbb155faff292e807271724e3bb84718a3ecd03a1"
+        },
+        "task_id_format": "decimal",
+        "candidate_groups": [
+          "atendimento-humano",
+          "enfermagem-triagem",
+          "plantao-clinico"
+        ],
+        "user_candidates": "refused"
+      }
+    ]
+  },
+  "human_jcs": "{\"entries\":[{\"candidate_groups\":[\"atendimento-humano\",\"enfermagem-triagem\",\"plantao-clinico\"],\"classification\":{\"classification_digest\":\"42294b9ca56109c2309dccb9cf672373a682052199170e2c0af549fa18f94171\",\"classification_ref\":\"SYN-classification-escalation\",\"fields_digest\":\"970e400e6d4c265b3d90cc14578510eb1b99416b0acfd1d39e11aef99618ba06\",\"policy_digest\":\"13b2c1e3630cbbcb808dbe3381c3ed2233b9a2237d0724b3b9df5dba05477d73\",\"policy_ref\":\"SYN-disclosure-policy\",\"projection\":\"full_task_detail.v1\"},\"identity_policy\":{\"artifact_ref\":\"SYN-opaque-task-id-policy\",\"digest\":\"d8c9fa613cf86d44699798ffbb155faff292e807271724e3bb84718a3ecd03a1\"},\"process_definition_id\":\"SP-OP-ESCALATION-001:1:4\",\"task_definition_key\":\"UT_TratarEscalonamento\",\"task_id_format\":\"decimal\",\"user_candidates\":\"refused\"}]}",
+  "human_sha256": "8742954b0c325f56eb725ac891a02822ef76538b4ef47d66335768e99b8f39b8",
+  "cases": [
+    {
+      "name": "complete-no-grant",
+      "payload_jcs": "{\"classification\":{\"classification_digest\":\"42294b9ca56109c2309dccb9cf672373a682052199170e2c0af549fa18f94171\",\"classification_ref\":\"SYN-classification-escalation\",\"fields_digest\":\"970e400e6d4c265b3d90cc14578510eb1b99416b0acfd1d39e11aef99618ba06\",\"policy_digest\":\"13b2c1e3630cbbcb808dbe3381c3ed2233b9a2237d0724b3b9df5dba05477d73\",\"policy_ref\":\"SYN-disclosure-policy\",\"projection\":\"full_task_detail.v1\",\"valid_until\":\"2026-09-26T12:00:00.123456Z\"},\"evidence_digest\":\"fff478872deedf434098c8b2a27d5f05c60efbb0f858548907ed34061ad9eb80\",\"evidence_ref\":\"SYN-evidence-10001\",\"evidence_revision\":\"1\",\"observed_task_revision\":\"1\",\"positive_grants\":[],\"process_definition_digest\":\"1cfe2533f2748593f7c47c2c20d496ed8643daacd41a3f465ac84c4dd22c3867\",\"process_definition_id\":\"SP-OP-ESCALATION-001:1:4\",\"read_only_evidence\":null,\"required_consent_scopes\":[],\"required_subject_bindings\":[],\"resource_digest\":\"c36ac039f848a2f13fe0ae39bc4fff7c53f3ffeed5fa38d86065b48bfd450bf3\",\"resource_policy\":{\"artifact_ref\":\"SYN-resource-policy\",\"digest\":\"f6cac664ee89fe2b31648acaebca5e9adb45d846a636c2bde5543498e9496f70\"},\"resource_ref\":\"SYN-resource-10001\",\"resource_revision\":\"1\",\"state\":\"complete\",\"task_id\":\"10001\",\"valid_until\":\"2026-09-26T00:00:00.123456Z\"}",
+      "source_digest": "dd503feec70712a763eaf92446d1f1932b20bc6eeef8e875298e43ff26829497",
+      "source": {
+        "source_ref": "portal-resource:amh:task:10001",
+        "source_revision": "1",
+        "source_digest": "dd503feec70712a763eaf92446d1f1932b20bc6eeef8e875298e43ff26829497",
+        "receipt_ref": "portal-resource:amh:task:10001@1",
+        "observed_at": "2026-09-25T12:00:00.123456Z",
+        "valid_until": "2026-09-25T12:10:00.123456Z"
+      }
+    },
+    {
+      "name": "complete-with-grant",
+      "payload_jcs": "{\"classification\":{\"classification_digest\":\"42294b9ca56109c2309dccb9cf672373a682052199170e2c0af549fa18f94171\",\"classification_ref\":\"SYN-classification-escalation\",\"fields_digest\":\"970e400e6d4c265b3d90cc14578510eb1b99416b0acfd1d39e11aef99618ba06\",\"policy_digest\":\"13b2c1e3630cbbcb808dbe3381c3ed2233b9a2237d0724b3b9df5dba05477d73\",\"policy_ref\":\"SYN-disclosure-policy\",\"projection\":\"full_task_detail.v1\",\"valid_until\":\"2026-09-26T12:00:00.123456Z\"},\"evidence_digest\":\"fff478872deedf434098c8b2a27d5f05c60efbb0f858548907ed34061ad9eb80\",\"evidence_ref\":\"SYN-evidence-10002\",\"evidence_revision\":\"1\",\"observed_task_revision\":\"1\",\"positive_grants\":[{\"consent_scopes\":[],\"decision_digest\":\"5ac14fd5dfcfbdf3b1c725a4bafacd4a561be932452ea50e6497e0d4972c1e86\",\"decision_receipt_ref\":\"SYN-decision\",\"issuer\":\"https://issuer.example/maezo\",\"membership_revision\":\"1\",\"principal_ref\":\"human-1\",\"subject\":\"subject-human-1\",\"valid_until\":\"2026-09-25T18:00:00.123456Z\"}],\"process_definition_digest\":\"1cfe2533f2748593f7c47c2c20d496ed8643daacd41a3f465ac84c4dd22c3867\",\"process_definition_id\":\"SP-OP-ESCALATION-001:1:4\",\"read_only_evidence\":null,\"required_consent_scopes\":[],\"required_subject_bindings\":[],\"resource_digest\":\"c36ac039f848a2f13fe0ae39bc4fff7c53f3ffeed5fa38d86065b48bfd450bf3\",\"resource_policy\":{\"artifact_ref\":\"SYN-resource-policy\",\"digest\":\"f6cac664ee89fe2b31648acaebca5e9adb45d846a636c2bde5543498e9496f70\"},\"resource_ref\":\"SYN-resource-10002\",\"resource_revision\":\"7\",\"state\":\"complete\",\"task_id\":\"10002\",\"valid_until\":\"2026-09-26T00:00:00.123456Z\"}",
+      "source_digest": "dab198a9d9617860da713bab3866bc4036763b0f8372ee0771333a662fbdf14b",
+      "source": {
+        "source_ref": "portal-resource:amh:task:10002",
+        "source_revision": "7",
+        "source_digest": "dab198a9d9617860da713bab3866bc4036763b0f8372ee0771333a662fbdf14b",
+        "receipt_ref": "portal-resource:amh:task:10002@7",
+        "observed_at": "2026-09-25T12:00:00.123456Z",
+        "valid_until": "2026-09-25T12:10:00.123456Z"
+      }
+    },
+    {
+      "name": "revoked",
+      "payload_jcs": "{\"classification\":{\"classification_digest\":\"42294b9ca56109c2309dccb9cf672373a682052199170e2c0af549fa18f94171\",\"classification_ref\":\"SYN-classification-escalation\",\"fields_digest\":\"970e400e6d4c265b3d90cc14578510eb1b99416b0acfd1d39e11aef99618ba06\",\"policy_digest\":\"13b2c1e3630cbbcb808dbe3381c3ed2233b9a2237d0724b3b9df5dba05477d73\",\"policy_ref\":\"SYN-disclosure-policy\",\"projection\":\"full_task_detail.v1\",\"valid_until\":\"2026-09-26T12:00:00.123456Z\"},\"evidence_digest\":\"fff478872deedf434098c8b2a27d5f05c60efbb0f858548907ed34061ad9eb80\",\"evidence_ref\":\"SYN-evidence-10003\",\"evidence_revision\":\"1\",\"observed_task_revision\":\"1\",\"positive_grants\":[],\"process_definition_digest\":\"1cfe2533f2748593f7c47c2c20d496ed8643daacd41a3f465ac84c4dd22c3867\",\"process_definition_id\":\"SP-OP-ESCALATION-001:1:4\",\"read_only_evidence\":null,\"required_consent_scopes\":[],\"required_subject_bindings\":[],\"resource_digest\":\"c36ac039f848a2f13fe0ae39bc4fff7c53f3ffeed5fa38d86065b48bfd450bf3\",\"resource_policy\":{\"artifact_ref\":\"SYN-resource-policy\",\"digest\":\"f6cac664ee89fe2b31648acaebca5e9adb45d846a636c2bde5543498e9496f70\"},\"resource_ref\":\"SYN-resource-10003\",\"resource_revision\":\"2\",\"state\":\"revoked\",\"task_id\":\"10003\",\"valid_until\":\"2026-09-26T00:00:00.123456Z\"}",
+      "source_digest": "9c26bbc211d880f8ec5bfc97e8fe4ccddbc122107573de08295734f7ca320e73",
+      "source": {
+        "source_ref": "portal-resource:amh:task:10003",
+        "source_revision": "2",
+        "source_digest": "9c26bbc211d880f8ec5bfc97e8fe4ccddbc122107573de08295734f7ca320e73",
+        "receipt_ref": "portal-resource:amh:task:10003@2",
+        "observed_at": "2026-09-25T12:00:00.123456Z",
+        "valid_until": "2026-09-25T12:10:00.123456Z"
+      }
+    }
+  ],
+  "refused": [
+    {
+      "name": "revision-as-json-integer",
+      "why": "the profile has no numbers",
+      "payload_json": "{\"classification\":{\"classification_digest\":\"42294b9ca56109c2309dccb9cf672373a682052199170e2c0af549fa18f94171\",\"classification_ref\":\"SYN-classification-escalation\",\"fields_digest\":\"970e400e6d4c265b3d90cc14578510eb1b99416b0acfd1d39e11aef99618ba06\",\"policy_digest\":\"13b2c1e3630cbbcb808dbe3381c3ed2233b9a2237d0724b3b9df5dba05477d73\",\"policy_ref\":\"SYN-disclosure-policy\",\"projection\":\"full_task_detail.v1\",\"valid_until\":\"2026-09-26T12:00:00.123456Z\"},\"evidence_digest\":\"fff478872deedf434098c8b2a27d5f05c60efbb0f858548907ed34061ad9eb80\",\"evidence_ref\":\"SYN-evidence-10009\",\"evidence_revision\":\"1\",\"observed_task_revision\":\"1\",\"positive_grants\":[],\"process_definition_digest\":\"1cfe2533f2748593f7c47c2c20d496ed8643daacd41a3f465ac84c4dd22c3867\",\"process_definition_id\":\"SP-OP-ESCALATION-001:1:4\",\"read_only_evidence\":null,\"required_consent_scopes\":[],\"required_subject_bindings\":[],\"resource_digest\":\"c36ac039f848a2f13fe0ae39bc4fff7c53f3ffeed5fa38d86065b48bfd450bf3\",\"resource_policy\":{\"artifact_ref\":\"SYN-resource-policy\",\"digest\":\"f6cac664ee89fe2b31648acaebca5e9adb45d846a636c2bde5543498e9496f70\"},\"resource_ref\":\"SYN-resource-10009\",\"resource_revision\":1,\"state\":\"complete\",\"task_id\":\"10009\",\"valid_until\":\"2026-09-26T00:00:00.123456Z\"}"
+    },
+    {
+      "name": "classification-other-fields-digest",
+      "why": "classification not the admitted one",
+      "payload_jcs": "{\"classification\":{\"classification_digest\":\"42294b9ca56109c2309dccb9cf672373a682052199170e2c0af549fa18f94171\",\"classification_ref\":\"SYN-classification-escalation\",\"fields_digest\":\"d9298a10d1b0735837dc4bd85dac641b0f3cef27a47e5d53a54f2f3f5b2fcffa\",\"policy_digest\":\"13b2c1e3630cbbcb808dbe3381c3ed2233b9a2237d0724b3b9df5dba05477d73\",\"policy_ref\":\"SYN-disclosure-policy\",\"projection\":\"full_task_detail.v1\",\"valid_until\":\"2026-09-26T12:00:00.123456Z\"},\"evidence_digest\":\"fff478872deedf434098c8b2a27d5f05c60efbb0f858548907ed34061ad9eb80\",\"evidence_ref\":\"SYN-evidence-10010\",\"evidence_revision\":\"1\",\"observed_task_revision\":\"1\",\"positive_grants\":[],\"process_definition_digest\":\"1cfe2533f2748593f7c47c2c20d496ed8643daacd41a3f465ac84c4dd22c3867\",\"process_definition_id\":\"SP-OP-ESCALATION-001:1:4\",\"read_only_evidence\":null,\"required_consent_scopes\":[],\"required_subject_bindings\":[],\"resource_digest\":\"c36ac039f848a2f13fe0ae39bc4fff7c53f3ffeed5fa38d86065b48bfd450bf3\",\"resource_policy\":{\"artifact_ref\":\"SYN-resource-policy\",\"digest\":\"f6cac664ee89fe2b31648acaebca5e9adb45d846a636c2bde5543498e9496f70\"},\"resource_ref\":\"SYN-resource-10010\",\"resource_revision\":\"1\",\"state\":\"complete\",\"task_id\":\"10010\",\"valid_until\":\"2026-09-26T00:00:00.123456Z\"}"
+    }
+  ]
+}

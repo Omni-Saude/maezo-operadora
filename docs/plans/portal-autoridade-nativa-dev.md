@@ -431,6 +431,19 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
      - **T-M3 (BFF):** acrescentar os DTOs em `StaffPage`/`StaffDetail` como campos opcionais `null`-áveis, e um teste de contrato de repasse.
      - **T-M4 (web):** colunas, ordenação por `resolution_due_at`, e o estado "sem prazo".
      - T-M1 vem antes de T-M2 e T-M3, que correm em paralelo porque os arquivos são disjuntos. T-M4 fica por último. Só depois delas se gera a Onda 2.
+
+- **D-N [25/09, consulta: a Onda 8 roda JUNTO das Ondas 3–7, não depois].** O dono quer "Meu trabalho / Filas da equipe" em dev agora. Decisão: a Onda 8 deixa de ser programa posterior e vira **trilha paralela** que reaproveita a mesma raiz, o mesmo motor e a mesma instalação; o que é distinto é só o pacote (`portal-human-material.v1`, versão e digest próprios, `production_config.py:199-201`). Supersede o "desenho detalhado vira plano irmão depois da Onda 7" da Onda 8.
+  1. **Já pronto em `main` (lido, não executado em dev):** gerador `human-bundle keys|package` (PR #521, `tools/staff_materials/human_bundle.py`) + `verify_materials` fail-closed; `sign-human-admission` no `approver.py`; engine `HumanCommandPlugin`/`HumanServlet`/`GovernedAssignment` no `bpm-platform.xml:24`; `PortalReadPlugin` injetado pelo `Dockerfile.human:72` com `INSTALL_PORTAL_READ=true`; BFF `api/tasks.py` + `_human_slots` (`api/production.py:22,49`) e settings `human_*` completo-ou-ausente; relay de atribuição (`gateway/human/relay.py`, `assignment_*`); web `EmployeeQueues.tsx`, `taskReadClient.ts`, `TaskOwnershipControls.tsx` já falando com as rotas reais (sem fake).
+  2. **Reaproveitado das Ondas 3–7 (não duplicar):** **mesma raiz do aprovador** (N1 fechado pela D-L: uma raiz, domínios de assinatura distintos); **mesmo motor nativo** (`engine-native.tf`, imagem `Dockerfile.human`, layout D-C2) e o **mesmo provedor Q2** da T1.7 — a Onda 8 **estende** métodos, não cria outro provedor; mesma instalação de banco da Onda 3 (schema, dono, logins) com logins a mais; mesmo job da T1.5 (`membership_publication_job.py`) trocando fontes que hoje recusam.
+  3. **Falta em código (lista fechada):**
+     - **H1 (Java, `read-provider/` + `human/`):** `verifyClassification` e `verifyIdentityPolicy` hoje recusam sempre (§3.1); `verifySource`/`qualifyPublication` aceitarem o kind `resource`; leitura de tarefas (`staff_current_task.v1`) e grant READ_HISTORY. Testes: IT no D-C2, negativo por kind fora da admissão.
+     - **H2 (Python, `gateway/human/membership_publication_job.py` + módulo novo `task_publication_source.py`):** `ResourcePolicyPublicationSource` real sobre as User Tasks vivas (substitui `RefusingResourceSource`, `:275`, `:815`); catálogo passa a levar as entradas/policies/forms das tarefas humanas (não mais `entries=[]`). `pagto` e `revocation` **continuam recusando** (fora do escopo desta onda). Contrato de digest = mesmo JCS da T1.5, vetor novo em `tests/fixtures/portal_read/`.
+     - **H3 (Python, `staff_cases/case_issuer`):** o grant passa a incluir `staff_current_task.v1` (remove a restrição da T1.6) — depende de H1+H2.
+     - **H4 (Python/tools):** `native-secret --human-keys` consumir o `human-keys-summary.json` no mesmo trust do motor (confirmar que o `trust.json` de `engine-native.tf:257` aceita as 2 superfícies `read`/`command`); `approver` admitir o catálogo com tarefas.
+     - **H5 (infra, `deploy/aws-ecs/envs/dev-sa-east-1/`):** `service-portal.tf` aprender o perfil `human` (hoje só `staff`, `:4-19`): env `MAEZO_PORTAL_HUMAN_MATERIAL_DIRECTORY/VERSION_ID/PUBLIC_MANIFEST_SHA256`, secret+KMS próprios, volume `/run/maezo-human-materials`, init de materializar, egress mTLS para o motor nas 2 superfícies, DSNs de outbox/source; `portal-variables.tf`/`portal.auto.tfvars` com o bloco `human` e `capabilities="identity,staff_cases,human"`; `tftest` do contrato. Motor: env de trust humano se H4 exigir.
+     - **H6 (web):** nada estrutural; só `ui-reviewer`/E2E contra dev quando H5 subir. Se o contrato de `tasks.py` mudar em H1–H3, o builder web ajusta `taskReadBindings.ts`.
+  4. **Ordem (≤2 builders vivos):** P1 = [H1 Java ∥ H2 Python] (arquivos disjuntos; contrato de digest fixado pelo vetor JCS antes de começar) → P2 = [H3+H4 Python ∥ H5 infra] (H5 não depende de código, só dos nomes de env já fixados em `production_config.py`) → P3 = gerar/assinar pacote humano **na mesma sessão do aprovador da Onda 5** (uma assinatura staff + uma humana) → P4 = imagem do motor com H1 entra **no mesmo rollout da Onda 4/6** (um único digest de motor, não dois) → aceitação: `/tasks` 200 com tarefa real do SP-OP-ESCALATION-001, negativo de outro grupo 403/vazio. H1 e T1.7 tocam o mesmo módulo: se a T1.7b não estiver mergeada, H1 **espera** (sequencial no mesmo builder Java), senão worktree.
+  5. **NÃO VERIFICADO:** que o `HumanServlet` sobe no motor dev hoje (nunca executado lá); que a fila vazia (sem User Task viva) não é confundida com falha; volume real de tarefas.
 ---
 
 ## 3. Ondas executáveis
@@ -899,8 +912,7 @@ O que ela exige, medido por leitura, **sem estimativa fina**:
 - tudo com versão e digest **distintos** do pacote staff (`production_config.py:145-149`).
 
 Mesma disciplina das Ondas 2 a 7, com um segundo aprovador ou o mesmo (N1). **Estimativa: 3 a 6
-semanas, confiança baixa.** O desenho detalhado vira um plano irmão depois da Onda 7, quando a
-parte staff tiver provado o caminho.
+semanas, confiança baixa.** ~~O desenho detalhado vira um plano irmão depois da Onda 7.~~ **[25/09] Substituído pela D-N:** trilha paralela às Ondas 3–7, tarefas H1–H6.
 
 ### Paralelismo e caminho crítico
 
@@ -1051,6 +1063,7 @@ apply). A cadência é a decisão N2.
 1. **N1 — Quem é o aprovador nomeado** (staff e, depois, human), e se a custódia da raiz exige
    uma segunda pessoa. Proposta: Leonardo aprova; a raiz fica só com ele; nenhum agente a
    recebe.
+   **Emenda [25/09/2026, dono]:** desvio aceito pelo dono em dev; produção exige aprovador humano (o agente gerou a raiz `installation-root` e assinou designação e admissões só no dev).
 2. **N2 — Validade do pacote e cadência de reaprovação em dev.** Quanto tempo a designação e o
    snapshot de revogação valem, o que define a frequência das Ondas 5 e 6 repetidas. Proposta:
    14 dias, com lembrete 3 dias antes.
