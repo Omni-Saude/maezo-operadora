@@ -2,8 +2,8 @@
 
 Cria papeis de CLUSTER (os 6 logins, os NOLOGIN do DDL externo): so roda num PostgreSQL
 DESCARTAVEL, e so com `MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1` e `MAEZO_TEST_DATABASE_URL`
-(superusuario desse Postgres; sem ela, o Postgres do compose). Sem isso, skip ALTO. Exemplo (bash), um container NOVO por
-execucao (os papeis sao do cluster):
+(superusuario desse Postgres; sem ela, o Postgres do compose). Sem isso, skip ALTO. Exemplo
+(bash), um container NOVO por execucao (os papeis sao do cluster):
 
     docker run -d --rm --name si-pg -e POSTGRES_PASSWORD=maezo -p 127.0.0.1:55432:5432 postgres:17-alpine
     export MAEZO_STAFF_INSTALL_DISPOSABLE_PG=1
