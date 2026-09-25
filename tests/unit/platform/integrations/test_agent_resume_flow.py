@@ -51,6 +51,10 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport, HistoricPr
 from maezo.tools.mcp_whatsapp.server import WhatsAppServer
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
+from tests.support.recipient_custody_fakes import FakeKms, InMemoryRecipientVault
+
+#: O cofre da RETOMADA: le as mesmas linhas que o receptor gravou, com um KMS que SO' decifra.
+_COFRES: dict[str, InMemoryRecipientVault] = {}
 
 _PHONE = "5511999999999"
 
@@ -78,9 +82,12 @@ class _WhatsApp(WhatsAppServer):
         return {"messages": [{"id": f"wamid.out.{len(self.sent)}"}]}
 
 
-class _Recipients:
-    async def resolve(self, *, tenant_id: str, conversation_id: str) -> str | None:
-        return _PHONE
+class _Alerter:
+    def __init__(self) -> None:
+        self.alerts: list[str] = []
+
+    async def alert_outside_window(self, event: Any) -> None:
+        self.alerts.append(event.business_key)
 
 
 class _DlqPublisher:
@@ -116,6 +123,11 @@ async def _escalar() -> tuple[HelenaDispatcher, FakeCibSevenTransport, _WhatsApp
     engine = FakeCibSevenTransport()
     whatsapp = _WhatsApp()
     saver = InMemorySaver()
+    kms = FakeKms()
+    # O receptor: KMS que SO' cifra (a separacao de IAM do ADR-0061).
+    cofre_receptor = InMemoryRecipientVault(
+        tenant="amh", kms=kms.with_permissions(allow_encrypt=True, allow_decrypt=False)
+    )
     dispatcher = HelenaDispatcher(
         tenant_id="amh",
         inference=_Inference(),  # type: ignore[arg-type]
@@ -126,6 +138,7 @@ async def _escalar() -> tuple[HelenaDispatcher, FakeCibSevenTransport, _WhatsApp
         audit_sink=FakeStartAuditSink(),
         checkpointer=Checkpointer(saver=saver),
         seam_context=_seam(),
+        recipient_vault=cofre_receptor,
     )
     # 1. A Helena escala o caso.
     turno = await dispatcher.dispatch(
@@ -134,6 +147,11 @@ async def _escalar() -> tuple[HelenaDispatcher, FakeCibSevenTransport, _WhatsApp
     conv = str(turno["conversation_id"])
     instancia = await engine.find_active_instance(f"ESC-amh-{conv}")
     assert turno["escalation_started"] is True and instancia is not None
+    _COFRES[conv] = InMemoryRecipientVault(
+        tenant="amh",
+        kms=kms.with_permissions(allow_encrypt=False, allow_decrypt=True),
+        rows=cofre_receptor.rows,
+    )
     return dispatcher, engine, whatsapp, saver, conv, instancia.instance_id
 
 
@@ -168,7 +186,8 @@ async def test_ciclo_completo_escala_devolve_e_o_beneficiario_recebe_a_instrucao
     handler = ResumeHandler(
         tenant_id="amh",
         instructions=EngineHistoryInstructionSource(dispatcher.cibseven),
-        recipients=_Recipients(),
+        recipients=_COFRES[conv],
+        alerter=_Alerter(),
         resumers={"helena": dispatcher},
     )
     consumer = FakeBridgeKafkaConsumer(
@@ -215,7 +234,8 @@ async def test_instrucao_com_conteudo_proibido_passa_pela_cerca_e_nao_sai() -> N
     handler = ResumeHandler(
         tenant_id="amh",
         instructions=EngineHistoryInstructionSource(dispatcher.cibseven),
-        recipients=_Recipients(),
+        recipients=_COFRES[conv],
+        alerter=_Alerter(),
         resumers={"helena": dispatcher},
     )
     receipt = await handler.handle(_evento(conv, pid, "devolvido_agente"))
@@ -230,3 +250,26 @@ async def test_destinatario_que_nao_bate_com_a_conversa_e_recusado() -> None:
     with pytest.raises(ValueError, match="recipient does not match"):
         await dispatcher.resume(conversation_id=conv, instrucoes="x", raw_to="5511000000000", resume_ref=pid)
     assert whatsapp.sent[enviados_antes:] == []
+
+
+async def test_fora_da_janela_de_24h_nada_e_enviado_e_a_equipe_e_avisada() -> None:
+    from datetime import timedelta
+
+    dispatcher, engine, whatsapp, _, conv, pid = await _escalar()
+    _humano_devolve(engine, conv, pid, "Sua guia foi liberada.")
+    cofre = _COFRES[conv]
+    selado, ultima = cofre.rows[conv]
+    cofre.rows[conv] = (selado, ultima - timedelta(hours=25))  # a ultima mensagem tem 25h
+    enviados_antes = len(whatsapp.sent)
+    alerter = _Alerter()
+    handler = ResumeHandler(
+        tenant_id="amh",
+        instructions=EngineHistoryInstructionSource(dispatcher.cibseven),
+        recipients=cofre,
+        resumers={"helena": dispatcher},
+        alerter=alerter,
+    )
+    receipt = await handler.handle(_evento(conv, pid, "devolvido_agente"))
+    assert receipt.desfecho == "retomada_fora_da_janela"
+    assert whatsapp.sent[enviados_antes:] == []
+    assert alerter.alerts == [f"ESC-amh-{conv}"]

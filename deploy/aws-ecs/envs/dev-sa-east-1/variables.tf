@@ -266,6 +266,34 @@ variable "agent_resume_desired_count" {
     condition     = var.agent_resume_desired_count == null ? true : (var.agent_resume_desired_count >= 0 && var.agent_resume_desired_count <= 3)
     error_message = "agent_resume_desired_count aceita de 0 a 3 (particoes do topico process_completed)."
   }
+
+  # Sem custodia o modulo recusa subir: ligar replicas sem ela so' produziria tasks morrendo.
+  validation {
+    condition     = var.agent_resume_desired_count == null ? true : (var.agent_resume_desired_count == 0 ? true : var.recipient_vault_enabled)
+    error_message = "agent_resume_desired_count > 0 exige recipient_vault_enabled = true (ADR-0061)."
+  }
+}
+
+variable "recipient_vault_enabled" {
+  description = <<-EOT
+    Liga a custodia CIFRADA do telefone do beneficiario (ADR-0061, status Proposto): chave KMS
+    propria, role do receptor so' com kms:Encrypt, role do agent-resume so' com kms:Decrypt.
+    DEFAULT false — com false nenhum recurso de `recipient-vault.tf` existe e o plan nao muda.
+    NAO LIGAR sem ciencia registrada do DPO.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "recipient_vault_ttl_days" {
+  description = "Retencao (dias apos a ultima mensagem) do telefone cifrado. Proposta do ADR-0061: 30; decisao final do DPO."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.recipient_vault_ttl_days == null ? true : (var.recipient_vault_ttl_days >= 1 && var.recipient_vault_ttl_days <= 365)
+    error_message = "recipient_vault_ttl_days aceita de 1 a 365."
+  }
 }
 
 variable "helena_zona_phi" {

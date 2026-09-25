@@ -31,7 +31,7 @@ from maezo.agents.helena.graph import (
     RESPONSE_KIND_RETOMADA,
     RETOMADA_MAX_INSTRUCOES,
     RETOMADA_RECUSADA_PLACEHOLDER,
-    RETOMADA_TEMPLATE_PLACEHOLDER,
+    RETOMADA_TEMPLATE,
     ResponseKindOut,
     RetomadaEnvioFalhouError,
     build,
@@ -121,11 +121,19 @@ async def test_instrucao_humana_chega_ao_beneficiario_pelo_template(desfechos: l
     assert not result.get("error")
 
 
-def test_template_e_placeholder_marcado_de_produto() -> None:
-    """A redacao NAO e' final: o marcador visivel e' o que impede confundi-la com texto aprovado."""
-    assert RETOMADA_TEMPLATE_PLACEHOLDER.startswith("[RASCUNHO")
+def test_template_e_a_redacao_aprovada_opcao_b() -> None:
+    """Decisao do dono (25/09/2026): opcao B, exatamente."""
+    assert RETOMADA_TEMPLATE == (
+        "Olá, aqui é a Helena, a assistente virtual do seu plano. Um profissional da nossa equipe "
+        'revisou o seu caso e pediu que eu repassasse: "{instrucoes}". Posso ajudar com mais alguma coisa?'
+    )
+    assert compor_mensagem_de_retomada("Sua guia foi liberada.").endswith(
+        'repassasse: "Sua guia foi liberada.". Posso ajudar com mais alguma coisa?'
+    )
+
+
+def test_fallback_de_recusa_segue_marcado_aguardando_produto() -> None:
     assert RETOMADA_RECUSADA_PLACEHOLDER.startswith("[RASCUNHO")
-    assert "{instrucoes}" in RETOMADA_TEMPLATE_PLACEHOLDER
 
 
 def test_composicao_remove_caracteres_de_controle() -> None:

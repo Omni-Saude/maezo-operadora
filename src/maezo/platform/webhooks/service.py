@@ -184,6 +184,18 @@ def _build_dispatcher(
         ttl_s=settings.wamid_dedup_ttl_s,
     )
     whatsapp_client = WhatsAppServer(dedup=dedup.registry)
+    # GAP-XHITL-4 / ADR-0061: custodia cifrada do telefone para a retomada. SO' com a chave KMS
+    # configurada (Proposto: ligar exige ciencia do DPO); sem ela, nada e' gravado.
+    recipient_vault = None
+    if settings.recipient_vault_kms_key_arn:
+        from maezo.gateway.recipient_custody import AwsKmsKeyWrapper, PostgresRecipientVault
+
+        recipient_vault = PostgresRecipientVault(
+            dsn=settings.database_url,
+            tenant=settings.tenant_id,
+            wrapper=AwsKmsKeyWrapper(key_arn=settings.recipient_vault_kms_key_arn),
+            ttl_days=settings.recipient_vault_ttl_days,
+        )
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
         inference=seams["inference"],
@@ -217,6 +229,7 @@ def _build_dispatcher(
         # dispatcher re-wraps its per-turn sender with it. See `tool_registry`'s module docstring
         # for the three rejected alternatives and their counterexamples.
         seam_context=seam_context,
+        recipient_vault=recipient_vault,
     )
     cibseven = seams["cibseven"]
     return dispatcher, cibseven

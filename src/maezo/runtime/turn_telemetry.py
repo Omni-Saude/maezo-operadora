@@ -187,6 +187,9 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             "retomada_recusada",
             "retomada_sem_instrucoes",
             "retomada_falha_envio",
+            # Decisao do dono (25/09/2026): fora da janela de 24h da Meta nada e' enviado, a
+            # equipe e' avisada; emitido por `platform/integrations/agent_resume.py`.
+            "retomada_fora_da_janela",
         }
     ),
     "lucas": frozenset(

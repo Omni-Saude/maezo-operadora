@@ -69,8 +69,10 @@ marcadas `retirada: true` (§8.3). Ver §8.2.
 `human_command_delivery`, `human_command_outbox`; e `autoridade_atribuicao`/`portal_assignment_source`,
 `portal_assignment_publications`, `portal_assignment_receipt_source`; e
 `inbox_escalonamento`/`escalation_team_notice` (migração `0015`, WP-J1-09 — linha de inbox do
-aviso `escalation.notify_team`, endereçada a um GRUPO de atendimento e sem coluna de titular).
-Essas quinze relações continuam sem decisão de
+aviso `escalation.notify_team`, endereçada a um GRUPO de atendimento e sem coluna de titular); e
+`custodia_contato_retomada`/`beneficiario_contato_retomada` (migração `0016`, GAP-XHITL-4 /
+ADR-0061 Proposto — telefone do beneficiário CIFRADO para a retomada, TTL proposto de 30 dias).
+Essas dezesseis relações continuam sem decisão de
 retenção — e sem qualquer mecanismo que as toque. As seis últimas foram introduzidas pelas
 migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
 `src/maezo/platform/migrations/versions/0013_human_command_outbox.py`: as três primeiras relações
@@ -222,6 +224,14 @@ escopo_b:
         (ADR-0037 XRD-10). A linha e enderecada a um GRUPO de atendimento (audience travado em
         staff por CHECK), nunca a uma pessoa, e nao tem coluna de titular, texto livre nem
         payload; sem decisao de retencao ratificada
+    - camada: custodia_contato_retomada
+      tabelas: [beneficiario_contato_retomada]
+      motivo: >-
+        fora do escopo B; 0016 (GAP-XHITL-4, ADR-0061 Proposto) guarda o telefone do beneficiario
+        CIFRADO (envelope KMS + AES-GCM) para a retomada pos-humano, uma linha por conversa, com
+        expires_at proposto de 30 dias apos a ultima mensagem; PONTE_AUSENTE (conversation_id e'
+        pseudonimo keyed, a referencia DSR nao o alcanca); exige ciencia do DPO antes de ligar;
+        sem decisao de retencao ratificada
   categorias_nao_cobertas:
     - financeiros_faturamento
     - regulatorios_ans

@@ -132,7 +132,9 @@ def test_portal_and_a2a_migrations_have_the_exact_linear_predecessors() -> None:
     script = ScriptDirectory.from_config(config)
     # WP-J1-09 appended 0015 (`escalation_team_notice`); the chain stays LINEAR, which is what
     # this test actually guards.
-    assert script.get_heads() == ["0015"]
+    # GAP-XHITL-4 appended 0016 (`beneficiario_contato_retomada`, ADR-0061); still linear.
+    assert script.get_heads() == ["0016"]
+    assert script.get_revision("0016").down_revision == "0015"
     assert script.get_revision("0015").down_revision == "0014"
     assert script.get_revision("0014").down_revision == "0013"
     assert script.get_revision("0013").down_revision == "0012"

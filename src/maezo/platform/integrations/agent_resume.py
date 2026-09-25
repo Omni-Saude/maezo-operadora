@@ -53,11 +53,19 @@ topico; o historico e' o fato. Antes de acordar alguem, o consumidor confere que
 no historico, que a chave de negocio e a definicao batem com o evento, e que o historico TAMBEM
 diz `resultado=devolvido_agente`. Qualquer divergencia -> fila morta (`resume_history_mismatch`).
 
-**O destinatario — a decisao que este modulo NAO toma.** O WhatsApp exige o numero; a conversa so'
-carrega o `phone_hash` KEYED (ADR-0035) e nao existe cofre reversivel de telefone em v2 (ADR-0006,
-`dispatch.py` "PHI custody note"). `RecipientResolver` e' a costura para a custodia que o dono
-decidir; `main()` RECUSA SUBIR sem uma (`RecipientCustodyUnavailableError`). Inventar um cofre de
-telefones aqui seria uma decisao de privacidade tomada por codigo.
+**O destinatario — custodia cifrada (ADR-0061, Proposto; decisao do dono de 25/09/2026).** O
+WhatsApp exige o numero e a conversa so' carrega o `phone_hash` KEYED (ADR-0035). O receptor do
+webhook grava o numero CIFRADO (envelope KMS + AES-GCM, `gateway/recipient_custody.py`) a cada
+mensagem recebida; SO' este servico decifra (`kms:Decrypt` na role dele, e so' nela). Sem
+`RECIPIENT_VAULT_KMS_KEY_ARN` configurado, `main()` RECUSA SUBIR
+(`RecipientCustodyUnavailableError`) — e o ADR exige ciencia do DPO antes de ligar em qualquer
+ambiente.
+
+**Janela de 24h da Meta.** Fora dela a Meta so' aceita template aprovado. Se a ultima mensagem do
+beneficiario (`last_inbound_at`, guardado na mesma linha da custodia) tem 24h ou mais, NADA e'
+enviado: o turno registra `retomada_fora_da_janela` na telemetria e a equipe e' avisada pelo
+caminho de notificacao existente (`escalation.notify_team` em `operadora.notifications.internal`,
+que o inbox de escalonamento ja' consome), para alguem contatar por outro canal.
 
 **Fail-closed, sem engolir erro.** Offset confirmado SO' depois de: retomada concluida (a mensagem
 saiu), evento filtrado/ignorado com log, ou malformacao CONFIRMADA na fila morta com fato de
@@ -80,6 +88,11 @@ import structlog
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from maezo.gateway.recipient_custody import (
+    DEFAULT_TTL_DAYS,
+    RecipientRecord,
+    dentro_da_janela,
+)
 from maezo.platform.integrations.notifications_bridge import (
     REASON_NOT_A_JSON_OBJECT,
     REASON_RESUME_ANCHOR_MISMATCH,
@@ -279,13 +292,63 @@ class EngineHistoryInstructionSource:
 
 
 class RecipientResolver(Protocol):
-    """Numero do destinatario de uma conversa — a CUSTODIA que o dono ainda nao decidiu.
+    """Numero + ultima mensagem recebida de uma conversa, lidos da custodia cifrada (ADR-0061).
 
-    `None` = a custodia nao tem numero para esta conversa (ex.: apagado por pedido LGPD): e'
-    deterministico, vai para a fila morta. Uma falha de infraestrutura deve LEVANTAR.
+    `None` = a custodia nao tem numero para esta conversa (vencido pelo TTL, apagado por pedido
+    LGPD): e' deterministico, vai para a fila morta. Uma falha de infraestrutura deve LEVANTAR.
     """
 
-    async def resolve(self, *, tenant_id: str, conversation_id: str) -> str | None: ...
+    async def lookup(self, *, tenant_id: str, conversation_id: str) -> RecipientRecord | None: ...
+
+
+class TeamAlerter(Protocol):
+    """Avisa a equipe humana de que a retomada NAO pode sair pelo WhatsApp (fora da janela)."""
+
+    async def alert_outside_window(self, event: ProcessCompletedEvent) -> None: ...
+
+
+class KafkaPublisherLike(Protocol):
+    async def publish(
+        self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+    ) -> bool: ...
+
+
+#: O topico interno que o inbox de escalonamento consome (`notifications_inbox.py`).
+NOTIFICATIONS_INTERNAL_TOPIC: Final[str] = "operadora.notifications.internal"
+#: Fila que recebe o aviso de retomada fora da janela. A mesma de `solicitacao_humano`.
+DEFAULT_ALERT_GROUP: Final[str] = "atendimento-humano"
+
+
+class NotifyTeamAlerter:
+    """Publica `escalation.notify_team` — o MESMO formato do worker `ST_NotificarTime`.
+
+    So' identificadores e rotulos: `business_key` (o caso), `grupo_atendimento` (a fila) e
+    `motivo_categoria=outro`. Nada da nota, nada do telefone. `best_effort=False`: se o aviso nao
+    sai, a excecao propaga e o offset nao anda — um aviso perdido deixaria o beneficiario sem
+    retorno e sem ninguem sabendo.
+    """
+
+    def __init__(
+        self, publisher: KafkaPublisherLike, *, grupo_atendimento: str = DEFAULT_ALERT_GROUP
+    ) -> None:
+        self._publisher = publisher
+        self._grupo = grupo_atendimento
+
+    async def alert_outside_window(self, event: ProcessCompletedEvent) -> None:
+        from maezo.tools.workers.escalation import NOTIFY_TEAM_NOTIFICATION_TYPE
+
+        await self._publisher.publish(
+            NOTIFICATIONS_INTERNAL_TOPIC,
+            {
+                "type": NOTIFY_TEAM_NOTIFICATION_TYPE,
+                "tenant_id": event.tenant_id,
+                "business_key": event.business_key,
+                "grupo_atendimento": self._grupo,
+                "severidade": None,
+                "motivo_categoria": "outro",
+            },
+            best_effort=False,
+        )
 
 
 @runtime_checkable
@@ -301,6 +364,7 @@ class ResumeOutcome(StrEnum):
     """O que o handler FEZ com um evento — so' fatos observados."""
 
     RESUMED = "resumed"
+    OUTSIDE_WINDOW = "outside_window"
     SKIPPED_RESULTADO = "skipped_resultado"
     SKIPPED_NO_RESUMER = "skipped_no_resumer"
 
@@ -313,6 +377,24 @@ class ResumeReceipt:
     desfecho: str = ""
 
 
+#: Literal duplicado de `agents/helena/graph.py::DESFECHO_RETOMADA_FORA_DA_JANELA` (este modulo
+#: nao importa o grafo no topo); `test_agent_resume.py` impede a divergencia.
+DESFECHO_RETOMADA_FORA_DA_JANELA: Final[str] = "retomada_fora_da_janela"
+
+
+def _emit_fora_da_janela(agent_id: str) -> None:
+    from maezo.runtime.turn_telemetry import emit_turn_desfecho
+
+    emit_turn_desfecho(
+        {},
+        agent_id=agent_id,
+        desfecho=DESFECHO_RETOMADA_FORA_DA_JANELA,
+        route="retomada",
+        motivo_categoria=None,
+        enviada=False,
+    )
+
+
 @dataclass
 class ResumeHandler:
     """Evento -> filtro -> historico -> destinatario -> agente. Sem Kafka: totalmente testavel."""
@@ -321,6 +403,7 @@ class ResumeHandler:
     instructions: HumanInstructionSource
     recipients: RecipientResolver
     resumers: Mapping[str, AgentResumer]
+    alerter: TeamAlerter
 
     async def handle(self, value: Any) -> ResumeReceipt:
         event = parse_process_completed(value, tenant_id=self.tenant_id)
@@ -344,19 +427,36 @@ class ResumeHandler:
             )
             return ResumeReceipt(ResumeOutcome.SKIPPED_NO_RESUMER, event.agent_id, event.resultado)
         instrucoes = await self.instructions.fetch(event)
-        raw_to = await self.recipients.resolve(
+        contato = await self.recipients.lookup(
             tenant_id=event.tenant_id, conversation_id=event.conversation_id
         )
-        if not raw_to:
+        if contato is None or not contato.phone:
             raise MalformedResumeEventError(
                 "recipient custody has no number for this conversation",
                 {},
                 code=REASON_RESUME_RECIPIENT_UNAVAILABLE,
             )
+        if not dentro_da_janela(contato.last_inbound_at):
+            # Janela da Meta fechada: NADA sai pelo WhatsApp. Avisa a equipe (propaga se falhar)
+            # e so' depois conta o desfecho — um aviso que nao saiu nao pode ser contado.
+            await self.alerter.alert_outside_window(event)
+            _emit_fora_da_janela(event.agent_id)
+            logger.warning(
+                "agent_resume.outside_meta_window",
+                tenant_id=event.tenant_id,
+                agent_id=event.agent_id,
+                conversation_id=event.conversation_id,
+            )
+            return ResumeReceipt(
+                ResumeOutcome.OUTSIDE_WINDOW,
+                event.agent_id,
+                event.resultado,
+                DESFECHO_RETOMADA_FORA_DA_JANELA,
+            )
         resultado = await resumer.resume(
             conversation_id=event.conversation_id,
             instrucoes=instrucoes,
-            raw_to=raw_to,
+            raw_to=contato.phone,
             resume_ref=event.process_instance_id,
         )
         desfecho = str(resultado.get("desfecho") or "")
@@ -434,21 +534,33 @@ class AgentResumeSettings(BaseSettings):
         default=DEFAULT_RESUME_CONSUMER_GROUP_ID,
         validation_alias=AliasChoices("AGENT_RESUME_KAFKA_GROUP_ID", "kafka_group_id"),
     )
+    #: A chave KMS da custodia (ADR-0061). Ausente = o daemon nao sobe.
+    recipient_vault_kms_key_arn: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("RECIPIENT_VAULT_KMS_KEY_ARN", "recipient_vault_kms_key_arn"),
+    )
+    recipient_vault_ttl_days: int = Field(
+        default=DEFAULT_TTL_DAYS,
+        validation_alias=AliasChoices("RECIPIENT_VAULT_TTL_DAYS", "recipient_vault_ttl_days"),
+    )
 
 
 def build_recipient_resolver(settings: AgentResumeSettings) -> RecipientResolver:
-    """A custodia de destinatario de producao. HOJE NAO EXISTE — e isto recusa, alto.
+    """A custodia cifrada de producao (ADR-0061). Recusa, alto, se nao estiver configurada."""
+    if not settings.recipient_vault_kms_key_arn or not settings.database_url:
+        raise RecipientCustodyUnavailableError(
+            f"agent_resume[{settings.tenant_id}]: recipient custody is not configured "
+            "(RECIPIENT_VAULT_KMS_KEY_ARN / DATABASE_URL) — the WhatsApp send needs the number and "
+            "only the encrypted vault of ADR-0061 holds it. Refusing to start."
+        )
+    from maezo.gateway.recipient_custody import AwsKmsKeyWrapper, PostgresRecipientVault
 
-    Nao ha cofre reversivel de telefone em v2 (ADR-0006; `dispatch.py`, "PHI custody note"): a
-    conversa carrega so' o `phone_hash` keyed. Qual custodia usar (cofre cifrado na Zona PHI,
-    consulta ao cadastro do beneficiario, identificador de usuario da Meta) e' decisao de
-    privacidade do dono/DPO, nao deste modulo. Ate' la', `main()` nao sobe — e o servico ECS nasce
-    com `desired_count = 0`.
-    """
-    raise RecipientCustodyUnavailableError(
-        f"agent_resume[{settings.tenant_id}]: no recipient custody is configured — the WhatsApp "
-        "send needs the raw number and v2 keeps only the keyed phone hash (ADR-0006/ADR-0035). "
-        "Refusing to start: an owner/DPO decision on recipient custody is required (GAP-XHITL-4)."
+    return PostgresRecipientVault(
+        dsn=settings.database_url,
+        tenant=settings.tenant_id,
+        # Regiao: a do proprio runtime (o Fargate injeta AWS_REGION; o boto3 a le sozinho).
+        wrapper=AwsKmsKeyWrapper(key_arn=settings.recipient_vault_kms_key_arn),
+        ttl_days=settings.recipient_vault_ttl_days,
     )
 
 
@@ -460,6 +572,7 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
     mesma chave de idempotencia de saida. Em producao, checkpointer indisponivel = nao sobe.
     """
     from maezo.gateway.audit_postgres import PostgresAuditSink
+    from maezo.platform.integrations.events_kafka_producer import build_notifications_publisher
     from maezo.platform.webhooks.service import (
         WebhookState,
         _build_dispatcher,
@@ -473,7 +586,7 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
             "agent_resume: DATABASE_URL is required — the dead-letter audit, the checkpoint and the "
             "outbound dedup all live there"
         )
-    recipients = build_recipient_resolver(settings)  # fail-closed: raises today (see docstring)
+    recipients = build_recipient_resolver(settings)  # fail-closed without the ADR-0061 vault
 
     webhook_settings = WhatsAppWebhookSettings()  # type: ignore[call-arg]  # env-required fields
     state = WebhookState(settings=webhook_settings)
@@ -486,6 +599,7 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
         instructions=EngineHistoryInstructionSource(state.dispatcher.cibseven),
         recipients=recipients,
         resumers={"helena": state.dispatcher},
+        alerter=NotifyTeamAlerter(build_notifications_publisher(settings.kafka_bootstrap_servers)),
     )
     # The DLQ publisher is a fenced effect class (§8.1): built ONLY through the bridge's own
     # sanctioned constructor (`build_dlq_shunt`), exactly as the bridge's own root does.

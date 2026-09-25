@@ -98,15 +98,14 @@ def test_a_cadeia_nao_bifurca() -> None:
     assert revises_0014 == ["0015_escalation_team_notice.py"]
 
 
-def test_0015_e_a_cabeca_da_cadeia() -> None:
-    """Nothing revises `0015` yet — if something does, this file is no longer the head and the
-    next author must say so deliberately."""
+def test_0015_e_revisada_so_pela_0016() -> None:
+    """GAP-XHITL-4 disse deliberadamente: `0016_recipient_custody` revisa `0015`, e so' ela."""
     revising = [
         path.name
         for path in sorted(_VERSIONS_DIR.glob("0*.py"))
         if re.search(r'^down_revision: str \| None = "0015"$', path.read_text(encoding="utf-8"), re.MULTILINE)
     ]
-    assert revising == []
+    assert revising == ["0016_recipient_custody.py"]
 
 
 @pytest.mark.parametrize("coluna", sorted(_FORBIDDEN_COLUMNS))

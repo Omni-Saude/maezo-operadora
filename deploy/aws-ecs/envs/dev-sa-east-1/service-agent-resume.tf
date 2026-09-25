@@ -19,7 +19,7 @@
 # imagem, o ambiente e os segredos abaixo espelham `service-webhook-receiver.tf`. O codigo
 # funciona igual se um dia for hospedado no receptor: `run_resume_loop` nao sabe onde roda.
 #
-# DESLIGADO (desired_count = 0) ATE' HAVER CUSTODIA DE DESTINATARIO. O WhatsApp exige o numero e
+# DESLIGADO (desired_count = 0) ATE' A CUSTODIA DO ADR-0061 SER LIGADA (`recipient_vault.tf`). O WhatsApp exige o numero e
 # v2 guarda so' o hash keyed do telefone (ADR-0006/ADR-0035). Sem essa decisao do dono/DPO,
 # `main()` RECUSA SUBIR (`RecipientCustodyUnavailableError`) — com 1 replica o ECS so' veria a
 # task morrer. Por isso o default e' 0 — e com 0 NENHUM recurso deste arquivo existe (`count`),
@@ -48,7 +48,8 @@ resource "aws_ecs_task_definition" "agent_resume" {
   cpu                      = tostring(var.agent_cpu)
   memory                   = tostring(var.agent_memory)
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  # ADR-0061: role propria, SO' kms:Decrypt na chave da custodia.
+  task_role_arn = local.agent_resume_task_role_arn
 
   runtime_platform {
     cpu_architecture        = "X86_64"
@@ -84,7 +85,7 @@ resource "aws_ecs_task_definition" "agent_resume" {
       { name = "MAEZO_BEDROCK_REGION", value = var.aws_region },
       { name = "WHATSAPP_WEBHOOK_MEMORIA_CLINICA", value = var.helena_memoria_clinica ? "true" : "false" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
-    ])
+    ], local.recipient_vault_env)
 
     # WHATSAPP_APP_SECRET/VERIFY_TOKEN nao sao usados pela retomada, mas sao campos OBRIGATORIOS
     # de `WhatsAppWebhookSettings` (a raiz compartilhada): sem eles a task nao sobe.

@@ -196,6 +196,20 @@ class WhatsAppWebhookSettings(BaseSettings):
         validation_alias=AliasChoices("WHATSAPP_WEBHOOK_MEMORIA_CLINICA", "memoria_clinica_enabled"),
     )
 
+    # CUSTODIA DO TELEFONE PARA A RETOMADA (GAP-XHITL-4, ADR-0061 — status Proposto; ligar exige
+    # ciencia do DPO). Ausente = o receptor NAO grava nada (comportamento anterior). Presente = a
+    # cada mensagem recebida o numero e' gravado CIFRADO (envelope KMS, so' `kms:Encrypt` na role
+    # do receptor) em `beneficiario_contato_retomada`, com `last_inbound_at` para a janela da Meta.
+    recipient_vault_kms_key_arn: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("RECIPIENT_VAULT_KMS_KEY_ARN", "recipient_vault_kms_key_arn"),
+    )
+    recipient_vault_ttl_days: int = Field(
+        default=30,
+        ge=1,
+        validation_alias=AliasChoices("RECIPIENT_VAULT_TTL_DAYS", "recipient_vault_ttl_days"),
+    )
+
     # TETO DE VOLUME (Frente 7.1, 14/09/2026). O receptor nao tinha protecao nenhuma: um numero em
     # laco, ou um incidente que faca mil pessoas escreverem ao mesmo tempo, entrava inteiro — cada
     # mensagem uma chamada de modelo, uma DMN e, quando o modelo cai, um escalonamento. A fila

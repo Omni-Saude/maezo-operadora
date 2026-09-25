@@ -636,6 +636,9 @@ DESFECHO_RETOMADA_ENVIADA: str = "retomada_enviada"
 DESFECHO_RETOMADA_RECUSADA: str = "retomada_recusada"
 DESFECHO_RETOMADA_SEM_INSTRUCOES: str = "retomada_sem_instrucoes"
 DESFECHO_RETOMADA_FALHA_ENVIO: str = "retomada_falha_envio"
+#: Emitido pelo CONSUMIDOR (nao por este grafo): a janela de 24h da Meta fechou, nada foi enviado
+#: e a equipe foi avisada (`agent_resume.NotifyTeamAlerter`).
+DESFECHO_RETOMADA_FORA_DA_JANELA: str = "retomada_fora_da_janela"
 
 #: `error` do turno de retomada que chegou sem instrucao utilizavel. Token de classe.
 ERRO_RETOMADA_SEM_INSTRUCOES: str = "retomada sem instrucoes humanas"
@@ -649,13 +652,16 @@ ERRO_RETOMADA_INSTRUCOES_LONGAS: str = "retomada: instrucoes excedem o limite de
 #: humano no meio mudaria o que ela diz).
 RETOMADA_MAX_INSTRUCOES: int = 3000
 
-#: PLACEHOLDER DE PRODUTO — NAO E' A REDACAO FINAL (GAP-XHITL-4, spec da diretoria, secao 6: "a
-#: redacao concreta e' decisao de produto — nao invente sozinho; traga proposta"). O marcador
-#: `[RASCUNHO` e' deliberadamente visivel para que ninguem confunda isto com texto aprovado; as
-#: opcoes de redacao estao no PR. Trocar a redacao e' editar ESTA constante (e o teste que a fixa).
-RETOMADA_TEMPLATE_PLACEHOLDER: str = "[RASCUNHO - redacao pendente de produto] {instrucoes}"
+#: REDACAO APROVADA PELO DONO (opcao B, 25/09/2026 — spec da diretoria, secao 6). A instrucao do
+#: humano vai ENTRE ASPAS e atribuida a "um profissional da nossa equipe": quem le sabe que a
+#: orientacao e' de uma pessoa, e que a Helena so' a repassa. Trocar a redacao e' editar ESTA
+#: constante (e o teste que a fixa).
+RETOMADA_TEMPLATE: str = (
+    "Olá, aqui é a Helena, a assistente virtual do seu plano. Um profissional da nossa equipe "
+    'revisou o seu caso e pediu que eu repassasse: "{instrucoes}". Posso ajudar com mais alguma coisa?'
+)
 
-#: PLACEHOLDER DE PRODUTO — o texto enviado quando as instrucoes humanas foram BARRADAS pela cerca
+#: AGUARDA APROVACAO DE PRODUTO — o texto enviado quando as instrucoes humanas foram BARRADAS pela cerca
 #: de saida. Nao repete nada da nota (foi ela que a cerca barrou), nao promete humano (o caso
 #: acabou de ser devolvido), nao cita canal. Passa nas cercas por construcao; o teste o fixa.
 RETOMADA_RECUSADA_PLACEHOLDER: str = (
@@ -681,7 +687,7 @@ class RetomadaEnvioFalhouError(RuntimeError):
 
 
 def compor_mensagem_de_retomada(instrucoes: str) -> str:
-    """A mensagem ao beneficiario a partir das instrucoes humanas. PURA — o template e' placeholder.
+    """A mensagem ao beneficiario a partir das instrucoes humanas. PURA (template aprovado, opcao B).
 
     Deterministica de proposito: a instrucao do humano chega ao beneficiario COMO ESCRITA (menos
     caracteres de controle), sem um modelo no meio para parafrasear, omitir ou "melhorar" uma
@@ -689,7 +695,7 @@ def compor_mensagem_de_retomada(instrucoes: str) -> str:
     local aqui — as cercas continuam depois, em `HelenaGraph.resume`.
     """
     limpo = _CONTROLE.sub("", instrucoes).strip()
-    return RETOMADA_TEMPLATE_PLACEHOLDER.format(instrucoes=limpo)
+    return RETOMADA_TEMPLATE.format(instrucoes=limpo)
 
 
 def motivo_de_recusa_da_retomada(texto: str) -> tuple[str, str] | None:

@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from maezo.gateway.recipient_custody import RecipientRecord
 from maezo.platform.integrations.agent_resume import (
     DEFAULT_RESUME_CONSUMER_GROUP_ID,
     PROCESS_COMPLETED_TOPIC,
@@ -93,11 +95,27 @@ class _Engine(FakeCibSevenTransport):
 
 
 class _Recipients:
-    def __init__(self, number: str | None = "5511999999999") -> None:
+    def __init__(
+        self, number: str | None = "5511999999999", *, idade: timedelta = timedelta(hours=1)
+    ) -> None:
         self.number = number
+        self.idade = idade
 
-    async def resolve(self, *, tenant_id: str, conversation_id: str) -> str | None:
-        return self.number
+    async def lookup(self, *, tenant_id: str, conversation_id: str) -> RecipientRecord | None:
+        if self.number is None:
+            return None
+        return RecipientRecord(phone=self.number, last_inbound_at=datetime.now(UTC) - self.idade)
+
+
+class _Alerter:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.alerts: list[str] = []
+        self._fail = fail
+
+    async def alert_outside_window(self, event: Any) -> None:
+        if self._fail:
+            raise ConnectionError("broker down")
+        self.alerts.append(event.business_key)
 
 
 class _Resumer:
@@ -140,6 +158,7 @@ def _handler(
     *,
     resumer: _Resumer | None = None,
     recipients: _Recipients | None = None,
+    alerter: _Alerter | None = None,
 ) -> tuple[ResumeHandler, _Engine, _Resumer]:
     engine = engine or _Engine()
     if not engine._historic_variables:
@@ -150,6 +169,7 @@ def _handler(
         instructions=EngineHistoryInstructionSource(engine),
         recipients=recipients or _Recipients(),
         resumers={"helena": resumer},
+        alerter=alerter or _Alerter(),
     )
     return handler, engine, resumer
 
@@ -292,6 +312,99 @@ def test_fonte_de_instrucao_recusa_transporte_sem_leitura_de_historico() -> None
 def test_producao_recusa_subir_sem_custodia_de_destinatario() -> None:
     with pytest.raises(RecipientCustodyUnavailableError):
         build_recipient_resolver(AgentResumeSettings())
+
+
+def test_com_chave_kms_configurada_a_custodia_e_construida() -> None:
+    from maezo.gateway.recipient_custody import AwsKmsKeyWrapper, PostgresRecipientVault
+
+    settings = AgentResumeSettings.model_validate(
+        {
+            "DATABASE_URL": "postgresql://u:p@h/db",
+            "RECIPIENT_VAULT_KMS_KEY_ARN": "arn:aws:kms:sa-east-1:1:key/x",
+        }
+    )
+    original = AwsKmsKeyWrapper.__init__
+
+    def _sem_boto(self: Any, *, key_arn: str, region: str | None = None, client: Any = None) -> None:
+        original(self, key_arn=key_arn, region=region, client=object())
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(AwsKmsKeyWrapper, "__init__", _sem_boto)
+        assert isinstance(build_recipient_resolver(settings), PostgresRecipientVault)
+
+
+# --- janela de 24h da Meta ------------------------------------------------------------------
+
+
+async def test_dentro_da_janela_envia_e_nao_alerta() -> None:
+    alerter = _Alerter()
+    handler, _, resumer = _handler(recipients=_Recipients(idade=timedelta(hours=23)), alerter=alerter)
+    receipt = await handler.handle(_evento())
+    assert receipt.outcome is ResumeOutcome.RESUMED
+    assert len(resumer.calls) == 1 and alerter.alerts == []
+
+
+async def test_fora_da_janela_nao_envia_alerta_a_equipe_e_conta_desfecho(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from maezo.agents.helena.graph import DESFECHO_RETOMADA_FORA_DA_JANELA as NO_GRAFO
+    from maezo.platform.integrations import agent_resume
+    from maezo.runtime import turn_telemetry
+
+    emitidos: list[dict[str, Any]] = []
+    monkeypatch.setattr(turn_telemetry, "emit_turn_desfecho", lambda state, **kw: emitidos.append(kw))
+    alerter = _Alerter()
+    handler, _, resumer = _handler(recipients=_Recipients(idade=timedelta(hours=25)), alerter=alerter)
+    receipt = await handler.handle(_evento())
+    assert receipt.outcome is ResumeOutcome.OUTSIDE_WINDOW
+    assert receipt.desfecho == agent_resume.DESFECHO_RETOMADA_FORA_DA_JANELA == NO_GRAFO
+    assert resumer.calls == []  # NADA sai pelo WhatsApp
+    assert alerter.alerts == [_BK]
+    assert emitidos == [
+        {
+            "agent_id": "helena",
+            "desfecho": "retomada_fora_da_janela",
+            "route": "retomada",
+            "motivo_categoria": None,
+            "enviada": False,
+        }
+    ]
+    assert "retomada_fora_da_janela" in turn_telemetry._DESFECHO_VOCAB["helena"]
+
+
+async def test_fora_da_janela_com_alerta_falho_propaga_e_offset_fica() -> None:
+    handler, _, resumer = _handler(
+        recipients=_Recipients(idade=timedelta(days=2)), alerter=_Alerter(fail=True)
+    )
+    consumer = FakeBridgeKafkaConsumer([_msg(_evento())])
+    with pytest.raises(ConnectionError):
+        await run_resume_loop(consumer, handler)
+    assert consumer.commits == 0 and resumer.calls == []
+
+
+async def test_alerta_publica_notify_team_no_formato_que_o_inbox_aceita() -> None:
+    from maezo.platform.integrations.agent_resume import NotifyTeamAlerter, parse_process_completed
+    from maezo.platform.integrations.notifications_inbox import parse_team_notice
+
+    class _Pub:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, dict[str, Any], Any]] = []
+
+        async def publish(
+            self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+        ) -> bool:
+            self.sent.append((topic, value, best_effort))
+            return True
+
+    pub = _Pub()
+    await NotifyTeamAlerter(pub).alert_outside_window(parse_process_completed(_evento(), tenant_id="amh"))
+    topic, value, best_effort = pub.sent[0]
+    assert topic == "operadora.notifications.internal" and best_effort is False
+    notice = parse_team_notice(value)
+    assert (
+        notice is not None and notice.business_key == _BK and notice.grupo_atendimento == "atendimento-humano"
+    )
+    assert "5511" not in json.dumps(value)  # nem telefone, nem nota
 
 
 async def test_custodia_sem_numero_vai_para_dlq() -> None:

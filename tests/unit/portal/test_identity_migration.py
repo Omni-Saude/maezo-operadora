@@ -28,12 +28,13 @@ def test_0014_is_the_unique_head_of_a_linear_chain() -> None:
     # WP-J1-09 moved the head to 0015 (`escalation_team_notice`). The PROPERTY this test owns
     # is "exactly one head, one linear chain" — a forked chain is the failure where `alembic
     # upgrade head` applies one branch while an operator believes it applied the other.
-    assert heads == {"0015"}, f"expected 0015 to be the sole head, got {heads}"
+    # GAP-XHITL-4 moved it to 0016 (`beneficiario_contato_retomada`, ADR-0061).
+    assert heads == {"0016"}, f"expected 0016 to be the sole head, got {heads}"
     assert len(parents) == len(revisions) - 1, "a revision is claimed as parent by two children"
 
     assert parents <= set(revisions), "every predecessor must actually exist"
     visited = set()
-    current = "0015"
+    current = "0016"
     while current is not None:
         assert current not in visited, "migration cycle"
         visited.add(current)

@@ -87,6 +87,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Final
 
 import structlog
@@ -99,6 +100,7 @@ from maezo.agents.helena.graph import (
     new_helena_state,
 )
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.gateway.recipient_custody import RecipientSealer
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response, record_mensagem_limitada
@@ -332,6 +334,29 @@ class HelenaDispatcher:
     #: sendo o dos testes que nao o passam. A raiz de composicao (`webhooks/service.py`) constroi
     #: um a partir das settings, entao o receptor implantado SEMPRE tem teto.
     limitador: LimitadorDeVolume | None = None
+    #: CUSTODIA DO TELEFONE (GAP-XHITL-4, ADR-0061). `None` = nada e' gravado (o padrao, e o
+    #: comportamento anterior). Com custodia, toda mensagem recebida (texto ou nao) atualiza o
+    #: numero CIFRADO e o `last_inbound_at` da conversa — o relogio da janela de 24h da Meta.
+    recipient_vault: RecipientSealer | None = None
+
+    async def _custodiar_destinatario(self, raw_from: str, conversation_id: str) -> None:
+        """Grava o numero cifrado. NAO derruba o turno: a pessoa que escreveu recebe a resposta
+        mesmo se a custodia falhar — o custo e' uma retomada futura sem destinatario (fila morta
+        `resume_recipient_unavailable`), e isso fica visivel no log de erro. O numero NUNCA vai
+        para o log: so' o tipo da excecao."""
+        if self.recipient_vault is None:
+            return
+        try:
+            await self.recipient_vault.upsert(
+                conversation_id=conversation_id, phone=raw_from, received_at=datetime.now(UTC)
+            )
+        except Exception as exc:
+            logger.error(
+                "whatsapp_recipient_custody_failed",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
 
     def _outbound_key_factory(self, message_id: str) -> Callable[[int], str] | None:
         """The per-send idempotency-key builder for ONE inbound message, or None with no guard."""
@@ -416,6 +441,7 @@ class HelenaDispatcher:
         """
         phone_hash = hash_phone(message.from_number, self.tenant_id, self.pseudonymizer)
         conversation_id = f"wa:{self.tenant_id}:{phone_hash}"
+        await self._custodiar_destinatario(message.from_number, conversation_id)
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
             phone_hash=phone_hash,
@@ -633,6 +659,7 @@ class HelenaDispatcher:
                 return await self._recusar_por_limite(message, phone_hash, conversation_id, veredito)
 
         beneficiario_pseudo_id = self.pseudonymizer.pseudonymize({"telefone": phone_hash})["telefone"]
+        await self._custodiar_destinatario(message.from_number, conversation_id)
 
         sender = self._gated_scoped_sender(
             raw_to=message.from_number,
