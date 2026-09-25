@@ -28,6 +28,8 @@ variable "portal" {
     # Preserve unknown keys until the exact-key validation below; object coercion
     # would silently discard them. No arbitrary environment map is accepted.
     staff = optional(any)
+    # Onda 8 / H5 (D-N): plano humano (fila de tarefas). Exige `staff`. Mesmo formato fechado.
+    human = optional(any)
   })
   default = null
 
@@ -132,4 +134,25 @@ variable "portal" {
     error_message = "Staff requires the complete exact public input set, explicit tenant scope, distinct installed key pins, exact native and engine schema identifiers, immutable image/secret version, account/regional secret+CMK and fixed native HTTPS/SG/port; no defaults or extra keys."
   }
 
+
+  validation {
+    condition = var.portal == null ? true : try(var.portal.human, null) == null ? true : try(
+      var.portal.staff != null &&
+      toset(keys(var.portal.human)) == toset([
+        "material_secret_arn", "material_secret_version_id", "material_kms_key_arn",
+        "public_manifest_sha256", "init_image_digest"
+      ]) &&
+      alltrue([for name, value in var.portal.human : can(regex("^\"", jsonencode(value)))]) &&
+      can(regex("^[A-Za-z0-9-]{32,64}$", var.portal.human.material_secret_version_id)) &&
+      can(regex("^[0-9a-f]{64}$", var.portal.human.public_manifest_sha256)) &&
+      can(regex("^sha256:[0-9a-f]{64}$", var.portal.human.init_image_digest)) &&
+      can(regex("^arn:aws:secretsmanager:sa-east-1:[0-9]{12}:secret:maezo-operadora/dev/portal/[A-Za-z0-9_-]+/human-materials-[A-Za-z0-9]{6}$", var.portal.human.material_secret_arn)) &&
+      startswith(var.portal.human.material_secret_arn, "arn:aws:secretsmanager:sa-east-1:${var.aws_account_id}:secret:maezo-operadora/dev/portal/${var.portal.tenant}/human-materials-") &&
+      can(regex("^arn:aws:kms:sa-east-1:[0-9]{12}:key/[0-9a-f-]{36}$", var.portal.human.material_kms_key_arn)) &&
+      var.portal.human.material_secret_version_id != var.portal.staff.material_secret_version_id &&
+      var.portal.human.public_manifest_sha256 != var.portal.staff.public_manifest_sha256,
+      false
+    )
+    error_message = "Human requires staff, the exact closed key set, an immutable version distinct from staff, the tenant human-materials secret of this account and a regional CMK."
+  }
 }
