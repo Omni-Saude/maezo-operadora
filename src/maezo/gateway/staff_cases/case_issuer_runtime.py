@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import ssl
 import sys
 import uuid
 from contextlib import AsyncExitStack
@@ -206,6 +207,16 @@ def _url(raw: bytes, login: str) -> Any:
     return url
 
 
+def database_tls() -> ssl.SSLContext:
+    """verify-full contra o trust store da imagem, onde estao SO as raizes RDS vendoradas
+    (`deploy/certificates/install_rds_roots.py`, pinadas por SHA-256). Nunca `prefer`: sem
+    contexto o asyncpg aceita TLS sem verificar o servidor (ou nem TLS)."""
+    context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+    if not context.check_hostname or context.verify_mode != ssl.CERT_REQUIRED:
+        raise IssuerCompositionError()
+    return context
+
+
 def _engine(url: Any, seconds: int) -> AsyncEngine:
     return create_async_engine(
         url,
@@ -214,7 +225,7 @@ def _engine(url: Any, seconds: int) -> AsyncEngine:
         pool_size=2,
         max_overflow=0,
         pool_timeout=seconds,
-        connect_args={"timeout": seconds, "command_timeout": seconds},
+        connect_args={"ssl": database_tls(), "timeout": seconds, "command_timeout": seconds},
     )
 
 
