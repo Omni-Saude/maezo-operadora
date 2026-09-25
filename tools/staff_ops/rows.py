@@ -312,6 +312,10 @@ async def human_plane(admin: Any, schema_owner: Any, rows: dict[str, Any], passw
         f"{plane[k]['login']} {await ensure_login(admin, plane[k]['login'], passwords[k])}"
         for k in ("outbox", "source")
     ]
+    # As tabelas do outbox moram no schema do tenant e o codigo nao as qualifica (mesmo arranjo do
+    # portal_bff_amh): sem isto o relay do BFF morre no boot com "relation does not exist".
+    for key in ("outbox", "source"):
+        await admin.execute(f"ALTER ROLE {plane[key]['login']} SET search_path = {plane['schema']}")
     sql = (Path("/app") / PLANE_SQL).read_text(encoding="utf-8")
     async with schema_owner.transaction():
         await schema_owner.execute("SELECT set_config('maezo.human_plane.schema', $1, true)", plane["schema"])
