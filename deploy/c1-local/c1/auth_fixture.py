@@ -17,7 +17,7 @@ So existe no harness do C1 (`deploy/c1-local/`), nunca na imagem. O que faz:
 DESVIO D10: o tenant fica `amh` (o da instalacao do harness e o nome do schema de membership);
 o prefixo `SYN-` vai na guia e em todas as referencias da fixture.
 
-Os payloads e as chamadas vem do nucleo compartilhado `maezo.tools.dev_syn_fixture.core` (o mesmo
+Os payloads e as chamadas vem do nucleo compartilhado `tools.dev_syn_fixture.core` (o mesmo
 do executor de dev); aqui ficam so as cercas do harness e o que vem do volume.
 """
 
@@ -35,7 +35,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, NoEncryption,
 
 from maezo.gateway.human.auth_profile import Definition, Scope
 from maezo.gateway.human.read_profile import parse_model
-from maezo.tools.dev_syn_fixture import core
+from tools.dev_syn_fixture import core
 from maezo.tools.process_business_keys import auth_business_key
 
 from .common import (

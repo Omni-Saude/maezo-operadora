@@ -1,6 +1,6 @@
-"""`python -m maezo.tools.dev_syn_fixture`: a guia SINTETICA do teste do diretor (Onda 7) no DEV.
+"""`python -m tools.dev_syn_fixture`: a guia SINTETICA do teste do diretor (Onda 7) no DEV.
 
-Roda DENTRO da VPC (task avulsa com a imagem da aplicacao ou o sidecar do emissor). Le a
+Roda DENTRO da VPC (pacote `maezo` instalado + checkout em PYTHONPATH, fora da imagem). Le a
 configuracao de `MAEZO_DEV_SYN_FIXTURE_FILE` (JSON `dev-syn-fixture.v1`; segredos so por ARQUIVO,
 nunca por env/override) e faz, idempotente:
 

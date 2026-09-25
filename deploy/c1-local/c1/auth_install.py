@@ -21,7 +21,7 @@ import asyncio
 import asyncpg
 import httpx
 
-from maezo.tools.dev_syn_fixture import core
+from tools.dev_syn_fixture import core
 
 from .common import NATIVE_SCHEMA, OWNER_LOGIN, TENANT, admin_dsn, save_state, step, tls_context
 from .issuer import REST, _deploy

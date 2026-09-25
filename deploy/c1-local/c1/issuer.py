@@ -22,7 +22,7 @@ from urllib.parse import quote
 
 import httpx
 
-from maezo.tools.dev_syn_fixture import core
+from tools.dev_syn_fixture import core
 
 from .common import ADMIN, APPROVER_OUT, ISSUER_LOGIN, ISSUER_WITNESS_LOGIN, MATERIALS, ROOT, TENANT, read_text, state, step, write
 

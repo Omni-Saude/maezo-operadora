@@ -10,11 +10,11 @@ from typing import Any
 
 import httpx
 import pytest
+from tools.dev_syn_fixture import __main__ as dev
+from tools.dev_syn_fixture import core, guards
 
 from maezo.gateway.human.auth_profile import Definition, Scope
 from maezo.gateway.human.read_profile import digest, parse_model
-from maezo.tools.dev_syn_fixture import __main__ as dev
-from maezo.tools.dev_syn_fixture import core, guards
 
 ROOT = Path(__file__).parents[3]
 NOW = datetime(2026, 9, 24, 12, tzinfo=UTC)

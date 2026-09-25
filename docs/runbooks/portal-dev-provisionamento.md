@@ -857,8 +857,9 @@ Decisao do dono (24/09/2026): o dev nao tem intake AUTH real, entao o teste conj
 `SYN-`, procedimento de consulta, valor simbolico, nenhum dado clinico) e so vale na conta
 **203312548462**, ambiente **`dev`**, tenant **`amh`**. Staging e prod: proibido.
 
-`python -m maezo.tools.dev_syn_fixture` (na imagem da aplicacao; o nucleo `maezo.tools.dev_syn_fixture.core`
-e o MESMO que o harness C1 usa em `auth_install`/`auth_fixture`/`issuer`) faz, idempotente:
+`python -m tools.dev_syn_fixture` (ferramenta de operacao em `tools/`, FORA de `src/` e da imagem, como
+`tools/staff_materials`; o nucleo `tools.dev_syn_fixture.core` e o MESMO que o harness C1 usa em
+`auth_install`/`auth_fixture`/`issuer`) faz, idempotente:
 
 1. **B12** — linha `MZO_AUTH_INSTALLATION` do `amh` com qualificacao sintetica apontando a
    SP-OP-AUTH-001 deployada (insere se ausente; se presente, confere o `scope_` e so atualiza a definicao);
@@ -874,7 +875,8 @@ tem de ser `203312548462` e `MAEZO_DEV_SYN_ENVIRONMENT` tem de ser `dev` (explic
 e a ferramenta recusa ANTES de escrever se `mzo_auth_guide_claim` do tenant tiver qualquer guia nao-`SYN-`.
 Recusa sai com codigo 3; falha medida, 1.
 
-**Como rodar** (task avulsa dentro da VPC, com a imagem da aplicacao e uma task role que le os segredos):
+**Como rodar** (dentro da VPC: precisa do pacote `maezo` instalado + o checkout em `PYTHONPATH`, o mesmo
+arranjo do `runner.Dockerfile` do C1 — codigo nao entra na imagem de producao):
 
 ```sh
 # configuracao JSON montada em arquivo (segredos so por ARQUIVO; nunca por containerOverrides, secao 5)
@@ -892,10 +894,14 @@ cat > /run/dev-syn/config.json <<'JSON'
  "result_signer": {"certificate_file": "/run/dev-syn/auth-result.pem", "key_id": "<...>", "issuer": "<...>"}}
 JSON
 MAEZO_DEV_SYN_AWS_ACCOUNT_ID=203312548462 MAEZO_DEV_SYN_ENVIRONMENT=dev \
-MAEZO_DEV_SYN_FIXTURE_FILE=/run/dev-syn/config.json python -m maezo.tools.dev_syn_fixture
+MAEZO_DEV_SYN_FIXTURE_FILE=/run/dev-syn/config.json PYTHONPATH=/repo python -m tools.dev_syn_fixture
 # uma linha JSON: installation, publications, auth_start, escalation{key,groups,tasks}, ok
 ```
 
+- **Pendente (fora deste PR):** a task definition avulsa que monta o checkout e os arquivos acima
+  (a receita da secao 5 nao serve: o pacote passa do teto de 8192 bytes do override). Por que fora de
+  `src/`: as cercas `check_start_process_fence` e `check_effect_chokepoint_fence` proibem, em `src/maezo`,
+  POST cru de start e `httpx.Client` fora das seams — corretas para codigo de produto.
 - O cliente mTLS precisa ser um peer que o truststore do 8443 do engine aceita; `result_signer` e opcional
   (omitir se o signatario de resultado ja estiver designado).
 - Rodar de novo e seguro: instalacao atualizada no lugar, start pulado se `AUTH-amh-SYN-DEVGUIA1` existe,
