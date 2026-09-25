@@ -48,4 +48,4 @@ def test_engineering_cli_exposes_no_root_command() -> None:
         for name in action.choices
     }
     # `assemble` recebe a raiz PUBLICA do aprovador; nenhum comando gera ou assina com ela.
-    assert choices == {"generate", "assemble", "verify", "lock-sql", "native-secret"}
+    assert choices == {"generate", "assemble", "verify", "lock-sql", "native-secret", "login-secrets"}

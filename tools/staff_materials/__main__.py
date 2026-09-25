@@ -1,4 +1,4 @@
-"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql` e `native-secret`.
+"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql`, `native-secret` e `login-secrets`.
 
 Nao ha comando de raiz aqui (ver `approver.py`).
 """
@@ -16,6 +16,7 @@ from maezo.portal.engine.profile import canonicalize
 from .assemble import assemble, bundle_bytes, load_input, read_directories
 from .generate import REPO, generate
 from .lock_sql import render as render_lock_sql
+from .login_secrets import write as write_login_secrets
 from .native_secret import build as build_native_materials
 from .native_secret import load_input as load_native_input
 from .native_secret import write as write_native_materials
@@ -53,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
     native.add_argument("--approver", type=Path, required=True, help="diretorio com installation-root.der")
     native.add_argument("--input", type=Path, required=True, help="staff-materials-native-secret.v1")
     native.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
+    logins = commands.add_parser(
+        "login-secrets", help="senhas dos 4 logins nativos da Onda 3 (um JSON por login)"
+    )
+    logins.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     return parser
 
 
@@ -106,6 +111,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"saida={written.directory}")
             print(f"trust_configuration_digest={public['trust_configuration_digest']}")
             print(f"staff_native_configuration_digest={public['staff_native_configuration_digest']}")
+            return 0
+        if args.command == "login-secrets":
+            written = write_login_secrets(args.out, forbidden=(REPO,))
+            # So caminhos: nenhuma senha vai para a saida.
+            print(f"saida={written.directory}")
+            for path in written.files:
+                print(f"segredo={path.name} (0400; suba com --secret-string file://{path})")
             return 0
         if args.print_manifest_digest:
             if args.manifest is None:
