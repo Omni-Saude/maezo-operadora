@@ -6119,6 +6119,18 @@
             "title": "Audience",
             "type": "string"
           },
+          "capabilities": {
+            "items": {
+              "enum": [
+                "identity",
+                "staff_cases",
+                "human"
+              ],
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
           "csrf_token": {
             "title": "Csrf Token",
             "type": "string"
@@ -6151,7 +6163,8 @@
           "audience",
           "roles",
           "expires_at",
-          "csrf_token"
+          "csrf_token",
+          "capabilities"
         ],
         "title": "SessionDTO",
         "type": "object"
