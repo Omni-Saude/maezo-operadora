@@ -179,8 +179,45 @@ portal = {
     "10.40.41.76/32",
   ]
 
-  // Perfil `identity` puro. O perfil `staff` (fila de casos) exige uma imagem derivada, o
-  // bundle de materiais assinado e a autoridade nativa — nada disso existe hoje, e o
-  // pacote recusa metade disso. Ver a pendencia no runbook.
-  staff = null
+  // Perfil `staff` (Onda 6, 25/09/2026, plano portal-autoridade-nativa-dev). Proveniencia por campo:
+  staff = {
+    // Segredo D-G criado pela OrganizationAccountAccessRole (file://), sob a CMK portal-staff
+    // (kms-native-materials.tf). Pacote `portal-staff-material.v2` montado pelo `assemble` e aceito
+    // pelo `verify` (decode_bundle do portal) com estes mesmos pins.
+    material_secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/staff-materials-R8JeAL"
+    // O VersionId do segredo E o `material_version_id` do pacote (vira MAEZO_PORTAL_STAFF_MATERIAL_VERSION_ID):
+    // publicado com ClientRequestToken = material_version_id. Um VersionId aleatorio derruba o init.
+    material_secret_version_id = "amh-dev-staff-33ebb909c424cdfb8226b4ce28"
+    material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
+    // deploy/portal.Dockerfile sobre o app 8c3a2938 (branch ops/staff-onda4-runtime), CodeBuild
+    // `8229e2ca-portal-staff`; assinado + SBOM pelo supply-chain.yml (run 36182463891).
+    portal_image_digest = "sha256:39f850baa2fdc6da86f4be343fb22efc559160933446e06efbe20e3cfa0a1a42"
+    // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
+    public_manifest_sha256 = "6ffe3a5d692f81b37a38fea066c1f259b80a882d381189019733815a7b1637ad"
+    // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
+    root_key_sha256 = "de41c7a0ebac65b3a90a2405002e5118f18ca76dfd38b7ef52161fb44865942c"
+    // Designacao assinada e instalada (tools.staff_ops rows, releitura byte a byte).
+    designation_sha256 = "86e47bc2e24a92e261acfec69933ea729684b9f63184a43aa7ef8a258434954b"
+    // Log do boot do engine vivo: staff_native_configuration_digest=
+    native_configuration_sha256 = "3eec4f4bef91e8ea63df0627cfcf545c9bb31c895cd12c014bc816fe28ceadc8"
+    scope = {
+      tenant               = "amh"
+      environment          = "dev"
+      engine_name          = "default"
+      database_incarnation = "amh-aurora-hapi-dev:maezo:maezo_native:1"
+    }
+    // Servico `engine-native` do namespace (Cloud Map) -> NLB interno -> Tomcat 8443.
+    native_origin             = "https://engine-native.maezo-operadora-dev.internal"
+    native_server_spki_sha256 = "1c0c35483d42370b32c083e10a524c08ae29960c80668d3735cfb982bd6e15d4"
+    native_schema             = "maezo_native"
+    engine_schema             = "cibseven"
+    // entries[read_requester] e entries[identity_verifier] da designacao assinada.
+    read_key_sha256    = "b0af380e417859db02f6ecc1e271679fca27ab6ef557843985bf6e59aa3d56ac"
+    witness_key_sha256 = "db0e2d5614bdcbea69e6d36b385440e7749d4aa6b5b8448e6bf3911fb9a98887"
+    maximum_seconds    = 10
+    // SG do NLB nativo (output engine_native_nlb_sg_id) e o SG/porta do Aurora compartilhado.
+    native_https_security_group_id    = "sg-07f59839f3e19a8f2"
+    native_database_security_group_id = "sg-0a8364a76c605d782"
+    native_database_port              = 5432
+  }
 }
