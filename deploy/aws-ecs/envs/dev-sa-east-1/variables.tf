@@ -250,6 +250,24 @@ variable "bridge_desired_count" {
   default     = 1
 }
 
+variable "agent_resume_desired_count" {
+  description = <<-EOT
+    Replicas do consumidor de retomada (GAP-XHITL-4: `agents.events.process_completed` ->
+    Helena retoma a conversa com a instrucao do humano). DEFAULT 0, e com 0 nenhum recurso de
+    `service-agent-resume.tf` existe: o modulo RECUSA SUBIR enquanto nao houver custodia de
+    destinatario decidida pelo dono/DPO (o WhatsApp exige o numero; v2 guarda so' o hash keyed).
+    Teto 3 = particoes do topico no registro (`topic_registry.TopicEntry.partitions`); replicas
+    alem disso ficariam ociosas no consumer group.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.agent_resume_desired_count == null ? true : (var.agent_resume_desired_count >= 0 && var.agent_resume_desired_count <= 3)
+    error_message = "agent_resume_desired_count aceita de 0 a 3 (particoes do topico process_completed)."
+  }
+}
+
 variable "helena_zona_phi" {
   description = <<-EOT
     Decisao do dono (09/09/2026): a inferencia da Helena vai para o provedor da

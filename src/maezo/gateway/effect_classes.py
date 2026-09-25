@@ -378,6 +378,15 @@ OPERATIONS: Final[MappingProxyType[str, OperationSpec]] = _operations(
         action_class="consulta_processo",
         autonomy_action="query_process_status",
     ),
+    # GAP-XHITL-4: the history VARIABLE read the agent-resume consumer uses to fetch
+    # `notas_resolucao` by process instance (`transport.py::read_historic_variables`). No MCP tool
+    # id either — an internal read of the same transport, same class and autonomy name as its
+    # two siblings above.
+    OperationSpec(
+        operation="cibseven.read_historic_variables",
+        action_class="consulta_processo",
+        autonomy_action="query_process_status",
+    ),
     # -- DMN (C0). ONE `self._dmn.evaluate` transport call site per graph, behind a private
     # `_evaluate_dmn` helper — rafael `graph.py:546,:548`, marina `:804,:806` (design R-7).
     OperationSpec(

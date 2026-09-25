@@ -168,6 +168,41 @@ class ProcessStatus:
     variables: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class HistoricProcessVariables:
+    """Variaveis de UMA instancia lidas do HISTORICO do motor (GAP-XHITL-4).
+
+    `business_key`/`process_key`/`state` vem de `/history/process-instance/{id}` — e' o que deixa
+    o chamador conferir que a instancia lida e' mesmo a do caso que ele tem em maos, em vez de
+    confiar num id que chegou por Kafka. `variables` traz SO' os nomes pedidos que o historico
+    tinha; um nome ausente fica ausente (nunca `None` inventado).
+    """
+
+    instance_id: str
+    business_key: str
+    process_key: str
+    state: str
+    variables: dict[str, Any] = field(default_factory=dict)
+
+
+@runtime_checkable
+class HistoricVariableReadingTransport(Protocol):
+    """Um `CibSevenTransport` que tambem le variaveis do HISTORICO de uma instancia (GAP-XHITL-4).
+
+    Protocolo SEPARADO pela mesma razao de `HistoryQueryingTransport`: todo implementador e dublê
+    existente continua tipando, e quem precisa da leitura sonda com `isinstance` e falha fechado
+    quando ela nao existe. O historico — e nao `/process-instance/{id}/variables` — porque o leitor
+    tipico (o consumidor de retomada) chega DEPOIS de a instancia ter terminado: o evento
+    `process_completed` e' publicado no ultimo passo antes do fim, e a instancia ativa some logo em
+    seguida. `HistoricVariableInstance` e' gravada pelo motor desde o nivel de historico `audit`
+    e sobrevive ao fim da instancia ate' o `historyTimeToLive` do processo.
+    """
+
+    async def read_historic_variables(
+        self, process_instance_id: str, names: tuple[str, ...]
+    ) -> HistoricProcessVariables | None: ...
+
+
 #: The engine's HISTORIC state tokens for an instance that has ENDED (CIB Seven / Camunda
 #: `/history/process-instance` `state`). Anything else — `ACTIVE`, `SUSPENDED`, a token this
 #: module has never seen, or no token at all — is NOT proof that the instance ended.
@@ -447,6 +482,66 @@ class CibSevenHttpTransport:
                 finished = candidate  # remembered, but only returned if NO live row turns up
         return finished
 
+    async def read_historic_variables(
+        self, process_instance_id: str, names: tuple[str, ...]
+    ) -> HistoricProcessVariables | None:
+        """`HistoricVariableReadingTransport`: le `names` do historico da instancia (GAP-XHITL-4).
+
+        Duas leituras, nenhuma escrita: `/history/process-instance/{id}` (quem e' a instancia —
+        chave de negocio, definicao, estado) e `/history/variable-instance` filtrado pela instancia
+        (os valores). `deserializeValues=false` pelo mesmo motivo de `get_process_status`: um
+        `Json` volta como string e `_from_camunda_var` o decodifica, nunca o bean do Jackson.
+
+        `None` SO' quando o motor responde 404 para a instancia — ela nao existe no historico.
+        Qualquer outra falha levanta `CibSevenError`: uma leitura que nao se completou nao pode ser
+        lida como "nao ha variavel".
+        """
+        try:
+            resp = await self._client.get(f"/history/process-instance/{process_instance_id}")
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            item = resp.json()
+            resp_vars = await self._client.get(
+                "/history/variable-instance",
+                params={
+                    "processInstanceId": process_instance_id,
+                    # So' os nomes pedidos saem do motor: nenhuma outra variavel da instancia
+                    # (varias sao Zona PHI) atravessa a rede para um leitor que nao as pediu.
+                    "variableNameIn": ",".join(names),
+                    "deserializeValues": "false",
+                },
+            )
+            resp_vars.raise_for_status()
+            rows = resp_vars.json() or []
+        except httpx.HTTPStatusError as exc:
+            raise CibSevenError(
+                f"CIB Seven history variable read failed [{exc.response.status_code}] for "
+                f"process instance `{process_instance_id}`"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise CibSevenError(
+                f"CIB Seven unreachable reading history variables of `{process_instance_id}`: {exc}"
+            ) from exc
+        wanted = set(names)
+        variables: dict[str, Any] = {}
+        try:
+            for row in rows:
+                name = str(row.get("name", ""))
+                if name in wanted and name not in variables:
+                    variables[name] = _from_camunda_var(row)
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise CibSevenVariableDecodeError(
+                f"CIB Seven historic variable of `{process_instance_id}` could not be decoded"
+            ) from exc
+        return HistoricProcessVariables(
+            instance_id=str(item.get("id", process_instance_id)),
+            business_key=str(item.get("businessKey") or ""),
+            process_key=str(item.get("processDefinitionKey") or ""),
+            state=str(item.get("state") or "UNKNOWN"),
+            variables=variables,
+        )
+
     async def start_process_instance(
         self,
         process_key: str,
@@ -599,6 +694,28 @@ class FakeCibSevenTransport:
         #: Monotonic per-key start counter — NOT reset by `seed_instance`, so each generation this
         #: fake starts gets its own id and a multi-generation test can tell them apart.
         self._generations: dict[str, int] = {}
+        #: GAP-XHITL-4: o historico de variaveis por INSTANCIA (`read_historic_variables`), separado
+        #: de `_variables` (que e' por business key e alimenta `get_process_status`).
+        self._historic_variables: dict[str, HistoricProcessVariables] = {}
+
+    def seed_historic_variables(self, historic: HistoricProcessVariables) -> None:
+        """Pre-carrega o que o historico do motor devolveria para `historic.instance_id`."""
+        self._historic_variables[historic.instance_id] = historic
+
+    async def read_historic_variables(
+        self, process_instance_id: str, names: tuple[str, ...]
+    ) -> HistoricProcessVariables | None:
+        """Dublê de `CibSevenHttpTransport.read_historic_variables`: so' os nomes pedidos voltam."""
+        seeded = self._historic_variables.get(process_instance_id)
+        if seeded is None:
+            return None
+        return HistoricProcessVariables(
+            instance_id=seeded.instance_id,
+            business_key=seeded.business_key,
+            process_key=seeded.process_key,
+            state=seeded.state,
+            variables={k: v for k, v in seeded.variables.items() if k in names},
+        )
 
     def seed_instance(
         self,

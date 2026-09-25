@@ -1429,6 +1429,17 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "[RASCUNHO - redacao pendente de produto] Recebemos o retorno sobre o seu atendimento. Se quiser continuar, responda esta mensagem. Se voce estiver passando por uma emergencia, procure o servico de emergencia mais proximo.",
+      "rota": "retomada",
+      "start_aconteceu": false,
+      "origem": "constante RETOMADA_RECUSADA_PLACEHOLDER (GAP-XHITL-4, placeholder de produto)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

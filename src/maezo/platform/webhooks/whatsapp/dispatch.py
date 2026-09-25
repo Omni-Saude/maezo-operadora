@@ -69,6 +69,17 @@ carries a raw phone number — only a `wa:{tenant}:hk1_{phone_hash}` conversatio
 needed — replying over the WhatsApp Cloud API — is handled by `_ScopedWhatsAppSender`, a
 per-turn closure over the raw number THIS SAME request already received; it is never written
 into `HelenaState`, never logged, and never persisted past this one dispatch call.
+
+RETOMADA POS-HUMANO (GAP-XHITL-4). `HelenaDispatcher.resume` is the SECOND way a turn is injected:
+the agent-resume consumer (`platform/integrations/agent_resume.py`) calls it after a human
+concluded SP-OP-ESCALATION-001 as `devolvido_agente`. Same shape as `dispatch` — the same graph
+build, the same checkpoint thread (`wa:{tenant}:{phone_hash}` IS the `conversation_id` the event
+carries), the same gated per-turn sender — with ONE difference the custody note above makes
+unavoidable: there is no inbound request, so there is no raw number in hand. The caller must pass
+one, and `resume` REFUSES it unless its keyed hash is the `phone_hash` embedded in the
+conversation id (a resolver bug can never redirect a human's instructions to another person).
+Where that number comes from is an OPEN custody decision (ADR-0006: no reversible phone vault
+exists) — see `agent_resume.RecipientResolver`.
 """
 
 from __future__ import annotations
@@ -80,7 +91,13 @@ from typing import Any, Final
 
 import structlog
 
-from maezo.agents.helena.graph import HelenaState, WhatsAppSender, build, new_helena_state
+from maezo.agents.helena.graph import (
+    HelenaState,
+    WhatsAppSender,
+    build,
+    new_helena_resume_state,
+    new_helena_state,
+)
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
@@ -481,6 +498,102 @@ class HelenaDispatcher:
             "aviso_suprimido": False,
         }
 
+    def _compile_turn_graph(self, sender: WhatsAppSender) -> tuple[Any, Any]:
+        """Build + compile Helena's graph for ONE turn. Returns `(compiled, thread_saver)`.
+
+        Shared by `dispatch` and `resume` so the two entry doors can never drift in which
+        dependencies, agent version or memory flag the graph is built with.
+        """
+        graph = build(
+            {
+                "inference": self.inference,
+                "dmn": self.dmn,
+                "cibseven": self.cibseven,
+                "whatsapp": sender,
+                "audit_sink": self.audit_sink,
+                "agent_version": "helena@v0",
+                # MEMORIA CLINICA (Frente 2.1). Passada EXPLICITAMENTE em vez de deixada no default
+                # do `build`: o despachante e' quem sabe se ha' checkpointer, e uma memoria ligada
+                # sem estado duravel nao e' um erro, mas tambem nao lembra nada — deixar a decisao
+                # visivel aqui e' o que permite ler, num lugar so', por que a Helena lembrou (ou
+                # nao) num ambiente.
+                "memoria_clinica_enabled": self.memoria_clinica_enabled,
+            }
+        )
+        saver = self.checkpointer.saver if self.checkpointer is not None else None
+        return graph.compile(checkpointer=saver), saver
+
+    async def resume(
+        self,
+        *,
+        conversation_id: str,
+        instrucoes: str,
+        raw_to: str,
+        resume_ref: str,
+    ) -> dict[str, Any]:
+        """Run ONE Helena RESUME turn (GAP-XHITL-4) under the conversation's checkpoint thread.
+
+        `conversation_id` is the `wa:{tenant}:{phone_hash}` the `process_completed` event carries
+        (the same id `dispatch` derived when the escalation started). `instrucoes` is the human's
+        `notas_resolucao`, read by the caller from the engine HISTORY — untrusted content that the
+        graph's `resume` node fences before anything is sent. `raw_to` is the recipient number,
+        REFUSED unless `hash_phone(raw_to)` equals the conversation's `phone_hash`. `resume_ref` is
+        a stable per-case reference (the escalation's process instance id): it seeds the OUTBOUND
+        idempotency key, so a redelivered event does not send the instructions twice.
+
+        Raises:
+            ValueError: foreign/malformed conversation id, or a recipient that does not match it.
+            RetomadaEnvioFalhouError: the WhatsApp send failed (the caller must NOT ack).
+        """
+        prefix = f"wa:{self.tenant_id}:"
+        phone_hash = conversation_id[len(prefix) :] if conversation_id.startswith(prefix) else ""
+        if not phone_hash or ":" in phone_hash:
+            raise ValueError(
+                "helena resume: conversation_id is not a WhatsApp conversation of this tenant — "
+                "refusing to resume a thread this dispatcher does not own"
+            )
+        if hash_phone(raw_to, self.tenant_id, self.pseudonymizer) != phone_hash:
+            raise ValueError(
+                "helena resume: recipient does not match the conversation's keyed phone hash — "
+                "refusing to send a human's instructions to an unverified destination"
+            )
+        sender = self._gated_scoped_sender(
+            raw_to=raw_to,
+            phone_hash=phone_hash,
+            conversation_id=conversation_id,
+            idempotency_key_for=self._outbound_key_factory(f"resume:{resume_ref}"),
+        )
+        compiled, saver = self._compile_turn_graph(sender)
+        thread_config = checkpoint_thread_config(conversation_id) if saver is not None else None
+        initial_state: HelenaState = new_helena_resume_state(
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            canal="whatsapp",
+            instrucoes=instrucoes,
+        )
+        logger.info(
+            "helena_resume_turn_started",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            checkpointed=saver is not None,
+        )
+        try:
+            result = await compiled.ainvoke(initial_state, thread_config)
+        except Exception as exc:
+            # Same counter as `dispatch` (ALERTS-WITHOUT-METRICS-a): a resume turn is a Helena turn.
+            from maezo.platform.observability import record_agent_error
+
+            record_agent_error(agent="helena", error_type=classify_agent_error_type(exc))
+            raise
+        logger.info(
+            "helena_resume_turn_completed",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            desfecho=result.get("desfecho"),
+            error=result.get("error"),
+        )
+        return dict(result)
+
     async def dispatch(self, message: InboundMessage) -> dict[str, Any]:
         """Run ONE complete Helena turn (receive..respond) for `message`.
 
@@ -527,29 +640,12 @@ class HelenaDispatcher:
             conversation_id=conversation_id,
             idempotency_key_for=self._outbound_key_factory(message.message_id),
         )
-        graph = build(
-            {
-                "inference": self.inference,
-                "dmn": self.dmn,
-                "cibseven": self.cibseven,
-                "whatsapp": sender,
-                "audit_sink": self.audit_sink,
-                "agent_version": "helena@v0",
-                # MEMORIA CLINICA (Frente 2.1). Passada EXPLICITAMENTE em vez de deixada no default
-                # do `build`: o despachante e' quem sabe se ha' checkpointer, e uma memoria ligada
-                # sem estado duravel nao e' um erro, mas tambem nao lembra nada — deixar a decisao
-                # visivel aqui e' o que permite ler, num lugar so', por que a Helena lembrou (ou
-                # nao) num ambiente.
-                "memoria_clinica_enabled": self.memoria_clinica_enabled,
-            }
-        )
         # `conversation_id` (a KEYED `wa:{tenant}:hk1_{hmac}`) IS the checkpoint thread id — it
         # carries no raw phone/CPF AND no reversible unkeyed hash, so `checkpoint_thread_config`
         # (which fail-closes unless the id embeds the `hk1_` keyed-pseudonym marker) accepts it and
         # the PHI-bearing `checkpoint_blobs` rows keyed by it stay LGPD-safe. `saver=None` compiles
         # stateless AND yields a None config (the thread id is only meaningful with a saver attached).
-        saver = self.checkpointer.saver if self.checkpointer is not None else None
-        compiled = graph.compile(checkpointer=saver)
+        compiled, saver = self._compile_turn_graph(sender)
         thread_config = checkpoint_thread_config(conversation_id) if saver is not None else None
         # INPUT-BOUNDARY GATE (T1.11): assemble state through the typed constructor, NOT an inline
         # dict literal. `new_helena_state`'s explicit keyword-only signature makes it structurally

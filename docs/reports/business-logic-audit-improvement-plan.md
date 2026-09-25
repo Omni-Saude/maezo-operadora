@@ -104,7 +104,7 @@ Dedup notes: cross-process findings keep their `GAP-X*-N` id with **Process = CR
 | GAP-CRED-3 | CRED-001 | high | bl | No `docs/processes/test-specs/SP-OP-CRED-001.md` → mandatory quadruple broken (sibling FRAUDE has one) | — | m |
 | GAP-ADEQ-2 | ADEQUACAO-001 | high | bl | No `test-specs/SP-OP-ADEQUACAO-001.md`; no real-engine test verifies End_CompromissoFallbackHumano-only-via-human invariant | ADR-0018 | m |
 | GAP-ADEQ-3 | ADEQUACAO-001 | high | bl | Contract declares `decisao_coordenacao`; GW_DecisaoRemediacao reads only `decisao_remediacao` → coordinator disposition never routes | — | m |
-| GAP-ESC-1 | ESCALATION-001 | high | bl | `agents.events.process_completed` published on devolvido_agente but no consumer exists → agent conversation never resumed (see GAP-XHITL-4) | ADR-0003 | m |
+| GAP-ESC-1 | ESCALATION-001 | high | bl | `agents.events.process_completed` published on devolvido_agente but no consumer exists → agent conversation never resumed (see GAP-XHITL-4). Consumer side landed with GAP-XHITL-4 (2026-09-25) | ADR-0003 | m |
 | GAP-PAGTO-3 | PAGTO-001 | high | impl | faixa→min-approver-tier escada hardcoded as Python dict `_FAIXA_TIER_MINIMO`, outside DMN governance (see GAP-XHITL-2) | ADR-0012 | m |
 | GAP-PAGTO-8 | PAGTO-001 | high | bl | No `test-specs/SP-OP-PAGTO-001.md` → mandatory quadruple broken | — | m |
 | GAP-PROG-1 | PROGRAMA-001 | high | impl | stratify_risk/build_care_plan never invoke Valentina A2A (care.stratify/care.enroll); workers echo inputs | ADR-0012 | m |
@@ -121,7 +121,7 @@ Dedup notes: cross-process findings keep their `GAP-X*-N` id with **Process = CR
 | GAP-CONTAS-4 | CONTAS-001 | high | bl | BT_SlaTriagem timers anchored to UT creation, not `data_recebimento_lote` (contract âncora); the anchor var is never read | — | l |
 | GAP-FRAUDE-3 | FRAUDE-001 | high | bl | 7 `fraude_scoring/*.dmn` tables have no real consumer; `score_indicators`/`gather_evidence` pass-through, no mcp-dmn call | ADR-0012 | l |
 | GAP-NIP-1 | NIP-001 | high | bl | All NIP boundary timers anchored to activity-attach, not `data_recebimento_nip_iso` (contract mandate); anchor never read | — | l |
-| GAP-TRIAGE-4 | HELENA-TRIAGE | high | impl | ESCALATION End_DevolvidoAoAgente publishes `agents.events.process_completed`, no consumer → Helena never resumes (see GAP-XHITL-4) | ADR-0003/0015 | l |
+| GAP-TRIAGE-4 | HELENA-TRIAGE | high | impl | ESCALATION End_DevolvidoAoAgente publishes `agents.events.process_completed`, no consumer → Helena never resumes (see GAP-XHITL-4). **Code closed by GAP-XHITL-4** (Helena `resume` door + consumer); live delivery blocked on recipient custody | ADR-0003/0015 | l |
 
 ### Medium (41)
 
@@ -167,7 +167,7 @@ Dedup notes: cross-process findings keep their `GAP-X*-N` id with **Process = CR
 | GAP-XHITL-3 | CROSS | medium | bl | Coverage-denial effect is L0-hard authorization_denial in AUTH but lowerable L1 nip_response in NIP (extends GAP-NIP-3) | ADR-0008 | m |
 | GAP-XOBS-6 | CROSS | medium | bl | console hardcodes `_AUTH_CANDIDATE_GROUPS`; pending-task gauge/alert blind to 14 other processes' candidate groups | ADR-0010 | m |
 | GAP-ADEQ-4 | ADEQUACAO-001 | medium | impl | `prepare_remediation_dossier` claims Andre A2A analytics.population but delegation maps it to PAGTO-only pagto_dossier flow | ADR-0003 | m |
-| GAP-XHITL-4 | CROSS | medium | impl | `agents.events.process_completed` (universal agent-resume leg) has zero subscribers → escalation is one-way for all 8 agents (generalizes GAP-ESC-1/GAP-TRIAGE-4) | ADR-0003/0015 | l |
+| GAP-XHITL-4 | CROSS | medium | impl | `agents.events.process_completed` (universal agent-resume leg) has zero subscribers → escalation is one-way for all 8 agents (generalizes GAP-ESC-1/GAP-TRIAGE-4). **Consumer implemented (2026-09-25):** `platform/integrations/agent_resume.py` + Helena `resume` entry; ECS service `agent-resume` desired_count 0 until recipient custody (owner/DPO) exists; other agents' resume doors still open | ADR-0003/0015 | l |
 
 ### Low (18)
 

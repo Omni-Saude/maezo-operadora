@@ -47,12 +47,17 @@ from typing import TYPE_CHECKING, Any
 from maezo.gateway.seams._base import GatedSeam, SeamContext, gate
 
 if TYPE_CHECKING:  # pragma: no cover - types only; the runtime import stays branch-local
-    from maezo.tools.mcp_cibseven.transport import ProcessInstance, ProcessStatus
+    from maezo.tools.mcp_cibseven.transport import (
+        HistoricProcessVariables,
+        ProcessInstance,
+        ProcessStatus,
+    )
 
 _OP_FIND_ACTIVE = "cibseven.find_active_instance"
 _OP_FIND_ANY = "cibseven.find_any_instance"
 _OP_CORRELATE = "cibseven.correlate_message"
 _OP_STATUS = "cibseven.get_process_status"
+_OP_READ_HISTORIC_VARIABLES = "cibseven.read_historic_variables"
 
 
 class GatedCibSevenTransport(GatedSeam):
@@ -125,11 +130,36 @@ class GatedHistoryQueryingCibSevenTransport(GatedCibSevenTransport):
         return found
 
 
+class GatedHistoryReadingCibSevenTransport(GatedHistoryQueryingCibSevenTransport):
+    """Adds `read_historic_variables` (GAP-XHITL-4) — built ONLY when the inner has BOTH legs.
+
+    Same rule as the parent: the gated object exposes a history read only when the inner really
+    has it, so a caller's `isinstance(..., HistoricVariableReadingTransport)` probe stays honest.
+    The read is a C0 `consulta_processo` operation — it moves nothing in the engine.
+    """
+
+    __slots__ = ()
+
+    async def read_historic_variables(
+        self, process_instance_id: str, names: tuple[str, ...]
+    ) -> HistoricProcessVariables | None:
+        await gate(self._seam, _OP_READ_HISTORIC_VARIABLES)
+        found: HistoricProcessVariables | None = await self._inner.read_historic_variables(
+            process_instance_id, names
+        )
+        return found
+
+
 def gate_cibseven(inner: Any, seam: SeamContext) -> GatedCibSevenTransport:
-    """The ONLY sanctioned way to build one. Preserves the inner's `HistoryQueryingTransport`-ness."""
-    from maezo.tools.mcp_cibseven.transport import HistoryQueryingTransport
+    """The ONLY sanctioned way to build one. Preserves the inner's history-reading Protocols."""
+    from maezo.tools.mcp_cibseven.transport import (
+        HistoricVariableReadingTransport,
+        HistoryQueryingTransport,
+    )
 
     if isinstance(inner, HistoryQueryingTransport):
+        if isinstance(inner, HistoricVariableReadingTransport):
+            return GatedHistoryReadingCibSevenTransport(inner, seam=seam)
         return GatedHistoryQueryingCibSevenTransport(inner, seam=seam)
     return GatedCibSevenTransport(inner, seam=seam)
 
@@ -137,5 +167,6 @@ def gate_cibseven(inner: Any, seam: SeamContext) -> GatedCibSevenTransport:
 __all__ = [
     "GatedCibSevenTransport",
     "GatedHistoryQueryingCibSevenTransport",
+    "GatedHistoryReadingCibSevenTransport",
     "gate_cibseven",
 ]

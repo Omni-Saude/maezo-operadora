@@ -16,6 +16,7 @@ autonomia L3 `triage_and_routing`/`scheduling`/`informational_response` (ADR-000
 | 5 | `agendamento` | Agenda/encaminha conforme L3 `scheduling` | (Phase 0: orientacao; tool de agenda em fase posterior) |
 | 6 | `encerramento` | Resume, registra memoria episodica, NPS hook | `mcp-memory.read_write`, `mcp-whatsapp.send_message` |
 | E | `escalado` | Conversa suspensa aguardando humano; Helena so retoma com `agents.events.process_completed` (`resultado=devolvido_agente`) | `mcp-cibseven.start_process` |
+| R | `retomada` | (GAP-XHITL-4) O humano devolveu o caso: o consumidor `platform/integrations/agent_resume.py` le `notas_resolucao` do HISTORICO do motor e invoca a porta `resume` do grafo sob o MESMO thread de checkpoint da conversa. A instrucao passa pela cerca de saida (`motivo_de_recusa_da_retomada`) e sai pelo WhatsApp; desfecho proprio (`retomada_enviada` / `retomada_recusada` / `retomada_falha_envio` / `retomada_sem_instrucoes`) | `mcp-whatsapp.send_message` |
 
 > **Helena NAO le FHIR.** Os estados 2 e 4 listavam `mcp-fhir.read_patient_summary`; a coluna
 > foi corrigida pelo WP FHIR-TOOL-SURFACE-PARITY (NEW-09/GAP-TRIAGE-5). Nenhum no de
@@ -50,4 +51,14 @@ Payload completo do start: contrato em `docs/processes/contracts/SP-OP-ESCALATIO
 2. Enquanto `escalado`, Helena nao responde conteudo — apenas confirma que um humano
    assumira ("ja estou chamando alguem da equipe") e mantem o canal aberto.
 3. Toda transicao de estado grava checkpoint (ADR-0002); toda tool call passa pelo PEP.
+3a. **Saida de `escalado` (GAP-XHITL-4, conferido no codigo).** O grafo NAO guarda um marcador
+    de "conversa suspensa": `escalado` e' a instancia viva de SP-OP-ESCALATION-001 no motor, e
+    todo turno do beneficiario ja' zera as saidas do escalonamento em `receive`
+    (`escalation_*`, `start_desfecho`). O que SOBREVIVIA ao escalonamento e precisava ser limpo
+    e' a memoria de COLETA (`coleta_pendente`/`coleta_rodadas`/`coleta_contexto`): uma pergunta
+    deixada em aberto antes do humano seria lida como respondida pela proxima mensagem. A porta
+    `resume` zera essa memoria e preserva so' o que continua verdadeiro depois do humano
+    (`apresentacao_ja_feita`, `memoria_clinica`). A origem do turno (`origem_do_turno`) e'
+    reescrita por todo construtor de entrada, entao uma retomada que falhe no meio nao desvia o
+    turno seguinte do beneficiario.
 4. KPIs (agent.yaml): `first_response_p95 < 15s`, `nps > 75`, `escalation_rate` rastreada.

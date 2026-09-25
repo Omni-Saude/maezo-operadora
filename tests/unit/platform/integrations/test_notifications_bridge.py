@@ -1102,9 +1102,17 @@ def test_malformed_error_codes_are_all_in_the_closed_vocabulary() -> None:
     # (`notifications_inbox.parse_team_notice`) which quarantines through this same shunt. It
     # lives in this closed set for exactly the reason the set exists: it is a bounded code, and
     # this set is what bounds the `reason` label for BOTH consumers of the shared topic.
+    # GAP-XHITL-4 added the six `resume_*` codes, raised by the agent-resume consumer
+    # (`agent_resume.py`), the third daemon quarantining through this same shunt.
     assert {
         REASON_INVALID_JSON,
         REASON_NOT_A_JSON_OBJECT,
         REASON_MISSING_TYPE,
         REASON_MISSING_ESCALATION_ANCHOR,
+        "resume_missing_anchor",
+        "resume_anchor_mismatch",
+        "resume_unknown_resultado",
+        "resume_phi_in_event",
+        "resume_history_mismatch",
+        "resume_recipient_unavailable",
     } == BRIDGE_DLQ_REASONS

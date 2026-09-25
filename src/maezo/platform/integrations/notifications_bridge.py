@@ -194,6 +194,26 @@ REASON_MISSING_TYPE: Final[str] = "missing_type"
 #: closed vocabulary (rather than in the inbox module) because both daemons quarantine through
 #: the same `BridgeDlqShunt`, and this set is what bounds the `reason` metric label for both.
 REASON_MISSING_ESCALATION_ANCHOR: Final[str] = "missing_escalation_anchor"
+#: GAP-XHITL-4 — raised by the THIRD daemon that quarantines through `BridgeDlqShunt`, the
+#: agent-resume consumer (`agent_resume.py`, topic `agents.events.process_completed`). Same reason
+#: as the inbox code above for living HERE: this set is what bounds the `reason` label for every
+#: consumer of the shunt. Each one is DETERMINISTIC for the same bytes (retry cannot help):
+#:   * `resume_missing_anchor`     — no usable tenant/agent/conversation/business-key/instance id;
+#:   * `resume_anchor_mismatch`    — `_business_key` is not `ESC-{tenant_id}-{conversation_id}`, or
+#:                                   the event names another tenant than this daemon's;
+#:   * `resume_unknown_resultado`  — `resultado` outside the contract's three outcomes;
+#:   * `resume_phi_in_event`       — the event CARRIES a Zona PHI variable (e.g. `notas_resolucao`,
+#:                                   ADR-0006): it is refused and its content is never read;
+#:   * `resume_history_mismatch`   — the engine history does not back the event (instance absent,
+#:                                   another business key/process, `resultado` differs, or no
+#:                                   `notas_resolucao` to relay);
+#:   * `resume_recipient_unavailable` — the recipient custody has no number for the conversation.
+REASON_RESUME_MISSING_ANCHOR: Final[str] = "resume_missing_anchor"
+REASON_RESUME_ANCHOR_MISMATCH: Final[str] = "resume_anchor_mismatch"
+REASON_RESUME_UNKNOWN_RESULTADO: Final[str] = "resume_unknown_resultado"
+REASON_RESUME_PHI_IN_EVENT: Final[str] = "resume_phi_in_event"
+REASON_RESUME_HISTORY_MISMATCH: Final[str] = "resume_history_mismatch"
+REASON_RESUME_RECIPIENT_UNAVAILABLE: Final[str] = "resume_recipient_unavailable"
 
 BRIDGE_DLQ_REASONS: Final[frozenset[str]] = frozenset(
     {
@@ -201,6 +221,12 @@ BRIDGE_DLQ_REASONS: Final[frozenset[str]] = frozenset(
         REASON_NOT_A_JSON_OBJECT,
         REASON_MISSING_TYPE,
         REASON_MISSING_ESCALATION_ANCHOR,
+        REASON_RESUME_MISSING_ANCHOR,
+        REASON_RESUME_ANCHOR_MISMATCH,
+        REASON_RESUME_UNKNOWN_RESULTADO,
+        REASON_RESUME_PHI_IN_EVENT,
+        REASON_RESUME_HISTORY_MISMATCH,
+        REASON_RESUME_RECIPIENT_UNAVAILABLE,
     }
 )
 
