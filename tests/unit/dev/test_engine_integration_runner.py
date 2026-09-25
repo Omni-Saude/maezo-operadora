@@ -42,6 +42,8 @@ ROOT_FIXTURE_SUITES = [
     "tests/integration/test_portal_engine_d7_package.py",
     "tests/integration/test_portal_engine_package.py",
     "tests/integration/test_portal_engine_reads.py",
+    # B5 (Onda 3): o instalador cria papeis de CLUSTER com nomes fixos; so em Postgres descartavel.
+    "tests/integration/test_staff_installer_live_pg.py",
 ]
 
 
