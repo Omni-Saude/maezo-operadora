@@ -1,4 +1,4 @@
-# Provedor Q2 instalado (`PortalReadTrust.Providers`) — T1.7a + T1.7b
+# Provedor Q2 instalado (`PortalReadTrust.Providers`) — T1.7a + T1.7b + H1
 
 Desenho: `docs/plans/portal-autoridade-nativa-dev.md` §3.1. Este módulo é o "separately qualified
 provider package" de `src/maezo/portal/engine/README.md`: o JAR
@@ -9,8 +9,9 @@ do `deploy/cibseven/Dockerfile.human` compila este módulo e o copia para
 **Escopo recortado ao staff.** `acquire`, `Admission.requireCurrent`, `verifySource`
 (`membership`, `catalog-designate`), `verifyCatalog` e `continuity` (T1.7a), e
 `qualifyPublication` para `membership`, `catalog-designate`, `catalog-revoke` e `revoke-key`
-(T1.7b, seção abaixo). `verifyIdentityPolicy`, `verifyClassification` e a publicação `resource`
-recusam sempre (Onda 8). Toda recusa é `503 READ_DEPENDENCY_UNAVAILABLE`.
+(T1.7b, seção abaixo). Com o bloco `human` da admissão (H1, D-N, seção "Tarefas humanas"),
+`verifyIdentityPolicy`, `verifyClassification` e a publicação `resource` verificam; sem ele
+(a admissão staff-only), recusam sempre. Toda recusa é `503 READ_DEPENDENCY_UNAVAILABLE`.
 
 ## Registro
 
@@ -105,7 +106,8 @@ podendo ser revogada ou superada).
 | `membership` | o payload **é** a projeção da linha viva de `<source_schema>.portal_memberships` (abaixo); `source_revision` = revisão da linha; `source_digest = SHA-256(JCS(payload))`; `receipt_ref = "portal-identity:" + tenant + ":membership:" + principal_ref + "@" + revisão`; `valid_until = observed_at + observation_seconds` (contrato com a T1.5); o `publisher_ref` da configuração é o publicador de `membership` admitido |
 | `catalog-designate` | `catalog_ref`, `catalog_digest` e `source.publisher_ref` iguais aos admitidos |
 | `catalog-revoke`, `revoke-key` | nada além do pedido qualificado: só reduzem autoridade, e o envelope já foi verificado com a chave de publicação |
-| `resource`, qualquer outro | recusa (Onda 8) |
+| `resource` | só com o bloco `human` (seção "Tarefas humanas", H1) |
+| qualquer outro | recusa |
 
 **A fonte viva (`MembershipSourceObserver`).** A cada `membership`, o provedor relê a linha pelo
 login observador (`portal_read_source_amh`), com o SQL de `src/maezo/portal/api/postgres.py`
@@ -142,6 +144,64 @@ passa pelo caminho real do publicador Python.
 qualificam aqui, mas o `verifySource` da T1.7a só admite publicador para `membership` e
 `catalog-designate` (`AdmissionRecord.SOURCE_KINDS`); ponta a ponta as duas revogações ainda
 recusam. Admiti-las é mudança do formato da admissão (T1.3 `sign-admission`), não desta tarefa.
+
+## Tarefas humanas — H1 (D-N)
+
+**Admissão.** `portal-read-admission.v1` ganha UMA chave opcional, `human` (sem ela o registro é o
+da T1.7a, byte a byte). Ela e o publicador `kind=resource` vêm juntos ou não vêm: um sem o outro é
+recusado (Java `AdmissionRecord`, Python `approver._admission_shape`, espelhos).
+
+```
+"human": {"entries": [{                       // 1..256, (process_definition_id, task_definition_key) únicos
+  "process_definition_id": ref, "task_definition_key": ref,
+  "classification": {"classification_ref", "classification_digest", "policy_ref", "policy_digest",
+                     "projection": "full_task_detail.v1", "fields_digest"},
+  "identity_policy": {"artifact_ref", "digest"},  // = opaque_task_id_policy da entrada do catálogo
+  "task_id_format": "decimal" | "uuid",          // medido no C1: a imagem Dockerfile.human gera UUID; o standalone do IT, decimal
+  "candidate_groups": [ref, ...],                // 1..64, sem `${`/`#{` (o padrão de ref já recusa)
+  "user_candidates": "refused" | "native_principal"}]}
+```
+
+| método | o que exige (tudo síncrono, sem I/O, depois do `requireCurrent`) |
+|---|---|
+| `verifyClassification(c, entry)` | entrada admitida para `(entry.process_definition_id, entry.task_definition_key)`; `c` com as 7 chaves fechadas; os 6 campos da classificação **iguais** aos admitidos; `c.valid_until` ≤ `valid_until` da admissão; `entry.disclosure_policy` = `{policy_ref, policy_digest}` admitidos |
+| `verifyIdentityPolicy(policy, task, links)` | entrada admitida para a tarefa; `policy` = `identity_policy` admitida; `task_id` no formato admitido; `tenant_id` = tenant admitido; `active`; `assignee_ref` nulo ou ref; cada link `candidate` da MESMA tarefa e tenant, com grupo dentro de `candidate_groups` **ou** usuário só se `native_principal` (o engine resolve usuário e assignee em `MZO_HUMAN_PRINCIPAL`) |
+| `qualifyPublication` `resource` | admissão com `human` e publicador `resource` = `source.publisher_ref`; a classificação do payload é a admitida de alguma entrada daquela definição (a da tarefa real é conferida de novo pelo engine, no comando, por `verifyClassification`) |
+| `verify` `resource` | o contrato abaixo, derivado do payload |
+| `verifySource("resource", …)` | publicador e prefixo admitidos (igual aos outros kinds) |
+
+**Contrato de publicação `resource` (H2 publica por ele).** Vetor compartilhado:
+`tests/fixtures/portal_read/jcs-resource-vector.json` (payload = `JCS(wire(ResourceProjection))`,
+gerado pelo caminho real do Python; lido por `HumanAdmissionTest` e `ResourceQualificationJarIT`).
+- `source_ref = <source_ref_prefix admitido> + task_id` (no C1: `portal-resource:amh:task:<id>`);
+- `source_revision = resource_revision`;
+- `source_digest = SHA-256(JCS(payload))` (o payload ASSINADO; o engine grava `observed_task_revision`
+  pós-flush, por isso o recibo de `resource` não repete esse digest);
+- `receipt_ref = "portal-resource:" + tenant + ":task:" + task_id + "@" + resource_revision`;
+- `valid_until = observed_at + observation_seconds` (como a membership: a fonte é republicada);
+- `evidence_ref` e cada `positive_grants[].decision_receipt_ref` **únicos por tarefa**: os tetos de
+  continuidade da leitura são indexados por (kind, ref, revisão, digest), e dois recursos com o
+  mesmo ref e `observed_at` distintos numa fila recusam a leitura inteira (medido no IT).
+
+**Mudança no engine (mesmo PR).** `PortalReadCommand.state` indexava o teto `classification` pelo
+`classification_ref`, que é o MESMO para toda tarefa de uma entrada: duas tarefas da fila, com
+recursos publicados em instantes distintos, colidiam e `discover` dava 503. O teto passa a ser a
+classificação observada através do recurso da tarefa (`source_ref = resource_ref`). Grupos A/B do
+`ENGINE-IT.md` (`PortalReadEngineIT`, `PortalReadPublisherEngineIT`, `StaffCaseReadEngineIT`) verdes.
+
+**`READ_HISTORY`.** Nenhum caminho Q2 humano consulta a autorização nativa do engine: a leitura de
+tarefa, a publicação `resource` e o `staff_current_task.v1` leem `ACT_RU_*` por SQL dentro do
+comando (`PortalReadStore.tuple`, `StaffCaseStore.taskRows`), e `READ_HISTORY` só é exigido pelo
+D7 (`WorkloadPlugin`, `NativeAdmissionV2`). Não há grant a conceder no Java; se o dev pedir um, é
+decisão de instalação (T1.4/H4), não do provedor.
+
+**Testes H1.** `HumanAdmissionTest` (vetor, bloco fechado, identidade, classificação),
+`ResourceQualificationJarIT` (provedor contra a linha real: contrato derivado, classificação não
+admitida, admissão staff-only recusando, revogação), `HumanTaskReadJarIT` (engine CIB Seven real +
+PG 17 + provedor do JAR + BPMN/DMN reais da escalação: a tarefa aparece na fila `team` do grupo da DMN
+e não na do outro grupo, embora o recurso conceda os dois; `task` passa pelas duas verificações;
+classificação não admitida e admissão staff-only recusam e não mudam nada; grupos fora do admitido
+recusam a leitura).
 
 ## `portal-read-continuity-keys.v1` (arquivo de chaves, segredo)
 

@@ -434,7 +434,11 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
         time(resource.get("valid_until")));
     ceiling("evidence", str(evidence, "evidence_ref"), str(evidence, "evidence_revision"),
         str(evidence, "evidence_digest"), time(source.get("observed_at")), evidenceUntil);
-    ceiling("classification", str(classification, "classification_ref"),
+    // H1: one classification is shared by every task of its catalog entry, each observed through
+    // its OWN resource publication. Keyed by the classification ref alone, two tasks of a queue
+    // collide on the same ceiling id with different observed_at and the whole read refuses; the
+    // ceiling is therefore the classification AS OBSERVED THROUGH this resource.
+    ceiling("classification", str(resource, "resource_ref"),
         str(resource, "resource_revision"), str(classification, "classification_digest"),
         time(source.get("observed_at")), time(classification.get("valid_until")));
     var state = record("task_row", row, "candidate_links", links, "designation", designation(cat),

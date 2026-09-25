@@ -181,3 +181,36 @@ Medido (`run.sh all` do zero, 24/09/2026):
 - **Outro grupo:** segue `items: []`.
 
 Antes do #516, o detalhe dava 503 `dependency_unavailable`: o engine não emitia a chave `outcome` que o `StaffDetailShape` exige desde o #392. O C1 não pegava porque só chamava a fila.
+
+## H1 (D-N): tarefa humana pelo Q2 (25/09/2026, `feat/h1-q2-tarefas-humanas`, `run.sh all` do zero)
+
+Passo novo `h1-task` (servico `job`, logo depois do `issuer`): admissao Q2 revisao 2 assinada pela raiz de
+TESTE (revisao 1 + catalogo v2 com a entrada `UT_TratarEscalonamento` + publicador `resource` + bloco `human`),
+catalogo v2, evidencia (`human-authority` `evidence`) e recurso `SYN-` da tarefa viva, depois `catalog` ->
+`discover team` como os dois principais e `task`. Medido: catalogo 200, evidencia 200, recurso 200;
+`team[staff-c1-no-grupo]` = `[<tarefa>]`, `team[staff-c1-outro-grupo]` = `[]` (o recurso concede os DOIS: o
+que separa e o candidato real); `task` 200 com `eligible_candidate_groups=['atendimento-humano']`; `/cases`
+segue 200/`[]` sob a revisao 2. **A imagem gera ids UUID** (`task_id_format=uuid`), nao decimais.
+
+Os desvios D11, D12 e D13 que o H1 anotou aqui foram removidos pelo H2-H4 (seção abaixo).
+
+## H2-H4 (D-N): fonte real de tarefas, sem D11-D13 (25/09/2026, `run.sh all` do zero)
+
+19/19 PASS. `h1-task` agora faz isto:
+1. monta o catálogo com a entrada `UT_TratarEscalonamento` a partir dos fatos deployados;
+2. o aprovador revisa a admissão revisão 2 CONTRA o catálogo (`review_admission(raw, catalog)`, H4, `task_id_format=uuid`);
+3. aplica `deploy/sql/portal-task-source-grants.sql`;
+4. roda o `__main__` do job T1.5 com `native_source` + `tasks`, duas rodadas. A 1ª dá `evidence_published=1, tasks_published=1`. A 2ª dá `tasks_unchanged=1`;
+5. lê pelo `EngineReadBundle` de produção: `team[staff-c1-no-grupo]=[<tarefa>]`, `team[staff-c1-outro-grupo]=[]`, e `task` com `eligible_candidate_groups=['atendimento-humano']`.
+
+Depois disso o `/cases` segue 200 (caso no grupo, `[]` no outro), e o `portal-dm` também passa.
+
+- **D11 removido:** o `native-secret` emite `resource` nos `publication_kinds` da chave do job. Quem admite é a admissão.
+- **D12 removido:** o cliente lê a revisão admitida do binding do engine. O pacote humano é só o piso, e um contexto não aceita duas revisões. A mesma medida achou um bug do cliente: o `Requester` de leitura declarava o SPKI do SERVIDOR como peer, e o engine declara o do CLIENTE (`read_materials.py`).
+- **D13, a causa medida:** o rc=2 vinha do harness. O passo chamava o `__main__` do job (que usa `asyncio.run`) de dentro do próprio loop, e dava `RuntimeError` antes de publicar qualquer coisa. Agora ele roda numa thread. O job também segue o contador real `MZO_HUMAN_TENANT.REV_` (`native_source`), porque o contador é compartilhado com emissor, relay e intake. Sem isso, a renovação depois de outro escritor falhava até alguém rebasear o ledger à mão (teste de regressão em `test_membership_publication_job.py`).
+
+| # | Desvio | Por que |
+|---|---|---|
+| D14 | o login `portal_task_source_amh` nasce no passo (superusuário do harness); os grants saem do SQL do repo | no dev, quem cria logins é a instalação da Onda 3/H5; o SQL já é o de produção |
+
+H3: o emissor assina uma decisão `staff_current_task.v1` para cada tarefa viva da instância do CASO. No C1 a instância AUTH não tem tarefa de catálogo com recurso Q2, então o detalhe continua sem tarefas. Isso **não foi medido** com uma tarefa AUTH publicada.
