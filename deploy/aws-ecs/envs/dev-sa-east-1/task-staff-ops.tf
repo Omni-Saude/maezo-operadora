@@ -178,7 +178,14 @@ resource "aws_s3_bucket" "staff_job_ledger" {
   for_each      = local.staff_ops
   bucket        = "${local.name}-staff-job-ledger-${var.aws_account_id}"
   force_destroy = false
-  tags          = local.base_tags
+  # SCP `require-mandatory-tags` (p-bb3h9tps) nega CreateBucket sem estas cinco tags.
+  tags = merge(local.base_tags, {
+    tenant      = "amh"
+    environment = "dev"
+    workload    = "maezo-staff-job-ledger"
+    owner       = "data-platform@amh.health"
+    cost_center = "amh-data-dev"
+  })
 }
 
 resource "aws_s3_bucket_versioning" "staff_job_ledger" {
