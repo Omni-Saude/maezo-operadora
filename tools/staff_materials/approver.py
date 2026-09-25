@@ -23,6 +23,10 @@ Comandos (``python -m tools.staff_materials.approver <comando>``):
   (`portal-human-read-admission.v1`: Ed25519 sobre o JCS do `record`, SEM dominio, exatamente o
   que `production_materials.verify_read_admission` confere), que o `human-bundle package` recebe.
   Sem `--passphrase-file`, a senha da raiz cifrada e pedida por `getpass`.
+* ``sign-assignment-owner --record F --root-key K [--confirm-digest H] --out P``  assina o documento
+  de dono do plano de atribuicao `staff-assignment-owner.v1` (D-O) no dominio separado
+  ``"maezo/staff-assignment-owner/v1\\0" || JCS(documento)`` e grava o
+  `staff-assignment-owner-proof.v1`; o SHA-256 desse arquivo e o digest do `owner_receipt`.
 
 Este modulo pode importar o de engenharia; o contrario e proibido e testado.
 """
@@ -501,6 +505,24 @@ def sign_human_admission(raw: bytes, root: Ed25519PrivateKey, *, confirm_digest:
     )
 
 
+def review_assignment_owner(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:
+    """Confere o `staff-assignment-owner.v1` (formato fechado, JCS) e o exibe campo a campo."""
+    from .assignment_trust import parse_owner
+
+    return parse_owner(raw)
+
+
+def sign_assignment_owner(raw: bytes, root: Ed25519PrivateKey, *, confirm_digest: str | None) -> bytes:
+    """Devolve o `staff-assignment-owner-proof.v1` completo; seu SHA-256 e o `owner_receipt` (D-O)."""
+    from .assignment_trust import OWNER_DOMAIN, owner_proof
+
+    document, document_digest, _ = review_assignment_owner(raw)
+    _confirm(document_digest, confirm_digest)
+    signature = root.sign(OWNER_DOMAIN + raw)
+    root.public_key().verify(signature, OWNER_DOMAIN + raw)
+    return owner_proof(document, signature)
+
+
 def _passphrase(path: Path | None) -> bytes | None:
     return path.read_bytes().rstrip(b"\r\n") if path is not None else None
 
@@ -513,7 +535,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     keygen.add_argument(
         "--no-encrypt", action="store_true", help="grava a chave raiz EM CLARO (so com decisao explicita)"
     )
-    for name in ("sign-designation", "sign-admission", "sign-human-admission"):
+    for name in ("sign-designation", "sign-admission", "sign-human-admission", "sign-assignment-owner"):
         command = commands.add_parser(name)
         command.add_argument("--root-key", type=Path, required=True)
         command.add_argument("--passphrase-file", type=Path)
@@ -561,6 +583,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("\n".join(lines))
             print(f"human_admission_sha256={shown}")
             signed = sign_human_admission(raw, root, confirm_digest=args.confirm_digest)
+        elif args.command == "sign-assignment-owner":
+            raw = args.record.read_bytes()
+            _, shown, lines = review_assignment_owner(raw)
+            print("\n".join(lines))
+            print(f"assignment_owner_sha256={shown}")
+            signed = sign_assignment_owner(raw, root, confirm_digest=args.confirm_digest)
+            print(f"owner_receipt_digest={hashlib.sha256(signed).hexdigest()} (SHA-256 do arquivo assinado)")
         else:
             raw = args.record.read_bytes()
             _, shown, lines = review_admission(raw)

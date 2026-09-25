@@ -10,12 +10,21 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-from tools.staff_materials.assignment_trust import SPEC_SCHEMA, build_trust, new_source_key
+from tools.staff_materials import approver
+from tools.staff_materials.assignment_trust import (
+    OWNER_DOMAIN,
+    OWNER_SCHEMA,
+    SPEC_SCHEMA,
+    build_trust,
+    new_source_key,
+    owner_proof,
+)
 from tools.staff_materials.secure_io import MaterialError
 
 from maezo.portal.engine.profile import canonicalize
@@ -96,9 +105,55 @@ def _inputs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], dict[str,
     return spec, human_trust, human_keys, source
 
 
+ROOT = Ed25519PrivateKey.generate()
+ROOT_SPKI = ROOT.public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+NOW = datetime(2026, 9, 26, tzinfo=UTC)
+
+
+def _owner_doc(spec: dict[str, Any], source: dict[str, str], **change: Any) -> dict[str, Any]:
+    doc = dict(
+        schema=OWNER_SCHEMA,
+        owner_ref=spec["owner_ref"],
+        source_ref=spec["source_ref"],
+        tenant=spec["tenant"],
+        environment=spec["environment"],
+        engine_name=spec["engine_name"],
+        database_incarnation=spec["database_incarnation"],
+        source_key_fingerprint=source["fingerprint"],
+        not_before="2026-09-25T00:00:00.000000Z",
+        valid_until="2026-10-08T00:00:00.000000Z",
+    )
+    doc.update(change)
+    return doc
+
+
+def _sign(doc: dict[str, Any], root: Ed25519PrivateKey = ROOT) -> bytes:
+    raw = canonicalize(doc)
+    _, shown, _ = approver.review_assignment_owner(raw)
+    return approver.sign_assignment_owner(raw, root, confirm_digest=shown)
+
+
+def _build(
+    spec: Any, human_trust: Any, human_keys: Any, source: Any, owner: bytes | None = None, **kw: Any
+) -> Any:
+    owner = _sign(_owner_doc(spec, source)) if owner is None else owner
+    return build_trust(
+        spec,
+        human_trust,
+        human_keys,
+        source,
+        owner=owner,
+        root_spki=kw.get("root", ROOT_SPKI),
+        now=kw.get("now", NOW),
+    )
+
+
 def test_trust_matches_the_engine_contract() -> None:
     spec, human_trust, human_keys, source = _inputs()
-    raw, digest = build_trust(spec, human_trust, human_keys, source)
+    owner = _sign(_owner_doc(spec, source))
+    raw, digest, owner_digest = _build(spec, human_trust, human_keys, source, owner)
+    # D-O: owner_receipt = SHA-256 do arquivo assinado, que e JCS (o aprovador recalcula com sha256sum).
+    assert owner_digest == hashlib.sha256(owner).hexdigest() and canonicalize(json.loads(owner)) == owner
     value = json.loads(raw)
     assert canonicalize(value) == raw and digest == hashlib.sha256(raw).hexdigest()
     assert set(value) == {
@@ -148,4 +203,35 @@ def test_trust_refuses_what_the_engine_would_refuse(mutate: Any) -> None:
     spec, human_trust, human_keys, source = _inputs()
     mutate(spec, human_trust, human_keys, source)
     with pytest.raises(MaterialError):
-        build_trust(spec, human_trust, human_keys, source)
+        _build(spec, human_trust, human_keys, source)
+
+
+def test_owner_signature_is_in_its_own_domain() -> None:
+    spec, human_trust, human_keys, source = _inputs()
+    doc = _owner_doc(spec, source)
+    proof = json.loads(_sign(doc))
+    ROOT.public_key().verify(base64.b64decode(proof["signature"]), OWNER_DOMAIN + canonicalize(doc))
+    # A mesma assinatura sem o dominio (ou a de outro dominio) nao passa.
+    bare = owner_proof(doc, ROOT.sign(canonicalize(doc)))
+    with pytest.raises(MaterialError, match="raiz"):
+        _build(spec, human_trust, human_keys, source, bare)
+
+
+@pytest.mark.parametrize(
+    ("owner", "kw", "why"),
+    [
+        (lambda s, src: _sign(_owner_doc(s, src), Ed25519PrivateKey.generate()), {}, "raiz"),
+        (lambda s, src: _sign(_owner_doc(s, src)), {"root": base64.b64decode(_spki())}, "raiz"),
+        (lambda s, src: _sign(_owner_doc(s, src, owner_ref="outro")), {}, "owner_ref"),
+        (lambda s, src: _sign(_owner_doc(s, src, source_ref="outra")), {}, "source_ref"),
+        (lambda s, src: _sign(_owner_doc(s, src, tenant="outro")), {}, "tenant"),
+        (lambda s, src: _sign(_owner_doc(s, src, database_incarnation="inc-2")), {}, "database_incarnation"),
+        (lambda s, src: _sign(_owner_doc(s, src, source_key_fingerprint="0" * 64)), {}, "source_key"),
+        (lambda s, src: _sign(_owner_doc(s, src)), {"now": datetime(2026, 10, 8, tzinfo=UTC)}, "janela"),
+        (lambda s, src: _sign(_owner_doc(s, src)), {"now": datetime(2026, 9, 24, tzinfo=UTC)}, "janela"),
+    ],
+)
+def test_owner_refusals(owner: Any, kw: dict[str, Any], why: str) -> None:
+    spec, human_trust, human_keys, source = _inputs()
+    with pytest.raises(MaterialError, match=why):
+        _build(spec, human_trust, human_keys, source, owner(spec, source), **kw)

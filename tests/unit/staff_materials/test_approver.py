@@ -444,3 +444,74 @@ def test_cli_prints_review_and_does_not_sign_without_confirmation(
     assert approver.main([*args, "--confirm-digest", shown]) == 0
     assert parse(Proof, out.read_bytes()).statement_digest == shown
     assert approver.main([*args, "--confirm-digest", shown]) == 1  # saida existente: nunca sobrescreve
+
+
+# --- sign-assignment-owner (D-O: documento de dono do plano de atribuicao) -----------------------
+
+
+def _owner(**change: Any) -> dict[str, Any]:
+    value: dict[str, Any] = dict(
+        schema="staff-assignment-owner.v1",
+        owner_ref="maezo-operadora-dev:assignment-owner:amh:1",
+        source_ref="maezo-operadora-dev:assignment-source:amh:default:1",
+        tenant="amh",
+        environment="dev",
+        engine_name="default",
+        database_incarnation="inc-1",
+        source_key_fingerprint="a" * 64,
+        not_before="2026-09-25T00:00:00.000000Z",
+        valid_until="2026-10-08T00:00:00.000000Z",
+    )
+    value.update(change)
+    return value
+
+
+def test_assignment_owner_is_signed_only_after_the_shown_digest() -> None:
+    from tools.staff_materials.assignment_trust import OWNER_DOMAIN
+
+    raw = canonicalize(_owner())
+    root = Ed25519PrivateKey.generate()
+    record, shown, lines = approver.review_assignment_owner(raw)
+    assert shown == hashlib.sha256(raw).hexdigest() and len(lines) == 10
+    with pytest.raises(approver.ReviewRequiredError):
+        approver.sign_assignment_owner(raw, root, confirm_digest=None)
+    with pytest.raises(MaterialError, match="nada foi assinado"):
+        approver.sign_assignment_owner(raw, root, confirm_digest="0" * 64)
+    proof = json.loads(approver.sign_assignment_owner(raw, root, confirm_digest=shown))
+    assert set(proof) == {"schema", "document", "signature"} and proof["document"] == record
+    root.public_key().verify(base64.b64decode(proof["signature"]), OWNER_DOMAIN + raw)
+    with pytest.raises(InvalidSignature):
+        root.public_key().verify(base64.b64decode(proof["signature"]), raw)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        canonicalize(_owner(extra="x")),
+        canonicalize({k: v for k, v in _owner().items() if k != "source_key_fingerprint"}),
+        canonicalize(_owner(schema="staff-assignment-owner.v2")),
+        canonicalize(_owner(source_key_fingerprint="A" * 64)),
+        canonicalize(_owner(not_before="2026-09-25T00:00:00Z")),
+        canonicalize(_owner(valid_until="2026-10-10T00:00:00.000000Z")),  # > 14 dias
+        canonicalize(_owner(valid_until="2026-09-25T00:00:00.000000Z")),  # janela vazia
+        json.dumps(_owner(), indent=1).encode(),  # nao-JCS
+    ],
+)
+def test_assignment_owner_outside_the_closed_format_is_refused(raw: bytes) -> None:
+    with pytest.raises(MaterialError):
+        approver.review_assignment_owner(raw)
+
+
+def test_sign_assignment_owner_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    approver.root_keygen(tmp_path / "root", passphrase=None, plaintext=True)
+    record = tmp_path / "owner.json"
+    record.write_bytes(canonicalize(_owner()))
+    key = str(tmp_path / "root" / "installation-root-key.pem")
+    base = ["sign-assignment-owner", "--record", str(record), "--root-key", key]
+    assert approver.main([*base, "--out", str(tmp_path / "a.json")]) == 2  # so revisao, nada assinado
+    assert not (tmp_path / "a.json").exists()
+    shown = hashlib.sha256(record.read_bytes()).hexdigest()
+    assert f"assignment_owner_sha256={shown}" in capsys.readouterr().out
+    assert approver.main([*base, "--confirm-digest", shown, "--out", str(tmp_path / "b.json")]) == 0
+    signed = (tmp_path / "b.json").read_bytes()
+    assert f"owner_receipt_digest={hashlib.sha256(signed).hexdigest()}" in capsys.readouterr().out

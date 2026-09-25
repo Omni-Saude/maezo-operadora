@@ -91,6 +91,7 @@ AUTHORITY_KEY_ID = "c1-human-authority"
 ASSIGNMENT_SOURCE_KEY_ID = "c1-assignment-source-1"
 ASSIGNMENT_OWNER_REF = "c1-assignment-owner"
 ASSIGNMENT_SOURCE_REF = f"staff-assignment:{TENANT}:c1"
+ASSIGNMENT_OWNER_RECEIPT_REF = f"c1:assignment-owner-receipt:{TENANT}:1"
 AUTH_SCOPE = dict(tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME, database_incarnation=INCARNATION,
                   installation_ref="c1-auth-installation", installation_revision="1")
 
@@ -250,7 +251,17 @@ async def main_async() -> None:
     ASSIGNMENT.mkdir(mode=0o700, exist_ok=True)
     source_pem, source_public = assignment_trust.new_source_key(ASSIGNMENT_SOURCE_KEY_ID)
     write(ASSIGNMENT / "source-key.pem", source_pem, 0o400)
-    trust_raw, trust_digest = assignment_trust.build_trust(
+    # D-O: o documento de dono assinado pela raiz de TESTE pelo mesmo comando do aprovador; o
+    # `owner_receipt` da ativacao e o SHA-256 desse arquivo, conferido pelo `build_trust`.
+    owner_raw = jcs(dict(
+        schema=assignment_trust.OWNER_SCHEMA, owner_ref=ASSIGNMENT_OWNER_REF, source_ref=ASSIGNMENT_SOURCE_REF,
+        tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME, database_incarnation=INCARNATION,
+        source_key_fingerprint=source_public["fingerprint"], not_before=iso(start), valid_until=iso(end),
+    ))
+    _, owner_shown, _ = approver.review_assignment_owner(owner_raw)
+    owner_signed = approver.sign_assignment_owner(owner_raw, root, confirm_digest=owner_shown)
+    write(ASSIGNMENT / "assignment-owner-proof.json", owner_signed, 0o444)
+    trust_raw, trust_digest, owner_digest = assignment_trust.build_trust(
         dict(
             schema=assignment_trust.SPEC_SCHEMA, tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME,
             database_incarnation=INCARNATION,
@@ -262,6 +273,9 @@ async def main_async() -> None:
         json.loads(native_files["engine-run/trust.json"]),
         bundle.keys.summary(bundle.spec),
         source_public,
+        owner=owner_signed,
+        root_spki=root_spki,
+        now=now(),
     )
     write(ENGINE_RUN / "assignment-trust.json", trust_raw, 0o444)
 
@@ -323,6 +337,7 @@ async def main_async() -> None:
         trust_digest=trust_digest, source_key_id=ASSIGNMENT_SOURCE_KEY_ID,
         source_fingerprint=source_public["fingerprint"], owner_ref=ASSIGNMENT_OWNER_REF,
         source_ref=ASSIGNMENT_SOURCE_REF, installation=installed,
+        owner_receipt=dict(artifact_ref=ASSIGNMENT_OWNER_RECEIPT_REF, digest=owner_digest),
     ))
     save_state("engine", dict(
         human_manifest_sha256=bundle.manifest_sha256, human_version=bundle.manifest.material_version_id,
