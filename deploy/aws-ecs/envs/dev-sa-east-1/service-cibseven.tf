@@ -66,7 +66,14 @@ resource "aws_ecs_task_definition" "cibseven" {
     operating_system_family = "LINUX"
   }
 
-  container_definitions = jsonencode([{
+  # Onda 4 (engine-native.tf): volumes dos materiais nativos; vazio com engine_native = null.
+  dynamic "volume" {
+    for_each = local.engine_native_volumes
+    content { name = volume.value }
+  }
+
+  # Com engine_native = null os `...` e as listas extras sao vazios e o JSON e' o de hoje.
+  container_definitions = jsonencode(concat([merge({
     name = "cibseven"
     # Imagem PROPRIA, derivada de cibseven/cibseven:2.1.0 sem o showcase de
     # demonstracao (deploy/cibseven/Dockerfile). A oficial cria o usuario `demo` — e o
@@ -78,16 +85,19 @@ resource "aws_ecs_task_definition" "cibseven" {
     image     = "${aws_ecr_repository.engine.repository_url}@${var.engine_image_digest}"
     essential = true
 
-    portMappings = [{ containerPort = 8080, protocol = "tcp" }]
+    # 8443: conector mTLS do Tomcat (Onda 4), so com engine_native.
+    portMappings = concat([{ containerPort = 8080, protocol = "tcp" }],
+    [for native in local.engine_native_list : { containerPort = 8443, protocol = "tcp" }])
 
-    environment = [
+    environment = concat([
       # DB_DRIVER e' OBRIGATORIO: sem ele o engine cai para H2 em memoria e o
       # webapp nem sobe — mesmo achado que o compose local ja registrava.
       { name = "DB_DRIVER", value = "org.postgresql.Driver" },
       # currentSchema mantem as tabelas do engine no schema `cibseven`, separadas
       # das do maezo. A role cibseven_app e' dona desse schema (V001 do repo da
       # plataforma).
-      { name = "DB_URL", value = "jdbc:postgresql://${local.aurora_endpoint}:${local.aurora_port}/${var.aurora_database_name}?currentSchema=cibseven" },
+      # Onda 4 (ADR-0060 D2, D-C2): `maezo_native,cibseven`. Imagem e path revertem JUNTOS.
+      { name = "DB_URL", value = "jdbc:postgresql://${local.aurora_endpoint}:${local.aurora_port}/${var.aurora_database_name}?currentSchema=${var.engine_native == null ? "cibseven" : "maezo_native,cibseven"}" },
       # Criacao/atualizacao automatica do schema do engine. Aceitavel em dev, onde
       # o schema ainda nao existe. Em producao isto vira `false` e o schema passa a
       # ser aplicado por migration versionada — DDL automatica em producao e' como
@@ -95,7 +105,7 @@ resource "aws_ecs_task_definition" "cibseven" {
       { name = "DB_SCHEMA_UPDATE", value = "true" },
       { name = "TZ", value = "America/Sao_Paulo" },
       { name = "JAVA_OPTS", value = "-Xms512m -Xmx1400m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError" },
-    ]
+    ], local.engine_native_environment)
 
     secrets = [
       { name = "DB_USERNAME", valueFrom = "${data.aws_secretsmanager_secret.cibseven_app_db.arn}:username::" },
@@ -120,7 +130,7 @@ resource "aws_ecs_task_definition" "cibseven" {
         "awslogs-stream-prefix" = "cibseven"
       }
     }
-  }])
+  }, local.engine_native_cibseven...)], local.engine_native_containers))
 
   tags = local.base_tags
 }
@@ -145,6 +155,21 @@ resource "aws_ecs_service" "cibseven" {
   service_registries {
     registry_arn = aws_service_discovery_service.cibseven.arn
   }
+
+  # Onda 4 (engine-native.tf, D-B): NLB interno TCP 443 -> 8443. Nada com engine_native = null.
+  # A carencia cobre o boot (startPeriod 120 s + init) antes de o NLB contar a saude do alvo.
+  health_check_grace_period_seconds = var.engine_native == null ? null : 300
+  dynamic "load_balancer" {
+    for_each = aws_lb_target_group.engine_native
+    content {
+      target_group_arn = load_balancer.value.arn
+      container_name   = "cibseven"
+      container_port   = 8443
+    }
+  }
+  # O target group so aceita registro com listener; a execution role precisa ler o segredo
+  # nativo antes da primeira task. Vazios com engine_native = null.
+  depends_on = [aws_lb_listener.engine_native, aws_iam_role_policy.task_execution_engine_native]
 
   # Replica unica: derrubar a velha antes de subir a nova evita duas instancias do
   # engine disputando lock de job. Ha uma janela de indisponibilidade — aceita em
