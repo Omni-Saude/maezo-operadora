@@ -91,11 +91,11 @@ variables {
 
 run "null_nao_cria_nada" {
   command = apply
-  plan_options { target = [aws_ecs_service.cibseven, aws_route53_record.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
+  plan_options { target = [aws_ecs_service.cibseven, aws_service_discovery_instance.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
   assert {
     condition = (
       length(aws_lb.engine_native) == 0 && length(aws_security_group.engine_native_nlb) == 0 &&
-      length(aws_route53_record.engine_native) == 0 && length(aws_iam_role_policy.task_execution_engine_native) == 0 &&
+      length(aws_service_discovery_instance.engine_native) == 0 && length(aws_iam_role_policy.task_execution_engine_native) == 0 &&
       length(aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb) == 0 &&
       length(aws_ecs_task_definition.cibseven.volume) == 0 && length(aws_ecs_service.cibseven.load_balancer) == 0 &&
       length(jsondecode(aws_ecs_task_definition.cibseven.container_definitions)) == 1 &&
@@ -110,7 +110,7 @@ run "null_nao_cria_nada" {
 
 run "ligado_sem_emissor" {
   command = apply
-  plan_options { target = [aws_ecs_service.cibseven, aws_route53_record.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_issuer, aws_vpc_security_group_egress_rule.engine_native_nlb_to_engine, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
+  plan_options { target = [aws_ecs_service.cibseven, aws_service_discovery_instance.engine_native, aws_iam_role_policy.task_execution_engine_native, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_portal, aws_vpc_security_group_ingress_rule.engine_native_nlb_from_issuer, aws_vpc_security_group_egress_rule.engine_native_nlb_to_engine, aws_vpc_security_group_ingress_rule.tasks_engine_native_from_nlb] }
   variables {
     engine_native = {
       native_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-abcdef"
@@ -145,8 +145,8 @@ run "ligado_sem_emissor" {
   }
   assert {
     condition = (
-      aws_route53_record.engine_native["this"].zone_id == "Z0000000000000CLOUDMAP" &&
-      aws_route53_record.engine_native["this"].name == "engine-native.maezo-operadora-dev.internal" &&
+      aws_service_discovery_service.engine_native["this"].name == "engine-native" &&
+      aws_service_discovery_service.engine_native["this"].dns_config[0].routing_policy == "WEIGHTED" &&
       output.engine_native_origin == "https://engine-native.maezo-operadora-dev.internal" &&
       output.engine_native_nlb_sg_id == "sg-00000000000000020"
     )
@@ -162,7 +162,7 @@ run "ligado_sem_emissor" {
       ] &&
       [for p in jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[0].portMappings : p.containerPort] == [8080, 8443] &&
       !jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].essential &&
-      jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].command == ["python", "-m", "maezo.platform.engine_native_materialize"] &&
+      endswith(jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].command[2], "exec python -m maezo.platform.engine_native_materialize") &&
       jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].secrets == [{ name = "MAEZO_ENGINE_NATIVE_SECRET", valueFrom = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-abcdef:::00000000-0000-0000-0000-000000000001" }] &&
       jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[1].image == "203312548462.dkr.ecr.sa-east-1.amazonaws.com/test/app@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" &&
       [for v in aws_ecs_task_definition.cibseven.volume : v.name] == ["engine-native", "engine-run"]
@@ -210,9 +210,9 @@ run "ligado_com_emissor" {
     condition = (
       [for c in jsondecode(aws_ecs_task_definition.cibseven.container_definitions) : c.name] == ["cibseven", "engine-native-materialize", "staff-case-issuer"] &&
       !jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].essential &&
-      jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].mountPoints == [{ sourceVolume = "staff-issuer", containerPath = "/run/maezo/staff-issuer", readOnly = true }] &&
+      jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].mountPoints == [{ sourceVolume = "staff-issuer", containerPath = "/run/maezo/staff-issuer", readOnly = true }, { sourceVolume = "staff-issuer-tmp", containerPath = "/run/maezo/staff-issuer-scratch", readOnly = false }] &&
       jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[2].environment[0] == { name = "MAEZO_STAFF_CASE_ISSUER_FILE", value = "/run/maezo/staff-issuer/composition.json" } &&
-      [for v in aws_ecs_task_definition.cibseven.volume : v.name] == ["engine-native", "engine-run", "staff-issuer"] &&
+      [for v in aws_ecs_task_definition.cibseven.volume : v.name] == ["engine-native", "engine-run", "staff-issuer", "staff-issuer-tmp"] &&
       aws_vpc_security_group_ingress_rule.engine_native_nlb_from_issuer["this"].referenced_security_group_id == "sg-00000000000000010"
     )
     error_message = "Sidecar do emissor: nao essencial, composicao read-only do mesmo init, 443 do SG das tasks."
