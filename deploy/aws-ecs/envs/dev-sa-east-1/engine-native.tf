@@ -249,6 +249,8 @@ resource "aws_iam_role_policy" "task_execution_engine_native" {
 # ---------------------------------------------------------------------------
 locals {
   # Volumes da task: um por prefixo do segredo; o do emissor so com o sidecar.
+  # Scratch do sidecar (NAO passa pelo materializador, que so conhece os volumes acima).
+  engine_native_scratch_volumes = [for native in local.engine_native_issuer : "staff-issuer-tmp"]
   engine_native_volumes = concat(
     [for native in local.engine_native_list : "engine-native"],
     [for native in local.engine_native_list : "engine-run"],
@@ -319,7 +321,12 @@ locals {
       { containerName = "engine-native-materialize", condition = "SUCCESS" },
       { containerName = "cibseven", condition = "HEALTHY" },
     ]
-    mountPoints = [{ sourceVolume = "staff-issuer", containerPath = local.engine_native_issuer_path, readOnly = true }]
+    # /tmp gravavel e efemero: `publisher.py` retem o certificado publico num NamedTemporaryFile e o
+    # rootfs e' read-only (FileNotFoundError "No usable temporary directory", boot de 25/09).
+    mountPoints = [
+      { sourceVolume = "staff-issuer", containerPath = local.engine_native_issuer_path, readOnly = true },
+      { sourceVolume = "staff-issuer-tmp", containerPath = "/tmp", readOnly = false },
+    ]
     environment = [
       { name = "MAEZO_STAFF_CASE_ISSUER_FILE", value = "${local.engine_native_issuer_path}/composition.json" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
