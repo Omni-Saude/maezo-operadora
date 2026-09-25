@@ -75,6 +75,9 @@ async def test_read_credentials_refuse_a_foreign_purpose_or_key_id(tmp_path):
     assert lease.purpose == "portal-task-read"
     assert lease.requester.key_id == read_key_id
     assert lease.requester.issuer == scope.workload_ref
+    # The engine binds the read key to the portal's CLIENT certificate, never the server's (C1, H2).
+    surface = materials.manifest.read_surface
+    assert lease.requester.peer_spki_sha256 == surface.client_spki_sha256 != surface.server_spki_sha256
     lease.require_current(datetime.now(UTC))
 
     # The command key may not be borrowed through the read plane.

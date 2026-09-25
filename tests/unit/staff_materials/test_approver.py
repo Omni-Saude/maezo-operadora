@@ -6,6 +6,7 @@ A raiz e gerada no teste (`Ed25519PrivateKey.generate()` ou `root_keygen` num tm
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import stat
 from datetime import datetime, timedelta
@@ -235,6 +236,73 @@ def _human() -> dict[str, Any]:
     return json.loads(RESOURCE_VECTOR.read_text(encoding="utf-8"))["human"]
 
 
+def _artifact(name: str) -> dict[str, str]:
+    raw = f"SYN {name}".encode()
+    return dict(
+        artifact_ref=f"SYN-{name}",
+        digest=hashlib.sha256(raw).hexdigest(),
+        bytes_base64=base64.b64encode(raw).decode(),
+    )
+
+
+def _pin(name: str) -> dict[str, str]:
+    a = _artifact(name)
+    return dict(artifact_ref=a["artifact_ref"], digest=a["digest"])
+
+
+POLICIES = (
+    "subject-policy",
+    "consent-policy",
+    "resource-policy",
+    "disclosure-policy",
+    "opaque-task-id-policy",
+)
+
+
+def _task_catalog(human: dict[str, Any]) -> bytes:
+    """O catalogo com a tarefa do bloco `human` (H4): policies sinteticas `SYN-`, bytes reais."""
+    entry = _entry(human)
+    form = dict(_artifact("form-escalation"), artifact_ref="escalation")
+    value = dict(
+        schema="portal-read-catalog.v1",
+        catalog_ref="catalog-staff",
+        publisher_ref="portal-staff",
+        entries=[
+            dict(
+                process_definition_id=entry["process_definition_id"],
+                process_definition_key="SP-OP-ESCALATION-001",
+                process_definition_version="1",
+                process_definition_digest="1" * 64,
+                task_definition_key=entry["task_definition_key"],
+                form_key="escalation",
+                form_version="1",
+                form_digest=form["digest"],
+                form_source_status="BPMN_FORMDATA",
+                allowed_inputs=["resultado", "notas_resolucao"],
+                required_roles=["atendente"],
+                subject_policy=_pin("subject-policy"),
+                consent_policy=_pin("consent-policy"),
+                resource_policy=_pin("resource-policy"),
+                disclosure_policy=_pin("disclosure-policy"),
+                opaque_task_id_policy=_pin("opaque-task-id-policy"),
+                group_domain=dict(
+                    kind="static",
+                    groups=list(entry["candidate_groups"]),
+                    dmn_definition_id=None,
+                    dmn_definition_key=None,
+                    dmn_definition_version=None,
+                    dmn_resource_digest=None,
+                ),
+            )
+        ],
+        policies=[_artifact(p) for p in POLICIES],
+        forms=[form],
+        deployment_receipt_ref="SYN-deployment",
+        deployment_receipt_digest="2" * 64,
+    )
+    return canonicalize(value)
+
+
 def _with_human(now: datetime, human: Any) -> dict[str, Any]:
     value = admission(now)
     value["human"] = human
@@ -244,11 +312,76 @@ def _with_human(now: datetime, human: Any) -> dict[str, Any]:
     return value
 
 
+def _admitted(now: datetime) -> tuple[dict[str, Any], bytes]:
+    """Vetor `human` com as politicas do catalogo (a identidade e a divulgacao sao as dele)."""
+    human = _human()
+    entry = _entry(human)
+    entry["identity_policy"] = _pin("opaque-task-id-policy")
+    entry["classification"].update(
+        policy_ref=_pin("disclosure-policy")["artifact_ref"],
+        policy_digest=_pin("disclosure-policy")["digest"],
+    )
+    entry["task_id_format"] = "uuid"  # H4: a imagem do engine de dev gera UUID
+    catalog = _task_catalog(human)
+    value = _with_human(now, human)
+    value["catalog"]["catalog_digest"] = hashlib.sha256(catalog).hexdigest()
+    return value, catalog
+
+
 def test_admission_with_the_human_block_of_the_shared_vector_is_admitted(now: datetime) -> None:
-    value = _with_human(now, _human())
-    _, shown, lines = approver.review_admission(canonicalize(value))
+    value, catalog = _admitted(now)
+    _, shown, lines = approver.review_admission(canonicalize(value), catalog)
     assert shown == digest(value)
     assert any(line.startswith("human=") for line in lines)
+    assert any("task_id_format=uuid" in line for line in lines)
+
+
+def test_admission_with_tasks_is_never_reviewed_without_its_catalog(now: datetime) -> None:
+    value, _ = _admitted(now)
+    with pytest.raises(MaterialError, match="catalogo"):
+        approver.review_admission(canonicalize(value))
+
+
+@pytest.mark.parametrize(
+    "breaks",
+    [
+        lambda v, c: (v, c + b" "),  # bytes que a admissao nao pina
+        lambda v, c: (v, c.replace(b"catalog-staff", b"catalog-other")),
+        lambda v, c: (_set(v, "identity_policy", _pin("resource-policy")), c),
+        lambda v, c: (_set(v, "candidate_groups", ["atendimento-humano", "fora-do-dominio"]), c),
+        lambda v, c: (_classification(v, policy_ref="SYN-resource-policy"), c),
+        lambda v, c: (_second_human_entry(v), c),  # tarefa admitida que o catalogo nao tem
+    ],
+)
+def test_catalog_that_does_not_match_the_human_block_is_refused(breaks: Any, now: datetime) -> None:
+    value, catalog = _admitted(now)
+    approver.review_admission(canonicalize(value), catalog)  # controle positivo
+    value, catalog = breaks(value, catalog)
+    with pytest.raises(MaterialError):
+        approver.review_admission(canonicalize(value), catalog)
+
+
+def _set(value: dict[str, Any], key: str, item: Any) -> dict[str, Any]:
+    _entry(value["human"])[key] = item
+    return value
+
+
+def _classification(value: dict[str, Any], **changes: str) -> dict[str, Any]:
+    _entry(value["human"])["classification"].update(changes)
+    return value
+
+
+def _second_human_entry(value: dict[str, Any]) -> dict[str, Any]:
+    other = json.loads(json.dumps(_entry(value["human"])))
+    other["task_definition_key"] = "UT_Outra"
+    value["human"]["entries"].append(other)
+    return value
+
+
+def test_staff_only_catalog_given_must_still_be_the_pinned_one(now: datetime) -> None:
+    value = admission(now)
+    with pytest.raises(MaterialError):
+        approver.review_admission(canonicalize(value), b"{}")
 
 
 def _entry(human: dict[str, Any]) -> dict[str, Any]:
@@ -274,11 +407,11 @@ def _entry(human: dict[str, Any]) -> dict[str, Any]:
     ],
 )
 def test_human_block_outside_the_java_shape_is_refused(breaks: Any, now: datetime) -> None:
-    value = _with_human(now, _human())
-    approver.review_admission(canonicalize(value))  # controle positivo
+    value, catalog = _admitted(now)
+    approver.review_admission(canonicalize(value), catalog)  # controle positivo
     breaks(value)
     with pytest.raises(MaterialError):
-        approver.review_admission(canonicalize(value))
+        approver.review_admission(canonicalize(value), catalog)
 
 
 def test_cli_prints_review_and_does_not_sign_without_confirmation(
