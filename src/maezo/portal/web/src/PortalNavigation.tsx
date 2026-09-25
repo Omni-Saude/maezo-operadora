@@ -41,9 +41,12 @@ function nextIndex(current: number, key: string, length: number) {
 export function StaffNavigation({
   active,
   onChange,
+  notEnabled = new Set(),
 }: {
   active: StaffArea;
   onChange: (area: StaffArea) => void;
+  /** Areas this environment has not enabled yet; they stay reachable and say so. */
+  notEnabled?: ReadonlySet<StaffArea>;
 }) {
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
   const activeIndex = staffAreas.findIndex((area) => area.id === active);
@@ -95,7 +98,10 @@ export function StaffNavigation({
             tabIndex={active === area.id ? 0 : -1}
             onClick={() => choose(area.id)}
           >
-            <span>{area.label}</span>
+            <span>
+              {area.label}
+              {notEnabled.has(area.id) && <em className="navigation-soon"> Em breve</em>}
+            </span>
             <small>{area.hint}</small>
           </button>
         ))}
