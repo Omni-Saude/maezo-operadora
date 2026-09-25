@@ -8,6 +8,13 @@ generate(phi=True)` (ADR-0009/T1.7), and the new `CibSevenTransport` (ADR-0001, 
 `tools/mcp_cibseven/transport.py`)):
 
     receive -> classify -> {inform | schedule | escalate} -> respond
+    resume                                               (GAP-XHITL-4: retomada pos-humano)
+
+`resume` is the SECOND entry door (GAP-XHITL-4). It is taken ONLY when the turn was assembled by
+`new_helena_resume_state` (the agent-resume consumer, after a human concluded SP-OP-ESCALATION-001
+as `devolvido_agente`): it relays the human's instructions to the beneficiary through the SAME
+output fences every other route uses, sends, and records its own desfecho. Human text is
+UNTRUSTED content here exactly like the beneficiary's own message.
 
 `classify` ALWAYS evaluates the red-flag DMN when the message describes a symptom (ADR-0012:
 the LLM extracts + normalizes `sintoma_codigo`/`intensidade`/a population field; the DMN decides
@@ -209,7 +216,7 @@ ResponseKind = Literal["inform", "schedule", "escalate", "collect"]
 #: nunca ROTEIA para ele — `next_kind` continua sendo `ResponseKind`, com os tres destinos que
 #: `_route` sabe mapear. Alargar o tipo de roteamento aqui criaria um valor que nenhuma aresta
 #: conhece; alargar so o de saida nao cria destino nenhum.
-ResponseKindOut = Literal["inform", "schedule", "escalate", "collect", "falha_tecnica_start"]
+ResponseKindOut = Literal["inform", "schedule", "escalate", "collect", "falha_tecnica_start", "retomada"]
 
 # --- COLETA (passo 4 do fluxo de triagem — 09/09/2026) -------------------------------------
 #
@@ -600,6 +607,110 @@ _DMN_BY_POPULATION: dict[str, str] = {
 }
 
 
+# --- RETOMADA POS-HUMANO (GAP-XHITL-4) ---------------------------------------------------------
+#
+# A segunda porta de entrada do grafo. Um humano concluiu SP-OP-ESCALATION-001 como
+# `devolvido_agente` e escreveu `notas_resolucao`; o consumidor de retomada
+# (`platform/integrations/agent_resume.py`) leu a nota do HISTORICO do motor (Zona PHI — ela NUNCA
+# viaja no evento, ADR-0006) e invoca este grafo sob o MESMO thread de checkpoint da conversa.
+#
+# O TEXTO HUMANO E' CONTEUDO NAO CONFIAVEL. O contrato ja' o trata assim, e a razao e' concreta:
+# a nota e' texto livre digitado numa tela, por alguem que nao conhece as cercas desta agente, e o
+# que sai daqui chega ao beneficiario com a voz da Helena. Entao ela passa pelas MESMAS cercas de
+# saida das outras rotas (`motivo_de_canal_nao_confirmado` + `motivo_de_recusa`), com
+# `start_aconteceu=False`: o caso acabou de ser devolvido — nenhum humano esta' com ele agora, e
+# prometer um seria a promessa sem lastro que CC-01 removeu.
+
+#: `origem_do_turno` de um turno normal (mensagem do beneficiario). Todo construtor de estado de
+#: entrada o grava explicitamente, entao um valor velho no checkpoint nunca decide a rota.
+ORIGEM_BENEFICIARIO: str = "beneficiario"
+#: `origem_do_turno` de um turno de retomada. SO' `new_helena_resume_state` o grava.
+ORIGEM_RETOMADA: str = "retomada"
+
+#: `response_kind` (e rota de telemetria) do turno de retomada.
+RESPONSE_KIND_RETOMADA: str = "retomada"
+
+#: Desfechos do turno de retomada — declarados tambem em `runtime/turn_telemetry.py` (vocabulario
+#: da helena); `test_helena_retomada.py` impede a divergencia.
+DESFECHO_RETOMADA_ENVIADA: str = "retomada_enviada"
+DESFECHO_RETOMADA_RECUSADA: str = "retomada_recusada"
+DESFECHO_RETOMADA_SEM_INSTRUCOES: str = "retomada_sem_instrucoes"
+DESFECHO_RETOMADA_FALHA_ENVIO: str = "retomada_falha_envio"
+#: Emitido pelo CONSUMIDOR (nao por este grafo): a janela de 24h da Meta fechou, nada foi enviado
+#: e a equipe foi avisada (`agent_resume.NotifyTeamAlerter`).
+DESFECHO_RETOMADA_FORA_DA_JANELA: str = "retomada_fora_da_janela"
+
+#: `error` do turno de retomada que chegou sem instrucao utilizavel. Token de classe.
+ERRO_RETOMADA_SEM_INSTRUCOES: str = "retomada sem instrucoes humanas"
+#: `error` do turno de retomada cujas instrucoes excedem o teto de envio. Token de classe.
+ERRO_RETOMADA_INSTRUCOES_LONGAS: str = "retomada: instrucoes excedem o limite de envio"
+
+#: Teto das instrucoes aceitas para envio. O portal ja' limita `notas_resolucao` a 2000
+#: (`portal/contracts/completions.py::MAX_NOTES`) e a Cloud API do WhatsApp aceita 4096 no corpo;
+#: o teto aqui fica entre os dois para que o template nunca empurre a mensagem para uma recusa do
+#: provedor. Instrucao maior e' RECUSADA (nunca truncada em silencio: cortar a instrucao de um
+#: humano no meio mudaria o que ela diz).
+RETOMADA_MAX_INSTRUCOES: int = 3000
+
+#: REDACAO APROVADA PELO DONO (opcao B, 25/09/2026 — spec da diretoria, secao 6). A instrucao do
+#: humano vai ENTRE ASPAS e atribuida a "um profissional da nossa equipe": quem le sabe que a
+#: orientacao e' de uma pessoa, e que a Helena so' a repassa. Trocar a redacao e' editar ESTA
+#: constante (e o teste que a fixa).
+RETOMADA_TEMPLATE: str = (
+    "Olá, aqui é a Helena, a assistente virtual do seu plano. Um profissional da nossa equipe "
+    'revisou o seu caso e pediu que eu repassasse: "{instrucoes}". Posso ajudar com mais alguma coisa?'
+)
+
+#: AGUARDA APROVACAO DE PRODUTO — o texto enviado quando as instrucoes humanas foram BARRADAS pela cerca
+#: de saida. Nao repete nada da nota (foi ela que a cerca barrou), nao promete humano (o caso
+#: acabou de ser devolvido), nao cita canal. Passa nas cercas por construcao; o teste o fixa.
+RETOMADA_RECUSADA_PLACEHOLDER: str = (
+    "[RASCUNHO - redacao pendente de produto] Recebemos o retorno sobre o seu atendimento. "
+    "Se quiser continuar, responda esta mensagem. Se voce estiver passando por uma emergencia, "
+    "procure o servico de emergencia mais proximo."
+)
+
+#: Caracteres de controle (menos quebra de linha e tab) removidos da nota antes do template: nao
+#: tem significado numa mensagem e sao o veiculo classico de texto que se disfarca na tela.
+_CONTROLE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+class RetomadaEnvioFalhouError(RuntimeError):
+    """O envio da retomada falhou. PROPAGA para o consumidor, que nao confirma o offset.
+
+    Diferente dos turnos do beneficiario (que registram `error` e seguem): ali quem espera a
+    resposta e' a pessoa que acabou de escrever, e o webhook ja' respondeu a Meta. Aqui quem espera
+    e' um evento Kafka — engolir a falha confirmaria o offset de uma retomada que nunca chegou, e a
+    instrucao do humano se perderia sem rastro. Falha fechada: o evento volta e o envio e' tentado
+    de novo (a chave de idempotencia do envio e' por instancia de escalonamento).
+    """
+
+
+def compor_mensagem_de_retomada(instrucoes: str) -> str:
+    """A mensagem ao beneficiario a partir das instrucoes humanas. PURA (template aprovado, opcao B).
+
+    Deterministica de proposito: a instrucao do humano chega ao beneficiario COMO ESCRITA (menos
+    caracteres de controle), sem um modelo no meio para parafrasear, omitir ou "melhorar" uma
+    orientacao que outra pessoa assinou. Se produto preferir uma redacao pelo modelo, e' uma troca
+    local aqui — as cercas continuam depois, em `HelenaGraph.resume`.
+    """
+    limpo = _CONTROLE.sub("", instrucoes).strip()
+    return RETOMADA_TEMPLATE.format(instrucoes=limpo)
+
+
+def motivo_de_recusa_da_retomada(texto: str) -> tuple[str, str] | None:
+    """As cercas de saida aplicadas ao texto de retomada. `(grupo, padrao)` ou `None`. PURA.
+
+    As MESMAS duas cercas de `HelenaGraph._cercar_saida`, na mesma ordem (canal primeiro), com o
+    fato de start declarado: `start_aconteceu=False`, porque neste turno nenhum humano esta' com o
+    caso — ele acabou de ser devolvido. Assim a promessa de humano e' barrada em qualquer forma,
+    inclusive a mencao de encaminhamento que o humano tenha escrito na nota.
+    """
+    return motivo_de_canal_nao_confirmado(texto) or motivo_de_recusa(
+        texto, RESPONSE_KIND_RETOMADA, start_aconteceu=False
+    )
+
+
 class WhatsAppSender(Protocol):
     """Outbound WhatsApp send seam. Operates on a phone HASH, never a raw number — Helena's
     state is pseudonymized end to end (ADR-0006); resolving the hash back to a real number for
@@ -693,6 +804,14 @@ class HelenaState(TypedDict, total=False):
     desfecho: str
     error: str
 
+    # RETOMADA (GAP-XHITL-4). `origem_do_turno` e' INPUT (todo construtor de entrada o grava:
+    # `new_helena_state`/`gate_inbound_state` sempre com `beneficiario`, e SO'
+    # `new_helena_resume_state` com `retomada`). `retomada_instrucoes` e' OUTPUT-ONLY para a
+    # particao: `gate_inbound_state` o descarta e `receive` o zera — o unico jeito de ele chegar ao
+    # grafo e' o construtor tipado da retomada.
+    origem_do_turno: str
+    retomada_instrucoes: str | None
+
 
 # --- Input/output field split + input-boundary gate (T1.11 caller-planted read-through fix) ---
 #
@@ -716,7 +835,7 @@ class HelenaState(TypedDict, total=False):
 # classified into exactly one of the two sets — "any missed key is a hole".
 
 HELENA_INPUT_FIELDS: frozenset[str] = frozenset(
-    {"tenant_id", "conversation_id", "canal", "beneficiario_pseudo_id", "message_body"}
+    {"tenant_id", "conversation_id", "canal", "beneficiario_pseudo_id", "message_body", "origem_do_turno"}
 )
 
 # Neutral default for every OUTPUT-ONLY field. `receive` writes a copy of this over the incoming
@@ -778,6 +897,9 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "response_kind": None,
     "desfecho": "",
     "error": None,
+    # GAP-XHITL-4: so' `new_helena_resume_state` o preenche; `receive` o zera em todo turno do
+    # beneficiario, e `resume` o zera ao terminar.
+    "retomada_instrucoes": None,
 }
 
 _HELENA_ALL_FIELDS = HELENA_INPUT_FIELDS | frozenset(_HELENA_NEUTRAL_OUTPUTS)
@@ -1511,6 +1633,32 @@ def new_helena_state(
         "canal": canal,
         "beneficiario_pseudo_id": beneficiario_pseudo_id,
         "message_body": message_body,
+        # GAP-XHITL-4: SEMPRE gravado. Com checkpoint, a entrada deste turno e' mesclada sobre o
+        # estado salvo — um `retomada` deixado por uma retomada que falhou no meio decidiria a
+        # rota do proximo turno do beneficiario se este campo nao fosse reescrito aqui.
+        "origem_do_turno": ORIGEM_BENEFICIARIO,
+    }
+
+
+def new_helena_resume_state(
+    *,
+    tenant_id: str,
+    conversation_id: str,
+    canal: str,
+    instrucoes: str,
+) -> HelenaState:
+    """Construtor tipado do turno de RETOMADA (GAP-XHITL-4) — o unico que abre a porta `resume`.
+
+    Nao leva `message_body` nem `beneficiario_pseudo_id`: o turno nao nasce de uma mensagem do
+    beneficiario, e o checkpoint da conversa ja' tem os dois. `instrucoes` e' o `notas_resolucao`
+    lido do historico do motor pelo consumidor — conteudo NAO CONFIAVEL, cercado em `resume`.
+    """
+    return {
+        "tenant_id": tenant_id,
+        "conversation_id": conversation_id,
+        "canal": canal,
+        "origem_do_turno": ORIGEM_RETOMADA,
+        "retomada_instrucoes": instrucoes,
     }
 
 
@@ -1525,7 +1673,14 @@ def gate_inbound_state(raw: Mapping[str, Any]) -> HelenaState:
     dropped = sorted(k for k in raw if k not in HELENA_INPUT_FIELDS)
     if dropped:
         logger.warning("helena_inbound_output_fields_dropped", dropped=dropped)
-    return cast(HelenaState, {k: raw[k] for k in HELENA_INPUT_FIELDS if k in raw})
+    gated = {k: raw[k] for k in HELENA_INPUT_FIELDS if k in raw}
+    # GAP-XHITL-4: a origem NAO e' escolhida por quem chama por aqui. Um mapeamento cru (A2A,
+    # delegacao) e' sempre um turno de beneficiario; a porta `resume` so' abre pelo construtor
+    # tipado `new_helena_resume_state`.
+    if raw.get("origem_do_turno", ORIGEM_BENEFICIARIO) != ORIGEM_BENEFICIARIO:
+        logger.warning("helena_inbound_origem_forcada", origem_recebida_ignorada=True)
+    gated["origem_do_turno"] = ORIGEM_BENEFICIARIO
+    return cast(HelenaState, gated)
 
 
 # --- Helpers ---------------------------------------------------------------------------------
@@ -3202,7 +3357,135 @@ class HelenaGraph:
             },
         )
 
+    async def resume(self, state: HelenaState) -> dict[str, Any]:
+        """GAP-XHITL-4 — a porta de RETOMADA: instrucoes do humano -> cerca -> envio -> desfecho.
+
+        Alcancada SO' por `_entrada` com `origem_do_turno == retomada`, que so'
+        `new_helena_resume_state` grava. Faz, nesta ordem:
+
+          1. SANEAMENTO DE ENTRADA, como `receive`: todo campo de saida volta ao neutro, para que
+             nada do turno anterior (salvo no checkpoint) seja lido como se fosse deste. Ficam SO'
+             as memorias de conversa que continuam verdadeiras depois de um humano ter atendido:
+             `apresentacao_ja_feita` (a pessoa ja' leu o cartao) e `memoria_clinica` (quem e' o
+             paciente). A memoria de COLETA e' zerada de proposito: uma pergunta deixada em aberto
+             antes do escalonamento nao vale mais — o caso passou por um humano, e o turno
+             seguinte do beneficiario nao pode ser lido como resposta a ela.
+          2. COMPOSICAO pelo template (placeholder de produto) e CERCA DE SAIDA —
+             `motivo_de_recusa_da_retomada`, as mesmas cercas das outras rotas com
+             `start_aconteceu=False`. Texto barrado NAO sai: vai o placeholder de recusa, que nao
+             repete nada da nota; o padrao vai para o log e o grupo para o contador, como em
+             `_cercar_saida`.
+          3. ENVIO por `mcp-whatsapp.send_message` (o `WhatsAppSender` injetado, cercado por
+             `gate_whatsapp` na raiz). Falha de envio PROPAGA (`RetomadaEnvioFalhouError`) — ver
+             o docstring da excecao.
+          4. DESFECHO + TELEMETRIA: um `maezo_agent_desfecho_total` com rota `retomada` e
+             desfecho proprio, gravado tambem no estado (como `respond`).
+
+        Nao passa por `classify`, DMN, LLM nem start de processo: nao ha mensagem do beneficiario
+        para classificar, e o texto e' do humano, nao do modelo.
+        """
+        reset: dict[str, Any] = dict(_HELENA_NEUTRAL_OUTPUTS)
+        if state.get("apresentacao_ja_feita") is True:
+            reset["apresentacao_ja_feita"] = True
+        if self._memoria_clinica_enabled and "memoria_clinica" in state:
+            reset["memoria_clinica"] = _memoria_clinica_valida(
+                state["memoria_clinica"], agora=datetime.now(UTC)
+            )
+        reset["response_kind"] = RESPONSE_KIND_RETOMADA
+
+        instrucoes = state.get("retomada_instrucoes")
+        if (
+            not state.get("tenant_id")
+            or not state.get("conversation_id")
+            or not isinstance(instrucoes, str)
+            or not instrucoes.strip()
+        ):
+            # Defensivo: o consumidor ja' recusa nota vazia antes de invocar o grafo. Aqui nada
+            # e' enviado — nao ha' o que retomar, e um texto generico fingiria uma instrucao.
+            emit_turn_desfecho(
+                state,
+                agent_id="helena",
+                desfecho=DESFECHO_RETOMADA_SEM_INSTRUCOES,
+                route=RESPONSE_KIND_RETOMADA,
+                motivo_categoria=None,
+                enviada=False,
+            )
+            return {
+                **reset,
+                "error": ERRO_RETOMADA_SEM_INSTRUCOES,
+                "desfecho": DESFECHO_RETOMADA_SEM_INSTRUCOES,
+            }
+
+        erro: str | None = None
+        if len(instrucoes) > RETOMADA_MAX_INSTRUCOES:
+            erro = ERRO_RETOMADA_INSTRUCOES_LONGAS
+            texto = RETOMADA_RECUSADA_PLACEHOLDER
+            logger.error(
+                "helena_retomada_instrucoes_longas", tamanho=len(instrucoes), limite=RETOMADA_MAX_INSTRUCOES
+            )
+        else:
+            texto = compor_mensagem_de_retomada(instrucoes)
+            recusa = motivo_de_recusa_da_retomada(texto)
+            if recusa is not None:
+                grupo, padrao = recusa
+                # Mesmo par de `_cercar_saida`: o PADRAO no log, o GRUPO no contador, o TEXTO em
+                # nenhum dos dois (e' nota humana sobre um caso de saude).
+                logger.error(
+                    "helena_resposta_recusada",
+                    node="resume",
+                    grupo=grupo,
+                    padrao=padrao,
+                    response_kind=RESPONSE_KIND_RETOMADA,
+                    recusa_version=RECUSA_DE_SAIDA_VERSION,
+                )
+                record_resposta_recusada(
+                    agent_id="helena", motivo=grupo, response_kind=RESPONSE_KIND_RETOMADA
+                )
+                erro = ERRO_RESPOSTA_RECUSADA
+                texto = RETOMADA_RECUSADA_PLACEHOLDER
+        desfecho = DESFECHO_RETOMADA_ENVIADA if erro is None else DESFECHO_RETOMADA_RECUSADA
+
+        try:
+            await self._whatsapp.send(_to_hash_from_state(state), texto)
+        except PROGRAMMING_ERRORS:
+            raise
+        # ESTREITO (nao `except Exception`): so' falha de DEPENDENCIA vira `RetomadaEnvioFalhouError`.
+        # Qualquer outra excecao propaga como esta' — o consumidor tambem nao confirma o offset.
+        except EXTERNAL_DEPENDENCY_FAILURES as exc:
+            emit_turn_desfecho(
+                state,
+                agent_id="helena",
+                desfecho=DESFECHO_RETOMADA_FALHA_ENVIO,
+                route=RESPONSE_KIND_RETOMADA,
+                motivo_categoria=None,
+                enviada=False,
+            )
+            raise RetomadaEnvioFalhouError(f"retomada: envio falhou: {redact_error_message(exc)}") from exc
+        emit_turn_desfecho(
+            state,
+            agent_id="helena",
+            desfecho=desfecho,
+            route=RESPONSE_KIND_RETOMADA,
+            motivo_categoria=None,
+            enviada=True,
+        )
+        saida: dict[str, Any] = {**reset, "response_text": texto, "desfecho": desfecho}
+        if erro is not None:
+            saida["error"] = erro
+        return saida
+
     # -- Conditional routing ----------------------------------------------------------------
+
+    @staticmethod
+    def _entrada(state: HelenaState) -> str:
+        """GAP-XHITL-4: qual porta abre este turno. `resume` SO' com a origem da retomada.
+
+        A origem e' reescrita por TODO construtor de entrada (`new_helena_state`,
+        `gate_inbound_state` — sempre `beneficiario`), entao um valor velho do checkpoint nao
+        decide nada. Qualquer outro valor, inclusive ausente, e' um turno do beneficiario.
+        """
+        e_retomada = state.get("origem_do_turno") == ORIGEM_RETOMADA
+        return "resume" if e_retomada else "receive"
 
     @staticmethod
     def _route(state: HelenaState) -> str:
@@ -3514,8 +3797,9 @@ class HelenaGraph:
         g.add_node("escalate", self.escalate)
         g.add_node("collect", self.collect)
         g.add_node("respond", self.respond)
+        g.add_node("resume", self.resume)
 
-        g.add_edge(START, "receive")
+        g.add_conditional_edges(START, self._entrada, {"receive": "receive", "resume": "resume"})
         g.add_edge("receive", "classify")
         g.add_conditional_edges(
             "classify",
@@ -3527,6 +3811,7 @@ class HelenaGraph:
         g.add_edge("schedule", "respond")
         g.add_edge("escalate", "respond")
         g.add_edge("respond", END)
+        g.add_edge("resume", END)
         return g
 
 

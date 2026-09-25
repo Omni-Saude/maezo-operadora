@@ -250,6 +250,52 @@ variable "bridge_desired_count" {
   default     = 1
 }
 
+variable "agent_resume_desired_count" {
+  description = <<-EOT
+    Replicas do consumidor de retomada (GAP-XHITL-4: `agents.events.process_completed` ->
+    Helena retoma a conversa com a instrucao do humano). DEFAULT 0, e com 0 nenhum recurso de
+    `service-agent-resume.tf` existe: o modulo RECUSA SUBIR enquanto nao houver custodia de
+    destinatario decidida pelo dono/DPO (o WhatsApp exige o numero; v2 guarda so' o hash keyed).
+    Teto 3 = particoes do topico no registro (`topic_registry.TopicEntry.partitions`); replicas
+    alem disso ficariam ociosas no consumer group.
+  EOT
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.agent_resume_desired_count == null ? true : (var.agent_resume_desired_count >= 0 && var.agent_resume_desired_count <= 3)
+    error_message = "agent_resume_desired_count aceita de 0 a 3 (particoes do topico process_completed)."
+  }
+
+  # Sem custodia o modulo recusa subir: ligar replicas sem ela so' produziria tasks morrendo.
+  validation {
+    condition     = var.agent_resume_desired_count == null ? true : (var.agent_resume_desired_count == 0 ? true : var.recipient_vault_enabled)
+    error_message = "agent_resume_desired_count > 0 exige recipient_vault_enabled = true (ADR-0061)."
+  }
+}
+
+variable "recipient_vault_enabled" {
+  description = <<-EOT
+    Liga a custodia CIFRADA do telefone do beneficiario (ADR-0061, status Proposto): chave KMS
+    propria, role do receptor so' com kms:Encrypt, role do agent-resume so' com kms:Decrypt.
+    DEFAULT false — com false nenhum recurso de `recipient-vault.tf` existe e o plan nao muda.
+    NAO LIGAR sem ciencia registrada do DPO.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "recipient_vault_ttl_days" {
+  description = "Retencao (dias apos a ultima mensagem) do telefone cifrado. Proposta do ADR-0061: 30; decisao final do DPO."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.recipient_vault_ttl_days == null ? true : (var.recipient_vault_ttl_days >= 1 && var.recipient_vault_ttl_days <= 365)
+    error_message = "recipient_vault_ttl_days aceita de 1 a 365."
+  }
+}
+
 variable "helena_zona_phi" {
   description = <<-EOT
     Decisao do dono (09/09/2026): a inferencia da Helena vai para o provedor da

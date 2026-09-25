@@ -506,3 +506,14 @@ class AioKafkaEventsProducer:
         if self._raw is not None and self._started:
             with contextlib.suppress(Exception):
                 await self._raw.stop()
+
+
+def build_notifications_publisher(bootstrap_servers: str) -> AioKafkaEventsProducer:
+    """The sanctioned construction of a producer for `operadora.notifications.internal` outside the
+    worker runtime (GAP-XHITL-4: the agent-resume daemon's out-of-window team alert).
+
+    Lives in THIS module on purpose: it is the class's own defining module, the one construction
+    site `check_effect_chokepoint_fence.py` §8.1 allows besides `worker_runtime/service.py` — so a
+    new daemon gets a producer without widening the fence's allowlist.
+    """
+    return AioKafkaEventsProducer(bootstrap_servers=bootstrap_servers)

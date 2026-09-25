@@ -75,6 +75,7 @@ _SEAM_CHOKED_SURFACES: dict[str, tuple[str, ...]] = {
     "src/maezo/tools/mcp_whatsapp/server.py:111": ("whatsapp.send_message",),
     "src/maezo/tools/mcp_cibseven/transport.py:278": ("cibseven.find_active_instance",),
     "src/maezo/tools/mcp_cibseven/transport.py:307": ("cibseven.find_any_instance",),
+    "src/maezo/tools/mcp_cibseven/transport.py:485": ("cibseven.read_historic_variables",),
     "src/maezo/tools/mcp_cibseven/transport.py:387": ("cibseven.correlate_message",),
     "src/maezo/tools/mcp_cibseven/transport.py:420": ("cibseven.get_process_status",),
     "src/maezo/agents/rafael/graph.py:548": ("dmn.evaluate",),

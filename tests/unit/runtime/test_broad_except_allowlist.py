@@ -72,7 +72,10 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 09/09/2026: 30 — `HelenaGraph.collect` (passo 4 da triagem) ganhou o mesmo `try` estreitado
 #: dos outros sitios de LLM da Helena (`PROGRAMMING_ERRORS` re-levanta, `EXTERNAL_DEPENDENCY_FAILURES`
 #: cai para uma PERGUNTA de fallback — nunca resposta clinica).
-_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 30
+#: 25/09/2026: 31 — `HelenaGraph.resume` (GAP-XHITL-4, retomada pos-humano) envia pelo WhatsApp com
+#: o `try` ESTREITADO (`PROGRAMMING_ERRORS` re-levanta, `EXTERNAL_DEPENDENCY_FAILURES` vira
+#: `RetomadaEnvioFalhouError`, que o consumidor usa para NAO confirmar o offset).
+_SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 31
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
 #:

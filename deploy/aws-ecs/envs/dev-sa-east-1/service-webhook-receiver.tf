@@ -56,7 +56,8 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
   cpu                      = tostring(var.agent_cpu)
   memory                   = tostring(var.agent_memory)
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task.arn
+  # ADR-0061: com a custodia ligada, role propria (so' kms:Encrypt na chave da custodia).
+  task_role_arn = local.webhook_receiver_task_role_arn
 
   runtime_platform {
     cpu_architecture        = "X86_64"
@@ -123,7 +124,7 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       # o texto presta, nem conferir se vaza orientacao clinica, sem le-lo uma vez.
       { name = "WHATSAPP_WEBHOOK_DEVOLVE_TURNO", value = "1" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
-    ])
+    ], local.recipient_vault_env)
 
     secrets = concat(local.db_secrets_maezo, [
       # Sem esta o Pseudonymizer falha FECHADO (ADR-0035) — e o receptor e' quem pseudonimiza

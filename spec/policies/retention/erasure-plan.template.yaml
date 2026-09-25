@@ -599,3 +599,18 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: custodia_contato_retomada
+    tabela: beneficiario_contato_retomada
+    migracao: "0016_recipient_custody.py::upgrade (beneficiario_contato_retomada; expires_at index)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the phone itself is stored ENCRYPTED (KMS envelope + AES-GCM, ADR-0061) and is the titular's contact datum. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 27
+    tensao: null
+    notas: >-
+      GAP-XHITL-4 / ADR-0061 (Proposto). Telefone do beneficiario CIFRADO para a retomada
+      pos-humano; expires_at gravado a cada upsert (proposta: 30 dias apos a ultima mensagem) e
+      purge_expired apaga as vencidas. O prazo e' PROPOSTA — pertence ao DPO.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

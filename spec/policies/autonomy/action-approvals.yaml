@@ -532,7 +532,8 @@ acoes:
       ITEM DE MAIOR RISCO DO RUNG C0: uma leitura NEGADA não pode ser lida como "não há instância
       ativa". A consulta anti-dupla-terminação tem de falhar FECHADA (pular), igual ao
       comportamento de hoje quando o engine está ausente.
-      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 3 superfícies estão choked.
+      PASSA A PRODUZIR EVIDÊNCIA DE SOMBRA (Onda 1 B2): as 4 superfícies estão choked
+      (a 4a, `read_historic_variables`, entrou com GAP-XHITL-4).
       ⚠ PRÉ-CONDIÇÃO 1 DA VIRADA — RESÍDUO PÓS-CLAIM (detalhe em
       `src/maezo/gateway/seams/cibseven.py:29-35`): `find_active_instance` está gated e é chamada
       em `src/maezo/tools/mcp_cibseven/transport.py:1182`, que é o passo 3 do
@@ -563,6 +564,12 @@ acoes:
         detalhe: "find_any_instance — a perna HistoryQueryingTransport do gate estrito. Via
           GatedHistoryQueryingCibSevenTransport, construído SÓ quando o inner de fato a tem, para
           que a sonda isinstance de _require_strict_gate_seams (:940-947) siga honesta"
+        choked: true
+      - referencia: "src/maezo/tools/mcp_cibseven/transport.py:485"
+        detalhe: "read_historic_variables (GAP-XHITL-4) — leitura de variáveis do HISTÓRICO por
+          instância, usada pelo consumidor de retomada para buscar `notas_resolucao` na Zona PHI.
+          Via GatedHistoryReadingCibSevenTransport, construído SÓ quando o inner tem as duas
+          pernas de histórico"
         choked: true
     dominios_exigidos: [medica, ans, seguranca]
     aprovacoes:
@@ -730,6 +737,7 @@ mapeamento_acoes:
   agente.cibseven.get_process_status: consulta_processo
   agente.cibseven.find_active_instance: consulta_processo
   agente.cibseven.find_any_instance: consulta_processo
+  agente.cibseven.read_historic_variables: consulta_processo
 
   agente.dmn.evaluate: avaliacao_dmn
 

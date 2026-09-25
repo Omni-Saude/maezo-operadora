@@ -177,6 +177,19 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             # `agents/helena/graph.py::DESFECHO_ESCALONAMENTO_JA_ABERTO` (este modulo nao importa
             # grafos); `test_helena_cerca_texto_x_fato.py` impede a divergencia.
             "escalonamento_ja_aberto",
+            # GAP-XHITL-4 — o turno de RETOMADA (porta `resume`), depois que um humano devolveu o
+            # caso. Quatro tokens porque sao quatro fatos distintos: a instrucao chegou ao
+            # beneficiario; a cerca a barrou (foi o placeholder de recusa); nao havia instrucao;
+            # o envio falhou (o evento volta). Literais duplicados de
+            # `agents/helena/graph.py::DESFECHO_RETOMADA_*`; `test_helena_retomada.py` impede a
+            # divergencia.
+            "retomada_enviada",
+            "retomada_recusada",
+            "retomada_sem_instrucoes",
+            "retomada_falha_envio",
+            # Decisao do dono (25/09/2026): fora da janela de 24h da Meta nada e' enviado, a
+            # equipe e' avisada; emitido por `platform/integrations/agent_resume.py`.
+            "retomada_fora_da_janela",
         }
     ),
     "lucas": frozenset(
@@ -260,7 +273,7 @@ _ROUTE_VOCAB: Final[dict[str, frozenset[str]]] = {
     # PERGUNTA ficava indistinguivel de qualquer valor desconhecido. A cerca que impede a
     # reincidencia compara com o proprio `Literal`
     # (`test_helena_adv_extracao_e_wiring.py`), nao com uma lista copiada.
-    "helena": frozenset({"inform", "schedule", "escalate", "collect", "falha_tecnica_start"}),
+    "helena": frozenset({"inform", "schedule", "escalate", "collect", "falha_tecnica_start", "retomada"}),
     "lucas": frozenset({"respond_member", "escalate_human"}),
     "marina": frozenset({"auto_route", "human_review"}),
     "rafael": frozenset({"auto_approve", "human_auditor"}),

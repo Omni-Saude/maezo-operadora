@@ -159,6 +159,10 @@ class FakeCibSeven(_Recorder):
         self._record("find_any_instance", business_key, process_key=process_key)
         return None
 
+    async def read_historic_variables(self, process_instance_id: str, names: tuple[str, ...]) -> Any:
+        self._record("read_historic_variables", process_instance_id, names)
+        return None
+
     async def start_process_instance(
         self, process_key: str, business_key: str, variables: dict[str, Any]
     ) -> Any:
@@ -378,6 +382,7 @@ _METHOD_MATRIX: tuple[tuple[str, Any, bool], ...] = (
     ("evaluate", lambda s: s.evaluate("triage_redflag_adult", {"idade_anos": 30}), True),
     ("find_active_instance", lambda s: s.find_active_instance("ESC-amh-1"), True),
     ("find_any_instance", lambda s: s.find_any_instance("ESC-amh-1", process_key="SP-OP-AUTH-001"), True),
+    ("read_historic_variables", lambda s: s.read_historic_variables("pi-1", ("notas_resolucao",)), True),
     ("correlate_message", lambda s: s.correlate_message("msg", "ESC-amh-1", {"a": 1}), True),
     ("get_process_status", lambda s: s.get_process_status("ESC-amh-1"), True),
     ("start_process_instance", lambda s: s.start_process_instance("SP-OP-AUTH-001", "ESC-amh-1", {}), False),
@@ -614,6 +619,7 @@ async def test_dmn_denial_lands_on_the_nodes_declared_dmn_unavailable_path(tmp_p
     [
         ("find_active_instance", ("ESC-amh-1",), {}),
         ("find_any_instance", ("ESC-amh-1",), {"process_key": "SP-OP-AUTH-001"}),
+        ("read_historic_variables", ("pi-1", ("notas_resolucao",)), {}),
         ("get_process_status", ("ESC-amh-1",), {}),
         ("correlate_message", ("msg", "ESC-amh-1", {}), {}),
     ],
@@ -921,7 +927,9 @@ _QUOTED_MANIFEST_CITATIONS: tuple[tuple[str, str, str], ...] = (
     # Re-derived 2026-09-20 (renovação das cercas same-date, a5bb7e08): the two RENOVACAO comment
     # blocks added +3 lines above the taxonomy passage and +6 above the unmapped-topics passage.
     # Same designed outcome.
-    ("gateway/effect_classes.py", "646-649", "decisão humana, não inferência de agente"),
+    # Re-derived 2026-09-25 (GAP-XHITL-4): the `read_historic_variables` surface (+6) and the
+    # wrapped surface-count line (+1) moved the unmapped-topics passage by +7. Same outcome.
+    ("gateway/effect_classes.py", "653-656", "decisão humana, não inferência de agente"),
     ("gateway/effect_classes.py", "175-177", "no class was invented to round out a taxonomy"),
 )
 

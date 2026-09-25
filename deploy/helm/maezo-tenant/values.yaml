@@ -987,6 +987,9 @@ lifecycle:
 #     Recontado por AST em 37 no WP-J1-01: `runtime/intake_dispatch/service.py` importa
 #     `ProcessInstance` do transporte (o daemon de despacho de intake monta o start auditado);
 #     os outros 36 importadores permanecem.
+#     Recontado por AST em 38 no GAP-XHITL-4: `platform/integrations/agent_resume.py` importa
+#     `HistoricVariableReadingTransport` (a leitura do historico da nota do humano); os outros 37
+#     importadores permanecem.
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
@@ -1005,5 +1008,5 @@ lifecycle:
 # runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
 # ---------------------------------------------------------------------------
 throughputCeilings:
-  transportFanIn: 37
+  transportFanIn: 38
   harnessFanIn: 21

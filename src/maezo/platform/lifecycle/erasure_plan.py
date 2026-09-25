@@ -619,6 +619,23 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         subject_column=None,
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="custodia_contato_retomada",
+        tabela="beneficiario_contato_retomada",
+        migracao="0016_recipient_custody.py::upgrade (beneficiario_contato_retomada; expires_at index)",
+        identificacao=(
+            "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the "
+            "phone itself is stored ENCRYPTED (KMS envelope + AES-GCM, ADR-0061) and is the titular's "
+            "contact datum. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation "
+            "and cannot reach `conversation_id`, so the bridge is absent"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=27,
+        subject_column="conversation_id",
+        # No probe: the DSR reference cannot reach `conversation_id` (same posture as
+        # `portal_memberships`), so a count would be a fabricated zero.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)
