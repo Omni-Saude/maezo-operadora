@@ -35,10 +35,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # op.execute embrulha a string em sa.text(): ':hk1_' viraria bind
+    # parameter. '[:]' casa o mesmo ':' literal sem ser lido como bind.
     op.execute("""
         CREATE TABLE beneficiario_contato_retomada (
             tenant text NOT NULL CHECK (tenant <> ''),
-            conversation_id text NOT NULL CHECK (conversation_id ~ '^wa:[^:]+:hk1_[0-9a-f]+$'),
+            conversation_id text NOT NULL CHECK (conversation_id ~ '^wa:[^:]+[:]hk1_[0-9a-f]+$'),
             key_ref text NOT NULL CHECK (key_ref <> ''),
             wrapped_key bytea NOT NULL,
             nonce bytea NOT NULL CHECK (length(nonce) = 12),
