@@ -25,9 +25,10 @@ variable "staff_ops" {
     human_material_version_id = string
     human_manifest_sha256     = string
     job_schedule_enabled      = bool
-    # Onda 8 (D14): senha do login da fonte de tarefas (`portal_task_source_amh`), lida pelo `rows`.
+    # Onda 8 (D14): senha do login da fonte de tarefas (`portal_task_source_amh`), lida pela task
+    # `staff-install` (que cria o login com a credencial mestre); o `rows` so aplica os grants.
     task_source_secret_arn = optional(string)
-    # Onda 8 (H5): senhas dos logins outbox/source do plano humano do BFF, lidas pelo `rows`.
+    # Onda 8 (H5): senhas dos logins outbox/source do plano humano do BFF, lidas pela `staff-install`.
     human_outbox_secret_arn = optional(string)
     human_source_secret_arn = optional(string)
   })
@@ -52,11 +53,12 @@ variable "staff_ops" {
 }
 
 locals {
-  staff_ops           = var.staff_ops == null ? {} : { this = var.staff_ops }
-  staff_ops_schedule  = { for key, ops in local.staff_ops : key => ops if ops.job_schedule_enabled }
-  staff_ops_image     = var.staff_ops == null ? null : "${aws_ecr_repository.app.repository_url}@${var.staff_ops.image_digest}"
-  staff_ops_owner_arn = var.staff_install == null ? null : var.staff_install.login_secret_arns["maezo_native_schema_owner"]
-  staff_ops_cmk_arn   = aws_kms_key.native_materials["engine-native"].arn
+  staff_ops              = var.staff_ops == null ? {} : { this = var.staff_ops }
+  staff_ops_schedule     = { for key, ops in local.staff_ops : key => ops if ops.job_schedule_enabled }
+  staff_ops_image        = var.staff_ops == null ? null : "${aws_ecr_repository.app.repository_url}@${var.staff_ops.image_digest}"
+  staff_ops_owner_arn    = var.staff_install == null ? null : var.staff_install.login_secret_arns["maezo_native_schema_owner"]
+  staff_ops_identity_arn = var.staff_install == null ? null : var.staff_install.login_secret_arns["portal_read_source_amh"]
+  staff_ops_cmk_arn      = aws_kms_key.native_materials["engine-native"].arn
 }
 
 resource "aws_cloudwatch_log_group" "staff_ops" {
@@ -64,11 +66,6 @@ resource "aws_cloudwatch_log_group" "staff_ops" {
   name              = "/ecs/${local.name}/${each.value}"
   retention_in_days = 30
   tags              = local.base_tags
-}
-
-data "aws_kms_key" "staff_ops_master" {
-  for_each = var.staff_ops == null ? {} : { for k, s in { admin = data.aws_secretsmanager_secret.staff_install["admin"] } : k => s.kms_key_id if try(length(s.kms_key_id), 0) > 0 }
-  key_id   = each.value
 }
 
 # ------------------------------------------------------------------ task roles
@@ -82,14 +79,12 @@ resource "aws_iam_role" "staff_ops" {
 locals {
   staff_ops_task_secrets = var.staff_ops == null ? {} : {
     rows = compact([
-      var.staff_ops.rows_secret_arn, local.staff_ops_owner_arn, local.aurora_master_secret_arn,
+      # Sem a credencial mestre: o search_path do identity_login e ajustado com a credencial dele.
+      var.staff_ops.rows_secret_arn, local.staff_ops_owner_arn, local.staff_ops_identity_arn,
       # D14: o `rows` aplica a parte `engine` do SQL de grants como dono do schema do engine.
       var.staff_ops.task_source_secret_arn == null ? null : data.aws_secretsmanager_secret.cibseven_app_db.arn,
-      var.staff_ops.task_source_secret_arn,
       # H5: o `rows` aplica o SQL do plano humano como dono do schema do tenant (maezo_app).
       var.staff_ops.human_outbox_secret_arn == null ? null : data.aws_secretsmanager_secret.maezo_app_db.arn,
-      var.staff_ops.human_outbox_secret_arn,
-      var.staff_ops.human_source_secret_arn,
     ])
     syn = [var.staff_ops.syn_secret_arn, local.staff_ops_owner_arn]
   }
@@ -131,19 +126,6 @@ data "aws_iam_policy_document" "staff_ops_task" {
       sid       = "DecifrarSegredoDoEngine"
       actions   = ["kms:Decrypt"]
       resources = [statement.value]
-      condition {
-        test     = "StringEquals"
-        variable = "kms:ViaService"
-        values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
-      }
-    }
-  }
-  dynamic "statement" {
-    for_each = each.key == "rows" ? data.aws_kms_key.staff_ops_master : {}
-    content {
-      sid       = "DecifrarSegredoMestre"
-      actions   = ["kms:Decrypt"]
-      resources = [statement.value.arn]
       condition {
         test     = "StringEquals"
         variable = "kms:ViaService"
@@ -346,7 +328,7 @@ resource "aws_ecs_task_definition" "staff_ops_oneshot" {
         { name = "STAFF_OWNER_SECRET_ARN", value = local.staff_ops_owner_arn },
         ], each.key == "rows" ? [
         { name = "STAFF_ROWS_SECRET_ARN", value = var.staff_ops.rows_secret_arn },
-        { name = "STAFF_ADMIN_SECRET_ARN", value = local.aurora_master_secret_arn },
+        { name = "STAFF_IDENTITY_SECRET_ARN", value = local.staff_ops_identity_arn },
         { name = "STAFF_ENGINE_DB_SECRET_ARN", value = data.aws_secretsmanager_secret.cibseven_app_db.arn },
         { name = "STAFF_APP_DB_SECRET_ARN", value = data.aws_secretsmanager_secret.maezo_app_db.arn },
         ] : [

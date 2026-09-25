@@ -248,10 +248,44 @@ class _Owner:
         return self.rows["admission"]
 
 
+class _Identity:
+    """Conexao do PROPRIO identity_login (nunca a credencial mestre)."""
+
+    def __init__(self, login: str = "portal_read_source_amh") -> None:
+        self.login = login
+        self.statements: list[str] = []
+
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        return self.login
+
+    async def execute(self, query: str, *args: Any) -> str:
+        self.statements.append(query)
+        return "OK"
+
+
+def test_rows_identity_login_and_search_path_pass_the_name_fence() -> None:
+    parsed = rows.parse(_rows_doc())
+    assert rows._NAME.fullmatch(parsed["identity_login"]) and rows._NAME.fullmatch(
+        parsed["identity_search_path"]
+    )
+
+
+def test_rows_search_path_uses_own_credential_and_refuses_other_login() -> None:
+    parsed = rows.parse(_rows_doc())
+    identity = _Identity()
+    actions = asyncio.run(rows.install(_Owner(), identity, parsed))
+    assert identity.statements == ["ALTER ROLE CURRENT_USER SET search_path = amh"]
+    assert actions["identity_search_path"] == "portal_read_source_amh=amh"
+    wrong = _Identity(login="postgres")
+    with pytest.raises(OpsError):
+        asyncio.run(rows.install(_Owner(), wrong, parsed))
+    assert wrong.statements == []
+
+
 def test_rows_install_is_idempotent_and_refuses_divergence() -> None:
     parsed = rows.parse(_rows_doc())
-    fresh, admin = _Owner(), _Owner()
-    actions = asyncio.run(rows.install(fresh, admin, parsed))
+    fresh = _Owner()
+    actions = asyncio.run(rows.install(fresh, _Identity(), parsed))
     assert (
         actions["designation_event"] == actions["designation_current"] == actions["admission"] == "inserida"
     )
@@ -265,20 +299,20 @@ def test_rows_install_is_idempotent_and_refuses_divergence() -> None:
         current={"designation_revision": 1, "designation_digest": "0" * 64},
         admission={"record_": b'{"a":1}', "signature_": b"s" * 64, "revoked_": False},
     )
-    again = asyncio.run(rows.install(same, _Owner(), parsed))
+    again = asyncio.run(rows.install(same, _Identity(), parsed))
     assert again["designation_event"] == again["admission"] == "igual" and same.writes == []
     other = _Owner(
         event={"designation_digest": "f" * 64, "canonical_designation": "x", "installation_proof": "y"}
     )
     with pytest.raises(OpsError):
-        asyncio.run(rows.install(other, _Owner(), parsed))
+        asyncio.run(rows.install(other, _Identity(), parsed))
     revoked = _Owner(
         event=same.rows["event"],
         current=same.rows["current"],
         admission={"record_": b'{"a":1}', "signature_": b"s" * 64, "revoked_": True},
     )
     with pytest.raises(OpsError):
-        asyncio.run(rows.install(revoked, _Owner(), parsed))
+        asyncio.run(rows.install(revoked, _Identity(), parsed))
 
 
 def test_rows_verify_rejects_wrong_digest() -> None:
@@ -326,3 +360,28 @@ def test_bootstrap_inserts_tenant_and_auth_only_when_absent() -> None:
         }
     )
     assert asyncio.run(rows.bootstrap(moved, parsed))["auth_installation"].startswith("requalificada")
+
+
+class _Roles:
+    """Conexao de dono que so responde a existencia de papeis."""
+
+    def __init__(self, present: set[str]) -> None:
+        self.present = present
+
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        assert "pg_roles" in query
+        return 1 if args[0] in self.present else None
+
+
+def test_rows_requires_onda8_logins_created_by_staff_install() -> None:
+    asyncio.run(rows.require_login(_Roles({"portal_human_outbox_amh"}), "portal_human_outbox_amh"))
+    with pytest.raises(OpsError, match="staff-install"):
+        asyncio.run(rows.require_login(_Roles(set()), "portal_human_source_amh"))
+
+
+def test_rows_never_creates_roles_nor_reads_master_secret() -> None:
+    import inspect
+
+    source = inspect.getsource(rows)
+    assert "CREATE ROLE" not in source and "STAFF_ADMIN_SECRET_ARN" not in source
+    assert "ALTER ROLE CURRENT_USER" in source

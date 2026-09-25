@@ -304,7 +304,7 @@ _STAFF_INSTALL_REASON = (
 _STAFF_OPS_NAMES: tuple[str, ...] = (
     "STAFF_OWNER_SECRET_ARN",
     "STAFF_ROWS_SECRET_ARN",
-    "STAFF_ADMIN_SECRET_ARN",
+    "STAFF_IDENTITY_SECRET_ARN",
     "STAFF_ENGINE_DB_SECRET_ARN",
     "STAFF_APP_DB_SECRET_ARN",
     "STAFF_HUMAN_MATERIALS",
@@ -377,6 +377,7 @@ INFRA_OWNED_DECLARED: dict[str, str] = {
     # operacao deploy/ops/staff-install.Dockerfile). ARNs, nao segredos.
     "STAFF_INSTALL_ADMIN_SECRET_ARN": _STAFF_INSTALL_REASON,
     "STAFF_INSTALL_LOGIN_SECRET_ARNS": _STAFF_INSTALL_REASON,
+    "STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS": _STAFF_INSTALL_REASON,
     # task-staff-ops.tf (Ondas 4-8): lidos por `tools/staff_ops` e `tools/dev_syn_fixture` (fora de
     # src/, na mesma imagem de operacao). ARNs, pins e o segredo injetado no init; nunca o app.
     **dict.fromkeys(_STAFF_OPS_NAMES, _STAFF_OPS_REASON),
