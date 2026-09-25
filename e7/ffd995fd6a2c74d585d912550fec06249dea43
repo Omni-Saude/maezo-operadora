@@ -1,0 +1,60 @@
+deploy/sql/README.md
+  s_75580744a35de2::t_f3486eb7afcc61 28-46
+deploy/sql/engine-native-roles.sql
+  s_75580744a35de2::t_4d2a348b7da8d8 28-35,64-67
+tools/staff_install/installer.py
+  s_75580744a35de2::t_98d5aeed2bde4f 73-88,315-316,395-396,422-427
+  s_75580744a35de2::t_a564d01a6c86b9 410-420,441
+  s_75580744a35de2::t_9c8ab3c0f1157f 1-12,16-72,89-126,135-249,253-254,259-289,297-314,318-349,354-377,383-394,397-405,408,421,428,432,439-440,442-447,451-468,474-501,505-510,512,516-517,519-522,531,533-545
+  s_75580744a35de2::t_8d96c177faae64 127-134,250-252,255-258,290-296,317,350-353,406-407,409,429-431,433-438,448-450,469-473,502-504,513-515,524-530
+  s_75580744a35de2::t_17f087be0bcf4a 511,518,523
+  s_75580744a35de2::t_b4cf80147fa8fb 532
+  s_75580744a35de2::t_f430c1fa1ca8d3 13-15,378-382
+.dockerignore
+  s_75580744a35de2::t_4e16783b40a83f 85-91
+deploy/ops/staff-install.Dockerfile
+  s_75580744a35de2::t_df6ae742da64dd 1-20
+tools/staff_install/__main__.py
+  s_75580744a35de2::t_176bda46fe4be9 1-4
+deploy/aws-ecs/envs/dev-sa-east-1/task-staff-install.tf
+  s_75580744a35de2::t_d215b0f6fb7dcd 1-161
+tests/unit/staff_install/test_installer.py
+  s_75580744a35de2::t_8d96c177faae64 34-37,81-83,94-97,171-174,190-192,210-212,223-225,234-237,292-295,299-303,306-311,320-325,345-348,424-429,435-437
+  s_75580744a35de2::t_f430c1fa1ca8d3 304-305,312-313
+  s_75580744a35de2::t_ec7f66c040d290 438,443,447
+  s_75580744a35de2::t_71f141daf335cb 1-33,38-80,84-93,98-170,175-189,193-209,213-222,226-233,238-291,296-298,314-319,326-344,349-423,430-434,439-442,444-446,448-460
+tools/staff_install/__init__.py
+  s_75580744a35de2::t_ccfaebd52309b6 1-6
+deploy/sql/portal-identity-lock.sql.tmpl
+  s_75580744a35de2::t_4d2a348b7da8d8 61-66
+tests/unit/staff_install/test_installer_live_pg.py
+  s_75580744a35de2::t_2f5aa107804818 5-6,8-11
+  s_75580744a35de2::t_98d5aeed2bde4f 81-82,85-86,129-130,144-145
+  s_75580744a35de2::t_8d96c177faae64 52-58,84,87,127-128,131-133,142-143,146-148
+  s_75580744a35de2::t_0ce4d711be61d1 1-4,7,12-51,59-80,83,88-126,134-141,149-161
+deploy/aws-ecs/envs/dev-sa-east-1/tests/staff-install.tftest.hcl
+  s_75580744a35de2::t_2e816c32b1db9b 85-87
+  s_75580744a35de2::t_1aaa3d5be8885d 1-84,88-97
+deploy/aws-ecs/envs/dev-sa-east-1/codebuild.tf
+  s_75580744a35de2::t_0da40ee29bb2d9 195,207-213
+tests/unit/staff_materials/test_login_secrets.py
+  s_75580744a35de2::t_ec7f66c040d290 24-25
+  s_75580744a35de2::t_270ab0ebf473b8 1-10,13-23,26-31,35-77
+  s_75580744a35de2::t_8d96c177faae64 11-12,32-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e7ffd995fd6a2c74d585d912550fec06249dea43",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
