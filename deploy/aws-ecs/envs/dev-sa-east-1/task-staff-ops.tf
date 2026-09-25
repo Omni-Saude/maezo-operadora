@@ -293,13 +293,15 @@ resource "aws_ecs_task_definition" "staff_ops_oneshot" {
       essential = true
       command   = ["tools.staff_ops", each.key]
       dependsOn = [{ containerName = "prepare", condition = "SUCCESS" }]
-      # /tmp efemero: rootfs read-only e bibliotecas (tempfile) precisam de um diretorio temporario.
+      # Scratch efemero para o TMPDIR (rootfs read-only; tempfile precisa de um diretorio), fora de /tmp
+      # de proposito: cerca G2 (nenhuma task monta /tmp).
       mountPoints = concat(
-        [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }],
+        [{ sourceVolume = "tmp", containerPath = "/run/staff-tmp", readOnly = false }],
         each.key == "syn" ? [{ sourceVolume = "dev-syn", containerPath = "/run/dev-syn", readOnly = false }] : [],
       )
       environment = concat(local.db_env, [
         { name = "AWS_REGION", value = var.aws_region },
+        { name = "TMPDIR", value = "/run/staff-tmp" },
         { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
         { name = "STAFF_OWNER_SECRET_ARN", value = local.staff_ops_owner_arn },
         ], each.key == "rows" ? [
@@ -382,10 +384,11 @@ resource "aws_ecs_task_definition" "staff_job" {
         { sourceVolume = "staff-job-human", containerPath = "/run/maezo-human-materials", readOnly = true },
         { sourceVolume = "staff-job-files", containerPath = "/run/maezo-job", readOnly = true },
         { sourceVolume = "staff-job-ledger", containerPath = "/run/staff-job-ledger", readOnly = false },
-        { sourceVolume = "staff-job-tmp", containerPath = "/tmp", readOnly = false },
+        { sourceVolume = "staff-job-tmp", containerPath = "/run/staff-tmp", readOnly = false },
       ]
       environment = [
         { name = "AWS_REGION", value = var.aws_region },
+        { name = "TMPDIR", value = "/run/staff-tmp" },
         { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
         { name = "STAFF_JOB_LEDGER_BUCKET", value = aws_s3_bucket.staff_job_ledger[each.key].bucket },
         { name = "STAFF_JOB_LEDGER_KEY", value = "ledger/amh.json" },
