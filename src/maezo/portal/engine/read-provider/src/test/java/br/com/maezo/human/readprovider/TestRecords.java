@@ -163,11 +163,16 @@ public final class TestRecords {
    * {@code MembershipRecord.model_dump_json()}, with the revision as a JSON INTEGER.
    */
   public static String membershipRow(String tenant, Member m) {
+    return membershipRow(tenant, m, List.of("atendimento-humano", "medico-auditor"));
+  }
+
+  /** H1: the same row with the given staff groups (one principal per group in the task ITs). */
+  public static String membershipRow(String tenant, Member m, List<String> groups) {
     var row = record("tenant", tenant, "issuer", m.issuer(), "subject", m.subject(),
         "principal_ref", m.principal(), "revision", "@@REVISION@@", "audience", "staff",
         "memberships", new ArrayList<>(List.of(record("membership_ref", "staff-membership",
             "roles", new ArrayList<>(List.of("atendimento")), "groups",
-            new ArrayList<>(List.of("atendimento-humano", "medico-auditor"))))),
+            new ArrayList<>(groups)))),
         "subject_bindings", new ArrayList<>(), "reviewed_until", m.reviewedUntil(), "revoked",
         m.revoked());
     return new String(Jcs.canonical(row), java.nio.charset.StandardCharsets.UTF_8)
@@ -179,11 +184,15 @@ public final class TestRecords {
    * field by field here so the provider's own projection is never its own oracle.
    */
   public static Map<String, Object> projection(Member m) {
+    return projection(m, List.of("atendimento-humano", "medico-auditor"));
+  }
+
+  public static Map<String, Object> projection(Member m, List<String> groups) {
     return record("principal_ref", m.principal(), "issuer", m.issuer(), "subject", m.subject(),
         "membership_revision", Long.toString(m.revision()), "audience", "staff", "memberships",
         new ArrayList<>(List.of(record("membership_ref", "staff-membership", "roles",
             new ArrayList<>(List.of("atendimento")), "groups",
-            new ArrayList<>(List.of("atendimento-humano", "medico-auditor"))))),
+            new ArrayList<>(groups)))),
         "subject_bindings", new ArrayList<>(), "state", m.revoked() ? "revoked" : "active",
         "reviewed_until", m.reviewedUntil());
   }
@@ -197,6 +206,33 @@ public final class TestRecords {
         "source_digest", Jcs.digest(Jcs.canonical(projection)), "receipt_ref",
         "portal-identity:" + tenant + ":membership:" + projection.get("principal_ref") + "@"
             + revision,
+        "observed_at", time(observedAt), "valid_until",
+        time(observedAt.plusSeconds(observationSeconds)));
+  }
+
+  // ------------------------------------------------------------------ H1: human tasks
+
+  public static final String RESOURCE_PREFIX = "portal-resource:tenant-test:task:";
+
+  /** The admission with the approver's human block and the resource publisher (H1). */
+  public static Map<String, Object> withHuman(
+      Map<String, Object> admission, Map<String, Object> human) {
+    admission.put("human", human);
+    @SuppressWarnings("unchecked")
+    var publishers = (List<Object>) admission.get("publishers");
+    publishers.add(record("kind", "resource", "publisher_ref", PUBLISHER, "source_ref_prefix",
+        RESOURCE_PREFIX));
+    return admission;
+  }
+
+  /** The H1 resource provenance contract (tests/fixtures/portal_read/jcs-resource-vector.json). */
+  public static Map<String, Object> resourceProvenance(
+      String tenant, Map<String, Object> payload, Instant observedAt, long observationSeconds) {
+    String task = (String) payload.get("task_id");
+    String revision = (String) payload.get("resource_revision");
+    return record("publisher_ref", PUBLISHER, "source_ref", RESOURCE_PREFIX + task,
+        "source_revision", revision, "source_digest", Jcs.digest(Jcs.canonical(payload)),
+        "receipt_ref", "portal-resource:" + tenant + ":task:" + task + "@" + revision,
         "observed_at", time(observedAt), "valid_until",
         time(observedAt.plusSeconds(observationSeconds)));
   }

@@ -107,7 +107,10 @@ class MaterialReadCredentials(ReadCredentialProvider):
             issuer=manifest.scope.workload_ref,
             key_id=designation.key_id,
             public_key_sha256=designation.fingerprint,
-            peer_spki_sha256=manifest.read_surface.server_spki_sha256,
+            # The engine binds the read key to the portal's mTLS CLIENT certificate
+            # (`PortalReadTrust`, `peer_spki_sha256`) and echoes that peer in every continuity
+            # binding; the server's SPKI never identifies the requester (measured in C1, H2).
+            peer_spki_sha256=manifest.read_surface.client_spki_sha256,
         )
         self._not_before = manifest.issued_at
         self._not_after = materials.not_after

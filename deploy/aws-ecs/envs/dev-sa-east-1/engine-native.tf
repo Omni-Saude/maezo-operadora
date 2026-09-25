@@ -330,14 +330,16 @@ locals {
       { containerName = "engine-native-materialize", condition = "SUCCESS" },
       { containerName = "cibseven", condition = "HEALTHY" },
     ]
-    # /tmp gravavel e efemero: `publisher.py` retem o certificado publico num NamedTemporaryFile e o
-    # rootfs e' read-only (FileNotFoundError "No usable temporary directory", boot de 25/09).
+    # Scratch gravavel e efemero para o TMPDIR: `publisher.py` retem o certificado publico num
+    # NamedTemporaryFile e o rootfs e' read-only ("No usable temporary directory", boot de 25/09).
+    # Fora de /tmp de proposito (cerca G2: nenhuma task monta /tmp).
     mountPoints = [
       { sourceVolume = "staff-issuer", containerPath = local.engine_native_issuer_path, readOnly = true },
-      { sourceVolume = "staff-issuer-tmp", containerPath = "/tmp", readOnly = false },
+      { sourceVolume = "staff-issuer-tmp", containerPath = "/run/maezo/staff-issuer-scratch", readOnly = false },
     ]
     environment = [
       { name = "MAEZO_STAFF_CASE_ISSUER_FILE", value = "${local.engine_native_issuer_path}/composition.json" },
+      { name = "TMPDIR", value = "/run/maezo/staff-issuer-scratch" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ]
     logConfiguration = {

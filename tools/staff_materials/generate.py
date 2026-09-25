@@ -56,9 +56,10 @@ CONTINUITY_DOMAIN = b"maezo/portal-native-read-continuity/v1/commitment"
 
 # Capacidades por papel: fixas, nao configuraveis. O leitor do portal precisa das tres
 # projecoes e exatamente de `detail`+`list`, nessa ordem: e o que o loader exige (`materials.py`,
-# conferencia do `read_requester`, D-H.4) e o que `/cases` precisa. O emissor de casos NAO e
-# designado para `staff_current_task.v1`: a restricao da Onda 7 (plano, T1.6) vira fato da
-# designacao, e o engine recusa qualquer decisao de tarefa corrente assinada por ele (`StaffCaseInstallation.grant`, `projections.contains`).
+# conferencia do `read_requester`, D-H.4) e o que `/cases` precisa. H3 (D-N): o emissor de casos
+# passa a ser designado para `staff_current_task.v1` (fim da restricao da Onda 7): ele assina uma
+# decisao por tarefa corrente do caso, e o engine so a aceita de quem tem a projecao
+# (`StaffCaseInstallation.grant`, `projections.contains`).
 CAPABILITIES: dict[str, tuple[list[str], list[str], list[str]]] = {
     "read_requester": (
         ["staff-case-read.v1", "staff-case-finalize.v1"],
@@ -69,7 +70,7 @@ CAPABILITIES: dict[str, tuple[list[str], list[str], list[str]]] = {
     "native_result": (["native_result"], [], []),
     "case_issuer": (
         ["staff_case_grant", "staff_policy_head", "scope_complete"],
-        ["staff_escalation.v1", "staff_identity.v1", "staff_summary.v1"],
+        ["staff_current_task.v1", "staff_escalation.v1", "staff_identity.v1", "staff_summary.v1"],
         ["detail", "list"],
     ),
     "publication_importer": (["staff-case-publication.v1"], [], []),

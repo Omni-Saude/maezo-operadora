@@ -43,9 +43,11 @@ from maezo.tools.process_business_keys import auth_business_key
 
 from .authority import fingerprint
 from .case_issuer import (
+    MAX_CASE_TASKS,
     ROUTING_DECISION,
     ROUTING_OUTPUT,
     CaseIssuerError,
+    CaseTask,
     IssuerState,
     RoutedEscalation,
     StaffGrantee,
@@ -232,6 +234,36 @@ class EngineEscalationSource:
         self.report = report
         return tuple(found)
 
+    async def case_tasks(self, case: Identity) -> tuple[CaseTask, ...]:
+        """H3: as tarefas vivas da instancia do CASO, como `StaffCaseStore.taskRows` as varre.
+
+        Mesma instancia (`process_instance_ref`), mesmo tenant nativo, ordenadas por id. Uma
+        tarefa de outro tenant ou de outra instancia na resposta e defeito da fonte: recusa.
+        Mais que `MAX_CASE_TASKS` tambem recusa (o grant nao cabe; nunca uma lista cortada).
+        """
+        tasks = await self._json(
+            "/task",
+            processInstanceId=case.process_instance_ref,
+            tenantIdIn=self.tenant,
+            sortBy="id",
+            sortOrder="asc",
+            firstResult="0",
+            maxResults=str(MAX_CASE_TASKS + 1),
+        )
+        if not isinstance(tasks, list) or len(tasks) > MAX_CASE_TASKS:
+            raise CaseIssuerError("case_tasks_unavailable")
+        found = []
+        for task in tasks:
+            if (
+                not isinstance(task, dict)
+                or task.get("tenantId") != self.tenant
+                or task.get("processInstanceId") != case.process_instance_ref
+                or task.get("processDefinitionId") != case.process_definition_id
+            ):
+                raise CaseIssuerError("case_tasks_unavailable")
+            found.append(CaseTask(str(task["id"]), str(task["taskDefinitionKey"])))
+        return tuple(sorted(found))
+
     async def __call__(self) -> tuple[RoutedEscalation, ...]:
         routed: list[RoutedEscalation] = []
         live = await self.live()
@@ -250,6 +282,7 @@ class EngineEscalationSource:
                     escalation_ref=escalation.escalation_ref,
                     case=value,
                     grupo_atendimento=escalation.grupo_atendimento,
+                    case_tasks=await self.case_tasks(value),
                 )
             )
         self.report.anchored = len(routed)

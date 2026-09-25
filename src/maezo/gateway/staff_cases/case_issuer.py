@@ -20,10 +20,12 @@ Camadas:
 * orquestracao: `StaffCaseIssuerJob.run_once`, com portas para escalacoes, grantees, witness,
   ledger e transporte (`StaffNativeClient.publish`).
 
-Restricao da Onda 7: as decisoes sao a constante fechada `DECISIONS`, SEM `staff_current_task.v1`.
-Com ela, `collectDetail` exigiria publicacao Q2 de cada tarefa (Onda 8); sem ela, `/cases/{ref}`
-responde sem a lista de tarefas. A designacao gerada pela T1.3 tambem nao da essa projecao ao
-emissor, entao o engine recusaria uma decisao dessas mesmo que este modulo a produzisse.
+As decisoes fixas sao a constante fechada `DECISIONS`. H3 (D-N) remove a restricao da Onda 7: cada
+tarefa CORRENTE da instancia do caso ganha a sua decisao `detail`/`staff_current_task.v1`
+(`TASK_DECISION`), com `resource_identity_digest` = digest do `StaffCurrentTaskResource` exato que
+`StaffCaseReadCommand.collectDetail` recalcula da linha nativa. O engine so mostra a tarefa se
+ela tambem tiver recurso Q2 publicado (H2, `task_publication_source.py`); sem ele a tarefa e
+omitida, nunca inventada. A tarefa entra na evidencia do grant: tarefa nova ou concluida reemite.
 
 As tres portas de producao (decisao D-H do plano) moram em `case_issuer_sources.py`:
 `AuthClaimAnchor` (D-H.1), `IssuerWitness` (D-H.2) e `PostgresIssuerLedger` (D-H.3). O
@@ -61,9 +63,12 @@ DECISIONS: tuple[tuple[Literal["detail", "list"], str], ...] = (
     ("list", "staff_summary.v1"),
     ("list", "staff_escalation.v1"),
 )
+#: H3: uma decisao por tarefa corrente do caso (`created_at` incluso: o engine exige o campo nela).
+TASK_DECISION: tuple[Literal["detail"], str] = ("detail", "staff_current_task.v1")
 ROUTING_DECISION = "escalation_routing"
 ROUTING_OUTPUT = "grupo_atendimento"
 MAX_CHUNK = 256
+MAX_CASE_TASKS = 200
 
 
 class CaseIssuerError(RuntimeError):
@@ -87,6 +92,18 @@ def policy_ref_for(designation_revision: int | str) -> str:
 # ---------------------------------------------------------------------------- dominio puro
 
 
+@dataclass(frozen=True, order=True)
+class CaseTask:
+    """Uma tarefa VIVA da instancia do caso (`ACT_RU_TASK` com `PROC_INST_ID_` do caso)."""
+
+    task_id: str
+    task_definition_key: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id or not self.task_definition_key:
+            raise CaseIssuerError("invalid_case_task")
+
+
 @dataclass(frozen=True)
 class RoutedEscalation:
     """Uma escalacao VIVA e o grupo que a DMN escolheu para ela.
@@ -99,8 +116,13 @@ class RoutedEscalation:
     escalation_ref: str
     case: Identity
     grupo_atendimento: str
+    #: H3: as tarefas correntes da instancia do CASO (nao da escalacao), ordenadas por id.
+    case_tasks: tuple[CaseTask, ...] = ()
 
     def __post_init__(self) -> None:
+        # 256 decisoes por grant no engine (`StaffCaseModels.shape("grant")`), 5 delas fixas.
+        if tuple(sorted(set(self.case_tasks))) != self.case_tasks or len(self.case_tasks) > MAX_CASE_TASKS:
+            raise CaseIssuerError("invalid_case_tasks")
         if not self.grupo_atendimento or self.grupo_atendimento != self.grupo_atendimento.strip():
             raise CaseIssuerError("invalid_group")
         if not self.escalation_ref or self.case.kind != "authorization":
@@ -206,7 +228,7 @@ class StaffCasePolicy:
             audience="staff",
             decisions=[
                 dict(operation=operation, projection=projection, fields=sorted(FIELDS[projection]))
-                for operation, projection in DECISIONS
+                for operation, projection in (*DECISIONS, TASK_DECISION)
             ],
         )
 
@@ -224,6 +246,32 @@ def evidence_digest(case: Identity, escalations: Sequence[RoutedEscalation]) -> 
             identity_digest=digest(case.wire()),
             decision=ROUTING_DECISION,
             routes=[dict(escalation_ref=e.escalation_ref, group=e.grupo_atendimento) for e in escalations],
+            # H3: as tarefas correntes fazem parte do fato citado; mudou a tarefa, muda o grant.
+            tasks=[
+                dict(task_id=t.task_id, task_definition_key=t.task_definition_key)
+                for t in case_tasks(escalations)
+            ],
+        )
+    )
+
+
+def case_tasks(escalations: Sequence[RoutedEscalation]) -> tuple[CaseTask, ...]:
+    """As tarefas correntes do caso; escalacoes do MESMO caso tem de concordar (uma leitura so)."""
+    found = {e.case_tasks for e in escalations}
+    if len(found) > 1:
+        raise CaseIssuerError("inconsistent_case_tasks")
+    return next(iter(found), ())
+
+
+def task_resource_digest(scope: Scope, case: Identity, task: CaseTask) -> str:
+    """O `StaffCurrentTaskResource` que `collectDetail` recalcula da linha nativa (mesmo JCS)."""
+    return digest(
+        dict(
+            scope=scope.wire(),
+            case_ref=case.case_ref,
+            process_instance_id=case.process_instance_ref,
+            task_id=task.task_id,
+            task_definition_key=task.task_definition_key,
         )
     )
 
@@ -537,7 +585,7 @@ class StaffCaseIssuer:
 
     def __init__(self, *, signer: StaffSigner, scope: Scope, source_ref: str, policy: StaffCasePolicy):
         entry = signer.authority.entries.get(fingerprint(signer.key.public_key()))
-        projections = {projection for _, projection in DECISIONS}
+        projections = {projection for _, projection in (*DECISIONS, TASK_DECISION)}
         if (
             signer.role != "case_issuer"
             or entry is None
@@ -644,6 +692,26 @@ class StaffCaseIssuer:
                 subject_identity_digest=grantee.actor_digest(),
                 membership_revision=str(grantee.membership_revision),
                 resource_identity_digest=identity,
+                operation=operation,
+                projection=projection,
+                fields=sorted(FIELDS[projection]),
+                receipt_ref=_ref("routing", self.scope.tenant, action.case.case_ref),
+                receipt_digest=receipt,
+                observed_at=instant(now),
+                valid_until=instant(until),
+                state="active",
+            )
+            decisions.append(self._signed(decision, purpose, until, "decision_proof"))
+        operation, projection = TASK_DECISION
+        for task in case_tasks(action.evidence):
+            decision = dict(
+                decision_ref=f"{operation}/{projection}/{task.task_id}",
+                policy_ref=self.policy.policy_ref,
+                policy_revision=str(policy.policy_revision),
+                policy_digest=policy.policy_digest,
+                subject_identity_digest=grantee.actor_digest(),
+                membership_revision=str(grantee.membership_revision),
+                resource_identity_digest=task_resource_digest(self.scope, action.case, task),
                 operation=operation,
                 projection=projection,
                 fields=sorted(FIELDS[projection]),

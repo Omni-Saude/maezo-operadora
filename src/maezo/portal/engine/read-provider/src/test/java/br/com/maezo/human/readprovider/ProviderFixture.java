@@ -233,6 +233,10 @@ public final class ProviderFixture implements AutoCloseable {
     putMembership(tenant, m.issuer(), m.subject(), m.principal(), membershipRow(tenant, m));
   }
 
+  public void putMembership(String tenant, Member m, List<String> groups) throws SQLException {
+    putMembership(tenant, m.issuer(), m.subject(), m.principal(), membershipRow(tenant, m, groups));
+  }
+
   /** An admission that also admits publications (the T1.7b purpose). */
   public Map<String, Object> publicationAdmission(long revision) {
     var a = admission(revision);

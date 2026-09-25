@@ -105,6 +105,12 @@ class AssignmentPrivateTransport:
             raise unavailable()
         return await self._send("authority", raw, receipt_digest="digest")
 
+    async def publish_evidence(self, raw: bytes) -> dict[str, Any]:
+        """H2: `human-authority.v1` evidence of one task (T1.5 job); same receipt as `principal`."""
+        if self.purpose != "human-authority" or strict_loads(raw).get("operation") != "evidence":
+            raise unavailable()
+        return await self._send("authority", raw, receipt_digest="digest")
+
     async def query(self, request: dict[str, Any]) -> dict[str, Any]:
         if self.purpose != "human-assignment-read" or request.get("operation") not in (
             "context",

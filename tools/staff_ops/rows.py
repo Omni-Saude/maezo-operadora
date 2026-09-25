@@ -6,8 +6,10 @@ Entradas (nenhuma por env/override alem de ARNs e do endereco do banco):
   esperados. O conteudo e publico (assinado), mas a fonte unica e o segredo pinado, para que o
   que se instala seja exatamente o que o aprovador assinou;
 * `STAFF_OWNER_SECRET_ARN` -> credencial de `maezo_native_schema_owner`;
-* `STAFF_ADMIN_SECRET_ARN` -> credencial mestre, SO para `ALTER ROLE <identity_login> SET
-  search_path` (o job T1.5 le `portal_memberships` sem qualificar o schema).
+* `STAFF_IDENTITY_SECRET_ARN` -> credencial do PROPRIO `identity_login`, SO para
+  `ALTER ROLE CURRENT_USER SET search_path` (o job T1.5 le `portal_memberships` sem qualificar o
+  schema). O PG deixa um papel comum ajustar o proprio search_path: a credencial mestre do Aurora
+  nao entra nesta task.
 
 Bootstrap que o engine nativo exige ANTES do 1o boot (`HumanCommandPlugin.staffCurrent`, medido no
 apply de 25/09) e que o DDL deixa explicito por comentario: `MZO_HUMAN_TENANT(<tenant>,0)` e a linha
@@ -231,7 +233,7 @@ async def bootstrap(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
     return actions
 
 
-async def install(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, Any]:
+async def install(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, Any]:
     scope = rows["scope"]
     key = (scope["tenant"], scope["environment"], scope["engine_name"], scope["database_incarnation"])
     revision, digest = rows["designation_revision"], rows["designation_sha256"]
@@ -311,12 +313,14 @@ async def install(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, Any
         else:
             actions["admission"] = "igual"
     login, path = rows["identity_login"], rows["identity_search_path"]
-    await admin.execute(f"ALTER ROLE {login} SET search_path = {path}")
+    if await identity.fetchval("SELECT current_user") != login:
+        raise OpsError("credencial de identidade nao e o identity_login: recusado")
+    await identity.execute(f"ALTER ROLE CURRENT_USER SET search_path = {path}")
     actions["identity_search_path"] = f"{login}={path}"
     return actions
 
 
-async def prove(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, bool]:
+async def prove(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, bool]:
     scope = rows["scope"]
     key = (scope["tenant"], scope["environment"], scope["engine_name"], scope["database_incarnation"])
     async with owner.transaction():
@@ -334,7 +338,7 @@ async def prove(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, bool]
             rows["admission_ref"],
             rows["admission_revision"],
         )
-    setting = await admin.fetchval(
+    setting = await identity.fetchval(
         "SELECT array_to_string(setconfig, ',') FROM pg_db_role_setting s JOIN pg_roles r ON r.oid=s.setrole "
         "WHERE r.rolname=$1 AND s.setdatabase=0",
         rows["identity_login"],
@@ -352,7 +356,7 @@ async def prove(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, bool]
 
 
 def main() -> int:
-    from tools.staff_install.installer import parse_admin, parse_credential, tls_context
+    from tools.staff_install.installer import parse_credential, tls_context
 
     try:
         import asyncpg  # type: ignore[import-untyped]
@@ -364,8 +368,9 @@ def main() -> int:
         owner_password = parse_credential(
             client.get_secret_value(SecretId=env("STAFF_OWNER_SECRET_ARN"))["SecretString"], OWNER
         )
-        admin_user, admin_password = parse_admin(
-            client.get_secret_value(SecretId=env("STAFF_ADMIN_SECRET_ARN"))["SecretString"]
+        identity_password = parse_credential(
+            client.get_secret_value(SecretId=env("STAFF_IDENTITY_SECRET_ARN"))["SecretString"],
+            rows["identity_login"],
         )
         context: ssl.SSLContext = tls_context(None)
 
@@ -379,23 +384,23 @@ def main() -> int:
                 ssl=context,
                 timeout=15,
             )
-            admin = await asyncpg.connect(
+            identity = await asyncpg.connect(
                 host=host,
                 port=port,
-                user=admin_user,
-                password=admin_password,
+                user=rows["identity_login"],
+                password=identity_password,
                 database=database,
                 ssl=context,
                 timeout=15,
             )
             try:
                 actions = await bootstrap(owner, rows)
-                actions.update(await install(owner, admin, rows))
-                proof = await prove(owner, admin, rows)
+                actions.update(await install(owner, identity, rows))
+                proof = await prove(owner, identity, rows)
                 tls = await owner.fetchval("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
             finally:
                 await owner.close()
-                await admin.close()
+                await identity.close()
             return dict(actions=actions, proof=proof, owner_tls=bool(tls))
 
         result = asyncio.run(run())
