@@ -73,7 +73,10 @@ class Installation:
 
 
 def installation_from_trust(trust_raw: bytes, *, runtime_role: str) -> Installation:
-    """A linha sai do PROPRIO arquivo que o engine carrega: digest = sha256(JCS) (`AssignmentTrust.digest`)."""
+    """A linha sai do PROPRIO arquivo que o engine carrega.
+
+    digest = sha256(JCS) (`AssignmentTrust.digest`).
+    """
     from maezo.portal.engine.profile import canonicalize, strict_loads
 
     trust = strict_loads(trust_raw)
@@ -158,9 +161,12 @@ async def install(owner: Any, spec: Installation, *, native_schema: str = NATIVE
             valid_until_=spec.valid_until,
         )
         row = await owner.fetchrow(
-            "SELECT environment_, engine_name_, database_incarnation_, database_oid_::bigint AS database_oid_, "
-            "engine_schema_oid_::bigint AS engine_schema_oid_, engine_login_oid_::bigint AS engine_login_oid_, "
-            "configuration_digest_, deployment_receipt_ref_, deployment_receipt_digest_, state_, valid_until_, "
+            "SELECT environment_, engine_name_, database_incarnation_, "
+            "database_oid_::bigint AS database_oid_, "
+            "engine_schema_oid_::bigint AS engine_schema_oid_, "
+            "engine_login_oid_::bigint AS engine_login_oid_, "
+            "configuration_digest_, deployment_receipt_ref_, deployment_receipt_digest_, "
+            "state_, valid_until_, "
             "revision_ FROM mzo_human_assignment_installation WHERE tenant_=$1 FOR UPDATE",
             spec.tenant,
         )
@@ -179,7 +185,8 @@ async def install(owner: Any, spec: Installation, *, native_schema: str = NATIVE
         # a linha que bate com o arquivo que ele carregou.
         await owner.execute(
             f"UPDATE mzo_human_assignment_installation SET "
-            f"{','.join(f'{c}=${i + 2}' for i, c in enumerate(columns))},revision_=revision_+1 WHERE tenant_=$1",
+            f"{','.join(f'{c}=${i + 2}' for i, c in enumerate(columns))},revision_=revision_+1 "
+            "WHERE tenant_=$1",
             spec.tenant,
             *desired.values(),
         )
@@ -446,8 +453,9 @@ async def activate_from_job(
     admin_engine = create_async_engine(
         admin_dsn, hide_parameters=True, pool_size=1, max_overflow=0, connect_args={"ssl": tls}
     )
+    native_dsn = await asyncio.to_thread(Path(config.native_source.dsn_file).read_text, encoding="utf-8")
     native_engine = create_async_engine(
-        Path(config.native_source.dsn_file).read_text(encoding="utf-8").strip(),
+        native_dsn.strip(),
         hide_parameters=True,
         pool_size=1,
         max_overflow=0,
