@@ -205,7 +205,29 @@ ADMISSION_KEYS = frozenset(
     }
 )
 ADMISSION_PURPOSES = frozenset({"portal-task-read", "portal-read-publication"})
-ADMISSION_SOURCE_KINDS = frozenset({"membership", "catalog-designate"})
+# H1 (D-N): `resource` so junto com o bloco `human` (e o bloco so junto com o publicador `resource`).
+ADMISSION_SOURCE_KINDS = frozenset({"membership", "catalog-designate", "resource"})
+HUMAN_CLASSIFICATION_KEYS = frozenset(
+    {
+        "classification_ref",
+        "classification_digest",
+        "policy_ref",
+        "policy_digest",
+        "projection",
+        "fields_digest",
+    }
+)
+HUMAN_ENTRY_KEYS = frozenset(
+    {
+        "process_definition_id",
+        "task_definition_key",
+        "classification",
+        "identity_policy",
+        "task_id_format",
+        "candidate_groups",
+        "user_candidates",
+    }
+)
 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@/-]{0,254}")
 _HASH = re.compile(r"[0-9a-f]{64}")
 _DECIMAL = re.compile(r"0|[1-9][0-9]{0,17}")
@@ -249,7 +271,9 @@ def _admission_shape(value: Any) -> None:
     recusado ANTES de o aprovador assinar (F6 do C1: a versao anterior exigia o Scope de 4 campos
     e o provedor exige ``{tenant, environment, workload_ref}``).
     """
-    record = _closed(value, ADMISSION_KEYS)
+    # `human` e a unica chave opcional (H1): o registro staff-only guarda o shape exato da T1.7a.
+    optional = type(value) is dict and "human" in value
+    record = _closed(value, ADMISSION_KEYS | {"human"} if optional else ADMISSION_KEYS)
     if record["schema"] != "portal-read-admission.v1":
         raise ValueError
     _ref(record["admission_ref"])
@@ -301,11 +325,49 @@ def _admission_shape(value: Any) -> None:
         # O prefixo termina num separador: `...:amh:` nunca admite `...:amhx:...`.
         if not _ref(publisher["source_ref_prefix"]).endswith((":", "/")):
             raise ValueError
+    if ("human" in record) != ("resource" in kinds):
+        raise ValueError
+    if "human" in record:
+        _human_shape(record["human"])
     _decimal(record["statement_timeout_seconds"], 1, 10)
     _decimal(record["observation_seconds"], 60, 900)
     start, end = _instant(record["not_before"]), _instant(record["valid_until"])
     if not start < end or end - start > MAX_WINDOW:
         raise ValueError
+
+
+def _human_shape(value: Any) -> None:
+    """Espelho de `HumanAdmission.java` (H1): o que o aprovador admite de cada tarefa humana."""
+    entries = _closed(value, {"entries"})["entries"]
+    if type(entries) is not list or not entries or len(entries) > 256:
+        raise ValueError
+    seen = set()
+    for item in entries:
+        entry = _closed(item, HUMAN_ENTRY_KEYS)
+        key = (_ref(entry["process_definition_id"]), _ref(entry["task_definition_key"]))
+        if key in seen:
+            raise ValueError
+        seen.add(key)
+        classification = _closed(entry["classification"], HUMAN_CLASSIFICATION_KEYS)
+        _ref(classification["classification_ref"])
+        _hash(classification["classification_digest"])
+        _ref(classification["policy_ref"])
+        _hash(classification["policy_digest"])
+        _hash(classification["fields_digest"])
+        if classification["projection"] != "full_task_detail.v1":
+            raise ValueError
+        policy = _closed(entry["identity_policy"], {"artifact_ref", "digest"})
+        _ref(policy["artifact_ref"])
+        _hash(policy["digest"])
+        if entry["task_id_format"] not in ("uuid", "decimal"):
+            raise ValueError
+        if entry["user_candidates"] not in ("refused", "native_principal"):
+            raise ValueError
+        groups = entry["candidate_groups"]
+        if type(groups) is not list or not groups or len(groups) > 64 or len(set(groups)) != len(groups):
+            raise ValueError
+        for group in groups:
+            _ref(group)
 
 
 def review_admission(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:

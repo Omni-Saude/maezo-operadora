@@ -24,8 +24,11 @@ final class AdmissionRecord {
   static final byte[] DOMAIN =
       "maezo/portal-read-admission/v1\0".getBytes(StandardCharsets.US_ASCII);
   static final Set<String> PURPOSES = Set.of("portal-task-read", "portal-read-publication");
-  /** Only what the staff scope uses. `resource` publication is Onda 8 and is never admitted. */
-  static final Set<String> SOURCE_KINDS = Set.of("membership", "catalog-designate");
+  /**
+   * Staff scope (T1.7a/b) plus H1 (D-N): `resource` is admitted only together with the `human`
+   * block, and the `human` block only together with a `resource` publisher.
+   */
+  static final Set<String> SOURCE_KINDS = Set.of("membership", "catalog-designate", "resource");
   static final Duration MAX_VALIDITY = Duration.ofDays(14);
 
   record Continuity(String keyId, String generation, String commitment, Instant notBefore,
@@ -44,15 +47,25 @@ final class AdmissionRecord {
   final int statementTimeoutSeconds;
   final long observationSeconds;
   final Instant notBefore, validUntil;
+  /** H1: the admitted human tasks; null when the admission is staff-only. */
+  final HumanAdmission human;
   /** SHA-256 of the exact signed bytes; the Admission's capabilityDigest. */
   final String digest;
 
   private AdmissionRecord(Map<String, Object> m, String digest) {
-    Fields.keys(m, "schema", "admission_ref", "admission_revision", "scope", "engine_name",
-        "database_incarnation", "read_deployment_ref", "read_deployment_digest",
-        "trust_configuration_digest", "purposes", "code_digests", "continuity_keys", "catalog",
-        "publishers", "statement_timeout_seconds", "observation_seconds", "not_before",
-        "valid_until");
+    // `human` is the one optional key (H1): a staff-only record keeps its exact T1.7a shape.
+    if (m.containsKey("human"))
+      Fields.keys(m, "schema", "admission_ref", "admission_revision", "scope", "engine_name",
+          "database_incarnation", "read_deployment_ref", "read_deployment_digest",
+          "trust_configuration_digest", "purposes", "code_digests", "continuity_keys", "catalog",
+          "publishers", "statement_timeout_seconds", "observation_seconds", "not_before",
+          "valid_until", "human");
+    else
+      Fields.keys(m, "schema", "admission_ref", "admission_revision", "scope", "engine_name",
+          "database_incarnation", "read_deployment_ref", "read_deployment_digest",
+          "trust_configuration_digest", "purposes", "code_digests", "continuity_keys", "catalog",
+          "publishers", "statement_timeout_seconds", "observation_seconds", "not_before",
+          "valid_until");
     Fields.exact(m, "schema", SCHEMA);
     this.digest = digest;
     admissionRef = Fields.ref(m, "admission_ref");
@@ -108,6 +121,9 @@ final class AdmissionRecord {
         throw Fields.unavailable();
     }
     publishers = Map.copyOf(admitted);
+    human = m.containsKey("human") ? HumanAdmission.parse(m.get("human")) : null;
+    if ((human == null) == publishers.containsKey("resource"))
+      throw Fields.unavailable();
     statementTimeoutSeconds = (int) Fields.decimal(m, "statement_timeout_seconds", 1, 10);
     observationSeconds = Fields.decimal(m, "observation_seconds", 60, 900);
     notBefore = Fields.time(m, "not_before");

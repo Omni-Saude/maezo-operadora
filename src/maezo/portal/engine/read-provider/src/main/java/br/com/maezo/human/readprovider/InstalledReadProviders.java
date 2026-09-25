@@ -19,7 +19,7 @@ import javax.naming.InitialContext;
 import javax.sql.DataSource;
 
 /**
- * The installed {@code PortalReadTrust.Providers} (T1.7a), cut to the staff scope. Registered once in
+ * The installed {@code PortalReadTrust.Providers} (T1.7a/b, extended to human tasks by H1). Registered once in
  * {@code META-INF/services/br.com.maezo.human.PortalReadTrust$Providers}; the JAR ships only in the
  * {@code INSTALL_PORTAL_READ=true} image.
  *
@@ -27,8 +27,8 @@ import javax.sql.DataSource;
  * recorded at construction (ServiceLoader instantiation must not throw an unbounded error) and
  * makes every method refuse with {@code 503 READ_DEPENDENCY_UNAVAILABLE}, which the plugin turns
  * into a boot refusal. Publication qualification covers the staff scope (T1.7b: membership,
- * catalog designation/revocation, key revocation); resource publication, identity policy and
- * classification are Onda 8 and are refused.
+ * catalog designation/revocation, key revocation) and, with the approver's {@code human} block
+ * (H1, D-N), resource publication, task identity policy and classification.
  */
 public final class InstalledReadProviders implements PortalReadTrust.Providers {
   static final String CONFIGURATION_ENV = "MAEZO_PORTAL_READ_PROVIDER_FILE";
@@ -362,7 +362,7 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
    * after {@code acquire} and before the tenant lock). The request must be bound to the admitted
    * engine, incarnation, deployment and scope. {@code membership} re-reads the live source row
    * itself; {@code catalog-designate}, {@code catalog-revoke} and {@code revoke-key} need no I/O;
-   * {@code resource} and anything else are Onda 8 and refused. The returned qualification only
+   * {@code resource} (H1) needs the admitted human block; anything else is refused. The returned qualification only
    * compares in memory ({@link StaffScopeQualification#verify}).
    */
   @Override
@@ -411,8 +411,23 @@ public final class InstalledReadProviders implements PortalReadTrust.Providers {
               Fields.string(payload, "issuer"), Fields.ref(payload, "subject"),
               record.statementTimeoutSeconds);
         }
+        case "resource" -> {
+          // H1: only with the human block, from the admitted resource publisher, carrying a
+          // classification the approver admitted for that process definition. The task itself,
+          // its revision and evidence are the engine's OWN committed rows, re-read inside the
+          // publication command (PortalReadPublication); the exact per-entry classification is
+          // re-checked there against the catalog entry of the real task.
+          var publisher = record.publishers.get("resource");
+          if (publisher == null || record.human == null
+              || !publisher.publisherRef().equals(source.get("publisher_ref")))
+            throw Fields.unavailable();
+          Fields.ref(payload, "task_id");
+          Fields.decimal(payload, "resource_revision", 0, Long.MAX_VALUE - 1);
+          record.human.verifyPublishedClassification(Fields.ref(payload, "process_definition_id"),
+              Fields.object(payload.get("classification")), record.validUntil);
+        }
         case "catalog-designate", "catalog-revoke", "revoke-key" -> {}
-        default -> throw Fields.unavailable(); // resource (Onda 8) and anything unknown
+        default -> throw Fields.unavailable();
       }
       return new StaffScopeQualification(own, kind, source, payload, observed);
     } catch (RuntimeException refused) {
