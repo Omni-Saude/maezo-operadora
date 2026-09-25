@@ -15,6 +15,13 @@ src/maezo/portal/engine/java/*
 !src/maezo/portal/engine/java/pom.xml
 !src/maezo/portal/engine/java/src/
 !src/maezo/portal/engine/java/src/**
+!src/maezo/portal/engine/read-provider/
+src/maezo/portal/engine/read-provider/*
+!src/maezo/portal/engine/read-provider/pom.xml
+!src/maezo/portal/engine/read-provider/src/
+src/maezo/portal/engine/read-provider/src/*
+!src/maezo/portal/engine/read-provider/src/main/
+!src/maezo/portal/engine/read-provider/src/main/**
 !deploy/
 deploy/*
 !deploy/cibseven/

@@ -36,6 +36,13 @@ def test_effective_human_ignore_keeps_closed_read_descriptor_ancestry() -> None:
         "!src/maezo/portal/engine/java/pom.xml",
         "!src/maezo/portal/engine/java/src/",
         "!src/maezo/portal/engine/java/src/**",
+        "!src/maezo/portal/engine/read-provider/",
+        "src/maezo/portal/engine/read-provider/*",
+        "!src/maezo/portal/engine/read-provider/pom.xml",
+        "!src/maezo/portal/engine/read-provider/src/",
+        "src/maezo/portal/engine/read-provider/src/*",
+        "!src/maezo/portal/engine/read-provider/src/main/",
+        "!src/maezo/portal/engine/read-provider/src/main/**",
         "!deploy/",
         "deploy/*",
         "!deploy/cibseven/",
@@ -199,3 +206,55 @@ def test_complete_human_plugin_run_on_owned_fixture(tmp_path: Path, flag: str, c
         assert (camunda / "native-webapps/maezo-human-read/WEB-INF/web.xml").read_bytes() == xml
     else:
         assert not (camunda / "native-webapps/maezo-human-read").exists()
+
+
+def _provider_build_step() -> str:
+    dockerfile = (ROOT / "deploy/cibseven/Dockerfile.human").read_text()
+    build = re.sub(r"\\\n\s*", " ", dockerfile.split("\nFROM cibseven/", 1)[0]).splitlines()
+    (step,) = [line for line in build if line.startswith("RUN mkdir /build/provider")]
+    return step.removeprefix("RUN ")
+
+
+def test_provider_jar_is_copied_next_to_human_command_jar() -> None:
+    """B1: PortalReadPlugin needs the Q2 provider package; only the harness used to add it."""
+    dockerfile = (ROOT / "deploy/cibseven/Dockerfile.human").read_text()
+    runtime = re.sub(r"\\\n\s*", " ", dockerfile.split("\nFROM cibseven/", 1)[1]).splitlines()
+    libs = [line for line in runtime if line.startswith("COPY ") and "/camunda/lib/" in line]
+    assert libs == [
+        "COPY --from=human-build /build/target/human-command-engine-1.0.0.jar"
+        " /camunda/lib/maezo-human-command.jar",
+        "COPY --from=human-build /build/provider/ /camunda/lib/",
+    ]
+    step = _provider_build_step()
+    assert "read-provider/pom.xml" in step and "maezo-portal-read-provider.jar" in step
+    # Harness-only hacks (deploy/c1-local/engine.Dockerfile) never reach the published image.
+    assert "pg-ca.pem" not in dockerfile and "ln -s" not in dockerfile
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX sh fixture")
+@pytest.mark.parametrize("flag", ["true", "false", "invalid"])
+def test_provider_jar_present_iff_portal_read(tmp_path: Path, flag: str) -> None:
+    """B1: the provider JAR lands in /build/provider (-> /camunda/lib) iff INSTALL_PORTAL_READ=true."""
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    # Fake mvn: `package` of the provider pom yields the JAR the real build yields.
+    (fake / "mvn").write_text(
+        '#!/bin/sh\ncase "$*" in *read-provider/pom.xml*) mkdir -p read-provider/target '
+        "&& : > read-provider/target/maezo-portal-read-provider-1.0.0.jar ;; esac\n"
+    )
+    (fake / "mvn").chmod(0o755)
+    build = tmp_path / "build"
+    build.mkdir()
+    command = _provider_build_step().replace("/build/", shlex.quote(str(build)) + "/")
+    result = subprocess.run(
+        ["sh", "-ec", command],
+        cwd=build,
+        env={"PATH": f"{fake}:{os.environ['PATH']}", "INSTALL_PORTAL_READ": flag},
+        capture_output=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode == (1 if flag == "invalid" else 0), result.stderr
+    if flag != "invalid":
+        expected = ["maezo-portal-read-provider.jar"] if flag == "true" else []
+        assert sorted(p.name for p in (build / "provider").iterdir()) == expected

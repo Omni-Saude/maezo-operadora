@@ -106,3 +106,15 @@ variable "nome_aplicacao" {
   type        = string
   default     = "MAEZO Operadora — Cockpit (dev)"
 }
+
+variable "hostname_webhook" {
+  description = "Hostname publico do webhook do WhatsApp (Meta). Sem Access: a Meta nao faz login; o receptor exige a assinatura HMAC."
+  type        = string
+  default     = "whatsapp-dev.austa.com.br"
+}
+
+variable "destino_webhook" {
+  description = "Servico interno do receptor de webhook (Cloud Map), porta 8080."
+  type        = string
+  default     = "http://webhook-receiver.maezo-operadora-dev.internal:8080"
+}

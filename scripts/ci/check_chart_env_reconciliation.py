@@ -263,6 +263,27 @@ _CIBSEVEN_ECS_JVM_NAMES: tuple[str, ...] = (
     "TZ",
 )
 
+#: Engine nativo (Onda 4, `engine-native.tf`): arquivos que o plugin JAVA do CIB Seven le no boot
+#: (`HumanCommandPlugin.java`, `PortalReadPlugin.java`, provedor Q2) — nenhum modulo Python os le.
+_ENGINE_NATIVE_JVM_NAMES: tuple[str, ...] = (
+    "MAEZO_HUMAN_TRUST_FILE",
+    "MAEZO_PORTAL_READ_TRUST_FILE",
+    "MAEZO_PORTAL_READ_PROVIDER_FILE",
+    "MAEZO_STAFF_COMPOSITION_FILE",
+)
+_ENGINE_NATIVE_JVM_REASON = (
+    "lido pelo plugin Java do engine nativo (HumanCommandPlugin/PortalReadPlugin/provedor Q2), "
+    "configurado pelo engine-native.tf; nenhum modulo Python le este nome"
+)
+#: `case_issuer_runtime.py:58,139-141` le `MAEZO_STAFF_CASE_ISSUER_FILE` por um mapeamento
+#: injetavel (`env = os.environ if environ is None else environ; env[ENV]`), forma que a varredura
+#: AST nao resolve. Leitor real, nao isencao de nome morto: o sidecar do emissor (B7) o declara.
+_STAFF_ISSUER_INJECTED_NAMES: tuple[str, ...] = ("MAEZO_STAFF_CASE_ISSUER_FILE",)
+_STAFF_ISSUER_INJECTED_REASON = (
+    "lido por case_issuer_runtime.py via mapeamento injetavel env[ENV] (nao resolvido pela AST); "
+    "declarado pelo sidecar staff-case-issuer do engine-native.tf"
+)
+
 #: Names read by dsn.tf's own inline DSN-composer script — see `_DSN_COMPOSER_SCRIPT_REASON`.
 _DSN_COMPOSER_SCRIPT_NAMES: tuple[str, ...] = (
     "DB_HOST",
@@ -327,6 +348,8 @@ INFRA_OWNED_DECLARED: dict[str, str] = {
     **dict.fromkeys(_KAFKA_BROKER_OWN_NAMES, _KAFKA_BROKER_BOOTSTRAP_REASON),
     "CIBSEVEN_DATABASE_URL": _CIBSEVEN_INCLUSTER_DATASOURCE_REASON,
     **dict.fromkeys(_CIBSEVEN_ECS_JVM_NAMES, _CIBSEVEN_ECS_JVM_REASON),
+    **dict.fromkeys(_ENGINE_NATIVE_JVM_NAMES, _ENGINE_NATIVE_JVM_REASON),
+    **dict.fromkeys(_STAFF_ISSUER_INJECTED_NAMES, _STAFF_ISSUER_INJECTED_REASON),
     **dict.fromkeys(_DSN_COMPOSER_SCRIPT_NAMES, _DSN_COMPOSER_SCRIPT_REASON),
     **dict.fromkeys(_BOOTSTRAP_DB_SCRIPT_NAMES, _BOOTSTRAP_DB_SCRIPT_REASON),
     **dict.fromkeys(_CODEBUILD_BUILDSPEC_NAMES, _CODEBUILD_BUILDSPEC_REASON),

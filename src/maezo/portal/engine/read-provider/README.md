@@ -2,8 +2,9 @@
 
 Desenho: `docs/plans/portal-autoridade-nativa-dev.md` §3.1. Este módulo é o "separately qualified
 provider package" de `src/maezo/portal/engine/README.md`: o JAR
-`maezo-portal-read-provider-1.0.0.jar` só entra na imagem `INSTALL_PORTAL_READ=true` (o `COPY` no
-`deploy/cibseven/Dockerfile.human` fica para depois da T1.2, que é a dona do arquivo).
+`maezo-portal-read-provider-1.0.0.jar` só entra na imagem `INSTALL_PORTAL_READ=true`: o estágio de build
+do `deploy/cibseven/Dockerfile.human` compila este módulo e o copia para
+`/camunda/lib/maezo-portal-read-provider.jar`, ao lado de `maezo-human-command.jar` (B1).
 
 **Escopo recortado ao staff.** `acquire`, `Admission.requireCurrent`, `verifySource`
 (`membership`, `catalog-designate`), `verifyCatalog` e `continuity` (T1.7a), e
