@@ -57,6 +57,7 @@
             <environmentVariables>
               <MAEZO_PORTAL_READ_TRUST_FILE>${project.build.directory}/provider-it/portal-read-trust.json</MAEZO_PORTAL_READ_TRUST_FILE>
               <MAEZO_PORTAL_READ_PROVIDER_FILE>${project.build.directory}/provider-it/portal-read-provider.json</MAEZO_PORTAL_READ_PROVIDER_FILE>
+              <MAEZO_PORTAL_READ_IT_REPO>${project.basedir}/../../../../..</MAEZO_PORTAL_READ_IT_REPO>
             </environmentVariables>
           </configuration>
         </execution>

@@ -43,6 +43,10 @@ class PortalSettings(BaseSettings):
     #: and credentials are mutually exclusive in the browser, and an echoed Origin would make
     #: any site a caller.
     cors_origins: str = ""
+    #: The deployed capability profile, the same `MAEZO_PORTAL_CAPABILITIES` the production
+    #: bootstrap reads. Projected on the session so the browser can tell "this area is not
+    #: enabled here" from a real 503. It grants nothing: every route still refuses on its own.
+    capabilities: Literal["identity", "identity,staff_cases", "identity,staff_cases,human"] = "identity"
 
     @model_validator(mode="after")
     def _deployment_boundaries(self) -> Self:

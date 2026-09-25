@@ -73,3 +73,5 @@ class SessionDTO(PrivateRecord):
     roles: tuple[str, ...]
     expires_at: datetime
     csrf_token: str = Field(repr=False)
+    #: Canonical order; informative only, never an authorization input.
+    capabilities: tuple[Literal["identity", "staff_cases", "human"], ...]
