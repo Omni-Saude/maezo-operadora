@@ -58,7 +58,12 @@ BEGIN
    IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=login) THEN
      EXECUTE format('CREATE ROLE %I LOGIN', login);
    END IF;
-   EXECUTE format('ALTER ROLE %I LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD %L',
+   -- Como em engine-native-roles.sql: SUPERUSER/REPLICATION/BYPASSRLS recusa (so superusuario
+   -- escreve esses atributos, e o admin do Aurora nao e), o resto normaliza.
+   IF (SELECT rolsuper OR rolreplication OR rolbypassrls FROM pg_roles WHERE rolname=login) THEN
+     RAISE EXCEPTION 'portal-identity-lock: % tem SUPERUSER, REPLICATION ou BYPASSRLS', login;
+   END IF;
+   EXECUTE format('ALTER ROLE %I LOGIN NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD %L',
                   login, verifier);
  END LOOP;
 END $logins$;

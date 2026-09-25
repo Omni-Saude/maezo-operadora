@@ -82,6 +82,13 @@ deploy/certificates/*
 !deploy/certificates/install_rds_roots.py
 !deploy/certificates/sa-east-1-bundle.pem
 
+# Imagem de operacao da Onda 3 (deploy/ops/staff-install.Dockerfile): so os scripts SQL e o
+# template do lock; README e gerador ficam fora. A imagem do app nao copia nada daqui.
+!deploy/sql/
+deploy/sql/*
+!deploy/sql/*.sql
+!deploy/sql/*.sql.tmpl
+
 # Variáveis de ambiente locais (nunca empacotar segredos)
 .env
 .env.*
