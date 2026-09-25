@@ -56,7 +56,7 @@ _KEYS = {
 }
 #: Opcional (D14, Onda 8): o login da fonte de tarefas do job T1.5 e os grants de
 #: `deploy/sql/portal-task-source-grants.sql`, cada parte pelo dono do schema dela.
-_OPTIONAL = {"task_source"}
+_OPTIONAL = {"task_source", "human_plane"}
 _AUTH_SCOPE = {
     "tenant",
     "environment",
@@ -115,6 +115,20 @@ def parse(document: dict[str, Any]) -> dict[str, Any]:
         or not str(task_source["password_secret_arn"]).startswith("arn:aws:secretsmanager:")
     ):
         raise OpsError("task_source invalido")
+    plane = document.get("human_plane")
+    if plane is not None and (
+        not isinstance(plane, dict)
+        or set(plane) != {"schema", "outbox", "source"}
+        or not _NAME.fullmatch(str(plane["schema"]))
+        or any(
+            not isinstance(plane[k], dict)
+            or set(plane[k]) != {"login", "password_secret_arn"}
+            or not _NAME.fullmatch(str(plane[k]["login"]))
+            for k in ("outbox", "source")
+        )
+        or plane["outbox"]["login"] == plane["source"]["login"]
+    ):
+        raise OpsError("human_plane invalido")
     rows = dict(document)
     rows["designation"] = b64(document["designation_b64"], "designation")
     rows["proof"] = b64(document["installation_proof_b64"], "installation_proof")
@@ -274,6 +288,43 @@ async def task_source(owner: Any, admin: Any, engine_owner: Any, rows: dict[str,
     return f"{login} {'realinhado' if exists else 'criado'}; grants native+engine"
 
 
+PLANE_SQL = "deploy/sql/portal-human-plane-grants.sql"
+
+
+async def ensure_login(admin: Any, login: str, password: str) -> str:
+    from tools.staff_materials import scram
+
+    exists = await admin.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login)
+    verifier = scram.verifier(password).replace("'", "")
+    await admin.execute(
+        f"{'ALTER' if exists else 'CREATE'} ROLE {login} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+        f"NOREPLICATION NOBYPASSRLS PASSWORD '{verifier}'"
+    )
+    return "realinhado" if exists else "criado"
+
+
+async def human_plane(admin: Any, schema_owner: Any, rows: dict[str, Any], passwords: dict[str, str]) -> str:
+    """H5: logins outbox/source do BFF e os grants do SQL do repo, pelo dono do schema do tenant."""
+    from pathlib import Path
+
+    plane = rows["human_plane"]
+    done = [
+        f"{plane[k]['login']} {await ensure_login(admin, plane[k]['login'], passwords[k])}"
+        for k in ("outbox", "source")
+    ]
+    sql = (Path("/app") / PLANE_SQL).read_text(encoding="utf-8")
+    async with schema_owner.transaction():
+        await schema_owner.execute("SELECT set_config('maezo.human_plane.schema', $1, true)", plane["schema"])
+        await schema_owner.execute(
+            "SELECT set_config('maezo.human_plane.outbox_login', $1, true)", plane["outbox"]["login"]
+        )
+        await schema_owner.execute(
+            "SELECT set_config('maezo.human_plane.source_login', $1, true)", plane["source"]["login"]
+        )
+        await schema_owner.execute(sql)
+    return "; ".join(done) + "; grants do plano humano"
+
+
 async def install(owner: Any, admin: Any, rows: dict[str, Any]) -> dict[str, Any]:
     scope = rows["scope"]
     key = (scope["tenant"], scope["environment"], scope["engine_name"], scope["database_incarnation"])
@@ -411,6 +462,18 @@ def main() -> int:
             client.get_secret_value(SecretId=env("STAFF_ADMIN_SECRET_ARN"))["SecretString"]
         )
         context: ssl.SSLContext = tls_context(None)
+        app_credentials: tuple[str, str] = ("", "")
+        plane_passwords: dict[str, str] = {}
+        if rows.get("human_plane") is not None:
+            app_credentials = parse_admin(
+                client.get_secret_value(SecretId=env("STAFF_APP_DB_SECRET_ARN"))["SecretString"]
+            )
+            for key in ("outbox", "source"):
+                spec = rows["human_plane"][key]
+                plane_passwords[key] = parse_credential(
+                    client.get_secret_value(SecretId=spec["password_secret_arn"])["SecretString"],
+                    spec["login"],
+                )
         engine_credentials: tuple[str, str] = ("", "")
         task_source_password = ""
         if rows.get("task_source") is not None:
@@ -464,6 +527,21 @@ def main() -> int:
                         )
                     finally:
                         await engine_owner.close()
+                if rows.get("human_plane") is not None:
+                    app_user, app_password = app_credentials
+                    app_owner = await asyncpg.connect(
+                        host=host,
+                        port=port,
+                        user=app_user,
+                        password=app_password,
+                        database=database,
+                        ssl=context,
+                        timeout=15,
+                    )
+                    try:
+                        actions["human_plane"] = await human_plane(admin, app_owner, rows, plane_passwords)
+                    finally:
+                        await app_owner.close()
                 proof = await prove(owner, admin, rows)
                 tls = await owner.fetchval("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
             finally:
