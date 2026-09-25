@@ -529,8 +529,57 @@ class PostgresStaffAssignmentAdministration:
                 dict(tenant=self.scope.tenant, id=publication_id),
             )
 
+    async def rebase_undelivered(self, source_revision: int, native_revision: int) -> None:
+        """Return a frozen REPLACE the engine never applied to `disabled` at its current counter.
+
+        Only after the engine answered the EXACT durable request with a revision conflict: a
+        publication it applied is answered with its stored receipt BEFORE the CAS
+        (`AssignmentPublication.java`), so the conflict proves the request left no effect. The
+        durable request stays as it was (immutable, never acknowledged); `prepare_change` then
+        freezes the same designation at the next source revision, with a new publication id.
+        """
+        if not 0 <= native_revision < 2**63:
+            raise unavailable()
+        async with self.engine.begin() as db:
+            row = await self._locked(db)
+            frozen = self._frozen(row)
+            if frozen.source_revision != source_revision or frozen.operation != "replace":
+                raise conflict()
+            if native_revision == frozen.expected_native_revision:
+                raise conflict()  # the counter did not move: the refusal was something else
+            delivered = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT delivery_state, native_receipt FROM portal_assignment_publications "
+                            "WHERE tenant=:tenant AND publication_id=:id FOR UPDATE"
+                        ),
+                        dict(tenant=self.scope.tenant, id=frozen.publication_id),
+                    )
+                )
+                .mappings()
+                .first()
+            )
+            if delivered is not None and (
+                delivered["native_receipt"] is not None or delivered["delivery_state"] == "acknowledged"
+            ):
+                raise conflict()
+            await db.execute(
+                text("""UPDATE portal_assignment_source SET state='disabled',pending_publication_id=NULL,
+                native_revision=:native WHERE tenant=:tenant AND state='frozen'
+                AND source_revision=:revision AND pending_publication_id=:publication"""),
+                dict(
+                    tenant=self.scope.tenant,
+                    native=native_revision,
+                    revision=source_revision,
+                    publication=frozen.publication_id,
+                ),
+            )
+
     async def ack_native(self, publication_receipt: AssignmentPublicationReceipt) -> None:
-        receipt = AssignmentPublicationReceipt.model_validate(publication_receipt)
+        # Through the closed codec: re-validating the instance by field name (`schema_`) refuses the
+        # `schema` alias (measured in the C1 harness, Onda 8).
+        receipt = parse_model(AssignmentPublicationReceipt, wire(publication_receipt))
         async with self.engine.begin() as db:
             row = await self._locked(db)
             publication = (

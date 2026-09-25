@@ -52,6 +52,13 @@ HARNESS_MARKER_SCHEMA = "c1_local_harness"
 HARNESS_MARKER = "maezo-c1-local-harness-descartavel"
 #: Cliente mTLS da fixture sintetica AUTH (emitido no `engine-config` pela CA D6; so no volume)
 AUTH_FIXTURE = ROOT / "auth-fixture"
+#: Onda 8: os logins do plano humano do BFF (outbox/source, `portal-human-plane-grants.sql`) e o da
+#: ADMINISTRACAO da fonte de atribuicao (`portal-assignment-admin-grants.sql`), como no dev.
+HUMAN_OUTBOX_LOGIN = f"portal_human_outbox_{TENANT}"
+HUMAN_SOURCE_LOGIN = f"portal_human_source_{TENANT}"
+ASSIGNMENT_ADMIN_LOGIN = f"portal_assignment_admin_{TENANT}"
+#: Chave da FONTE de atribuicao (`assignment-plane source-key`) e o plano da ativacao; so no volume.
+ASSIGNMENT = ROOT / "assignment"
 
 
 def now() -> datetime:

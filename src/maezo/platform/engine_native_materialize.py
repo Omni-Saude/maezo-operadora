@@ -51,7 +51,10 @@ ENGINE_REQUIRED = frozenset(
 )
 # Fonte de membership do provider Q2 (`dsn_file`/`ca_file` do native-secret input), quando
 # apontam para o volume em vez do bundle RDS da imagem.
-ENGINE_OPTIONAL = frozenset({"engine-run/observer-dsn.txt", "engine-run/pg-ca.pem"})
+# Onda 8: o trust do plano de atribuicao (`assignment-plane trust`), so com `assignment_trust=true`.
+ENGINE_OPTIONAL = frozenset(
+    {"engine-run/observer-dsn.txt", "engine-run/pg-ca.pem", "engine-run/assignment-trust.json"}
+)
 # A composicao `staff-case-issuer-composition.v1` e os irmaos dela (deploy/c1-local/c1/issuer.py).
 ISSUER_REQUIRED = frozenset(
     "staff-issuer/" + name

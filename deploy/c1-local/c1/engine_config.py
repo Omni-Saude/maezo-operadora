@@ -7,9 +7,10 @@ com o PKCS12 do AUTH. O harness so acrescenta:
 
 engine-native/  client-ca.p12 = CA de clientes do `generate` + CA do pacote humano do job (D5, por
                 causa do D6)
-engine-run/     observer-dsn.txt
+engine-run/     observer-dsn.txt; assignment-trust.json (Onda 8, `assignment-plane trust` da ferramenta)
 banco           a admissao Q2 assinada pela raiz de TESTE (`approver.sign_admission`), a designacao
-                instalada (event + current) e a linha MZO_AUTH_INSTALLATION (D8: sem instalador AUTH)
+                instalada (event + current), a linha MZO_AUTH_INSTALLATION (D8: sem instalador AUTH)
+                e a MZO_HUMAN_ASSIGNMENT_INSTALLATION pelo instalador do repo (`tools.staff_ops.assignment`)
 /c1/human-materials/current  o pacote humano do job (`human-bundle` da ferramenta, via human_bundle.py)
 """
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import os
 from datetime import timedelta
 from urllib.parse import quote
@@ -26,13 +28,17 @@ from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, pkcs12
-from tools.staff_materials import approver, native_secret
+from tools.staff_materials import approver, assignment_trust, native_secret
+from tools.staff_ops import assignment as assignment_ops
 
 from maezo.gateway.human.membership_publication_job import staff_catalog_artifact
 
 from . import human_bundle
 from .common import (
     ADMIN,
+    ASSIGNMENT,
+    HUMAN_OUTBOX_LOGIN,
+    HUMAN_SOURCE_LOGIN,
     AUTH_FIXTURE,
     APPROVER_OUT,
     CATALOG_REF,
@@ -60,6 +66,7 @@ from .common import (
     iso,
     jcs,
     now,
+    password,
     read_text,
     save_state,
     sha256,
@@ -80,6 +87,10 @@ DEPLOYMENT_RECEIPT_REF = "c1-deployment-receipt"
 DEPLOYMENT_RECEIPT_DIGEST = sha256(b"c1 deployment receipt")
 PUBLICATION_KEY_ID = "c1-portal-read-publication"
 AUTHORITY_KEY_ID = "c1-human-authority"
+#: Onda 8: a fonte revisada de atribuicao (chave, dono e referencia pinados no trust do engine).
+ASSIGNMENT_SOURCE_KEY_ID = "c1-assignment-source-1"
+ASSIGNMENT_OWNER_REF = "c1-assignment-owner"
+ASSIGNMENT_SOURCE_REF = f"staff-assignment:{TENANT}:c1"
 AUTH_SCOPE = dict(tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME, database_incarnation=INCARNATION,
                   installation_ref="c1-auth-installation", installation_revision="1")
 
@@ -144,7 +155,13 @@ async def main_async() -> None:
 
     # 1a passada: pacote humano com admissao provisoria so para fixar chaves e certificados.
     observer_password = read_text(ADMIN / f"{OBSERVER_LOGIN}-password")
-    unused = b"postgresql+asyncpg://c1_unused_%s:unused@postgres:5432/maezo"
+    # Onda 8: DSNs reais dos logins outbox/source do plano humano (criados no passo `assignment`).
+    dsns = {}
+    for login in (HUMAN_OUTBOX_LOGIN, HUMAN_SOURCE_LOGIN):
+        if not (ADMIN / f"{login}-password").exists():
+            write(ADMIN / f"{login}-password", password(), 0o400)
+        secret = quote(read_text(ADMIN / f"{login}-password"), safe="")
+        dsns[login] = f"postgresql+asyncpg://{login}:{secret}@{PG_HOST}:5432/{DATABASE}".encode()
     human_dir = ROOT / "human-materials"
     human_dir.mkdir(mode=0o700, exist_ok=True)
     server_ca = (MATERIALS / "portal" / "native-ca.pem").read_bytes()
@@ -152,7 +169,7 @@ async def main_async() -> None:
         directory=human_dir, scope=scope, engine_name=ENGINE_NAME, incarnation=INCARNATION,
         origin="https://" + NATIVE_HOSTNAME, server_spki=summary["native_server_spki_sha256"],
         server_ca_pem=server_ca, client_ca=job_ca, audience_read=READ_AUDIENCE, catalog_ref=CATALOG_REF,
-        source_dsn=unused % b"source", outbox_dsn=unused % b"outbox", window=human_bundle.window(),
+        source_dsn=dsns[HUMAN_SOURCE_LOGIN], outbox_dsn=dsns[HUMAN_OUTBOX_LOGIN], window=human_bundle.window(),
     )
     provisional = dict(scope=scope, engine_name=ENGINE_NAME, database_incarnation=INCARNATION,
                        read_deployment_ref=READ_DEPLOYMENT_REF, read_deployment_digest=READ_DEPLOYMENT_DIGEST,
@@ -229,6 +246,25 @@ async def main_async() -> None:
           f"postgresql://{OBSERVER_LOGIN}:{quote(observer_password, safe='')}@{PG_HOST}:5432/{DATABASE}", 0o400)
     configuration_digest = native_public["staff_native_configuration_digest"]
 
+    # --- Onda 8: trust do plano de atribuicao, pela ferramenta (so partes publicas) --------------
+    ASSIGNMENT.mkdir(mode=0o700, exist_ok=True)
+    source_pem, source_public = assignment_trust.new_source_key(ASSIGNMENT_SOURCE_KEY_ID)
+    write(ASSIGNMENT / "source-key.pem", source_pem, 0o400)
+    trust_raw, trust_digest = assignment_trust.build_trust(
+        dict(
+            schema=assignment_trust.SPEC_SCHEMA, tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME,
+            database_incarnation=INCARNATION,
+            deployment_receipt=dict(artifact_ref=DEPLOYMENT_RECEIPT_REF, digest=DEPLOYMENT_RECEIPT_DIGEST),
+            validity_policy=dict(artifact_ref="c1-validity", digest=sha256(b"c1 validity")),
+            owner_ref=ASSIGNMENT_OWNER_REF, source_ref=ASSIGNMENT_SOURCE_REF, not_before=iso(start),
+            not_after=iso(end),
+        ),
+        json.loads(native_files["engine-run/trust.json"]),
+        bundle.keys.summary(bundle.spec),
+        source_public,
+    )
+    write(ENGINE_RUN / "assignment-trust.json", trust_raw, 0o444)
+
     # --- banco: admissao, designacao instalada, instalacao AUTH (D8) ---------------------------
     designation_raw = (MATERIALS / "portal" / "designation.json").read_bytes()
     proof_raw = (APPROVER_OUT / "installation-proof.json").read_bytes()
@@ -275,9 +311,19 @@ async def main_async() -> None:
                 "VALUES($1,$2,1,$3,$4,$5)",
                 TENANT, INCARNATION, jcs(AUTH_SCOPE).decode(), jcs(binding).decode(), jcs(qualification).decode(),
             )
+        # Onda 8: a instalacao nativa do plano de atribuicao, pelo instalador do repo (o do `rows`).
+        installed = await assignment_ops.install(
+            owner, assignment_ops.installation_from_trust(trust_raw, runtime_role="cibseven_app"),
+            native_schema=NATIVE_SCHEMA,
+        )
     finally:
         await owner.close()
 
+    save_state("assignment", dict(
+        trust_digest=trust_digest, source_key_id=ASSIGNMENT_SOURCE_KEY_ID,
+        source_fingerprint=source_public["fingerprint"], owner_ref=ASSIGNMENT_OWNER_REF,
+        source_ref=ASSIGNMENT_SOURCE_REF, installation=installed,
+    ))
     save_state("engine", dict(
         human_manifest_sha256=bundle.manifest_sha256, human_version=bundle.manifest.material_version_id,
         configuration_digest=configuration_digest, admission_digest=sha256(record_raw),
@@ -288,7 +334,8 @@ async def main_async() -> None:
     ))
     step("engine-config", True,
          f"trust/Q2 trust/provider/composicao montados; admissao {sha256(record_raw)[:12]} assinada pela raiz de TESTE; "
-         f"configuration_digest {configuration_digest[:12]}; designacao e AUTH instaladas")
+         f"configuration_digest {configuration_digest[:12]}; designacao e AUTH instaladas; "
+         f"assignment-trust {trust_digest[:12]} (instalacao {installed})")
 
 
 def _rebuild(first: human_bundle.HumanBundle, admission: dict, common: dict) -> human_bundle.HumanBundle:

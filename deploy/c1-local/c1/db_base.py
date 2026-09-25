@@ -3,7 +3,10 @@
 * database `maezo`, dono `maezo_app`; schema `cibseven`, dono `cibseven_app` (os `ACT_*` nascem no
   `engine-bootstrap`, com a imagem viva);
 * schema `amh` com as tabelas de identidade da migracao 0012, aplicadas pelo proprio texto da
-  migracao (a 0001 exige pgvector, que o postgres:17-alpine nao tem: so a 0012 importa aqui).
+  migracao (a 0001 exige pgvector, que o postgres:17-alpine nao tem: so a 0012 importa aqui);
+* Onda 8 (plano humano do BFF): no mesmo schema, pelo texto das migracoes, a cadeia de auditoria
+  (0002, 0005), o outbox humano (0013) e a fonte de atribuicao (0014) - as 6 relacoes que
+  `deploy/sql/portal-human-plane-grants.sql` e `portal-assignment-admin-grants.sql` concedem.
 """
 
 from __future__ import annotations
@@ -17,12 +20,20 @@ import asyncpg
 
 from .common import ADMIN, DATABASE, HARNESS_MARKER, HARNESS_MARKER_SCHEMA, TENANT, admin_dsn, read_text, step, tls_context
 
-MIGRATION = Path("/repo/src/maezo/platform/migrations/versions/0012_portal_identity_session.py")
+VERSIONS = Path("/repo/src/maezo/platform/migrations/versions")
+MIGRATION = VERSIONS / "0012_portal_identity_session.py"
+#: (migracao, tabela que prova que ela ja rodou) - a ordem e a das revisoes.
+HUMAN_PLANE = (
+    ("0002_audit_chain.py", "audit_chain"),
+    ("0005_audit_emit_dedup.py", "audit_emit_dedup"),
+    ("0013_human_command_outbox.py", "human_command_outbox"),
+    ("0014_staff_assignment_authority.py", "portal_assignment_source"),
+)
 
 
-def _migration_statements() -> list[str]:
+def _migration_statements(path: Path = MIGRATION) -> list[str]:
     statements: list[str] = []
-    spec = importlib.util.spec_from_file_location("c1_0012", MIGRATION)
+    spec = importlib.util.spec_from_file_location("c1_" + path.stem, path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     import sys
@@ -67,12 +78,24 @@ async def main_async() -> None:
                 await app.execute(f"SET LOCAL search_path = {TENANT}")
                 for statement in _migration_statements():
                     await app.execute(statement)
+        for name, table in HUMAN_PLANE:
+            if not await app.fetchval("SELECT to_regclass($1)", f"{TENANT}.{table}"):
+                async with app.transaction():
+                    await app.execute(f"SET LOCAL search_path = {TENANT}")
+                    for statement in _migration_statements(VERSIONS / name):
+                        await app.execute(statement)
+        human = await app.fetchval(
+            "SELECT count(*) FROM pg_tables WHERE schemaname=$1 AND tablename = ANY($2::text[])",
+            TENANT, [t for _, t in HUMAN_PLANE] + ["human_command_delivery", "portal_assignment_publications"],
+        )
         tables = await app.fetchval(
             "SELECT count(*) FROM pg_tables WHERE schemaname=$1 AND tablename LIKE 'portal_%'", TENANT
         )
     finally:
         await app.close()
-    step("db-base", tables == 4, f"maezo/cibseven/amh criados; {tables} tabelas portal_* em {TENANT} (0012)")
+    ok = tables == 4 + 3 and human == 6
+    step("db-base", ok, f"maezo/cibseven/amh criados; {tables} tabelas portal_* em {TENANT} (0012+0014); "
+         f"{human}/6 do plano humano (0002/0005/0013/0014)")
 
 
 def main() -> None:

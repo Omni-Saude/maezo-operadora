@@ -379,8 +379,10 @@ def test_install_is_idempotent_and_every_contract_holds() -> None:
                     want = (True, False, False)
                 elif name.startswith("mzo_human_consumer_"):
                     continue  # matriz do ConsumerEdgeInstallation, coberta pelo pin do catalogo
-                elif name == "mzo_human_decision_binding":
+                elif name in ("mzo_human_decision_binding", "mzo_human_assignment_installation"):
                     want = (True, False, False)
+                elif name == "mzo_human_assignment_publication":
+                    want = (True, True, False)
                 elif name == "mzo_portal_read_designation":
                     want = (True, True, False)  # UPDATE so por coluna (abaixo)
                 elif name.startswith("mzo_portal_read_") or immutable.search(name):

@@ -265,3 +265,42 @@ run "recusa_sem_portal" {
   }
   expect_failures = [var.engine_native]
 }
+
+# Onda 8: `assignment_trust = true` acrescenta SO o arquivo do trust de atribuicao ao env do engine.
+run "ligado_com_plano_de_atribuicao" {
+  command = apply
+  plan_options { target = [aws_ecs_service.cibseven] }
+  variables {
+    engine_native = {
+      native_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-abcdef"
+      native_secret_version_id = "00000000-0000-0000-0000-000000000001"
+      kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      app_image_digest         = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      staff_case_issuer        = false
+      assignment_trust         = true
+    }
+  }
+  assert {
+    condition = { for e in jsondecode(aws_ecs_task_definition.cibseven.container_definitions)[0].environment : e.name => e.value if startswith(e.name, "MAEZO_HUMAN_") } == {
+      MAEZO_HUMAN_TRUST_FILE            = "/run/maezo/engine/trust.json"
+      MAEZO_HUMAN_ASSIGNMENT_TRUST_FILE = "/run/maezo/engine/assignment-trust.json"
+    }
+    error_message = "assignment_trust=true: o engine le o trust de atribuicao do mesmo volume engine-run."
+  }
+}
+
+run "recusa_assignment_trust_nao_booleano" {
+  command = plan
+  plan_options { target = [aws_ecs_service.cibseven] }
+  variables {
+    engine_native = {
+      native_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/engine/native-materials-abcdef"
+      native_secret_version_id = "00000000-0000-0000-0000-000000000001"
+      kms_key_arn              = "arn:aws:kms:sa-east-1:203312548462:key/11111111-1111-1111-1111-111111111111"
+      app_image_digest         = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      staff_case_issuer        = false
+      assignment_trust         = "sim"
+    }
+  }
+  expect_failures = [var.engine_native]
+}

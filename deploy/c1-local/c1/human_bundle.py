@@ -32,7 +32,7 @@ from maezo.gateway.human.read_credentials import ReadAdmission
 from maezo.gateway.human.read_profile import parse_model, wire
 from maezo.portal.engine.profile import canonicalize
 
-from .common import iso
+from .common import HUMAN_OUTBOX_LOGIN, HUMAN_SOURCE_LOGIN, iso
 
 __all__ = ["ClientCa", "EdPriv", "HumanBundle", "build", "pem", "rebuild", "spki", "window"]
 
@@ -62,8 +62,9 @@ def _spec(common: dict) -> tool.HumanBundleSpec:
         assignment_key=dict(key_id="c1-human-assignment-1", audience="c1-engine-human-assignment-read"),
         command_key=dict(key_id="c1-human-command-1", audience="c1-engine-human-command"),
         max_envelope_seconds="30", timeout_seconds="10",
-        outbox_connection=dict(connection, login="c1_unused_outbox"),
-        source_connection=dict(connection, login="c1_unused_source"),
+        # Onda 8: os logins reais do plano humano (o `assignment` os cria e aplica os grants do repo).
+        outbox_connection=dict(connection, login=HUMAN_OUTBOX_LOGIN),
+        source_connection=dict(connection, login=HUMAN_SOURCE_LOGIN),
         relay_lease_seconds="30", relay_retry_seconds="1", relay_poll_seconds="1",
         revocation=dict(source_ref="c1-revocation", revision="1"),
     )

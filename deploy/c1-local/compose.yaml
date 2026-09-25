@@ -63,6 +63,8 @@ services:
       MAEZO_PORTAL_READ_TRUST_FILE: /run/maezo/c1/portal-read-trust.json
       MAEZO_PORTAL_READ_PROVIDER_FILE: /run/maezo/c1/portal-read-provider.json
       MAEZO_STAFF_COMPOSITION_FILE: /run/maezo/c1/staff/staff-composition.json
+      # Onda 8: o trust do plano de atribuicao (`assignment-plane trust`); a instalacao vem do `engine-config`.
+      MAEZO_HUMAN_ASSIGNMENT_TRUST_FILE: /run/maezo/c1/assignment-trust.json
       JAVA_OPTS: ${C1_JAVA_OPTS:--Xms256m -Xmx768m}
     volumes:
       - <<: *private
@@ -104,6 +106,9 @@ services:
     image: maezo-c1-runner:local
     profiles: [tools]
     user: "1000:1000"
+    environment:
+      # O job valida o banco com as raizes do sistema (no dev, as do RDS na imagem); aqui a CA local.
+      SSL_CERT_FILE: /c1/pgtls/ca.pem
     volumes:
       - type: bind
         source: ../..
@@ -166,6 +171,32 @@ services:
         target: /run/maezo-staff-materials
         read_only: true
         volume: {subpath: staff-materials}
+
+  # Onda 8: o BFF com `capabilities=identity,staff_cases,human` - o `portal` acima MAIS o pacote humano
+  # no caminho fixo que `human_runtime` le (read-only), como a task do portal com o perfil human.
+  portal-human:
+    image: maezo-c1-runner:local
+    profiles: [tools]
+    user: "1000:1000"
+    environment:
+      TMPDIR: /run/maezo-staff-scratch
+    tmpfs:
+      - /run/maezo-staff-scratch:mode=0700,uid=1000,gid=1000
+    volumes:
+      - type: bind
+        source: ../..
+        target: /repo
+        read_only: true
+      - <<: *private
+        target: /c1
+      - <<: *private
+        target: /run/maezo-staff-materials
+        read_only: true
+        volume: {subpath: staff-materials}
+      - <<: *private
+        target: /run/maezo-human-materials
+        read_only: true
+        volume: {subpath: human-materials}
 
 volumes:
   c1private: {}

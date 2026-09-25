@@ -270,6 +270,7 @@ _ENGINE_NATIVE_JVM_NAMES: tuple[str, ...] = (
     "MAEZO_PORTAL_READ_TRUST_FILE",
     "MAEZO_PORTAL_READ_PROVIDER_FILE",
     "MAEZO_STAFF_COMPOSITION_FILE",
+    "MAEZO_HUMAN_ASSIGNMENT_TRUST_FILE",  # HumanCommandPlugin.preInit (Onda 8, assignment_trust=true)
 )
 _ENGINE_NATIVE_JVM_REASON = (
     "lido pelo plugin Java do engine nativo (HumanCommandPlugin/PortalReadPlugin/provedor Q2), "
@@ -311,6 +312,7 @@ _STAFF_OPS_NAMES: tuple[str, ...] = (
     "STAFF_SYN_SECRET_ARN",
     "STAFF_JOB_MATERIALS",
     "STAFF_JOB_LEDGER_BUCKET",
+    "STAFF_ASSIGNMENT_SECRET_ARN",
     "STAFF_JOB_LEDGER_KEY",
     "MAEZO_DEV_SYN_AWS_ACCOUNT_ID",
     "MAEZO_DEV_SYN_ENVIRONMENT",

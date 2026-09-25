@@ -2,7 +2,8 @@
 # C1 — checkpoint de integracao LOCAL (plano portal-autoridade-nativa-dev, Onda 1). Ver README.md.
 #   run.sh all       roda tudo do zero (down -v, build, passos) e imprime uma linha medida por passo
 #   run.sh <passo>   um passo so: build tls db-base bootstrap materials db-native digests engine-config
-#                    engine-up auth-install auth-fixture seed publish issuer portal h1-task
+#                    engine-up auth-install auth-fixture seed publish issuer portal h1-task assignment
+#                    portal-human
 #   run.sh logs      linhas relevantes do log do engine
 #   run.sh down      apaga containers, rede e o volume c1private (chaves, senhas, raiz de TESTE)
 set -euo pipefail
@@ -74,7 +75,7 @@ down() {
 
 py() {  # cada passo roda no servico que tem as montagens dele
   local service=runner
-  case "$1" in publish|h1-task) service=job ;; issuer|auth-install|auth-fixture) service=issuer ;; portal-init) service=portal-init ;; portal) service=portal ;; esac
+  case "$1" in publish|h1-task|assignment) service=job ;; portal-human) service=portal-human ;; issuer|auth-install|auth-fixture) service=issuer ;; portal-init) service=portal-init ;; portal) service=portal ;; esac
   "${DC[@]}" --profile engine --profile tools run --rm -T "$service" python -m c1 "$1"
 }
 
@@ -91,7 +92,7 @@ case "${1:-all}" in
     fi
     engine_up ;;
   logs) engine_logs "${2:-40}" ;;
-  materials|db-native|engine-config|assemble|w1|auth-install|auth-fixture|seed|publish|issuer|portal-init|portal|h1-task) py "$1" ;;
+  materials|db-native|engine-config|assemble|w1|auth-install|auth-fixture|seed|publish|issuer|portal-init|portal|h1-task|assignment|portal-human) py "$1" ;;
   down) down ;;
   all)
     down; build
@@ -103,6 +104,8 @@ case "${1:-all}" in
     py auth-fixture || true        # D-K.2: entradas SYN- publicadas + human-auth-start assinado
     py seed; py publish || true; py issuer || true
     py h1-task || true               # H1-H4 (D-N): fonte real de tarefas no job T1.5, sem D11-D13
-    py portal-init || true; py portal || true ;;   # /cases sob a admissao revisao 2 (regressao do staff)
+    py assignment || true            # Onda 8: plano de atribuicao ATIVO pelo instalador/ops do repo
+    py portal-init || true; py portal || true    # /cases sob a admissao revisao 2 (regressao do staff)
+    py portal-human || true ;;       # Onda 8: /tasks?queue=mine|team com o plano humano ligado
   *) echo "passo desconhecido: $1" >&2; exit 2 ;;
 esac

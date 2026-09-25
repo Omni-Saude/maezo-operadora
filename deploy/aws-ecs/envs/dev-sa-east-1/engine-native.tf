@@ -31,9 +31,12 @@ variable "engine_native" {
 
   validation {
     condition = var.engine_native == null ? true : try(
-      toset(keys(var.engine_native)) == toset([
-        "native_secret_arn", "native_secret_version_id", "kms_key_arn", "app_image_digest", "staff_case_issuer"
-      ]) &&
+      # Onda 8: `assignment_trust` (bool) e a UNICA chave opcional — liga o plano de atribuicao.
+      contains([
+        jsonencode(sort(["native_secret_arn", "native_secret_version_id", "kms_key_arn", "app_image_digest", "staff_case_issuer"])),
+        jsonencode(sort(["native_secret_arn", "native_secret_version_id", "kms_key_arn", "app_image_digest", "staff_case_issuer", "assignment_trust"])),
+      ], jsonencode(sort(keys(var.engine_native)))) &&
+      contains(["true", "false"], jsonencode(lookup(var.engine_native, "assignment_trust", false))) &&
       alltrue([for name in ["native_secret_arn", "native_secret_version_id", "kms_key_arn", "app_image_digest"] :
         can(regex("^\"", jsonencode(var.engine_native[name])))
       ]) &&
@@ -267,7 +270,7 @@ locals {
       { sourceVolume = "engine-run", containerPath = local.engine_native_run_path, readOnly = true },
     ]
   }]
-  engine_native_environment = flatten([for native in local.engine_native_list : [
+  engine_native_environment = flatten([for native in local.engine_native_list : concat([
     # setenv.sh da imagem nativa monta a URL JDBC pinada destes tres (allowlist); DB_URL fica inerte.
     { name = "DB_HOST", value = local.aurora_endpoint },
     { name = "DB_PORT", value = tostring(local.aurora_port) },
@@ -276,7 +279,11 @@ locals {
     { name = "MAEZO_PORTAL_READ_TRUST_FILE", value = "${local.engine_native_run_path}/portal-read-trust.json" },
     { name = "MAEZO_PORTAL_READ_PROVIDER_FILE", value = "${local.engine_native_run_path}/portal-read-provider.json" },
     { name = "MAEZO_STAFF_COMPOSITION_FILE", value = "${local.engine_native_run_path}/staff/staff-composition.json" },
-  ]])
+    ], lookup(native, "assignment_trust", false) ? [
+    # Onda 8: `assignment-plane trust` (engine-run/assignment-trust.json do segredo nativo). O engine
+    # so sobe com a linha MZO_HUMAN_ASSIGNMENT_INSTALLATION do `staff-rows` (bloco `assignment`).
+    { name = "MAEZO_HUMAN_ASSIGNMENT_TRUST_FILE", value = "${local.engine_native_run_path}/assignment-trust.json" },
+  ] : [])])
 
   engine_native_containers = concat([for native in local.engine_native_list : {
     name      = "engine-native-materialize"

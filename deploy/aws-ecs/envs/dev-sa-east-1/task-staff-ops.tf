@@ -30,6 +30,11 @@ variable "staff_ops" {
     # Onda 8 (H5): senhas dos logins outbox/source do plano humano do BFF, lidas pelo `rows`.
     human_outbox_secret_arn = optional(string)
     human_source_secret_arn = optional(string)
+    # Onda 8 (plano de atribuicao): senha do login da ADMINISTRACAO da fonte (lida pelo `rows`, bloco
+    # `assignment` do segredo de linhas) e o segredo `staff-assignment-activate.v1` da task avulsa
+    # `staff-assignment` (DSN da administracao + chave da FONTE). null = nada muda.
+    assignment_admin_secret_arn = optional(string)
+    assignment_secret_arn       = optional(string)
   })
   default = null
 
@@ -46,6 +51,13 @@ variable "staff_ops" {
     error_message = "staff_ops: digest sha256, os 3 ARNs nos nomes exatos desta conta/regiao, versionId e pins do pacote humano."
   }
   validation {
+    condition = var.staff_ops == null ? true : (
+      (var.staff_ops.assignment_secret_arn == null || can(regex("^arn:aws:secretsmanager:sa-east-1:${var.aws_account_id}:secret:maezo-operadora/dev/staff-install/assignment-[A-Za-z0-9]{6}$", var.staff_ops.assignment_secret_arn))) &&
+      (var.staff_ops.assignment_admin_secret_arn == null || can(regex("^arn:aws:secretsmanager:sa-east-1:${var.aws_account_id}:secret:maezo-operadora/dev/staff-install/assignment-admin-[A-Za-z0-9]{6}$", var.staff_ops.assignment_admin_secret_arn)))
+    )
+    error_message = "staff_ops.assignment_*: ARNs nos nomes exatos (maezo-operadora/dev/staff-install/assignment e assignment-admin) desta conta/regiao."
+  }
+  validation {
     condition     = var.staff_ops == null || var.staff_install != null
     error_message = "staff_ops reutiliza as credenciais de login da Onda 3 (var.staff_install)."
   }
@@ -57,10 +69,14 @@ locals {
   staff_ops_image     = var.staff_ops == null ? null : "${aws_ecr_repository.app.repository_url}@${var.staff_ops.image_digest}"
   staff_ops_owner_arn = var.staff_install == null ? null : var.staff_install.login_secret_arns["maezo_native_schema_owner"]
   staff_ops_cmk_arn   = aws_kms_key.native_materials["engine-native"].arn
+  # Onda 8: a task avulsa `staff-assignment` existe so com o segredo da ativacao.
+  staff_ops_assignment = var.staff_ops == null ? {} : var.staff_ops.assignment_secret_arn == null ? {} : { this = var.staff_ops }
+  # O `rows` precisa do dono do schema do tenant (maezo_app) para o plano humano OU para o de atribuicao.
+  staff_ops_app_owner = var.staff_ops == null ? false : (var.staff_ops.human_outbox_secret_arn != null || var.staff_ops.assignment_admin_secret_arn != null)
 }
 
 resource "aws_cloudwatch_log_group" "staff_ops" {
-  for_each          = var.staff_ops == null ? toset([]) : toset(["staff-rows", "staff-syn", "staff-job"])
+  for_each          = var.staff_ops == null ? toset([]) : toset(concat(["staff-rows", "staff-syn", "staff-job"], [for k in keys(local.staff_ops_assignment) : "staff-assignment"]))
   name              = "/ecs/${local.name}/${each.value}"
   retention_in_days = 30
   tags              = local.base_tags
@@ -73,7 +89,7 @@ data "aws_kms_key" "staff_ops_master" {
 
 # ------------------------------------------------------------------ task roles
 resource "aws_iam_role" "staff_ops" {
-  for_each           = var.staff_ops == null ? toset([]) : toset(["rows", "syn", "job"])
+  for_each           = var.staff_ops == null ? toset([]) : toset(concat(["rows", "syn", "job"], [for k in keys(local.staff_ops_assignment) : "assignment"]))
   name               = "${local.name}-staff-${each.value}"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
   tags               = local.base_tags
@@ -87,16 +103,20 @@ locals {
       var.staff_ops.task_source_secret_arn == null ? null : data.aws_secretsmanager_secret.cibseven_app_db.arn,
       var.staff_ops.task_source_secret_arn,
       # H5: o `rows` aplica o SQL do plano humano como dono do schema do tenant (maezo_app).
-      var.staff_ops.human_outbox_secret_arn == null ? null : data.aws_secretsmanager_secret.maezo_app_db.arn,
+      local.staff_ops_app_owner ? data.aws_secretsmanager_secret.maezo_app_db.arn : null,
       var.staff_ops.human_outbox_secret_arn,
       var.staff_ops.human_source_secret_arn,
+      # Onda 8: senha do login da administracao da fonte de atribuicao.
+      var.staff_ops.assignment_admin_secret_arn,
     ])
     syn = [var.staff_ops.syn_secret_arn, local.staff_ops_owner_arn]
   }
+  # Onda 8: a ativacao le SO o proprio segredo (o pacote humano e o do job chegam pelo init do job).
+  staff_ops_assignment_secrets = { for k, ops in local.staff_ops_assignment : "assignment" => [ops.assignment_secret_arn] }
 }
 
 data "aws_iam_policy_document" "staff_ops_task" {
-  for_each = local.staff_ops_task_secrets
+  for_each = merge(local.staff_ops_task_secrets, local.staff_ops_assignment_secrets)
   statement {
     sid       = "LerSegredosExatos"
     actions   = ["secretsmanager:GetSecretValue"]
@@ -113,7 +133,7 @@ data "aws_iam_policy_document" "staff_ops_task" {
     }
   }
   dynamic "statement" {
-    for_each = each.key == "rows" && var.staff_ops.human_outbox_secret_arn != null && try(length(data.aws_secretsmanager_secret.maezo_app_db.kms_key_id), 0) > 0 ? [data.aws_secretsmanager_secret.maezo_app_db.kms_key_id] : []
+    for_each = each.key == "rows" && local.staff_ops_app_owner && try(length(data.aws_secretsmanager_secret.maezo_app_db.kms_key_id), 0) > 0 ? [data.aws_secretsmanager_secret.maezo_app_db.kms_key_id] : []
     content {
       sid       = "DecifrarSegredoDoApp"
       actions   = ["kms:Decrypt"]
@@ -154,7 +174,7 @@ data "aws_iam_policy_document" "staff_ops_task" {
 }
 
 resource "aws_iam_role_policy" "staff_ops_task" {
-  for_each = local.staff_ops_task_secrets
+  for_each = merge(local.staff_ops_task_secrets, local.staff_ops_assignment_secrets)
   name     = "${local.name}-staff-${each.key}-secrets"
   role     = aws_iam_role.staff_ops[each.key].id
   policy   = data.aws_iam_policy_document.staff_ops_task[each.key].json
@@ -451,6 +471,91 @@ resource "aws_ecs_task_definition" "staff_job" {
   tags = local.base_tags
 }
 
+# Onda 8: `staff-assignment` (AVULSA, nunca agendada): o mesmo init e os mesmos volumes do job (pacote
+# humano + config/chave `human-authority`/TLS do job); o container principal roda
+# `tools.staff_ops assignment-activate`, que le `STAFF_ASSIGNMENT_SECRET_ARN` por GetSecretValue.
+# Rodar com o agendamento do job PAUSADO (job_schedule_enabled=false): a publicacao pina o contador
+# nativo do tenant, e uma rodada do job no meio faz o engine recusar com REVISION_CONFLICT.
+resource "aws_ecs_task_definition" "staff_assignment" {
+  for_each                 = local.staff_ops_assignment
+  family                   = "${local.name}-staff-assignment"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  task_role_arn            = aws_iam_role.staff_ops["assignment"].arn
+
+  runtime_platform {
+    cpu_architecture        = "X86_64"
+    operating_system_family = "LINUX"
+  }
+
+  volume { name = "staff-job-human" }
+  volume { name = "staff-job-files" }
+  volume { name = "staff-job-ledger" }
+  volume { name = "staff-job-tmp" }
+
+  container_definitions = jsonencode([
+    {
+      name                   = "staff-job-init"
+      image                  = local.staff_ops_image
+      essential              = false
+      entryPoint             = ["sh", "-c"]
+      command                = ["${local.staff_ops_prepare_script}; exec python -m tools.staff_ops job-init"]
+      user                   = "0:0"
+      readonlyRootFilesystem = true
+      linuxParameters        = local.staff_ops_init_caps
+      mountPoints = [
+        { sourceVolume = "staff-job-human", containerPath = "/run/staff-job-init/human", readOnly = false },
+        { sourceVolume = "staff-job-files", containerPath = "/run/staff-job-init/job", readOnly = false },
+        { sourceVolume = "staff-job-ledger", containerPath = "${local.staff_ops_scratch_root}/staff-job-ledger", readOnly = false },
+        { sourceVolume = "staff-job-tmp", containerPath = "${local.staff_ops_scratch_root}/staff-job-tmp", readOnly = false },
+      ]
+      environment = [{ name = "PYTHONDONTWRITEBYTECODE", value = "1" }]
+      secrets     = [{ name = "STAFF_JOB_MATERIALS", valueFrom = "${each.value.job_secret_arn}:::${each.value.job_secret_version_id}" }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.staff_ops["staff-assignment"].name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "staff-assignment-init"
+        }
+      }
+    },
+    merge(local.staff_ops_common, {
+      name      = "staff-assignment"
+      image     = local.staff_ops_image
+      essential = true
+      command   = ["tools.staff_ops", "assignment-activate"]
+      dependsOn = [{ containerName = "staff-job-init", condition = "SUCCESS" }]
+      mountPoints = [
+        { sourceVolume = "staff-job-human", containerPath = "/run/maezo-human-materials", readOnly = true },
+        { sourceVolume = "staff-job-files", containerPath = "/run/maezo-job", readOnly = true },
+        { sourceVolume = "staff-job-tmp", containerPath = "/run/staff-tmp", readOnly = false },
+      ]
+      environment = [
+        { name = "AWS_REGION", value = var.aws_region },
+        { name = "TMPDIR", value = "/run/staff-tmp" },
+        { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
+        { name = "STAFF_ASSIGNMENT_SECRET_ARN", value = each.value.assignment_secret_arn },
+        { name = "MAEZO_HUMAN_MATERIAL_VERSION_ID", value = each.value.human_material_version_id },
+        { name = "MAEZO_HUMAN_PUBLIC_MANIFEST_SHA256", value = each.value.human_manifest_sha256 },
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.staff_ops["staff-assignment"].name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "staff-assignment"
+        }
+      }
+    }),
+  ])
+
+  tags = local.base_tags
+}
+
 # ------------------------------------------------------------------ agenda (4 min)
 data "aws_iam_policy_document" "scheduler_assume" {
   statement {
@@ -573,10 +678,11 @@ resource "aws_cloudwatch_metric_alarm" "staff_job_failing" {
 output "staff_ops" {
   description = "Familias das tasks de operacao staff e o bucket do ledger do job."
   value = var.staff_ops == null ? null : {
-    rows_family   = aws_ecs_task_definition.staff_ops_oneshot["rows"].family
-    syn_family    = aws_ecs_task_definition.staff_ops_oneshot["syn"].family
-    job_family    = aws_ecs_task_definition.staff_job["this"].family
-    ledger_bucket = aws_s3_bucket.staff_job_ledger["this"].bucket
-    alerts_topic  = aws_sns_topic.staff_alerts["this"].arn
+    rows_family       = aws_ecs_task_definition.staff_ops_oneshot["rows"].family
+    syn_family        = aws_ecs_task_definition.staff_ops_oneshot["syn"].family
+    job_family        = aws_ecs_task_definition.staff_job["this"].family
+    assignment_family = try(aws_ecs_task_definition.staff_assignment["this"].family, null)
+    ledger_bucket     = aws_s3_bucket.staff_job_ledger["this"].bucket
+    alerts_topic      = aws_sns_topic.staff_alerts["this"].arn
   }
 }

@@ -185,7 +185,13 @@ class AssignmentPrivateTransport:
                     self._signing.guard()
                 parsed = strict_loads(bytes(result))
                 if response.status_code != 200:
-                    if parsed in ({"error": "REVISION_CONFLICT"}, {"error": "COMMAND_CONFLICT"}):
+                    # The assignment receivers (AssignmentPublication/Query) raise the Q2 codec's
+                    # conflict (`READ_REVISION_CONFLICT`); the human codec raises `REVISION_CONFLICT`.
+                    if parsed in (
+                        {"error": "REVISION_CONFLICT"},
+                        {"error": "READ_REVISION_CONFLICT"},
+                        {"error": "COMMAND_CONFLICT"},
+                    ):
                         raise GatewayRefusalError("revision_conflict")
                     if parsed == {"error": "FORBIDDEN"}:
                         raise GatewayRefusalError("operation_forbidden")
