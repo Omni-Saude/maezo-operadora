@@ -252,18 +252,22 @@ resource "aws_ecs_task_definition" "staff_ops_oneshot" {
   }
 
   dynamic "volume" {
-    for_each = each.key == "syn" ? ["dev-syn"] : []
+    for_each = each.key == "syn" ? ["dev-syn", "tmp"] : ["tmp"]
     content {
       name = volume.value
     }
   }
 
   container_definitions = jsonencode([merge(local.staff_ops_common, {
-    name        = each.value
-    image       = local.staff_ops_image
-    essential   = true
-    command     = ["tools.staff_ops", each.key]
-    mountPoints = each.key == "syn" ? [{ sourceVolume = "dev-syn", containerPath = "/run/dev-syn", readOnly = false }] : []
+    name      = each.value
+    image     = local.staff_ops_image
+    essential = true
+    command   = ["tools.staff_ops", each.key]
+    # /tmp efemero: rootfs read-only e bibliotecas (tempfile) precisam de um diretorio temporario.
+    mountPoints = concat(
+      [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }],
+      each.key == "syn" ? [{ sourceVolume = "dev-syn", containerPath = "/run/dev-syn", readOnly = false }] : [],
+    )
     environment = concat(local.db_env, [
       { name = "AWS_REGION", value = var.aws_region },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
@@ -308,6 +312,7 @@ resource "aws_ecs_task_definition" "staff_job" {
   volume { name = "staff-job-human" }
   volume { name = "staff-job-files" }
   volume { name = "staff-job-ledger" }
+  volume { name = "staff-job-tmp" }
 
   container_definitions = jsonencode([
     {
@@ -347,6 +352,7 @@ resource "aws_ecs_task_definition" "staff_job" {
         { sourceVolume = "staff-job-human", containerPath = "/run/maezo-human-materials", readOnly = true },
         { sourceVolume = "staff-job-files", containerPath = "/run/maezo-job", readOnly = true },
         { sourceVolume = "staff-job-ledger", containerPath = "/run/staff-job-ledger", readOnly = false },
+        { sourceVolume = "staff-job-tmp", containerPath = "/tmp", readOnly = false },
       ]
       environment = [
         { name = "AWS_REGION", value = var.aws_region },
