@@ -406,14 +406,15 @@ def publication(
     until: datetime,
     expected_generation: int = 0,
 ) -> InputPublication:
-    """`publication_id` e unico por tenant: uma republicacao (geracao > 0) ganha sufixo `-g{n}`."""
+    """`publication_id` e unico por tenant: uma republicacao (geracao > 0) ganha sufixo `-g{n}`, e
+    cada guia (rotulo) tem os seus — senao a 2a guia `SYN-` colide com a 1a (409, medido 25/09)."""
     suffix = "" if expected_generation == 0 else f"-g{expected_generation + 1}"
     return InputPublication.model_validate(
         dict(
             schema="human-auth-input-publication.v1",
             scope=scope,
             workload_ref=refs.workload,
-            publication_id=f"SYN-publication-{kind}{suffix}",
+            publication_id=f"SYN-publication-{refs.label}-{kind}{suffix}",
             kind=kind,
             resource_ref=ref,
             expected_generation=expected_generation,

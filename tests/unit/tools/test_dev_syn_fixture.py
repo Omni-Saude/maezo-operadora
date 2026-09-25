@@ -213,8 +213,10 @@ def test_inputs_publications_and_start() -> None:
     scope = parse_model(Scope, SCOPE)
     first = core.publication(refs, scope, *inputs.items[0], until)
     again = core.publication(refs, scope, *inputs.items[0], until, expected_generation=2)
-    assert (first.publication_id, first.expected_generation) == ("SYN-publication-actor", 0)
-    assert (again.publication_id, again.expected_generation) == ("SYN-publication-actor-g3", 2)
+    assert (first.publication_id, first.expected_generation) == (f"SYN-publication-{refs.label}-actor", 0)
+    assert (again.publication_id, again.expected_generation) == (f"SYN-publication-{refs.label}-actor-g3", 2)
+    other = core.FixtureRefs.for_label("dev-devguia2", "SYN-DEVGUIA2", audience=refs.audience)
+    assert core.publication(other, scope, *inputs.items[0], until).publication_id != first.publication_id
     grants = inputs.grants(refs)
     assert len(grants) == 6 and {g["publisher_ref"] for g in grants} == {refs.publisher}
     heads = {kind: (ref, 1, provenance, digest(payload)) for kind, ref, payload, provenance in inputs.items}
