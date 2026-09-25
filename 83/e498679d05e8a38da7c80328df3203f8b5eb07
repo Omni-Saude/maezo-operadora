@@ -1,0 +1,27 @@
+docs/plans/portal-autoridade-nativa-dev.md
+  s_75580744a35de2::t_e203e0e9265da5 414,982
+tools/staff_materials/approver.py
+  s_75580744a35de2::t_e203e0e9265da5 21-25
+  s_75580744a35de2::t_05a15c1b2747aa 338-374,387,406-413,425-426,428
+  s_75580744a35de2::t_c7122ca61682aa 427,429-430
+tests/unit/staff_materials/test_human_bundle.py
+  s_75580744a35de2::t_20c5b1b929c428 19,53-54,296-401
+tools/staff_materials/README.md
+  s_75580744a35de2::t_6aa76e9bf7b74f 23,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "83e498679d05e8a38da7c80328df3203f8b5eb07",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
