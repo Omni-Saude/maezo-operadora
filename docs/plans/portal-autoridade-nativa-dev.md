@@ -452,6 +452,15 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
   4. `engine_native.assignment_trust = true` + a versão nova do segredo nativo no mesmo apply (o engine só sobe com a instalação do passo 3).
   5. Segredo `staff-install/assignment` (`staff-assignment-activate.v1`: `admin_dsn`, `admin_login`, `source_key_pem_b64`, `source_key_id`, `source_fingerprint`, `owner_ref`/`source_ref` iguais ao trust, `owner_receipt`, `valid_days`); `staff_ops.assignment_secret_arn`; **`job_schedule_enabled=false`** durante a ativação; `aws ecs run-task` da família `staff-assignment` (mesma rede do job) → `staff-assignment-activate-result.v1 ok=true`; religar o agendamento.
   6. Portal com `capabilities=identity,staff_cases,human` (H5).
+  - **Emenda D-O [25/09] — valores do dev para os passos 1–3 e 5.** São refs opacas, sem `/`.
+    - `owner_ref` = `maezo-operadora-dev:assignment-owner:amh:1`.
+    - `source_ref` = `maezo-operadora-dev:assignment-source:amh:default:1`. É também a `audience` do lease.
+    - `deployment_receipt`: é o **mesmo** pin da D-L (`maezo-operadora-dev:engine-native:deployment-receipt:1`). O digest é o SHA-256 do JCS da linha de recibo que o engine gravou na instalação. Não é um recibo novo.
+    - `owner_receipt`: `artifact_ref` = `maezo-operadora-dev:assignment-owner-receipt:amh:1`. O digest é o SHA-256 do JCS do documento de dono assinado pela raiz. O `assignment_trust` gera; o aprovador recalcula do arquivo assinado.
+    - **Materiais:**
+      - raiz e assinatura do aprovador: o volume `maezo-onda2b-materials`. O agente assina em dev pela delegação do dono (emenda N1, 25/09), que vale só para dev;
+      - chaves: o pacote humano de `/m/onda4`, com `amh-dev-assignment-20260924` como `source_key_id`, sem gerar chave nova. `read` e `command` continuam os da D-L.
+    - A janela vai até `2026-10-08T04:44:25Z`, como a D-L.
 ---
 
 ## 2.9 Estado da execução (25/09/2026) — retomar daqui
@@ -1039,6 +1048,8 @@ Pin que o aprovador não consegue recalcular sozinho não é aprovado.
 | `validity_policy_ref` / `validity_policy_digest` **[D-L]** | `maezo-operadora-dev:validity-policy:staff:1`; SHA-256 do JCS do documento de política que o `generate` (T1.3) emite | o texto da política que o aprovador leu | JCS independente \| `sha256sum` |
 | `audience`, IDs das chaves **[D-L, emenda 24/09]** | `engine-native.maezo-operadora-dev.internal`; `amh-dev-read-20260924`, `amh-dev-command-20260924` | `native_origin` e a designação assinada | igualdade textual |
 | `deployment_receipt_ref` / `deployment_receipt_digest` **[D-L]** | `maezo-operadora-dev:engine-native:deployment-receipt:1`; SHA-256 do JCS do recibo que o engine grava na instalação (Onda 3/4) | a linha do recibo no banco do engine | `psql` com o login de leitura → JCS \| `sha256sum` |
+| `owner_ref`, `source_ref` **[D-O emenda]** | `maezo-operadora-dev:assignment-owner:amh:1`; `maezo-operadora-dev:assignment-source:amh:default:1` | o plano de atribuição assinado | igualdade textual; nenhuma `/` |
+| `owner_receipt` **[D-O emenda]** | `maezo-operadora-dev:assignment-owner-receipt:amh:1`; SHA-256 do JCS do documento de dono assinado pela raiz | o arquivo assinado em `maezo-onda2b-materials` | JCS independente \| `sha256sum` |
 
 Não aprova: nenhum agente. Um agente pode **rodar** os comandos acima para mostrar a saída, mas
 o valor aprovado é o que o aprovador obteve na sessão dele. A aprovação fica registrada por ele,
