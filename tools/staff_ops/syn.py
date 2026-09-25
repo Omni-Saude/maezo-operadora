@@ -79,6 +79,23 @@ def _rds_ca(run: Path) -> str:
     return str(target)
 
 
+SPEC = Path("/app/.venv/lib/python3.12/site-packages/maezo/spec/processes")
+
+
+def deploy_for_tenant(config: dict) -> str:  # type: ignore[type-arg]
+    """SP-OP-AUTH-001, SP-OP-ESCALATION-001 e a DMN `escalation_routing` DO TENANT, com filtro de
+    duplicata (a fixture exige a AUTH deployada no tenant; o deploy do dev e sem tenant). Os bytes
+    sao os da propria imagem (wheel), o mesmo caminho do `deploy-processes`."""
+    import httpx
+
+    from tools.dev_syn_fixture import core
+
+    tenant = config["auth_scope"]["tenant"]
+    with httpx.Client(base_url=config["engine_rest_url"], timeout=30, trust_env=False) as client:
+        deployed = core.deploy(client, tenant, SPEC, f"dev-syn-{tenant}")
+    return str(deployed.get("id", "?"))
+
+
 def main() -> int:
     from tools.staff_install.installer import parse_credential
 
@@ -94,6 +111,12 @@ def main() -> int:
         return 3
     except Exception as failure:
         print(f"falhou: {type(failure).__name__}", file=sys.stderr)
+        return 1
+    try:
+        deployed = deploy_for_tenant(json.loads(path.read_text()))
+        print(json.dumps({"deploy": deployed}), flush=True)
+    except Exception as failure:
+        print(f"falhou no deploy do tenant: {type(failure).__name__}", file=sys.stderr)
         return 1
     os.environ["MAEZO_DEV_SYN_FIXTURE_FILE"] = str(path)
     from tools.dev_syn_fixture.__main__ import main as fixture_main
