@@ -89,6 +89,12 @@ deploy/certificates/*
 
 # Dependências Node (scripts de ferramental, se houver)
 node_modules/
+# Em qualquer profundidade: o stage portal-web instala as proprias deps (npm ci) e
+# um node_modules/dist local do host nao pode sobrescrever o que ele constroi.
+**/node_modules/
+src/maezo/portal/web/dist/
+src/maezo/portal/web/test-results/
+src/maezo/portal/web/playwright-report/
 
 # Artefatos de IDE / editores
 .vscode/
