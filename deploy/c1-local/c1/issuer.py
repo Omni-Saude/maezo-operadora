@@ -22,6 +22,8 @@ from urllib.parse import quote
 
 import httpx
 
+from tools.dev_syn_fixture import core
+
 from .common import ADMIN, APPROVER_OUT, ISSUER_LOGIN, ISSUER_WITNESS_LOGIN, MATERIALS, ROOT, TENANT, read_text, state, step, write
 
 REST = "http://localhost:8080/engine-rest"
@@ -31,51 +33,13 @@ RUN = ROOT / "issuer-run"
 
 
 def _deploy(client: httpx.Client) -> dict:
-    files = {
-        "auth": ("SP-OP-AUTH-001_Autorizacao_Previa.bpmn", (SPEC / "bpmn/SP-OP-AUTH-001_Autorizacao_Previa.bpmn").read_bytes()),
-        "esc": ("SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn",
-                (SPEC / "bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn").read_bytes()),
-        "dmn": ("escalation_routing.dmn", (SPEC / "dmn/escalation_routing.dmn").read_bytes()),
-    }
-    response = client.post(
-        "/deployment/create",
-        data={"deployment-name": "c1-staff", "tenant-id": TENANT, "enable-duplicate-filtering": "true"},
-        files=files,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def _complete(client: httpx.Client, topic: str, business_key: str) -> int:
-    # So as tarefas DESTA escalacao: a instancia AUTH nativa (auth-fixture) usa os mesmos topicos.
-    locked = client.post("/external-task/fetchAndLock", json={
-        "workerId": "c1-worker", "maxTasks": 5,
-        "topics": [{"topicName": topic, "lockDuration": 60000, "businessKey": business_key}]}).json()
-    for task in locked:
-        client.post(f"/external-task/{task['id']}/complete", json={"workerId": "c1-worker"}).raise_for_status()
-    return len(locked)
+    return core.deploy(client, TENANT, SPEC, "c1-staff")
 
 
 def _escalation(client: httpx.Client) -> tuple[str, list[str]]:
-    key = f"ESC-{TENANT}-sla-auth-{GUIDE}"
-    existing = client.get("/process-instance", params={"businessKey": key}).json()
-    if not existing:
-        variables = {name: {"value": value, "type": "String"} for name, value in dict(
-            tenant_id=TENANT, motivo_categoria="solicitacao_humano", severidade="moderada",
-            source_agent_id="c1-agent", conversation_id="c1-conversation", canal="c1").items()}
-        client.post(f"/process-definition/key/SP-OP-ESCALATION-001/tenant-id/{TENANT}/start",
-                    json={"businessKey": key, "variables": variables}).raise_for_status()
-        for topic in ("operadora.events.publish", "operadora.escalation.notify_team"):
-            _complete(client, topic, key)
-    tasks = client.get("/task", params={"processInstanceBusinessKey": key, "taskDefinitionKey": "UT_TratarEscalonamento"}).json()
-    groups = []
-    for task in tasks:
-        links = client.get(f"/task/{task['id']}/identity-links", params={"type": "candidate"}).json()
-        groups += [link["groupId"] for link in links if link.get("groupId")]
-    auth_key = f"AUTH-{TENANT}-{GUIDE}"
-    found = client.get("/process-instance", params={"businessKey": auth_key, "tenantIdIn": TENANT}).json()
-    groups.append(f"{auth_key}={len(found)}")
-    return str(len(tasks)), groups
+    outcome = core.open_escalation(client, TENANT, GUIDE, motivo="solicitacao_humano", severidade="moderada",
+                                   agent="c1-agent", conversation="c1-conversation", canal="c1", worker="c1-worker")
+    return str(outcome.tasks), [*outcome.groups, f"{core.auth_instance_key(TENANT, GUIDE)}={outcome.auth_instances}"]
 
 
 def composition() -> Path:
