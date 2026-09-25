@@ -234,6 +234,15 @@ locals {
     readonlyRootFilesystem = true
     user                   = "1000:1000"
   }
+  # Volume vazio do Fargate nasce root:root 0755: o container 1000 nao escreve nele (medido 25/09 no
+  # sidecar do engine). Um init root com SO a capability CHOWN deixa cada scratch 0700 uid 1000
+  # (chmod ANTES do chown: sem FOWNER, root nao muda o modo de arquivo alheio).
+  staff_ops_scratch_root   = "/run/staff-scratch"
+  staff_ops_prepare_script = "set -e; for d in /run/staff-scratch/*; do [ -d \"$d\" ] || continue; chmod 0700 \"$d\"; chown 1000:1000 \"$d\"; done"
+  staff_ops_init_caps = { capabilities = { drop = [
+    "AUDIT_WRITE", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD", "NET_BIND_SERVICE",
+    "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"
+  ] } }
 }
 
 resource "aws_ecs_task_definition" "staff_ops_oneshot" {
@@ -258,37 +267,58 @@ resource "aws_ecs_task_definition" "staff_ops_oneshot" {
     }
   }
 
-  container_definitions = jsonencode([merge(local.staff_ops_common, {
-    name      = each.value
-    image     = local.staff_ops_image
-    essential = true
-    command   = ["tools.staff_ops", each.key]
-    # /tmp efemero: rootfs read-only e bibliotecas (tempfile) precisam de um diretorio temporario.
-    mountPoints = concat(
-      [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }],
-      each.key == "syn" ? [{ sourceVolume = "dev-syn", containerPath = "/run/dev-syn", readOnly = false }] : [],
-    )
-    environment = concat(local.db_env, [
-      { name = "AWS_REGION", value = var.aws_region },
-      { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
-      { name = "STAFF_OWNER_SECRET_ARN", value = local.staff_ops_owner_arn },
-      ], each.key == "rows" ? [
-      { name = "STAFF_ROWS_SECRET_ARN", value = var.staff_ops.rows_secret_arn },
-      { name = "STAFF_ADMIN_SECRET_ARN", value = local.aurora_master_secret_arn },
-      ] : [
-      { name = "STAFF_SYN_SECRET_ARN", value = var.staff_ops.syn_secret_arn },
-      # Cercas da ferramenta (explicitas, sem default): so esta conta e so dev.
-      { name = "MAEZO_DEV_SYN_AWS_ACCOUNT_ID", value = var.aws_account_id },
-      { name = "MAEZO_DEV_SYN_ENVIRONMENT", value = "dev" },
-    ])
+  container_definitions = jsonencode([{
+    name                   = "prepare"
+    image                  = local.staff_ops_image
+    essential              = false
+    entryPoint             = ["sh", "-c"]
+    command                = [local.staff_ops_prepare_script]
+    user                   = "0:0"
+    readonlyRootFilesystem = true
+    linuxParameters        = local.staff_ops_init_caps
+    mountPoints = [for volume in(each.key == "syn" ? ["dev-syn", "tmp"] : ["tmp"]) :
+      { sourceVolume = volume, containerPath = "${local.staff_ops_scratch_root}/${volume}", readOnly = false }
+    ]
     logConfiguration = {
       logDriver = "awslogs"
       options = {
         "awslogs-group"         = aws_cloudwatch_log_group.staff_ops[each.value].name
         "awslogs-region"        = var.aws_region
-        "awslogs-stream-prefix" = each.value
+        "awslogs-stream-prefix" = "${each.value}-prepare"
       }
     }
+    }, merge(local.staff_ops_common, {
+      name      = each.value
+      image     = local.staff_ops_image
+      essential = true
+      command   = ["tools.staff_ops", each.key]
+      dependsOn = [{ containerName = "prepare", condition = "SUCCESS" }]
+      # /tmp efemero: rootfs read-only e bibliotecas (tempfile) precisam de um diretorio temporario.
+      mountPoints = concat(
+        [{ sourceVolume = "tmp", containerPath = "/tmp", readOnly = false }],
+        each.key == "syn" ? [{ sourceVolume = "dev-syn", containerPath = "/run/dev-syn", readOnly = false }] : [],
+      )
+      environment = concat(local.db_env, [
+        { name = "AWS_REGION", value = var.aws_region },
+        { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
+        { name = "STAFF_OWNER_SECRET_ARN", value = local.staff_ops_owner_arn },
+        ], each.key == "rows" ? [
+        { name = "STAFF_ROWS_SECRET_ARN", value = var.staff_ops.rows_secret_arn },
+        { name = "STAFF_ADMIN_SECRET_ARN", value = local.aurora_master_secret_arn },
+        ] : [
+        { name = "STAFF_SYN_SECRET_ARN", value = var.staff_ops.syn_secret_arn },
+        # Cercas da ferramenta (explicitas, sem default): so esta conta e so dev.
+        { name = "MAEZO_DEV_SYN_AWS_ACCOUNT_ID", value = var.aws_account_id },
+        { name = "MAEZO_DEV_SYN_ENVIRONMENT", value = "dev" },
+      ])
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.staff_ops[each.value].name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = each.value
+        }
+      }
   })])
 
   tags = local.base_tags
@@ -319,16 +349,16 @@ resource "aws_ecs_task_definition" "staff_job" {
       name                   = "staff-job-init"
       image                  = local.staff_ops_image
       essential              = false
-      command                = ["tools.staff_ops", "job-init"]
+      entryPoint             = ["sh", "-c"]
+      command                = ["${local.staff_ops_prepare_script}; exec python -m tools.staff_ops job-init"]
       user                   = "0:0" # so para o fchown -> 1000; resto das capabilities cai
       readonlyRootFilesystem = true
-      linuxParameters = { capabilities = { drop = [
-        "AUDIT_WRITE", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD", "NET_BIND_SERVICE",
-        "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"
-      ] } }
+      linuxParameters        = local.staff_ops_init_caps
       mountPoints = [
         { sourceVolume = "staff-job-human", containerPath = "/run/staff-job-init/human", readOnly = false },
         { sourceVolume = "staff-job-files", containerPath = "/run/staff-job-init/job", readOnly = false },
+        { sourceVolume = "staff-job-ledger", containerPath = "${local.staff_ops_scratch_root}/staff-job-ledger", readOnly = false },
+        { sourceVolume = "staff-job-tmp", containerPath = "${local.staff_ops_scratch_root}/staff-job-tmp", readOnly = false },
       ]
       environment = [{ name = "PYTHONDONTWRITEBYTECODE", value = "1" }]
       # SecretString inteiro, versao IMUTAVEL.
