@@ -66,6 +66,14 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "maezo" {
         hostname = var.hostname_canal
         service  = var.destino_canal
       },
+      # Webhook da Meta: SO' o caminho /webhook (GET de verificacao e POST de mensagem).
+      # Qualquer outro caminho neste hostname cai no 404 abaixo; health e demais rotas do
+      # receptor nao saem da VPC.
+      {
+        hostname = var.hostname_webhook
+        path     = "^/webhook$"
+        service  = var.destino_webhook
+      },
       # Regra final obrigatória: tudo que não casar acima recebe 404 em vez de vazar
       # para algum destino padrão.
       {
@@ -184,4 +192,24 @@ resource "cloudflare_zero_trust_access_application" "canal" {
       precedence = 1
     }
   ]
+}
+
+# ---------------------------------------------------------------------------
+# Webhook do WhatsApp (Meta) — terceiro hostname, SEM Access, de proposito
+# ---------------------------------------------------------------------------
+# A Meta chama o webhook servidor-a-servidor: nao ha navegador para fazer o login por
+# e-mail, entao Access aqui derrubaria toda mensagem. O controle e' outro, e fica no
+# receptor: todo POST precisa da assinatura `X-Hub-Signature-256` (HMAC-SHA256 com o
+# `app_secret` do segredo `maezo/dev/whatsapp/meta`), e o GET de verificacao so'
+# responde com o `verify_token` certo. A rota do tunel so' entrega `/webhook`.
+# Decisao do Leonardo (24/09/2026): hostname novo, so' /webhook, sem WAF por IP.
+resource "cloudflare_dns_record" "webhook" {
+  zone_id = var.zone_id
+  name    = var.hostname_webhook
+  type    = "CNAME"
+  content = "${var.tunnel_id}.cfargotunnel.com"
+  proxied = true
+  ttl     = 1
+
+  comment = "maezo-operadora dev - webhook WhatsApp (Meta), so /webhook, borda por tunel (Terraform)"
 }
