@@ -1017,7 +1017,14 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
     credentials = publication_credentials(config.publication, material, lifetime)
     context = job_tls_context(config, manifest.read_surface, scope, material.directory)
     dsn = _secret_file(config.identity_dsn_file).decode("utf-8").strip()
-    engine = create_async_engine(dsn, hide_parameters=True, pool_size=1, max_overflow=0)
+    import ssl
+
+    tls = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)  # raizes RDS da imagem, verify-full
+    if not tls.check_hostname or tls.verify_mode != ssl.CERT_REQUIRED:
+        raise unavailable()
+    engine = create_async_engine(
+        dsn, hide_parameters=True, pool_size=1, max_overflow=0, connect_args={"ssl": tls}
+    )
     if config.tasks is not None and (config.native_source is None or config.catalog.artifact_file is None):
         raise unavailable()  # tasks need the counter/task source AND the catalog that carries them
     native_engine = None
@@ -1028,6 +1035,7 @@ async def _publish(config: JobConfig, *, rebase: int | None) -> JobResult:  # pr
             hide_parameters=True,
             pool_size=1,
             max_overflow=0,
+            connect_args={"ssl": tls},
         )
         native = NativeTaskSource(
             native_engine,

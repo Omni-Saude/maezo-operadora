@@ -196,7 +196,12 @@ def _with_human_keys(raw: bytes, summary: dict[str, Any]) -> bytes:
         )
 
     read_trust["portal_read_key"] = public("portal-task-read", "read")
-    human_trust["command_key"] = public("human-command", "command")
+    command = public("human-command", "command")
+    # Trust.java recusa dois propositos no MESMO workload; a `human-authority` e do workload do
+    # escopo (o job T1.5), entao o comando vai em `<workload>-command` (o layout do C1; medido no
+    # boot da Onda 4 em 25/09, INVALID_COMMAND em Trust.<init>).
+    command["workload_ref"] = command["workload_ref"] + "-command"
+    human_trust["command_key"] = command
     return canonicalize(value)
 
 
