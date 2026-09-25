@@ -3449,7 +3449,9 @@ class HelenaGraph:
             await self._whatsapp.send(_to_hash_from_state(state), texto)
         except PROGRAMMING_ERRORS:
             raise
-        except Exception as exc:
+        # ESTREITO (nao `except Exception`): so' falha de DEPENDENCIA vira `RetomadaEnvioFalhouError`.
+        # Qualquer outra excecao propaga como esta' — o consumidor tambem nao confirma o offset.
+        except EXTERNAL_DEPENDENCY_FAILURES as exc:
             emit_turn_desfecho(
                 state,
                 agent_id="helena",
