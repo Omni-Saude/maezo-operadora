@@ -272,10 +272,10 @@ async def task_source(owner: Any, admin: Any, engine_owner: Any, rows: dict[str,
     verb = "ALTER" if exists else "CREATE"
     # Verificador SCRAM calculado aqui: a senha em claro nunca vira texto de SQL nem de log.
     verifier = scram.verifier(password).replace("'", "")
-    await admin.execute(
-        f"{verb} ROLE {login} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION "
-        f"NOBYPASSRLS PASSWORD '{verifier}'"
-    )
+    # ALTER so realinha a senha: no RDS o mestre nao e superusuario e nao pode re-declarar
+    # NOBYPASSRLS/NOREPLICATION num ALTER ("permission denied to alter role", medido 25/09).
+    attributes = "" if exists else "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS "
+    await admin.execute(f"{verb} ROLE {login} LOGIN {attributes}PASSWORD '{verifier}'")
     sql = (Path("/app") / GRANTS_SQL).read_text(encoding="utf-8")
     for part, connection in (("native", owner), ("engine", engine_owner)):
         async with connection.transaction():
@@ -296,9 +296,9 @@ async def ensure_login(admin: Any, login: str, password: str) -> str:
 
     exists = await admin.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login)
     verifier = scram.verifier(password).replace("'", "")
+    attributes = "" if exists else "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS "
     await admin.execute(
-        f"{'ALTER' if exists else 'CREATE'} ROLE {login} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
-        f"NOREPLICATION NOBYPASSRLS PASSWORD '{verifier}'"
+        f"{'ALTER' if exists else 'CREATE'} ROLE {login} LOGIN {attributes}PASSWORD '{verifier}'"
     )
     return "realinhado" if exists else "criado"
 
