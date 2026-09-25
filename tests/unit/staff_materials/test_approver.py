@@ -227,6 +227,60 @@ def test_admission_outside_the_closed_shape_is_refused(change: dict[str, Any], n
         approver.review_admission(raw)
 
 
+RESOURCE_VECTOR = REPO / "tests" / "fixtures" / "portal_read" / "jcs-resource-vector.json"
+
+
+def _human() -> dict[str, Any]:
+    """O bloco `human` do vetor compartilhado com o provedor Java (H1, `HumanAdmissionTest`)."""
+    return json.loads(RESOURCE_VECTOR.read_text(encoding="utf-8"))["human"]
+
+
+def _with_human(now: datetime, human: Any) -> dict[str, Any]:
+    value = admission(now)
+    value["human"] = human
+    value["publishers"].append(
+        dict(kind="resource", publisher_ref="portal-staff", source_ref_prefix="portal-resource:amh:task:")
+    )
+    return value
+
+
+def test_admission_with_the_human_block_of_the_shared_vector_is_admitted(now: datetime) -> None:
+    value = _with_human(now, _human())
+    _, shown, lines = approver.review_admission(canonicalize(value))
+    assert shown == digest(value)
+    assert any(line.startswith("human=") for line in lines)
+
+
+def _entry(human: dict[str, Any]) -> dict[str, Any]:
+    return human["entries"][0]
+
+
+@pytest.mark.parametrize(
+    "breaks",
+    [
+        lambda v: v.pop("human"),  # publicador resource sem o bloco
+        lambda v: v["publishers"].pop(),  # bloco sem o publicador resource
+        lambda v: v["human"].update(extra="x"),
+        lambda v: v["human"].update(entries=[]),
+        lambda v: v["human"]["entries"].append(dict(_entry(v["human"]))),
+        lambda v: _entry(v["human"]).update(task_id_format="any"),
+        lambda v: _entry(v["human"]).update(user_candidates="anyone"),
+        lambda v: _entry(v["human"]).update(candidate_groups=[]),
+        lambda v: _entry(v["human"]).update(candidate_groups=["g", "g"]),
+        lambda v: _entry(v["human"]).update(candidate_groups=["${expr}"]),
+        lambda v: _entry(v["human"])["classification"].update(projection="x"),
+        lambda v: _entry(v["human"])["classification"].update(valid_until="2026-01-01T00:00:00.000000Z"),
+        lambda v: _entry(v["human"])["identity_policy"].update(digest="x"),
+    ],
+)
+def test_human_block_outside_the_java_shape_is_refused(breaks: Any, now: datetime) -> None:
+    value = _with_human(now, _human())
+    approver.review_admission(canonicalize(value))  # controle positivo
+    breaks(value)
+    with pytest.raises(MaterialError):
+        approver.review_admission(canonicalize(value))
+
+
 def test_cli_prints_review_and_does_not_sign_without_confirmation(
     generated: Generated, tmp_path: Path, capsys: pytest.CaptureFixture[str], now: datetime
 ) -> None:

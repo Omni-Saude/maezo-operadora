@@ -20,6 +20,7 @@ STEPS = {
     "w1": "c1.w1",
     "portal-init": "c1.portal_check",
     "portal": "c1.portal_check",
+    "h1-task": "c1.h1_task",
 }
 
 
