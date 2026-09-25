@@ -345,6 +345,8 @@ resource "aws_ecs_task_definition" "staff_ops_oneshot" {
         ], each.key == "rows" ? [
         { name = "STAFF_ROWS_SECRET_ARN", value = var.staff_ops.rows_secret_arn },
         { name = "STAFF_ADMIN_SECRET_ARN", value = local.aurora_master_secret_arn },
+        { name = "STAFF_ENGINE_DB_SECRET_ARN", value = data.aws_secretsmanager_secret.cibseven_app_db.arn },
+        { name = "STAFF_APP_DB_SECRET_ARN", value = data.aws_secretsmanager_secret.maezo_app_db.arn },
         ] : [
         { name = "STAFF_SYN_SECRET_ARN", value = var.staff_ops.syn_secret_arn },
         # Cercas da ferramenta (explicitas, sem default): so esta conta e so dev.
