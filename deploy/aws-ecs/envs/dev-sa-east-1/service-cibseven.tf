@@ -71,6 +71,10 @@ resource "aws_ecs_task_definition" "cibseven" {
     for_each = local.engine_native_volumes
     content { name = volume.value }
   }
+  dynamic "volume" {
+    for_each = local.engine_native_scratch_volumes
+    content { name = volume.value }
+  }
 
   # Com engine_native = null os `...` e as listas extras sao vazios e o JSON e' o de hoje.
   container_definitions = jsonencode(concat([merge({
