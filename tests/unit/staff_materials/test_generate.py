@@ -128,7 +128,7 @@ def test_designation_draft_binds_every_generated_key_and_is_unsigned(generated: 
     assert b"signature" not in raw and b"proof" not in raw
 
 
-def test_capabilities_follow_the_loader_and_the_onda7_restriction(generated: Generated) -> None:
+def test_capabilities_follow_the_loader_and_h3(generated: Generated) -> None:
     designation = parse(Designation, (generated.directory / "portal/designation.json").read_bytes())
     entries = {e.entry_ref: e for e in designation.entries}
     read = entries["read_requester"]
@@ -141,7 +141,8 @@ def test_capabilities_follow_the_loader_and_the_onda7_restriction(generated: Gen
         "staff_escalation.v1",
     }
     issuer = entries["case_issuer"]
-    assert "staff_current_task.v1" not in issuer.projections
+    # H3 (D-N): o emissor assina a decisao de cada tarefa corrente (fim da restricao da Onda 7).
+    assert "staff_current_task.v1" in issuer.projections
     assert "staff_escalation.v1" in issuer.projections  # D-M.2
     assert set(issuer.purposes) == {"staff_case_grant", "staff_policy_head", "scope_complete"}
     assert issuer.operations == ("detail", "list")

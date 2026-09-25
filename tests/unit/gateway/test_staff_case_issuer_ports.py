@@ -443,6 +443,9 @@ async def test_majority_of_zero_auth_instances_fails_the_round_and_revokes_nothi
         async def live(self) -> tuple[LiveEscalation, ...]:
             return lives
 
+        async def case_tasks(self, case: Any) -> tuple:
+            return ()
+
     class Anchor:
         last_reason: str | None = None
 
@@ -467,3 +470,60 @@ async def test_majority_of_zero_auth_instances_fails_the_round_and_revokes_nothi
     with pytest.raises(CaseIssuerError, match="anchor_zero_quorum"):
         await job.run_once()
     assert len(sent) == count and ledger.load() == before
+
+
+def _task(task_id: str, **changes: str) -> dict[str, str]:
+    from tests.unit.gateway.test_staff_case_issuer import identity
+
+    case = identity(1)
+    value = dict(
+        id=task_id,
+        taskDefinitionKey="UT_AnaliseMedicoAuditor",
+        tenantId="amh",
+        processInstanceId=case.process_instance_ref,
+        processDefinitionId=case.process_definition_id,
+    )
+    value.update(changes)
+    return value
+
+
+async def test_h3_case_tasks_are_the_live_tasks_of_the_case_instance_in_id_order() -> None:
+    from maezo.gateway.staff_cases.case_issuer import CaseTask
+    from maezo.gateway.staff_cases.case_issuer_sources import EngineEscalationSource
+    from tests.unit.gateway.test_staff_case_issuer import identity
+
+    seen: list[httpx.Request] = []
+
+    def engine(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=[_task("b-2"), _task("a-1")])
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(engine), base_url="http://engine") as client:
+        source = EngineEscalationSource(client, tenant="amh", anchor=lambda e: None)
+        tasks = await source.case_tasks(identity(1))
+    assert tasks == (CaseTask("a-1", "UT_AnaliseMedicoAuditor"), CaseTask("b-2", "UT_AnaliseMedicoAuditor"))
+    (request,) = seen
+    assert request.url.params["processInstanceId"] == identity(1).process_instance_ref
+    assert request.url.params["tenantIdIn"] == "amh"
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [_task("a-1", tenantId="outro")],
+        [_task("a-1", processInstanceId="outra-instancia")],
+        [_task("a-1", processDefinitionId="SP-OP-AUTH-001:9:outra")],
+        [_task(f"t-{n:03d}") for n in range(201)],
+        {"not": "a list"},
+    ],
+)
+async def test_h3_case_tasks_from_a_defective_source_fail_the_round(rows: Any) -> None:
+    from maezo.gateway.staff_cases.case_issuer_sources import EngineEscalationSource
+    from tests.unit.gateway.test_staff_case_issuer import identity
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json=rows)), base_url="http://engine"
+    ) as client:
+        source = EngineEscalationSource(client, tenant="amh", anchor=lambda e: None)
+        with pytest.raises(CaseIssuerError):
+            await source.case_tasks(identity(1))

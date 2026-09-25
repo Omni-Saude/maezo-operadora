@@ -102,7 +102,7 @@ case "${1:-all}" in
     py auth-install || true        # D8: qualifica a instalacao AUTH com a definicao deployada
     py auth-fixture || true        # D-K.2: entradas SYN- publicadas + human-auth-start assinado
     py seed; py publish || true; py issuer || true
-    py h1-task || true               # H1 (D-N): logo depois do issuer (memberships ainda validas)
+    py h1-task || true               # H1-H4 (D-N): fonte real de tarefas no job T1.5, sem D11-D13
     py portal-init || true; py portal || true ;;   # /cases sob a admissao revisao 2 (regressao do staff)
   *) echo "passo desconhecido: $1" >&2; exit 2 ;;
 esac

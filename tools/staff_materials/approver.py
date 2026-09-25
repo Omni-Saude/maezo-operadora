@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import base64
 import getpass
+import hashlib
 import re
 import sys
 from collections.abc import Sequence
@@ -370,10 +371,68 @@ def _human_shape(value: Any) -> None:
             _ref(group)
 
 
-def review_admission(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:
+def review_catalog(record: dict[str, Any], catalog_raw: bytes) -> list[str]:
+    """H4 (D-N): o catalogo COM tarefas humanas que a admissao nomeia, conferido entrada a entrada.
+
+    O digest do registro so pina bytes; sem ler o catalogo o aprovador assinaria tarefas que nao
+    viu. Exige: SHA-256 do artefato = `catalog.catalog_digest`; `catalog_ref`/`publisher_ref`
+    iguais aos admitidos; cada entrada do catalogo com exatamente uma entrada `human` (e vice-versa)
+    pela chave (`process_definition_id`, `task_definition_key`); `identity_policy` = a
+    `opaque_task_id_policy` da entrada; a politica da classificacao = a `disclosure_policy`; os
+    `candidate_groups` dentro do dominio de grupos da entrada. Um catalogo com tarefas sem o bloco
+    `human` e recusado: as tarefas ficariam publicadas e nunca legiveis.
+    """
+    from maezo.gateway.human.read_profile import ReadCatalogArtifact, parse_model
+
+    try:
+        artifact = parse_model(ReadCatalogArtifact, strict_loads(catalog_raw))
+    except Exception:
+        raise MaterialError("catalogo fora do perfil fechado portal-read-catalog.v1") from None
+    admitted = record["catalog"]
+    if hashlib.sha256(catalog_raw).hexdigest() != admitted["catalog_digest"]:
+        raise MaterialError("o catalogo nao e o que a admissao pina (catalog_digest)")
+    if (artifact.catalog_ref, artifact.publisher_ref) != (admitted["catalog_ref"], admitted["publisher_ref"]):
+        raise MaterialError("catalog_ref/publisher_ref do catalogo diferem dos admitidos")
+    human = {
+        (e["process_definition_id"], e["task_definition_key"]): e
+        for e in record.get("human", {}).get("entries", [])
+    }
+    entries = {(e.process_definition_id, e.task_definition_key): e for e in artifact.entries}
+    if set(human) != set(entries):
+        raise MaterialError("cada tarefa do catalogo precisa de exatamente uma entrada `human` na admissao")
+    lines = [f"catalogo={artifact.catalog_ref} entradas={len(entries)}"]
+    for key in sorted(entries):
+        entry, admitted_entry = entries[key], human[key]
+        identity = admitted_entry["identity_policy"]
+        classification = admitted_entry["classification"]
+        if (identity["artifact_ref"], identity["digest"]) != (
+            entry.opaque_task_id_policy.artifact_ref,
+            entry.opaque_task_id_policy.digest,
+        ):
+            raise MaterialError(f"identity_policy de {key[1]} nao e a opaque_task_id_policy do catalogo")
+        if (classification["policy_ref"], classification["policy_digest"]) != (
+            entry.disclosure_policy.artifact_ref,
+            entry.disclosure_policy.digest,
+        ):
+            raise MaterialError(
+                f"a politica da classificacao de {key[1]} nao e a disclosure_policy do catalogo"
+            )
+        if not set(admitted_entry["candidate_groups"]) <= set(entry.group_domain.groups):
+            raise MaterialError(f"candidate_groups de {key[1]} fora do dominio de grupos do catalogo")
+        groups = list(entry.group_domain.groups)
+        lines.append(
+            f"- {key[0]}/{key[1]} form={entry.form_key}@{entry.form_version} grupos={groups}"
+            f" admitidos={admitted_entry['candidate_groups']}"
+            f" task_id_format={admitted_entry['task_id_format']}"
+        )
+    return lines
+
+
+def review_admission(raw: bytes, catalog: bytes | None = None) -> tuple[dict[str, Any], str, list[str]]:
     """Confere o registro `portal-read-admission.v1` contra o shape fechado da T1.7a.
 
-    O que passa e EXIBIDO campo a campo para o aprovador conferir contra as fontes da §4.
+    O que passa e EXIBIDO campo a campo para o aprovador conferir contra as fontes da §4. Com o
+    bloco `human` (tarefas, H1) o catalogo e obrigatorio e conferido por `review_catalog`.
     """
     try:
         value = strict_loads(raw)
@@ -386,11 +445,19 @@ def review_admission(raw: bytes) -> tuple[dict[str, Any], str, list[str]]:
     except (KeyError, TypeError, ValueError):
         raise MaterialError("registro de admissao fora do shape fechado da T1.7a (AdmissionRecord)") from None
     lines = [f"{key}={canonicalize(value[key]).decode()}" for key in sorted(value)]
+    if "human" in value:
+        if catalog is None:
+            raise MaterialError("admissao com tarefas humanas: informe o catalogo (--catalog) para conferir")
+        lines += review_catalog(value, catalog)
+    elif catalog is not None:
+        review_catalog(value, catalog)  # staff-only: o catalogo informado tambem tem de ser o pinado
     return value, digest(value), lines
 
 
-def sign_admission(raw: bytes, root: Ed25519PrivateKey, *, confirm_digest: str | None) -> bytes:
-    _, record_digest, _ = review_admission(raw)
+def sign_admission(
+    raw: bytes, root: Ed25519PrivateKey, *, confirm_digest: str | None, catalog: bytes | None = None
+) -> bytes:
+    _, record_digest, _ = review_admission(raw, catalog)
     _confirm(record_digest, confirm_digest)
     signature = root.sign(ADMISSION_DOMAIN + raw)
     root.public_key().verify(signature, ADMISSION_DOMAIN + raw)
@@ -457,6 +524,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             command.add_argument("--expires-at", required=True, help="AAAA-MM-DDTHH:MM:SS.ffffffZ")
         else:
             command.add_argument("--record", type=Path, required=True)
+        if name == "sign-admission":
+            command.add_argument(
+                "--catalog", type=Path, help="portal-read-catalog.v1 (JCS) que a admissao pina"
+            )
     args = parser.parse_args(argv)
     try:
         if args.command == "root-keygen":

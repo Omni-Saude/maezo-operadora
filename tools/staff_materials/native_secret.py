@@ -52,7 +52,10 @@ from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, su
 EdPriv = Ed25519PrivateKey
 EdPub = Ed25519PublicKey
 
-PUBLICATION_KINDS = ["catalog-designate", "membership"]
+# H4 (D-N): o job publica tambem `resource` (tarefas humanas, H2). O trust so PERMITE o kind a
+# chave; quem o ADMITE e a admissao Q2 assinada pelo aprovador (`resource` so com o bloco `human`,
+# `AdmissionRecord`/`approver._admission_shape`). Uma admissao staff-only continua recusando.
+PUBLICATION_KINDS = ["catalog-designate", "membership", "resource"]
 # Janela maxima das chaves no segredo: a mesma renovacao de 14 dias da N2.
 MAX_WINDOW = timedelta(days=14)
 DATASOURCE_JNDI = "java:jdbc/ProcessEngine"
