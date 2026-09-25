@@ -22,7 +22,9 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _run(tmp_path: Path, tfvars: str, known: list[str], requested: str = "") -> tuple[int, dict[str, str], str]:
+def _run(
+    tmp_path: Path, tfvars: str, known: list[str], requested: str = ""
+) -> tuple[int, dict[str, str], str]:
     fake = tmp_path / "bin"
     fake.mkdir()
     (fake / "aws").write_text(

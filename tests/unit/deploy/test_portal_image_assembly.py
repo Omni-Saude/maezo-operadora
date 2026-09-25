@@ -221,7 +221,8 @@ def test_provider_jar_is_copied_next_to_human_command_jar() -> None:
     runtime = re.sub(r"\\\n\s*", " ", dockerfile.split("\nFROM cibseven/", 1)[1]).splitlines()
     libs = [line for line in runtime if line.startswith("COPY ") and "/camunda/lib/" in line]
     assert libs == [
-        "COPY --from=human-build /build/target/human-command-engine-1.0.0.jar /camunda/lib/maezo-human-command.jar",
+        "COPY --from=human-build /build/target/human-command-engine-1.0.0.jar"
+        " /camunda/lib/maezo-human-command.jar",
         "COPY --from=human-build /build/provider/ /camunda/lib/",
     ]
     step = _provider_build_step()
