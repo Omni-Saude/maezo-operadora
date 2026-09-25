@@ -33,6 +33,8 @@
         <systemPropertyVariables>
           <!-- T1.7b: the JCS parity vector shared with tests/unit/portal/test_jcs_membership_vector.py -->
           <maezo.jcs.vector>${project.basedir}/../../../../../tests/fixtures/portal_read/jcs-membership-vector.json</maezo.jcs.vector>
+          <!-- H1/H2 (D-N): the human admission block + resource publication contract, shared with the Python H2 -->
+          <maezo.jcs.resource.vector>${project.basedir}/../../../../../tests/fixtures/portal_read/jcs-resource-vector.json</maezo.jcs.resource.vector>
         </systemPropertyVariables>
       </configuration>
       <executions>
@@ -55,6 +57,7 @@
             <environmentVariables>
               <MAEZO_PORTAL_READ_TRUST_FILE>${project.build.directory}/provider-it/portal-read-trust.json</MAEZO_PORTAL_READ_TRUST_FILE>
               <MAEZO_PORTAL_READ_PROVIDER_FILE>${project.build.directory}/provider-it/portal-read-provider.json</MAEZO_PORTAL_READ_PROVIDER_FILE>
+              <MAEZO_PORTAL_READ_IT_REPO>${project.basedir}/../../../../..</MAEZO_PORTAL_READ_IT_REPO>
             </environmentVariables>
           </configuration>
         </execution>

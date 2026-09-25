@@ -23,7 +23,12 @@ import java.util.Map;
  *   <li>{@code catalog-designate}: catalog ref, digest and publisher are the ADMITTED ones;
  *   <li>{@code catalog-revoke}: catalog ref and publisher are the ADMITTED ones;
  *   <li>{@code revoke-key}: nothing more; it only reduces authority and the envelope was already
- *       verified with the publication key.
+ *       verified with the publication key;
+ *   <li>{@code resource} (H1): {@code source_ref = <admitted prefix> + task_id},
+ *       {@code source_revision = resource_revision}, {@code source_digest = SHA-256(JCS(payload))},
+ *       {@code receipt_ref = portal-resource:<tenant>:task:<task_id>@<resource_revision>},
+ *       {@code valid_until = observed_at + observation_seconds}, and a classification the approver
+ *       admitted for that process definition.
  * </ul>
  * The snapshot lives and dies with the admission it was taken under (see {@link #requireCurrent}).
  */
@@ -99,6 +104,26 @@ final class StaffScopeQualification implements PortalReadTrust.PublicationQualif
             throw Fields.unavailable();
         }
         case "revoke-key" -> {}
+        case "resource" -> {
+          // H1 contract with the Python publisher (tests/fixtures/portal_read/jcs-resource-vector.json):
+          // the provenance is DERIVED from the payload, never a free-standing claim.
+          var publisher = record.publishers.get("resource");
+          String task = Fields.ref(payload, "task_id");
+          String revision = Long.toString(Fields.decimal(payload, "resource_revision", 0,
+              Long.MAX_VALUE - 1));
+          Instant observedAt = Fields.time(source, "observed_at");
+          if (publisher == null
+              || !(publisher.sourceRefPrefix() + task).equals(source.get("source_ref"))
+              || !revision.equals(source.get("source_revision"))
+              || !Fields.digest(payload).equals(source.get("source_digest"))
+              || !("portal-resource:" + record.scope.get("tenant") + ":task:" + task + "@"
+                      + revision).equals(source.get("receipt_ref"))
+              || !Fields.time(source, "valid_until")
+                      .equals(observedAt.plusSeconds(record.observationSeconds)))
+            throw Fields.unavailable();
+          record.human.verifyPublishedClassification(Fields.ref(payload, "process_definition_id"),
+              Fields.object(payload.get("classification")), record.validUntil);
+        }
         default -> throw Fields.unavailable();
       }
     } catch (RuntimeException refused) {
