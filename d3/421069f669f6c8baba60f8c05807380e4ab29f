@@ -1,0 +1,25 @@
+tools/staff_materials/login_secrets.py
+  s_75580744a35de2::t_d2144eecea0e34 1-52
+tools/staff_materials/__main__.py
+  s_75580744a35de2::t_8d96c177faae64 57-59
+  s_75580744a35de2::t_1e66ab21bcf0a0 1,19,60,115-120
+  s_75580744a35de2::t_387cc93d49210a 121
+tests/unit/staff_materials/test_separation.py
+  s_75580744a35de2::t_662a68e181443e 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d3421069f669f6c8baba60f8c05807380e4ab29f",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
