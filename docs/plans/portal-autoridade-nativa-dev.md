@@ -459,7 +459,7 @@ fora do engine: a autoridade precisa ler e travar a tarefa **na mesma transaçã
     - `owner_receipt`: `artifact_ref` = `maezo-operadora-dev:assignment-owner-receipt:amh:1`. O digest é o SHA-256 do JCS do documento de dono assinado pela raiz. O `assignment_trust` gera; o aprovador recalcula do arquivo assinado.
     - **Materiais:**
       - raiz e assinatura do aprovador: o volume `maezo-onda2b-materials`. O agente assina em dev pela delegação do dono (emenda N1, 25/09), que vale só para dev;
-      - chaves: o pacote humano de `/m/onda4`, com `amh-dev-assignment-20260924` como `source_key_id`, sem gerar chave nova. `read` e `command` continuam os da D-L.
+      - chaves: a FONTE tem chave DEDICADA, `source_key_id` = `amh-dev-assignment-source-20260925`, gerada por `assignment-plane source-key` no mesmo volume privado dos materiais (0400, nunca em log). O `build_trust` e o `AssignmentTrust.java` recusam reusar a chave de leitura. A `amh-dev-assignment-20260924` do pacote humano de `/m/onda4` continua SO como chave de leitura. `read` e `command` continuam os da D-L.
     - A janela vai até `2026-10-08T04:44:25Z`, como a D-L.
 ---
 
