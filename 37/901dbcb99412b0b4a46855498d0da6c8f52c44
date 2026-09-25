@@ -1,0 +1,39 @@
+docs/runbooks/supply-chain-imagem.md
+  s_75580744a35de2::t_a5a7e221cc0e16 105-108
+  s_75580744a35de2::t_958d6fd6887b79 122-123
+tests/unit/deploy/test_portal_image_assembly.py
+  s_75580744a35de2::t_1a8c252e54bd0c 209-259
+  s_75580744a35de2::t_c1eb4d60bd39d5 39-45
+src/maezo/portal/engine/read-provider/README.md
+  s_75580744a35de2::t_93f97625d210e4 5-7
+deploy/c1-local/engine.Dockerfile
+  s_75580744a35de2::t_698fc5745e2cc5 3-6
+deploy/c1-local/README.md
+  s_75580744a35de2::t_698fc5745e2cc5 85-86
+.github/workflows/supply-chain.yml
+  s_75580744a35de2::t_87273859894ce7 323-324,328-331
+tests/unit/ci/test_resolve_image_digest.py
+  s_75580744a35de2::t_ece26f493ad760 1-98
+deploy/cibseven/Dockerfile.human
+  s_75580744a35de2::t_90c56ed06d4282 16-30,37
+deploy/cibseven/Dockerfile.human.dockerignore
+  s_75580744a35de2::t_9ad4f3119327f2 18-24
+scripts/ci/resolve_image_digest.sh
+  s_75580744a35de2::t_5854abfcd249a4 12-18,29,32-38,47,50-57,81-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "37901dbcb99412b0b4a46855498d0da6c8f52c44",
+  "prompts": {},
+  "sessions": {
+    "s_75580744a35de2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e71ad683-0c93-4a6a-8263-0515b98ab0d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonardo Vinicius Silva <leonardo-formatacao@hotmail.com>"
+    }
+  }
+}
