@@ -215,6 +215,18 @@ def test_one_byte_tamper_is_refused_by_the_loader(
         human_bundle.verify(manifest, {**files, name: bytes(raw)}, now=now)
 
 
+def test_unparseable_pem_is_a_refusal_not_a_library_error(
+    tmp_path: Path, spec_file: Path, keys_dir: Path, generated: Generated, now: datetime
+) -> None:
+    # Regressao (#528 CI): um byte que vira '@' no base64 fazia o loader vazar ValueError.
+    assert _package(tmp_path, spec_file, keys_dir, generated, now) == 0
+    manifest, files = human_bundle.load_package(tmp_path / "human-package" / "current")
+    raw = bytearray(files["command-signing-key.pem"])
+    raw[40] = ord("@")
+    with pytest.raises(HumanMaterialError):
+        human_bundle.verify(manifest, {**files, "command-signing-key.pem": bytes(raw)}, now=now)
+
+
 def test_package_refuses_an_admission_not_signed_by_the_given_root(
     tmp_path: Path, spec_file: Path, keys_dir: Path, generated: Generated, now: datetime
 ) -> None:
