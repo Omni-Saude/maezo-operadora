@@ -213,6 +213,11 @@ async def run() -> None:
     seen = cases(inside[1])
     ok = inside[0] == 200 and len(seen) >= 1 and (outside[0] != 200 or not set(seen) & set(cases(outside[1])))         and (outside[0] != 200 or cases(outside[1]) == [])
     step("portal", ok, f"{lifespan}; /cases no grupo -> {inside[0]} {inside[1]!r}; outro grupo -> {outside[0]} {outside[1]!r}")
+    if sys.argv[1] == "portal-r2":
+        # Depois da rotacao, quem NAO tem caso recebe a lista vazia (200), nunca 503: o checkpoint
+        # dele tem de ter sido reassinado sob a r2 mesmo sem mudanca de insumo.
+        empty = outside[0] == 200 and cases(outside[1]) == [] and '"items":[]' in outside[1]
+        step("portal-r2-sem-caso", empty, f"staff-c1-outro-grupo /cases -> {outside[0]} {outside[1][:160]!r}")
     _check_dm()
 
 

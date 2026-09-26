@@ -568,6 +568,46 @@ async def test_grantee_with_no_case_gets_an_empty_complete_checkpoint() -> None:
     assert checkpoint.payload.total_entries == "0" and checkpoint.payload.chunks == ()
 
 
+async def test_rotation_resigns_every_checkpoint_signed_before_the_current_designation() -> None:
+    """Dev 26/09: depois da r1->r2, o checkpoint de quem tem ZERO casos nao mudava de insumo, nao era
+    reemitido e o engine recusava a prova antiga (antes do `not_before` da r2): `/cases` 503."""
+    from maezo.gateway.staff_cases.case_issuer import decode_state, encode_state
+
+    w = world()
+    lonely = grantee("z", "supervisao-atendimento")
+    ledger = MemoryLedger()
+    job, _ = run(w, ESCALATIONS, (lonely,), ledger)
+    await job.run_once()
+    state = ledger.load()
+    (checkpoint,) = state.checkpoints.values()
+    assert checkpoint.signed_at is not None
+    assert decode_state(encode_state(state), None) == replace(state, pending=None)  # signed_at persiste
+    # O ledger da politica nova herda os checkpoints e perde so a politica.
+    rotated = replace(state, policy=None)
+    boundary = checkpoint.signed_at + timedelta(seconds=1)
+
+    def scopes(current: IssuerState, signed_after: Any) -> list[str]:
+        result = plan(
+            escalations=ESCALATIONS,
+            grantees=(lonely,),
+            state=current,
+            policy=w.policy,
+            scope=SCOPE,
+            now=NOW,
+            signed_after=signed_after,
+        )
+        return [a.grantee.principal_ref for a in result.actions if isinstance(a, ScopeAction)]
+
+    assert scopes(rotated, None) == []  # o defeito: sem a regra, nada seria reemitido
+    assert scopes(rotated, boundary) == [lonely.principal_ref]
+    assert scopes(rotated, checkpoint.signed_at) == []  # assinado a partir do inicio: vale
+    legacy = replace(
+        rotated, checkpoints={k: replace(c, signed_at=None) for k, c in state.checkpoints.items()}
+    )
+    assert scopes(legacy, boundary) == [lonely.principal_ref]  # ledger antigo sem o instante: reemite
+    assert scopes(legacy, None) == [lonely.principal_ref]  # herdado de outra politica (seed): sempre
+
+
 async def test_source_revisions_are_a_gapless_cas_sequence_and_publication_ids_are_unique() -> None:
     w = world()
     job, sent = run(w, ESCALATIONS, (A, B, C), MemoryLedger())

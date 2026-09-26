@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -27,7 +28,7 @@ from tests.integration.gateway.test_staff_case_issuer_live import _deploy, _driv
 from tests.unit.deploy.test_engine_native_install_pg import Env, _with_env
 from tests.unit.gateway.test_staff_case_issuer import ESCALATIONS, SCOPE, A, B, C, run, world
 
-from maezo.gateway.staff_cases.case_issuer import CaseIssuerError, StaffCaseIssuerJob
+from maezo.gateway.staff_cases.case_issuer import CaseIssuerError, ScopeAction, StaffCaseIssuerJob, plan
 from maezo.gateway.staff_cases.case_issuer_sources import (
     AuthClaimAnchor,
     EngineEscalationSource,
@@ -96,8 +97,29 @@ async def test_ledger_is_durable_cas_and_one_row_per_policy_ref() -> None:
             )
             rotated = await rotated_ledger.load()
             assert rotated.source_revision == len(sent) and rotated.policy is None
-            assert rotated.grants == before.grants and rotated.checkpoints == before.checkpoints
+            assert rotated.grants == before.grants
+            assert {p: replace(c, signed_at=None) for p, c in before.checkpoints.items()} == dict(
+                rotated.checkpoints
+            )  # herdados sem instante: assinados sob o policy_ref antigo
             assert before.grants and before.policy is not None
+            # O instante de assinatura do checkpoint sobrevive ao ledger real e, sob a designacao
+            # vigente (inicio depois dele), TODO checkpoint e reassinado, inclusive sem mudanca de insumo.
+            signed = [c.signed_at for c in before.checkpoints.values()]
+            assert signed and all(s is not None for s in signed)  # o instante sobrevive ao ledger real
+            after = max(s for s in signed if s is not None) + timedelta(seconds=1)
+            for current, signed_after in ((rotated, None), (before, after)):
+                resign = plan(
+                    escalations=ESCALATIONS,
+                    grantees=(A, B, C),
+                    state=current,
+                    policy=w.policy,
+                    scope=SCOPE,
+                    now=datetime.now(UTC),
+                    signed_after=signed_after,
+                )
+                assert {a.grantee.principal_ref for a in resign.actions if isinstance(a, ScopeAction)} == {
+                    g.principal_ref for g in (A, B, C)
+                }
 
             # CAS: duas copias carregadas; a segunda escrita perde, nada e sobrescrito.
             x = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref=w.policy.policy_ref)

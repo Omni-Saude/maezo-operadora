@@ -31,6 +31,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from types import MappingProxyType
 from typing import Any
 
 import httpx
@@ -555,7 +556,10 @@ class PostgresIssuerLedger:
             state = decode_state(bytes(row.issued_state), None)
             if state.source_revision > latest.source_revision:
                 latest = state
-        return replace(latest, policy=None, pending=None)
+        # Os checkpoints herdados foram assinados sob o `policy_ref` antigo (o engine confere o
+        # namespace da prova): sem instante de assinatura, o plano reassina todos sob a politica nova.
+        checkpoints = {p: replace(c, signed_at=None) for p, c in latest.checkpoints.items()}
+        return replace(latest, policy=None, pending=None, checkpoints=MappingProxyType(checkpoints))
 
     async def _write(self, state: IssuerState) -> IssuerState:
         if self._revision is None or self._state is None:
