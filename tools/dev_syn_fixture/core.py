@@ -784,12 +784,22 @@ def escalation_state(client: httpx.Client, tenant: str, guide_number: str) -> st
     return "closed" if history else "absent"
 
 
+#: `numero_guia_tiss` tem no maximo 20 caracteres (GuideIdentity): `SYN-R` + AAMMDDhhmmss = 17,
+#: `N<1..99>` = ate 20. Medido no dev em 26/09: `SYN-DEVGUIA2R20260926...` (27) quebrava a validacao.
+GUIDE_MAX_LENGTH = 20
+
+
 def fresh_guide(base: str, now: datetime, taken: Callable[[str], bool]) -> str:
-    """Guia `SYN-` NOVA derivada de `base` com sufixo unico por execucao (UTC ate o segundo + contador)."""
-    stem = base + "R" + now.strftime("%Y%m%d%H%M%S")
+    """Guia `SYN-` NOVA com sufixo unico por execucao (UTC ate o segundo + contador), <= 20 chars.
+
+    `base` so passa pelas cercas (tem de ser uma guia SYN- valida); o numero novo nao a repete,
+    porque base + sufixo estoura o limite do `numero_guia_tiss`."""
+    if not GUIDE_PATTERN.fullmatch(base):
+        raise SyntheticRefusedError(f"guia base fora de {GUIDE_PATTERN.pattern}: {base!r}")
+    stem = "SYN-R" + now.strftime("%y%m%d%H%M%S")
     for counter in range(100):
         candidate = stem if counter == 0 else f"{stem}N{counter}"
-        if not GUIDE_PATTERN.fullmatch(candidate):
+        if not GUIDE_PATTERN.fullmatch(candidate) or len(candidate) > GUIDE_MAX_LENGTH:
             raise SyntheticRefusedError(f"guia derivada fora de {GUIDE_PATTERN.pattern}: {candidate!r}")
         if not taken(candidate):
             return candidate
