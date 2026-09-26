@@ -232,13 +232,14 @@ portal = {
 
   // Plano humano (Onda 8 / H5 + D-O). `portal-human-material.v1` remontado (mesmas chaves) com a
   // admissao humana espelho rev 3 (engine com o fix do PortalReadCommand, code digest 4253d799);
+  // 26/09 (Onda 9, #552): rev 4, engine 0fde9125-human (code digest e1c0d1d5), catalogo rev 5 com UT_SupervisorAssume;
   // segredo D-G sob a CMK portal-staff, VersionId = material_version_id. O BFF so liga o `human`
   // com `portal_assignment_source.state='active'` (staff-assignment, 25/09: active -> ja-ativa).
   human = {
     material_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/human-materials-FAErGt"
-    material_secret_version_id = "amh-dev-human-73097339c50d1bc85fcfd7e459"
+    material_secret_version_id = "amh-dev-human-62b87f1f2b3ae6ea685729f20a"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
-    public_manifest_sha256     = "e406724fadcffe4d636c1433895bcde786d4e4ff8d5d40f68ff2efa7d5f059ff"
+    public_manifest_sha256     = "0777086bfa0fe84724c4539b8b438161b5d99cfd833086228d230bc490f6fb95"
     // Imagem de operacao (tools.staff_ops human-init), CodeBuild 4bd50928-staff-ops, assinada.
     init_image_digest = "sha256:01eb1771e2fde81586210a6904530887475a25d10c62002d5cbf75dcc3b1a704"
   }
