@@ -16,7 +16,8 @@ Referencia executavel: `deploy/c1-local/c1/db_native.py` (harness local). A orde
 8. mede e imprime os pins PUBLICOS;
 9. (opcional, `STAFF_INSTALL_EXTRA_LOGIN_SECRET_ARNS`) admin: os logins das Ondas 8 que antes o
    `staff_ops rows` criava com a credencial mestre — `portal_task_source_amh` (D14) e
-   `portal_human_outbox_amh`/`portal_human_source_amh` (H5, com `search_path` do tenant). Senha por
+   `portal_human_outbox_amh`/`portal_human_source_amh` (H5, com `search_path` do tenant) e
+   `portal_assignment_admin_amh` (administracao da fonte de atribuicao). Senha por
    verificador SCRAM calculado aqui; idempotente: login existente cuja senha ja autentica nao e
    tocado, `search_path` igual nao e reescrito. Assim o `rows` nao precisa do segredo mestre.
 
@@ -99,6 +100,8 @@ EXTRA_LOGINS: dict[str, str | None] = {
     f"portal_task_source_{TENANT}": None,
     f"portal_human_outbox_{TENANT}": TENANT,
     f"portal_human_source_{TENANT}": TENANT,
+    # Plano de atribuicao: os grants de `portal-assignment-admin-grants.sql` vem do `rows`.
+    f"portal_assignment_admin_{TENANT}": None,
 }
 _LOGIN_ATTRIBUTES = "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS"
 

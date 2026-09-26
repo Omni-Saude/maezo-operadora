@@ -21,6 +21,8 @@ STEPS = {
     "portal-init": "c1.portal_check",
     "portal": "c1.portal_check",
     "h1-task": "c1.h1_task",
+    "assignment": "c1.assignment_step",
+    "portal-human": "c1.portal_human",
 }
 
 

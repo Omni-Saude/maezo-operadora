@@ -41,6 +41,8 @@ o checkout entra por bind read-only em `/repo`; os segredos vivem só no volume.
 | `seed` / `publish` | duas memberships staff (grupo da DMN e outro grupo); o `__main__` do job T1.5, duas rodadas | `membership_publication_job` |
 | `issuer` | deploy de `spec/processes` (tenant `amh`), a escalação `ESC-amh-sla-auth-C1GUIA1`, uma rodada de `python -m maezo.gateway.staff_cases` | T1.6 |
 | `portal-init` / `portal` | `materialize` do pacote; `create_production_app()` + login + `GET /api/v1/portal/cases` para os dois principais | BFF de produção |
+| `assignment` | Onda 8: logins outbox/source/admin + os SQL de grants do repo pelo dono do schema; fonte de atribuição congelada, assinada, publicada e ACK nativo (2ª rodada = `ja-ativa`). O trust (`assignment-trust.json`) e a linha `MZO_HUMAN_ASSIGNMENT_INSTALLATION` nascem no `engine-config` | `tools.staff_materials assignment-plane`, `tools.staff_ops.assignment` |
+| `portal-human` | BFF com `capabilities=identity,staff_cases,human`: `GET /api/v1/portal/tasks?queue=mine|team` para os dois principais | BFF de produção |
 
 ## Resultado medido (24/09/2026, Docker Engine 29.8.0)
 

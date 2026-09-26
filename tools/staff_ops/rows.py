@@ -9,8 +9,8 @@ Entradas (nenhuma por env/override alem de ARNs e do endereco do banco):
 * `STAFF_IDENTITY_SECRET_ARN` -> credencial do PROPRIO `identity_login`, SO para
   `ALTER ROLE CURRENT_USER SET search_path` (o job T1.5 le `portal_memberships` sem qualificar o
   schema). A credencial mestre do Aurora NAO entra nesta task: os logins das Ondas 8
-  (`task_source`, `human_plane`) sao criados pela task `staff-install`; aqui so se confere que
-  existem e se aplicam os grants pelos donos dos schemas.
+  (`task_source`, `human_plane`, `assignment.admin`) sao criados pela task `staff-install`; aqui
+  so se confere que existem e se aplicam os grants pelos donos dos schemas.
 
 Bootstrap que o engine nativo exige ANTES do 1o boot (`HumanCommandPlugin.staffCurrent`, medido no
 apply de 25/09) e que o DDL deixa explicito por comentario: `MZO_HUMAN_TENANT(<tenant>,0)` e a linha
@@ -59,7 +59,7 @@ _KEYS = {
 }
 #: Opcional (D14, Onda 8): o login da fonte de tarefas do job T1.5 e os grants de
 #: `deploy/sql/portal-task-source-grants.sql`, cada parte pelo dono do schema dela.
-_OPTIONAL = {"task_source", "human_plane"}
+_OPTIONAL = {"task_source", "human_plane", "assignment"}
 _AUTH_SCOPE = {
     "tenant",
     "environment",
@@ -132,6 +132,30 @@ def parse(document: dict[str, Any]) -> dict[str, Any]:
         or plane["outbox"]["login"] == plane["source"]["login"]
     ):
         raise OpsError("human_plane invalido")
+    assignment = document.get("assignment")
+    if assignment is not None:
+        from .assignment import parse_installation
+
+        if (
+            not isinstance(assignment, dict)
+            or set(assignment) != {"schema", "installation", "admin"}
+            or not _NAME.fullmatch(str(assignment["schema"]))
+            or not isinstance(assignment["admin"], dict)
+            or set(assignment["admin"]) != {"login", "password_secret_arn"}
+            or not _NAME.fullmatch(str(assignment["admin"]["login"]))
+            or not str(assignment["admin"]["password_secret_arn"]).startswith("arn:aws:secretsmanager:")
+            or not isinstance(assignment["installation"], dict)
+        ):
+            raise OpsError("assignment invalido")
+        installation = parse_installation(
+            assignment["installation"], tenant=scope["tenant"], runtime_role=str(auth["runtime_role"])
+        )
+        if (installation.environment, installation.engine_name, installation.database_incarnation) != (
+            scope["environment"],
+            scope["engine_name"],
+            scope["database_incarnation"],
+        ):
+            raise OpsError("assignment.installation diverge do escopo da designacao")
     rows = dict(document)
     rows["designation"] = b64(document["designation_b64"], "designation")
     rows["proof"] = b64(document["installation_proof_b64"], "installation_proof")
@@ -327,6 +351,36 @@ async def human_plane(schema_owner: Any, rows: dict[str, Any]) -> str:
     return "; ".join(done) + "; grants do plano humano"
 
 
+ASSIGNMENT_SQL = "deploy/sql/portal-assignment-admin-grants.sql"
+
+
+async def assignment_plane(owner: Any, schema_owner: Any, rows: dict[str, Any]) -> str:
+    """Onda 8: instalacao nativa do plano de atribuicao (dono nativo) + login da administracao da
+    fonte e os grants do SQL do repo (dono do schema do tenant). A fonte em si (a linha
+    `portal_assignment_source`) NAO nasce aqui: so o `assignment-activate`, pelo codigo."""
+    from pathlib import Path
+
+    from .assignment import install as install_assignment
+    from .assignment import parse_installation
+
+    spec = rows["assignment"]
+    tenant, login = rows["scope"]["tenant"], spec["admin"]["login"]
+    installed = await install_assignment(
+        owner,
+        parse_installation(spec["installation"], tenant=tenant, runtime_role=rows["auth"]["runtime_role"]),
+    )
+    # O login da administracao nasce na task `staff-install` (credencial mestre), nunca aqui.
+    await require_login(schema_owner, login)
+    sql = (Path("/app") / ASSIGNMENT_SQL).read_text(encoding="utf-8")
+    async with schema_owner.transaction():
+        await schema_owner.execute(
+            "SELECT set_config('maezo.assignment_admin.schema', $1, true)", spec["schema"]
+        )
+        await schema_owner.execute("SELECT set_config('maezo.assignment_admin.login', $1, true)", login)
+        await schema_owner.execute(sql)
+    return f"instalacao {installed}; {login} presente; grants da administracao"
+
+
 async def install(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, Any]:
     scope = rows["scope"]
     key = (scope["tenant"], scope["environment"], scope["engine_name"], scope["database_incarnation"])
@@ -468,7 +522,7 @@ def main() -> int:
         )
         context: ssl.SSLContext = tls_context(None)
         app_credentials: tuple[str, str] = ("", "")
-        if rows.get("human_plane") is not None:
+        if rows.get("human_plane") is not None or rows.get("assignment") is not None:
             app_credentials = parse_admin(
                 client.get_secret_value(SecretId=env("STAFF_APP_DB_SECRET_ARN"))["SecretString"]
             )
@@ -517,7 +571,7 @@ def main() -> int:
                         actions["task_source"] = await task_source(owner, engine_owner, rows)
                     finally:
                         await engine_owner.close()
-                if rows.get("human_plane") is not None:
+                if rows.get("human_plane") is not None or rows.get("assignment") is not None:
                     app_user, app_password = app_credentials
                     app_owner = await asyncpg.connect(
                         host=host,
@@ -529,7 +583,10 @@ def main() -> int:
                         timeout=15,
                     )
                     try:
-                        actions["human_plane"] = await human_plane(app_owner, rows)
+                        if rows.get("human_plane") is not None:
+                            actions["human_plane"] = await human_plane(app_owner, rows)
+                        if rows.get("assignment") is not None:
+                            actions["assignment"] = await assignment_plane(owner, app_owner, rows)
                     finally:
                         await app_owner.close()
                 proof = await prove(owner, identity, rows)

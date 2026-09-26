@@ -348,6 +348,25 @@ class PortalReadProfileTest {
       assertEquals(409, assertThrows(Rejected.class, () -> current.addCeiling(changed)).status);
     }
   }
+  @Test
+  void continuityFromAnEarlierAdmissionLeaseKeepsTheEarlierDeadline() throws Exception {
+    // Onda 8 (C1 harness): discover and authority are separate requests, each with its own lease
+    // of the same admission; the earlier continuity must verify, never renewing its deadline.
+    var f = verification(); var original = f.command(); original.base();
+    var earlier = original.ceilings.stream().filter(x -> x.get("kind").equals("native_admission")).findFirst().orElseThrow();
+    var later = copy(earlier);
+    later.put("observed_at", time(time(earlier.get("observed_at")).plusSeconds(1)));
+    later.put("valid_until", time(time(earlier.get("valid_until")).plusSeconds(5)));
+    var current = next(original);
+    current.addCeiling(later);   // the current request's own lease
+    current.addCeiling(earlier); // the continuity minted under the earlier lease
+    assertEquals(List.of(earlier), current.ceilings.stream().filter(x -> x.get("kind").equals("native_admission")).toList());
+    current.addCeiling(later);   // a later deadline never replaces the retained earlier one
+    assertEquals(List.of(earlier), current.ceilings.stream().filter(x -> x.get("kind").equals("native_admission")).toList());
+    var other = copy(earlier); other.put("source_revision", "99"); // another admission revision stays distinct
+    current.addCeiling(other);
+    assertEquals(2, current.ceilings.stream().filter(x -> x.get("kind").equals("native_admission")).count());
+  }
   @Test void pendingNativeReadUsesExistingExactAuthFormWithoutReembolsoAlias() {
     var entry=Map.<String,Object>of("process_definition_key","SP-OP-AUTH-001","task_definition_key","UT_DecidirPendenciaExpirada",
         "form_key","auth_pendencia","form_source_status","BPMN_FORMDATA","allowed_inputs",List.of("decisao_pendencia"));

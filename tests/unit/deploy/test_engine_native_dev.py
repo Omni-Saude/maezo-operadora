@@ -178,8 +178,11 @@ def test_env_do_engine_nativo_usa_os_nomes_do_harness() -> None:
         "MAEZO_PORTAL_READ_TRUST_FILE",
         "MAEZO_PORTAL_READ_PROVIDER_FILE",
         "MAEZO_STAFF_COMPOSITION_FILE",
+        "MAEZO_HUMAN_ASSIGNMENT_TRUST_FILE",
     }
-    env = NATIVE.split("engine_native_environment = flatten(", 1)[1].split("]])", 1)[0]
+    # A lista base e o bloco condicional do trust de atribuicao (Onda 8) — para antes dos containers
+    # (`engine_native_containers`), cujo env e outro conjunto.
+    env = NATIVE.split("engine_native_environment = flatten(", 1)[1].split("engine_native_containers", 1)[0]
     assert set(re.findall(r'name = "([A-Z_]+)"', env)) == harness
 
 

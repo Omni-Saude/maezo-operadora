@@ -112,6 +112,15 @@ final class PortalReadCommand implements Command<PortalReadCommand.Result> {
         return;
       }
       if (ceilingId(old).equals(ceilingId(c))) {
+        // Each request holds a FRESH lease of the same admitted provider (InstalledReadProviders:
+        // observed_at = lease time, valid_until = lease + observation): same ref, revision and
+        // capability digest, moving clock. A continuity minted under an earlier lease is the
+        // same admission fact; retain the EARLIER deadline (never renew) with its observation.
+        if (c.get("kind").equals("native_admission")) {
+          if (time(c.get("valid_until")).isBefore(time(old.get("valid_until"))))
+            ceilings.set(i, copy(c));
+          return;
+        }
         if (!old.equals(c))
           throw unavailable();
         return;

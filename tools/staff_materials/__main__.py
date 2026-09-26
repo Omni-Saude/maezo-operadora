@@ -1,5 +1,5 @@
-"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql`, `native-secret`, `human-bundle` e
-`login-secrets`.
+"""CLI da ENGENHARIA: `generate`, `assemble`, `verify`, `lock-sql`, `native-secret`, `human-bundle`,
+`assignment-plane` e `login-secrets`.
 
 Nao ha comando de raiz aqui (ver `approver.py`).
 """
@@ -14,7 +14,7 @@ from pathlib import Path
 from maezo.gateway.external_cases.models import digest
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
-from . import human_bundle
+from . import assignment_trust, human_bundle
 from .assemble import assemble, bundle_bytes, load_input, read_directories
 from .generate import REPO, generate
 from .lock_sql import render as render_lock_sql
@@ -58,6 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     native.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     native.add_argument("--human-keys", type=Path, help="public/human-keys-summary.json do human-bundle keys")
     human_bundle.add_parser(commands)
+    assignment_trust.add_parser(commands)
     logins = commands.add_parser(
         "login-secrets", help="senhas dos 4 logins nativos da Onda 3 (um JSON por login)"
     )
@@ -106,6 +107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.command == "human-bundle":
             return human_bundle.run(args)
+        if args.command == "assignment-plane":
+            return assignment_trust.run(args)
         if args.command == "native-secret":
             human = strict_loads(args.human_keys.read_bytes()) if args.human_keys else None
             files, public = build_native_materials(

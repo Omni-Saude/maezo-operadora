@@ -8,7 +8,7 @@ from maezo.portal.engine.profile import strict_loads
 from .assignment_policy import AssignmentPublication, AssignmentPublicationReceipt, GenerationPayload
 from .assignment_transport import AssignmentPrivateTransport
 from .errors import GatewayRefusalError
-from .read_profile import digest, parse_model
+from .read_profile import digest, parse_model, wire
 
 
 class StaffAssignmentPublisher:
@@ -35,16 +35,24 @@ class StaffAssignmentPublisher:
                 if frozen.operation == "replace"
                 else None
             )
-            publication = AssignmentPublication(
-                schema="human-assignment-publication.v1",
-                tenant=frozen.tenant,
-                workload_ref=self._client.scope.workload_ref,
-                publication_id=frozen.publication_id,
-                expected_revision=frozen.expected_native_revision,
-                operation=frozen.operation,
-                source=attestation,
-                generation=generation,
-                expected_generation_digest=frozen.expected_generation_digest,
+            # Through the closed codec, not the constructor: nested closed models carry the
+            # `schema` alias, and re-validating an instance by field name (`schema_`) refuses it
+            # (measured in the C1 harness, Onda 8: 4 errors on source/generation.schema).
+            publication = parse_model(
+                AssignmentPublication,
+                wire(
+                    dict(
+                        schema="human-assignment-publication.v1",
+                        tenant=frozen.tenant,
+                        workload_ref=self._client.scope.workload_ref,
+                        publication_id=frozen.publication_id,
+                        expected_revision=frozen.expected_native_revision,
+                        operation=frozen.operation,
+                        source=attestation,
+                        generation=generation,
+                        expected_generation_digest=frozen.expected_generation_digest,
+                    )
+                ),
             )
             raw = await self._administration.persist_request(frozen, publication)
         return await self._dispatch(raw)

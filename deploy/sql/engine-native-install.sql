@@ -673,6 +673,10 @@ BEGIN
    privs := CASE
      WHEN r.relname='mzo_portal_read_designation' THEN 'SELECT, INSERT'
      WHEN r.relname='mzo_human_decision_binding' THEN 'SELECT'
+     -- Onda 8: a instalacao do plano de atribuicao e do DONO (AssignmentInstallation recusa o
+     -- engine que puder escrever nela); a publicacao e append-only (human-assignment-postgres.sql).
+     WHEN r.relname='mzo_human_assignment_installation' THEN 'SELECT'
+     WHEN r.relname='mzo_human_assignment_publication' THEN 'SELECT, INSERT'
      WHEN starts_with(r.relname, 'mzo_portal_read_')
        OR r.relname ~ '_(event|receipt|continuity|cursor|version|dependency|chunk|ledger)$'
        THEN 'SELECT, INSERT'
@@ -688,6 +692,10 @@ BEGIN
  -- C1 (F4b): idem para os outros dois upserts da publicacao (PortalReadPublication.java:191/257).
  GRANT UPDATE (revision_, payload_, publication_, source_)
    ON maezo_native.mzo_portal_read_membership TO cibseven_app;
+ -- Onda 8: AssignmentInstallation.acquire le a instalacao com FOR SHARE, que o PostgreSQL so deixa
+ -- com UPDATE em ao menos uma coluna; e recusa o engine com privilegio de TABELA de escrita. A
+ -- coluna e REVISION_, que o acquire nao le (a qualificacao sao as outras 11).
+ GRANT UPDATE (revision_) ON maezo_native.mzo_human_assignment_installation TO cibseven_app;
  GRANT UPDATE (payload_, publication_, source_)
    ON maezo_native.mzo_portal_read_resource TO cibseven_app;
 END $dml$;

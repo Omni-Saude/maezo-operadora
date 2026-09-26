@@ -49,9 +49,10 @@ locals {
   # (passo 9 do instalador), para que o `rows` nunca leia o segredo mestre.
   staff_install_extra_login_arns = var.staff_install == null || var.staff_ops == null ? {} : {
     for login, arn in {
-      portal_task_source_amh  = var.staff_ops.task_source_secret_arn
-      portal_human_outbox_amh = var.staff_ops.human_outbox_secret_arn
-      portal_human_source_amh = var.staff_ops.human_source_secret_arn
+      portal_task_source_amh      = var.staff_ops.task_source_secret_arn
+      portal_human_outbox_amh     = var.staff_ops.human_outbox_secret_arn
+      portal_human_source_amh     = var.staff_ops.human_source_secret_arn
+      portal_assignment_admin_amh = var.staff_ops.assignment_admin_secret_arn
     } : login => arn if arn != null
   }
 
