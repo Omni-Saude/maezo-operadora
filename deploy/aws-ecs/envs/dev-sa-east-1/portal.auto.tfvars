@@ -101,7 +101,9 @@ portal = {
   // `maezo-operadora-dev-imagem` e assinada/atestada/verificada pelo `supply-chain.yml`
   // (workflow_dispatch com o digest). Traz os 3 criticos da bateria (#460), a conclusao pelo
   // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
-  image_digest = "sha256:871ecc0b1dc460fae93d1b70d83cbd868c5abb44972b3d80480e2985973e5864"
+  // 26/09/2026: o 871ecc0b saiu do ECR (o job `verificar` da main reprovava); repinado no mesmo
+  // digest do perfil staff abaixo (so' e' usado se `staff` voltar a null).
+  image_digest = "sha256:4dddb437ffc2ee5064d7acf3487d879f9e7740967d87e9d1da60df34b23f30fa"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
@@ -195,7 +197,10 @@ portal = {
     // 4bd50928: fixes do plano de atribuicao). CodeBuild 4bd50928-portal-human.
     // 26/09, rotacao r1->r2 da designacao (PR #548): app 4e0936ec (7eae230a), CodeBuild
     // 7eae230a-portal-human, assinada pelo supply-chain; pacote staff da r2.
-    portal_image_digest = "sha256:33defe94e06d95964d77d270d8b60392b9fe718d7dbd4f02d8a18374478eefdd"
+    // 26/09, main 7b018975 (#550, logout devolve idp_logout_url): app 4361cce3 (CodeBuild tag
+    // 7b018975-p2, deploy/Dockerfile) + deploy/portal.Dockerfile (7b018975-p2-portal-human),
+    // assinada pelo supply-chain.yml run 36252676849.
+    portal_image_digest = "sha256:4dddb437ffc2ee5064d7acf3487d879f9e7740967d87e9d1da60df34b23f30fa"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
     public_manifest_sha256 = "fcc2e9fa4b831edf759119a80c49a4b257d6c21a2b499ba38df3a3bf7e80b1be"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
