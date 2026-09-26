@@ -40,6 +40,8 @@ JOB_FILES = frozenset(
         "identity-dsn.txt",
     }
 )
+#: Onda 8 (H2): a fonte nativa de tarefas e o catalogo/admissao que ela publica. Tudo ou nada.
+TASK_FILES = frozenset({"native-dsn.txt", "task-catalog.json", "task-admission.json"})
 LEDGER_PATH = Path("/run/staff-job-ledger/ledger.json")
 CONFIG_PATH = "/run/maezo-job/config.json"
 
@@ -62,7 +64,7 @@ def decode(raw: str) -> tuple[dict[str, bytes], dict[str, bytes]]:
         if target is None:
             raise OpsError("prefixo invalido no segredo do job")
         target[leaf] = b64(value, "arquivo do job")
-    if frozenset(human) != human_files() or frozenset(job) != JOB_FILES:
+    if frozenset(human) != human_files() or frozenset(job) not in (JOB_FILES, JOB_FILES | TASK_FILES):
         raise OpsError("segredo do job fora da allowlist fechada")
     return human, job
 
@@ -168,3 +170,43 @@ def run_main() -> int:
         detail = type(failure).__name__
     print(f"T15_RESULT ok={'true' if ok else 'false'} {detail}")
     return 0 if ok else 2
+
+
+def decode_human(raw: str) -> dict[str, bytes]:
+    """Segredo do plano humano do BFF (H5): SO `human/<nome>`, os 15 arquivos exatos."""
+    document = parse_json_object(raw, "segredo humano")
+    human: dict[str, bytes] = {}
+    for name, value in document.items():
+        prefix, _, leaf = name.partition("/")
+        if prefix != "human" or "/" in leaf or leaf in ("", ".", ".."):
+            raise OpsError("nome invalido no segredo humano")
+        human[leaf] = b64(value, "arquivo humano")
+    if frozenset(human) != human_files():
+        raise OpsError("segredo humano fora da allowlist fechada")
+    return human
+
+
+def materialize_human(human: dict[str, bytes], root: Path = INIT_ROOT, owner: int | None = OWNER) -> None:
+    human_root = root / "human"
+    _empty_directory(human_root)
+    current = human_root / "current"
+    current.mkdir(mode=0o700)
+    for name, data in sorted(human.items()):
+        write_private(current / name, data, owner=owner)
+    os.chmod(current, 0o500)
+    if owner is not None:
+        os.chown(current, owner, owner)
+    os.chmod(human_root, 0o555)
+    if owner is not None:
+        os.chown(human_root, owner, owner)
+
+
+def human_init_main() -> int:
+    try:
+        human = decode_human(env("STAFF_HUMAN_MATERIALS"))
+        materialize_human(human)
+    except Exception as failure:
+        print(f"human-init recusado: {type(failure).__name__}", file=sys.stderr)
+        return 1
+    print(f"human-init ok human={len(human)}")
+    return 0

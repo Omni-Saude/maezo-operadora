@@ -18,6 +18,17 @@ locals {
     { name = "MAEZO_PORTAL_STAFF_WITNESS_KEY_SHA256", value = staff.witness_key_sha256 },
     { name = "MAEZO_PORTAL_STAFF_MAXIMUM_SECONDS", value = tostring(staff.maximum_seconds) }
   ] }
+  # Onda 8 / H5: o plano humano. Pins publicos do pacote `portal-human-material.v1`; o VersionId do
+  # segredo E o `material_version_id` do pacote (mesma regra do staff).
+  portal_human_config = { for key, config in local.portal_config : key => config.human if try(config.human, null) != null }
+  portal_human_environment = { for key, human in local.portal_human_config : key => [
+    { name = "MAEZO_PORTAL_HUMAN_MATERIAL_DIRECTORY", value = "/run/maezo-human-materials/current" },
+    { name = "MAEZO_PORTAL_HUMAN_MATERIAL_VERSION_ID", value = human.material_secret_version_id },
+    { name = "MAEZO_PORTAL_HUMAN_PUBLIC_MANIFEST_SHA256", value = human.public_manifest_sha256 },
+  ] }
+  portal_capabilities = { for key, config in local.portal_config : key => (
+    config.staff == null ? "identity" : try(config.human, null) == null ? "identity,staff_cases" : "identity,staff_cases,human"
+  ) }
   portal_name = "${local.name}-portal-${substr(sha256(var.tenant_id), 0, 8)}"
   portal_tags = merge(local.base_tags, { Component = "portal", Zone = "PHI", DataClass = "identity" })
 }
@@ -43,6 +54,14 @@ data "aws_kms_key" "portal_session" {
 data "aws_secretsmanager_secret" "portal_staff" {
   for_each = local.portal_staff_config
   arn      = each.value.material_secret_arn
+}
+data "aws_secretsmanager_secret" "portal_human" {
+  for_each = local.portal_human_config
+  arn      = each.value.material_secret_arn
+}
+data "aws_kms_key" "portal_human" {
+  for_each = { for key, secret in data.aws_secretsmanager_secret.portal_human : key => secret.kms_key_id if try(length(secret.kms_key_id), 0) > 0 }
+  key_id   = each.value
 }
 data "aws_kms_key" "portal_staff" {
   for_each = { for key, secret in data.aws_secretsmanager_secret.portal_staff : key => secret.kms_key_id if try(length(secret.kms_key_id), 0) > 0 }
@@ -114,6 +133,30 @@ data "aws_iam_policy_document" "portal_execution" {
     }
   }
   dynamic "statement" {
+    for_each = try(each.value.human, null) == null ? [] : [each.value.human]
+    content {
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [statement.value.material_secret_arn]
+    }
+  }
+  dynamic "statement" {
+    for_each = try(each.value.human, null) == null ? [] : [each.value.human]
+    content {
+      actions   = ["kms:Decrypt"]
+      resources = [statement.value.material_kms_key_arn]
+      condition {
+        test     = "StringEquals"
+        variable = "kms:ViaService"
+        values   = ["secretsmanager.sa-east-1.amazonaws.com"]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "kms:EncryptionContext:SecretARN"
+        values   = [statement.value.material_secret_arn]
+      }
+    }
+  }
+  dynamic "statement" {
     for_each = contains(keys(data.aws_kms_key.portal_session), each.key) ? [data.aws_kms_key.portal_session[each.key].arn] : []
     content {
       actions   = ["kms:Decrypt"]
@@ -161,7 +204,18 @@ resource "aws_ecs_task_definition" "portal" {
     for_each = each.value.staff == null ? [] : ["staff-materials", "staff-scratch"]
     content { name = volume.value }
   }
+  dynamic "volume" {
+    for_each = try(each.value.human, null) == null ? [] : ["human-materials"]
+    content { name = volume.value }
+  }
   lifecycle {
+    precondition {
+      condition = try(each.value.human, null) == null ? true : try(
+        data.aws_kms_key.portal_human[each.key].arn == each.value.human.material_kms_key_arn,
+        false
+      )
+      error_message = "Human bundle must use its explicitly qualified regional account CMK; missing/mismatched metadata refuses."
+    }
     precondition {
       condition = each.value.staff == null ? true : try(
         data.aws_kms_key.portal_staff[each.key].arn == each.value.staff.material_kms_key_arn,
@@ -188,11 +242,16 @@ resource "aws_ecs_task_definition" "portal" {
     readonlyRootFilesystem = true
     linuxParameters        = { capabilities = { drop = ["ALL"] } }
     portMappings           = [{ containerPort = 8080, protocol = "tcp" }]
-    dependsOn              = each.value.staff == null ? [] : [{ containerName = "portal-staff-materialize", condition = "SUCCESS" }]
-    mountPoints = each.value.staff == null ? [] : [
+    dependsOn = concat(
+      each.value.staff == null ? [] : [{ containerName = "portal-staff-materialize", condition = "SUCCESS" }],
+      try(each.value.human, null) == null ? [] : [{ containerName = "portal-human-materialize", condition = "SUCCESS" }],
+    )
+    mountPoints = concat(each.value.staff == null ? [] : [
       { sourceVolume = "staff-materials", containerPath = "/run/maezo-staff-materials", readOnly = true },
       { sourceVolume = "staff-scratch", containerPath = "/run/maezo-staff-scratch", readOnly = false }
-    ]
+      ], try(each.value.human, null) == null ? [] : [
+      { sourceVolume = "human-materials", containerPath = "/run/maezo-human-materials", readOnly = true }
+    ])
     environment = concat([
       { name = "MAEZO_PORTAL_TENANT", value = each.value.tenant },
       { name = "MAEZO_PORTAL_ISSUER", value = each.value.issuer },
@@ -202,9 +261,9 @@ resource "aws_ecs_task_definition" "portal" {
       { name = "MAEZO_PORTAL_MACHINE_CLIENT_ID", value = each.value.machine_client_id },
       { name = "MAEZO_PORTAL_PUBLIC_ORIGIN", value = each.value.public_origin },
       { name = "MAEZO_PORTAL_MODE", value = "production" },
-      { name = "MAEZO_PORTAL_CAPABILITIES", value = each.value.staff == null ? "identity" : "identity,staff_cases" },
+      { name = "MAEZO_PORTAL_CAPABILITIES", value = local.portal_capabilities[each.key] },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
-      ], lookup(local.portal_staff_environment, each.key, []), each.value.staff == null ? [] : [
+      ], lookup(local.portal_staff_environment, each.key, []), lookup(local.portal_human_environment, each.key, []), each.value.staff == null ? [] : [
       { name = "TMPDIR", value = "/run/maezo-staff-scratch" }
     ])
     secrets = [{ name = "MAEZO_PORTAL_DATABASE_URL", valueFrom = each.value.database_secret_arn }]
@@ -249,11 +308,37 @@ resource "aws_ecs_task_definition" "portal" {
     environment = concat([
       { name = "MAEZO_PORTAL_TENANT", value = each.value.tenant },
       { name = "MAEZO_PORTAL_ISSUER", value = each.value.issuer },
-      { name = "MAEZO_PORTAL_CAPABILITIES", value = "identity,staff_cases" },
+      { name = "MAEZO_PORTAL_CAPABILITIES", value = local.portal_capabilities[each.key] },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" }
-    ], local.portal_staff_environment[each.key])
+    ], local.portal_staff_environment[each.key], lookup(local.portal_human_environment, each.key, []))
     # Full SecretString, exact immutable version; neither JSON key nor mutable stage.
     secrets = [{ name = "MAEZO_PORTAL_STAFF_SECRET_BUNDLE", valueFrom = "${staff.material_secret_arn}:::${staff.material_secret_version_id}" }]
+    }], [for human in(try(each.value.human, null) == null ? [] : [each.value.human]) : {
+    # H5: materializa o `portal-human-material.v1` (15 arquivos, 0400/0500 uid 1000) no volume que o
+    # BFF monta READ-ONLY em /run/maezo-human-materials (o leitor exige FS read-only e dono 1000).
+    # Imagem de operacao (tools.staff_ops human-init), root SO com CHOWN; chmod antes do chown.
+    name                   = "portal-human-materialize"
+    image                  = "${aws_ecr_repository.app.repository_url}@${human.init_image_digest}"
+    essential              = false
+    entryPoint             = ["python", "-m"]
+    command                = ["tools.staff_ops", "human-init"]
+    user                   = "0:0"
+    readonlyRootFilesystem = true
+    linuxParameters = { capabilities = { drop = [
+      "AUDIT_WRITE", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD", "NET_BIND_SERVICE",
+      "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"
+    ] } }
+    mountPoints = [{ sourceVolume = "human-materials", containerPath = "/run/staff-job-init/human", readOnly = false }]
+    environment = [{ name = "PYTHONDONTWRITEBYTECODE", value = "1" }]
+    secrets     = [{ name = "STAFF_HUMAN_MATERIALS", valueFrom = "${human.material_secret_arn}:::${human.material_secret_version_id}" }]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        "awslogs-group"         = aws_cloudwatch_log_group.portal[each.key].name
+        "awslogs-region"        = var.aws_region
+        "awslogs-stream-prefix" = "portal-human-materialize"
+      }
+    }
   }]))
   tags = local.portal_tags
 }

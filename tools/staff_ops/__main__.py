@@ -1,4 +1,4 @@
-"""`python -m tools.staff_ops rows|job-init|job-run|syn` (ver `__init__`)."""
+"""`python -m tools.staff_ops rows|job-init|human-init|job-run|syn|task-facts|task-read` (ver `__init__`)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,21 @@ def main(argv: list[str] | None = None) -> int:
         from .rows import main as run
     elif command == "job-init":
         from .job import init_main as run
+    elif command == "human-init":
+        from .job import human_init_main as run
     elif command == "job-run":
         from .job import run_main as run
+    elif command == "task-facts":
+        from .facts import main as run
+    elif command == "task-read":
+        from .task_read import main as run
     elif command == "syn":
         from .syn import main as run
     else:
-        print("uso: python -m tools.staff_ops rows|job-init|job-run|syn", file=sys.stderr)
+        print(
+            "uso: python -m tools.staff_ops rows|job-init|human-init|job-run|syn|task-facts|task-read",
+            file=sys.stderr,
+        )
         return 64
     return run()
 

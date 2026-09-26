@@ -342,7 +342,46 @@ def test_bootstrap_inserts_tenant_and_auth_only_when_absent() -> None:
         "human_tenant": "inserida",
         "auth_installation": "inserida",
     }
-    same = _BootOwner({"scope_": json.dumps(parsed["auth"]["auth_scope"])})
+    same = _BootOwner(
+        {
+            "scope_": json.dumps(parsed["auth"]["auth_scope"]),
+            "qualification_": json.dumps({"native_code_digest": "a" * 64}),
+        }
+    )
     assert asyncio.run(rows.bootstrap(same, parsed))["auth_installation"] == "igual"
     with pytest.raises(OpsError):
-        asyncio.run(rows.bootstrap(_BootOwner({"scope_": '{"tenant":"outro"}'}), parsed))
+        asyncio.run(
+            rows.bootstrap(_BootOwner({"scope_": '{"tenant":"outro"}', "qualification_": "{}"}), parsed)
+        )
+    moved = _BootOwner(
+        {
+            "scope_": json.dumps(parsed["auth"]["auth_scope"]),
+            "qualification_": json.dumps({"native_code_digest": "b" * 64}),
+        }
+    )
+    assert asyncio.run(rows.bootstrap(moved, parsed))["auth_installation"].startswith("requalificada")
+
+
+class _Roles:
+    """Conexao de dono que so responde a existencia de papeis."""
+
+    def __init__(self, present: set[str]) -> None:
+        self.present = present
+
+    async def fetchval(self, query: str, *args: Any) -> Any:
+        assert "pg_roles" in query
+        return 1 if args[0] in self.present else None
+
+
+def test_rows_requires_onda8_logins_created_by_staff_install() -> None:
+    asyncio.run(rows.require_login(_Roles({"portal_human_outbox_amh"}), "portal_human_outbox_amh"))
+    with pytest.raises(OpsError, match="staff-install"):
+        asyncio.run(rows.require_login(_Roles(set()), "portal_human_source_amh"))
+
+
+def test_rows_never_creates_roles_nor_reads_master_secret() -> None:
+    import inspect
+
+    source = inspect.getsource(rows)
+    assert "CREATE ROLE" not in source and "STAFF_ADMIN_SECRET_ARN" not in source
+    assert "ALTER ROLE CURRENT_USER" in source

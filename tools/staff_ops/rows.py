@@ -8,8 +8,9 @@ Entradas (nenhuma por env/override alem de ARNs e do endereco do banco):
 * `STAFF_OWNER_SECRET_ARN` -> credencial de `maezo_native_schema_owner`;
 * `STAFF_IDENTITY_SECRET_ARN` -> credencial do PROPRIO `identity_login`, SO para
   `ALTER ROLE CURRENT_USER SET search_path` (o job T1.5 le `portal_memberships` sem qualificar o
-  schema). O PG deixa um papel comum ajustar o proprio search_path: a credencial mestre do Aurora
-  nao entra nesta task.
+  schema). A credencial mestre do Aurora NAO entra nesta task: os logins das Ondas 8
+  (`task_source`, `human_plane`) sao criados pela task `staff-install`; aqui so se confere que
+  existem e se aplicam os grants pelos donos dos schemas.
 
 Bootstrap que o engine nativo exige ANTES do 1o boot (`HumanCommandPlugin.staffCurrent`, medido no
 apply de 25/09) e que o DDL deixa explicito por comentario: `MZO_HUMAN_TENANT(<tenant>,0)` e a linha
@@ -56,6 +57,9 @@ _KEYS = {
     "identity_search_path",
     "auth",
 }
+#: Opcional (D14, Onda 8): o login da fonte de tarefas do job T1.5 e os grants de
+#: `deploy/sql/portal-task-source-grants.sql`, cada parte pelo dono do schema dela.
+_OPTIONAL = {"task_source", "human_plane"}
 _AUTH_SCOPE = {
     "tenant",
     "environment",
@@ -68,7 +72,7 @@ _NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
 def parse(document: dict[str, Any]) -> dict[str, Any]:
-    if set(document) != _KEYS or document["schema"] != SCHEMA:
+    if not _KEYS <= set(document) <= _KEYS | _OPTIONAL or document["schema"] != SCHEMA:
         raise OpsError(f"segredo de linhas: esperado {SCHEMA} com {sorted(_KEYS)}")
     scope = document["scope"]
     if not isinstance(scope, dict) or set(scope) != {
@@ -105,6 +109,29 @@ def parse(document: dict[str, Any]) -> dict[str, Any]:
         or not 1 <= auth["valid_days"] <= 14
     ):
         raise OpsError("auth.valid_days: 1 a 14")
+    task_source = document.get("task_source")
+    if task_source is not None and (
+        not isinstance(task_source, dict)
+        or set(task_source) != {"login", "password_secret_arn", "engine_schema"}
+        or not _NAME.fullmatch(str(task_source["login"]))
+        or not _NAME.fullmatch(str(task_source["engine_schema"]))
+        or not str(task_source["password_secret_arn"]).startswith("arn:aws:secretsmanager:")
+    ):
+        raise OpsError("task_source invalido")
+    plane = document.get("human_plane")
+    if plane is not None and (
+        not isinstance(plane, dict)
+        or set(plane) != {"schema", "outbox", "source"}
+        or not _NAME.fullmatch(str(plane["schema"]))
+        or any(
+            not isinstance(plane[k], dict)
+            or set(plane[k]) != {"login", "password_secret_arn"}
+            or not _NAME.fullmatch(str(plane[k]["login"]))
+            for k in ("outbox", "source")
+        )
+        or plane["outbox"]["login"] == plane["source"]["login"]
+    ):
+        raise OpsError("human_plane invalido")
     rows = dict(document)
     rows["designation"] = b64(document["designation_b64"], "designation")
     rows["proof"] = b64(document["installation_proof_b64"], "installation_proof")
@@ -179,12 +206,25 @@ async def bootstrap(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
         )
         actions["human_tenant"] = "inserida" if inserted.endswith(" 1") else "igual"
         row = await owner.fetchrow(
-            "SELECT scope_ FROM mzo_auth_installation WHERE tenant_=$1 FOR UPDATE", tenant
+            "SELECT scope_, qualification_ FROM mzo_auth_installation WHERE tenant_=$1 FOR UPDATE", tenant
         )
         if row is not None:
             if json.loads(row["scope_"]) != scope:
                 raise OpsError("mzo_auth_installation com outro escopo: recusado")
-            actions["auth_installation"] = "igual"
+            # Imagem nova do engine = codigo novo: a qualificacao AUTH pina o SHA-256 do JAR nativo
+            # carregado (`AuthRuntime.java:49`). O dono re-qualifica SO esse campo (a definicao e
+            # a validade ficam; quem as renova e a fixture/instalacao AUTH).
+            qualification = json.loads(row["qualification_"])
+            if qualification.get("native_code_digest") != auth["native_code_digest"]:
+                qualification["native_code_digest"] = auth["native_code_digest"]
+                await owner.execute(
+                    "UPDATE mzo_auth_installation SET qualification_=$2 WHERE tenant_=$1",
+                    tenant,
+                    _canonical(qualification),
+                )
+                actions["auth_installation"] = "requalificada (codigo nativo)"
+            else:
+                actions["auth_installation"] = "igual"
             return actions
         ids = await owner.fetchrow(
             "SELECT d.oid::bigint AS db, n.oid::bigint AS ns, current_database() AS name FROM pg_database d, "
@@ -231,6 +271,60 @@ async def bootstrap(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
         )
         actions["auth_installation"] = "inserida"
     return actions
+
+
+GRANTS_SQL = "deploy/sql/portal-task-source-grants.sql"
+
+
+async def require_login(connection: Any, login: str) -> None:
+    """Fail-closed: o login e criado pela task `staff-install` (credencial mestre), nunca aqui."""
+    if not await connection.fetchval("SELECT 1 FROM pg_roles WHERE rolname=$1", login):
+        raise OpsError(f"login {login} ausente: rode a task staff-install antes do rows")
+
+
+async def task_source(owner: Any, engine_owner: Any, rows: dict[str, Any]) -> str:
+    """D14: o login ja existe (staff-install); aplica as DUAS partes do SQL do repo."""
+    from pathlib import Path
+
+    spec = rows["task_source"]
+    login, engine_schema = spec["login"], spec["engine_schema"]
+    await require_login(owner, login)
+    sql = (Path("/app") / GRANTS_SQL).read_text(encoding="utf-8")
+    for part, connection in (("native", owner), ("engine", engine_owner)):
+        async with connection.transaction():
+            await connection.execute("SELECT set_config('maezo.task_source.login', $1, true)", login)
+            await connection.execute("SELECT set_config('maezo.task_source.part', $1, true)", part)
+            await connection.execute(
+                "SELECT set_config('maezo.task_source.engine_schema', $1, true)", engine_schema
+            )
+            await connection.execute(sql)
+    return f"{login} presente; grants native+engine"
+
+
+PLANE_SQL = "deploy/sql/portal-human-plane-grants.sql"
+
+
+async def human_plane(schema_owner: Any, rows: dict[str, Any]) -> str:
+    """H5: os logins outbox/source (e o search_path do tenant deles) vem da task `staff-install`;
+    aqui so os grants do SQL do repo, pelo dono do schema do tenant."""
+    from pathlib import Path
+
+    plane = rows["human_plane"]
+    done = []
+    for key in ("outbox", "source"):
+        await require_login(schema_owner, plane[key]["login"])
+        done.append(f"{plane[key]['login']} presente")
+    sql = (Path("/app") / PLANE_SQL).read_text(encoding="utf-8")
+    async with schema_owner.transaction():
+        await schema_owner.execute("SELECT set_config('maezo.human_plane.schema', $1, true)", plane["schema"])
+        await schema_owner.execute(
+            "SELECT set_config('maezo.human_plane.outbox_login', $1, true)", plane["outbox"]["login"]
+        )
+        await schema_owner.execute(
+            "SELECT set_config('maezo.human_plane.source_login', $1, true)", plane["source"]["login"]
+        )
+        await schema_owner.execute(sql)
+    return "; ".join(done) + "; grants do plano humano"
 
 
 async def install(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, Any]:
@@ -356,7 +450,7 @@ async def prove(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, bo
 
 
 def main() -> int:
-    from tools.staff_install.installer import parse_credential, tls_context
+    from tools.staff_install.installer import parse_admin, parse_credential, tls_context
 
     try:
         import asyncpg  # type: ignore[import-untyped]
@@ -373,6 +467,18 @@ def main() -> int:
             rows["identity_login"],
         )
         context: ssl.SSLContext = tls_context(None)
+        app_credentials: tuple[str, str] = ("", "")
+        if rows.get("human_plane") is not None:
+            app_credentials = parse_admin(
+                client.get_secret_value(SecretId=env("STAFF_APP_DB_SECRET_ARN"))["SecretString"]
+            )
+        engine_credentials: tuple[str, str] = ("", "")
+        if rows.get("task_source") is not None:
+            engine_credentials = parse_admin(
+                client.get_secret_value(SecretId=env("STAFF_ENGINE_DB_SECRET_ARN"))["SecretString"]
+            )
+            if engine_credentials[0] != "cibseven_app":
+                raise OpsError("segredo do engine nao e do cibseven_app")
 
         async def run() -> dict[str, Any]:
             owner = await asyncpg.connect(
@@ -396,6 +502,36 @@ def main() -> int:
             try:
                 actions = await bootstrap(owner, rows)
                 actions.update(await install(owner, identity, rows))
+                if rows.get("task_source") is not None:
+                    engine_user, engine_password = engine_credentials
+                    engine_owner = await asyncpg.connect(
+                        host=host,
+                        port=port,
+                        user=engine_user,
+                        password=engine_password,
+                        database=database,
+                        ssl=context,
+                        timeout=15,
+                    )
+                    try:
+                        actions["task_source"] = await task_source(owner, engine_owner, rows)
+                    finally:
+                        await engine_owner.close()
+                if rows.get("human_plane") is not None:
+                    app_user, app_password = app_credentials
+                    app_owner = await asyncpg.connect(
+                        host=host,
+                        port=port,
+                        user=app_user,
+                        password=app_password,
+                        database=database,
+                        ssl=context,
+                        timeout=15,
+                    )
+                    try:
+                        actions["human_plane"] = await human_plane(app_owner, rows)
+                    finally:
+                        await app_owner.close()
                 proof = await prove(owner, identity, rows)
                 tls = await owner.fetchval("SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
             finally:
