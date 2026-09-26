@@ -51,6 +51,7 @@ def test_engineering_cli_exposes_no_root_command() -> None:
     assert choices == {
         "generate",
         "assemble",
+        "assignment-plane",
         "verify",
         "lock-sql",
         "native-secret",
