@@ -50,9 +50,9 @@ def test_engineering_cli_exposes_no_root_command() -> None:
     # `assemble` e `assignment-plane trust` recebem a raiz PUBLICA do aprovador; nenhum comando gera
     # ou assina com ela (o documento de dono e `approver sign-assignment-owner`).
     assert choices == {
-        "assignment-plane",
         "generate",
         "assemble",
+        "assignment-plane",
         "verify",
         "lock-sql",
         "native-secret",
