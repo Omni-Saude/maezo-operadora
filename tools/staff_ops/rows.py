@@ -22,6 +22,12 @@ Antes de escrever, confere por conta propria: SHA-256 da designacao, que a prova
 com a raiz instalada (verificador do portal), e a assinatura da admissao no dominio
 `maezo/portal-read-admission/v1\\0`. Idempotente: linha igual = nada muda; linha diferente na mesma
 chave = recusa (nunca DELETE/UPDATE). Depois reler e comparar byte a byte (prova).
+
+Rotacao da designacao (Onda 8): um segredo com a revisao N+1 (rascunho de
+`python -m tools.staff_materials next-designation`, assinado com `sign-designation`) insere o evento
+novo e anda o ponteiro `mzo_staff_case_designation_current` na MESMA transacao, sob a trava do
+trigger; o evento N fica no historico. Revisao menor, igual com outro digest, ou que nao declara a
+corrente como `expected_previous_revision` = recusa; reaplicar a N+1 = `igual`.
 """
 
 from __future__ import annotations
@@ -168,8 +174,8 @@ def parse(document: dict[str, Any]) -> dict[str, Any]:
     return rows
 
 
-def verify(rows: dict[str, Any]) -> None:
-    """Confere o que vai ser instalado com os MESMOS verificadores do runtime."""
+def verify_designation(rows: dict[str, Any]) -> Any:
+    """Designacao + prova de instalacao contra a raiz, com os verificadores do runtime; devolve a raiz."""
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
@@ -179,13 +185,16 @@ def verify(rows: dict[str, Any]) -> None:
 
     if hashlib.sha256(rows["designation"]).hexdigest() != rows["designation_sha256"]:
         raise OpsError("designacao nao e a do digest aprovado")
-    if hashlib.sha256(rows["record"]).hexdigest() != rows["admission_sha256"]:
-        raise OpsError("admissao nao e a do digest aprovado")
     root = serialization.load_der_public_key(rows["root"])
     if not isinstance(root, Ed25519PublicKey):
         raise OpsError("raiz nao e Ed25519")
     try:
         designation = parse(Designation, rows["designation"])
+    except Exception:
+        raise OpsError("designacao nao passa no modelo do runtime") from None
+    if str(designation.designation_revision) != str(rows["designation_revision"]):
+        raise OpsError("designation_revision diverge da designacao assinada")
+    try:
         InstalledStaffAuthority.verify(
             designation_bytes=rows["designation"],
             installation_proof=parse(Proof, rows["proof"]),
@@ -197,6 +206,14 @@ def verify(rows: dict[str, Any]) -> None:
         )
     except Exception:
         raise OpsError("prova de instalacao nao verifica contra a raiz") from None
+    return root
+
+
+def verify(rows: dict[str, Any]) -> None:
+    """Confere o que vai ser instalado com os MESMOS verificadores do runtime."""
+    if hashlib.sha256(rows["record"]).hexdigest() != rows["admission_sha256"]:
+        raise OpsError("admissao nao e a do digest aprovado")
+    root = verify_designation(rows)
     if len(rows["signature"]) != 64:
         raise OpsError("assinatura da admissao precisa de 64 bytes")
     try:
@@ -381,61 +398,111 @@ async def assignment_plane(owner: Any, schema_owner: Any, rows: dict[str, Any]) 
     return f"instalacao {installed}; {login} presente; grants da administracao"
 
 
-async def install(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, Any]:
+def previous_revision(designation: bytes) -> int:
+    """`expected_previous_revision` da designacao (texto decimal no wire)."""
+    try:
+        value = json.loads(designation)["expected_previous_revision"]
+        return int(value) if isinstance(value, str) and value.isdigit() else -1
+    except (ValueError, KeyError, TypeError):
+        return -1
+
+
+async def install_designation(owner: Any, rows: dict[str, Any]) -> dict[str, str]:
+    """Designacao: 1a instalacao, igual (nada muda) ou ROTACAO N->N+1, na transacao aberta pelo chamador.
+
+    A rotacao insere o evento da revisao nova (historico imutavel: nunca DELETE nem UPDATE no evento)
+    e anda o ponteiro `current` com UPDATE condicionado a revisao lida sob a trava. Revisao menor,
+    mesma revisao com outro digest, ou `expected_previous_revision` que nao e a corrente = recusa.
+    """
     scope = rows["scope"]
     key = (scope["tenant"], scope["environment"], scope["engine_name"], scope["database_incarnation"])
     revision, digest = rows["designation_revision"], rows["designation_sha256"]
     actions: dict[str, str] = {}
+    # A MESMA trava exclusiva que o trigger toma na escrita, tomada ANTES de ler: a leitura da
+    # corrente e a troca do ponteiro nao intercalam com outro instalador nem com o leitor.
+    await owner.fetchval(
+        "SELECT pg_advisory_xact_lock(hashtextextended(CONCAT_WS(chr(31),"
+        "'mzo_staff_case_designation',$1::text,$2::text,$3::text,$4::text),0))::text",
+        *key,
+    )
+    current = await owner.fetchrow(
+        "SELECT designation_revision, designation_digest FROM mzo_staff_case_designation_current "
+        "WHERE tenant=$1 AND environment=$2 AND engine_name=$3 AND database_incarnation=$4 FOR UPDATE",
+        *key,
+    )
+    rotating = current is not None and current["designation_revision"] != revision
+    if current is not None and revision < current["designation_revision"]:
+        raise OpsError(f"revisao {revision} menor que a corrente {current['designation_revision']}: recusado")
+    if (
+        current is not None
+        and revision == current["designation_revision"]
+        and (current["designation_digest"] != digest)
+    ):
+        raise OpsError("designacao corrente e outra nesta revisao: recusado")
+    if rotating and previous_revision(rows["designation"]) != current["designation_revision"]:
+        raise OpsError(
+            "expected_previous_revision da designacao nova nao e a corrente: recusado (rotacao e N->N+1)"
+        )
+    event = await owner.fetchrow(
+        "SELECT designation_digest, canonical_designation, installation_proof FROM "
+        "mzo_staff_case_designation_event WHERE tenant=$1 AND environment=$2 AND engine_name=$3 "
+        "AND database_incarnation=$4 AND designation_revision=$5",
+        *key,
+        revision,
+    )
+    designation_text, proof_text = rows["designation"].decode("utf-8"), rows["proof"].decode("utf-8")
+    if event is None:
+        await owner.execute(
+            "INSERT INTO mzo_staff_case_designation_event(tenant,environment,engine_name,"
+            "database_incarnation,designation_revision,designation_digest,canonical_designation,"
+            "installation_proof) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+            *key,
+            revision,
+            digest,
+            designation_text,
+            proof_text,
+        )
+        actions["designation_event"] = "inserida"
+    elif (event["designation_digest"], event["canonical_designation"], event["installation_proof"]) != (
+        digest,
+        designation_text,
+        proof_text,
+    ):
+        raise OpsError("ja existe OUTRA designacao nesta revisao: recusado (sem DELETE)")
+    else:
+        actions["designation_event"] = "igual"
+    if current is None:
+        await owner.execute(
+            "INSERT INTO mzo_staff_case_designation_current(tenant,environment,engine_name,"
+            "database_incarnation,designation_revision,designation_digest) VALUES($1,$2,$3,$4,$5,$6)",
+            *key,
+            revision,
+            digest,
+        )
+        actions["designation_current"] = "inserida"
+    elif rotating:
+        # Rotacao: a revisao anterior fica no historico (event e imutavel); so o ponteiro anda.
+        await owner.execute(
+            "UPDATE mzo_staff_case_designation_current SET designation_revision=$5, designation_digest=$6 "
+            "WHERE tenant=$1 AND environment=$2 AND engine_name=$3 AND database_incarnation=$4 "
+            "AND designation_revision=$7",
+            *key,
+            revision,
+            digest,
+            current["designation_revision"],
+        )
+        actions["designation_current"] = f"rotacionada r{current['designation_revision']}->r{revision}"
+    else:
+        actions["designation_current"] = "igual"
+    return actions
+
+
+async def install(owner: Any, identity: Any, rows: dict[str, Any]) -> dict[str, Any]:
     if await owner.fetchval("SELECT current_user") != OWNER:
         raise OpsError("sessao nao e do dono do schema nativo")
     async with owner.transaction():
         await owner.execute(f"SET LOCAL search_path = {NATIVE_SCHEMA}")
-        event = await owner.fetchrow(
-            "SELECT designation_digest, canonical_designation, installation_proof FROM "
-            "mzo_staff_case_designation_event WHERE tenant=$1 AND environment=$2 AND engine_name=$3 "
-            "AND database_incarnation=$4 AND designation_revision=$5",
-            *key,
-            revision,
-        )
-        designation_text, proof_text = rows["designation"].decode("utf-8"), rows["proof"].decode("utf-8")
-        if event is None:
-            await owner.execute(
-                "INSERT INTO mzo_staff_case_designation_event(tenant,environment,engine_name,"
-                "database_incarnation,designation_revision,designation_digest,canonical_designation,"
-                "installation_proof) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-                *key,
-                revision,
-                digest,
-                designation_text,
-                proof_text,
-            )
-            actions["designation_event"] = "inserida"
-        elif (event["designation_digest"], event["canonical_designation"], event["installation_proof"]) != (
-            digest,
-            designation_text,
-            proof_text,
-        ):
-            raise OpsError("ja existe OUTRA designacao nesta revisao: recusado (sem DELETE)")
-        else:
-            actions["designation_event"] = "igual"
-        current = await owner.fetchrow(
-            "SELECT designation_revision, designation_digest FROM mzo_staff_case_designation_current "
-            "WHERE tenant=$1 AND environment=$2 AND engine_name=$3 AND database_incarnation=$4",
-            *key,
-        )
-        if current is None:
-            await owner.execute(
-                "INSERT INTO mzo_staff_case_designation_current(tenant,environment,engine_name,"
-                "database_incarnation,designation_revision,designation_digest) VALUES($1,$2,$3,$4,$5,$6)",
-                *key,
-                revision,
-                digest,
-            )
-            actions["designation_current"] = "inserida"
-        elif (current["designation_revision"], current["designation_digest"]) != (revision, digest):
-            raise OpsError("designacao corrente e outra: rotacao nao e deste instalador")
-        else:
-            actions["designation_current"] = "igual"
+        actions: dict[str, Any] = await install_designation(owner, rows)
         admission = await owner.fetchrow(
             "SELECT record_, signature_, revoked_ FROM mzo_portal_read_admission WHERE admission_ref_=$1 "
             "AND revision_=$2",

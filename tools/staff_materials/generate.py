@@ -201,6 +201,40 @@ def designation_draft(
     return value
 
 
+def next_designation(previous: dict[str, Any], *, not_before: str, valid_until: str) -> dict[str, Any]:
+    """Rotacao N -> N+1 da designacao SEM trocar chave nenhuma (Onda 8, dev).
+
+    Mesmas entradas, mesmas chaves/logins/SPKI; mudam so a revisao (`expected_previous_revision`
+    = a anterior), a janela e as capacidades, que voltam a ser as de `CAPABILITIES` (ex.: o
+    `case_issuer` ganha `staff_current_task.v1`). O `source_namespace` do emissor acompanha a
+    revisao (`policy_ref_for`, D-H.6). O resultado passa pelo modelo do loader e vai ao aprovador
+    (`sign-designation`) como qualquer rascunho.
+    """
+    from maezo.gateway.staff_cases.case_issuer import policy_ref_for
+
+    old = parse(Designation, canonicalize(previous))
+    revision = str(int(old.designation_revision) + 1)
+    entries = []
+    for entry in previous["entries"]:
+        entry = dict(entry, not_before=not_before, valid_until=valid_until)
+        if entry["entry_ref"] in CAPABILITIES and entry["entry_ref"] == entry["role"]:
+            purposes, projections, operations = CAPABILITIES[entry["role"]]
+            entry.update(purposes=purposes, projections=projections, operations=operations)
+        if entry["role"] == "case_issuer":
+            entry["source_namespace"] = policy_ref_for(revision)
+        entries.append(entry)
+    value = dict(
+        previous,
+        designation_revision=revision,
+        expected_previous_revision=str(old.designation_revision),
+        entries=entries,
+        issued_at=not_before,
+        valid_until=valid_until,
+    )
+    parse(Designation, canonicalize(value))
+    return value
+
+
 def generate(spec: MaterialsSpec, out: Path) -> Generated:
     root = new_private_directory(out, forbidden=(REPO,))
     portal, engine, issuer, job, dba, public = (

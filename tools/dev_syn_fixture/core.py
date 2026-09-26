@@ -766,3 +766,31 @@ def auth_instance_exists(client: httpx.Client, tenant: str, guide_number: str) -
         params={"businessKey": auth_instance_key(tenant, guide_number), "tenantIdIn": tenant},
     ).json()
     return bool(found)
+
+
+def escalation_state(client: httpx.Client, tenant: str, guide_number: str) -> str:
+    """`absent` (nunca aberta), `live` (instancia viva COM tarefa humana), `pending` (viva, tarefa
+    ainda nao criada: as externas completam) ou `closed` (so no historico: SLA e tarefa encerrados)."""
+    key = escalation_key(tenant, guide_number)
+    running = client.get("/process-instance", params={"businessKey": key, "tenantIdIn": tenant}).json()
+    if running:
+        tasks = client.get(
+            "/task", params={"processInstanceBusinessKey": key, "taskDefinitionKey": HUMAN_TASK}
+        ).json()
+        return "live" if tasks else "pending"
+    history = client.get(
+        "/history/process-instance", params={"processInstanceBusinessKey": key, "tenantIdIn": tenant}
+    ).json()
+    return "closed" if history else "absent"
+
+
+def fresh_guide(base: str, now: datetime, taken: Callable[[str], bool]) -> str:
+    """Guia `SYN-` NOVA derivada de `base` com sufixo unico por execucao (UTC ate o segundo + contador)."""
+    stem = base + "R" + now.strftime("%Y%m%d%H%M%S")
+    for counter in range(100):
+        candidate = stem if counter == 0 else f"{stem}N{counter}"
+        if not GUIDE_PATTERN.fullmatch(candidate):
+            raise SyntheticRefusedError(f"guia derivada fora de {GUIDE_PATTERN.pattern}: {candidate!r}")
+        if not taken(candidate):
+            return candidate
+    raise SyntheticRefusedError("sem sufixo livre para a guia derivada")

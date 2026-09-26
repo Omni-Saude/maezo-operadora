@@ -7,6 +7,7 @@ Nao ha comando de raiz aqui (ver `approver.py`).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -33,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
     make = commands.add_parser("generate", help="gera chaves, CAs, certificados, DSNs e o rascunho")
     make.add_argument("--spec", type=Path, required=True)
     make.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
+    rotate = commands.add_parser(
+        "next-designation", help="rascunho da revisao N+1 da designacao, mesmas chaves (rotacao)"
+    )
+    rotate.add_argument("--previous", type=Path, required=True, help="designation.json vigente")
+    rotate.add_argument("--not-before", required=True)
+    rotate.add_argument("--valid-until", required=True)
+    rotate.add_argument("--out", type=Path, required=True, help="arquivo NOVO (nao sobrescreve)")
     pack = commands.add_parser("assemble", help="monta o pacote portal-staff-material.v2 (sem tocar a raiz)")
     pack.add_argument("--materials", type=Path, required=True, help="saida do generate")
     pack.add_argument("--spec", type=Path, required=True, help="o mesmo spec do generate")
@@ -79,6 +87,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"key_sha256[{role}]={value}")
             print(f"continuity_commitment={summary['continuity']['commitment']}")
             print("falta do aprovador: installation-root.der e installation-proof.json")
+            return 0
+        if args.command == "next-designation":
+            from .generate import next_designation
+
+            draft = canonicalize(
+                next_designation(
+                    strict_loads(args.previous.read_bytes()),
+                    not_before=args.not_before,
+                    valid_until=args.valid_until,
+                )
+            )
+            write_new(args.out, draft, PUBLIC)
+            print(f"designation_sha256={hashlib.sha256(draft).hexdigest()} (rascunho, SEM assinatura)")
             return 0
         if args.command == "assemble":
             portal, approver_files, summary = read_directories(args.materials, args.approver)
