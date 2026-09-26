@@ -1,4 +1,7 @@
-"""`python -m tools.staff_ops rows|job-init|human-init|job-run|syn|task-facts|task-read|assignment-activate` (ver `__init__`)."""
+"""`python -m tools.staff_ops <comando>` (ver `__init__`).
+
+Comandos: rows|job-init|human-init|job-run|syn|task-facts|task-read|assignment-activate.
+"""
 
 from __future__ import annotations
 
@@ -26,7 +29,8 @@ def main(argv: list[str] | None = None) -> int:
         from .syn import main as run
     else:
         print(
-            "uso: python -m tools.staff_ops rows|job-init|human-init|job-run|syn|task-facts|task-read|assignment-activate",
+            "uso: python -m tools.staff_ops "
+            "rows|job-init|human-init|job-run|syn|task-facts|task-read|assignment-activate",
             file=sys.stderr,
         )
         return 64
