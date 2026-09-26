@@ -64,6 +64,17 @@ class SessionRecord(PrivateRecord):
     expires_at: datetime
 
 
+class LogoutDTO(PrivateRecord):
+    """Local session is gone; the browser still has to end the Hosted UI session at the IdP.
+
+    `idp_logout_url` is built from deployment configuration only (Cognito origin, human client id,
+    public origin) and carries no secret.
+    """
+
+    schema_version: Literal[1] = 1
+    idp_logout_url: str
+
+
 class SessionDTO(PrivateRecord):
     """Minimal browser projection, never a principal accepted back as authority."""
 

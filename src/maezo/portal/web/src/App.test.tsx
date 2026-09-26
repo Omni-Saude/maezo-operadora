@@ -410,7 +410,7 @@ it("revalida ao expirar e remove a autoridade da tela antes da resposta", async 
 it("encerra por POST com credenciais same-origin, no-store e CSRF apenas no header", async () => {
   vi.mocked(fetch)
     .mockResolvedValueOnce(jsonResponse(session()))
-    .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    .mockResolvedValueOnce(jsonResponse({ schema_version: 1, idp_logout_url: "https://attacker.test/logout" }));
   render(<App />);
   const logout = await screen.findByRole("button", { name: "Sair com segurança" });
   const user = userEvent.setup();
@@ -436,7 +436,7 @@ it("não anuncia logout no erro, limpa a sessão visível e oferece retry seguro
     .mockResolvedValueOnce(jsonResponse(session("beneficiary")))
     .mockResolvedValueOnce(jsonResponse(emptyCasePage("beneficiary")))
     .mockResolvedValueOnce(new Response(null, { status: 503 }))
-    .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    .mockResolvedValueOnce(jsonResponse({ schema_version: 1, idp_logout_url: "https://attacker.test/logout" }));
   render(<App />);
   await userEvent.click(await screen.findByRole("button", { name: "Sair com segurança" }));
   expect(await screen.findByRole("heading", { name: "Não foi possível confirmar a saída" })).toBeInTheDocument();
@@ -544,7 +544,7 @@ it("orienta o foco no logout confirmado e no retry após falha", async () => {
   await waitFor(() =>
     expect(screen.getByRole("heading", { name: "Encerrando a sessão" })).toHaveFocus(),
   );
-  retryLogout.resolve(new Response(null, { status: 204 }));
+  retryLogout.resolve(jsonResponse({ schema_version: 1, idp_logout_url: "https://attacker.test/logout" }));
   const confirmed = await screen.findByRole("heading", { name: "Sessão encerrada" });
   await waitFor(() => expect(confirmed).toHaveFocus());
 });

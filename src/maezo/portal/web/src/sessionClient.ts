@@ -104,9 +104,48 @@ export async function getSession(signal: AbortSignal): Promise<SessionResult> {
   return session ? { kind: "authenticated", session } : { kind: "invalid-response" };
 }
 
-export async function postLogout(csrfToken: string, signal: AbortSignal): Promise<boolean> {
+export type LogoutResult =
+  | { kind: "confirmed"; idpLogoutUrl: string | null }
+  | { kind: "unconfirmed" };
+
+const cognitoHostedUiHost = /^[a-z0-9-]{1,63}\.auth\.[a-z]{2}(?:-[a-z]+)+-\d\.amazoncognito\.com$/;
+
+/**
+ * Accepts the BFF's IdP logout URL only when it is exactly the Cognito Hosted UI `/logout` of a
+ * Cognito domain, for a well-formed client id, returning to this very origin. Anything else is
+ * dropped and the local logout stands alone.
+ */
+export function trustedIdpLogoutUrl(raw: unknown, portalOrigin: string): string | null {
+  if (typeof raw !== "string" || raw.length > 2048) return null;
+  let url: URL;
   try {
-    const response = await fetch(LOGOUT_PATH, {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.port !== "" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.hash !== "" ||
+    !cognitoHostedUiHost.test(url.hostname) ||
+    url.origin !== `https://${url.hostname}` ||
+    url.pathname !== "/logout"
+  ) {
+    return null;
+  }
+  const keys = [...url.searchParams.keys()];
+  if (keys.length !== 2 || keys[0] !== "client_id" || keys[1] !== "logout_uri") return null;
+  if (!/^[a-z0-9]{1,128}$/.test(url.searchParams.get("client_id") ?? "")) return null;
+  if (url.searchParams.get("logout_uri") !== `${portalOrigin}/`) return null;
+  return url.href;
+}
+
+export async function postLogout(csrfToken: string, signal: AbortSignal): Promise<LogoutResult> {
+  let response: Response;
+  try {
+    response = await fetch(LOGOUT_PATH, {
       method: "POST",
       credentials: "same-origin",
       cache: "no-store",
@@ -116,11 +155,23 @@ export async function postLogout(csrfToken: string, signal: AbortSignal): Promis
       },
       signal,
     });
-    return response.status === 204;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw error;
-    return false;
+    return { kind: "unconfirmed" };
   }
+  if (response.status !== 200) return { kind: "unconfirmed" };
+  // The local session is already gone on a 200; a bad body only skips the IdP hop.
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+  }
+  const raw =
+    payload !== null && typeof payload === "object"
+      ? (payload as Record<string, unknown>).idp_logout_url
+      : undefined;
+  return { kind: "confirmed", idpLogoutUrl: trustedIdpLogoutUrl(raw, window.location.origin) };
 }
 
 export const portalPaths = {

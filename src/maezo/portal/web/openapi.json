@@ -4227,6 +4227,27 @@
         "title": "LinkedTask",
         "type": "object"
       },
+      "LogoutDTO": {
+        "additionalProperties": false,
+        "description": "Local session is gone; the browser still has to end the Hosted UI session at the IdP.\n\n`idp_logout_url` is built from deployment configuration only (Cognito origin, human client id,\npublic origin) and carries no secret.",
+        "properties": {
+          "idp_logout_url": {
+            "title": "Idp Logout Url",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": 1,
+            "default": 1,
+            "title": "Schema Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "idp_logout_url"
+        ],
+        "title": "LogoutDTO",
+        "type": "object"
+      },
       "NipDecisionInputs": {
         "additionalProperties": false,
         "description": "Final human NIP response shared by legal review and SLA coordination.\n\nMaintaining the original denial is L0 hard and requires both documented basis fields. Response\ntext is human-authored and required for the three outcomes submitted to ANS; requesting more\ninformation does not submit a final response. ``revisor_id`` comes from the authenticated\nassignment; construction alone neither proves authorship nor authorizes transmission to ANS.",
@@ -6915,7 +6936,14 @@
       "post": {
         "operationId": "logout_api_v1_portal_auth_logout_post",
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutDTO"
+                }
+              }
+            },
             "description": "Successful Response"
           }
         },
