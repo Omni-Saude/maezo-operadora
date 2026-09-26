@@ -62,6 +62,9 @@ from .engine_config import ADMISSION_REF
 from .seed import ISSUER, PRINCIPALS
 
 TASK_KEY = "UT_TratarEscalonamento"
+#: A tarefa do SLA de resolucao vencido (grupo LITERAL do BPMN). Sem esta entrada no catalogo
+#: admitido a fila do supervisor nao a mostra (e, antes da correcao do PREFLIGHT, virava 503 inteira).
+SUPERVISOR_KEY, SUPERVISOR_GROUP = "UT_SupervisorAssume", "supervisao-atendimento"
 PROCESS_KEY = "SP-OP-ESCALATION-001"
 DMN_KEY = "escalation_routing"
 #: `PortalReadCommand.COMPILED["SP-OP-ESCALATION-001/UT_TratarEscalonamento"]` (form_key, status, inputs).
@@ -115,7 +118,7 @@ async def _facts(pg: asyncpg.Connection) -> dict:
     return dict(task=task, groups=groups, definition=definition, dmn=dmn)
 
 
-def _catalog(facts: dict, deployment: tuple[str, str]) -> tuple[dict, dict]:
+def _catalog(facts: dict, deployment: tuple[str, str]) -> tuple[list[dict], dict]:
     d, m = facts["definition"], facts["dmn"]
     form_key, status, inputs = COMPILED
     form = dict(_artifact(f"read-form-{form_key}"), artifact_ref=form_key)
@@ -132,22 +135,28 @@ def _catalog(facts: dict, deployment: tuple[str, str]) -> tuple[dict, dict]:
             dmn_resource_digest=sha256(bytes(m["bytes_"])),
         ),
     )
+    # `PortalReadCommand.COMPILED["SP-OP-ESCALATION-001/UT_SupervisorAssume"]` e o mesmo form.
+    supervisor = dict(
+        entry, task_definition_key=SUPERVISOR_KEY,
+        group_domain=dict(kind="static", groups=[SUPERVISOR_GROUP], dmn_definition_id=None,
+                          dmn_definition_key=None, dmn_definition_version=None, dmn_resource_digest=None),
+    )
     # O recibo de deploy e o do catalogo staff (config do job): o job confere os dois no artefato.
     artifact = dict(
-        schema="portal-read-catalog.v1", catalog_ref=CATALOG_REF, publisher_ref=PORTAL_WORKLOAD, entries=[entry],
+        schema="portal-read-catalog.v1", catalog_ref=CATALOG_REF, publisher_ref=PORTAL_WORKLOAD, entries=[entry, supervisor],
         policies=[_artifact(p) for p in POLICIES], forms=[form], deployment_receipt_ref=deployment[0],
         deployment_receipt_digest=deployment[1],
     )
-    return entry, artifact
+    return [entry, supervisor], artifact
 
 
-def _human(entry: dict) -> dict:
+def _human(entries: list[dict]) -> dict:
     return dict(entries=[dict(
-        process_definition_id=entry["process_definition_id"], task_definition_key=TASK_KEY,
+        process_definition_id=entry["process_definition_id"], task_definition_key=entry["task_definition_key"],
         classification=CLASSIFICATION, identity_policy=_pin("opaque-task-id-policy"),
         # H4: a imagem de Dockerfile.human (o engine de dev) gera ids UUID, nao o DbIdGenerator decimal.
         task_id_format="uuid", candidate_groups=entry["group_domain"]["groups"], user_candidates="refused",
-    )])
+    ) for entry in entries])
 
 
 async def _owner() -> asyncpg.Connection:
@@ -293,9 +302,9 @@ async def main_async() -> None:
         detail.append(f"tarefa {task_id} candidatos={facts['groups']}")
         base = publish.config()
         deployment = (base["catalog"]["deployment_receipt_ref"], base["catalog"]["deployment_receipt_digest"])
-        entry, artifact = _catalog(facts, deployment)
+        entries, artifact = _catalog(facts, deployment)
         catalog_raw = jcs(artifact)
-        record_raw, admission_digest, revision = await _admission_rev2(catalog_raw, _human(entry))
+        record_raw, admission_digest, revision = await _admission_rev2(catalog_raw, _human(entries))
         detail.append(f"admissao rev{revision} {admission_digest[:12]} (aprovador conferiu o catalogo)")
         designated = await pg.fetchval(
             f"SELECT revision_ FROM {NATIVE_SCHEMA}.mzo_portal_read_designation WHERE tenant_=$1 AND catalog_=$2",

@@ -153,6 +153,9 @@ final class PortalReadStore {
         principal, trust.scope.get("tenant"), task);
   }
   // JSONB is used only on new closed projections. Every value is a bound parameter.
+  // Per-item fail-closed: a candidate whose (definition, task key) the admitted catalog does not
+  // carry is OMITTED from the queue (never disclosed), not a fault of the whole queue. Only an
+  // ADMITTED candidate whose publication is stale/absent faults the read (PREFLIGHT).
   static final String DISCOVERY_BASE = """
     WITH p AS (SELECT ?::jsonb AS principal,?::jsonb AS catalog,?::timestamptz AS now), candidates AS (
      SELECT t.*, entry.value AS entry,r.PAYLOAD_::jsonb AS resource,r.SOURCE_::jsonb AS source,pr.PUBLICATION_ AS proof,rv.FINGERPRINT_ AS revoked_publisher,e.REV_ AS evidence_revision,e.DIGEST_ AS evidence_digest
@@ -179,7 +182,7 @@ final class PortalReadStore {
        AND resource->>'process_definition_digest'=entry->>'process_definition_digest'
        AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(resource->'positive_grants') expired WHERE expired->>'issuer'=p.principal->>'issuer' AND expired->>'subject'=p.principal->>'subject' AND expired->>'principal_ref'=p.principal->>'principal_ref' AND expired->>'membership_revision'=p.principal->>'membership_revision' AND (expired->>'valid_until')::timestamptz<=p.now)
        THEN 'READ_REVISION_CONFLICT' ELSE 'READ_DEPENDENCY_UNAVAILABLE' END AS fault
-    FROM candidates CROSS JOIN p WHERE entry IS NULL OR resource IS NULL OR source IS NULL OR resource->>'state'<>'complete'
+    FROM candidates CROSS JOIN p WHERE entry IS NOT NULL AND (resource IS NULL OR source IS NULL OR resource->>'state'<>'complete'
       OR proof IS NULL OR revoked_publisher IS NOT NULL OR source->>'publisher_ref'<>?
       OR resource->'resource_policy' IS DISTINCT FROM entry->'resource_policy'
       OR resource->'classification'->>'policy_ref' IS DISTINCT FROM entry->'disclosure_policy'->>'artifact_ref'
@@ -189,11 +192,11 @@ final class PortalReadStore {
       OR (resource->>'valid_until')::timestamptz<=p.now OR (source->>'valid_until')::timestamptz<=p.now
       OR (resource->'classification'->>'valid_until')::timestamptz<=p.now
       OR resource->>'observed_task_revision'<>REV_::text OR resource->>'process_definition_id'<>PROC_DEF_ID_
-      OR resource->>'evidence_revision' IS DISTINCT FROM evidence_revision::text OR resource->>'evidence_digest' IS DISTINCT FROM evidence_digest
+      OR resource->>'evidence_revision' IS DISTINCT FROM evidence_revision::text OR resource->>'evidence_digest' IS DISTINCT FROM evidence_digest)
     LIMIT 1
     """;
   static final String ELIGIBLE = """
-    SELECT c.ID_ FROM candidates c CROSS JOIN p WHERE (?='team' OR ASSIGNEE_=p.principal->>'principal_ref')
+    SELECT c.ID_ FROM candidates c CROSS JOIN p WHERE c.entry IS NOT NULL AND (?='team' OR ASSIGNEE_=p.principal->>'principal_ref')
       AND (?::text IS NULL OR ID_ COLLATE "C">?::text COLLATE "C")
       AND EXISTS (SELECT 1 FROM jsonb_array_elements(p.principal->'memberships') mb
          WHERE (mb->'roles') @> (entry->'required_roles') AND EXISTS

@@ -28,6 +28,8 @@ STEPS = {
     "portal-r2": "c1.portal_check",
     "supervisor": "c1.supervisor",
     "portal-sup": "c1.portal_check",
+    "tasks-sup": "c1.tasks_sup",
+    "portal-human-sup": "c1.portal_human",
 }
 
 
