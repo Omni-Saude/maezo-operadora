@@ -10,7 +10,8 @@ import sys
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    command = args[0] if len(args) == 1 else ""
+    # So o `syn` aceita um argumento, e so `--renovar` (repassado a fixture pelo `syn.main`).
+    command = args[0] if len(args) == 1 or args == ["syn", "--renovar"] else ""
     if command == "rows":
         from .rows import main as run
     elif command == "job-init":

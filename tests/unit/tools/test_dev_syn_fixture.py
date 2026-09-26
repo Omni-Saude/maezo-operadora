@@ -358,8 +358,18 @@ class _StopError(Exception):
     pass
 
 
-@pytest.mark.parametrize("closed", [True, False])
-def test_run_replaces_a_closed_guide_before_any_write(monkeypatch: pytest.MonkeyPatch, closed: bool) -> None:
+@pytest.mark.parametrize(
+    ("state", "renew", "closed"),
+    [
+        ("closed", False, True),
+        ("absent", False, False),
+        ("supervisor", False, False),  # sem `--renovar`, a escalacao no supervisor fica
+        ("supervisor", True, True),  # `--renovar`: parada em UT_SupervisorAssume -> guia nova
+    ],
+)
+def test_run_replaces_a_closed_guide_before_any_write(
+    monkeypatch: pytest.MonkeyPatch, state: str, renew: bool, closed: bool
+) -> None:
     seen: list[str] = []
 
     async def no_claims(config: Any, fn: Any, *args: Any) -> list[str]:
@@ -369,7 +379,7 @@ def test_run_replaces_a_closed_guide_before_any_write(monkeypatch: pytest.Monkey
     monkeypatch.setattr(
         core,
         "escalation_state",
-        lambda rest, tenant, guide: "closed" if closed and guide == "SYN-DEVGUIA1" else "absent",
+        lambda rest, tenant, guide: state if guide == "SYN-DEVGUIA1" else "absent",
     )
     monkeypatch.setattr(core, "auth_instance_exists", lambda rest, tenant, guide: False)
 
@@ -385,10 +395,28 @@ def test_run_replaces_a_closed_guide_before_any_write(monkeypatch: pytest.Monkey
 
     monkeypatch.setattr(dev.Config, "refs", refs)
     with pytest.raises(_StopError):
-        dev.run(load(config()))
+        dev.run(load(config()), renew=renew)
     assert seen[0] == "SYN-DEVGUIA1"
     if closed:
         assert seen[-1].startswith("SYN-R") and core.GUIDE_PATTERN.fullmatch(seen[-1])
         assert len(seen[-1]) <= core.GUIDE_MAX_LENGTH
     else:
         assert set(seen) == {"SYN-DEVGUIA1"}
+
+
+def test_escalation_at_the_supervisor_has_its_own_state() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/process-instance"):
+            return httpx.Response(200, json=[{"id": "x"}])
+        if request.url.path.endswith("/task"):
+            at = request.url.params["taskDefinitionKey"] == "UT_SupervisorAssume"
+            return httpx.Response(200, json=[{"id": "s"}] if at else [])
+        return httpx.Response(404)
+
+    with httpx.Client(base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler)) as client:
+        assert core.escalation_state(client, "amh", "SYN-DEVGUIA1") == "supervisor"
+
+
+def test_main_accepts_only_the_renew_flag(tmp_path: Path) -> None:
+    env = {dev.CONFIG_ENV: str(tmp_path / "nada.json")}
+    assert dev.main(env, argv=["--outro"]) == 2

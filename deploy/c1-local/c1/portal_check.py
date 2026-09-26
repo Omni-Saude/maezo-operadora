@@ -210,9 +210,19 @@ async def run() -> None:
     def cases(body: str) -> list[str]:
         # o corpo guardado e truncado para o log: le os case_ref pelo texto, nao por json.loads
         return re.findall(r'"case_ref":"([^"]+)"', body)
-    seen = cases(inside[1])
-    ok = inside[0] == 200 and len(seen) >= 1 and (outside[0] != 200 or not set(seen) & set(cases(outside[1])))         and (outside[0] != 200 or cases(outside[1]) == [])
-    step("portal", ok, f"{lifespan}; /cases no grupo -> {inside[0]} {inside[1]!r}; outro grupo -> {outside[0]} {outside[1]!r}")
+    if sys.argv[1] != "portal-sup":  # no supervisor o grupo da DMN deixa de ver o caso (checado abaixo)
+        seen = cases(inside[1])
+        ok = inside[0] == 200 and len(seen) >= 1 and (outside[0] != 200 or not set(seen) & set(cases(outside[1])))         and (outside[0] != 200 or cases(outside[1]) == [])
+        step("portal", ok, f"{lifespan}; /cases no grupo -> {inside[0]} {inside[1]!r}; outro grupo -> {outside[0]} {outside[1]!r}")
+    if sys.argv[1] == "portal-sup":
+        # SLA de resolucao vencido: o caso segue VIVO, agora do supervisor (grupo literal do BPMN);
+        # o grupo da DMN deixa de ve-lo e nenhuma lista vira 503.
+        sup = results["staff-c1-supervisor"]
+        moved = sup[0] == 200 and len(cases(sup[1])) == 1 and inside[0] == 200 and cases(inside[1]) == []
+        step("portal-sup", moved and outside[0] == 200,
+             f"supervisor /cases -> {sup[0]} {cases(sup[1])}; grupo da DMN -> {inside[0]} {cases(inside[1])}; "
+             f"outro grupo -> {outside[0]}; {sup[1][:200]!r}")
+        return
     if sys.argv[1] == "portal-r2":
         # Depois da rotacao, quem NAO tem caso recebe a lista vazia (200), nunca 503: o checkpoint
         # dele tem de ter sido reassinado sob a r2 mesmo sem mudanca de insumo.

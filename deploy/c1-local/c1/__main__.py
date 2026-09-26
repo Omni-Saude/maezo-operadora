@@ -26,6 +26,8 @@ STEPS = {
     "rotate": "c1.rotate",
     "rotate-issuer": "c1.rotate_issuer",
     "portal-r2": "c1.portal_check",
+    "supervisor": "c1.supervisor",
+    "portal-sup": "c1.portal_check",
 }
 
 

@@ -63,6 +63,11 @@ from .publisher import StaffWitnessSource
 SCHEMA = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 PROCESS_KEY = "SP-OP-ESCALATION-001"
 TASK_KEY = "UT_TratarEscalonamento"
+#: SLA de resolucao vencido: a escalacao continua VIVA em `UT_SupervisorAssume`, cujo candidate
+#: group e o LITERAL do BPMN (nao a saida da DMN). O caso passa a ser do supervisor.
+SUPERVISOR_TASK_KEY = "UT_SupervisorAssume"
+SUPERVISOR_GROUP = "supervisao-atendimento"
+LIVE_TASK_KEYS = (TASK_KEY, SUPERVISOR_TASK_KEY)
 
 
 class PostgresStaffGranteeSource:
@@ -198,6 +203,12 @@ class EngineEscalationSource:
         groups = sorted({str(link["groupId"]) for link in links if link.get("groupId")})
         # `candidateGroups="${roteamento.grupo_atendimento}"` resolve para UM grupo, o da DMN.
         # Zero, varios, ou um diferente do historico: identity-link adulterado ou forma inesperada.
+        # Na fase do supervisor o grupo e o literal do BPMN; a DMN (acima) tem de ter decidido igual.
+        if task.get("taskDefinitionKey") == SUPERVISOR_TASK_KEY:
+            routed = SUPERVISOR_GROUP
+        elif task.get("taskDefinitionKey") != TASK_KEY:
+            report.refused += 1
+            return None
         if groups != [routed]:
             report.refused += 1
             return None
@@ -209,28 +220,53 @@ class EngineEscalationSource:
             grupo_atendimento=routed,
         )
 
+    @staticmethod
+    async def _item(work: Awaitable[Any], report: EscalationReport) -> Any:
+        """Fail-closed POR ITEM: um estado nao previsto de UMA escalacao recusa so ela (sem grant, o
+        que o plano ja tinha e revogado), nunca a rodada inteira; inclui resposta 4xx do engine para
+        aquele item. Engine inalcancavel ou 5xx continua derrubando a rodada (#500: sem leitura
+        confiavel nao ha plano, e um engine mudo nunca vira revogacao em massa); a maioria recusada
+        por item tambem (`item_refusal_quorum`)."""
+        try:
+            return await work
+        except httpx.TransportError:
+            raise
+        except httpx.HTTPStatusError as failure:
+            if failure.response.status_code >= 500:
+                raise
+            report.refused += 1
+            report.reasons["item_http_4xx"] = report.reasons.get("item_http_4xx", 0) + 1
+            return None
+        except Exception as failure:
+            report.refused += 1
+            reason = "item_" + type(failure).__name__
+            report.reasons[reason] = report.reasons.get(reason, 0) + 1
+            return None
+
     async def live(self) -> tuple[LiveEscalation, ...]:
         report = EscalationReport()
         found: list[LiveEscalation] = []
         first = 0
-        while True:
-            tasks = await self._json(
-                "/task",
-                processDefinitionKey=PROCESS_KEY,
-                taskDefinitionKey=TASK_KEY,
-                active="true",
-                sortBy="id",
-                sortOrder="asc",
-                firstResult=str(first),
-                maxResults=str(self.page),
-            )
-            for task in tasks:
-                escalation = await self._qualify(task, report)
-                if escalation is not None:
-                    found.append(escalation)
-            if len(tasks) < self.page:
-                break
-            first += self.page
+        for task_key in LIVE_TASK_KEYS:
+            first = 0
+            while True:
+                tasks = await self._json(
+                    "/task",
+                    processDefinitionKey=PROCESS_KEY,
+                    taskDefinitionKey=task_key,
+                    active="true",
+                    sortBy="id",
+                    sortOrder="asc",
+                    firstResult=str(first),
+                    maxResults=str(self.page),
+                )
+                for task in tasks:
+                    escalation = await self._item(self._qualify(task, report), report)
+                    if escalation is not None:
+                        found.append(escalation)
+                if len(tasks) < self.page:
+                    break
+                first += self.page
         report.live = len(found)
         self.report = report
         return tuple(found)
@@ -268,10 +304,21 @@ class EngineEscalationSource:
     async def __call__(self) -> tuple[RoutedEscalation, ...]:
         routed: list[RoutedEscalation] = []
         live = await self.live()
+        # Recusadas por item ja na qualificacao nao estao em `live`: entram no total visto.
+        seen = len(live) + sum(v for k, v in self.report.reasons.items() if k.startswith("item_"))
         for escalation in live:
-            value = self.anchor(escalation)
-            if inspect.isawaitable(value):
-                value = await value
+
+            async def anchored(escalation: LiveEscalation = escalation) -> Any:
+                value = self.anchor(escalation)
+                if inspect.isawaitable(value):
+                    value = await value
+                return value if value is None else (value, await self.case_tasks(value))
+
+            refused = self.report.refused
+            item = await self._item(anchored(), self.report)
+            if item is None and self.report.refused != refused:
+                continue  # estado nao previsto deste caso: recusado so ele (contado em `refused`)
+            value = None if item is None else item[0]
             if value is None:
                 self.report.unanchored += 1
                 reason = getattr(self.anchor, "last_reason", None) or "unanchored"
@@ -283,7 +330,7 @@ class EngineEscalationSource:
                     escalation_ref=escalation.escalation_ref,
                     case=value,
                     grupo_atendimento=escalation.grupo_atendimento,
-                    case_tasks=await self.case_tasks(value),
+                    case_tasks=item[1],
                 )
             )
         self.report.anchored = len(routed)
@@ -292,6 +339,9 @@ class EngineEscalationSource:
         zero = self.report.reasons.get("auth_instances_zero", 0)
         if len(live) >= 3 and 2 * zero > len(live):
             raise CaseIssuerError("anchor_zero_quorum")
+        items = sum(v for k, v in self.report.reasons.items() if k.startswith("item_"))
+        if items >= 3 and 2 * items > seen:
+            raise CaseIssuerError("item_refusal_quorum")
         return tuple(routed)
 
 

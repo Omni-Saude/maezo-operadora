@@ -527,3 +527,114 @@ async def test_h3_case_tasks_from_a_defective_source_fail_the_round(rows: Any) -
         source = EngineEscalationSource(client, tenant="amh", anchor=lambda e: None)
         with pytest.raises(CaseIssuerError):
             await source.case_tasks(identity(1))
+
+
+# ------------------------------------------------- SLA vencido: supervisor e fail-closed por item
+
+
+def _escalation_engine(
+    tasks: dict[str, list[dict[str, Any]]], groups: dict[str, list[str]], fail: str = "", status: int = 404
+) -> Any:
+    def engine(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/task":
+            return httpx.Response(200, json=tasks.get(request.url.params["taskDefinitionKey"], []))
+        if path.endswith("/identity-links"):
+            return httpx.Response(200, json=[{"groupId": g} for g in groups[path.split("/")[2]]])
+        if path.endswith("/variables/tenant_id"):
+            if fail and f"/{fail}/" in path:
+                return httpx.Response(status, json={"type": "InvalidRequestException"})
+            return httpx.Response(200, json={"type": "String", "value": "amh"})
+        if path.startswith("/process-instance/"):
+            instance = path.split("/")[2]
+            return httpx.Response(
+                200, json={"id": instance, "tenantId": "amh", "businessKey": f"ESC-{instance}"}
+            )
+        if path == "/history/decision-instance":
+            outputs = [{"variableName": "grupo_atendimento", "value": "atendimento-humano"}]
+            return httpx.Response(200, json=[{"tenantId": "amh", "outputs": outputs}])
+        return httpx.Response(404)
+
+    return engine
+
+
+def _esc_task(task_id: str, key: str, instance: str) -> dict[str, Any]:
+    return {"id": task_id, "taskDefinitionKey": key, "tenantId": "amh", "processInstanceId": instance}
+
+
+async def test_escalation_at_the_supervisor_is_a_live_case_of_the_supervisor_group() -> None:
+    """Dev 26/09: SLA de resolucao vencido leva a escalacao a `UT_SupervisorAssume`; o caso segue
+    VIVO, do grupo LITERAL do BPMN. Grupo diferente do literal = identity-link adulterado: recusa."""
+    from maezo.gateway.staff_cases.case_issuer_sources import SUPERVISOR_GROUP, EngineEscalationSource
+
+    tasks = {
+        "UT_TratarEscalonamento": [_esc_task("t1", "UT_TratarEscalonamento", "i1")],
+        "UT_SupervisorAssume": [
+            _esc_task("t2", "UT_SupervisorAssume", "i2"),
+            _esc_task("t3", "UT_SupervisorAssume", "i3"),
+        ],
+    }
+    groups = {"t1": ["atendimento-humano"], "t2": [SUPERVISOR_GROUP], "t3": ["atendimento-humano"]}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_escalation_engine(tasks, groups)), base_url="http://engine"
+    ) as client:
+        source = EngineEscalationSource(client, tenant="amh", anchor=lambda e: None)
+        live = await source.live()
+    assert [(e.task_id, e.grupo_atendimento) for e in live] == [
+        ("t1", "atendimento-humano"),
+        ("t2", SUPERVISOR_GROUP),
+    ]
+    assert source.report.refused == 1
+
+
+async def test_an_unexpected_state_of_one_case_refuses_only_that_case() -> None:
+    from maezo.gateway.external_cases.models import ExternalCaseError
+    from maezo.gateway.staff_cases.case_issuer_sources import EngineEscalationSource
+    from tests.unit.gateway.test_staff_case_issuer import identity
+
+    tasks = {
+        "UT_TratarEscalonamento": [_esc_task(f"t{n}", "UT_TratarEscalonamento", f"i{n}") for n in range(4)]
+    }
+    groups = {f"t{n}": ["atendimento-humano"] for n in range(4)}
+
+    def anchor(e: LiveEscalation) -> Any:
+        if e.escalation_ref == "i1":
+            raise ExternalCaseError("invalid")  # o que o dev viu em toda rodada
+        return identity(int(e.escalation_ref[1:]) + 1)
+
+    class NoTasks(EngineEscalationSource):
+        async def case_tasks(self, case: Any) -> tuple:
+            return ()
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_escalation_engine(tasks, groups, fail="i2")), base_url="http://engine"
+    ) as client:
+        source = NoTasks(client, tenant="amh", anchor=anchor)
+        routed = await source()
+    # i1 (excecao do caso) e i2 (404 do engine para aquele item) recusados; os outros seguem.
+    assert sorted(r.escalation_ref for r in routed) == ["i0", "i3"]
+    assert source.report.reasons == {"item_ExternalCaseError": 1, "item_http_4xx": 1}
+
+
+async def test_engine_5xx_or_most_items_refused_still_fails_the_round() -> None:
+    from maezo.gateway.staff_cases.case_issuer_sources import EngineEscalationSource
+
+    tasks = {
+        "UT_TratarEscalonamento": [_esc_task(f"t{n}", "UT_TratarEscalonamento", f"i{n}") for n in range(4)]
+    }
+    groups = {f"t{n}": ["atendimento-humano"] for n in range(4)}
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_escalation_engine(tasks, groups, fail="i1", status=503)),
+        base_url="http://engine",
+    ) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await EngineEscalationSource(client, tenant="amh", anchor=lambda e: None)()
+
+    def broken(e: LiveEscalation) -> Any:
+        raise ValueError("estado nao previsto")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(_escalation_engine(tasks, groups)), base_url="http://engine"
+    ) as client:
+        with pytest.raises(CaseIssuerError, match="item_refusal_quorum"):
+            await EngineEscalationSource(client, tenant="amh", anchor=broken)()

@@ -327,3 +327,58 @@ async def test_live_escalations_carry_the_group_the_engine_resolved_from_the_dmn
     finally:
         for instance in started.values():
             await client.delete(f"/process-instance/{instance}", params={"skipCustomListeners": "true"})
+
+
+async def test_escalation_past_the_resolution_sla_stays_live_for_the_supervisor(
+    engine_client: httpx.AsyncClient,
+) -> None:
+    """Dev 26/09: SLA de resolucao vencido (timer do engine executado, BPMN/DMN reais) leva a escalacao
+    a `UT_SupervisorAssume`; ela segue VIVA, do grupo literal `supervisao-atendimento`."""
+    from maezo.gateway.staff_cases.case_issuer_sources import SUPERVISOR_GROUP
+
+    client = engine_client
+    await _deploy(client, "amh")
+    started = {
+        "sup": await _start(
+            client, tenant="amh", variable_tenant="amh", motivo="solicitacao_humano", severidade="leve"
+        )
+    }
+    try:
+        await _drive_to_user_task(client, set(started.values()))
+        jobs = (
+            await client.get(
+                "/job", params={"processInstanceId": started["sup"], "activityId": "BT_SlaResolucao"}
+            )
+        ).json()
+        assert len(jobs) == 1
+        (await client.post(f"/job/{jobs[0]['id']}/execute")).raise_for_status()
+        worker = "t16-sup-" + uuid.uuid4().hex[:6]
+        for _ in range(10):
+            locked = (
+                await client.post(
+                    "/external-task/fetchAndLock",
+                    json={
+                        "workerId": worker,
+                        "maxTasks": 20,
+                        "topics": [{"topicName": t, "lockDuration": 30000} for t in TOPICS],
+                    },
+                )
+            ).json()
+            for task in locked:
+                if task["processInstanceId"] == started["sup"]:
+                    (
+                        await client.post(f"/external-task/{task['id']}/complete", json={"workerId": worker})
+                    ).raise_for_status()
+                else:
+                    await client.post(f"/external-task/{task['id']}/unlock")
+            at = (await client.get("/task", params={"processInstanceId": started["sup"]})).json()
+            if [t["taskDefinitionKey"] for t in at] == ["UT_SupervisorAssume"]:
+                break
+        else:
+            raise AssertionError("a escalacao nao chegou em UT_SupervisorAssume")
+        source = EngineEscalationSource(client, tenant="amh", anchor=lambda e: identity(1))
+        live = [e for e in await source.live() if e.escalation_ref == started["sup"]]
+        assert [(e.task_id, e.grupo_atendimento) for e in live] == [(at[0]["id"], SUPERVISOR_GROUP)]
+    finally:
+        for instance in started.values():
+            await client.delete(f"/process-instance/{instance}", params={"skipCustomListeners": "true"})

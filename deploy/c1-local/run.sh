@@ -78,7 +78,7 @@ down() {
 
 py() {  # cada passo roda no servico que tem as montagens dele
   local service=runner
-  case "$1" in publish|h1-task|assignment) service=job ;; portal-human) service=portal-human ;; issuer|rotate|rotate-issuer|auth-install|auth-fixture) service=issuer ;; portal-init) service=portal-init ;; portal|portal-r2) service=portal ;; esac
+  case "$1" in publish|h1-task|assignment) service=job ;; portal-human) service=portal-human ;; issuer|rotate|rotate-issuer|supervisor|auth-install|auth-fixture) service=issuer ;; portal-init) service=portal-init ;; portal|portal-r2|portal-sup) service=portal ;; esac
   "${DC[@]}" --profile engine --profile tools run --rm -T "$service" python -m c1 "$1"
 }
 
@@ -95,7 +95,7 @@ case "${1:-all}" in
     fi
     engine_up ;;
   logs) engine_logs "${2:-40}" ;;
-  materials|db-native|engine-config|assemble|w1|auth-install|auth-fixture|seed|publish|issuer|portal-init|portal|h1-task|assignment|portal-human|rotate|rotate-issuer|portal-r2) py "$1" ;;
+  materials|db-native|engine-config|assemble|w1|auth-install|auth-fixture|seed|publish|issuer|portal-init|portal|h1-task|assignment|portal-human|rotate|rotate-issuer|portal-r2|supervisor|portal-sup) py "$1" ;;
   down) down ;;
   all)
     down; build
@@ -113,6 +113,7 @@ case "${1:-all}" in
     py rotate || true                # Onda 8: designacao r1->r2 pelo `rows` + segredo nativo com o digest da r2
     engine_up                        # o engine pina a designacao na composicao staff: reinicia com a r2
     py assemble; py portal-init || true   # o portal tambem pina: pacote novo da r2, task nova
-    py rotate-issuer || true; py portal-r2 || true ;;   # emissor sob a r2; /cases + detalhe com a tarefa
+    py rotate-issuer || true; py portal-r2 || true
+    py supervisor || true; py portal-sup || true ;;   # SLA vencido: caso no supervisor continua vivo   # emissor sob a r2; /cases + detalhe com a tarefa
   *) echo "passo desconhecido: $1" >&2; exit 2 ;;
 esac

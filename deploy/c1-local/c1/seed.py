@@ -22,6 +22,8 @@ BFF_LOGIN = "portal_bff_amh"
 PRINCIPALS = {
     "staff-c1-no-grupo": ("00000000-0000-4000-8000-0000000c1001", "atendimento-humano"),
     "staff-c1-outro-grupo": ("00000000-0000-4000-8000-0000000c1002", "enfermagem-triagem"),
+    # O grupo LITERAL de `UT_SupervisorAssume` (SLA de resolucao vencido): passo `supervisor`.
+    "staff-c1-supervisor": ("00000000-0000-4000-8000-0000000c1003", "supervisao-atendimento"),
 }
 
 
@@ -63,7 +65,7 @@ async def main_async() -> None:
     finally:
         await app.close()
     save_state("seed", dict(issuer=ISSUER, principals=PRINCIPALS))
-    step("seed", count == 2, f"{count} memberships staff (grupos atendimento-humano / enfermagem-triagem); login {BFF_LOGIN}")
+    step("seed", count == len(PRINCIPALS), f"{count} memberships staff (atendimento-humano / enfermagem-triagem / supervisao-atendimento); login {BFF_LOGIN}")
 
 
 def main() -> None:
