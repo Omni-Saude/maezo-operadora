@@ -102,7 +102,8 @@ async def test_exact_auth_lifecycle_behind_offload_ignores_proxy_authority(heade
         logout = await h.client.post(
             PREFIX + "/auth/logout", headers={"Origin": ORIGIN, "X-CSRF-Token": session.json()["csrf_token"]}
         )
-        assert logout.status_code == 204 and "location" not in logout.headers
+        assert logout.status_code == 200 and "location" not in logout.headers
+        assert logout.json()["idp_logout_url"].startswith(IDP + "/logout?client_id=")
         assert not h.store._sessions and SESSION_COOKIE not in h.client.cookies
         assert (await h.client.get(PREFIX + "/session")).status_code == 401
 
