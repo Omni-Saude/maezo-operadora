@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Literal, cast
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import httpx
 from fastapi import FastAPI, Request
@@ -43,7 +43,7 @@ from maezo.portal.api.intake_recovery import (
     is_intake_recovery_request,
 )
 from maezo.portal.api.intakes import IntakeServiceFactory, intake_error, intake_router, is_product_request
-from maezo.portal.api.records import SessionDTO
+from maezo.portal.api.records import LogoutDTO, SessionDTO
 from maezo.portal.api.session import HumanSessionResolver, HumanSessionService
 from maezo.portal.api.store import IdentityStore
 from maezo.portal.api.tasks import (
@@ -401,7 +401,12 @@ def create_app(
         )
         return (await resolver.resolve(_cookie(request, _SESSION))).projection(capabilities)
 
-    @app.post(f"{_PREFIX}/auth/logout", status_code=204)
+    # Config-only, never derived from the request: ends the Cognito Hosted UI session too.
+    idp_logout_url = f"{config.cognito_origin}/logout?" + urlencode(
+        {"client_id": config.client_id, "logout_uri": f"{config.public_origin}/"}
+    )
+
+    @app.post(f"{_PREFIX}/auth/logout", response_model=LogoutDTO)
     async def logout(request: Request) -> Response:
         _query(request, set())
         if len(request.headers.getlist("origin")) != 1 or len(request.headers.getlist("x-csrf-token")) != 1:
@@ -409,7 +414,7 @@ def create_app(
         await service.logout(
             _cookie(request, _SESSION), request.headers["x-csrf-token"], request.headers["origin"]
         )
-        response = Response(status_code=204)
+        response = JSONResponse(LogoutDTO(idp_logout_url=idp_logout_url).model_dump(mode="json"))
         _delete_cookie(response, _SESSION)
         _delete_cookie(response, _BROWSER)
         return response

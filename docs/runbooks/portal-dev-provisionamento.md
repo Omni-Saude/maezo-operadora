@@ -95,6 +95,29 @@ este client **nao tem** secret):
 }
 ```
 
+**Pendente — LogoutURLs (logout do Hosted UI).** O client NAO e gerenciado por Terraform
+(criado pelo CLI acima). Sem `LogoutURLs`, o `idp_logout_url` que o BFF devolve no
+`POST /auth/logout` e recusado pelo Cognito e a sessao do Hosted UI sobrevive (proximo login
+sem senha). `update-user-pool-client` ZERA o que nao for passado, por isso o comando repete
+todos os campos lidos acima (nao aplicado; conferir com `describe-user-pool-client` antes):
+
+```powershell
+aws cognito-idp update-user-pool-client --user-pool-id sa-east-1_9oKv7gHOJ `
+  --client-id 61gml104sr5nc8jskrptstua0u --client-name "portal-humano-amh-dev" `
+  --allowed-o-auth-flows-user-pool-client --allowed-o-auth-flows code `
+  --allowed-o-auth-scopes openid `
+  --callback-urls "https://portal-maezo-dev.austa.com.br/api/v1/portal/auth/callback" `
+  --logout-urls "https://portal-maezo-dev.austa.com.br/" `
+  --supported-identity-providers COGNITO --explicit-auth-flows ALLOW_REFRESH_TOKEN_AUTH `
+  --prevent-user-existence-errors ENABLED --enable-token-revocation `
+  --token-validity-units "AccessToken=minutes,IdToken=minutes,RefreshToken=hours" `
+  --access-token-validity 60 --id-token-validity 60 --refresh-token-validity 2 `
+  --region sa-east-1
+```
+
+Se o describe vivo mostrar campo nao listado aqui (ex.: `AuthSessionValidity`,
+`ReadAttributes`, `WriteAttributes`, `DefaultRedirectURI`), inclua-o no comando.
+
 `cognito_origin` confirmado por `describe-user-pool`: `Domain = amh-maezo-bpm-dev`,
 `CustomDomain = null` -> `https://amh-maezo-bpm-dev.auth.sa-east-1.amazoncognito.com`.
 

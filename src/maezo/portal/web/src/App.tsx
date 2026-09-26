@@ -100,14 +100,18 @@ export function App() {
     activeRequest.current = controller;
     setState({ kind: "logging-out" });
     try {
-      const confirmed = await postLogout(csrfToken, controller.signal);
+      const result = await postLogout(csrfToken, controller.signal);
       if (controller.signal.aborted || epoch !== requestEpoch.current) return;
       activeRequest.current = null;
       setState(
-        confirmed
+        result.kind === "confirmed"
           ? { kind: "logged-out" }
           : { kind: "logout-unconfirmed", retryToken: csrfToken },
       );
+      // Ends the Cognito Hosted UI session too, or the next login would skip the password.
+      if (result.kind === "confirmed" && result.idpLogoutUrl) {
+        window.location.assign(result.idpLogoutUrl);
+      }
     } catch (error) {
       if (
         !(error instanceof DOMException && error.name === "AbortError") &&

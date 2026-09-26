@@ -1952,6 +1952,23 @@ export interface components {
             task_revision: string;
         };
         /**
+         * LogoutDTO
+         * @description Local session is gone; the browser still has to end the Hosted UI session at the IdP.
+         *
+         *     `idp_logout_url` is built from deployment configuration only (Cognito origin, human client id,
+         *     public origin) and carries no secret.
+         */
+        LogoutDTO: {
+            /** Idp Logout Url */
+            idp_logout_url: string;
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+        };
+        /**
          * NipDecisionInputs
          * @description Final human NIP response shared by legal review and SLA coordination.
          *
@@ -2922,11 +2939,13 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogoutDTO"];
+                };
             };
         };
     };

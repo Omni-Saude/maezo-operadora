@@ -266,7 +266,12 @@ async def test_real_pkce_cookie_session_projection_and_logout(h: Harness) -> Non
             "X-CSRF-Token": data["csrf_token"],
         },
     )
-    assert logged_out.status_code == 204
+    assert logged_out.status_code == 200
+    assert logged_out.json() == {
+        "schema_version": 1,
+        "idp_logout_url": IDP + "/logout?client_id=human123&logout_uri=https%3A%2F%2Fportal.example.test%2F",
+    }
+    assert logged_out.headers["cache-control"] == "no-store"
     assert SESSION_COOKIE not in h.client.cookies
     assert not h.store._sessions
     assert (
@@ -752,3 +757,15 @@ async def test_lifespan_failure_suppresses_backend_exception(h: Harness, monkeyp
             pytest.fail("unavailable store cannot start BFF")
     assert str(failure.value) == "Persistência de identidade indisponível."
     assert failure.value.__suppress_context__ is True
+
+
+async def test_logout_url_ignores_request_host_and_origin_spoofing(h: Harness) -> None:
+    assert (await h.login()).status_code == 303
+    csrf = (await h.client.get(PREFIX + "/session")).json()["csrf_token"]
+    response = await h.client.post(
+        PREFIX + "/auth/logout",
+        headers={"Origin": ORIGIN, "X-CSRF-Token": csrf, "X-Forwarded-Host": "attacker.test"},
+    )
+    assert response.status_code == 200
+    url = response.json()["idp_logout_url"]
+    assert url.startswith(IDP + "/logout?") and "attacker" not in url
