@@ -23,6 +23,7 @@ from .common import (
     NATIVE_HOSTNAME,
     NATIVE_SCHEMA,
     ROOT,
+    STATE,
     iso,
     jcs,
     now,
@@ -56,8 +57,14 @@ def main() -> None:
                         valid_until=iso(now() + timedelta(days=5)), revoked_fingerprints=[]),
     )
     write(ROOT / "assemble-input.json", jcs(inputs), 0o444)
+    # Depois do passo `rotate`: o pacote da designacao r2 (mesmas chaves) com a prova dela.
+    rotation = state("rotation") if (STATE / "rotation.json").exists() else None
+    approver_dir = ROOT / "rotation" / "approver" if rotation else APPROVER_OUT
+    extra = ["--designation", str(ROOT / "rotation" / "designation.json")] if rotation else []
+    designation_digest = rotation["designation_digest"] if rotation else state("materials")["designation_digest"]
     assembled = _tool("assemble", "--materials", str(MATERIALS), "--spec", str(ROOT / "spec.json"),
-                      "--approver", str(APPROVER_OUT), "--input", str(ROOT / "assemble-input.json"), "--out", str(ASSEMBLED))
+                      "--approver", str(approver_dir), "--input", str(ROOT / "assemble-input.json"),
+                      "--out", str(ASSEMBLED), *extra)
     if assembled.returncode != 0:
         step("assemble", False, f"assemble rc={assembled.returncode}: {assembled.stderr.strip()[-200:]}")
         raise SystemExit(1)
@@ -69,7 +76,7 @@ def main() -> None:
         staff_material_directory="/run/maezo-staff-materials/current", staff_material_version_id=version,
         staff_public_manifest_sha256=manifest_sha,
         staff_root_key_sha256=sha256((APPROVER_OUT / "installation-root.der").read_bytes()),
-        staff_designation_sha256=state("materials")["designation_digest"],
+        staff_designation_sha256=designation_digest,
         staff_native_configuration_sha256=engine["configuration_digest"], staff_scope=summary["scope"],
         staff_native_origin="https://" + NATIVE_HOSTNAME,
         staff_native_server_spki_sha256=summary["native_server_spki_sha256"],

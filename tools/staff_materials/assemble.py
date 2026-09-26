@@ -91,8 +91,21 @@ def assemble(
     summary: dict[str, Any],
     spec: MaterialsSpec,
     inputs: AssembleInput,
+    *,
+    designation: bytes | None = None,
 ) -> tuple[dict[str, Any], dict[str, bytes]]:
-    """Devolve (manifesto publico, arquivos do pacote). Nao le nem escreve disco."""
+    """Devolve (manifesto publico, arquivos do pacote). Nao le nem escreve disco.
+
+    `designation` (rotacao, Onda 8): a revisao N+1 com as mesmas chaves (`check_rotation`) entra no
+    lugar da do `generate`; a prova do aprovador em `approver_files` e a dela.
+    """
+    designation_sha256 = summary["designation_sha256"]
+    if designation is not None:
+        from .generate import check_rotation
+
+        check_rotation(portal_files["designation.json"], designation)
+        portal_files = dict(portal_files, **{"designation.json": designation})
+        designation_sha256 = digest(strict_loads(designation))
     if set(approver_files) != set(APPROVER_FILES):
         raise MaterialError("faltam do aprovador: installation-root.der e installation-proof.json")
     files = {**portal_files, **approver_files}
@@ -105,7 +118,7 @@ def assemble(
     if not isinstance(root, Ed25519PublicKey):
         raise MaterialError("a raiz precisa ser Ed25519")
     designation = strict_loads(files["designation.json"])
-    if digest(designation) != summary["designation_sha256"]:
+    if digest(designation) != designation_sha256:
         raise MaterialError("designation.json nao e a do summary do generate")
     entries = _designation_entries(designation)
     read, witness = entries.get("read_requester"), entries.get("identity_verifier")
@@ -143,7 +156,7 @@ def assemble(
         issued_at=inputs.issued_at,
         valid_until=inputs.valid_until,
         root_key_fingerprint=fingerprint(root),
-        designation_digest=summary["designation_sha256"],
+        designation_digest=designation_sha256,
         native_configuration_digest=inputs.native_configuration_digest,
         native_maximum_seconds=inputs.native_maximum_seconds,
         read_key_fingerprint=keys["read_requester"],
@@ -155,7 +168,7 @@ def assemble(
         session_lock_connection=lock,
         native_witness_connection=spec.native_witness_connection.validated("native-witness-ca.pem").wire(),
         native_relation_pins={name: pin.wire() for name, pin in inputs.native_relation_pins.items()},
-        revocation_snapshot=dict(revocation, scope=scope, designation_digest=summary["designation_sha256"]),
+        revocation_snapshot=dict(revocation, scope=scope, designation_digest=designation_sha256),
         files={
             n: None if n in PRIVATE_FILES else hashlib.sha256(v).hexdigest() for n, v in sorted(files.items())
         },

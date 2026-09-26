@@ -110,6 +110,18 @@ def _code_digests() -> dict[str, str]:
     )
 
 
+def write_native_files(native_files: dict[str, bytes]) -> None:
+    """Os arquivos do `native-secret` nas montagens do engine (o truststore `client-ca.p12` e a parte)."""
+    for name, raw in native_files.items():
+        if name == "engine-native/client-ca.p12":
+            continue
+        base = ENGINE_NATIVE if name.startswith("engine-native/") else ENGINE_RUN
+        target = base / name.split("/", 1)[1]
+        target.parent.mkdir(mode=0o755, exist_ok=True)
+        os.chmod(target.parent, 0o755)
+        write(target, raw, 0o400 if name in native_secret.PRIVATE_OUTPUT else 0o444)
+
+
 async def main_async() -> None:
     pins = state("pins")["relations"]
     summary = state("materials")["summary"]
@@ -215,6 +227,8 @@ async def main_async() -> None:
                       alias="auth-result", key_id="c1-auth-result-1", issuer="c1-engine"),
         ),
     )
+    # O passo `rotate` reconstroi o segredo nativo com a MESMA entrada e a designacao N+1.
+    write(STATE / "native-input.json", jcs(native_input), 0o444)
     native_files, native_public = native_secret.build(
         MATERIALS, root_spki, native_secret.load_input(jcs(native_input))
     )
@@ -230,14 +244,7 @@ async def main_async() -> None:
     bundle = _rebuild(bundle, mirrored, common)
 
     # --- arquivos do engine: os do `native-secret`, com o truststore somando a CA do pacote humano (D6)
-    for name, raw in native_files.items():
-        if name == "engine-native/client-ca.p12":
-            continue
-        base = ENGINE_NATIVE if name.startswith("engine-native/") else ENGINE_RUN
-        target = base / name.split("/", 1)[1]
-        target.parent.mkdir(mode=0o755, exist_ok=True)
-        os.chmod(target.parent, 0o755)
-        write(target, raw, 0o400 if name in native_secret.PRIVATE_OUTPUT else 0o444)
+    write_native_files(native_files)
     generate_client_ca = x509.load_pem_x509_certificate((engine_dir / "native-client-ca.pem").read_bytes())
     write(ENGINE_NATIVE / "client-ca.p12", pkcs12.serialize_java_truststore(
         [pkcs12.PKCS12Certificate(generate_client_ca, b"maezo-native-client-ca"),

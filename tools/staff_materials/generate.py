@@ -41,7 +41,7 @@ from maezo.gateway.staff_cases.authority import fingerprint
 from maezo.gateway.staff_cases.case_issuer_runtime import WITNESS_LOGIN as ISSUER_WITNESS_LOGIN
 from maezo.gateway.staff_cases.case_issuer_sources import WITNESS_ENTRY as ISSUER_WITNESS_ENTRY
 from maezo.gateway.staff_cases.models import FIELDS, Designation
-from maezo.portal.engine.profile import canonicalize
+from maezo.portal.engine.profile import canonicalize, strict_loads
 
 from . import scram
 from .pki import Issued, issue_ca, issue_leaf
@@ -233,6 +233,26 @@ def next_designation(previous: dict[str, Any], *, not_before: str, valid_until: 
     )
     parse(Designation, canonicalize(value))
     return value
+
+
+def check_rotation(base_raw: bytes, raw: bytes) -> str:
+    """Rotacao (Onda 8): a designacao N+1 que substitui a do `generate` no segredo nativo e no pacote
+    do portal. So do mesmo escopo, revisao posterior e as MESMAS entradas/chaves (chave nova e
+    `generate` + aprovacao). Devolve o SHA-256 dos bytes."""
+    try:
+        new = parse(Designation, raw)
+        old = parse(Designation, canonicalize(strict_loads(base_raw)))
+    except ValueError:
+        raise MaterialError("designacao da rotacao fora do perfil fechado") from None
+    if canonicalize(new.scope.wire()) != canonicalize(old.scope.wire()):
+        raise MaterialError("designacao da rotacao e de outro escopo")
+    if int(new.designation_revision) <= int(old.designation_revision):
+        raise MaterialError("designacao da rotacao nao e posterior a do generate")
+    if {(e.entry_ref, e.key_fingerprint) for e in new.entries} != {
+        (e.entry_ref, e.key_fingerprint) for e in old.entries
+    }:
+        raise MaterialError("designacao da rotacao troca entradas ou chaves: use generate")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def generate(spec: MaterialsSpec, out: Path) -> Generated:

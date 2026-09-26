@@ -122,3 +122,33 @@ def test_cli_next_designation_writes_a_new_file(generated: Generated, now: datet
     assert json.loads(out.read_bytes())["designation_revision"] == "2"
     with pytest.raises(FileExistsError):  # nao sobrescreve
         cli(args)
+
+
+def test_native_secret_pins_only_a_later_designation_with_the_same_keys(
+    generated: Generated, now: datetime
+) -> None:
+    """O engine pina o digest da designacao na composicao staff: a r2 so entra no segredo nativo com
+    as MESMAS chaves, mesmo escopo e revisao posterior (senao o engine recusaria a r2 instalada)."""
+    from tools.staff_materials import native_secret
+    from tools.staff_materials.secure_io import MaterialError
+
+    r1 = _r1(generated)
+    r2 = next_designation(r1, not_before=instant(now - timedelta(minutes=1)), valid_until=r1["valid_until"])
+    raw = canonicalize(r2)
+    assert (
+        native_secret.rotated_designation_digest(generated.directory, raw) == hashlib.sha256(raw).hexdigest()
+    )
+    with pytest.raises(MaterialError, match="posterior"):
+        native_secret.rotated_designation_digest(generated.directory, canonicalize(r1))
+    swapped = dict(
+        r2,
+        entries=[
+            dict(e, key_fingerprint=hashlib.sha256(b"x").hexdigest()) if e["role"] == "case_issuer" else e
+            for e in r2["entries"]
+        ],
+    )
+    with pytest.raises(MaterialError):
+        native_secret.rotated_designation_digest(generated.directory, canonicalize(swapped))
+    moved = dict(r2, scope=dict(r2["scope"], database_incarnation="outra"))
+    with pytest.raises(MaterialError):
+        native_secret.rotated_designation_digest(generated.directory, canonicalize(moved))

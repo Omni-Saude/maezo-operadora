@@ -6,18 +6,20 @@
    mesma r2 com prova de outra raiz;
 3. `rows.install_designation` como o dono do schema nativo: r1->r2 (`rotacionada`), de novo (`igual`),
    e a r1 depois da r2 (recusada, revisao menor); o historico guarda as duas revisoes;
-4. o emissor (`python -m maezo.gateway.staff_cases`) roda com a composicao da r2.
+4. o segredo nativo refeito com a MESMA entrada do `engine-config` e o digest da r2 (o engine pina
+   a designacao na composicao staff); o `run.sh` reinicia o engine e roda `rotate-issuer`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import os
 import hashlib
 from datetime import timedelta
 from typing import Any
 
 import asyncpg  # type: ignore[import-untyped]
-from tools.staff_materials import approver
+from tools.staff_materials import approver, native_secret
 from tools.staff_materials.generate import next_designation
 from tools.staff_ops import rows as rows_tool
 from tools.staff_ops.common import OpsError
@@ -25,9 +27,9 @@ from tools.staff_ops.common import OpsError
 from maezo.gateway.external_cases.models import timestamp
 from maezo.portal.engine.profile import strict_loads
 
-from . import issuer
 from .common import (
     APPROVER_OUT,
+    ASSEMBLED,
     ENGINE_NAME,
     ENVIRONMENT,
     INCARNATION,
@@ -35,19 +37,24 @@ from .common import (
     NATIVE_SCHEMA,
     OWNER_LOGIN,
     ROOT,
+    STATE,
     TENANT,
     TEST_ROOT,
     admin_dsn,
     earlier,
     jcs,
     save_state,
+    state,
     step,
     tls_context,
     write,
 )
+from .engine_config import write_native_files
 
 ROTATION = ROOT / "rotation"
-SCOPE = dict(tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME, database_incarnation=INCARNATION)
+SCOPE = dict(
+    tenant=TENANT, environment=ENVIRONMENT, engine_name=ENGINE_NAME, database_incarnation=INCARNATION
+)
 
 
 def _rows(designation: bytes, proof: bytes, revision: int) -> dict[str, Any]:
@@ -80,7 +87,8 @@ async def _history() -> tuple[list[int], int]:
     try:
         events = await owner.fetch(
             f"SELECT designation_revision FROM {NATIVE_SCHEMA}.mzo_staff_case_designation_event "
-            "WHERE tenant=$1 ORDER BY 1", TENANT
+            "WHERE tenant=$1 ORDER BY 1",
+            TENANT,
         )
         current = await owner.fetchval(
             f"SELECT designation_revision FROM {NATIVE_SCHEMA}.mzo_staff_case_designation_current WHERE tenant=$1",
@@ -108,9 +116,7 @@ def main() -> None:
 
     rows_r2 = _rows(r2, r2_proof, 2)
     rows_tool.verify_designation(rows_r2)
-    other = approver.sign_designation(
-        r2, _other_root(), confirm_digest=digest, expires_at=expires
-    )
+    other = approver.sign_designation(r2, _other_root(), confirm_digest=digest, expires_at=expires)
     try:
         rows_tool.verify_designation(_rows(r2, other, 2))
         checks["assinatura_invalida"] = "ACEITA (erro)"
@@ -126,14 +132,29 @@ def main() -> None:
         checks["r1_depois_da_r2"] = "recusada"
     events, current = asyncio.run(_history())
 
-    run = ROOT / "issuer-run-r2"
-    completed = issuer.run_issuer(
-        issuer.composition(
-            run, designation=ROTATION / "designation.json", proof=ROTATION / "installation-proof.json",
-            designation_digest=digest,
-        )
+    # O engine pina o digest da designacao na composicao staff (StaffCaseInstallation): sem um
+    # segredo nativo novo com o digest da r2 ele recusa tudo (READ_AUTHENTICATION_DENIED).
+    native_files, native_public = native_secret.build(
+        MATERIALS,
+        (APPROVER_OUT / "installation-root.der").read_bytes(),
+        native_secret.load_input((STATE / "native-input.json").read_bytes()),
+        designation=r2,
     )
-    line = (completed.stdout.strip().splitlines() or [completed.stderr.strip()[-300:]])[-1]
+    write_native_files(native_files)
+    engine = state("engine")
+    old_configuration = engine["configuration_digest"]
+    engine["configuration_digest"] = native_public["staff_native_configuration_digest"]
+    save_state("engine", engine)
+    # O portal tambem pina a designacao (pacote `portal-staff-material.v2` + pins do aprovador): o
+    # `assemble` seguinte monta o pacote da r2 com a prova dela; a task nova materializa do zero.
+    write(ROTATION / "approver" / "installation-root.der", (APPROVER_OUT / "installation-root.der").read_bytes(), 0o444)
+    write(ROTATION / "approver" / "installation-proof.json", r2_proof, 0o444)
+    os.rename(ASSEMBLED, ROOT / "assembled-r1")
+    if (ROOT / "staff-materials" / "current").exists():
+        # Volume "novo" da task (o materialize exige o pai VAZIO); `current` e 0500 e mover um
+        # diretorio de pai exige escrita nele: libera so para o rename, fora do volume do portal.
+        os.chmod(ROOT / "staff-materials" / "current", 0o700)
+        os.rename(ROOT / "staff-materials" / "current", ROOT / "staff-materials-r1")
     save_state("rotation", dict(designation_digest=digest, revision=2))
     ok = (
         first["designation_current"] == "rotacionada r1->r2"
@@ -142,14 +163,15 @@ def main() -> None:
         and events == [1, 2]
         and current == 2
         and "staff_current_task.v1" in issuer_entry["projections"]
-        and completed.returncode == 0
+        and engine["configuration_digest"] != old_configuration
     )
     step(
         "rotate",
         ok,
         f"r2 {digest[:12]} case_issuer={issuer_entry['projections']} ns={issuer_entry['source_namespace']}; "
         f"1a={first['designation_current']} 2a={again['designation_current']} {checks}; "
-        f"historico={events} corrente=r{current}; emissor(r2) rc={completed.returncode} {line}",
+        f"historico={events} corrente=r{current}; composicao staff {old_configuration[:12]}->"
+        f"{engine['configuration_digest'][:12]} (engine reinicia a seguir)",
     )
 
 

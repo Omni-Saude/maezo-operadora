@@ -86,6 +86,19 @@ async def test_ledger_is_durable_cas_and_one_row_per_policy_ref() -> None:
             job2, sent2 = run(w, ESCALATIONS, (A, B, C), again)  # type: ignore[arg-type]
             assert (await job2.run_once()).published == 0 and sent2 == []
 
+            # D-H.6 + Onda 8 (rotacao da designacao): policy_ref novo = linha nova, mas fonte, grants e
+            # checkpoints sao cadeias do ENGINE (nao da politica): continuam de onde estao (recomecar do
+            # zero repetia `source@1`/`grant_revision=1` com outro pedido -> READ_REVISION_CONFLICT).
+            # A politica nao passa: sob ela o plano reemite tudo na revisao seguinte de cada cadeia.
+            before = await again.load()
+            rotated_ledger = PostgresIssuerLedger(
+                engine, scope=SCOPE, policy_ref="staff-escalation-routing@d2"
+            )
+            rotated = await rotated_ledger.load()
+            assert rotated.source_revision == len(sent) and rotated.policy is None
+            assert rotated.grants == before.grants and rotated.checkpoints == before.checkpoints
+            assert before.grants and before.policy is not None
+
             # CAS: duas copias carregadas; a segunda escrita perde, nada e sobrescrito.
             x = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref=w.policy.policy_ref)
             y = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref=w.policy.policy_ref)
@@ -98,9 +111,10 @@ async def test_ledger_is_durable_cas_and_one_row_per_policy_ref() -> None:
             with pytest.raises(CaseIssuerError, match="pending_publication"):
                 await y.begin(b'{"b":"2"}')
 
-            # D-H.6: policy_ref novo = linha nova, revisao recomecando do zero.
-            fresh = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref="staff-escalation-routing@d2")
-            assert (await fresh.load()).source_revision == 0
+            # Com publicacao pendente em outra politica, a linha nova nao nasce (recupera-se antes).
+            fresh = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref="staff-escalation-routing@d3")
+            with pytest.raises(CaseIssuerError, match="pending_publication_other_policy"):
+                await fresh.load()
         finally:
             await engine.dispose()
 

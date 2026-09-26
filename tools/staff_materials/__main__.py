@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--approver", type=Path, required=True, help="installation-root.der + installation-proof.json"
     )
     pack.add_argument("--input", type=Path, required=True, help="staff-materials-assemble.v1")
+    pack.add_argument("--designation", type=Path, help="rotacao: designation.json N+1 (mesmas chaves)")
     pack.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     check = commands.add_parser("verify", help="confere um pacote com o loader do portal")
     check.add_argument("--bundle", type=Path)
@@ -65,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     native.add_argument("--input", type=Path, required=True, help="staff-materials-native-secret.v1")
     native.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     native.add_argument("--human-keys", type=Path, help="public/human-keys-summary.json do human-bundle keys")
+    native.add_argument(
+        "--designation",
+        type=Path,
+        help="rotacao: designation.json N+1 (mesmas chaves) que o engine passa a pinar",
+    )
     human_bundle.add_parser(commands)
     assignment_trust.add_parser(commands)
     logins = commands.add_parser(
@@ -109,6 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summary,
                 load_spec(args.spec.read_bytes()),
                 load_input(args.input.read_bytes()),
+                designation=args.designation.read_bytes() if args.designation else None,
             )
             out = new_private_directory(args.out, forbidden=(REPO,))
             write_new(out / "bundle.json", bundle_bytes(public, files), PRIVATE)
@@ -137,6 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 (args.approver / "installation-root.der").read_bytes(),
                 load_native_input(args.input.read_bytes(), human),
                 human_client_ca=human["client_ca_pem"].encode("ascii") if human else None,
+                designation=args.designation.read_bytes() if args.designation else None,
             )
             written = write_native_materials(args.out, files, public)
             # So digests publicos (fingerprints) vao para a saida; nenhum byte de `files` e impresso.

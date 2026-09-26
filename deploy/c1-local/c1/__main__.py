@@ -24,6 +24,8 @@ STEPS = {
     "assignment": "c1.assignment_step",
     "portal-human": "c1.portal_human",
     "rotate": "c1.rotate",
+    "rotate-issuer": "c1.rotate_issuer",
+    "portal-r2": "c1.portal_check",
 }
 
 

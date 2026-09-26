@@ -58,4 +58,5 @@ def test_engineering_cli_exposes_no_root_command() -> None:
         "native-secret",
         "human-bundle",
         "login-secrets",
+        "next-designation",  # so o RASCUNHO N+1 (sem raiz); quem assina e `approver sign-designation`
     }
