@@ -769,15 +769,21 @@ def auth_instance_exists(client: httpx.Client, tenant: str, guide_number: str) -
 
 
 def escalation_state(client: httpx.Client, tenant: str, guide_number: str) -> str:
-    """`absent` (nunca aberta), `live` (instancia viva COM tarefa humana), `pending` (viva, tarefa
-    ainda nao criada: as externas completam) ou `closed` (so no historico: SLA e tarefa encerrados)."""
+    """`absent` (nunca aberta), `live` (instancia viva COM tarefa humana), `supervisor` (viva, SLA de
+    resolucao vencido: parada em `UT_SupervisorAssume`), `pending` (viva, tarefa ainda nao criada: as
+    externas completam) ou `closed` (so no historico: SLA e tarefa encerrados)."""
     key = escalation_key(tenant, guide_number)
     running = client.get("/process-instance", params={"businessKey": key, "tenantIdIn": tenant}).json()
     if running:
         tasks = client.get(
             "/task", params={"processInstanceBusinessKey": key, "taskDefinitionKey": HUMAN_TASK}
         ).json()
-        return "live" if tasks else "pending"
+        if tasks:
+            return "live"
+        supervisor = client.get(
+            "/task", params={"processInstanceBusinessKey": key, "taskDefinitionKey": "UT_SupervisorAssume"}
+        ).json()
+        return "supervisor" if supervisor else "pending"
     history = client.get(
         "/history/process-instance", params={"processInstanceBusinessKey": key, "tenantIdIn": tenant}
     ).json()
@@ -804,3 +810,28 @@ def fresh_guide(base: str, now: datetime, taken: Callable[[str], bool]) -> str:
         if not taken(candidate):
             return candidate
     raise SyntheticRefusedError("sem sufixo livre para a guia derivada")
+
+
+SUPERVISOR_TASK = "UT_SupervisorAssume"
+SLA_RESOLUTION_TIMER = "BT_SlaResolucao"
+
+
+def breach_resolution_sla(client: httpx.Client, tenant: str, guide_number: str, *, worker: str) -> int:
+    """Antecipa o SLA de resolucao da escalacao (executa o job do timer `BT_SlaResolucao`, sem mudar
+    o BPMN nem a DMN) e conclui a publicacao do breach: a escalacao cai em `UT_SupervisorAssume`.
+    Devolve quantas tarefas do supervisor a escalacao tem depois."""
+    key = escalation_key(tenant, guide_number)
+    instances = client.get("/process-instance", params={"businessKey": key, "tenantIdIn": tenant}).json()
+    if len(instances) != 1:
+        raise RuntimeError(f"escalacao {key}: {len(instances)} instancias vivas")
+    jobs = client.get(
+        "/job", params={"processInstanceId": instances[0]["id"], "activityId": SLA_RESOLUTION_TIMER}
+    ).json()
+    for job in jobs:
+        client.post(f"/job/{job['id']}/execute").raise_for_status()
+    for topic in ESCALATION_TOPICS:
+        complete_external(client, topic, key, worker)
+    tasks = client.get(
+        "/task", params={"processInstanceBusinessKey": key, "taskDefinitionKey": SUPERVISOR_TASK}
+    ).json()
+    return len(tasks)

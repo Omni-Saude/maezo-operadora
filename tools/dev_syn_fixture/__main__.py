@@ -26,7 +26,7 @@ import json
 import os
 import ssl
 import sys
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -37,6 +37,8 @@ from maezo.portal.engine.profile import canonicalize
 from . import core, guards
 
 CONFIG_ENV = "MAEZO_DEV_SYN_FIXTURE_FILE"
+#: Tambem substitui a escalacao parada em `UT_SupervisorAssume` por uma guia nova.
+RENEW_FLAG = "--renovar"
 SCHEMA = "dev-syn-fixture.v1"
 MOTIVO = "red_flag_clinico"
 SEVERIDADE = "grave"
@@ -200,7 +202,7 @@ async def _db(config: Config, fn: Any, *args: Any) -> Any:
         await owner.close()
 
 
-def run(config: Config) -> dict[str, Any]:
+def run(config: Config, *, renew: bool = False) -> dict[str, Any]:
     import httpx
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
@@ -221,7 +223,9 @@ def run(config: Config) -> dict[str, Any]:
         # Escalacao da guia ja encerrada (so no historico, sem tarefa): nao ha o que reabrir sob a
         # mesma business key. Nasce uma guia SYN- NOVA (sufixo unico por execucao), com AUTH, SLA e
         # tarefa vivos; as cercas da guia valem para ela como para a configurada.
-        if core.escalation_state(rest, tenant, refs.guide_number) == "closed":
+        # `--renovar` (teste do diretor): a escalacao parada no supervisor tambem da lugar a uma nova.
+        replaced = {"closed", "supervisor"} if renew else {"closed"}
+        if core.escalation_state(rest, tenant, refs.guide_number) in replaced:
             previous = refs.guide_number
             guide = core.fresh_guide(
                 previous,
@@ -315,14 +319,18 @@ def run(config: Config) -> dict[str, Any]:
     return report
 
 
-def main(env: Mapping[str, str] = os.environ) -> int:
+def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] | None = None) -> int:
+    args = list(argv or ())
+    if set(args) - {RENEW_FLAG}:
+        print(json.dumps(dict(ok=False, error=f"argumentos: so {RENEW_FLAG}")), flush=True)
+        return 2
     path = env.get(CONFIG_ENV)
     if not path:
         print(json.dumps(dict(ok=False, error=f"{CONFIG_ENV} ausente")), flush=True)
         return 2
     try:
         config = load_config(Path(path).read_bytes(), env)
-        report = run(config)
+        report = run(config, renew=RENEW_FLAG in args)
     except (ConfigError, core.SyntheticRefusedError) as refused:
         print(json.dumps(dict(ok=False, refused=str(refused))), flush=True)
         return 3
@@ -331,4 +339,4 @@ def main(env: Mapping[str, str] = os.environ) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(argv=sys.argv[1:]))

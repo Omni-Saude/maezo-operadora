@@ -120,4 +120,4 @@ def main() -> int:
     os.environ["MAEZO_DEV_SYN_FIXTURE_FILE"] = str(path)
     from tools.dev_syn_fixture.__main__ import main as fixture_main
 
-    return int(fixture_main() or 0)
+    return int(fixture_main(argv=sys.argv[2:]) or 0)
