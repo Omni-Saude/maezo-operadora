@@ -115,6 +115,32 @@ class PortalReadEngineIT {
         List.of("atendimento-humano"), obj(t, "snapshot").get("eligible_candidate_groups"));
   }
   @Test
+  void taskOutsideAdmittedCatalogIsOmittedNotAQueueFault() throws Exception {
+    // Dev 26/09: the supervisor's UT_SupervisorAssume (a key the catalog did not carry) turned
+    // the WHOLE team queue into 503. A non-admitted candidate is omitted; admitted rows still list.
+    String admitted = h.task(false);
+    h.resource(admitted);
+    var pi = h.engine.getRuntimeService()
+                 .createProcessInstanceById(h.dynamicDefinition)
+                 .setVariable("roteamento",
+                     new HashMap<>(Map.of("grupo_atendimento", "atendimento-humano", "sla_ack",
+                         "PT1H", "sla_resolucao", "PT2H")))
+                 .startBeforeActivity("UT_SupervisorAssume")
+                 .execute();
+    String outside = h.engine.getTaskService()
+                         .createTaskQuery()
+                         .processInstanceId(pi.getId())
+                         .singleResult()
+                         .getId();
+    h.engine.getTaskService().addCandidateGroup(outside, "medico-auditor");
+    var e = obj(obj(h.read("catalog", record("anchor", h.anchor)), "value"), "expectation");
+    var team = obj(h.read("discover",
+                       record("principal", h.principal, "expectation", e, "queue", "team",
+                           "limit", "25", "after_task_id", null)),
+        "value");
+    assertEquals(List.of(admitted), team.get("task_ids"));
+  }
+  @Test
   void completeDenyAndSplitMembershipCannotGrant() throws Exception {
     String id = h.task(false);
     h.resource(id);

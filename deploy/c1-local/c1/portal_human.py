@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import secrets
+import sys
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -23,6 +24,8 @@ from .common import state, step
 from .portal_check import PUBLIC_ORIGIN, HarnessAuthenticator, _identity_env, _staff_env
 
 IN_GROUP, OUTSIDE = "staff-c1-no-grupo", "staff-c1-outro-grupo"
+#: `portal-human-sup` (depois do `tasks-sup`): o principal do grupo LITERAL de `UT_SupervisorAssume`.
+SUPERVISOR = "staff-c1-supervisor"
 
 
 async def _login(client: httpx.AsyncClient, principal: str) -> str | None:
@@ -61,14 +64,16 @@ async def run() -> None:
     identity.CognitoAuthenticator = HarnessAuthenticator  # type: ignore[misc,assignment]
     from maezo.portal.api.production import create_production_app
 
-    task_id = state("h1")["task_id"]
+    sup = sys.argv[1:] == ["portal-human-sup"]
+    task_id = state("tasks-sup")["task_id"] if sup else state("h1")["task_id"]
+    principals = (SUPERVISOR, IN_GROUP) if sup else (IN_GROUP, OUTSIDE)
     app = create_production_app()
     results: dict[str, dict[str, tuple[int, str]]] = {}
     try:
         async with app.router.lifespan_context(app):
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url=PUBLIC_ORIGIN, follow_redirects=False) as client:
-                for principal in (IN_GROUP, OUTSIDE):
+                for principal in principals:
                     failure = await _login(client, principal)
                     results[principal] = {}
                     for queue in ("mine", "team"):
@@ -85,6 +90,14 @@ async def run() -> None:
         status, body = results[principal][name]
         return _ids(body) if status == 200 else None
 
+    if sup:
+        # SLA vencido: a fila da equipe do supervisor mostra a tarefa dele (200, nunca 503) e a do
+        # grupo da DMN fica vazia (a UT_TratarEscalonamento foi cancelada pelo breach).
+        ok = queue(SUPERVISOR, "team") == [task_id] and queue(IN_GROUP, "team") == []
+        lines = [f"{p} team -> {results[p]['team'][0]} {queue(p, 'team') if queue(p, 'team') is not None else results[p]['team'][1][:300]!r}"
+                 for p in principals]
+        step("portal-human-sup", ok, f"tarefa do supervisor {task_id}; " + "; ".join(lines))
+        return
     ok = (
         queue(IN_GROUP, "team") is not None and task_id in queue(IN_GROUP, "team")  # type: ignore[operator]
         and queue(OUTSIDE, "team") == []
