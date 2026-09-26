@@ -137,6 +137,8 @@ def test_q2_trust_has_one_key_key_id_and_peer_per_purpose(generated: Generated, 
         "not_after",
     }
     assert set(publication) == set(read) | {"publication_kinds", "catalog_ref"}
+    # H4 (fim do D11 do C1): a chave do job pode publicar tarefas; a admissao decide se admite.
+    assert publication["publication_kinds"] == ["catalog-designate", "membership", "resource"]
     assert read["key_id"] != publication["key_id"]
     assert read["public_key_spki_base64"] != publication["public_key_spki_base64"]
     assert read["peer_spki_sha256"] != publication["peer_spki_sha256"]

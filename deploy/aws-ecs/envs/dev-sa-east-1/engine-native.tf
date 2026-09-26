@@ -99,7 +99,7 @@ resource "aws_vpc_security_group_ingress_rule" "engine_native_nlb_from_portal" {
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
-  description                  = "Portal staff BFF -> engine nativo (mTLS no Tomcat)"
+  description                  = "Portal staff BFF para o engine nativo (mTLS no Tomcat)"
 }
 
 # O sidecar `staff-case-issuer` publica pelo mesmo origin nativo (importer mTLS) e roda no SG das
@@ -111,7 +111,7 @@ resource "aws_vpc_security_group_ingress_rule" "engine_native_nlb_from_issuer" {
   ip_protocol                  = "tcp"
   from_port                    = 443
   to_port                      = 443
-  description                  = "Sidecar staff-case-issuer -> engine nativo (importer mTLS)"
+  description                  = "Sidecar staff-case-issuer para o engine nativo (importer mTLS)"
 }
 
 resource "aws_vpc_security_group_egress_rule" "engine_native_nlb_to_engine" {
@@ -121,7 +121,7 @@ resource "aws_vpc_security_group_egress_rule" "engine_native_nlb_to_engine" {
   ip_protocol                  = "tcp"
   from_port                    = 8443
   to_port                      = 8443
-  description                  = "NLB -> Tomcat 8443 (trafego e health check)"
+  description                  = "NLB para o Tomcat 8443 (trafego e health check)"
 }
 
 resource "aws_vpc_security_group_ingress_rule" "tasks_engine_native_from_nlb" {
@@ -176,16 +176,31 @@ resource "aws_lb_listener" "engine_native" {
   }
 }
 
-# B3: registro na zona privada que o namespace do Cloud Map ja criou (ecs.tf). Nao ha zona nova.
-resource "aws_route53_record" "engine_native" {
+# B3: nome na zona privada do namespace do Cloud Map (ecs.tf). A zona e' GERIDA pelo Cloud Map:
+# `route53:ChangeResourceRecordSets` direto nela e' recusado ("can only be managed through AWS Cloud
+# Map", medido no apply de 25/09). O registro nasce como servico do namespace com uma instancia
+# ALIAS para o NLB (AWS_ALIAS_DNS_NAME exige roteamento WEIGHTED e registro A). Sem zona nova.
+# NAO use `>` em descricao de regra de SG: a API aceita so a-zA-Z0-9. _-:/()#,@[]+=&;{}!$* (400).
+resource "aws_service_discovery_service" "engine_native" {
   for_each = local.engine_native_config
-  zone_id  = aws_service_discovery_private_dns_namespace.this.hosted_zone
-  name     = local.engine_native_hostname
-  type     = "A"
-  alias {
-    name                   = aws_lb.engine_native[each.key].dns_name
-    zone_id                = aws_lb.engine_native[each.key].zone_id
-    evaluate_target_health = true
+  name     = "engine-native"
+  dns_config {
+    namespace_id   = aws_service_discovery_private_dns_namespace.this.id
+    routing_policy = "WEIGHTED"
+    dns_records {
+      type = "A"
+      ttl  = 60
+    }
+  }
+  tags = local.engine_native_tags
+}
+
+resource "aws_service_discovery_instance" "engine_native" {
+  for_each    = local.engine_native_config
+  instance_id = "engine-native-nlb"
+  service_id  = aws_service_discovery_service.engine_native[each.key].id
+  attributes = {
+    AWS_ALIAS_DNS_NAME = aws_lb.engine_native[each.key].dns_name
   }
 }
 
@@ -234,6 +249,9 @@ resource "aws_iam_role_policy" "task_execution_engine_native" {
 # ---------------------------------------------------------------------------
 locals {
   # Volumes da task: um por prefixo do segredo; o do emissor so com o sidecar.
+  # Scratch do sidecar (NAO passa pelo materializador, que so conhece os volumes acima).
+  engine_native_scratch_volumes = [for native in local.engine_native_issuer : "staff-issuer-tmp"]
+  engine_native_scratch_root    = "/run/maezo-engine-scratch" # FORA do ROOT do materializador
   engine_native_volumes = concat(
     [for native in local.engine_native_list : "engine-native"],
     [for native in local.engine_native_list : "engine-run"],
@@ -264,7 +282,10 @@ locals {
     name      = "engine-native-materialize"
     image     = "${aws_ecr_repository.app.repository_url}@${native.app_image_digest}"
     essential = false
-    command   = ["python", "-m", "maezo.platform.engine_native_materialize"]
+    # Antes do materializador, o scratch do sidecar vira 0700 uid 1000: o volume vazio do Fargate
+    # nasce root:root 0755 e o sidecar (1000) nao escreve nele (medido 25/09). chmod ANTES do chown:
+    # sem FOWNER, root nao altera o modo de arquivo alheio.
+    command = ["sh", "-c", "set -e; for d in ${local.engine_native_scratch_root}/*; do [ -d \"$d\" ] || continue; chmod 0700 \"$d\"; chown 1000:1000 \"$d\"; done; exec python -m maezo.platform.engine_native_materialize"]
     # root SO para o fchown -> 1000 (volume vazio do Fargate nasce root:root). Todas as
     # capabilities padrao caem exceto CHOWN; o Fargate nao permite `add` alem de SYS_PTRACE.
     user                   = "0:0"
@@ -273,9 +294,14 @@ locals {
       "AUDIT_WRITE", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD", "NET_BIND_SERVICE",
       "NET_RAW", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"
     ] } }
-    mountPoints = [for volume in local.engine_native_volumes :
-      { sourceVolume = volume, containerPath = "${local.engine_native_init_root}/${volume}", readOnly = false }
-    ]
+    mountPoints = concat(
+      [for volume in local.engine_native_volumes :
+        { sourceVolume = volume, containerPath = "${local.engine_native_init_root}/${volume}", readOnly = false }
+      ],
+      [for volume in local.engine_native_scratch_volumes :
+        { sourceVolume = volume, containerPath = "${local.engine_native_scratch_root}/${volume}", readOnly = false }
+      ],
+    )
     environment = [
       { name = "MAEZO_ENGINE_NATIVE_STAFF_ISSUER", value = tostring(native.staff_case_issuer) },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
@@ -304,9 +330,16 @@ locals {
       { containerName = "engine-native-materialize", condition = "SUCCESS" },
       { containerName = "cibseven", condition = "HEALTHY" },
     ]
-    mountPoints = [{ sourceVolume = "staff-issuer", containerPath = local.engine_native_issuer_path, readOnly = true }]
+    # Scratch gravavel e efemero para o TMPDIR: `publisher.py` retem o certificado publico num
+    # NamedTemporaryFile e o rootfs e' read-only ("No usable temporary directory", boot de 25/09).
+    # Fora de /tmp de proposito (cerca G2: nenhuma task monta /tmp).
+    mountPoints = [
+      { sourceVolume = "staff-issuer", containerPath = local.engine_native_issuer_path, readOnly = true },
+      { sourceVolume = "staff-issuer-tmp", containerPath = "/run/maezo/staff-issuer-scratch", readOnly = false },
+    ]
     environment = [
       { name = "MAEZO_STAFF_CASE_ISSUER_FILE", value = "${local.engine_native_issuer_path}/composition.json" },
+      { name = "TMPDIR", value = "/run/maezo/staff-issuer-scratch" },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
     ]
     logConfiguration = {
