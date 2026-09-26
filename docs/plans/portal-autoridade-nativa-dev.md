@@ -1102,6 +1102,7 @@ apply). A cadência é a decisão N2.
    uma segunda pessoa. Proposta: Leonardo aprova; a raiz fica só com ele; nenhum agente a
    recebe.
    **Emenda [25/09/2026, dono]:** desvio aceito pelo dono em dev; produção exige aprovador humano (o agente gerou a raiz `installation-root` e assinou designação e admissões só no dev).
+   **Emenda D-L [25/09/2026, dono — desvios aceitos na execução das Ondas 2–7 em dev]:** (a) prefixos de publisher sem `/` (`OpaqueRef` recusa): `portal-identity:amh:` (membership) e `staff-catalog:amh:` (catálogo); (b) `publisher_ref` do catálogo = `maezo-operadora-dev:workload:portal-staff`, que é o que o job T1.5 publica (não `…:catalog-designate`); (c) política de validade (`maezo-staff-validity-policy.v1`, digest `3540839f…`) e recibo de deploy (`maezo-engine-native-deployment-receipt.v1`, digest `ecdb300e…`) definidos pela engenharia, porque o `generate` não os emite; (d) `read_deployment_digest` = JCS do `staff-deployment-composition.v1` montado (`28915355…`); (e) a chave `human-command` do trust nativo vai em `<workload>-command` (o `Trust.java` recusa dois propósitos no mesmo workload).
 2. **N2 — Validade do pacote e cadência de reaprovação em dev.** Quanto tempo a designação e o
    snapshot de revogação valem, o que define a frequência das Ondas 5 e 6 repetidas. Proposta:
    14 dias, com lembrete 3 dias antes.
