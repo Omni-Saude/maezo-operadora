@@ -637,6 +637,30 @@ resource "aws_sns_topic" "staff_alerts" {
   tags     = local.base_tags
 }
 
+variable "staff_alerts_email" {
+  description = "E-mail que assina o topico de alertas do staff (o destinatario confirma a assinatura). Vazio = topico sem assinante (o plan avisa)."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.staff_alerts_email == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.staff_alerts_email))
+    error_message = "staff_alerts_email: vazio ou um endereco de e-mail."
+  }
+}
+
+resource "aws_sns_topic_subscription" "staff_alerts_email" {
+  for_each  = var.staff_alerts_email == "" ? {} : local.staff_ops
+  topic_arn = aws_sns_topic.staff_alerts[each.key].arn
+  protocol  = "email"
+  endpoint  = var.staff_alerts_email
+}
+
+check "staff_alerts_sem_assinante" {
+  assert {
+    condition     = length(local.staff_ops) == 0 || var.staff_alerts_email != ""
+    error_message = "staff_alerts_email vazio: o topico de alertas do staff nao tem assinante e os alarmes do job T1.5 nao chegam a ninguem."
+  }
+}
+
 resource "aws_cloudwatch_metric_alarm" "staff_job_failing" {
   for_each            = local.staff_ops_schedule
   alarm_name          = "${local.name}-staff-job-2-falhas-seguidas"
