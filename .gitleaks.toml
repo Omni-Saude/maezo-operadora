@@ -264,3 +264,19 @@ paths = [
 regexes = [
   '''^[A-Za-z0-9]{24}$''',
 ]
+
+[[allowlists]]
+# O que casa: SO' linhas `<nome>_sha256 = "<64 hex>"` do arquivo de pins do portal em dev
+# (deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars). Sao impressoes digitais SHA-256 de
+# chaves PUBLICAS/manifestos (os pins que o aprovador confere, plano §4), nao credenciais: a regra
+# generic-api-key le o hex de 64 como token de alta entropia.
+# CONTENCAO DUPLA: condition AND exige o path exato E o shape da linha inteira. O mesmo literal
+# fora desse arquivo, ou qualquer outro formato de linha nele, continua detectado.
+# RESIDUAL aceito: um segredo real de 64 hex numa linha `*_sha256` desse arquivo escaparia da regra
+# generica (regras especificas continuam ativas).
+# Data: 2026-09-26 | PRs #541/#543 (pins D-L/D-O)
+description = "Pins SHA-256 publicos em portal.auto.tfvars do dev (AND path+shape de linha)"
+condition = "AND"
+regexTarget = "line"
+regexes = ['''^\s*[a-z0-9_]+_sha256\s*=\s*"[0-9a-f]{64}"\s*(//.*)?$''']
+paths = ['''^deploy/aws-ecs/envs/dev-sa-east-1/portal\.auto\.tfvars$''']
