@@ -32,7 +32,6 @@ from .common import (
     admin_dsn,
     password,
     read_text,
-    sha256,
     state,
     step,
     tls_context,
@@ -42,8 +41,6 @@ from .common import (
 PLANE_SQL = Path("/repo/deploy/sql/portal-human-plane-grants.sql")
 ADMIN_SQL = Path("/repo/deploy/sql/portal-assignment-admin-grants.sql")
 JOB_CONFIG = "/c1/job/config-tasks.json"
-#: O recibo da revisao do dono da fonte (`approved_owner_receipts`): artefato de TESTE, so aqui.
-OWNER_RECEIPT = dict(artifact_ref="c1-assignment-owner-review", digest=sha256(b"c1 assignment owner review"))
 
 
 async def _logins() -> None:
@@ -90,7 +87,7 @@ async def main_async() -> None:
         plan = Plan(
             admin_login=ASSIGNMENT_ADMIN_LOGIN, source_key_id=facts["source_key_id"],
             source_fingerprint=facts["source_fingerprint"], owner_ref=facts["owner_ref"],
-            source_ref=facts["source_ref"], owner_receipt=OWNER_RECEIPT,
+            source_ref=facts["source_ref"], owner_receipt=facts["owner_receipt"],
             valid_until=datetime.now(UTC) + timedelta(days=2),
         )
         secret = quote(read_text(ADMIN / f"{ASSIGNMENT_ADMIN_LOGIN}-password"), safe="")

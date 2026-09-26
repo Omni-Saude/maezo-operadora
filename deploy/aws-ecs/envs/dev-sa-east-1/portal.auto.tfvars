@@ -191,7 +191,9 @@ portal = {
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     // deploy/portal.Dockerfile sobre o app 8c3a2938 (branch ops/staff-onda4-runtime), CodeBuild
     // `8229e2ca-portal-staff`; assinado + SBOM pelo supply-chain.yml (run 36182463891).
-    portal_image_digest = "sha256:39f850baa2fdc6da86f4be343fb22efc559160933446e06efbe20e3cfa0a1a42"
+    // Onda 8 / D-O (25/09): mesma derivacao sobre o app f9c5ba9e (branch ops/onda8-assignment-owner,
+    // 4bd50928: fixes do plano de atribuicao). CodeBuild 4bd50928-portal-human, assinada pelo supply-chain.
+    portal_image_digest = "sha256:449369ff29d2e5bae5ef0e49bbc93bd5c7f274c6322cefef7806d06c9c41340a"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
     public_manifest_sha256 = "6ffe3a5d692f81b37a38fea066c1f259b80a882d381189019733815a7b1637ad"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
@@ -219,5 +221,18 @@ portal = {
     native_https_security_group_id    = "sg-07f59839f3e19a8f2"
     native_database_security_group_id = "sg-0a8364a76c605d782"
     native_database_port              = 5432
+  }
+
+  // Plano humano (Onda 8 / H5 + D-O). `portal-human-material.v1` remontado (mesmas chaves) com a
+  // admissao humana espelho rev 3 (engine com o fix do PortalReadCommand, code digest 4253d799);
+  // segredo D-G sob a CMK portal-staff, VersionId = material_version_id. O BFF so liga o `human`
+  // com `portal_assignment_source.state='active'` (staff-assignment, 25/09: active -> ja-ativa).
+  human = {
+    material_secret_arn        = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/human-materials-FAErGt"
+    material_secret_version_id = "amh-dev-human-73097339c50d1bc85fcfd7e459"
+    material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
+    public_manifest_sha256     = "e406724fadcffe4d636c1433895bcde786d4e4ff8d5d40f68ff2efa7d5f059ff"
+    // Imagem de operacao (tools.staff_ops human-init), CodeBuild 4bd50928-staff-ops, assinada.
+    init_image_digest = "sha256:becc9e37e8d2afef854b79f14eedbc18f12b143722eee0651d39222b1e9179ee"
   }
 }
