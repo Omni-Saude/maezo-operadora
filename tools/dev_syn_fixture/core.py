@@ -766,3 +766,41 @@ def auth_instance_exists(client: httpx.Client, tenant: str, guide_number: str) -
         params={"businessKey": auth_instance_key(tenant, guide_number), "tenantIdIn": tenant},
     ).json()
     return bool(found)
+
+
+def escalation_state(client: httpx.Client, tenant: str, guide_number: str) -> str:
+    """`absent` (nunca aberta), `live` (instancia viva COM tarefa humana), `pending` (viva, tarefa
+    ainda nao criada: as externas completam) ou `closed` (so no historico: SLA e tarefa encerrados)."""
+    key = escalation_key(tenant, guide_number)
+    running = client.get("/process-instance", params={"businessKey": key, "tenantIdIn": tenant}).json()
+    if running:
+        tasks = client.get(
+            "/task", params={"processInstanceBusinessKey": key, "taskDefinitionKey": HUMAN_TASK}
+        ).json()
+        return "live" if tasks else "pending"
+    history = client.get(
+        "/history/process-instance", params={"processInstanceBusinessKey": key, "tenantIdIn": tenant}
+    ).json()
+    return "closed" if history else "absent"
+
+
+#: `numero_guia_tiss` tem no maximo 20 caracteres (GuideIdentity): `SYN-R` + AAMMDDhhmmss = 17,
+#: `N<1..99>` = ate 20. Medido no dev em 26/09: `SYN-DEVGUIA2R20260926...` (27) quebrava a validacao.
+GUIDE_MAX_LENGTH = 20
+
+
+def fresh_guide(base: str, now: datetime, taken: Callable[[str], bool]) -> str:
+    """Guia `SYN-` NOVA com sufixo unico por execucao (UTC ate o segundo + contador), <= 20 chars.
+
+    `base` so passa pelas cercas (tem de ser uma guia SYN- valida); o numero novo nao a repete,
+    porque base + sufixo estoura o limite do `numero_guia_tiss`."""
+    if not GUIDE_PATTERN.fullmatch(base):
+        raise SyntheticRefusedError(f"guia base fora de {GUIDE_PATTERN.pattern}: {base!r}")
+    stem = "SYN-R" + now.strftime("%y%m%d%H%M%S")
+    for counter in range(100):
+        candidate = stem if counter == 0 else f"{stem}N{counter}"
+        if not GUIDE_PATTERN.fullmatch(candidate) or len(candidate) > GUIDE_MAX_LENGTH:
+            raise SyntheticRefusedError(f"guia derivada fora de {GUIDE_PATTERN.pattern}: {candidate!r}")
+        if not taken(candidate):
+            return candidate
+    raise SyntheticRefusedError("sem sufixo livre para a guia derivada")

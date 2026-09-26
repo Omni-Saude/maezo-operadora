@@ -7,6 +7,7 @@ Nao ha comando de raiz aqui (ver `approver.py`).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -33,6 +34,13 @@ def build_parser() -> argparse.ArgumentParser:
     make = commands.add_parser("generate", help="gera chaves, CAs, certificados, DSNs e o rascunho")
     make.add_argument("--spec", type=Path, required=True)
     make.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
+    rotate = commands.add_parser(
+        "next-designation", help="rascunho da revisao N+1 da designacao, mesmas chaves (rotacao)"
+    )
+    rotate.add_argument("--previous", type=Path, required=True, help="designation.json vigente")
+    rotate.add_argument("--not-before", required=True)
+    rotate.add_argument("--valid-until", required=True)
+    rotate.add_argument("--out", type=Path, required=True, help="arquivo NOVO (nao sobrescreve)")
     pack = commands.add_parser("assemble", help="monta o pacote portal-staff-material.v2 (sem tocar a raiz)")
     pack.add_argument("--materials", type=Path, required=True, help="saida do generate")
     pack.add_argument("--spec", type=Path, required=True, help="o mesmo spec do generate")
@@ -40,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--approver", type=Path, required=True, help="installation-root.der + installation-proof.json"
     )
     pack.add_argument("--input", type=Path, required=True, help="staff-materials-assemble.v1")
+    pack.add_argument("--designation", type=Path, help="rotacao: designation.json N+1 (mesmas chaves)")
     pack.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     check = commands.add_parser("verify", help="confere um pacote com o loader do portal")
     check.add_argument("--bundle", type=Path)
@@ -57,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     native.add_argument("--input", type=Path, required=True, help="staff-materials-native-secret.v1")
     native.add_argument("--out", type=Path, required=True, help="diretorio NOVO, fora do repositorio")
     native.add_argument("--human-keys", type=Path, help="public/human-keys-summary.json do human-bundle keys")
+    native.add_argument(
+        "--designation",
+        type=Path,
+        help="rotacao: designation.json N+1 (mesmas chaves) que o engine passa a pinar",
+    )
     human_bundle.add_parser(commands)
     assignment_trust.add_parser(commands)
     logins = commands.add_parser(
@@ -80,6 +94,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"continuity_commitment={summary['continuity']['commitment']}")
             print("falta do aprovador: installation-root.der e installation-proof.json")
             return 0
+        if args.command == "next-designation":
+            from .generate import next_designation
+
+            draft = canonicalize(
+                next_designation(
+                    strict_loads(args.previous.read_bytes()),
+                    not_before=args.not_before,
+                    valid_until=args.valid_until,
+                )
+            )
+            write_new(args.out, draft, PUBLIC)
+            print(f"designation_sha256={hashlib.sha256(draft).hexdigest()} (rascunho, SEM assinatura)")
+            return 0
         if args.command == "assemble":
             portal, approver_files, summary = read_directories(args.materials, args.approver)
             public, files = assemble(
@@ -88,6 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 summary,
                 load_spec(args.spec.read_bytes()),
                 load_input(args.input.read_bytes()),
+                designation=args.designation.read_bytes() if args.designation else None,
             )
             out = new_private_directory(args.out, forbidden=(REPO,))
             write_new(out / "bundle.json", bundle_bytes(public, files), PRIVATE)
@@ -116,6 +144,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 (args.approver / "installation-root.der").read_bytes(),
                 load_native_input(args.input.read_bytes(), human),
                 human_client_ca=human["client_ca_pem"].encode("ascii") if human else None,
+                designation=args.designation.read_bytes() if args.designation else None,
             )
             written = write_native_materials(args.out, files, public)
             # So digests publicos (fingerprints) vao para a saida; nenhum byte de `files` e impresso.

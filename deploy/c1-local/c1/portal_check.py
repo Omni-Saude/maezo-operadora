@@ -213,6 +213,11 @@ async def run() -> None:
     seen = cases(inside[1])
     ok = inside[0] == 200 and len(seen) >= 1 and (outside[0] != 200 or not set(seen) & set(cases(outside[1])))         and (outside[0] != 200 or cases(outside[1]) == [])
     step("portal", ok, f"{lifespan}; /cases no grupo -> {inside[0]} {inside[1]!r}; outro grupo -> {outside[0]} {outside[1]!r}")
+    if sys.argv[1] == "portal-r2":
+        # Depois da rotacao, quem NAO tem caso recebe a lista vazia (200), nunca 503: o checkpoint
+        # dele tem de ter sido reassinado sob a r2 mesmo sem mudanca de insumo.
+        empty = outside[0] == 200 and cases(outside[1]) == [] and '"items":[]' in outside[1]
+        step("portal-r2-sem-caso", empty, f"staff-c1-outro-grupo /cases -> {outside[0]} {outside[1][:160]!r}")
     _check_dm()
 
 
@@ -238,6 +243,13 @@ def _check_dm() -> None:
         if esc.get("escalation_state") != "resolved" or esc.get("reason_code") != "solicitacao_humano"                 or not re.fullmatch(r"P[1-9]", esc.get("priority") or "") or not esc.get("ack_due_at")                 or not esc.get("resolution_due_at") or esc["ack_due_at"] > esc["resolution_due_at"]:
             problems.append(f"{name} {esc!r}")
     step("portal-dm", not problems, "; ".join(problems) or f"list={listed!r}; detail={detailed!r}")
+    if sys.argv[1] == "portal-r2":
+        # Onda 8: sob a designacao r2 (emissor com `staff_current_task.v1`) o detalhe lista a tarefa.
+        expected = state("rotation").get("case_live_tasks", [])
+        shown = re.findall(r'"task_id":"([^"]+)"', raw) if status == 200 else []
+        ok = status == 200 and sorted(shown) == sorted(expected)
+        step("portal-r2", ok, f"/cases sob a r2 -> {ref}; detalhe {status}; tarefas vivas da instancia do caso="
+             f"{expected} no detalhe={shown}" + ("" if expected else " (sem tarefa viva no caso: omitida, H3)"))
 
 
 def main() -> None:

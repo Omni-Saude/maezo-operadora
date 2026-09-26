@@ -187,21 +187,23 @@ portal = {
     material_secret_arn = "arn:aws:secretsmanager:sa-east-1:203312548462:secret:maezo-operadora/dev/portal/amh/staff-materials-R8JeAL"
     // O VersionId do segredo E o `material_version_id` do pacote (vira MAEZO_PORTAL_STAFF_MATERIAL_VERSION_ID):
     // publicado com ClientRequestToken = material_version_id. Um VersionId aleatorio derruba o init.
-    material_secret_version_id = "amh-dev-staff-33ebb909c424cdfb8226b4ce28"
+    material_secret_version_id = "amh-dev-staff-712901cc567620d5601262e6dd"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     // deploy/portal.Dockerfile sobre o app 8c3a2938 (branch ops/staff-onda4-runtime), CodeBuild
     // `8229e2ca-portal-staff`; assinado + SBOM pelo supply-chain.yml (run 36182463891).
     // Onda 8 / D-O (25/09): mesma derivacao sobre o app f9c5ba9e (branch ops/onda8-assignment-owner,
-    // 4bd50928: fixes do plano de atribuicao). CodeBuild 4bd50928-portal-human, assinada pelo supply-chain.
-    portal_image_digest = "sha256:449369ff29d2e5bae5ef0e49bbc93bd5c7f274c6322cefef7806d06c9c41340a"
+    // 4bd50928: fixes do plano de atribuicao). CodeBuild 4bd50928-portal-human.
+    // 26/09, rotacao r1->r2 da designacao (PR #548): app 4e0936ec (7eae230a), CodeBuild
+    // 7eae230a-portal-human, assinada pelo supply-chain; pacote staff da r2.
+    portal_image_digest = "sha256:33defe94e06d95964d77d270d8b60392b9fe718d7dbd4f02d8a18374478eefdd"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
-    public_manifest_sha256 = "6ffe3a5d692f81b37a38fea066c1f259b80a882d381189019733815a7b1637ad"
+    public_manifest_sha256 = "fcc2e9fa4b831edf759119a80c49a4b257d6c21a2b499ba38df3a3bf7e80b1be"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
     root_key_sha256 = "de41c7a0ebac65b3a90a2405002e5118f18ca76dfd38b7ef52161fb44865942c"
     // Designacao assinada e instalada (tools.staff_ops rows, releitura byte a byte).
-    designation_sha256 = "86e47bc2e24a92e261acfec69933ea729684b9f63184a43aa7ef8a258434954b"
+    designation_sha256 = "4f8cf21c9309dc4d41aae1a5527c7fc73beb2dce32da37f0e0731725e479dcda"
     // Log do boot do engine vivo: staff_native_configuration_digest=
-    native_configuration_sha256 = "3eec4f4bef91e8ea63df0627cfcf545c9bb31c895cd12c014bc816fe28ceadc8"
+    native_configuration_sha256 = "4fa5d916f7fb1e50fe6a1182d2c8bdf3a32af8b22ee3460ebd65c076f0c4cd5c"
     scope = {
       tenant               = "amh"
       environment          = "dev"
@@ -233,6 +235,6 @@ portal = {
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     public_manifest_sha256     = "e406724fadcffe4d636c1433895bcde786d4e4ff8d5d40f68ff2efa7d5f059ff"
     // Imagem de operacao (tools.staff_ops human-init), CodeBuild 4bd50928-staff-ops, assinada.
-    init_image_digest = "sha256:becc9e37e8d2afef854b79f14eedbc18f12b143722eee0651d39222b1e9179ee"
+    init_image_digest = "sha256:01eb1771e2fde81586210a6904530887475a25d10c62002d5cbf75dcc3b1a704"
   }
 }

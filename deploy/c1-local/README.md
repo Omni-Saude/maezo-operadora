@@ -24,6 +24,9 @@ Diagnóstico: `python -m c1.sql <login> "<sql>"` (no serviço `runner`), `python
 pilha do primeiro `Rejected` do plugin, que recusa sem logar o motivo). Pré-requisito: Docker Engine 29
 (volume `subpath`), portas livres 15499 e 18499 em 127.0.0.1. Nada é copiado para dentro de container:
 o checkout entra por bind read-only em `/repo`; os segredos vivem só no volume.
+Com outro C1 no ar (outra sessão), isole: `C1_PROJECT=maezo-c1b C1_IMG=maezo-c1b C1_PG_PORT=15631
+C1_ENGINE_PORT=18631 bash deploy/c1-local/run.sh all` (projeto, imagens e portas próprios; o `down` só
+apaga o projeto dado).
 
 ## O que cada passo faz
 
@@ -43,6 +46,7 @@ o checkout entra por bind read-only em `/repo`; os segredos vivem só no volume.
 | `portal-init` / `portal` | `materialize` do pacote; `create_production_app()` + login + `GET /api/v1/portal/cases` para os dois principais | BFF de produção |
 | `assignment` | Onda 8: logins outbox/source/admin + os SQL de grants do repo pelo dono do schema; fonte de atribuição congelada, assinada, publicada e ACK nativo (2ª rodada = `ja-ativa`). O trust (`assignment-trust.json`) e a linha `MZO_HUMAN_ASSIGNMENT_INSTALLATION` nascem no `engine-config` | `tools.staff_materials assignment-plane`, `tools.staff_ops.assignment` |
 | `portal-human` | BFF com `capabilities=identity,staff_cases,human`: `GET /api/v1/portal/tasks?queue=mine|team` para os dois principais | BFF de produção |
+| `rotate` | Onda 8: designação r1→r2 (mesmas chaves; `case_issuer` com `staff_current_task.v1` e política `@d2`) assinada pela raiz de TESTE; `rows.verify_designation` recusa prova de outra raiz; `rows.install_designation` como o dono: `rotacionada r1->r2`, 2ª vez `igual`, r1 depois = recusada; histórico `[1, 2]`; emissor com a composição da r2 | `tools.staff_materials next-designation` + `sign-designation`, `tools.staff_ops.rows` |
 
 ## Resultado medido (24/09/2026, Docker Engine 29.8.0)
 

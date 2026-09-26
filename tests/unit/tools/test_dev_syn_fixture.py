@@ -306,3 +306,89 @@ def test_open_escalation_idempotent(existing: bool) -> None:
     assert outcome.groups == ["plantao-clinico"] and outcome.auth_instances == 1
     if started:
         assert started[0]["businessKey"] == "ESC-amh-sla-auth-SYN-DEVGUIA1"
+
+
+# --- escalacao encerrada -> guia nova (Onda 8) ---------------------------------------------------
+
+
+def _rest(running: bool, history: bool, tasks: bool) -> httpx.Client:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/history/process-instance"):
+            return httpx.Response(200, json=[{"id": "h"}] if history else [])
+        if path.endswith("/process-instance"):
+            return httpx.Response(200, json=[{"id": "x"}] if running else [])
+        if path.endswith("/task"):
+            return httpx.Response(200, json=[{"id": "t"}] if tasks else [])
+        return httpx.Response(404)
+
+    return httpx.Client(base_url="http://engine/engine-rest", transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.parametrize(
+    ("running", "history", "tasks", "expected"),
+    [
+        (False, False, False, "absent"),
+        (True, True, True, "live"),
+        (True, False, False, "pending"),
+        (False, True, False, "closed"),
+    ],
+)
+def test_escalation_state(running: bool, history: bool, tasks: bool, expected: str) -> None:
+    with _rest(running, history, tasks) as client:
+        assert core.escalation_state(client, "amh", "SYN-DEVGUIA1") == expected
+
+
+def test_fresh_guide_is_synthetic_and_unique() -> None:
+    taken = {"SYN-R260924120000"}
+    guide = core.fresh_guide("SYN-DEVGUIA1", NOW, lambda g: g in taken)
+    assert guide == "SYN-R260924120000N1"
+    assert core.GUIDE_PATTERN.fullmatch(guide) and len(guide) <= core.GUIDE_MAX_LENGTH
+    assert core.fresh_guide("SYN-DEVGUIA1", NOW, lambda g: False) == "SYN-R260924120000"
+    # O ultimo contador ainda cabe no numero_guia_tiss (20).
+    last = core.fresh_guide("SYN-DEVGUIA1", NOW, lambda g: not g.endswith("N99"))
+    assert last == "SYN-R260924120000N99" and len(last) == core.GUIDE_MAX_LENGTH
+    with pytest.raises(core.SyntheticRefusedError):
+        core.fresh_guide("SYN-devguia", NOW, lambda g: False)
+    with pytest.raises(core.SyntheticRefusedError):
+        core.fresh_guide("SYN-DEVGUIA1", NOW, lambda g: True)
+
+
+class _StopError(Exception):
+    pass
+
+
+@pytest.mark.parametrize("closed", [True, False])
+def test_run_replaces_a_closed_guide_before_any_write(monkeypatch: pytest.MonkeyPatch, closed: bool) -> None:
+    seen: list[str] = []
+
+    async def no_claims(config: Any, fn: Any, *args: Any) -> list[str]:
+        return []  # nenhuma guia real reivindicada
+
+    monkeypatch.setattr(dev, "_db", no_claims)
+    monkeypatch.setattr(
+        core,
+        "escalation_state",
+        lambda rest, tenant, guide: "closed" if closed and guide == "SYN-DEVGUIA1" else "absent",
+    )
+    monkeypatch.setattr(core, "auth_instance_exists", lambda rest, tenant, guide: False)
+
+    def stop(rest: Any, tenant: str) -> Any:
+        raise _StopError
+
+    monkeypatch.setattr(core, "deployed_definition", stop)
+    original = dev.Config.refs
+
+    def refs(self: dev.Config) -> core.FixtureRefs:
+        seen.append(self.guide_number)
+        return original(self)
+
+    monkeypatch.setattr(dev.Config, "refs", refs)
+    with pytest.raises(_StopError):
+        dev.run(load(config()))
+    assert seen[0] == "SYN-DEVGUIA1"
+    if closed:
+        assert seen[-1].startswith("SYN-R") and core.GUIDE_PATTERN.fullmatch(seen[-1])
+        assert len(seen[-1]) <= core.GUIDE_MAX_LENGTH
+    else:
+        assert set(seen) == {"SYN-DEVGUIA1"}

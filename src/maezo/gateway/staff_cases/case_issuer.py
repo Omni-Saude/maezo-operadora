@@ -345,6 +345,8 @@ class CheckpointState:
     grants_key: tuple[tuple[str, str, int], ...]
     valid_until: datetime
     active: bool
+    # Instante da assinatura (prova) do checkpoint. `None` = ledger anterior a este campo.
+    signed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -413,8 +415,15 @@ def plan(
     scope: Scope,
     now: datetime,
     renew_before: timedelta = timedelta(hours=24),
+    signed_after: datetime | None = None,
 ) -> Plan:
-    """O que publicar para que o engine reflita EXATAMENTE a regra N3 sobre o estado atual."""
+    """O que publicar para que o engine reflita EXATAMENTE a regra N3 sobre o estado atual.
+
+    `signed_after` = `not_before` da entrada `case_issuer` da designacao VIGENTE: o engine recusa
+    prova assinada antes dele, ou sob outro `policy_ref` (`StaffCaseInstallation.proof`/`entry`).
+    Depois de uma rotacao, todo checkpoint assinado antes, herdado de outra politica ou sem instante
+    conhecido e reemitido, inclusive o de quem tem zero casos, cujos insumos nao mudaram.
+    """
     live = tuple(escalations)
     people = tuple(sorted(grantees, key=lambda g: g.principal_ref))
     # Uma fonte que devolve outro tenant e um defeito da fonte, nao um caso a filtrar em silencio.
@@ -503,6 +512,10 @@ def plan(
             or checkpoint.policy_revision != revision
             or checkpoint.grants_key != wanted_key
             or checkpoint.valid_until - now < renew_before
+            # Sem instante conhecido (ledger antigo, ou herdado de OUTRA politica na rotacao: a prova
+            # foi assinada sob outro `policy_ref`) ou assinado antes do inicio da designacao vigente.
+            or checkpoint.signed_at is None
+            or (signed_after is not None and checkpoint.signed_at < signed_after)
         ):
             tail.append(ScopeAction(grantee))
     for principal_ref, checkpoint in sorted(state.checkpoints.items()):
@@ -571,6 +584,7 @@ def apply(state: IssuerState, publication: StaffPublication) -> IssuerState:
             grants_key=key,
             valid_until=timestamp(payload.valid_until),
             active=True,
+            signed_at=timestamp(publication.proof.issued_at),
         )
     return IssuerState(
         source_revision, policy, MappingProxyType(grants), MappingProxyType(checkpoints), state.pending
@@ -600,6 +614,8 @@ class StaffCaseIssuer:
             raise CaseIssuerError("not_the_designated_case_issuer")
         self.signer, self.scope, self.source_ref, self.policy = signer, scope, source_ref, policy
         self.key_fingerprint = entry.key_fingerprint
+        # O engine so aceita prova do emissor assinada a partir do inicio da entrada vigente.
+        self.signed_after = timestamp(entry.not_before)
 
     def _signed(
         self, value: dict[str, Any], purpose: str, until: datetime, name: str = "proof"
@@ -926,6 +942,7 @@ def encode_state(state: IssuerState) -> bytes:
                     grants_key=[[a, b, str(n)] for a, b, n in c.grants_key],
                     valid_until=instant(c.valid_until),
                     active=c.active,
+                    **({} if c.signed_at is None else {"signed_at": instant(c.signed_at)}),
                 )
                 for p, c in sorted(state.checkpoints.items())
             ],
@@ -1011,7 +1028,7 @@ def decode_state(raw: bytes, pending: bytes | None) -> IssuerState:
         checkpoints: dict[str, CheckpointState] = {}
         for c in doc["checkpoints"]:
             if (
-                set(c) != _CHECKPOINT_KEYS
+                set(c) not in (_CHECKPOINT_KEYS, _CHECKPOINT_KEYS | {"signed_at"})
                 or type(c["active"]) is not bool
                 or c["principal_ref"] in checkpoints
             ):
@@ -1025,6 +1042,7 @@ def decode_state(raw: bytes, pending: bytes | None) -> IssuerState:
                 grants_key=tuple((str(a), str(b), n(r)) for a, b, r in c["grants_key"]),
                 valid_until=timestamp(c["valid_until"]),
                 active=c["active"],
+                signed_at=timestamp(c["signed_at"]) if "signed_at" in c else None,
             )
         return IssuerState(
             n(doc["source_revision"]),
@@ -1129,6 +1147,7 @@ class StaffCaseIssuerJob:
             policy=self.issuer.policy,
             scope=self.issuer.scope,
             now=self.clock(),
+            signed_after=getattr(self.issuer, "signed_after", None),
         )
         counts = {"grants": 0, "revokes": 0, "checkpoints": 0, "published": 0}
         for action in result.actions:

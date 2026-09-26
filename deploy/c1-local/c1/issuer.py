@@ -42,13 +42,15 @@ def _escalation(client: httpx.Client) -> tuple[str, list[str]]:
     return str(outcome.tasks), [*outcome.groups, f"{core.auth_instance_key(TENANT, GUIDE)}={outcome.auth_instances}"]
 
 
-def composition() -> Path:
+def composition(run: Path = RUN, designation: Path | None = None, proof: Path | None = None,
+                designation_digest: str | None = None) -> Path:
+    """A composicao do emissor; `designation`/`proof`/`designation_digest` trocam a revisao (passo `rotate`)."""
     engine, materials = state("engine"), state("materials")
     pins = state("pins")["relations"]
-    RUN.mkdir(mode=0o700, exist_ok=True)
+    run.mkdir(mode=0o700, exist_ok=True)
     copies = {
-        "designation.json": MATERIALS / "portal/designation.json",
-        "installation-proof.json": APPROVER_OUT / "installation-proof.json",
+        "designation.json": designation or MATERIALS / "portal/designation.json",
+        "installation-proof.json": proof or APPROVER_OUT / "installation-proof.json",
         "installation-root.der": APPROVER_OUT / "installation-root.der",
         "case-issuer-signing-key.pem": MATERIALS / "issuer/case-issuer-signing-key.pem",
         "issuer-witness-signing-key.pem": MATERIALS / "issuer/issuer-witness-signing-key.pem",
@@ -58,17 +60,17 @@ def composition() -> Path:
         "importer-signing-key.pem": MATERIALS / "issuer/publication-importer-signing-key.pem",
     }
     for name, source in copies.items():
-        write(RUN / name, source.read_bytes(), 0o400)
+        write(run / name, source.read_bytes(), 0o400)
     for login, name in ((ISSUER_LOGIN, "issuer-dsn.txt"), (ISSUER_WITNESS_LOGIN, "witness-dsn.txt")):
         secret = quote(read_text(ADMIN / f"{login}-password"), safe="")
-        write(RUN / name, f"postgresql+asyncpg://{login}:{secret}@postgres:5432/maezo", 0o400)
+        write(run / name, f"postgresql+asyncpg://{login}:{secret}@postgres:5432/maezo", 0o400)
     summary = materials["summary"]
     value = {
         "schema": "staff-case-issuer-composition.v1", "tenant": TENANT, "environment": summary["scope"]["environment"],
         "engine_name": summary["scope"]["engine_name"], "database_incarnation": summary["scope"]["database_incarnation"],
         "native_schema": "maezo_native", "membership_schema": TENANT, "designation_file": "designation.json",
         "installation_proof_file": "installation-proof.json", "root_public_key_file": "installation-root.der",
-        "designation_digest": materials["designation_digest"], "revoked_fingerprints": [],
+        "designation_digest": designation_digest or materials["designation_digest"], "revoked_fingerprints": [],
         "case_issuer_key_file": "case-issuer-signing-key.pem", "witness_key_file": "issuer-witness-signing-key.pem",
         "issuer_dsn_file": "issuer-dsn.txt", "witness_dsn_file": "witness-dsn.txt",
         "relation_pins": {t: {"oid": int(pins[t]["oid"]), "owner": pins[t]["owner"]}
@@ -81,20 +83,23 @@ def composition() -> Path:
                    "configuration_digest": engine["configuration_digest"]},
         "seconds": 10,
     }
-    path = RUN / "composition.json"
+    path = run / "composition.json"
     write(path, json.dumps(value), 0o400)
     return path
+
+
+def run_issuer(path: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, "-m", "maezo.gateway.staff_cases"], capture_output=True, text=True,
+                               env={**os.environ, "MAEZO_STAFF_CASE_ISSUER_FILE": str(path),
+                                    # verify-full: no C1 a raiz e a CA descartavel do postgres local
+                                    "SSL_CERT_FILE": str(PGTLS / "ca.pem")})
 
 
 def main() -> None:
     with httpx.Client(base_url=REST, timeout=30, trust_env=False) as client:
         deployment = _deploy(client)
         tasks, groups = _escalation(client)
-    path = composition()
-    completed = subprocess.run([sys.executable, "-m", "maezo.gateway.staff_cases"], capture_output=True, text=True,
-                               env={**os.environ, "MAEZO_STAFF_CASE_ISSUER_FILE": str(path),
-                                    # verify-full: no C1 a raiz e a CA descartavel do postgres local
-                                    "SSL_CERT_FILE": str(PGTLS / "ca.pem")})
+    completed = run_issuer(composition())
     line = (completed.stdout.strip().splitlines() or [completed.stderr.strip()[-300:]])[-1]
     step("issuer", completed.returncode == 0 and '"grants": 1' in line,
          f"deploy {deployment.get('id', '?')[:8]} (tenant {TENANT}); UT_TratarEscalonamento={tasks} grupo(s) candidato {groups}; "

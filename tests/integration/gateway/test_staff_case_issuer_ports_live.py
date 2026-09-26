@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -27,7 +28,7 @@ from tests.integration.gateway.test_staff_case_issuer_live import _deploy, _driv
 from tests.unit.deploy.test_engine_native_install_pg import Env, _with_env
 from tests.unit.gateway.test_staff_case_issuer import ESCALATIONS, SCOPE, A, B, C, run, world
 
-from maezo.gateway.staff_cases.case_issuer import CaseIssuerError, StaffCaseIssuerJob
+from maezo.gateway.staff_cases.case_issuer import CaseIssuerError, ScopeAction, StaffCaseIssuerJob, plan
 from maezo.gateway.staff_cases.case_issuer_sources import (
     AuthClaimAnchor,
     EngineEscalationSource,
@@ -86,6 +87,40 @@ async def test_ledger_is_durable_cas_and_one_row_per_policy_ref() -> None:
             job2, sent2 = run(w, ESCALATIONS, (A, B, C), again)  # type: ignore[arg-type]
             assert (await job2.run_once()).published == 0 and sent2 == []
 
+            # D-H.6 + Onda 8 (rotacao da designacao): policy_ref novo = linha nova, mas fonte, grants e
+            # checkpoints sao cadeias do ENGINE (nao da politica): continuam de onde estao (recomecar do
+            # zero repetia `source@1`/`grant_revision=1` com outro pedido -> READ_REVISION_CONFLICT).
+            # A politica nao passa: sob ela o plano reemite tudo na revisao seguinte de cada cadeia.
+            before = await again.load()
+            rotated_ledger = PostgresIssuerLedger(
+                engine, scope=SCOPE, policy_ref="staff-escalation-routing@d2"
+            )
+            rotated = await rotated_ledger.load()
+            assert rotated.source_revision == len(sent) and rotated.policy is None
+            assert rotated.grants == before.grants
+            assert {p: replace(c, signed_at=None) for p, c in before.checkpoints.items()} == dict(
+                rotated.checkpoints
+            )  # herdados sem instante: assinados sob o policy_ref antigo
+            assert before.grants and before.policy is not None
+            # O instante de assinatura do checkpoint sobrevive ao ledger real e, sob a designacao
+            # vigente (inicio depois dele), TODO checkpoint e reassinado, inclusive sem mudanca de insumo.
+            signed = [c.signed_at for c in before.checkpoints.values()]
+            assert signed and all(s is not None for s in signed)  # o instante sobrevive ao ledger real
+            after = max(s for s in signed if s is not None) + timedelta(seconds=1)
+            for current, signed_after in ((rotated, None), (before, after)):
+                resign = plan(
+                    escalations=ESCALATIONS,
+                    grantees=(A, B, C),
+                    state=current,
+                    policy=w.policy,
+                    scope=SCOPE,
+                    now=datetime.now(UTC),
+                    signed_after=signed_after,
+                )
+                assert {a.grantee.principal_ref for a in resign.actions if isinstance(a, ScopeAction)} == {
+                    g.principal_ref for g in (A, B, C)
+                }
+
             # CAS: duas copias carregadas; a segunda escrita perde, nada e sobrescrito.
             x = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref=w.policy.policy_ref)
             y = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref=w.policy.policy_ref)
@@ -98,9 +133,10 @@ async def test_ledger_is_durable_cas_and_one_row_per_policy_ref() -> None:
             with pytest.raises(CaseIssuerError, match="pending_publication"):
                 await y.begin(b'{"b":"2"}')
 
-            # D-H.6: policy_ref novo = linha nova, revisao recomecando do zero.
-            fresh = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref="staff-escalation-routing@d2")
-            assert (await fresh.load()).source_revision == 0
+            # Com publicacao pendente em outra politica, a linha nova nao nasce (recupera-se antes).
+            fresh = PostgresIssuerLedger(engine, scope=SCOPE, policy_ref="staff-escalation-routing@d3")
+            with pytest.raises(CaseIssuerError, match="pending_publication_other_policy"):
+                await fresh.load()
         finally:
             await engine.dispose()
 

@@ -44,7 +44,7 @@ from maezo.gateway.external_cases.models import Digest, Ref, parse, timestamp
 from maezo.gateway.staff_cases.models import Closed, N, T
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
-from .generate import JOB_CLIENT, JOB_KEY_FILES, REPO
+from .generate import JOB_CLIENT, JOB_KEY_FILES, REPO, check_rotation
 from .secure_io import PRIVATE, PUBLIC, MaterialError, new_private_directory, subdirectory, write_new
 
 # Alias curto de proposito: `key: <NomeDeClasseLongo>` casa com a regra generic-api-key do gitleaks
@@ -290,12 +290,19 @@ def _truststore(engine: Path, human_client_ca: bytes | None) -> bytes:
     )
 
 
+def rotated_designation_digest(materials: Path, raw: bytes) -> str:
+    """O engine pina o digest da designacao na composicao staff: a revisao N+1 so vale com um
+    segredo nativo novo com o digest dela (`check_rotation`)."""
+    return check_rotation((materials / "portal" / "designation.json").read_bytes(), raw)
+
+
 def build(
     materials: Path,
     root_public_key: bytes,
     inputs: NativeSecretInput,
     *,
     human_client_ca: bytes | None = None,
+    designation: bytes | None = None,
 ) -> tuple[dict[str, bytes], dict[str, Any]]:
     """Devolve ({caminho relativo: bytes}, resumo publico). Nao escreve disco.
 
@@ -304,6 +311,9 @@ def build(
     """
     summary = strict_loads((materials / "public" / "summary.json").read_bytes())
     engine, job = materials / "engine", materials / "job"
+    designation_sha256 = summary["designation_sha256"]
+    if designation is not None:
+        designation_sha256 = rotated_designation_digest(materials, designation)
     try:
         root = serialization.load_der_public_key(root_public_key)
     except Exception:
@@ -436,7 +446,7 @@ def build(
     configuration = dict(
         schema="staff-case-native-configuration.v2",
         auth_scope=staff.auth_scope.wire(),
-        designation_digest=summary["designation_sha256"],
+        designation_digest=designation_sha256,
         root_key_fingerprint=_sha256(root_public_key),
         result_key_fingerprint=_sha256(_spki(result_key)),
         native_role=staff.native_role,
@@ -451,7 +461,7 @@ def build(
     composition = dict(
         schema="staff-deployment-composition.v1",
         auth_scope=staff.auth_scope.wire(),
-        designation_digest=summary["designation_sha256"],
+        designation_digest=designation_sha256,
         root_public_key=_b64(root_public_key),
         result_public_key=_b64(_spki(result_key)),
         result_private_key_file="native-result.pk8",

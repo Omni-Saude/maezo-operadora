@@ -31,6 +31,7 @@ import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from types import MappingProxyType
 from typing import Any
 
 import httpx
@@ -499,15 +500,19 @@ class PostgresIssuerLedger:
     async def load(self) -> IssuerState:
         async with self.engine.begin() as connection:
             await self._begin(connection)
-            await connection.execute(
-                text(
-                    f"INSERT INTO {self.table} (tenant, environment, engine_name, database_incarnation,"
-                    " policy_ref, revision, issued_state, pending_request) VALUES (:tenant, :environment,"
-                    " :engine_name, :database_incarnation, :policy_ref, 0, :state, NULL)"
-                    " ON CONFLICT DO NOTHING"
-                ),
-                dict(self.key, state=encode_state(IssuerState.empty())),
-            )
+            exists = (
+                await connection.execute(text(f"SELECT 1 FROM {self.table} WHERE {self.where}"), self.key)
+            ).first()
+            if exists is None:
+                await connection.execute(
+                    text(
+                        f"INSERT INTO {self.table} (tenant, environment, engine_name, database_incarnation,"
+                        " policy_ref, revision, issued_state, pending_request) VALUES (:tenant, :environment,"
+                        " :engine_name, :database_incarnation, :policy_ref, 0, :state, NULL)"
+                        " ON CONFLICT DO NOTHING"
+                    ),
+                    dict(self.key, state=encode_state(await self._seed(connection))),
+                )
             row = (
                 await connection.execute(
                     text(
@@ -520,6 +525,41 @@ class PostgresIssuerLedger:
         pending = None if row.pending_request is None else bytes(row.pending_request)
         self._state = decode_state(bytes(row.issued_state), pending)
         return self._state
+
+    async def _seed(self, connection: Any) -> IssuerState:
+        """Estado inicial da linha de uma politica NOVA (rotacao da designacao: `@d{N}` -> `@d{N+1}`).
+
+        No engine as cadeias sao por fonte (`source_ref`), por `grant_ref` e por checkpoint, nao por
+        politica: recomecar do zero repetia `source@1` / `grant_revision=1` com outro pedido
+        (`READ_REVISION_CONFLICT`). A politica nova herda do ledger mais adiantado do escopo a
+        revisao da fonte, os grants e os checkpoints; a POLITICA nao passa (`policy=None`), entao o
+        plano publica o `policy_head` novo e reemite cada grant/checkpoint sob ele (intent com o
+        digest da politica nova -> revisao seguinte da mesma cadeia). Publicacao pendente em outra
+        politica = recusa, ate ela ser recuperada pela rodada da propria politica.
+        """
+        scope_where = (
+            "tenant=:tenant AND environment=:environment AND engine_name=:engine_name "
+            "AND database_incarnation=:database_incarnation AND policy_ref<>:policy_ref"
+        )
+        rows = (
+            await connection.execute(
+                text(
+                    f"SELECT issued_state, pending_request FROM {self.table} WHERE {scope_where} FOR UPDATE"
+                ),
+                self.key,
+            )
+        ).all()
+        latest = IssuerState.empty()
+        for row in rows:
+            if row.pending_request is not None:
+                raise CaseIssuerError("pending_publication_other_policy")
+            state = decode_state(bytes(row.issued_state), None)
+            if state.source_revision > latest.source_revision:
+                latest = state
+        # Os checkpoints herdados foram assinados sob o `policy_ref` antigo (o engine confere o
+        # namespace da prova): sem instante de assinatura, o plano reassina todos sob a politica nova.
+        checkpoints = {p: replace(c, signed_at=None) for p, c in latest.checkpoints.items()}
+        return replace(latest, policy=None, pending=None, checkpoints=MappingProxyType(checkpoints))
 
     async def _write(self, state: IssuerState) -> IssuerState:
         if self._revision is None or self._state is None:

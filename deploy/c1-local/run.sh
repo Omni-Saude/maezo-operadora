@@ -3,7 +3,7 @@
 #   run.sh all       roda tudo do zero (down -v, build, passos) e imprime uma linha medida por passo
 #   run.sh <passo>   um passo so: build tls db-base bootstrap materials db-native digests engine-config
 #                    engine-up auth-install auth-fixture seed publish issuer portal h1-task assignment
-#                    portal-human
+#                    portal-human rotate
 #   run.sh logs      linhas relevantes do log do engine
 #   run.sh down      apaga containers, rede e o volume c1private (chaves, senhas, raiz de TESTE)
 set -euo pipefail
@@ -13,15 +13,18 @@ REPO="$(cd "$HERE/../.." && pwd)"
 cd "$HERE"
 DC=(docker compose)
 RUN=("${DC[@]}" run --rm -T runner)
+# Isolamento (outra sessao com o C1 no ar): C1_PROJECT, C1_IMG, C1_PG_PORT, C1_ENGINE_PORT.
+export C1_IMG="${C1_IMG:-maezo-c1}"
+IMG="$C1_IMG"
 
 build() {
   docker build -q -f ../cibseven/Dockerfile.human --build-arg INSTALL_STAFF_COMPOSITION=true \
-    --build-arg INSTALL_PORTAL_READ=true -t maezo-c1-human:base ../.. >/dev/null
-  docker build -q -f engine.Dockerfile -t maezo-c1-engine:local ../.. >/dev/null
-  docker build -q -f ../cibseven/Dockerfile -t maezo-c1-legacy:local ../.. >/dev/null
-  docker build -q -f runner.Dockerfile -t maezo-c1-runner:local ../.. >/dev/null
-  docker build -q -f ../cibseven/Dockerfile.human --build-arg INSTALL_STAFF_COMPOSITION=false     --build-arg INSTALL_PORTAL_READ=true -t maezo-c1-human:nostaff ../.. >/dev/null
-  docker build -q -f engine.Dockerfile --build-arg C1_HUMAN_BASE=maezo-c1-human:nostaff     -t maezo-c1-engine:nostaff ../.. >/dev/null
+    --build-arg INSTALL_PORTAL_READ=true -t "$IMG"-human:base ../.. >/dev/null
+  docker build -q -f engine.Dockerfile --build-arg C1_HUMAN_BASE="$IMG"-human:base -t "$IMG"-engine:local ../.. >/dev/null
+  docker build -q -f ../cibseven/Dockerfile -t "$IMG"-legacy:local ../.. >/dev/null
+  docker build -q -f runner.Dockerfile -t "$IMG"-runner:local ../.. >/dev/null
+  docker build -q -f ../cibseven/Dockerfile.human --build-arg INSTALL_STAFF_COMPOSITION=false     --build-arg INSTALL_PORTAL_READ=true -t "$IMG"-human:nostaff ../.. >/dev/null
+  docker build -q -f engine.Dockerfile --build-arg C1_HUMAN_BASE="$IMG"-human:nostaff     -t "$IMG"-engine:nostaff ../.. >/dev/null
   echo "C1 build: PASS Dockerfile.human(STAFF_COMPOSITION=true,PORTAL_READ=true)+provedor, legado, runner"
 }
 
@@ -44,7 +47,7 @@ bootstrap() {
 }
 
 digests() {
-  docker run --rm --entrypoint sha256sum maezo-c1-engine:local \
+  docker run --rm --entrypoint sha256sum "$IMG"-engine:local \
     /camunda/lib/maezo-human-command.jar /camunda/lib/maezo-portal-read-provider.jar \
     | "${RUN[@]}" sh -c 'cat > /c1/state/code-digests.txt'
   echo "C1 digests: PASS sha256 dos JARs carregados (engine, provedor) lidos da imagem"
@@ -64,7 +67,7 @@ engine_up() {
   else
     cause=$("${DC[@]}" logs engine 2>&1 | grep -E "ENGINE-16004|at br\.com\.maezo" | sed -E 's/^engine-1 +\| +//; s/.*ENGINE-16004 //' | head -4 | tr '
 ' ' ')
-    echo "C1 engine-up: FAIL ${C1_ENGINE_IMAGE:-maezo-c1-engine:local} nao subiu: $cause"
+    echo "C1 engine-up: FAIL ${C1_ENGINE_IMAGE:-$IMG-engine:local} nao subiu: $cause"
   fi
 }
 
@@ -75,7 +78,7 @@ down() {
 
 py() {  # cada passo roda no servico que tem as montagens dele
   local service=runner
-  case "$1" in publish|h1-task|assignment) service=job ;; portal-human) service=portal-human ;; issuer|auth-install|auth-fixture) service=issuer ;; portal-init) service=portal-init ;; portal) service=portal ;; esac
+  case "$1" in publish|h1-task|assignment) service=job ;; portal-human) service=portal-human ;; issuer|rotate|rotate-issuer|auth-install|auth-fixture) service=issuer ;; portal-init) service=portal-init ;; portal|portal-r2) service=portal ;; esac
   "${DC[@]}" --profile engine --profile tools run --rm -T "$service" python -m c1 "$1"
 }
 
@@ -86,13 +89,13 @@ case "${1:-all}" in
   bootstrap) bootstrap ;;
   digests) digests ;;
   engine-up)  # engine-up [staff|nostaff] [debug]
-    if [ "${2:-staff}" = nostaff ]; then export C1_ENGINE_IMAGE=maezo-c1-engine:nostaff; fi
+    if [ "${2:-staff}" = nostaff ]; then export C1_ENGINE_IMAGE="$IMG"-engine:nostaff; fi
     if [ "${3:-}" = debug ]; then
       export C1_JAVA_OPTS="-Xms256m -Xmx768m -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
     fi
     engine_up ;;
   logs) engine_logs "${2:-40}" ;;
-  materials|db-native|engine-config|assemble|w1|auth-install|auth-fixture|seed|publish|issuer|portal-init|portal|h1-task|assignment|portal-human) py "$1" ;;
+  materials|db-native|engine-config|assemble|w1|auth-install|auth-fixture|seed|publish|issuer|portal-init|portal|h1-task|assignment|portal-human|rotate|rotate-issuer|portal-r2) py "$1" ;;
   down) down ;;
   all)
     down; build
@@ -106,6 +109,10 @@ case "${1:-all}" in
     py h1-task || true               # H1-H4 (D-N): fonte real de tarefas no job T1.5, sem D11-D13
     py assignment || true            # Onda 8: plano de atribuicao ATIVO pelo instalador/ops do repo
     py portal-init || true; py portal || true    # /cases sob a admissao revisao 2 (regressao do staff)
-    py portal-human || true ;;       # Onda 8: /tasks?queue=mine|team com o plano humano ligado
+    py portal-human || true          # Onda 8: /tasks?queue=mine|team com o plano humano ligado
+    py rotate || true                # Onda 8: designacao r1->r2 pelo `rows` + segredo nativo com o digest da r2
+    engine_up                        # o engine pina a designacao na composicao staff: reinicia com a r2
+    py assemble; py portal-init || true   # o portal tambem pina: pacote novo da r2, task nova
+    py rotate-issuer || true; py portal-r2 || true ;;   # emissor sob a r2; /cases + detalhe com a tarefa
   *) echo "passo desconhecido: $1" >&2; exit 2 ;;
 esac

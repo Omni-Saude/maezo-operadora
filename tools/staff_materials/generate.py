@@ -41,7 +41,7 @@ from maezo.gateway.staff_cases.authority import fingerprint
 from maezo.gateway.staff_cases.case_issuer_runtime import WITNESS_LOGIN as ISSUER_WITNESS_LOGIN
 from maezo.gateway.staff_cases.case_issuer_sources import WITNESS_ENTRY as ISSUER_WITNESS_ENTRY
 from maezo.gateway.staff_cases.models import FIELDS, Designation
-from maezo.portal.engine.profile import canonicalize
+from maezo.portal.engine.profile import canonicalize, strict_loads
 
 from . import scram
 from .pki import Issued, issue_ca, issue_leaf
@@ -199,6 +199,60 @@ def designation_draft(
     # A mesma porta de entrada do loader: um rascunho que o modelo recusa nao sai daqui.
     parse(Designation, canonicalize(value))
     return value
+
+
+def next_designation(previous: dict[str, Any], *, not_before: str, valid_until: str) -> dict[str, Any]:
+    """Rotacao N -> N+1 da designacao SEM trocar chave nenhuma (Onda 8, dev).
+
+    Mesmas entradas, mesmas chaves/logins/SPKI; mudam so a revisao (`expected_previous_revision`
+    = a anterior), a janela e as capacidades, que voltam a ser as de `CAPABILITIES` (ex.: o
+    `case_issuer` ganha `staff_current_task.v1`). O `source_namespace` do emissor acompanha a
+    revisao (`policy_ref_for`, D-H.6). O resultado passa pelo modelo do loader e vai ao aprovador
+    (`sign-designation`) como qualquer rascunho.
+    """
+    from maezo.gateway.staff_cases.case_issuer import policy_ref_for
+
+    old = parse(Designation, canonicalize(previous))
+    revision = str(int(old.designation_revision) + 1)
+    entries = []
+    for entry in previous["entries"]:
+        entry = dict(entry, not_before=not_before, valid_until=valid_until)
+        if entry["entry_ref"] in CAPABILITIES and entry["entry_ref"] == entry["role"]:
+            purposes, projections, operations = CAPABILITIES[entry["role"]]
+            entry.update(purposes=purposes, projections=projections, operations=operations)
+        if entry["role"] == "case_issuer":
+            entry["source_namespace"] = policy_ref_for(revision)
+        entries.append(entry)
+    value = dict(
+        previous,
+        designation_revision=revision,
+        expected_previous_revision=str(old.designation_revision),
+        entries=entries,
+        issued_at=not_before,
+        valid_until=valid_until,
+    )
+    parse(Designation, canonicalize(value))
+    return value
+
+
+def check_rotation(base_raw: bytes, raw: bytes) -> str:
+    """Rotacao (Onda 8): a designacao N+1 que substitui a do `generate` no segredo nativo e no pacote
+    do portal. So do mesmo escopo, revisao posterior e as MESMAS entradas/chaves (chave nova e
+    `generate` + aprovacao). Devolve o SHA-256 dos bytes."""
+    try:
+        new = parse(Designation, raw)
+        old = parse(Designation, canonicalize(strict_loads(base_raw)))
+    except ValueError:
+        raise MaterialError("designacao da rotacao fora do perfil fechado") from None
+    if canonicalize(new.scope.wire()) != canonicalize(old.scope.wire()):
+        raise MaterialError("designacao da rotacao e de outro escopo")
+    if int(new.designation_revision) <= int(old.designation_revision):
+        raise MaterialError("designacao da rotacao nao e posterior a do generate")
+    if {(e.entry_ref, e.key_fingerprint) for e in new.entries} != {
+        (e.entry_ref, e.key_fingerprint) for e in old.entries
+    }:
+        raise MaterialError("designacao da rotacao troca entradas ou chaves: use generate")
+    return hashlib.sha256(raw).hexdigest()
 
 
 def generate(spec: MaterialsSpec, out: Path) -> Generated:

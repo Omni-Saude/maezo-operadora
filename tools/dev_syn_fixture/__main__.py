@@ -11,6 +11,9 @@ nunca por env/override) e faz, idempotente:
 3. a escalacao `ESC-amh-sla-auth-{guia}` com `motivo_categoria=red_flag_clinico`,
    `severidade=grave` (DMN r1 -> `plantao-clinico`, P1), conferindo o grupo candidato.
 
+Se a escalacao da guia configurada ja existe ENCERRADA (so no historico, sem tarefa), roda tudo para
+uma guia NOVA `{guia}R{UTC AAAAMMDDhhmmss}` (a saida traz `replaced_closed_guide`).
+
 Cercas (`guards`): conta explicita 203312548462, ambiente `dev`, tenant `amh`, guia `^SYN-[A-Z0-9]+$`,
 e recusa se o tenant ja tiver QUALQUER guia reivindicada nao-`SYN-`. So dado sintetico.
 """
@@ -215,6 +218,24 @@ def run(config: Config) -> dict[str, Any]:
     core.refuse_non_synthetic(guides)
 
     with httpx.Client(base_url=config.raw["engine_rest_url"], timeout=30, trust_env=False) as rest:
+        # Escalacao da guia ja encerrada (so no historico, sem tarefa): nao ha o que reabrir sob a
+        # mesma business key. Nasce uma guia SYN- NOVA (sufixo unico por execucao), com AUTH, SLA e
+        # tarefa vivos; as cercas da guia valem para ela como para a configurada.
+        if core.escalation_state(rest, tenant, refs.guide_number) == "closed":
+            previous = refs.guide_number
+            guide = core.fresh_guide(
+                previous,
+                now(),
+                lambda g: (
+                    core.escalation_state(rest, tenant, g) != "absent"
+                    or core.auth_instance_exists(rest, tenant, g)
+                ),
+            )
+            guards.check_guide(guide)
+            config = Config({**config.raw, "guide_number": guide})
+            refs = config.refs()
+            refs.check()
+            report.update(guide=guide, replaced_closed_guide=previous)
         definition = core.deployed_definition(rest, tenant)
         action, qualified = asyncio.run(_db(config, _installation, config, definition, now()))
         report["installation"] = dict(action=action, definition_id=qualified["definition_id"])
