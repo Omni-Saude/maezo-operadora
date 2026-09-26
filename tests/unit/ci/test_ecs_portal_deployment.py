@@ -39,6 +39,9 @@ INPUTS = {
 # actually ships today (`portal_enabled = false`, `portal = null`): resolve to it, and refuse any
 # other conditional shape rather than skipping the entry.
 _STAFF_NULL_RE = re.compile(r'each\.value\.staff == null \? ("[^"]*") : "[^"]*"')
+# `local.portal_capabilities[each.key]` (Onda 8): the dark landing (`staff == null`) resolves to
+# "identity" — the same branch the conditional above used to carry inline.
+_CAPABILITIES_LOCAL = "local.portal_capabilities[each.key]"
 
 
 def deployment_environment() -> dict[str, str]:
@@ -62,6 +65,8 @@ def deployment_environment() -> dict[str, str]:
         staff_null = _STAFF_NULL_RE.fullmatch(value)
         if staff_null is not None:
             values[name] = json.loads(staff_null.group(1))
+        elif value == _CAPABILITIES_LOCAL:
+            values[name] = "identity"
         elif value.startswith("each.value."):
             values[name] = INPUTS[value.removeprefix("each.value.")]
         else:
