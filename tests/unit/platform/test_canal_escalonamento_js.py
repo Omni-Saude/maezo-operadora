@@ -603,3 +603,117 @@ def test_nova_conversa_sorteia_fora_da_faixa_ja_consumida(tmp_path: Path) -> Non
     # cobertura da faixa: com 2000 sorteios em 900 numeros, as pontas aparecem e ha' centenas distintos
     assert r["min"] < 130 and r["max"] > 970, r
     assert r["distintos"] > 700, r
+
+
+# ============================================ concluir pelo portal qualquer tarefa da fila
+
+_PORTAL_FALSO = """
+  var pedidos = [];
+  var itensTeam = %s;
+  portalChamar = function(caminho, opcoes){
+    var o = opcoes || {};
+    pedidos.push({caminho: caminho, metodo: o.method || "GET",
+                  cabecalhos: o.headers || {}, corpo: o.body || null});
+    if (caminho === CAMINHO_SESSAO)
+      return Promise.resolve({ok:true, status:200,
+                              corpo:{principal_ref:"enf.ana", roles:[], csrf_token:"tok-1"}});
+    if (caminho.indexOf("/completion") >= 0) return Promise.resolve({ok:true, status:204, corpo:null});
+    if (caminho.indexOf("queue=team") >= 0)
+      return Promise.resolve({ok:true, status:200,
+                              corpo:{queue:"team", next_cursor:null, freshness:null, items:itensTeam}});
+    return Promise.resolve({ok:true, status:200,
+                            corpo:{queue:"mine", next_cursor:null, freshness:null, items:[]}});
+  };
+  function posts(){ return pedidos.filter(function(p){ return p.metodo === "POST"; }); }
+"""
+
+_ITEM_WHATSAPP = (
+    '{task_id:"wa-task-77", process_definition_key:"SP-OP-ESCALATION-001",'
+    ' task_definition_key:"UT_TratarEscalonamento", task_revision:"1", ownership:"unassigned",'
+    ' engine_due_at:null, snapshot_at:"2026-09-27T12:00:00Z"}'
+)
+
+
+def test_tarefa_vinda_do_whatsapp_ganha_botao_e_conclui_pelo_portal(tmp_path: Path) -> None:
+    """A tarefa nao foi criada pela pagina (`S.tarefaId` nulo) e mesmo assim ganha os tres botoes;
+    o POST usa o `task_id` que o PORTAL devolveu, com o CSRF relido da sessao."""
+    caso = (
+        (_PORTAL_FALSO % ("[" + _ITEM_WHATSAPP + "]"))
+        + """
+      S.tarefaId = null;
+      lerPortal().then(function(){
+        var html = $("pFilaConcluir").innerHTML;
+        $("notasFila").value = "Oriente a ligar para o 192 agora.";
+        return concluirItemDaFila(0, "devolvido_agente").then(function(classe){
+          var p = posts();
+          console.log(JSON.stringify({botoes: (html.match(/concluirItemDaFila[(]0,/g) || []).length,
+            classe: classe, n: p.length, caminho: p[0] && p[0].caminho,
+            csrf: p[0] && p[0].cabecalhos["X-CSRF-Token"], corpo: p[0] && JSON.parse(p[0].corpo)}));
+        });
+      });
+    """
+    )
+    r = _rodar(caso, tmp_path, portal="https://portal.example")
+    assert r["botoes"] == 3
+    assert r["classe"] == "concluido"
+    assert r["n"] == 1
+    assert r["caminho"] == "/api/v1/portal/tasks/wa-task-77/completion"
+    assert r["csrf"] == "tok-1"
+    assert r["corpo"] == {
+        "resultado": "devolvido_agente",
+        "notas_resolucao": "Oriente a ligar para o 192 agora.",
+    }
+
+
+def test_devolver_ao_agente_sem_instrucao_nao_chama_o_portal(tmp_path: Path) -> None:
+    caso = (
+        (_PORTAL_FALSO % ("[" + _ITEM_WHATSAPP + "]"))
+        + """
+      lerPortal().then(function(){
+        $("notasFila").value = "   ";
+        return concluirItemDaFila(0, "devolvido_agente");
+      }).then(function(){
+        console.log(JSON.stringify({n: posts().length, aviso: $("avisoFila").innerHTML}));
+      });
+    """
+    )
+    r = _rodar(caso, tmp_path, portal="https://portal.example")
+    assert r["n"] == 0
+    assert "instrução" in r["aviso"]
+
+
+def test_resolvido_sem_notas_usa_texto_padrao_e_resultado_invalido_e_recusado(tmp_path: Path) -> None:
+    caso = """
+      console.log(JSON.stringify({
+        padrao: notasDaConclusao("resolvido_humano", ""),
+        invalido: notasDaConclusao("apagar_tudo", "x"),
+        longo: notasDaConclusao("emergencia_acionada", new Array(2002).join("a"))}));
+    """
+    r = _rodar(caso, tmp_path)
+    assert r["padrao"]["notas"].startswith("Concluído pelo Canal de Teste")
+    assert "erro" in r["invalido"]
+    assert "erro" in r["longo"]
+
+
+def test_so_oferece_itens_do_portal_de_escalonamento_com_id_valido(tmp_path: Path) -> None:
+    """Item de outro processo ou com id fora do formato do contrato nao vira botao; indice fora da
+    ultima leitura nao chama o portal. Nao existe caminho de id digitado ate' o POST."""
+    itens = (
+        "[" + _ITEM_WHATSAPP + ","
+        ' {task_id:"outro-1", process_definition_key:"SP-OP-AUTH-001", ownership:"unassigned"},'
+        ' {task_id:"x/../y", process_definition_key:"SP-OP-ESCALATION-001", ownership:"unassigned"}]'
+    )
+    caso = (
+        (_PORTAL_FALSO % itens)
+        + """
+      lerPortal().then(function(){
+        var ids = S.portal.itensConcluiveis.map(function(i){ return i.task_id; });
+        return concluirItemDaFila(7, "resolvido_humano").then(function(){
+          console.log(JSON.stringify({ids: ids, n: posts().length}));
+        });
+      });
+    """
+    )
+    r = _rodar(caso, tmp_path, portal="https://portal.example")
+    assert r["ids"] == ["wa-task-77"]
+    assert r["n"] == 0
