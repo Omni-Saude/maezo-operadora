@@ -22,8 +22,25 @@ resource "aws_ecr_repository" "app" {
   tags = merge(local.base_tags, { Name = "amh/maezo-operadora" })
 }
 
-# Retencao de imagem: sem isto o repo cresce sem limite e ninguem percebe ate a
-# fatura. Mantem as 20 ultimas por prefixo de commit + expira nao-tageadas.
+# RETENCAO DE IMAGEM — SO' EXPIRA O QUE NAO TEM TAG (27/09/2026, incidente).
+#
+# ATE 27/09 havia duas regras por CONTAGEM ("mantem as 20 tageadas mais recentes" e "mantem 60
+# assinaturas"). O ECR nao sabe o que esta' EM USO: a contagem expirou `07e72eae`/`871ecc0b` (a
+# imagem de helena, rafael, marina, worker, canal-teste, relay, ponte, migrations...) e o init
+# humano do portal ENQUANTO as task definitions vivas apontavam para eles. Os servicos so' seguiram
+# de pe' porque a task ja' estava rodando; o primeiro replace (apply do portal) falhou com
+# `CannotPullContainerError ... not found`, e qualquer restart teria derrubado a Helena do WhatsApp.
+#
+# POR QUE NAO "UMA CONTAGEM MAIOR": qualquer numero continua sendo um relogio que apaga imagem
+# viva — so' demora mais para acontecer, e acontece sem aviso. Nenhuma regra de lifecycle do ECR
+# enxerga task definition. Entao:
+#   * imagem TAGEADA nunca expira sozinha (tags sao IMMUTABLE, logo uma imagem tageada nunca vira
+#     untagged por reescrita). Isso inclui `.sig`/`.att` do cosign: uma assinatura que expira antes
+#     da imagem que ela prova reprova o portao 1.4;
+#   * imagem SEM tag (camadas orfas de build) expira em 1 dia, como antes;
+#   * limpeza de tag e' MANUAL e so' do que NENHUMA task definition ACTIVE referencia —
+#     `scripts/ops/ecr_imagens_vivas.py` lista o que esta' em uso (e sai 1 se faltar alguma).
+# Custo medido em 27/09: 69 artefatos, 1,3 GB no repositorio da aplicacao (~US$ 0,13/mes).
 resource "aws_ecr_lifecycle_policy" "app" {
   repository = aws_ecr_repository.app.name
 
@@ -31,43 +48,12 @@ resource "aws_ecr_lifecycle_policy" "app" {
     rules = [
       {
         rulePriority = 1
-        description  = "Expira imagens sem tag apos 1 dia"
+        description  = "Expira so imagens sem tag apos 1 dia (tageada nunca expira: ver ecs.tf)"
         selection = {
           tagStatus   = "untagged"
           countType   = "sinceImagePushed"
           countUnit   = "days"
           countNumber = 1
-        }
-        action = { type = "expire" }
-      },
-      # Artefatos de assinatura do cosign (`sha256-<digest>.sig` / `.att`, publicados
-      # por .github/workflows/supply-chain.yml) sao IMAGENS TAGEADAS para o ECR e
-      # concorriam na mesma contagem de 20 da regra seguinte. Duas consequencias, as
-      # duas ruins: cada digest assinado empurrava DUAS imagens de aplicacao para
-      # fora da retencao, e a propria assinatura podia expirar antes da imagem que
-      # ela prova — um portao que se apaga sozinho nao e' portao.
-      #
-      # Uma imagem que casa uma regra de prioridade MENOR (numero menor) nao e'
-      # expirada por regra de prioridade maior, entao esta regra tambem TIRA os
-      # artefatos de assinatura da contagem da regra 3.
-      {
-        rulePriority = 2
-        description  = "Mantem os 60 artefatos de assinatura/atestacao (cosign) mais recentes"
-        selection = {
-          tagStatus      = "tagged"
-          tagPatternList = ["sha256-*"]
-          countType      = "imageCountMoreThan"
-          countNumber    = 60
-        }
-        action = { type = "expire" }
-      },
-      {
-        rulePriority = 3
-        description  = "Mantem as 20 imagens tageadas mais recentes"
-        selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = 20
         }
         action = { type = "expire" }
       },
@@ -96,33 +82,23 @@ resource "aws_ecr_repository" "engine" {
   tags = merge(local.base_tags, { Name = "amh/cibseven-maezo" })
 }
 
+# Mesma regra do repositorio da aplicacao (ver o comentario acima de `aws_ecr_lifecycle_policy.app`):
+# a contagem "mantem as 10 mais recentes" (tagStatus any) apagaria o engine VIVO do cibseven
+# depois de mais algumas imagens human. Tageada nunca expira; sem tag expira em 1 dia.
+# Medido em 27/09: 12 artefatos, 0,9 GB.
 resource "aws_ecr_lifecycle_policy" "engine" {
   repository = aws_ecr_repository.engine.name
 
   policy = jsonencode({
     rules = [
-      # Mesma razao da regra 2 do repositorio da aplicacao: desde que o
-      # supply-chain.yml assina tambem o engine, `.sig`/`.att` sao imagens tageadas
-      # que, sem esta regra, concorreriam na contagem de 10 e expulsariam imagens
-      # reais (ou expirariam antes da imagem que provam).
       {
         rulePriority = 1
-        description  = "Mantem os 60 artefatos de assinatura/atestacao (cosign) mais recentes"
+        description  = "Expira so imagens sem tag apos 1 dia (tageada nunca expira: ver ecs.tf)"
         selection = {
-          tagStatus      = "tagged"
-          tagPatternList = ["sha256-*"]
-          countType      = "imageCountMoreThan"
-          countNumber    = 60
-        }
-        action = { type = "expire" }
-      },
-      {
-        rulePriority = 2
-        description  = "Mantem as 10 imagens mais recentes do engine"
-        selection = {
-          tagStatus   = "any"
-          countType   = "imageCountMoreThan"
-          countNumber = 10
+          tagStatus   = "untagged"
+          countType   = "sinceImagePushed"
+          countUnit   = "days"
+          countNumber = 1
         }
         action = { type = "expire" }
       },
