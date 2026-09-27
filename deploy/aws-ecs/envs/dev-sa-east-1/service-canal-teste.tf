@@ -131,6 +131,20 @@ resource "aws_ecs_task_definition" "canal_teste" {
       # a origem vem dele e o canal segue o portal automaticamente. Enquanto `var.portal` e'
       # `null` — o estado de hoje — vale o hostname decidido pela diretoria em 21/09/2026.
       { name = "PORTAL_PUBLIC_ORIGIN", value = try(var.portal.public_origin, "https://portal-maezo-dev.austa.com.br") },
+
+      # ---------------------------------------------------------------------
+      # Pagina de RESULTADOS (`paginas/resultados.html`, 27/09/2026) — so' leitura.
+      # ---------------------------------------------------------------------
+      # A CERCA: so' aparecem casos dos numeros desta lista (E.164). O canal converte cada um em
+      # `conversation_id` com a MESMA chave e a MESMA funcao do receptor, e so' pergunta ao motor
+      # por essas chaves. Vazia (o default) = a pagina nao lista nada. O valor NAO mora no repo:
+      # vem de `-var`/tfvars fora do controle de versao (`var.canal_teste_result_allowlist`).
+      { name = "MAEZO_TESTCHANNEL_RESULT_ALLOWLIST", value = var.canal_teste_result_allowlist },
+      # As duas que, junto com `PHI_HMAC_KEY` abaixo, fazem a conversao bater com a do receptor
+      # (`service-webhook-receiver.tf` usa exatamente estas fontes). Divergir o tenant ou o modo
+      # produz outro hash e a pagina fica vazia sem erro — por isso vem das mesmas variaveis.
+      { name = "TENANT_ID", value = var.tenant_id },
+      { name = "RUNTIME_MODE", value = var.agent_runtime_mode },
     ]
 
     # PRIMEIRO segredo deste container. Vale dizer o que ele NAO e': aqui o
@@ -138,6 +152,11 @@ resource "aws_ecs_task_definition" "canal_teste" {
     # legitimo dele no receptor. E' essa inversao que a cerca de CI vigia.
     secrets = [
       { name = "WHATSAPP_APP_SECRET", valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },
+      # A chave do pseudonimizador (ADR-0035), a MESMA do receptor. Aqui ela so' serve para
+      # CONVERTER os numeros declarados em `conversation_id` e achar os casos deles; sem ela a
+      # pagina de resultados recusa (fail-closed, nunca cai numa chave de dev). A execution role
+      # ja' le' este segredo (`secrets.tf::task_execution_maezo_secrets`).
+      { name = "PHI_HMAC_KEY", valueFrom = "${aws_secretsmanager_secret.phi_hmac_key.arn}:key::" },
     ]
 
     readonlyRootFilesystem = true

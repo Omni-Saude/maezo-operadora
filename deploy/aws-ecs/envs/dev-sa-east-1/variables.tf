@@ -544,6 +544,19 @@ variable "canal_teste_image_tag" {
   default = "07e72eae" # main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
 }
 
+variable "canal_teste_result_allowlist" {
+  description = <<-EOT
+    Numeros de TESTE (E.164, separados por virgula) cujos casos a pagina de resultados do Canal
+    (`paginas/resultados.html`) pode mostrar — com o texto que a Helena resumiu. E' a cerca que
+    impede a pagina de expor o caso de um beneficiario real que escreva para o numero ativo.
+    O default vazio desliga a lista (a pagina nao mostra nada). O valor real NUNCA entra no repo:
+    passe por `-var` ou por um tfvars fora do controle de versao.
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "canal_teste_desired_count" {
   description = <<-EOT
     Replicas do Canal de Teste. 1 para o time usar; 0 para tirar do ar.

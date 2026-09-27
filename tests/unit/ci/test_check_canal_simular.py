@@ -40,11 +40,11 @@ _SERVIDOR = Path("src/maezo/platform/testchannel/server.py")
 # Âncoras extraídas dos arquivos REAIS do PR. Se o PR mudar qualquer uma delas, os testes
 # falham em `_trocar` com a âncora ausente em vez de passarem a testar outra coisa.
 _PORTAO_LIGADO = '{ name = "CANAL_SIMULAR_RECEPTOR", value = "1" },'
+# So' a LINHA do segredo, nao o bloco `secrets = [...]` inteiro: desde 27/09/2026 o canal tambem
+# recebe `PHI_HMAC_KEY` (pagina de resultados), e tirar a linha basta para o segredo sumir do canal.
 _BLOCO_SEGREDO = (
-    "    secrets = [\n"
     '      { name = "WHATSAPP_APP_SECRET", '
     'valueFrom = "${aws_secretsmanager_secret.whatsapp_meta.arn}:app_secret::" },\n'
-    "    ]\n"
 )
 _FAIXA = 'FAIXA_TESTE = re.compile(r"^5511900000\\d{3}$")'
 _GATE_NA_ROTA = "        if not SIMULAR_LIGADO:"

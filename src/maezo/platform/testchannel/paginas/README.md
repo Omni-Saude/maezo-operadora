@@ -111,6 +111,28 @@ compara duas fontes independentes e *"o adaptador deve recusar fontes indisponí
 projeção defasada devolve fila vazia **sem erro visível**. O bloco de frescor do painel mostra o
 atraso entre a fonte e o portal, que é onde isso aparece.
 
+## `resultados.html` — o que aconteceu com um caso real (só leitura)
+
+`https://maezo-teste-dev.austa.com.br/p/resultados.html`. Lista os casos de uma janela
+(prioridade, grupo, tempo até o humano concluir, desfecho) e abre cada um em oito blocos —
+conversa, leitura, veredito, roteamento, relógios, ação humana, retorno, rastro — com o botão
+**"Copiar caso para análise"**, que copia um markdown pronto para colar no Claude.
+
+**Não usa `/engine`.** A página fala só com `POST /resultados/api/casos` e
+`GET /resultados/api/caso?id=`, e é o SERVIDOR (`../resultados.py`) que lê o motor, só com `GET`
+e só em sete caminhos de histórico/jobs. A cerca também é do servidor: aparecem apenas casos dos
+números declarados em `MAEZO_TESTCHANNEL_RESULT_ALLOWLIST` (E.164), convertidos em
+`conversation_id` com a mesma chave (`PHI_HMAC_KEY`) e a mesma função do receptor. Número fora
+da lista não aparece por construção; o campo "meu número" só estreita a lista, vai no corpo do
+POST e nunca volta na resposta. Lista vazia ou chave ausente = as rotas respondem 503 com o motivo.
+
+O que o motor não guarda, e a página diz na tela: as mensagens trocadas (vivem no checkpoint da
+conversa — o processo recebe o `resumo_contexto`), o momento do "assumir" (só a conclusão da
+tarefa é registrada) e o texto que a Helena envia na retomada.
+
+O proxy genérico `/engine/*` continua existindo para as outras páginas; a cerca vale para esta
+página, não para quem chama o motor direto atrás do Access.
+
 ## `/receptor/simular` — use um telefone NOVO em cada teste
 
 A rota assina um envelope de WhatsApp no servidor e o entrega ao receptor, o que faz a
