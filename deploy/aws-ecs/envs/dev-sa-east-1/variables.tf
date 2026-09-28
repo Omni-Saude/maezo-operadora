@@ -209,7 +209,7 @@ variable "image_tag" {
     no-op nos servicos em vez de incidente. Promover imagem continua sendo passar a variavel.
   EOT
   type        = string
-  default     = "07e72eae" # main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
+  default     = "07e72eae-r2" # 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((merge de #440) — promovida a dev por #445 (21/09); antes c745fd94 09/09, 40dc6d4 27/08
 }
 
 variable "webhook_receiver_image_tag" {
@@ -235,7 +235,7 @@ variable "webhook_receiver_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "07e72eae" # main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
+  default = "07e72eae-r2" # 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); response-v3 de 13/09 (`e86c0f89`) que o receptor ja rodava
 }
 
 variable "webhook_receiver_desired_count" {
@@ -541,7 +541,20 @@ variable "canal_teste_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "07e72eae" # main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
+  default = "07e72eae-r2" # 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
+}
+
+variable "canal_teste_result_allowlist" {
+  description = <<-EOT
+    Numeros de TESTE (E.164, separados por virgula) cujos casos a pagina de resultados do Canal
+    (`paginas/resultados.html`) pode mostrar — com o texto que a Helena resumiu. E' a cerca que
+    impede a pagina de expor o caso de um beneficiario real que escreva para o numero ativo.
+    O default vazio desliga a lista (a pagina nao mostra nada). O valor real NUNCA entra no repo:
+    passe por `-var` ou por um tfvars fora do controle de versao.
+  EOT
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 variable "canal_teste_desired_count" {

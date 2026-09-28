@@ -134,6 +134,12 @@ run "enabled_consumer" {
       MAEZO_PORTAL_MODE              = "production"
       MAEZO_PORTAL_CAPABILITIES      = "identity"
       PYTHONDONTWRITEBYTECODE        = "1"
+      # INTERIM (DL-0049, emenda D-P): literais so' deste ambiente; a cerca
+      # scripts/ci/check_portal_direct_completion.py reprova qualquer outro.
+      MAEZO_PORTAL_DIRECT_COMPLETION                 = "true"
+      MAEZO_PORTAL_DIRECT_COMPLETION_ENGINE_ORIGIN   = "http://cibseven.maezo-operadora-dev.internal:8080/engine-rest"
+      MAEZO_PORTAL_DIRECT_COMPLETION_TIMEOUT_SECONDS = "15"
+      MAEZO_PORTAL_CORS_ORIGINS                      = "https://maezo-teste-dev.austa.com.br"
     }
     error_message = "All identity settings must feed the real consumer with production mode and fixed tenant."
   }
