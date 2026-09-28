@@ -103,7 +103,7 @@ portal = {
   // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
   // 26/09/2026: o 871ecc0b saiu do ECR (o job `verificar` da main reprovava); repinado no mesmo
   // digest do perfil staff abaixo (so' e' usado se `staff` voltar a null).
-  image_digest = "sha256:4dddb437ffc2ee5064d7acf3487d879f9e7740967d87e9d1da60df34b23f30fa"
+  image_digest = "sha256:5c51f02d5cc447ce278d2df0acacff99485ae82579b9ee97f0d744fc13b76dc2"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
@@ -200,7 +200,9 @@ portal = {
     // 26/09, main 7b018975 (#550, logout devolve idp_logout_url): app 4361cce3 (CodeBuild tag
     // 7b018975-p2, deploy/Dockerfile) + deploy/portal.Dockerfile (7b018975-p2-portal-human),
     // assinada pelo supply-chain.yml run 36252676849.
-    portal_image_digest = "sha256:4dddb437ffc2ee5064d7acf3487d879f9e7740967d87e9d1da60df34b23f30fa"
+    // 28/09, main 9638f32d (#564 botao de concluir na tela, #565): app 9638f32d (sha256:4f300926) +
+    // deploy/portal.Dockerfile (9638f32d-portal-human), assinada pelo supply-chain.yml run 36460422926.
+    portal_image_digest = "sha256:5c51f02d5cc447ce278d2df0acacff99485ae82579b9ee97f0d744fc13b76dc2"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
     public_manifest_sha256 = "fcc2e9fa4b831edf759119a80c49a4b257d6c21a2b499ba38df3a3bf7e80b1be"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
