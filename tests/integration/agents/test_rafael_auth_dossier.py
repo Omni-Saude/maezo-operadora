@@ -39,6 +39,7 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.auth import register_auth_workers
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from ._engine_helpers import active_instances, candidate_groups, noop_events_publish, wait_for_task
 
@@ -105,7 +106,9 @@ async def test_human_review_auth_request_reaches_medico_auditor_task(
     business_key = f"AUTH-amh-{numero_guia}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    # Start no tenant do estado (`amh`): a AUTH e as DMNs dela precisam existir DO tenant.
+    deploy_for_tenant(engine_base_url, "amh", "SP-OP-AUTH-001")
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id="amh", timeout=30.0)
     inference = _FakeInference(
         [
             "Dossie factual: procedimento eletivo, documentacao completa; "
@@ -182,7 +185,9 @@ async def test_agent_seeded_facts_no_longer_open_the_auto_approval_route(
     business_key = f"AUTH-amh-{numero_guia}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    # Start no tenant do estado (`amh`): a AUTH e as DMNs dela precisam existir DO tenant.
+    deploy_for_tenant(engine_base_url, "amh", "SP-OP-AUTH-001")
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id="amh", timeout=30.0)
     inference = _FakeInference(["Dossie factual: dentro dos criterios de aprovacao automatica."])
 
     graph = build({"inference": inference, "dmn": dmn, "cibseven": cibseven, "audit_sink": audit_sink})

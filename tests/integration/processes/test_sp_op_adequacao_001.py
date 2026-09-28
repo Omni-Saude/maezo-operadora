@@ -222,6 +222,7 @@ from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -495,7 +496,9 @@ async def adequacao_probe(
     # GAP-XPROC handoff seam wiring (PERSP-ADEQ-CRED-HANDOFF): a FRESH, loop-agnostic
     # `CibSevenTransport`/`AuditStartSink` pair for `execute_remediation`'s own `asyncio.run(...)`
     # bridge — see the fixture docstring above for why the pooled `audit_sink` cannot be reused.
-    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-CRED-001")
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
     register_adequacao_workers(
         harness, kafka, dmn=dmn_transport, engine=engine_seam, audit_sink=handoff_audit_sink
@@ -874,7 +877,9 @@ async def test_l3_gap_moderado_encaminha_credenciamento_sem_user_task(
     # variables against the SAME live engine converges on the SAME CRED-001 instance — never a
     # second search for the same candidate (T3.3 A1 redelivery-simulation precedent, `test_t33_
     # a1_cancel_handoff_redelivery_idempotency.py`).
-    redelivery_engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-CRED-001")
+    redelivery_engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     redelivery_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_pg[1])
     redelivery_result = await asyncio.to_thread(
         execute_remediation,

@@ -164,6 +164,7 @@ from maezo.tools.workers.inadimplencia import (
     register_contract_suspension,
     register_inadimplencia_workers,
 )
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -360,7 +361,9 @@ async def inad_probe(
     # per-call pattern the live daemon uses for precisely this seam — a fresh PostgresAuditSink
     # constructed+closed INSIDE the calling loop per emit. The harness keeps the POOLED sink (its
     # emit-before-complete runs on the test loop), exactly as the daemon splits the two seams.
-    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, audit_tenant, "SP-OP-CANCEL-001")
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id=audit_tenant)
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
     register_inadimplencia_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.

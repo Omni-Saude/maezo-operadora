@@ -7,6 +7,16 @@ Two modes:
 - `--list`: `GET /deployment` — shows what the engine currently holds,
   without deploying anything.
 
+TARGET IS EXPLICIT (27/09/2026): a deploy names where the definitions live — `--tenant <id>`
+(every BPMN + DMN owned by that tenant — what the tenant-scoped start route of
+`CibSevenHttpTransport` resolves) and/or `--shared dmn|all` (tenant-less copies). With
+neither, the CLI REFUSES (exit 2) instead of silently deploying the shared set that tenant-bound
+starts cannot see. `--shared dmn` exists because the agent-side DMN
+evaluation (`tools/workers/dmn_transport.py`, `tenant=None`) still reads SHARED decisions; shared
+BPMN (`--shared all`) is for the local compose / integration engine only — in a live environment
+a second, shared copy of a BPMN duplicates its timer start events and makes a message start
+correlated without tenant ambiguous.
+
 Fail-closed: any resolution error (missing `spec/processes/`, zero artifact
 files) or engine rejection (non-2xx, transport failure, bad body) prints the
 engine's verbatim error and exits non-zero. There is no warn-and-continue
@@ -29,6 +39,9 @@ from .engine_deploy import (
     collect_artifacts,
     resolve_spec_processes_dir,
 )
+
+#: `--shared` values: which artifacts get a tenant-less copy.
+SHARED_CHOICES = ("dmn", "all")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +83,25 @@ def build_parser() -> argparse.ArgumentParser:
             "variable outside an explicitly local runtime."
         ),
     )
+    parser.add_argument(
+        "--tenant",
+        default=None,
+        help=(
+            "Deploy every BPMN + DMN as definitions OWNED by this tenant (tenant-id). Required "
+            "unless --shared is given: a tenant-bound start only resolves definitions of its own "
+            "tenant, and a tenant's business rule tasks only resolve decisions of that tenant."
+        ),
+    )
+    parser.add_argument(
+        "--shared",
+        choices=SHARED_CHOICES,
+        default=None,
+        help=(
+            "Also (or only) deploy tenant-less copies: 'dmn' = decisions only (the agent-side DMN "
+            "evaluation reads shared decisions); 'all' = BPMN + DMN (local/integration engine "
+            "only — never a live environment, see the module docstring)."
+        ),
+    )
     return parser
 
 
@@ -94,13 +126,48 @@ def run_list(client: EngineDeployClient) -> int:
     return 0
 
 
-def run_deploy(client: EngineDeployClient, *, spec_dir: Path | None, deployment_name: str) -> int:
+def deployment_targets(
+    artifacts: Sequence[Path], *, tenant: str | None, shared: str | None
+) -> list[tuple[str | None, list[Path]]]:
+    """The `(tenant_id, artifacts)` deployments to submit, tenant first; `[]` = no target named."""
+    targets: list[tuple[str | None, list[Path]]] = []
+    if tenant is not None:
+        targets.append((tenant, list(artifacts)))
+    if shared == "all":
+        targets.append((None, list(artifacts)))
+    elif shared == "dmn":
+        dmn = [p for p in artifacts if p.suffix == ".dmn"]
+        if dmn:
+            targets.append((None, dmn))
+    return targets
+
+
+def run_deploy(
+    client: EngineDeployClient,
+    *,
+    spec_dir: Path | None,
+    deployment_name: str,
+    tenant: str | None,
+    shared: str | None,
+) -> int:
     """Handle the default deploy action: resolve artifacts, submit, report.
 
     Returns:
-        0 if the engine accepted the deployment, 1 on any resolution error
-        or engine rejection (its error body is printed verbatim to stderr).
+        0 if the engine accepted every deployment, 1 on any resolution error
+        or engine rejection (its error body is printed verbatim to stderr),
+        2 when no target (`--tenant` / `--shared`) was named.
     """
+    if tenant is None and shared is None:
+        print(
+            "[deploy] REFUSED: name the target — `--tenant <id>` (definitions owned by the tenant "
+            "the agents start in) and/or `--shared dmn|all`. A deploy without a tenant is invisible "
+            "to tenant-bound starts.",
+            file=sys.stderr,
+        )
+        return 2
+    if shared is not None and shared not in SHARED_CHOICES:
+        print(f"[deploy] REFUSED: --shared must be one of {SHARED_CHOICES}", file=sys.stderr)
+        return 2
     try:
         processes_dir = resolve_spec_processes_dir(spec_dir)
         artifacts = collect_artifacts(processes_dir)
@@ -108,30 +175,32 @@ def run_deploy(client: EngineDeployClient, *, spec_dir: Path | None, deployment_
         print(f"[deploy] FAILED to resolve artifacts: {exc}", file=sys.stderr)
         return 1
 
-    bpmn_count = sum(1 for p in artifacts if p.suffix == ".bpmn")
-    dmn_count = sum(1 for p in artifacts if p.suffix == ".dmn")
-    print(
-        f"[deploy] submitting {len(artifacts)} artifact(s) ({bpmn_count} BPMN, {dmn_count} DMN) "
-        f"as deployment {deployment_name!r} to {client.base_url}"
-    )
-
-    try:
-        outcome = client.deploy(artifacts, name=deployment_name)
-    except EngineDeployError as exc:
+    for target_tenant, target_artifacts in deployment_targets(artifacts, tenant=tenant, shared=shared):
+        bpmn_count = sum(1 for p in target_artifacts if p.suffix == ".bpmn")
+        dmn_count = sum(1 for p in target_artifacts if p.suffix == ".dmn")
+        label = f"tenant {target_tenant!r}" if target_tenant is not None else "SHARED (no tenant)"
         print(
-            f"[deploy] FAILED — engine rejected the deployment (this is the real BPMN/DMN "
-            f"validation; fix the artifact, do not retry blindly). Engine error:\n{exc}",
-            file=sys.stderr,
+            f"[deploy] submitting {len(target_artifacts)} artifact(s) ({bpmn_count} BPMN, "
+            f"{dmn_count} DMN) as deployment {deployment_name!r} for {label} to {client.base_url}"
         )
-        return 1
 
-    print(f"[deploy] OK — deployment id={outcome.deployment_id} name={outcome.name!r}")
-    print(f"[deploy] deployed (new/changed): {outcome.deployed_count}")
-    print(f"[deploy] skipped (duplicate, unchanged): {outcome.skipped_count}")
-    if outcome.redeployed_resources:
-        print("[deploy] redeployed resources:")
-        for r in outcome.redeployed_resources:
-            print(f"  - {r}")
+        try:
+            outcome = client.deploy(target_artifacts, name=deployment_name, tenant_id=target_tenant)
+        except EngineDeployError as exc:
+            print(
+                f"[deploy] FAILED — engine rejected the deployment for {label} (this is the real "
+                f"BPMN/DMN validation; fix the artifact, do not retry blindly). Engine error:\n{exc}",
+                file=sys.stderr,
+            )
+            return 1
+
+        print(f"[deploy] OK — deployment id={outcome.deployment_id} name={outcome.name!r} ({label})")
+        print(f"[deploy] deployed (new/changed): {outcome.deployed_count}")
+        print(f"[deploy] skipped (duplicate, unchanged): {outcome.skipped_count}")
+        if outcome.redeployed_resources:
+            print("[deploy] redeployed resources:")
+            for r in outcome.redeployed_resources:
+                print(f"  - {r}")
     return 0
 
 
@@ -152,7 +221,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     with EngineDeployClient(base_url=args.engine_url) as client:
         if args.list_mode:
             return run_list(client)
-        return run_deploy(client, spec_dir=spec_dir, deployment_name=args.deployment_name)
+        return run_deploy(
+            client,
+            spec_dir=spec_dir,
+            deployment_name=args.deployment_name,
+            tenant=args.tenant,
+            shared=args.shared,
+        )
 
 
 if __name__ == "__main__":

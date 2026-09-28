@@ -185,8 +185,11 @@ class EngineRest:
 
     # --- deploy ------------------------------------------------------------------------
 
-    async def deploy(self, *paths: Path, name: str) -> str:
-        """Deploya um ou mais artefatos (BPMN/DMN) num unico deployment."""
+    async def deploy(self, *paths: Path, name: str, tenant_id: str | None = None) -> str:
+        """Deploya um ou mais artefatos (BPMN/DMN) num unico deployment.
+
+        `tenant_id` deploya definicoes DO tenant — o que um start tenant-bound
+        (`CibSevenHttpTransport(tenant_id=...)`) resolve (27/09/2026). Sem ele, compartilhada."""
         files = []
         handles = []
         try:
@@ -195,6 +198,8 @@ class EngineRest:
                 handles.append(fh)
                 files.append((p.name, (p.name, fh, "application/xml")))
             data = {"deployment-name": name, "enable-duplicate-filtering": "true"}
+            if tenant_id is not None:
+                data["tenant-id"] = tenant_id
             resp = await self._client.post("/deployment/create", files=files, data=data)
         finally:
             for fh in handles:

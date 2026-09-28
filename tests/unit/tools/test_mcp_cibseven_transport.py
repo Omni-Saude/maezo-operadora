@@ -321,7 +321,7 @@ async def test_http_find_any_instance_reads_end_time_when_the_state_token_is_mis
 
 
 async def test_http_start_process_instance_posts_business_key_and_typed_variables() -> None:
-    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport = CibSevenHttpTransport("http://engine/engine-rest", tenant_id="amh")
     transport._client.post = AsyncMock(  # type: ignore[method-assign]
         return_value=_mock_response({"id": "proc-2", "state": "ACTIVE"})
     )
@@ -333,7 +333,7 @@ async def test_http_start_process_instance_posts_business_key_and_typed_variable
     assert inst.instance_id == "proc-2"
     assert inst.already_existed is False
     call_args = transport._client.post.call_args
-    assert call_args[0][0] == "/process-definition/key/SP-OP-ESCALATION-001/start"
+    assert call_args[0][0] == "/process-definition/key/SP-OP-ESCALATION-001/tenant-id/amh/start"
     payload = call_args[1]["json"]
     assert payload["businessKey"] == "ESC-amh-1"
     assert payload["variables"]["severidade"] == {"value": "grave", "type": "String"}
@@ -342,7 +342,7 @@ async def test_http_start_process_instance_posts_business_key_and_typed_variable
 
 
 async def test_http_start_process_instance_long_typed_above_int32() -> None:
-    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport = CibSevenHttpTransport("http://engine/engine-rest", tenant_id="amh")
     transport._client.post = AsyncMock(return_value=_mock_response({"id": "proc-3"}))  # type: ignore[method-assign]
 
     huge = 5_000_000_000  # exceeds java.lang.Integer max
@@ -358,7 +358,7 @@ async def test_http_start_process_instance_dict_and_list_variables_round_trip_as
     counterpart the inbound `_from_camunda_var` fix (this PR) now decodes on read. Confirms the
     outbound half of the contract was already correct (not a second defect) by round-tripping
     the emitted `value` string back through `json.loads`."""
-    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport = CibSevenHttpTransport("http://engine/engine-rest", tenant_id="amh")
     transport._client.post = AsyncMock(return_value=_mock_response({"id": "proc-4"}))  # type: ignore[method-assign]
 
     linhas = [{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]
@@ -379,7 +379,7 @@ async def test_http_start_process_instance_dict_and_list_variables_round_trip_as
 
 
 async def test_http_start_process_instance_raises_cibseven_error_on_http_failure() -> None:
-    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport = CibSevenHttpTransport("http://engine/engine-rest", tenant_id="amh")
     transport._client.post = AsyncMock(  # type: ignore[method-assign]
         return_value=_mock_response({"error": "boom"}, status_code=500)
     )
@@ -388,7 +388,7 @@ async def test_http_start_process_instance_raises_cibseven_error_on_http_failure
 
 
 async def test_http_start_process_instance_raises_cibseven_error_on_unreachable() -> None:
-    transport = CibSevenHttpTransport("http://engine/engine-rest")
+    transport = CibSevenHttpTransport("http://engine/engine-rest", tenant_id="amh")
     transport._client.post = AsyncMock(side_effect=httpx.ConnectError("refused"))  # type: ignore[method-assign]
     with pytest.raises(CibSevenError):
         await transport.start_process_instance("SP-OP-ESCALATION-001", "ESC-amh-1", {})

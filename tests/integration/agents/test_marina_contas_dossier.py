@@ -40,6 +40,7 @@ import pytest
 from maezo.agents.marina.graph import build
 from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from ._engine_helpers import active_instances
 
@@ -88,7 +89,9 @@ async def test_contas_assess_evaluates_real_deployed_dmn_and_originates_process(
     business_key = f"CONTAS-amh-{numero_lote}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    # Start no tenant do estado (`amh`): a CONTAS e as DMNs dela precisam existir DO tenant.
+    deploy_for_tenant(engine_base_url, "amh", "SP-OP-CONTAS-001")
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id="amh", timeout=30.0)
     inference = _FakeInference(
         ["Dossie factual: glosa candidata classificada como tecnica pela DMN; analise humana obrigatoria."]
     )

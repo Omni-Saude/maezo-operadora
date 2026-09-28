@@ -42,6 +42,7 @@ pod inherits from its environment, and the tool gets the former only.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -65,6 +66,19 @@ DEFAULT_ENGINE_REST_URL = "http://localhost:8080/engine-rest"
 #: recent deployment sharing this name — a different name every run would
 #: defeat idempotency entirely (every run would look "new").
 DEFAULT_DEPLOYMENT_NAME = "maezo-spec-processes"
+
+#: Tenant token accepted as `tenant-id` of a deployment — the same bounded vocabulary the engine
+#: transport accepts for its `/tenant-id/{tenant}/start` route
+#: (`tools/mcp_cibseven/transport.py::_ENGINE_TENANT_RE`).
+_TENANT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}\Z")
+
+
+def require_deploy_tenant(tenant_id: object) -> str:
+    """Validate a deployment tenant id; `EngineDeployError` when missing or not a bounded token."""
+    if not isinstance(tenant_id, str) or not _TENANT_RE.match(tenant_id):
+        raise EngineDeployError("deployment tenant id is missing or not a bounded token")
+    return tenant_id
+
 
 #: Response keys the CIB Seven / Camunda 7 `deployment/create` endpoint uses
 #: to report resources that were ACTUALLY (re)deployed this call. A resource
@@ -225,7 +239,7 @@ class EngineDeployClient:
 
     Usage:
         with EngineDeployClient() as client:
-            outcome = client.deploy(paths, name="maezo-spec-processes")
+            outcome = client.deploy(paths, name="maezo-spec-processes", tenant_id="amh")
             deployments = client.list_deployments()
     """
 
@@ -268,7 +282,7 @@ class EngineDeployClient:
     def _url(self, path: str) -> str:
         return f"{self._base_url}/{path.lstrip('/')}"
 
-    def deploy(self, paths: Sequence[Path], *, name: str) -> DeploymentOutcome:
+    def deploy(self, paths: Sequence[Path], *, name: str, tenant_id: str | None) -> DeploymentOutcome:
         """Deploy `paths` as a single named deployment.
 
         Multipart `POST /deployment/create` with `deployment-name`,
@@ -276,9 +290,21 @@ class EngineDeployClient:
         CIB Seven / Camunda 7 REST convention for idempotent, versioned
         deployment (see the T1.3 charter and `docs/runbooks/engine-processes.md`).
 
+        TENANT (27/09/2026). `tenant_id` is REQUIRED as a keyword, with no default, so every
+        caller states which side it deploys: a tenant id sends `tenant-id` and the definitions
+        belong to that tenant; `None` is the explicit SHARED (tenant-less) deployment. Why it
+        matters, measured on a local CIB Seven 2.1.0: the tenant-scoped start route
+        (`CibSevenHttpTransport`) resolves ONLY a definition of
+        that tenant (a shared one is not a fallback — "No matching process definition with key
+        ... and tenant-id"), and a business rule task inside a tenant's process resolves its
+        decision ONLY in the same tenant ("no decision definition deployed with key ... and
+        tenant-id"). So a tenant's BPMN and the DMNs they call travel together. Duplicate
+        filtering is per (name, tenant): the same name under another tenant is a new deployment.
+
         Args:
             paths: Artifact files to deploy (see `collect_artifacts`).
             name: Deployment name (duplicate filtering key).
+            tenant_id: Owning tenant of the deployed definitions, or `None` for shared.
 
         Returns:
             A `DeploymentOutcome` reflecting the engine's response.
@@ -290,6 +316,8 @@ class EngineDeployClient:
         """
         if not paths:
             raise EngineDeployError("no artifact files provided to deploy — nothing to send")
+        if tenant_id is not None:
+            tenant_id = require_deploy_tenant(tenant_id)
 
         handles: list[BinaryIO] = []
         try:
@@ -304,6 +332,8 @@ class EngineDeployClient:
                 "enable-duplicate-filtering": "true",
                 "deploy-changed-only": "true",
             }
+            if tenant_id is not None:
+                data["tenant-id"] = tenant_id
             try:
                 resp = self._client.post(self._url("/deployment/create"), files=files, data=data)
             except httpx.HTTPError as exc:

@@ -49,6 +49,7 @@ from tests.integration.platform.test_events_kafka_producer_live import (
 from tests.integration.processes.conftest import audit_rows_for_task_ids
 from tests.integration.processes.engine_rest import EngineRest
 from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from ._engine_helpers import (
     active_instances,
@@ -61,6 +62,13 @@ from ._engine_helpers import (
 from .test_helena_escalation import _FakeInference, _FakeWhatsAppSender, _RaisingInference
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _escalation_do_tenant(engine_base_url: str, audit_tenant: str) -> None:
+    """A Helena inicia no tenant da conversa: ESCALATION + DMN dela DO tenant desta execucao."""
+    deploy_for_tenant(engine_base_url, audit_tenant, "SP-OP-ESCALATION-001")
+
 
 _ROOT = Path(__file__).resolve().parents[3]
 _BPMN = _ROOT / "spec/processes/bpmn/SP-OP-ESCALATION-001_Escalonamento_Humano_Universal.bpmn"
@@ -230,7 +238,7 @@ async def test_classifier_failure_reaches_human_with_real_broker_delivery(
     transport = CibSevenWorkerTransport(engine_base_url, timeout=30)
     engine = EngineRest(engine_base_url)
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30)
     instance_id: str | None = None
     try:
         await consumer.start()

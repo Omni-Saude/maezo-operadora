@@ -82,6 +82,7 @@ from maezo.tools.workers.recurso import (
     register_recurso_workers,
     registrar_indeferimento_entry,
 )
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest, assert_definition_provenance
@@ -349,7 +350,9 @@ async def recurso_probe(
         bpmn_error_allowlist=RECURSO_BPMN_ERROR_ALLOWLIST,
     )
     kafka = FakeKafkaPublisher()
-    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-PAGTO-001")
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
     register_recurso_workers(harness, kafka, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: o worker generico de operadora.events.publish que toda ST_Publish* deste BPMN usa.

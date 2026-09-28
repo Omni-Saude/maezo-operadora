@@ -25,6 +25,6 @@ def _deploy_spec_artifacts(engine_base_url: str) -> None:
     artifacts = collect_artifacts(processes_dir)
     client = EngineDeployClient(base_url=engine_base_url)
     try:
-        client.deploy(artifacts, name=DEFAULT_DEPLOYMENT_NAME)
+        client.deploy(artifacts, name=DEFAULT_DEPLOYMENT_NAME, tenant_id=None)
     finally:
         client.close()

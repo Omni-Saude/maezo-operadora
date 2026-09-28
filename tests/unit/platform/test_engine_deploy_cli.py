@@ -107,7 +107,7 @@ class TestRunDeploy:
             )
 
         client = _client_with_handler(handler)
-        rc = run_deploy(client, spec_dir=spec_dir, deployment_name="n")
+        rc = run_deploy(client, spec_dir=spec_dir, deployment_name="n", tenant="amh", shared=None)
         out = capsys.readouterr().out
 
         assert rc == 0
@@ -122,7 +122,9 @@ class TestRunDeploy:
             raise AssertionError("engine must not be called when artifact resolution fails")
 
         client = _client_with_handler(handler)
-        rc = run_deploy(client, spec_dir=tmp_path / "does-not-exist", deployment_name="n")
+        rc = run_deploy(
+            client, spec_dir=tmp_path / "does-not-exist", deployment_name="n", tenant="amh", shared=None
+        )
         err = capsys.readouterr().err
 
         assert rc == 1
@@ -137,7 +139,7 @@ class TestRunDeploy:
             return httpx.Response(400, text="ENGINE-09008 malformed BPMN")
 
         client = _client_with_handler(handler)
-        rc = run_deploy(client, spec_dir=spec_dir, deployment_name="n")
+        rc = run_deploy(client, spec_dir=spec_dir, deployment_name="n", tenant="amh", shared=None)
         err = capsys.readouterr().err
 
         assert rc == 1
@@ -161,7 +163,7 @@ class TestRunDeploy:
             )
 
         client = _client_with_handler(handler)
-        rc = run_deploy(client, spec_dir=spec_dir, deployment_name="n")
+        rc = run_deploy(client, spec_dir=spec_dir, deployment_name="n", tenant="amh", shared=None)
         out = capsys.readouterr().out
 
         assert rc == 0
@@ -212,6 +214,7 @@ class _FakeClient:
         self._list_result = list_result or []
         self._deploy_error = deploy_error
         self.deploy_calls: list[tuple[Any, str]] = []
+        self.deploy_tenants: list[str | None] = []
 
     def __enter__(self) -> _FakeClient:
         return self
@@ -222,8 +225,9 @@ class _FakeClient:
     def list_deployments(self) -> list[dict[str, Any]]:
         return self._list_result
 
-    def deploy(self, paths: Any, *, name: str) -> Any:
+    def deploy(self, paths: Any, *, name: str, tenant_id: str | None) -> Any:
         self.deploy_calls.append((paths, name))
+        self.deploy_tenants.append(tenant_id)
         if self._deploy_error is not None:
             raise self._deploy_error
         from maezo.platform.deploy.engine_deploy import DeploymentOutcome
@@ -253,7 +257,7 @@ class TestMainEndToEnd:
         fake = _FakeClient()
         monkeypatch.setattr("maezo.platform.deploy.cli.EngineDeployClient", lambda base_url=None: fake)
 
-        rc = main([])
+        rc = main(["--tenant", "amh"])
         out = capsys.readouterr().out
 
         assert rc == 0
@@ -273,8 +277,98 @@ class TestMainEndToEnd:
         )
         monkeypatch.setattr("maezo.platform.deploy.cli.EngineDeployClient", lambda base_url=None: fake)
 
-        rc = main([])
+        rc = main(["--tenant", "amh"])
         err = capsys.readouterr().err
 
         assert rc == 1
         assert "bad bpmn" in err
+
+
+# ---------------------------------------------------------------------------
+# Deploy target is explicit (27/09/2026): tenant-owned definitions, shared copies, or REFUSE
+# ---------------------------------------------------------------------------
+
+
+class TestDeployTarget:
+    """A tenant-bound start (`/process-definition/key/{k}/tenant-id/{t}/start`) resolves ONLY
+    definitions of its tenant, and a tenant's business rule task resolves decisions ONLY in the
+    same tenant — so the deploy must say where the definitions live, and never default."""
+
+    @staticmethod
+    def _recording_client(tmp_path: Path) -> tuple[EngineDeployClient, list[dict[str, Any]]]:
+        seen: list[dict[str, Any]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = request.read().decode("utf-8", errors="replace")
+            tenant = None
+            marker = 'name="tenant-id"\r\n\r\n'
+            if marker in body:
+                tenant = body.split(marker, 1)[1].split("\r\n", 1)[0]
+            files = sorted(
+                part.split('filename="', 1)[1].split('"', 1)[0]
+                for part in body.split("--")
+                if 'filename="' in part
+            )
+            seen.append({"tenant": tenant, "files": files})
+            return httpx.Response(200, json={"id": "dep", "name": "n"})
+
+        return _client_with_handler(handler), seen
+
+    def test_no_target_refuses_without_calling_the_engine(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        client, seen = self._recording_client(tmp_path)
+        rc = run_deploy(
+            client, spec_dir=_fake_spec_dir(tmp_path), deployment_name="n", tenant=None, shared=None
+        )
+        assert rc == 2
+        assert seen == []
+        assert "REFUSED" in capsys.readouterr().err
+
+    def test_main_without_target_refuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _FakeClient()
+        monkeypatch.setattr("maezo.platform.deploy.cli.EngineDeployClient", lambda base_url=None: fake)
+        assert main([]) == 2
+        assert fake.deploy_calls == []
+
+    def test_tenant_deploys_every_bpmn_and_dmn_owned_by_the_tenant(self, tmp_path: Path) -> None:
+        client, seen = self._recording_client(tmp_path)
+        rc = run_deploy(
+            client, spec_dir=_fake_spec_dir(tmp_path), deployment_name="n", tenant="amh", shared=None
+        )
+        assert rc == 0
+        assert seen == [{"tenant": "amh", "files": ["d0.dmn", "d1.dmn", "d2.dmn", "p0.bpmn", "p1.bpmn"]}]
+
+    def test_tenant_plus_shared_dmn_adds_a_decisions_only_shared_copy(self, tmp_path: Path) -> None:
+        client, seen = self._recording_client(tmp_path)
+        rc = run_deploy(
+            client, spec_dir=_fake_spec_dir(tmp_path), deployment_name="n", tenant="amh", shared="dmn"
+        )
+        assert rc == 0
+        assert seen[0]["tenant"] == "amh"
+        # The shared copy carries NO BPMN: a second shared BPMN would duplicate timer starts.
+        assert seen[1] == {"tenant": None, "files": ["d0.dmn", "d1.dmn", "d2.dmn"]}
+
+    def test_shared_all_is_the_explicit_tenantless_deploy(self, tmp_path: Path) -> None:
+        client, seen = self._recording_client(tmp_path)
+        rc = run_deploy(
+            client, spec_dir=_fake_spec_dir(tmp_path), deployment_name="n", tenant=None, shared="all"
+        )
+        assert rc == 0
+        assert seen == [{"tenant": None, "files": ["d0.dmn", "d1.dmn", "d2.dmn", "p0.bpmn", "p1.bpmn"]}]
+
+    @pytest.mark.parametrize("ruim", ["", "a/b", "amh?x", "../amh", "amh-x"])
+    def test_invalid_tenant_is_rejected_before_the_engine(self, tmp_path: Path, ruim: str) -> None:
+        client, seen = self._recording_client(tmp_path)
+        rc = run_deploy(
+            client, spec_dir=_fake_spec_dir(tmp_path), deployment_name="n", tenant=ruim, shared=None
+        )
+        assert rc == 1
+        assert seen == []
+
+    def test_main_passes_tenant_and_shared_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        fake = _FakeClient()
+        monkeypatch.setattr("maezo.platform.deploy.cli.EngineDeployClient", lambda base_url=None: fake)
+        assert main(["--tenant", "amh", "--shared", "dmn"]) == 0
+        assert fake.deploy_tenants == ["amh", None]
+        assert all(p.suffix == ".dmn" for p in fake.deploy_calls[1][0])

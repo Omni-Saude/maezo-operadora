@@ -51,6 +51,7 @@ from maezo.tools.workers.escalation import (
 )
 from maezo.tools.workers.harness import CibSevenWorkerTransport, WorkerHarness
 from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from ._engine_helpers import (
     active_instances,
@@ -63,6 +64,14 @@ from ._engine_helpers import (
 )
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _escalation_do_tenant(engine_base_url: str, audit_tenant: str) -> None:
+    """A Helena inicia no tenant da conversa (`/tenant-id/{tenant}/start`): a ESCALATION e a DMN
+    que ela chama precisam existir DO tenant desta execucao (`tests/support/engine_tenant_deploy`)."""
+    deploy_for_tenant(engine_base_url, audit_tenant, "SP-OP-ESCALATION-001")
+
 
 _RUN_ID = uuid.uuid4().hex[:8]
 
@@ -239,7 +248,7 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
     whatsapp = _FakeWhatsAppSender()
     inference = _FakeInference(
         [
@@ -287,8 +296,12 @@ async def test_red_flag_message_starts_escalation_with_correct_business_key_and_
             f"— none found active in the engine"
         )
         instance_id = str(actives[0]["id"])
+        # 27/09/2026: a instancia nasce NO tenant da conversa. Sem isto ela nascia com
+        # `tenantId = null` e o portal (que le `tenantIdIn(<tenant>)`) nunca via a tarefa.
+        assert actives[0]["tenantId"] == audit_tenant
 
         task = await wait_for_task(engine_client, instance_id)
+        assert task["tenantId"] == audit_tenant
         groups = await candidate_groups(engine_client, task["id"])
         assert groups == {"plantao-clinico"}, (
             f"expected candidate group 'plantao-clinico' (red_flag_clinico/grave -> escalation_routing "
@@ -308,7 +321,7 @@ async def test_non_red_flag_message_never_starts_escalation(
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
     whatsapp = _FakeWhatsAppSender()
     inference = _FakeInference(
         [
@@ -376,7 +389,7 @@ async def test_psychosocial_risk_always_escalates_even_when_intent_looks_adminis
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
     whatsapp = _FakeWhatsAppSender()
     inference = _FakeInference(
         [
@@ -464,7 +477,7 @@ async def test_malformed_classifier_json_escalates_falha_tecnica(
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
     whatsapp = _FakeWhatsAppSender()
     inference = _FakeInference(
         [
@@ -530,7 +543,7 @@ async def test_classifier_llm_exception_escalates_falha_tecnica(
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
     whatsapp = _FakeWhatsAppSender()
 
     graph = build(
@@ -586,7 +599,7 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
     business_key = f"ESC-{audit_tenant}-{conversation_id}"
 
     dmn = CibSevenDmnTransport(engine_base_url, timeout=30.0)
-    cibseven = CibSevenHttpTransport(engine_base_url, timeout=30.0)
+    cibseven = CibSevenHttpTransport(engine_base_url, tenant_id=audit_tenant, timeout=30.0)
     whatsapp = _FakeWhatsAppSender()
     inference = _FakeInference(
         [

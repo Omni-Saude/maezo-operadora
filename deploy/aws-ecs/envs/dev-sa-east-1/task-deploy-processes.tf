@@ -43,9 +43,19 @@ resource "aws_ecs_task_definition" "deploy_processes" {
     # unico override sancionado pela Wave-1 Q-6, e nao precisamos dela — quanto
     # menos caminho alternativo, menos chance de o engine receber uma versao
     # diferente da que esta na imagem.
+    #
+    # `--tenant` (27/09/2026): os agentes iniciam por `/process-definition/key/{key}/tenant-id/
+    # {tenant}/start`, que so resolve definicao DO tenant — e a business rule task de um processo
+    # do tenant so resolve DMN do mesmo tenant. Medido no dev: a v3 da ESCALATION estava sem
+    # tenant e o `amh` so tinha a v1 da fixture SYN; a instancia da Helena nascia sem tenant e o
+    # portal (que le `tenantIdIn(amh)`) nao a via. `--shared dmn` mantem a copia SEM tenant so'
+    # das DMNs, que a avaliacao do lado do agente (`dmn_transport`, `tenant=None`) ainda le.
+    # BPMN compartilhada NAO: uma segunda copia duplicaria os timers da ANS-CRON.
     command = [
       "python", "-m", "maezo.platform.deploy",
       "--deployment-name", "maezo-spec-processes",
+      "--tenant", var.tenant_id,
+      "--shared", "dmn",
     ]
 
     environment = [

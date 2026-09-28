@@ -385,6 +385,11 @@ async def _exercise_declared_long_transport(path, value, posts, *, name=_VARIAVE
 
     def capture(request):
         if request.method == "POST":
+            if path == "start":
+                # O start nasce no tenant da conversa (#558): nunca o endpoint sem tenant.
+                assert request.url.path == (
+                    "/process-definition/key/SP-OP-ESCALATION-001/tenant-id/amh/start"
+                ), request.url.path
             posts.append(json.loads(request.content))
             return httpx.Response(200, json=[] if path == "dmn" else {"id": "synthetic-instance"})
         if path == "dmn":
@@ -414,7 +419,10 @@ async def _exercise_declared_long_transport(path, value, posts, *, name=_VARIAVE
                     "synthetic-task", "synthetic-worker", error_code="ERR_SYNTHETIC", variables=variables
                 )
         else:
-            transport = CibSevenHttpTransport("https://engine.invalid")
+            # Só o start exige tenant ligado no transporte; correlação segue sem (inalterada).
+            transport = CibSevenHttpTransport(
+                "https://engine.invalid", tenant_id="amh" if path == "start" else None
+            )
             await transport._client.aclose()
             transport._client = client
             if path == "start":
