@@ -541,7 +541,7 @@ variable "canal_teste_image_tag" {
   # A REGRA, que o proprio texto desta variavel ja enunciava e que esta correcao cumpre: O DEFAULT
   # DESCREVE O QUE RODA. Promover e' um commit que muda este numero, nao um `-var` que so' existe
   # no terminal de quem aplicou.
-  default = "28fdd58e" # 27/09/2026 (#555): o canal roda 28fdd58e (sha256:b7f8714e, assinada) desde o apply do #555 com -var; o default voltava a 07e72eae-r2. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
+  default = "9638f32d" # 28/09/2026: main 9638f32d (#564 conclusao na tela do portal, #565), sha256:4f300926, mesma imagem do app. Antes: 28fdd58e # 27/09/2026 (#555): o canal roda 28fdd58e (sha256:b7f8714e, assinada) desde o apply do #555 com -var; o default voltava a 07e72eae-r2. Antes: 27/09/2026: MESMA fonte 07e72eae reconstruida (CodeBuild, sha256:16f77c69...) porque a tag 07e72eae foi EXPIRADA do ECR pela lifecycle policy e task nova nao puxava; tag nova, nunca reescrita. Antes: main de 23/09/2026 (cccb64c9 = #471 identidade nao e pedido de humano, sobre 79cb6ab3: #460 criticos da Helena, #456 conclusao pelo portal, #457 painel do canal, #467) promovida a dev em 23/09; antes e857e284 ((#440) promovida a dev por #445 (21/09); pagina de escalonamento de 13/09 (`e86c0f89`)
 }
 
 variable "canal_teste_result_allowlist" {
