@@ -94,7 +94,11 @@ export function TaskCompletionControls({
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return;
-      throw error;
+      // Relancar aqui deixava o formulario preso em "enviando" para sempre: o campo e o
+      // botao ficam desabilitados e a tela nao volta sozinha. E a falha tambem nao prova
+      // que a tarefa continuou aberta, entao o desfecho honesto e DESCONHECIDO.
+      setState({ kind: "unknown" });
+      return;
     }
     if (current.signal.aborted) return;
 
@@ -161,6 +165,7 @@ export function TaskCompletionControls({
           Instrução / notas de resolução
           <textarea
             id={`${fieldId}-notes`}
+            rows={4}
             value={notes}
             maxLength={maxNotes}
             required

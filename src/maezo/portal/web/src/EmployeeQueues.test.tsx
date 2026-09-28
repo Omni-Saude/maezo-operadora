@@ -386,3 +386,28 @@ it.each(["pending", "committed"] as const)("atualiza fila a10s e mantém comando
   expect(screen.queryByText(`Protocolo: ${queueCommandId}`)).not.toBeInTheDocument();
   expect(screen.queryByRole("rowheader")).not.toBeInTheDocument();
 });
+
+it("mostra o bloco de conclusão uma única vez na tarefa aberta", async () => {
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/tasks/task-1")) return jsonResponse(taskResponse());
+    return jsonResponse(queuePage("team", "task-1", "UT_SupervisorAssume"));
+  });
+  render(
+    <EmployeeQueues
+      csrfToken="csrf-secret"
+      sessionBinding="session-a"
+      onSessionUnavailable={vi.fn()}
+      initialQueue="team"
+      showQueueNavigation={false}
+    />,
+  );
+
+  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+
+  expect(await screen.findByRole("heading", { name: "Concluir a tarefa" })).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { name: "Concluir a tarefa" })).toHaveLength(1);
+  expect(document.querySelectorAll("textarea")).toHaveLength(1);
+  const ids = [...document.querySelectorAll("[id]")].map((node) => node.id);
+  expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+});
