@@ -203,6 +203,10 @@ export function EmployeeQueues({
   const [decisionTask, setDecisionTask] = useState<string | null>(null);
   // A command belongs to its selected task/session, not to a renewable queue page.
   const [ownershipTask, setOwnershipTask] = useState<string | null>(null);
+  // A conclusao acompanha a responsabilidade e NAO o painel de detalhe. O detalhe expira
+  // em menos de um minuto; escrever uma instrucao para o beneficiario demora mais do que
+  // isso. Preso ao detalhe, o formulario sumia no meio da frase e levava o texto junto.
+  const [completionTask, setCompletionTask] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueName>(initialQueue);
   const [queueState, setQueueState] = useState<QueueState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
@@ -231,7 +235,10 @@ export function EmployeeQueues({
     queueRequest.current = null;
     const revoked = error === "session_unavailable" || error === "employee_access_required" || error === "resource_unavailable";
     suspended.current = revoked;
-    if (error === undefined || revoked) setOwnershipTask(null);
+    if (error === undefined || revoked) {
+      setOwnershipTask(null);
+      setCompletionTask(null);
+    }
     setDecisionTask(null);
     invalidateDetail();
     setQueueState(error === undefined ? { kind: "loading" } : { kind: "error", error });
@@ -342,6 +349,7 @@ export function EmployeeQueues({
         return;
       }
       setOwnershipTask((current) => current === taskId ? current : null);
+      setCompletionTask((current) => current === taskId ? current : null);
       const openedItem = queueState.items.find((item) => item.task_id === taskId);
       openedTaskRevision.current = openedItem === undefined ? null : { id: taskId, revision: openedItem.task_revision };
       const epoch = ++detailEpoch.current;
@@ -365,12 +373,16 @@ export function EmployeeQueues({
             validUntil: result.value.freshness.valid_until,
           });
           setOwnershipTask(taskId);
+          setCompletionTask(taskId);
         } else if (result.kind === "session_unavailable") {
           clearForSessionFailure();
         } else if (result.kind === "employee_access_required") {
           invalidateWorkspace(result.kind);
         } else {
-          if (result.kind === "resource_unavailable") setOwnershipTask(null);
+          if (result.kind === "resource_unavailable") {
+            setOwnershipTask(null);
+            setCompletionTask(null);
+          }
           setDetailState({ kind: "error", error: result.kind });
         }
       } catch (error) {
@@ -468,10 +480,13 @@ export function EmployeeQueues({
         refreshQueue={() => void loadFirstPage()}
         prepare={csrfToken ? setDecisionTask : undefined}
       />
-      {detailState.kind === "ready" && csrfToken && (
+      {/* Os tres blocos abaixo sao irmaos e podem apontar para a MESMA tarefa ao mesmo
+          tempo. Sem um prefixo por bloco, as chaves ficam identicas entre irmaos — React
+          nao garante nada nesse caso e chega a manter dois nos do mesmo bloco na tela. */}
+      {completionTask && csrfToken && (
         <TaskCompletionControls
-          key={`${sessionBinding}\u0000${detailState.task.task_id}`}
-          taskId={detailState.task.task_id}
+          key={`conclusao\u0000${sessionBinding}\u0000${completionTask}`}
+          taskId={completionTask}
           csrfToken={csrfToken}
           sessionBinding={sessionBinding}
           onSessionUnavailable={clearForSessionFailure}
@@ -480,7 +495,7 @@ export function EmployeeQueues({
       )}
       {ownershipTask && csrfToken && (
         <TaskOwnershipControls
-          key={`${sessionBinding}\u0000${ownershipTask}`}
+          key={`responsabilidade\u0000${sessionBinding}\u0000${ownershipTask}`}
           taskId={ownershipTask}
           csrfToken={csrfToken}
           sessionBinding={sessionBinding}
@@ -488,7 +503,7 @@ export function EmployeeQueues({
           onCommitted={() => void loadFirstPage()}
         />
       )}
-      {decisionTask && csrfToken && <DecisionWorkspace key={`${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
+      {decisionTask && csrfToken && <DecisionWorkspace key={`decisao\u0000${sessionBinding}\u0000${decisionTask}`} taskId={decisionTask} csrfToken={csrfToken} onSessionUnavailable={clearForSessionFailure} />}
     </section>
   );
 }

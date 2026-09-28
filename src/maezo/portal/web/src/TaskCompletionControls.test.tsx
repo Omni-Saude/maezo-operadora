@@ -177,3 +177,27 @@ it("descarta o rascunho ao trocar de tarefa", async () => {
   expect(screen.getByRole("button", { name: "Concluir tarefa" })).toBeDisabled();
   expect((screen.getByLabelText(/Instrução \/ notas de resolução/) as HTMLTextAreaElement).value).toBe("");
 });
+
+it("nunca fica preso em enviando quando algo inesperado quebra no meio", async () => {
+  const user = userEvent.setup();
+  // Uma resposta que quebra fora do try do cliente: antes, o erro subia e a tela
+  // ficava para sempre com o campo e o botao desabilitados.
+  vi.mocked(fetch).mockResolvedValueOnce({
+    get headers(): never {
+      throw new TypeError("resposta quebrada");
+    },
+  } as unknown as Response);
+  render(controls());
+
+  await fill(user);
+  await user.click(screen.getByRole("button", { name: "Concluir tarefa" }));
+
+  await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("pode ter sido concluída"));
+  expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Concluir tarefa" })).toBeEnabled();
+});
+
+it("dá ao texto altura de escrita, e não as duas linhas do padrão do navegador", () => {
+  render(controls());
+  expect(screen.getByLabelText(/Instrução \/ notas de resolução/)).toHaveAttribute("rows", "4");
+});

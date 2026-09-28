@@ -51,6 +51,100 @@
   border-top: 1px solid #d5e2dc;
 }
 
+/* O bloco de conclusao e irmao do detalhe da tarefa, como o de responsabilidade:
+   a mesma separacao por linha, e os campos com o mesmo porte dos demais formularios
+   do portal. Sem estas regras o navegador usa o textarea padrao (2 linhas por 20
+   colunas) e um botao desabilitado indistinguivel de um habilitado. */
+.task-completion {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #d5e2dc;
+}
+
+.task-completion h3 {
+  margin-top: 0;
+  color: #143d31;
+}
+
+.task-completion form {
+  display: grid;
+  gap: 1rem;
+  max-width: 48rem;
+  margin-top: 1rem;
+}
+
+.task-completion fieldset {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.5rem 1rem 0.9rem;
+  border: 1px solid #b9cec5;
+  border-radius: 0.7rem;
+}
+
+.task-completion legend {
+  padding-inline: 0.35rem;
+  color: #284f44;
+  font-weight: 800;
+}
+
+.task-completion fieldset label {
+  display: flex;
+  gap: 0.65rem;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0.35rem;
+  font-weight: 650;
+}
+
+.task-completion fieldset input {
+  flex: 0 0 auto;
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.task-completion > form > label {
+  display: grid;
+  gap: 0.4rem;
+  color: #284f44;
+  font-weight: 750;
+}
+
+.task-completion textarea {
+  width: 100%;
+  min-height: 6rem;
+  padding: 0.75rem;
+  border: 1px solid #7b9990;
+  border-radius: 0.6rem;
+  font: inherit;
+  color: #173e33;
+  background: #fff;
+  resize: vertical;
+}
+
+.task-completion .field-hint {
+  margin: 0;
+  color: #506f66;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.task-completion .primary-action {
+  justify-self: start;
+}
+
+/* Um botao que nao pode ser acionado precisa dizer isso antes do clique. */
+.task-completion .primary-action:disabled {
+  background: #8aa79c;
+  cursor: not-allowed;
+}
+
+.task-completion fieldset:disabled,
+.task-completion textarea:disabled {
+  opacity: 0.6;
+}
+
 .ownership-controls h3,
 .ownership-controls h4 {
   margin-top: 0;

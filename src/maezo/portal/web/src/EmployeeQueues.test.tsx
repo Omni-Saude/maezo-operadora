@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
@@ -385,4 +385,65 @@ it.each(["pending", "committed"] as const)("atualiza fila a10s e mantém comando
   await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
   expect(screen.queryByText(`Protocolo: ${queueCommandId}`)).not.toBeInTheDocument();
   expect(screen.queryByRole("rowheader")).not.toBeInTheDocument();
+});
+
+it("mostra o bloco de conclusão uma única vez na tarefa aberta", async () => {
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/tasks/task-1")) return jsonResponse(taskResponse());
+    return jsonResponse(queuePage("team", "task-1", "UT_SupervisorAssume"));
+  });
+  render(
+    <EmployeeQueues
+      csrfToken="csrf-secret"
+      sessionBinding="session-a"
+      onSessionUnavailable={vi.fn()}
+      initialQueue="team"
+      showQueueNavigation={false}
+    />,
+  );
+
+  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+
+  expect(await screen.findByRole("heading", { name: "Concluir a tarefa" })).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { name: "Concluir a tarefa" })).toHaveLength(1);
+  expect(document.querySelectorAll("textarea")).toHaveLength(1);
+  const ids = [...document.querySelectorAll("[id]")].map((node) => node.id);
+  expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+});
+
+it("mantém o formulário de conclusão e o texto já digitado quando o detalhe vence", async () => {
+  vi.useFakeTimers();
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.includes("/tasks/task-1")) return jsonResponse(taskResponse());
+    return jsonResponse(queuePage("team", "task-1", "UT_SupervisorAssume"));
+  });
+  render(
+    <EmployeeQueues
+      csrfToken="csrf-secret"
+      sessionBinding="session-a"
+      onSessionUnavailable={vi.fn()}
+      initialQueue="team"
+      showQueueNavigation={false}
+    />,
+  );
+  await act(async () => Promise.resolve());
+  await act(async () => {
+    screen.getByRole("button", { name: "Abrir detalhes de UT_SupervisorAssume" }).click();
+  });
+
+  const notes = screen.getByLabelText(/Instrução \/ notas de resolução/);
+  fireEvent.change(notes, { target: { value: "oriento a procurar o pronto-socorro" } });
+
+  // O snapshot do detalhe vale menos de um minuto. Vencer o snapshot fecha o painel de
+  // leitura — mas nao pode apagar a instrucao que a pessoa esta escrevendo.
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+  // Um bloco, nao dois: os irmaos apontam para a mesma tarefa e, com chaves iguais,
+  // o React chegava a manter duas copias do formulario na tela ao mesmo tempo.
+  expect(document.querySelectorAll(".task-completion")).toHaveLength(1);
+  expect(screen.getByRole("heading", { name: "Concluir a tarefa" })).toBeInTheDocument();
+  expect((screen.getByLabelText(/Instrução \/ notas de resolução/) as HTMLTextAreaElement).value)
+    .toBe("oriento a procurar o pronto-socorro");
 });
