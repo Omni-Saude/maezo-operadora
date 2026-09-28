@@ -226,6 +226,7 @@ from maezo.tools.workers.nip import (
     register_nip_workers,
     submit_response_entry,
 )
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest
@@ -1295,6 +1296,9 @@ async def test_a2a_start_via_nip_instruct(
     correlate_payload = {
         "messageName": "msg.nip.instruct",
         "businessKey": business_key,
+        # Start por mensagem na definicao SEM tenant (a que esta suite deploya): explicito, para a
+        # correlacao nao ficar ambigua se outra suite do mesmo engine deployou a NIP por tenant.
+        "withoutTenantId": True,
         "processVariables": {
             "tenant_id": {"value": "amh", "type": "String"},
             "numero_nip_ans": {"value": nip, "type": "String"},
@@ -1953,7 +1957,9 @@ async def test_nip_handoff_end_to_end_starts_ans_submit_via_live_bridge(
 
     # Stand-in for the still-missing live consumer (gap (b)): construct the bridge with the REAL
     # fenced starter (never a raw engine call) and feed it the handoff directly.
-    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL)
+    # Start tenant-bound (27/09/2026): a ANS-SUBMIT precisa existir DO tenant do handoff.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-ANS-SUBMIT-001")
+    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
 
     before_submit = await engine.instance_ids_of_definition(_PROCESS_KEY_ANS_SUBMIT)

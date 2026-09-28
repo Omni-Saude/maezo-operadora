@@ -76,6 +76,7 @@ from maezo.tools.mcp_cibseven.transport import StartDedupGateUnavailableError
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.inadimplencia import handoff_rescisao
 from tests.integration.chaos.mutations import broken_start_process_always_start, mutation_active
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from .conftest import CIBSEVEN_BASE_URL, count_chain_rows
 from .engine_rest import EngineRest
@@ -133,7 +134,9 @@ async def test_a1_redelivered_handoff_creates_exactly_one_cancel_instance_and_au
     cancel_bk = f"CANCEL-{tenant_id}-{contrato}"
     variables = _redelivery_variables(tenant_id=tenant_id, numero_contrato=contrato)
 
-    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, tenant_id, "SP-OP-CANCEL-001")
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id=tenant_id)
     handoff_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
 
     # Pre-condition: no leftover instance under this (fresh, uuid-suffixed) business key.
@@ -212,7 +215,9 @@ async def test_a1_mutation_check_broken_idempotency_creates_a_second_instance(
     cancel_bk = f"CANCEL-{tenant_id}-{contrato}"
     variables = _redelivery_variables(tenant_id=tenant_id, numero_contrato=contrato)
 
-    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, tenant_id, "SP-OP-CANCEL-001")
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id=tenant_id)
     handoff_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
 
     await asyncio.to_thread(handoff_rescisao, dict(variables), engine=engine_seam, audit_sink=handoff_sink)
@@ -233,8 +238,8 @@ class _HistoryBlindEngineSeam:
     exists to prevent exactly that). The capability must be GENUINELY absent, not stubbed: the
     `HistoryQueryingTransport` probe is attribute-presence."""
 
-    def __init__(self, base_url: str) -> None:
-        self._inner = FreshClientCibSevenTransport(base_url)
+    def __init__(self, base_url: str, *, tenant_id: str) -> None:
+        self._inner = FreshClientCibSevenTransport(base_url, tenant_id=tenant_id)
         self.start_attempts: list[str] = []
 
     async def find_active_instance(self, business_key: str) -> Any:
@@ -277,7 +282,7 @@ async def test_a1_handoff_fails_closed_when_the_engine_seam_cannot_answer_histor
     cancel_bk = f"CANCEL-{tenant_id}-{contrato}"
     variables = _redelivery_variables(tenant_id=tenant_id, numero_contrato=contrato)
 
-    blind_seam = _HistoryBlindEngineSeam(CIBSEVEN_BASE_URL)
+    blind_seam = _HistoryBlindEngineSeam(CIBSEVEN_BASE_URL, tenant_id=tenant_id)
     handoff_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
 
     assert not await engine.find_active_instances(cancel_bk)

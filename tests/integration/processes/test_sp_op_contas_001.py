@@ -185,6 +185,7 @@ from maezo.tools.workers.dmn_transport import CibSevenDmnTransport
 from maezo.tools.workers.events import register_events_workers
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
 from maezo.tools.workers.pagto import register_pagto_workers
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest, assert_definition_provenance
@@ -540,7 +541,9 @@ async def contas_probe(
     # (`engine=`) + a loop-agnostic durable audit
     # sink (`audit_sink=`, FreshSinkAuditEmitter — the sync worker emits on its own asyncio.run loop,
     # NOT the harness's pooled sink). Same split the live worker-daemon + the inadimplencia probe use.
-    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-PAGTO-001", "SP-OP-FRAUDE-001")
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
     register_contas_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: o worker generico operadora.events.publish que todo ST_Publish* deste BPMN usa.

@@ -49,15 +49,20 @@ async def test_get_process_status_decodes_json_typed_variable_against_real_engin
     # ONLY branch that calls `GET /process-instance/{id}/variables` and therefore the ONLY branch
     # this fix touches).
     topic = f"t11.it.jsondecode.{RUN_ID}"
+    # Tenant-bound start (27/09/2026): the definition must be OWNED by the transport's tenant.
     await deploy_process(
-        engine_client, process_key=process_key, topic=topic, deployment_name=f"t11-jsondecode-{RUN_ID}"
+        engine_client,
+        process_key=process_key,
+        topic=topic,
+        deployment_name=f"t11-jsondecode-{RUN_ID}",
+        tenant_id="amh",
     )
 
     business_key = f"bk-jsondecode-{RUN_ID}"
     linhas_conta_refs = [{"numero_guia_tiss": "G1", "valor_apresentado_centavos": 1000}]
     dossie = {"a": 1, "b": [1, 2, 3]}
 
-    transport = CibSevenHttpTransport(engine_base_url)
+    transport = CibSevenHttpTransport(engine_base_url, tenant_id="amh")
     try:
         await transport.start_process_instance(
             process_key,

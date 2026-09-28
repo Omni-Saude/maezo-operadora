@@ -505,7 +505,10 @@ def build_cibseven_seam(
         from maezo.gateway.engine_contracts import EngineCapabilityError, EngineRefusalCode
 
         raise EngineCapabilityError(EngineRefusalCode.PROFILE_UNAVAILABLE)
-    kwargs: dict[str, Any] = {}
+    # O tenant do motor em que os STARTS nascem e' o do `SeamContext` — o mesmo tenant da raiz
+    # que a proveniencia de cada start carrega (`require_start_tenant` confere os dois). Sem
+    # isto a instancia nascia sem tenant e sumia da fila da equipe (medido no dev, 27/09/2026).
+    kwargs: dict[str, Any] = {"tenant_id": seam.tenant}
     if auth_token is not None:
         kwargs["auth_token"] = auth_token
     if timeout is not None:

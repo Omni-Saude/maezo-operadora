@@ -351,8 +351,10 @@ async def test_a2_same_business_key_yields_one_instance_and_one_audit_link(
     business_key = entry.business_key_fn(state)
     assert business_key, f"{entry.label}: business key derivation must not be empty"
     provenance = _provenance(entry, state)
+    # Start tenant-bound (27/09/2026): a mesma definicao, agora DO tenant da proveniencia.
+    await engine.deploy(*entry.deploy_paths, name=entry.deploy_name, tenant_id=provenance.tenant_id)
 
-    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL)
+    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL, tenant_id=provenance.tenant_id)
     try:
         chain_before = await count_chain_rows(audit_pg[0], audit_tenant)
         inst1 = await _start(
@@ -413,8 +415,11 @@ async def test_a2_distinct_business_keys_yield_distinct_instances(
     business_key_a = entry.business_key_fn(state_a)
     business_key_b = entry.business_key_fn(state_b)
     assert business_key_a != business_key_b
+    tenant_id = _provenance(entry, state_a).tenant_id
+    # Start tenant-bound (27/09/2026): a mesma definicao, agora DO tenant da proveniencia.
+    await engine.deploy(*entry.deploy_paths, name=entry.deploy_name, tenant_id=tenant_id)
 
-    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL)
+    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL, tenant_id=tenant_id)
     try:
         inst_a = await _start(
             transport,
@@ -466,8 +471,10 @@ async def test_a2_mutation_check_broken_idempotency_creates_a_second_instance(
     state = entry.state_factory(disc)
     business_key = entry.business_key_fn(state)
     provenance = _provenance(entry, state)
+    # Start tenant-bound (27/09/2026): a mesma definicao, agora DO tenant da proveniencia.
+    await engine.deploy(*entry.deploy_paths, name=entry.deploy_name, tenant_id=provenance.tenant_id)
 
-    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL)
+    transport = CibSevenHttpTransport(CIBSEVEN_BASE_URL, tenant_id=provenance.tenant_id)
     try:
         await _start(
             transport,

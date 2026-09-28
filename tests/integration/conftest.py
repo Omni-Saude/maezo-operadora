@@ -157,18 +157,29 @@ def echo_process_bpmn(*, process_key: str, topic: str) -> str:
 
 
 async def deploy_process(
-    client: httpx.AsyncClient, *, process_key: str, topic: str, deployment_name: str
+    client: httpx.AsyncClient,
+    *,
+    process_key: str,
+    topic: str,
+    deployment_name: str,
+    tenant_id: str | None = None,
 ) -> None:
     """POST /deployment/create with the ad hoc echo process — fail-closed (raises on non-2xx,
-    the engine's error body is never swallowed, mirroring `engine_deploy.py`'s posture)."""
+    the engine's error body is never swallowed, mirroring `engine_deploy.py`'s posture).
+
+    `tenant_id` deploys the definition OWNED by that tenant — what a tenant-bound
+    `CibSevenHttpTransport(tenant_id=...)` start resolves (27/09/2026)."""
     bpmn_xml = echo_process_bpmn(process_key=process_key, topic=topic)
+    data = {
+        "deployment-name": deployment_name,
+        "enable-duplicate-filtering": "true",
+        "deploy-changed-only": "true",
+    }
+    if tenant_id is not None:
+        data["tenant-id"] = tenant_id
     resp = await client.post(
         "/deployment/create",
-        data={
-            "deployment-name": deployment_name,
-            "enable-duplicate-filtering": "true",
-            "deploy-changed-only": "true",
-        },
+        data=data,
         files={f"{process_key}.bpmn": (f"{process_key}.bpmn", bpmn_xml, "text/xml")},
     )
     if resp.status_code >= 300:

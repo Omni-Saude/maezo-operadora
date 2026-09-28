@@ -1463,6 +1463,11 @@ def _deploy_and_verify(checkout: Path, env: dict[str, str], results_dir: Path) -
             ENGINE_URL,
             "--spec-dir",
             str(checkout / "spec"),
+            # Engine de integracao: a copia COMPARTILHADA de sempre (a verificacao abaixo le
+            # `/{kind}-definition/key/{key}`, sem tenant). As suites que iniciam por transporte
+            # com tenant deployam as definicoes do proprio tenant.
+            "--shared",
+            "all",
         ),
         cwd=checkout,
         env=env,

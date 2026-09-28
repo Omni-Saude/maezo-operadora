@@ -15,7 +15,6 @@ import uuid
 from collections.abc import Iterator
 
 import asyncpg  # type: ignore[import-untyped]
-import httpx
 import pytest
 
 from maezo.gateway.audit_postgres import (
@@ -33,6 +32,7 @@ from maezo.tools.mcp_cibseven.transport import CibSevenHttpTransport
 from maezo.tools.workers.cibseven_engine import FreshClientCibSevenTransport
 from maezo.tools.workers.contas import handoff_pagamento
 from tests.integration.conftest import _apply_migrations, _engine_reachable, _pg_reachable
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 pytestmark = pytest.mark.integration
 
@@ -53,7 +53,6 @@ def _audit_dsn() -> str:
 def live_tenant(engine_base_url: str) -> Iterator[tuple[str, str, str]]:
     """(dsn, tenant, engine_url) with a fresh migrated schema + RECURSO deployed. Skips loudly."""
     import asyncio
-    import pathlib
 
     # This directory's conftest no-ops the parent engine gate (its Kafka suite needs no engine),
     # so THIS engine-driven suite must check reachability itself — skip loudly, never fake.
@@ -83,17 +82,10 @@ def live_tenant(engine_base_url: str) -> Iterator[tuple[str, str, str]]:
     asyncio.run(_create())
     _apply_migrations(dsn, tenant)
 
-    # Deploy the REAL RECURSO-001 process so the fenced start has a definition to start.
-    repo_root = pathlib.Path(__file__).resolve().parents[3]
-    with open(repo_root / _REPO_RECURSO_BPMN, "rb") as fh:
-        bpmn = fh.read()
-    with httpx.Client(base_url=engine_base_url, timeout=60.0) as c:
-        resp = c.post(
-            "/deployment/create",
-            data={"deployment-name": f"eb4-live-{tenant}", "enable-duplicate-filtering": "true"},
-            files={"SP-OP-RECURSO-001.bpmn": ("SP-OP-RECURSO-001.bpmn", bpmn, "text/xml")},
-        )
-        assert resp.status_code < 300, resp.text
+    # Deploy the REAL RECURSO-001 (bridge) and PAGTO-001 (worker handoff) OWNED BY THIS TENANT, with
+    # the DMNs they call: every fenced start is tenant-bound since 27/09/2026
+    # (`/tenant-id/{tenant}/start` resolves only the tenant's own definitions).
+    deploy_for_tenant(engine_base_url, tenant, "SP-OP-RECURSO-001", "SP-OP-PAGTO-001")
     try:
         yield (dsn, tenant, engine_base_url)
     finally:
@@ -153,7 +145,7 @@ def test_worker_handoff_pagamento_starts_real_instance_and_audits(
         return handoff_pagamento(
             variables,
             fonte_valor="apresentado",
-            engine=FreshClientCibSevenTransport(engine_url),
+            engine=FreshClientCibSevenTransport(engine_url, tenant_id=tenant),
             audit_sink=FreshSinkAuditEmitter(dsn, tenant),
         )
 
@@ -186,7 +178,7 @@ async def test_bridge_reconciled_event_starts_real_instance_and_audits(
     guia, glosa = f"GUIAB-{suffix}", f"GLOSAB-{suffix}"
     bk = f"RECURSO-{tenant}-{guia}-{glosa}"
 
-    transport = CibSevenHttpTransport(engine_url)
+    transport = CibSevenHttpTransport(engine_url, tenant_id=tenant)
     sink = PostgresAuditSink(dsn, tenant)
     try:
         bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, sink))

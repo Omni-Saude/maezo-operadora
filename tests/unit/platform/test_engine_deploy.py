@@ -195,7 +195,7 @@ class TestEngineDeployClientDeployRequest:
 
         # trailing slash on base_url must not produce a double slash in the final URL
         client = _client_with_handler(handler, base_url="http://engine.example/engine-rest/")
-        client.deploy([bpmn], name="n")
+        client.deploy([bpmn], name="n", tenant_id=None)
 
         assert seen["method"] == "POST"
         assert seen["url"] == "http://engine.example/engine-rest/deployment/create"
@@ -213,7 +213,7 @@ class TestEngineDeployClientDeployRequest:
             return httpx.Response(200, json=_deploy_response())
 
         client = _client_with_handler(handler)
-        client.deploy([bpmn, dmn], name="my-deployment")
+        client.deploy([bpmn, dmn], name="my-deployment", tenant_id=None)
 
         assert captured["content_type"].startswith(b"multipart/form-data")
         body = captured["body"]
@@ -232,7 +232,7 @@ class TestEngineDeployClientDeployRequest:
 
         client = _client_with_handler(handler)
         with pytest.raises(EngineDeployError, match="nothing to send"):
-            client.deploy([], name="n")
+            client.deploy([], name="n", tenant_id=None)
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ class TestEngineDeployClientErrorSurfacing:
 
         client = _client_with_handler(handler)
         with pytest.raises(EngineDeployError) as exc_info:
-            client.deploy([bpmn], name="n")
+            client.deploy([bpmn], name="n", tenant_id=None)
 
         err = exc_info.value
         assert err.status_code == 400
@@ -271,7 +271,7 @@ class TestEngineDeployClientErrorSurfacing:
 
         client = _client_with_handler(handler)
         with pytest.raises(EngineDeployError) as exc_info:
-            client.deploy([bpmn], name="n")
+            client.deploy([bpmn], name="n", tenant_id=None)
         assert exc_info.value.status_code == 500
 
     def test_transport_error_wrapped(self, tmp_path: Path) -> None:
@@ -283,7 +283,7 @@ class TestEngineDeployClientErrorSurfacing:
 
         client = _client_with_handler(handler)
         with pytest.raises(EngineDeployError, match="request to engine failed"):
-            client.deploy([bpmn], name="n")
+            client.deploy([bpmn], name="n", tenant_id=None)
 
     def test_non_json_2xx_body_raises(self, tmp_path: Path) -> None:
         bpmn = tmp_path / "a.bpmn"
@@ -294,7 +294,7 @@ class TestEngineDeployClientErrorSurfacing:
 
         client = _client_with_handler(handler)
         with pytest.raises(EngineDeployError, match="not valid JSON"):
-            client.deploy([bpmn], name="n")
+            client.deploy([bpmn], name="n", tenant_id=None)
 
     def test_file_handles_closed_even_on_error(self, tmp_path: Path) -> None:
         """A rejection must not leak open file handles (finally-block close)."""
@@ -306,7 +306,7 @@ class TestEngineDeployClientErrorSurfacing:
 
         client = _client_with_handler(handler)
         with pytest.raises(EngineDeployError):
-            client.deploy([bpmn], name="n")
+            client.deploy([bpmn], name="n", tenant_id=None)
 
         # the file must be re-openable / not left locked by a dangling handle
         with bpmn.open("rb") as fh:

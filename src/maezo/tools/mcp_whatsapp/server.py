@@ -26,6 +26,7 @@ ignored. Callers that legitimately want the unprotected send pass no key at all.
 from __future__ import annotations
 
 import hmac
+import re
 from typing import Any
 
 import httpx
@@ -51,6 +52,22 @@ WHATSAPP_SEND_SEAL_FAILURES_TOTAL = Counter(
     "Outbound WhatsApp sends delivered but whose durable idempotency claim could not be sealed",
     registry=get_metrics_collector().registry,
 )
+
+
+#: CERCA DE SAIDA da faixa sintetica (27/09/2026). A `FAIXA_TESTE` do Canal de Teste
+#: (`platform/testchannel/server.py`, stdlib pura — por isso a expressao e' REPETIDA aqui e nao
+#: importada; `tests/unit/tools/test_whatsapp_faixa_sintetica.py` falha se as duas divergirem)
+#: so barrava a ENTRADA: a resposta da Helena no receptor e a retomada no `agent-resume` iam para
+#: a Cloud API da Meta mesmo com destino `5511900000xxx` — medido no dev (`whatsapp_message_sent`
+#: para esses numeros). Numero sintetico nao tem pessoa do outro lado; mandar para a Meta e' no
+#: melhor caso lixo na conta da operadora e no pior uma mensagem num numero real que um dia caia
+#: nessa faixa. Por isso a recusa vale em TODO ambiente, no ponto unico de envio (este metodo).
+FAIXA_SINTETICA = re.compile(r"^5511900000\d{3}$")
+
+
+def destino_sintetico(to: str) -> bool:
+    """`to` cai na faixa sintetica? Compara so os DIGITOS (`+55 11 ...` e `5511...` sao o mesmo)."""
+    return bool(FAIXA_SINTETICA.match(re.sub(r"\D", "", to or "")))
 
 
 def _secret(suffix: str) -> Any:
@@ -293,6 +310,20 @@ class WhatsAppServer:
                 exactly the duplicate reply the guard exists to prevent.
             httpx.HTTPStatusError: If the WhatsApp API returns an error.
         """
+        if destino_sintetico(to):
+            # CERCA DE SAIDA (ver `FAIXA_SINTETICA`): nenhuma chamada a Meta, nenhum claim de
+            # idempotencia (nao houve entrega a proteger) e nenhum numero no log — nem o final:
+            # os tres ultimos digitos SAO o numero dentro da faixa. Nao levanta: a retomada
+            # (`agent-resume`) trataria excecao como falha de envio e nao confirmaria o offset,
+            # reentregando o mesmo evento para sempre. O retorno diz o que aconteceu —
+            # `suppressed_synthetic`, sem `messages[].id` inventado.
+            logger.warning(
+                "whatsapp_envio_sintetico_suprimido",
+                faixa="5511900000xxx",
+                phone_number_id=self._settings.phone_number_id or None,
+            )
+            return {"suppressed_synthetic": True}
+
         phone_number_id = self._settings.phone_number_id
         if not phone_number_id:
             raise ValueError("WhatsApp phone_number_id is not configured — refusing to send")

@@ -128,6 +128,7 @@ from maezo.tools.workers.harness import (
     WorkerHarness,
 )
 from tests.integration.conftest import _apply_migrations, _pg_reachable
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 pytestmark = pytest.mark.integration
 
@@ -645,7 +646,9 @@ async def test_full_pipeline_armed_payload_starts_and_audits_dormant_payload_doe
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
+    # Start tenant-bound (27/09/2026): a FRAUDE-001 precisa existir DO tenant deste teste.
+    deploy_for_tenant(str(engine_client.base_url), tenant_id, "SP-OP-FRAUDE-001")
+    transport = CibSevenHttpTransport(str(engine_client.base_url), tenant_id=tenant_id, timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
 
     await consumer.start()
@@ -805,7 +808,9 @@ async def test_redelivered_message_is_idempotent_one_audit_row_same_instance(
         bootstrap_servers=kafka_bootstrap_servers, topic=NOTIFICATIONS_TOPIC, group_id=group_id
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
+    # Start tenant-bound (27/09/2026): a FRAUDE-001 precisa existir DO tenant deste teste.
+    deploy_for_tenant(str(engine_client.base_url), tenant_id, "SP-OP-FRAUDE-001")
+    transport = CibSevenHttpTransport(str(engine_client.base_url), tenant_id=tenant_id, timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
 
     await consumer.start()
@@ -1090,7 +1095,9 @@ async def test_poison_message_is_shunted_to_a_real_dlq_topic_and_the_loop_contin
         auto_offset_reset="latest",
     )
     audit_sink = PostgresAuditSink(dsn, tenant_id)
-    transport = CibSevenHttpTransport(str(engine_client.base_url), timeout=30.0)
+    # Start tenant-bound (27/09/2026): a FRAUDE-001 precisa existir DO tenant deste teste.
+    deploy_for_tenant(str(engine_client.base_url), tenant_id, "SP-OP-FRAUDE-001")
+    transport = CibSevenHttpTransport(str(engine_client.base_url), tenant_id=tenant_id, timeout=30.0)
     bridge = NotificationBridge(cibseven_starter=build_cibseven_process_starter(transport, audit_sink))
     dlq = BridgeDlqShunt(
         publisher=AioKafkaDlqPublisher(bootstrap_servers=kafka_bootstrap_servers),

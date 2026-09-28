@@ -70,6 +70,14 @@ class GatedCibSevenTransport(GatedSeam):
         active: ProcessInstance | None = await self._inner.find_active_instance(business_key)
         return active
 
+    @property
+    def engine_tenant_id(self) -> str | None:
+        """Delegado ao inner: `require_start_tenant` confere o tenant do start ATRAVES do
+        decorador. Um inner que nao declara tenant levanta `AttributeError` aqui, e o
+        `getattr(..., default)` de quem pergunta continua vendo "nao declarado"."""
+        tenant: str | None = self._inner.engine_tenant_id
+        return tenant
+
     async def start_process_instance(
         self,
         process_key: str,

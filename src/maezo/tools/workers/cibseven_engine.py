@@ -41,6 +41,7 @@ from maezo.tools.mcp_cibseven.transport import (
     CibSevenError,
     CibSevenHttpTransport,
     HistoryQueryingTransport,
+    require_engine_tenant_token,
 )
 
 if TYPE_CHECKING:
@@ -68,11 +69,15 @@ class FreshClientCibSevenTransport:
         self,
         base_url: str,
         *,
+        tenant_id: str | None = None,
         auth_token: str | None = None,
         timeout: float = 15.0,
         transport_factory: Callable[[], CibSevenTransport] | None = None,
     ) -> None:
         self._base_url = base_url
+        # Tenant do motor dos STARTS (ver `CibSevenHttpTransport.__init__`). Validado aqui, na
+        # construcao, e nao so no primeiro start: composicao errada falha no boot.
+        self._tenant_id = require_engine_tenant_token(tenant_id) if tenant_id is not None else None
         self._auth_token = auth_token
         self._timeout = timeout
         # `transport_factory` is a DI seam (tests assert per-call construction with a spy factory);
@@ -82,7 +87,14 @@ class FreshClientCibSevenTransport:
     def _new_transport(self) -> CibSevenTransport:
         if self._transport_factory is not None:
             return self._transport_factory()
-        return CibSevenHttpTransport(self._base_url, auth_token=self._auth_token, timeout=self._timeout)
+        return CibSevenHttpTransport(
+            self._base_url, tenant_id=self._tenant_id, auth_token=self._auth_token, timeout=self._timeout
+        )
+
+    @property
+    def engine_tenant_id(self) -> str | None:
+        """O tenant em que os starts nascem — conferido por `require_start_tenant`."""
+        return self._tenant_id
 
     async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
         inner = self._new_transport()

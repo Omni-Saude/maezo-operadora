@@ -272,7 +272,9 @@ deploy-artifacts: ## deploy spec/processes/{bpmn,dmn} no engine CIB Seven (idemp
 	# spec/ e a fonte unica de verdade — deploya DIRETO de spec/processes/, nunca copia artefato
 	# para outro lugar. Fail-closed: qualquer rejeicao do engine (BPMN/DMN invalido, HTTP nao-2xx)
 	# sai non-zero com o corpo de erro do engine verbatim — ver src/maezo/platform/deploy/engine_deploy.py.
-	.venv/bin/python -m maezo.platform.deploy
+	# Alvo explicito (27/09/2026): definicoes do tenant local `amh` (o que os starts por tenant
+	# resolvem) + copia compartilhada de tudo (so' no engine local — ferramentas/ITs sem tenant).
+	.venv/bin/python -m maezo.platform.deploy --tenant amh --shared all
 
 dev-stack:
 	docker compose --profile core up -d

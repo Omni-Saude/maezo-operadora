@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
@@ -102,6 +103,23 @@ class CibSevenStartAuthorizationError(CibSevenError):
 
 class ProcessNotFoundError(CibSevenError):
     """No process instance (active or historic) matches the given business key."""
+
+
+class CibSevenTenantError(CibSevenError):
+    """A process start with no (or the wrong) engine tenant — REFUSED before any durable write.
+
+    Why it exists (medido no dev em 27/09/2026): a Helena abria `SP-OP-ESCALATION-001` por
+    `POST /process-definition/key/{key}/start`, o endpoint que o motor resolve SEM tenant — a
+    instancia nascia com `tenantId = null` e toda leitura por tenant (o portal humano consulta
+    `tenantIdIn(amh)`, o emissor de casos descarta o que nao e' do tenant) ficava cega para ela.
+    A tarefa humana existia e ninguem a via. Um start sem tenant nao e' "um start um pouco pior":
+    e' um caso que some da fila da equipe. Por isso recusa, em vez de cair no endpoint sem tenant.
+
+    Subclasse de `CibSevenError` de proposito: os grafos ja tratam `CibSevenError` como falha
+    honesta de start (`process_started: False` + aviso de falha), que e' o desfecho certo — e
+    `start_process_idempotent` levanta isto ANTES do claim duravel, entao nenhuma chave fica
+    presa (`cibseven_start_claim_orphaned`) por um erro de composicao.
+    """
 
 
 class CibSevenVariableDecodeError(CibSevenError):
@@ -383,11 +401,34 @@ class CibSevenHttpTransport:
     handler) may also just let the instance be garbage-collected after `close()`.
     """
 
-    def __init__(self, base_url: str, *, auth_token: str | None = None, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        tenant_id: str | None = None,
+        auth_token: str | None = None,
+        timeout: float = 15.0,
+    ) -> None:
+        """`tenant_id` e' o tenant do motor em que esta instancia INICIA processos.
+
+        Opcional na construcao porque a maior parte da superficie (consultas, correlacao,
+        status) nao depende dele — a business key ja carrega o tenant. O START depende: sem
+        `tenant_id`, `start_process_instance` RECUSA (`CibSevenTenantError`) em vez de usar o
+        endpoint sem tenant. As tres raizes de producao passam o tenant do `SeamContext`
+        (`gateway/tool_registry.py::build_cibseven_seam`).
+        """
+        if tenant_id is not None:
+            tenant_id = require_engine_tenant_token(tenant_id)
+        self._tenant_id = tenant_id
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if auth_token:
             headers["Authorization"] = f"Bearer {auth_token}"
         self._client = httpx.AsyncClient(base_url=base_url.rstrip("/"), headers=headers, timeout=timeout)
+
+    @property
+    def engine_tenant_id(self) -> str | None:
+        """O tenant em que os starts desta instancia nascem (`None` = starts recusados)."""
+        return self._tenant_id
 
     async def find_active_instance(self, business_key: str) -> ProcessInstance | None:
         """Query for an ACTIVE instance with this business key (idempotency check)."""
@@ -554,9 +595,18 @@ class CibSevenHttpTransport:
         `find_active_instance` probe, the durable audit-before-effect claim and the strict dedup
         gate around this POST, and the AST fence `scripts/ci/check_start_process_fence.py` fails
         the build on any other call site outside its pinned allowlist."""
+        tenant_id = self._tenant_id
+        if not tenant_id:
+            # Nunca o `/process-definition/key/{key}/start` sem tenant: ele resolve a definicao
+            # COMPARTILHADA e a instancia nasce sem tenant, invisivel a toda leitura por tenant.
+            raise CibSevenTenantError(
+                f"refusing to start `{process_key}`: this transport has no engine tenant bound"
+            )
         payload = {"businessKey": business_key, "variables": _to_camunda_vars(variables)}
         try:
-            resp = await self._client.post(f"/process-definition/key/{process_key}/start", json=payload)
+            resp = await self._client.post(
+                f"/process-definition/key/{process_key}/tenant-id/{tenant_id}/start", json=payload
+            )
             resp.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise CibSevenError(
@@ -598,6 +648,11 @@ class CibSevenHttpTransport:
             payload["correlationKeys"] = _to_camunda_vars(correlation_keys)
         if all_matching:
             payload["all"] = True
+        if self._tenant_id:
+            # Com tenant ligado a correlacao fica NO tenant: um start por mensagem resolve a
+            # definicao do tenant (nao a compartilhada) e o fan-out `all` por `correlationKeys`
+            # nao atravessa para instancias de outro tenant.
+            payload["tenantId"] = self._tenant_id
         try:
             resp = await self._client.post("/message", json=payload)
             resp.raise_for_status()
@@ -995,6 +1050,45 @@ def build_start_audit_record(
         model_id=provenance.model_id,
         prompt_version=provenance.prompt_version,
     )
+
+
+#: Mesmo vocabulario de token limitado do chokepoint (`gateway/effect_pep.py::_TOKEN_RE`),
+#: restated aqui pela mesma razao de camada que la. Vai para um SEGMENTO DE PATH da REST do
+#: motor (`/tenant-id/{tenant}/start`), entao `/`, `?`, `..` e vazio sao recusados na origem.
+_ENGINE_TENANT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}\Z")
+
+#: Sentinela: o transporte nao DECLARA tenant (dubles de teste, `SecuredCibSevenTransport`,
+#: cuja identidade de tenant ja e' conferida pelo perfil D7 em `authorize_start`).
+_TENANT_UNDECLARED: Any = object()
+
+
+def require_engine_tenant_token(tenant_id: object) -> str:
+    """Valida o tenant que vai para a URL de start do motor; `CibSevenTenantError` se invalido."""
+    if not isinstance(tenant_id, str) or not _ENGINE_TENANT_RE.match(tenant_id):
+        raise CibSevenTenantError("engine tenant id is missing or not a bounded token")
+    return tenant_id
+
+
+def require_start_tenant(transport: object, tenant_id: str) -> None:
+    """O tenant do motor em que o start vai nascer TEM de ser o tenant da conversa.
+
+    Chamado por `start_process_idempotent` ANTES do scrub, do claim duravel e do POST. Um
+    transporte que declara `engine_tenant_id` (o HTTP real, o fresh-client do worker e o
+    decorador gated sobre eles) e' conferido: `None` recusa (start sem tenant), e um tenant
+    diferente do da proveniencia recusa (a instancia nasceria num tenant e a business key
+    `{PREFIX}-{tenant}-...` noutro — caso arquivado no tenant errado). Um transporte que NAO
+    declara passa: sao os dubles de teste e o transporte seguro D7, cuja identidade de tenant e'
+    conferida pelo proprio perfil (`SecuredCibSevenTransport.authorize_start`).
+    """
+    bound = getattr(transport, "engine_tenant_id", _TENANT_UNDECLARED)
+    if bound is _TENANT_UNDECLARED:
+        return
+    if not bound:
+        raise CibSevenTenantError("refusing to start: the engine transport has no tenant bound")
+    if bound != tenant_id:
+        raise CibSevenTenantError(
+            "refusing to start: the engine transport tenant differs from the conversation tenant"
+        )
 
 
 def start_dedup_key(tenant_id: str, process_key: str, business_key: str) -> str:
@@ -1784,6 +1878,11 @@ async def start_process_idempotent(
         raise AuthUnavailableError()
     audit_sink = cast(AuditStartSink, audit_sink)
     provenance = cast(AgentDecisionProvenance, provenance)
+
+    # -2. TENANT DO MOTOR (27/09/2026). Antes de qualquer escrita: a instancia nasce no tenant
+    #     da conversa ou nao nasce (`require_start_tenant`). Levantado antes do claim, entao um
+    #     erro de composicao nunca deixa chave presa.
+    require_start_tenant(transport, provenance.tenant_id)
 
     # -1. CC-06 PHI SCRUB, BEFORE ANYTHING ELSE. `variables` is rebound here and the raw mapping
     #     is never read again in this function, so there is structurally no path on which raw

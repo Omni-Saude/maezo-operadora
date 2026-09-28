@@ -69,15 +69,27 @@ edits, or infers a signoff record; it is an exclusively human act.
 # Requires `make dev-stack` (or equivalent) up first — deploys against a running engine.
 make dev-stack
 make deploy-artifacts
-# = uv run python -m maezo.platform.deploy
+# = uv run python -m maezo.platform.deploy --tenant amh --shared all   (local engine only)
 
 # List what the engine currently holds, without deploying anything:
 uv run python -m maezo.platform.deploy --list
 
 # Override the target engine (default: $ENGINE_REST_URL or http://localhost:8080/engine-rest,
 # matching the `cibseven` compose service's published port):
-ENGINE_REST_URL=http://cibseven.staging.internal:8080/engine-rest uv run python -m maezo.platform.deploy
+ENGINE_REST_URL=http://cibseven.staging.internal:8080/engine-rest uv run python -m maezo.platform.deploy --tenant amh --shared dmn
 ```
+
+**The target is explicit (27/09/2026).** Without `--tenant` or `--shared` the CLI refuses (exit 2).
+Agents and workers start processes with `POST /process-definition/key/{key}/tenant-id/{tenant}/start`
+(`CibSevenHttpTransport(tenant_id=...)`, bound from the `SeamContext` tenant); that route only
+resolves a definition **owned by the tenant** — a shared one is not a fallback — and a business
+rule task inside a tenant's process only resolves decisions of the same tenant (both measured on a
+local CIB Seven 2.1.0). So a live environment deploys `--tenant <id>` (every BPMN + DMN) plus
+`--shared dmn` (the agent-side DMN evaluation, `dmn_transport` with `tenant=None`, still reads
+shared decisions). Shared BPMN (`--shared all`) is for the local/integration engine only: in a live
+environment a second, shared copy of a BPMN duplicates its timer start events (ANS-CRON) and makes
+a message start correlated without tenant ambiguous. Duplicate filtering is per
+`(deployment-name, tenant)`.
 
 Mechanics (`EngineDeployClient.deploy`, `src/maezo/platform/deploy/engine_deploy.py`):
 one multipart `POST /deployment/create` per run, submitting **every** `.bpmn`/`.dmn` file under

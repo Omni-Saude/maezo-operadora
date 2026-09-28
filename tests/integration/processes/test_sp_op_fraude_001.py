@@ -230,6 +230,7 @@ from maezo.tools.workers.fraude import (
 )
 from maezo.tools.workers.fraude import seal_custody_bundle as _seal_custody_bundle
 from maezo.tools.workers.harness import CibSevenWorkerTransport, FakeKafkaPublisher, WorkerHarness
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 from .conftest import CIBSEVEN_BASE_URL, drain_topics
 from .engine_rest import EngineRest, EngineRestError
@@ -584,7 +585,9 @@ async def fraude_probe(
     # REQUIRE the engine seam (`engine=`) + a loop-agnostic durable audit sink (`audit_sink=`,
     # FreshSinkAuditEmitter — the sync worker emits on its own asyncio.run loop, NOT the harness's
     # pooled sink). Same split the live worker-daemon + the inadimplencia probe use.
-    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL)
+    # Handoff tenant-bound (27/09/2026): o destino precisa existir DO tenant do start.
+    deploy_for_tenant(CIBSEVEN_BASE_URL, "amh", "SP-OP-CRED-001", "SP-OP-CANCEL-001")
+    engine_seam = FreshClientCibSevenTransport(CIBSEVEN_BASE_URL, tenant_id="amh")
     handoff_audit_sink = FreshSinkAuditEmitter(audit_pg[0], audit_tenant)
     register_fraude_workers(harness, kafka, dmn=dmn, engine=engine_seam, audit_sink=handoff_audit_sink)
     # T3.1 R2: the generic operadora.events.publish worker every ST_Publish* service task in

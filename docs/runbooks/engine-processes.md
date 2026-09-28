@@ -65,7 +65,7 @@ Deployment goes through the `maezo-deploy` CLI (`maezo.platform.deploy.cli`), wh
 make dev-stack          # or: docker compose --profile core up -d
 
 # 2. Deploy every spec/processes/{bpmn,dmn} artifact (idempotent, versioned)
-python -m maezo.platform.deploy          # equivalently: make deploy-artifacts
+python -m maezo.platform.deploy --tenant amh --shared all   # local; equivalently: make deploy-artifacts
 
 # 3. Verify — list the engine's deployments
 python -m maezo.platform.deploy --list   # GET /deployment
@@ -77,7 +77,7 @@ There is **no** `deploy.yml` workflow, and no CI job deploys processes with `cur
 
 ```bash
 # Against the target engine (staging/prod REST endpoint):
-ENGINE_REST_URL="https://<engine-host>/engine-rest" python -m maezo.platform.deploy
+ENGINE_REST_URL="https://<engine-host>/engine-rest" python -m maezo.platform.deploy --tenant <tenant> --shared dmn
 ```
 
 `EngineDeployClient` runs the same `POST /deployment/create` path as the dev deploy, so the engine's own deployment parser is the final validator — a BPMN/DMN rejection is a real engine-side defect, not a tool bug.
