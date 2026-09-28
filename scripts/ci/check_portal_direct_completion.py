@@ -204,6 +204,10 @@ def _fora_do_terraform(raiz: Path) -> list[str]:
     for caminho in sorted(deploy.rglob("*")):
         if not caminho.is_file() or caminho.suffix == ".tf":
             continue
+        # Um `.tftest.hcl` nao deploya nada: so' AFIRMA o valor que o `.tf` (ja analisado pela
+        # cerca 3) tem de produzir. Reprova-lo aqui puniria justamente o teste que prova a cerca.
+        if caminho.name.endswith(".tftest.hcl"):
+            continue
         try:
             texto = caminho.read_text(encoding="utf-8", errors="strict")
         except (UnicodeDecodeError, OSError):
