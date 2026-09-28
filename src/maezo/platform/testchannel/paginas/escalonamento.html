@@ -353,6 +353,21 @@
       <h3>O contexto está pseudonimizado?</h3>
       <div id="pContexto"><p class="vazio">Aguardando.</p></div>
     </div>
+
+    <!-- Concluir pelo portal QUALQUER tarefa que o portal devolveu na fila de quem esta logado —
+         inclusive as de conversa vinda do WhatsApp real, que esta pagina nao criou. -->
+    <div class="bloco">
+      <h3>Concluir pelo portal — qualquer tarefa da sua fila</h3>
+      <p class="nota">Vale para as tarefas de <code>SP-OP-ESCALATION-001</code> que o
+        <b>próprio portal</b> devolveu na fila de quem está logado — inclusive de conversa que
+        chegou pelo WhatsApp real. O id usado é o que veio na resposta do portal; não há campo
+        para digitar id.</p>
+      <label for="notasFila">Notas / instrução — obrigatória em “Devolvo ao agente”: é o texto
+        que a Helena repassa ao beneficiário (até 2000 caracteres)</label>
+      <textarea id="notasFila" maxlength="2000"></textarea>
+      <div id="pFilaConcluir"><p class="vazio">Leia o portal (entre e clique em “Reler o portal”).</p></div>
+      <div id="avisoFila"></div>
+    </div>
   </div>
 
   <!-- ====================== a tarefa, e os dois caminhos de conclusao -->
@@ -1288,6 +1303,111 @@ function pintarFilas(){
     html += "</div>";
   });
   $("pFila").innerHTML = html;
+  pintarConclusaoFila();
+}
+
+/* ------------------------------------ concluir pelo portal, a partir da fila
+
+   ATE 27/09/2026 so' havia botao para a tarefa que ESTA pagina criou (`S.tarefaId`). Uma conversa
+   vinda do WhatsApp real aparecia na fila do portal sem botao nenhum. Agora qualquer tarefa de
+   SP-OP-ESCALATION-001 que o portal devolveu em `team`/`mine` ganha os tres resultados.
+
+   O ID NAO SAI DO HTML. O botao carrega o INDICE em `S.portal.itensConcluiveis`, que e' montado
+   so' com itens da resposta do portal; `concluirItemDaFila` le' o `task_id` de la' e ainda confere
+   o formato do contrato (`OpaqueRef`). Nao existe caminho de input livre ate' o POST.
+
+   Mesmas regras do botao do turno: resultado so' dos tres do BPMN, sessao relida antes (CSRF),
+   `classeDaFalhaPortal` para separar recusa de efeito incerto. */
+var RE_TASK_ID = /^[A-Za-z0-9_-]{1,2048}$/;
+var NOTAS_MAX = 2000;
+
+function itensConcluiveis(filas){
+  var vistos = {}, itens = [];
+  ["mine","team"].forEach(function(nome){
+    var r = filas && filas[nome];
+    if (!r || !r.ok || !r.corpo || !r.corpo.items) return;
+    r.corpo.items.forEach(function(i){
+      if (i.process_definition_key !== "SP-OP-ESCALATION-001") return;
+      if (typeof i.task_id !== "string" || !RE_TASK_ID.test(i.task_id)) return;
+      if (vistos[i.task_id]) return;
+      vistos[i.task_id] = true;
+      itens.push({task_id:i.task_id, task_definition_key:i.task_definition_key,
+                  task_revision:i.task_revision, ownership:i.ownership,
+                  engine_due_at:i.engine_due_at, fila:nome});
+    });
+  });
+  return itens;
+}
+
+/* Devolve o texto de `notas_resolucao` a enviar, ou `{erro}`. "Devolvo ao agente" EXIGE texto
+   escrito por quem trata: e' a instrucao que o agent-resume entrega ao beneficiario, e um texto
+   padrao ali viraria mensagem para uma pessoa real. */
+function notasDaConclusao(resultado, bruto){
+  var valido = RESULTADOS.some(function(r){ return r.valor === resultado; });
+  if (!valido) return {erro:"Resultado fora dos três do processo."};
+  var notas = String(bruto || "").trim();
+  if (notas.length > NOTAS_MAX) return {erro:"Notas acima de " + NOTAS_MAX + " caracteres."};
+  if (!notas){
+    if (resultado === "devolvido_agente")
+      return {erro:"Escreva a instrução: em “Devolvo ao agente” é o texto que a Helena repassa ao beneficiário."};
+    notas = "Concluído pelo Canal de Teste, pelo portal (" + resultado + ")";
+  }
+  return {notas:notas};
+}
+
+function pintarConclusaoFila(){
+  var itens = itensConcluiveis(S.portal.filas);
+  S.portal.itensConcluiveis = itens;
+  if (!itens.length){
+    $("pFilaConcluir").innerHTML = '<p class="vazio">Nenhuma tarefa de escalonamento na sua fila.</p>';
+    return;
+  }
+  var html = "<table><tr><th>Tarefa</th><th>Fila</th><th>Posse</th><th>Concluir</th></tr>";
+  itens.forEach(function(it, i){
+    html += "<tr><td><code>" + esc(it.task_id.slice(0,8)) + "…</code> " + esc(it.task_definition_key || "") +
+      (S.tarefaId && it.task_id === S.tarefaId ? ' <span class="selo ok">deste turno</span>' : "") +
+      "</td><td>" + esc(it.fila) + "</td><td>" + esc(POSSE[it.ownership] || it.ownership || "—") +
+      '</td><td><div class="botoes">' + RESULTADOS.map(function(r){
+        return '<button class="' + r.classe + '" onclick="concluirItemDaFila(' + i + ",'" + r.valor +
+               "')\">" + r.rotulo + "</button>";
+      }).join("") + "</div></td></tr>";
+  });
+  $("pFilaConcluir").innerHTML = html + "</table>";
+}
+
+function concluirItemDaFila(indice, resultado){
+  if (!PORTAL) return Promise.resolve(null);
+  var item = (S.portal.itensConcluiveis || [])[indice];
+  if (!item || !RE_TASK_ID.test(item.task_id)){
+    $("avisoFila").innerHTML = '<div class="erro">Tarefa não encontrada na última leitura da fila — releia o portal.</div>';
+    return Promise.resolve(null);
+  }
+  var n = notasDaConclusao(resultado, $("notasFila").value);
+  if (n.erro){ $("avisoFila").innerHTML = '<div class="erro">' + esc(n.erro) + "</div>"; return Promise.resolve(null); }
+  var tid = item.task_id;
+  $("avisoFila").innerHTML = '<p class="vazio">Chamando o portal…</p>';
+  return lerSessao()
+    .then(function(){
+      var cabecalhos = {"Content-Type":"application/json"};
+      if (S.portal.csrf) cabecalhos["X-CSRF-Token"] = S.portal.csrf;
+      return portalChamar(CAMINHO_FILA + "/" + encodeURIComponent(tid) + "/completion", {
+        method: "POST", headers: cabecalhos,
+        body: JSON.stringify({resultado: resultado, notas_resolucao: n.notas})
+      });
+    })
+    .then(function(r){
+      var classe = r.ok ? "concluido" : classeDaFalhaPortal(r);
+      S.portal.conclusoesFila = (S.portal.conclusoesFila || []).concat([
+        {task_id:tid, resultado:resultado, status:r.status, classe:classe, quando:new Date()}]);
+      S.evid.portalConclusoesFila = S.portal.conclusoesFila.map(function(c){
+        return {task_id:c.task_id, resultado:c.resultado, status:c.status, classe:c.classe}; });
+      if (r.ok) $("notasFila").value = "";
+      var msg = r.ok
+        ? '<p><span class="selo ok">CONCLUÍDA PELO PORTAL</span> tarefa <code>' + esc(tid.slice(0,8)) +
+          "…</code> · <code>" + esc(resultado) + "</code> · HTTP " + r.status + "</p>"
+        : explicarFalhaPortal(r, "concluir");
+      return lerPortal().then(function(){ $("avisoFila").innerHTML = msg; return classe; });
+    });
 }
 
 /* O FRESCOR E' O SINAL QUE O PROPRIO MANDATO MANDA OLHAR quando a fila vem vazia com caso

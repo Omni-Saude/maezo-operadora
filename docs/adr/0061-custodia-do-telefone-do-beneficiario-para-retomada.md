@@ -9,6 +9,14 @@
 > ambiente receber `RECIPIENT_VAULT_KMS_KEY_ARN` / `recipient_vault_enabled = true`. Até lá o
 > código existe, os testes passam, e a infraestrutura continua com `terraform plan` sem mudança.
 
+> **Exceção de dev, 27/09/2026 (decisão do dono, emenda D-P do plano
+> `docs/plans/portal-autoridade-nativa-dev.md`).** A custódia e o `agent-resume` foram LIGADOS
+> **somente** em `dev-sa-east-1` (`deploy/aws-ecs/envs/dev-sa-east-1/retomada.auto.tfvars`).
+> **Ciência do DPO pendente;** autorizado pela diretoria como **teste interno em dev, só com
+> celulares do time e da diretoria** — nenhum beneficiário real. Esta exceção não muda o status
+> deste ADR (continua Proposto) e não vale para nenhum outro ambiente. Rollback: voltar o arquivo
+> para `false`/`0` e aplicar (a chave KMS entra em exclusão de 30 dias; o cifrado fica ilegível).
+
 ## Contexto
 
 GAP-XHITL-4: quando o humano devolve um caso de SP-OP-ESCALATION-001 (`devolvido_agente`), a

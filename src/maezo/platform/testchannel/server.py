@@ -30,6 +30,10 @@ Configuração por ambiente, nada cravado:
     CANAL_SIMULAR_RECEPTOR — "1" LIGA `/receptor/simular`; ausente = rota inexistente
     MAEZO_ENV             — ambiente, pelo nome que o resto do repo usa; só `dev` libera o portal
     PORTAL_PUBLIC_ORIGIN  — origem do Portal Maezo entregue à página; RECUSADA fora de `dev`
+    MAEZO_TESTCHANNEL_RESULT_ALLOWLIST — números de teste (E.164) cujos casos a página de
+                            resultados pode mostrar; vazia = a página não lista nada
+    PHI_HMAC_KEY / TENANT_ID / RUNTIME_MODE — as MESMAS do receptor, para converter número em
+                            `conversation_id` (ver `resultados.py`)
 
 As páginas de `paginas/` não alcançam o portal por mesma-origem — ele vive em outro domínio. A
 ligação é por CORS com credenciais, aceita pelo portal **apenas em dev**, e deste lado a cerca é
@@ -55,6 +59,8 @@ import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from maezo.platform.testchannel import resultados
 
 #: REST do engine. O default local existe para `python -m` na maquina do dev; em
 #: container a variavel e' sempre passada pela task definition.
@@ -215,6 +221,23 @@ def _portal_origem_configurada() -> tuple[str, str]:
 #: ambiente de processo nao muda no meio da vida do container, e reavaliar por requisicao
 #: convidaria a divergencia entre o que o log de boot disse e o que a pagina recebeu.
 PORTAL_ORIGIN, PORTAL_MOTIVO = _portal_origem_configurada()
+
+#: A CERCA DA PAGINA DE RESULTADOS, resolvida no import pelo mesmo motivo da origem do portal: o que
+#: o log de boot disse e' o que a pagina recebe. `None` = sem lista ou sem chave, e as duas rotas
+#: de `/resultados/api/` respondem 503 com o motivo, sem consultar o motor.
+#: As quatro variaveis sao lidas AQUI, por nome literal, e nao dentro de `resultados.py`: e' o que
+#: deixa `check_chart_env_reconciliation.py` ver quem le' o que a task definition declara.
+RESULTADOS_CERCA, RESULTADOS_MOTIVO = resultados.construir_cerca(
+    {
+        "MAEZO_TESTCHANNEL_RESULT_ALLOWLIST": os.environ.get("MAEZO_TESTCHANNEL_RESULT_ALLOWLIST", ""),
+        "PHI_HMAC_KEY": os.environ.get("PHI_HMAC_KEY", ""),
+        "TENANT_ID": os.environ.get("TENANT_ID", "amh"),
+        "RUNTIME_MODE": os.environ.get("RUNTIME_MODE", ""),
+    }
+)
+
+#: Teto do corpo do POST de `/resultados/api/casos` (janela + um numero opcional).
+RESULTADOS_CORPO_MAX = 4096
 
 HTML = r"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
@@ -533,6 +556,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/engine"):
             self._proxy(ENGINE, "/engine")
             return
+        if self.path.split("?")[0] == "/resultados/api/caso":
+            self._resultados_caso()
+            return
         if self.path.startswith("/p/"):
             self._servir_pagina()
             return
@@ -557,6 +583,9 @@ class Handler(BaseHTTPRequestHandler):
         # cair aqui tambem, e esta e' a ultima rota onde se quer folga.
         if self.path == "/receptor/simular":
             self._simular_whatsapp()
+            return
+        if self.path == "/resultados/api/casos":
+            self._resultados_casos()
             return
         if self.path.startswith("/agente"):
             if not AGENTE:
@@ -668,6 +697,65 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             self._responder_json(502, {"erro": f"receptor inacessivel ({RECEPTOR}): {e}"})
 
+    # ------------------------------------------------------------ pagina de resultados
+
+    def _resultados_casos(self) -> None:
+        """Lista os casos da janela, SO' das conversas da lista declarada (`resultados.py`).
+
+        POST, e nao GET, por causa do campo opcional "meu numero": numero em query string vai
+        parar em log de proxy e em historico de navegador. O numero e' convertido e descartado
+        aqui, nunca ecoado — a resposta nao diz se ele esta na lista.
+        """
+        if RESULTADOS_CERCA is None:
+            self._responder_json(503, {"erro": f"pagina de resultados desligada: {RESULTADOS_MOTIVO}"})
+            return
+        try:
+            tamanho = int(self.headers.get("Content-Length") or 0)
+            if tamanho > RESULTADOS_CORPO_MAX:
+                self._responder_json(413, {"erro": "corpo grande demais"})
+                return
+            pedido = json.loads(self.rfile.read(tamanho) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self._responder_json(400, {"erro": "corpo nao e' JSON valido"})
+            return
+        if not isinstance(pedido, dict):
+            self._responder_json(400, {"erro": "corpo deve ser um objeto JSON"})
+            return
+        numero = str(pedido.get("numero") or "").strip() or None
+        try:
+            corpo = resultados.listar_casos(
+                resultados.LeitorDoMotor(ENGINE),
+                RESULTADOS_CERCA,
+                desde=str(pedido.get("desde") or "") or None,
+                ate=str(pedido.get("ate") or "") or None,
+                numero=numero,
+            )
+        except (OSError, ValueError) as e:
+            self._responder_json(502, {"erro": f"motor inacessivel ou resposta invalida: {type(e).__name__}"})
+            return
+        corpo["cerca"] = RESULTADOS_MOTIVO
+        self._responder_json(200, corpo)
+
+    def _resultados_caso(self) -> None:
+        """Os oito blocos de UM caso. Fora da cerca e inexistente dao o MESMO 404, de proposito."""
+        if RESULTADOS_CERCA is None:
+            self._responder_json(503, {"erro": f"pagina de resultados desligada: {RESULTADOS_MOTIVO}"})
+            return
+        consulta = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+        pid = (consulta.get("id") or [""])[0].strip()
+        if not re.fullmatch(r"[A-Za-z0-9-]{1,64}", pid):
+            self._responder_json(400, {"erro": "id de instancia invalido"})
+            return
+        try:
+            caso = resultados.detalhe_do_caso(resultados.LeitorDoMotor(ENGINE), RESULTADOS_CERCA, pid)
+        except (OSError, ValueError) as e:
+            self._responder_json(502, {"erro": f"motor inacessivel ou resposta invalida: {type(e).__name__}"})
+            return
+        if caso is None:
+            self._responder_json(404, {"erro": "caso nao encontrado"})
+            return
+        self._responder_json(200, caso)
+
     def _responder_json(self, status: int, corpo: dict[str, object]) -> None:
         data = json.dumps(corpo).encode()
         self.send_response(status)
@@ -686,7 +774,8 @@ def main() -> None:
         f"canal de teste ouvindo em {BIND}:{PORT} | motor: {ENGINE} | cockpit: {COCKPIT_URL} "
         f"| agente: {AGENTE or '(nao configurado)'} | paginas: {_paginas_disponiveis() or '(nenhuma)'} "
         f"| /receptor/simular: {'LIGADA -> ' + RECEPTOR if SIMULAR_LIGADO and RECEPTOR and APP_SECRET else 'desligada'} "
-        f"| ambiente: {AMBIENTE or '(ausente)'} | portal: {PORTAL_ORIGIN or PORTAL_MOTIVO}",
+        f"| ambiente: {AMBIENTE or '(ausente)'} | portal: {PORTAL_ORIGIN or PORTAL_MOTIVO} "
+        f"| resultados: {RESULTADOS_MOTIVO}",
         flush=True,
     )
     ThreadingHTTPServer((BIND, PORT), Handler).serve_forever()
