@@ -8,10 +8,15 @@
 --   outbox (pool do relay e da admissao de comando, `outbox.py`):
 --     human_command_outbox   SELECT, INSERT
 --     human_command_delivery SELECT, INSERT, UPDATE
---     audit_chain, audit_emit_dedup  SELECT (a cadeia de auditoria e escrita pelo emissor do app)
+--     audit_chain, audit_emit_dedup  SELECT, INSERT (28/09/2026, #558: a conclusao do portal - DL-0049,
+--       `gateway/human/production.py` - audita pelo MESMO pool do outbox: `PostgresAuditSink.emit_once`
+--       le a cauda + a reivindicacao e INSERE o elo e a reivindicacao (`ON CONFLICT DO NOTHING`, sem
+--       UPDATE). Sem INSERT a conclusao responde 503 `completion_dependency_unavailable`, medido no dev.)
+--       A cadeia e append-only: UPDATE/DELETE/TRUNCATE nela seguem proibidos e conferidos no fim.
 --   source (`assignment_transport.py`/`assignment_receipt.py`, so leitura):
 --     portal_assignment_source, portal_assignment_receipt_source, human_command_outbox  SELECT
--- Nenhum DELETE/TRUNCATE, nada fora destas 6 relacoes (conferido no fim).
+-- Nenhum DELETE/TRUNCATE; INSERT do outbox so nas 4 relacoes acima e UPDATE so em
+-- human_command_delivery; nada fora destas 6 relacoes (conferido no fim).
 DO $human_plane$
 DECLARE
  tenant_schema text := current_setting('maezo.human_plane.schema', true);
@@ -43,7 +48,7 @@ BEGIN
                 tenant_schema, tenant_schema, tenant_schema, tenant_schema, tenant_schema, tenant_schema, outbox, source);
  EXECUTE format('GRANT SELECT, INSERT ON %I.human_command_outbox TO %I', tenant_schema, outbox);
  EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %I.human_command_delivery TO %I', tenant_schema, outbox);
- EXECUTE format('GRANT SELECT ON %I.audit_chain, %I.audit_emit_dedup TO %I', tenant_schema, tenant_schema, outbox);
+ EXECUTE format('GRANT SELECT, INSERT ON %I.audit_chain, %I.audit_emit_dedup TO %I', tenant_schema, tenant_schema, outbox);
  EXECUTE format('GRANT SELECT ON %I.portal_assignment_source, %I.portal_assignment_receipt_source, '
                 '%I.human_command_outbox TO %I', tenant_schema, tenant_schema, tenant_schema, source);
  FOR r IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -52,4 +57,17 @@ BEGIN
             OR has_table_privilege(source, c.oid, 'INSERT, UPDATE, DELETE, TRUNCATE')) LOOP
    RAISE EXCEPTION 'portal-human-plane-grants: privilegio de escrita inesperado em %.%', tenant_schema, r.relname;
  END LOOP;
+ -- Postura do outbox: INSERT so onde a escrita e dele (fila, entrega e os dois elos da auditoria) e
+ -- UPDATE so na entrega. A cadeia de auditoria nunca e atualizada: um UPDATE nela reescreveria o hash.
+ FOR r IN SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+     WHERE n.nspname = tenant_schema AND c.relkind IN ('r','p','v','m')
+       AND ((has_table_privilege(outbox, c.oid, 'INSERT')
+             AND c.relname NOT IN ('human_command_outbox', 'human_command_delivery', 'audit_chain', 'audit_emit_dedup'))
+            OR (has_table_privilege(outbox, c.oid, 'UPDATE') AND c.relname <> 'human_command_delivery')) LOOP
+   RAISE EXCEPTION 'portal-human-plane-grants: privilegio de escrita inesperado do outbox em %.%', tenant_schema, r.relname;
+ END LOOP;
+ IF NOT (has_table_privilege(outbox, format('%I.audit_chain', tenant_schema), 'SELECT, INSERT')
+         AND has_table_privilege(outbox, format('%I.audit_emit_dedup', tenant_schema), 'SELECT, INSERT')) THEN
+   RAISE EXCEPTION 'portal-human-plane-grants: outbox sem SELECT+INSERT na cadeia de auditoria';
+ END IF;
 END $human_plane$;
