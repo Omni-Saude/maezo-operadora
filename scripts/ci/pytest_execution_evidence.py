@@ -48,6 +48,8 @@ _GUARD_SHA256 = "8a5b703081314182953a0cf12b844976e2f3908cbf4d5a701b70e3999efa3cc
 # cria uma nova exceção. Não existe auto-registro, arquivo de entrada ou env para
 # ampliar esta população. Expansão/refatoração deliberada exige revisar a fonte,
 # atualizar seu pin e provar os controles positivo/negativo e o RED separado.
+# 27/09/2026 (#558): pins A1/A2 atualizados — só o setup mudou (deploy do destino no tenant da
+# proveniência + transporte com tenant_id); guarda `mutation_active`, callable e asserção intactos.
 _COMPANIONS: dict[str, tuple[str, str, str]] = {
     "tests/integration/chaos/test_crash_between_seams.py::"
     "test_b1a_mutation_check_chain_insert_outside_lock_turns_suite_red": (
@@ -77,13 +79,13 @@ _COMPANIONS: dict[str, tuple[str, str, str]] = {
     "test_a1_mutation_check_broken_idempotency_creates_a_second_instance": (
         "a1_a2",
         "broken_start_process_always_start",
-        "241d589a05d08567720ccc1b90316c1c4b4aae0a453ac40e66beccdba81bc8be",
+        "3702dbba70d44012b673312672762d7deecc5db9f1baf453db2c561cf6337e65",
     ),
     "tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py::"
     "test_a2_mutation_check_broken_idempotency_creates_a_second_instance": (
         "a1_a2",
         "broken_start_process_always_start",
-        "260c453e743137eaf571f04786c98cd7949a568e9ed5b038ec560dc7705e5543",
+        "0f8314eb14ce384696c258801c6086a15fc1e829b97eaeb414a6f034f012dc2e",
     ),
 }
 
