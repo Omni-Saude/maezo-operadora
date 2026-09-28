@@ -167,6 +167,10 @@ portal = {
     "54.20.130.20/32",
     // [25/09/2026] endereco atual medido.
     "52.67.104.18/32",
+    // [28/09/2026] enderecos atuais medidos (callback 401: /oauth2/token inalcancavel a partir do SG).
+    "18.228.162.125/32",
+    "54.232.187.39/32",
+    "56.126.32.115/32",
     // ENIs do VPC endpoint de interface com.amazonaws.sa-east-1.ecr.api (vpce-0f200a15dbd1824ec).
     "10.40.40.27/32",
     "10.40.41.104/32",
