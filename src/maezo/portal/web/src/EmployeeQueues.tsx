@@ -2,6 +2,7 @@ import { DecisionWorkspace } from "./DecisionWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { TaskOwnershipControls } from "./TaskOwnershipControls";
+import { TaskCompletionControls } from "./TaskCompletionControls";
 
 import {
   listTaskQueue,
@@ -467,6 +468,16 @@ export function EmployeeQueues({
         refreshQueue={() => void loadFirstPage()}
         prepare={csrfToken ? setDecisionTask : undefined}
       />
+      {detailState.kind === "ready" && csrfToken && (
+        <TaskCompletionControls
+          key={`${sessionBinding}\u0000${detailState.task.task_id}`}
+          taskId={detailState.task.task_id}
+          csrfToken={csrfToken}
+          sessionBinding={sessionBinding}
+          onSessionUnavailable={clearForSessionFailure}
+          onCompleted={() => void loadFirstPage()}
+        />
+      )}
       {ownershipTask && csrfToken && (
         <TaskOwnershipControls
           key={`${sessionBinding}\u0000${ownershipTask}`}
