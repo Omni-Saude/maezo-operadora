@@ -380,7 +380,7 @@ jobs:
       # pytest-cov passes this source to subprocesses. Keep it absolute so a
       # shallow-clone test cannot add a second unexecuted tree to the denominator.
       - name: Download shard results
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           pattern: unit-shard-*
           merge-multiple: true
@@ -972,7 +972,7 @@ jobs:
       # `unit-shard-*` traz `unit-junit-<shard>.xml`, e `merge-multiple: true` achata todos na raiz
       # do workspace — de onde o glob abaixo os le.
       - name: Download shard results
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           pattern: unit-shard-*
           merge-multiple: true
