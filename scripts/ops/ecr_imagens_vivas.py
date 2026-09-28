@@ -21,8 +21,8 @@ CLUSTER = "maezo-operadora-dev"
 
 
 def aws(*args: str) -> tuple[dict[str, Any], int]:
-    proc = subprocess.run(  # noqa: S603 - argv fixo, sem shell
-        ["aws", *args, "--region", REGIAO, "--output", "json"],  # noqa: S607
+    proc = subprocess.run(  # argv fixo, sem shell
+        ["aws", *args, "--region", REGIAO, "--output", "json"],
         capture_output=True,
         text=True,
         check=False,

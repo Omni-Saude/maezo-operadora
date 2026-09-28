@@ -107,11 +107,15 @@ def test_a_arvore_sintetica_sem_evasao_passa(tmp_path: Path) -> None:
     assert executar(_montar(tmp_path)) == []
 
 
-def test_prod_clonado_sem_nenhum_dos_portoes_passa(tmp_path: Path) -> None:
-    """A clonagem em si não é a evasão — só ligar o portão nela é."""
+def test_prod_clonado_do_dev_com_portao_ligado_reprova_so_em_prod(tmp_path: Path) -> None:
+    """O dev real LIGA o atalho (DL-0049, emenda D-P): clona-lo como prod e' exatamente a evasao.
+
+    A cerca tem de apontar `prod-sa-east-1` e nada em `dev-sa-east-1`.
+    """
     raiz = _montar(tmp_path)
     _clonar_prod(raiz)
-    assert executar(raiz) == []
+    achados = executar(raiz)
+    assert achados and all("prod-sa-east-1" in a for a in achados), achados
 
 
 # ---------------------------------------------------------------------------------------
@@ -202,6 +206,16 @@ def test_portao_declarado_fora_do_terraform_analisado_reprova(tmp_path: Path, ar
     alvo.write_text("MAEZO_PORTAL_CORS_ORIGINS: https://qualquer.test\n", encoding="utf-8")
     achados = checar_ligacao_fora_de_dev(raiz)
     assert achados and any(arquivo in a for a in achados)
+
+
+def test_tftest_que_afirma_o_valor_do_terraform_nao_reprova(tmp_path: Path) -> None:
+    """Um `.tftest.hcl` so' afirma o que o `.tf` (ja analisado) produz; nao deploya nada."""
+    raiz = _montar(tmp_path)
+    alvo = raiz / _ENV_DEV / "tests" / "portal.tftest.hcl"
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    linhas = ("assert {", '  condition = x == { MAEZO_PORTAL_DIRECT_COMPLETION = "true" }', "}")
+    alvo.write_text(chr(10).join(linhas) + chr(10), encoding="utf-8")
+    assert not [a for a in checar_ligacao_fora_de_dev(raiz) if "tftest" in a]
 
 
 # ---------------------------------------------------------------------------------------
