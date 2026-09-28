@@ -1,0 +1,285 @@
+<!--
+  Canal de Teste — RESULTADOS dos casos reais (Parte 2 de temp/TESTES_CAMINHO_REAL.md).
+
+  DESTINO NO REPOSITORIO: src/maezo/platform/testchannel/paginas/resultados.html
+  Servida em https://maezo-teste-dev.austa.com.br/p/resultados.html (atras do Access).
+
+  SO' LEITURA. Esta pagina NAO chama /engine, /receptor nem /agente. Ela fala com duas rotas do
+  proprio Canal, que leem o motor no servidor e aplicam a cerca la':
+
+    POST /resultados/api/casos       {desde, ate, numero?} -> lista da janela
+    GET  /resultados/api/caso?id=... -> os oito blocos + o markdown para colar
+
+  A CERCA E' DO SERVIDOR (`resultados.py`): so' aparecem casos de numeros da lista declarada
+  `MAEZO_TESTCHANNEL_RESULT_ALLOWLIST`. O campo "meu numero" so' ESTREITA essa lista; ele vai no
+  corpo do POST, e' convertido no servidor e nunca volta na resposta. Esta pagina nao o guarda.
+-->
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Resultados dos casos</title>
+<style>
+  :root{
+    --tinta:#15191f; --tinta2:#4a5260; --tinta3:#767e8c;
+    --fundo:#f6f7f9; --papel:#ffffff; --linha:#e2e6ec;
+    --azul:#1f3864; --verde:#1e7a3c; --vermelho:#b31b1b; --ambar:#9a6b00;
+    --realce:#eef3fb;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--fundo);color:var(--tinta);
+       font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       margin:0;padding:20px 16px 50px}
+  .largura{max-width:1180px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 3px;color:var(--azul)}
+  .sub{color:var(--tinta3);font-size:13px;margin:0 0 18px}
+  .cartao{background:var(--papel);border:1px solid var(--linha);border-radius:10px;padding:15px 17px;margin-bottom:16px}
+  .cab{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+  .cab h2{font-size:14px;margin:0;color:var(--azul);text-transform:uppercase;letter-spacing:.04em}
+  .cab .meta{font-size:11.5px;color:var(--tinta3);font-variant-numeric:tabular-nums}
+  .filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;align-items:end}
+  label{display:block;font-size:12px;color:var(--tinta2);margin:0 0 4px;font-weight:600}
+  input{font:inherit;border:1px solid var(--linha);border-radius:7px;padding:8px 10px;
+        background:var(--papel);color:var(--tinta);width:100%}
+  button{font:inherit;font-weight:600;border:0;border-radius:7px;padding:9px 15px;
+         cursor:pointer;background:var(--azul);color:#fff;font-size:14px}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.sec{background:#eef1f5;color:var(--tinta)}
+  .atalhos{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .atalhos button{background:#eef1f5;color:var(--tinta2);font-size:12px;padding:5px 10px;font-weight:500}
+  .rolagem{overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--linha);vertical-align:top}
+  th{color:var(--tinta3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+  .ficha th{width:200px}
+  tr.caso{cursor:pointer} tr.caso:hover td{background:var(--realce)}
+  tr.caso.ativo td{background:var(--realce);font-weight:600}
+  td code,p code{background:#f0f2f5;padding:1px 5px;border-radius:4px;font-size:12px}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .selo{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11.5px;font-weight:700;color:#fff;white-space:nowrap}
+  .selo.P1{background:var(--vermelho)} .selo.P2{background:var(--ambar)} .selo.P3{background:var(--azul)}
+  .selo.cinza{background:var(--tinta3)}
+  .vazio{color:var(--tinta3);font-size:13px;font-style:italic}
+  .erro{background:#fdeaea;border:1px solid #f3c2c2;color:var(--vermelho);border-radius:7px;padding:9px 12px;font-size:13px}
+  .nota{color:var(--tinta3);font-size:12px;margin:6px 0 0}
+  .blocos{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+  .bloco{border:1px solid var(--linha);border-radius:8px;padding:11px 13px}
+  .bloco h3{font-size:12.5px;margin:0 0 8px;color:var(--azul);text-transform:uppercase;letter-spacing:.04em}
+  .bloco h3 span{color:var(--tinta3);font-weight:600;margin-right:6px}
+  .texto{white-space:pre-wrap;background:#f7f8fa;border-radius:6px;padding:8px 10px;font-size:13.5px}
+  .rastro div{font-size:12.5px;padding:3px 0;border-bottom:1px dashed var(--linha)}
+  .copiar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .copiado{color:var(--verde);font-weight:600;font-size:13px}
+  pre.md{white-space:pre-wrap;font:12px/1.5 Consolas,Menlo,monospace;background:#f7f8fa;border-radius:6px;padding:10px;max-height:340px;overflow:auto}
+  .largo{grid-column:1/-1}
+</style>
+</head>
+<body>
+<div class="largura">
+  <h1>Resultados dos casos</h1>
+  <p class="sub">Só leitura — não envia mensagem, não conclui tarefa. Mostra apenas casos dos
+    <b>números de teste declarados</b> no Canal; nenhum outro número aparece aqui.</p>
+
+  <section class="cartao">
+    <div class="cab"><h2>Janela</h2><span class="meta" id="cerca"></span></div>
+    <div class="filtros">
+      <div><label for="desde">Desde</label><input type="datetime-local" id="desde"></div>
+      <div><label for="ate">Até</label><input type="datetime-local" id="ate"></div>
+      <div><label for="numero">Meu número (opcional)</label>
+        <input type="tel" id="numero" autocomplete="off" placeholder="+55 11 9…"></div>
+      <div><button id="btBuscar" onclick="buscar()">Buscar casos</button></div>
+    </div>
+    <div class="atalhos">
+      <button onclick="atalho(1)">última hora</button>
+      <button onclick="atalho(24)">últimas 24 h</button>
+      <button onclick="atalho(24*7)">últimos 7 dias</button>
+      <button onclick="atalho(24*31)">últimos 31 dias</button>
+    </div>
+    <p class="nota">O número é convertido no servidor com a mesma chave do receptor e só
+      <b>estreita</b> a lista declarada. Ele não volta na resposta e esta página não o guarda.</p>
+  </section>
+
+  <section class="cartao">
+    <div class="cab"><h2>Casos</h2><span class="meta" id="metaLista"></span></div>
+    <div id="lista" class="rolagem"><p class="vazio">Escolha a janela e clique em “Buscar casos”.</p></div>
+  </section>
+
+  <section class="cartao" id="cartaoCaso" style="display:none">
+    <div class="cab"><h2>O caso</h2><span class="meta" id="metaCaso"></span></div>
+    <div class="copiar">
+      <button id="btCopiar" onclick="copiar()">Copiar caso para análise</button>
+      <span id="copiado" class="copiado" aria-live="polite"></span>
+    </div>
+    <p class="nota">Copia um texto estruturado com os oito blocos e os limites do que o motor
+      guarda — pronto para colar no Claude.</p>
+    <div id="caso" style="margin-top:14px"></div>
+    <details style="margin-top:14px"><summary class="nota">ver o texto que será copiado</summary>
+      <pre class="md" id="md"></pre></details>
+  </section>
+</div>
+
+<script>
+function $(id){ return document.getElementById(id); }
+function esc(s){ return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+function v(x){ return (x === null || x === undefined || x === "") ? "—" :
+  (x === true ? "sim" : (x === false ? "não" : String(x))); }
+function linha(rot, val){ return "<tr><th>" + esc(rot) + "</th><td>" + val + "</td></tr>"; }
+function t(x){ return esc(v(x)); }
+
+var PRIO = {P1:"P1 — emergência", P2:"P2 — urgente", P3:"P3 — pode esperar"};
+var ATUAL = null;
+
+function paraLocal(d){
+  var z = new Date(d.getTime() - d.getTimezoneOffset()*60000);
+  return z.toISOString().slice(0,16);
+}
+function atalho(horas){
+  var agora = new Date();
+  $("ate").value = paraLocal(agora);
+  $("desde").value = paraLocal(new Date(agora.getTime() - horas*3600000));
+  buscar();
+}
+function iso(id){ var x = $(id).value; return x ? new Date(x).toISOString() : null; }
+
+function lerJSON(r){
+  return r.text().then(function(txt){
+    var j = null; try { j = JSON.parse(txt); } catch(e){}
+    if (!r.ok) throw new Error((j && j.erro) ? j.erro : ("HTTP " + r.status));
+    return j;
+  });
+}
+
+function buscar(){
+  $("btBuscar").disabled = true;
+  $("lista").innerHTML = '<p class="vazio">Consultando o motor…</p>';
+  fetch("/resultados/api/casos", {method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({desde: iso("desde"), ate: iso("ate"), numero: $("numero").value.trim() || null})})
+    .then(lerJSON)
+    .then(mostrarLista)
+    .catch(function(e){ $("lista").innerHTML = '<div class="erro">' + esc(e.message) + "</div>"; })
+    .then(function(){ $("btBuscar").disabled = false; });
+}
+
+function selo(p){ return p ? '<span class="selo ' + esc(p) + '">' + esc(p) + "</span>" : '<span class="selo cinza">—</span>'; }
+
+function mostrarLista(j){
+  $("cerca").textContent = "cerca: " + (j.cerca || "—");
+  var cs = j.casos || [];
+  $("metaLista").textContent = cs.length + " caso(s)" + (j.filtrado_por_numero ? " · filtrado pelo seu número" : "");
+  if (!cs.length){
+    $("lista").innerHTML = '<p class="vazio">Nenhum caso nesta janela' +
+      (j.filtrado_por_numero ? " para este número (ou o número não está na lista declarada)." : ".") + "</p>";
+    return;
+  }
+  var h = "<table><tr><th>Início</th><th>Conversa</th><th>Prioridade</th><th>Grupo</th><th>Motivo</th>" +
+          "<th>Até o humano concluir</th><th>Tratado por</th><th>Desfecho</th></tr>";
+  cs.forEach(function(c){
+    h += '<tr class="caso" data-id="' + esc(c.id) + '" onclick="abrir(this.dataset.id)">' +
+      '<td class="num">' + t(c.inicio_txt) + '</td><td><code>' + t(c.conversa) + "</code></td>" +
+      "<td>" + selo(c.prioridade) + "</td><td>" + t(c.grupo) + "</td><td>" + t(c.motivo) + "</td>" +
+      '<td class="num">' + t(c.tempo_ate_concluir) + "</td><td>" + t(c.tratado_por) + "</td>" +
+      "<td>" + t(c.desfecho) + "</td></tr>";
+  });
+  $("lista").innerHTML = h + "</table>";
+}
+
+function abrir(id){
+  Array.prototype.forEach.call(document.querySelectorAll("tr.caso"), function(tr){
+    tr.classList.toggle("ativo", tr.dataset.id === id); });
+  $("cartaoCaso").style.display = "block";
+  $("caso").innerHTML = '<p class="vazio">Lendo o caso…</p>';
+  $("copiado").textContent = ""; $("md").textContent = ""; ATUAL = null;
+  fetch("/resultados/api/caso?id=" + encodeURIComponent(id))
+    .then(lerJSON)
+    .then(mostrarCaso)
+    .catch(function(e){ $("caso").innerHTML = '<div class="erro">' + esc(e.message) + "</div>"; });
+}
+
+function bloco(n, titulo, corpo, largo){
+  return '<div class="bloco' + (largo ? " largo" : "") + '"><h3><span>' + n + "</span>" + esc(titulo) + "</h3>" + corpo + "</div>";
+}
+
+function mostrarCaso(c){
+  ATUAL = c;
+  var b = c.blocos;
+  $("metaCaso").textContent = c.conversa + " · " + c.inicio + " · " + c.estado;
+  $("md").textContent = c.markdown;
+
+  var conv = '<table class="ficha">' + linha("Canal", t(b.conversa.canal)) + "</table>" +
+    '<p class="nota">Resumo que a Helena escreveu para o processo:</p>' +
+    '<div class="texto">' + t(b.conversa.resumo_contexto) + "</div>" +
+    '<p class="nota">' + esc(b.conversa.nota) + "</p>";
+
+  var l = b.leitura;
+  var leitura = '<table class="ficha">' + linha("Tabela", "<code>" + t(l.tabela) + "</code>") +
+    linha("Sintoma", t(l.sintoma)) + linha("Intensidade", t(l.intensidade)) + linha("Idade", t(l.idade)) +
+    linha("Regra", t(l.regra)) + linha("Avaliada em", t(l.avaliada_em)) + "</table>" +
+    '<p class="nota">' + esc(l.nota) + "</p>";
+
+  var vd = b.veredito;
+  var veredito = '<table class="ficha">' + linha("Bandeira vermelha", t(vd.red_flag)) +
+    linha("Prioridade", t(vd.prioridade)) + linha("Conduta", t(vd.conduta)) + linha("Motivo", t(vd.motivo)) + "</table>";
+
+  var r = b.roteamento;
+  var rot = (r.registrado ? "" : '<p class="vazio">Roteamento ainda não registrado no motor.</p>') +
+    '<table class="ficha">' + linha("Motivo", t(r.motivo)) + linha("Severidade", t(r.severidade)) +
+    linha("Grupo", "<code>" + t(r.grupo) + "</code>") + linha("Prioridade", selo(r.prioridade) + " " + t(PRIO[r.prioridade] || "")) +
+    linha("Prazo de ciência", t(r.sla_ack)) + linha("Prazo de resolução", t(r.sla_resolucao)) + "</table>";
+
+  var rel = b.relogios.length ? "<table><tr><th>Relógio</th><th>Vence</th><th>Situação</th></tr>" +
+    b.relogios.map(function(x){ return "<tr><td>" + t(x.relogio) + '</td><td class="num">' + t(x.vence_txt) +
+      "</td><td>" + t(x.situacao) + "</td></tr>"; }).join("") + "</table>"
+    : '<p class="vazio">Nenhum relógio registrado.</p>';
+
+  var hm = b.acao_humana;
+  var acao = (hm.tarefas.length ? hm.tarefas.map(function(x){
+      return '<table class="ficha">' + linha("Tarefa", "<b>" + t(x.nome) + "</b>") + linha("Tratado por", t(x.tratado_por)) +
+        linha("Criada", t(x.criada)) + linha("Concluída", t(x.concluida)) + "</table>"; }).join("")
+      : '<p class="vazio">Nenhuma tarefa humana criada.</p>') +
+    '<table class="ficha">' + linha("Até o humano concluir", t(hm.tempo_ate_concluir)) +
+    linha("Resultado", t(hm.resultado_txt || hm.resultado)) + "</table>" +
+    '<p class="nota">O que o humano escreveu:</p><div class="texto">' + t(hm.notas_resolucao) + "</div>" +
+    '<p class="nota">' + esc(hm.nota) + "</p>";
+
+  var rt = b.retorno;
+  var ret = '<table class="ficha">' + linha("A Helena voltou a falar?", "<b>" + t(rt.voltou) + "</b>") + "</table>" +
+    '<p class="nota">' + esc(rt.nota) + "</p>";
+
+  var ras = '<div class="rastro">' + (b.rastro.length ? b.rastro.map(function(a){
+      return "<div><span class=\"num\">" + t(a.hora) + "</span> — <b>" + t(a.atividade) + "</b> " +
+        '<span class="nota">' + t(a.tipo) + " · " + t(a.duracao) + (a.cancelada ? " · cancelada" : "") + "</span></div>";
+    }).join("") : '<p class="vazio">Sem atividades.</p>') + "</div>";
+
+  $("caso").innerHTML = '<p>Desfecho: <b>' + t(c.desfecho) + "</b>" +
+    (c.fim_alcancado.length ? " · fim: " + t(c.fim_alcancado.join(", ")) : "") + "</p>" +
+    '<div class="blocos">' +
+      bloco(1, "A conversa", conv) + bloco(2, "A leitura", leitura) +
+      bloco(3, "O veredito", veredito) + bloco(4, "O roteamento", rot) +
+      bloco(5, "Os relógios", rel) + bloco(6, "A ação humana", acao) +
+      bloco(7, "O retorno", ret) + bloco(8, "O rastro", ras, true) +
+    "</div>";
+}
+
+function copiar(){
+  if (!ATUAL) return;
+  var texto = ATUAL.markdown;
+  function ok(){ $("copiado").textContent = "Copiado — cole no Claude."; }
+  function alternativa(){
+    var ta = document.createElement("textarea");
+    ta.value = texto; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); ok(); }
+    catch(e){ $("copiado").textContent = "Não consegui copiar — abra “ver o texto” e copie à mão."; }
+    document.body.removeChild(ta);
+  }
+  if (navigator.clipboard && window.isSecureContext){
+    navigator.clipboard.writeText(texto).then(ok, alternativa);
+  } else { alternativa(); }
+}
+
+atalho(24);
+</script>
+</body>
+</html>
