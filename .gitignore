@@ -9,6 +9,7 @@
 # portal — por isso estes valores precisam viver no repo, nao no terminal de quem aplicou.
 # A DSN continua so' no Secrets Manager. Ver deploy/aws-ecs/envs/dev-sa-east-1/portal.md.
 !deploy/aws-ecs/envs/dev-sa-east-1/portal.auto.tfvars
+!deploy/aws-ecs/envs/dev-sa-east-1/retomada.auto.tfvars
 
 # Python
 __pycache__/

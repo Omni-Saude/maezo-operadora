@@ -263,6 +263,17 @@ resource "aws_ecs_task_definition" "portal" {
       { name = "MAEZO_PORTAL_MODE", value = "production" },
       { name = "MAEZO_PORTAL_CAPABILITIES", value = local.portal_capabilities[each.key] },
       { name = "PYTHONDONTWRITEBYTECODE", value = "1" },
+      ], [
+      # INTERIM (DL-0049, emenda D-P de 27/09/2026): conclusao DIRETA pelo portal, so' neste
+      # ambiente (dev-sa-east-1, atras do Cloudflare Access). As tres primeiras sao
+      # completo-ou-ausente (`production_config.py`), e TODAS vao como literal: a cerca
+      # `scripts/ci/check_portal_direct_completion.py` reprova `valueFrom` e indirecao. O http e'
+      # aceito porque o host termina em `.internal` (`completion_engine.py`). O CORS e' a origem
+      # EXATA da pagina de teste (sem curinga) — e' ela que chama a API com o login do atendente.
+      { name = "MAEZO_PORTAL_DIRECT_COMPLETION", value = "true" },
+      { name = "MAEZO_PORTAL_DIRECT_COMPLETION_ENGINE_ORIGIN", value = "http://cibseven.maezo-operadora-dev.internal:8080/engine-rest" },
+      { name = "MAEZO_PORTAL_DIRECT_COMPLETION_TIMEOUT_SECONDS", value = "15" },
+      { name = "MAEZO_PORTAL_CORS_ORIGINS", value = "https://maezo-teste-dev.austa.com.br" },
       ], lookup(local.portal_staff_environment, each.key, []), lookup(local.portal_human_environment, each.key, []), each.value.staff == null ? [] : [
       { name = "TMPDIR", value = "/run/maezo-staff-scratch" }
     ])

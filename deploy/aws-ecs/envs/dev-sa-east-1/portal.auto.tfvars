@@ -240,7 +240,11 @@ portal = {
     material_secret_version_id = "amh-dev-human-62b87f1f2b3ae6ea685729f20a"
     material_kms_key_arn       = "arn:aws:kms:sa-east-1:203312548462:key/2d36e2a3-b73f-4de5-b174-7870ceeac409"
     public_manifest_sha256     = "0777086bfa0fe84724c4539b8b438161b5d99cfd833086228d230bc490f6fb95"
-    // Imagem de operacao (tools.staff_ops human-init), CodeBuild 4bd50928-staff-ops, assinada.
-    init_image_digest = "sha256:01eb1771e2fde81586210a6904530887475a25d10c62002d5cbf75dcc3b1a704"
+    // Imagem de operacao (tools.staff_ops human-init). Era `4bd50928-staff-ops` (sha256:01eb1771...),
+    // EXPIRADA do ECR pela lifecycle policy (27/09/2026: task nova recusava com
+    // CannotPullContainerError). Trocada pela `6bd559ec-staff-ops` — a MESMA que o staff_job ja
+    // roda; `tools/staff_ops/job.py::human_init_main` nao muda entre 4bd50928 e 6bd559ec. Sem
+    // assinatura cosign (aceito so' no dev, decisao de 24-25/09).
+    init_image_digest = "sha256:a20b2597f8d1d0dbdccb9ac6322b5a6e4f1c2fe8f4e87499a37f5c8e3ed8a7d2"
   }
 }
