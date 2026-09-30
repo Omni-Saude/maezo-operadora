@@ -103,7 +103,7 @@ portal = {
   // portal (#456), o painel do canal (#457) e o alinhamento do teste psicossocial (#467).
   // 26/09/2026: o 871ecc0b saiu do ECR (o job `verificar` da main reprovava); repinado no mesmo
   // digest do perfil staff abaixo (so' e' usado se `staff` voltar a null).
-  image_digest = "sha256:36c56ed819e7d70ac52e995d4176ab23c7b65630306ba606cba204a65c0635e3"
+  image_digest = "sha256:6a26e983454b4be7876eb3e1e82d2337c0f600dd8305cfe4dfe9db906cf3b795"
 
   // Segredo externo criado fora do Terraform (SCP `deny-secrets-without-rotation` exige o
   // OrganizationAccountAccessRole). O SecretString INTEIRO e' a DSN asyncpg da role
@@ -207,7 +207,8 @@ portal = {
     // 28/09, main 9638f32d (#564 botao de concluir na tela, #565): app 9638f32d (sha256:4f300926) +
     // deploy/portal.Dockerfile (9638f32d-portal-human), assinada pelo supply-chain.yml run 36460422926.
     // 28/09, main 3e59f574 (#567 estilo/estado do bloco de conclusao): app sha256:cafeef2b + portal-human, supply-chain run 36496473789.
-    portal_image_digest = "sha256:36c56ed819e7d70ac52e995d4176ab23c7b65630306ba606cba204a65c0635e3"
+    // 28/09, main 21a9c186 (#571 contexto do caso para o atendente, #572 pyjwt 2.14.0): app sha256:ef4a0c77 + portal-human, supply-chain run 36720242726.
+    portal_image_digest = "sha256:6a26e983454b4be7876eb3e1e82d2337c0f600dd8305cfe4dfe9db906cf3b795"
     // `verify --print-manifest-digest` sobre o manifesto conferido (Onda 5).
     public_manifest_sha256 = "fcc2e9fa4b831edf759119a80c49a4b257d6c21a2b499ba38df3a3bf7e80b1be"
     // SHA-256 do SPKI da raiz Ed25519 (recalculado por openssl/cryptography, Onda 2, delegacao N1).
