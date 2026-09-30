@@ -375,6 +375,61 @@ def test_funcao_da_rota_renomeada_reprova_a_cerca_em_vez_de_cega_la(tmp_path: Pa
 
 
 # ---------------------------------------------------------------------------------------
+# Cerca 7, segunda rota — a leitura interina do contexto (DL-0050) usa o MESMO portao.
+# ---------------------------------------------------------------------------------------
+_RECUSA_CONTEXTO = '        return context_error("context_unavailable")'
+_ABERTURA_CONTEXTO = "    if not _policy(request).enabled:"
+
+
+def test_a_leitura_do_contexto_recusar_depois_do_primeiro_await_reprova(tmp_path: Path) -> None:
+    """O 501 do contexto tambem nao pode depender de sessao: mesmo portao, mesma cerca."""
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _ARQUIVOS_DE_CODIGO[2],
+        lambda t: _trocar(
+            t,
+            _ABERTURA_CONTEXTO,
+            "    await _warm(request)" + chr(10) + _ABERTURA_CONTEXTO,
+        ),
+    )
+    achados = checar_recusa_antes_do_await(raiz)
+    assert achados and any("read_task_context" in a and "DEPOIS" in a for a in achados)
+
+
+def test_a_leitura_do_contexto_sem_a_recusa_declarada_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _ARQUIVOS_DE_CODIGO[2],
+        lambda t: _trocar(t, _RECUSA_CONTEXTO, '        return context_error("resource_unavailable")'),
+    )
+    achados = checar_recusa_antes_do_await(raiz)
+    assert achados and any(
+        "read_task_context" in a and "deixou de ter resposta declarada" in a for a in achados
+    )
+
+
+def test_a_rota_do_contexto_renomeada_reprova_a_cerca_em_vez_de_cega_la(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _ARQUIVOS_DE_CODIGO[2],
+        lambda t: _trocar(t, "async def read_task_context(", "async def read_case_context("),
+    )
+    achados = checar_recusa_antes_do_await(raiz)
+    assert achados and any("read_task_context" in a and "nao encontrada" in a for a in achados)
+
+
+def test_a_cerca_da_conclusao_continua_valendo_sozinha(tmp_path: Path) -> None:
+    """A segunda rota nao pode enfraquecer a primeira: quebrar so a conclusao reprova so ela."""
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _ARQUIVOS_DE_CODIGO[2],
+        lambda t: _trocar(t, _RECUSA, '        return completion_error("resource_unavailable")'),
+    )
+    achados = checar_recusa_antes_do_await(raiz)
+    assert len(achados) == 1 and "complete_task" in achados[0]
+
+
+# ---------------------------------------------------------------------------------------
 # O CLI.
 # ---------------------------------------------------------------------------------------
 def test_o_cli_reprova_com_codigo_1_e_sem_vazar_valor(tmp_path: Path, monkeypatch, capsys) -> None:

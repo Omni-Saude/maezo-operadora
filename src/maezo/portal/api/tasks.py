@@ -1,10 +1,15 @@
-"""Employee task routes: two reads, plus the INTERIM completion registered in DL-0049.
+"""Employee task routes: three reads, plus the INTERIM completion registered in DL-0049.
 
 Server DI, opaque cookie and closed safe errors throughout. The completion route is the only
 write in this module and it is gated twice, independently: `PortalSettings.direct_completion`
 (off by default) decides whether the route answers at all, and the read composition decides
 whether a `DirectTaskCompletion` capability exists behind it (absent by default). Neither gate
 knows about the other; both must be on. See `gateway/human/completion.py`.
+
+The third read, `GET /tasks/{id}/context`, is the INTERIM escalation context registered in
+DL-0050. It rides the SAME gate as the completion (`CompletionPolicy.enabled`) and the same
+composition inputs, so it is dark exactly where the completion is dark. See
+`gateway/human/escalation_context.py`.
 """
 
 import re
@@ -30,6 +35,7 @@ from maezo.portal.contracts.completions import (
     TaskCompletionResponse,
     TaskCompletionSubmission,
 )
+from maezo.portal.contracts.context import ContextErrorCode, PortalContextError, TaskContextResponse
 from maezo.portal.contracts.models import OpaqueRef
 from maezo.portal.contracts.queues import (
     PortalReadError,
@@ -344,3 +350,72 @@ async def complete_task(request: Request, task_id: str, body: TaskCompletionSubm
     except Exception:
         # Never leak an upstream narrative, and never report a completion we cannot prove.
         return completion_error("completion_dependency_unavailable")
+
+
+# ---------------------------------------------------------------------------------------
+# INTERIM escalation context (DL-0050). Same gate as the completion above; read-only.
+# Its own router, exactly like the completion: the two real read routes stay two, and this
+# shortcut can be deleted whole when the signed read model carries escalation evidence.
+# ---------------------------------------------------------------------------------------
+context_router = APIRouter()
+_CONTEXT_PATH = _PREFIX + "/{task_id}/context"
+_CONTEXT_STATUS: dict[ContextErrorCode, int] = {
+    "invalid_request": 400,
+    "session_unavailable": 401,
+    "employee_access_required": 403,
+    "resource_unavailable": 404,
+    "refresh_required": 409,
+    # 501, not 404, for the same reason as the completion: the gate being off is a DECLARED
+    # deployment state (DL-0050), and dressing it as "not found" would send an operator hunting
+    # for an authorization problem that does not exist.
+    "context_unavailable": 501,
+    "read_dependency_unavailable": 503,
+}
+_CONTEXT_ERRORS: dict[int | str, dict[str, Any]] = {
+    status: {"model": PortalContextError} for status in sorted(set(_CONTEXT_STATUS.values()))
+}
+# A hand-off summary is classified PHI in this repository, so nothing may cache it. The app-wide
+# response middleware already stamps `Cache-Control: no-store` and `Pragma: no-cache` on every
+# portal answer; setting the header here as well would duplicate it (`no-store, no-store`). The
+# tests in `tests/unit/portal/test_task_context_api.py` assert the header on every outcome.
+
+
+def context_error(code: ContextErrorCode) -> JSONResponse:
+    return JSONResponse(
+        PortalContextError(code=code).model_dump(by_alias=True), status_code=_CONTEXT_STATUS[code]
+    )
+
+
+def _render_context(value: TaskContextResponse) -> Response:
+    # Called INSIDE the gateway's finalization, like `_render` for the two reads.
+    return Response(content=value.model_dump_json(by_alias=True), media_type="application/json")
+
+
+@context_router.get(_CONTEXT_PATH, response_model=TaskContextResponse, responses=_CONTEXT_ERRORS)
+async def read_task_context(request: Request, task_id: str) -> Response:
+    """INTERIM (DL-0050): the reason, severity, priority, deadlines and hand-off summary of a case.
+
+    This handler owns no authorization logic. It resolves the same gateway the other two reads use
+    and calls `HumanGateway.read_escalation_context`, which proves the `staff` audience and that
+    the membership may read THIS task before the engine is asked anything. What lives here is
+    transport: the declared gate, the closed request, the error map and `no-store`.
+    """
+    if not _policy(request).enabled:
+        # Before any cookie is read and any dependency is touched, exactly like the completion:
+        # the gate is deployment configuration, so refusing it must not depend on a session.
+        return context_error("context_unavailable")
+    try:
+        await _request(request, detail=True)
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        secret = _secret(request)
+        service = _service(request)
+        return await service.read_escalation_context(
+            session_secret=secret, task_id=task_id, render=_render_context
+        )
+    except ReadRefusalError as exc:
+        return context_error(exc.code)
+    except Exception:
+        return context_error("read_dependency_unavailable")

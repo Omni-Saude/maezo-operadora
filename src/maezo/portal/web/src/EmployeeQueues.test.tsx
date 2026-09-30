@@ -447,3 +447,128 @@ it("mantém o formulário de conclusão e o texto já digitado quando o detalhe 
   expect((screen.getByLabelText(/Instrução \/ notas de resolução/) as HTMLTextAreaElement).value)
     .toBe("oriento a procurar o pronto-socorro");
 });
+
+function escalationTask() {
+  const base = taskResponse();
+  return {
+    ...base,
+    task: {
+      ...base.task,
+      process_definition_key: "SP-OP-ESCALATION-001",
+      task_definition_key: "UT_TratarEscalonamento",
+      form_key: "escalation",
+      form_source_status: "BPMN_FORMDATA",
+      eligible_candidate_groups: ["plantao-clinico"],
+      allowed_inputs: ["resultado", "notas_resolucao"],
+      read_only_evidence: null,
+    },
+  };
+}
+
+function caseContext() {
+  return {
+    schema: "portal-task-context.v1",
+    task_id: "task-1",
+    etapa: "atendimento",
+    motivo_categoria: "red_flag_clinico",
+    severidade: "grave",
+    prioridade: "P1",
+    grupo_atendimento: "plantao-clinico",
+    aberto_em: "2026-09-09T14:59:00Z",
+    ack_vence_em: "2026-09-09T15:04:00Z",
+    resolucao_vence_em: "2026-09-09T15:29:00Z",
+    resumo_contexto: "Idoso com dor no peito.",
+    observed_at: "2026-09-09T15:00:02Z",
+  };
+}
+
+function serve(task: unknown) {
+  vi.mocked(fetch).mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.endsWith("/tasks/task-1/context")) return jsonResponse(caseContext());
+    if (url.includes("/tasks/task-1")) return jsonResponse(task);
+    return jsonResponse(queuePage("team", "task-1", "UT_TratarEscalonamento"));
+  });
+}
+
+function queues() {
+  return (
+    <EmployeeQueues
+      csrfToken="csrf-secret"
+      sessionBinding="session-a"
+      onSessionUnavailable={vi.fn()}
+      initialQueue="team"
+      showQueueNavigation={false}
+    />
+  );
+}
+
+it("mostra o contexto do caso, uma única vez, ao abrir uma tarefa de escalonamento", async () => {
+  serve(escalationTask());
+  render(queues());
+
+  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+
+  expect(await screen.findByRole("heading", { name: "Contexto do caso" })).toBeInTheDocument();
+  expect(screen.getAllByRole("heading", { name: "Contexto do caso" })).toHaveLength(1);
+  expect(await screen.findByText("Sinal de alerta clínico")).toBeInTheDocument();
+  expect(screen.getByText("Idoso com dor no peito.")).toBeInTheDocument();
+  // Cada bloco de comando tem a sua própria chave: nada de duas cópias do mesmo bloco.
+  expect(document.querySelectorAll(".task-context")).toHaveLength(1);
+  expect(document.querySelectorAll(".task-completion")).toHaveLength(1);
+  const ids = [...document.querySelectorAll("[id]")].map((node) => node.id);
+  expect(ids.filter((id, index) => ids.indexOf(id) !== index)).toEqual([]);
+});
+
+it("não pede nem mostra contexto numa tarefa que não é de escalonamento", async () => {
+  serve(taskResponse());
+  render(queues());
+
+  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+  await screen.findByRole("heading", { name: "Concluir a tarefa" });
+
+  expect(screen.queryByRole("heading", { name: "Contexto do caso" })).not.toBeInTheDocument();
+  expect(
+    vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith("/context")),
+  ).toBe(false);
+});
+
+it("mantém o contexto na tela quando o snapshot do detalhe vence, junto do formulário", async () => {
+  vi.useFakeTimers();
+  serve(escalationTask());
+  render(queues());
+  await act(async () => Promise.resolve());
+  await act(async () => {
+    screen.getByRole("button", { name: "Abrir detalhes de UT_TratarEscalonamento" }).click();
+  });
+  await act(async () => Promise.resolve());
+  expect(screen.getByRole("heading", { name: "Contexto do caso" })).toBeInTheDocument();
+
+  // O snapshot do detalhe vale menos de um minuto; o atendente ainda está lendo o motivo e os
+  // prazos enquanto escreve a instrução.
+  await act(async () => vi.advanceTimersByTimeAsync(60_000));
+
+  expect(document.querySelectorAll(".task-context")).toHaveLength(1);
+  expect(screen.getByText("Idoso com dor no peito.")).toBeInTheDocument();
+  expect(document.querySelectorAll(".task-completion")).toHaveLength(1);
+});
+
+it("descarta o contexto de uma tarefa ao trocar de sessão", async () => {
+  serve(escalationTask());
+  const { rerender } = render(queues());
+  await userEvent.click(await screen.findByRole("button", { name: /Abrir detalhes/ }));
+  await screen.findByText("Idoso com dor no peito.");
+
+  rerender(
+    <EmployeeQueues
+      csrfToken="csrf-secret"
+      sessionBinding="session-b"
+      onSessionUnavailable={vi.fn()}
+      initialQueue="team"
+      showQueueNavigation={false}
+    />,
+  );
+
+  await waitFor(() => expect(screen.queryByText("Idoso com dor no peito.")).not.toBeInTheDocument());
+  expect(screen.queryByRole("heading", { name: "Contexto do caso" })).not.toBeInTheDocument();
+});

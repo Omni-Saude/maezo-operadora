@@ -65,6 +65,7 @@ from .decision_materials import (
 from .engine_evidence import EngineEvidenceReferenceSource
 from .engine_reads import EngineReadBundle, EngineReadComposition
 from .errors import GatewayRefusalError
+from .escalation_context_engine import EngineRestEscalationContext
 from .models import Scope
 from .outbox import PostgresDecisionAdmission, PostgresHumanAdmission, PostgresHumanOutbox
 from .phi_decision_authorization import EngineBackedPhiDecisionAuthorization
@@ -307,6 +308,18 @@ def compose_human_plane(
             timeout_seconds=interim_completion.timeout_seconds,
         )
     )
+    # --- INTERIM escalation-context read (DL-0050) ----------------------------------
+    # Rides the SAME two explicit inputs as the completion above (engine origin + timeout), so it
+    # is dark exactly when the completion is dark: one deployment decision, one gate, one fence.
+    escalation_context = (
+        None
+        if interim_completion is None
+        else EngineRestEscalationContext(
+            scope=scope,
+            origin=interim_completion.engine_origin,
+            timeout_seconds=interim_completion.timeout_seconds,
+        )
+    )
     read = EngineReadComposition(
         new_bundle=new_bundle,
         command_credentials=command.partition,
@@ -314,6 +327,7 @@ def compose_human_plane(
         transport_pool=transport_pool,
         direct_completion=completion,
         completion_audit=(None if completion is None else PostgresCompletionAudit(scope=scope, pool=pool)),
+        escalation_context=escalation_context,
     )
     if document is not None and document.tenant != scope.tenant:
         raise unavailable()

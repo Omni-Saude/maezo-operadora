@@ -15,6 +15,7 @@ from typing import Any, TypeVar
 from pydantic import TypeAdapter
 
 from maezo.portal.api.session import HumanSessionResolver, ResolvedHumanSession
+from maezo.portal.contracts.context import TaskContextResponse
 from maezo.portal.contracts.models import OpaqueRef, Revision, TaskDecision, TaskSnapshot
 from maezo.portal.contracts.queues import (
     PublicTaskSnapshot,
@@ -49,6 +50,7 @@ from .decision import (
     project_decision,
 )
 from .errors import GatewayRefusalError
+from .escalation_context import ESCALATION_PROCESS_KEY, EscalationContextSource
 from .models import (
     AssignmentCommand,
     AssignmentContext,
@@ -124,6 +126,7 @@ class HumanGateway:
         cursor_custody: CursorCustody | None = None,
         disclosure_source: TaskDisclosureSource | None = None,
         completion_audit: CompletionAuditSink | None = None,
+        escalation_context: EscalationContextSource | None = None,
     ) -> None:
         self._scope = Scope.model_validate(scope)
         self._resolver = resolver
@@ -139,6 +142,8 @@ class HumanGateway:
         self._decision_ports = decision_ports
         # INTERIM (DL-0049): `None` keeps `complete_task` refusing, which is `main`'s behaviour.
         self._completion_audit = completion_audit
+        # INTERIM (DL-0050): `None` keeps `read_escalation_context` refusing.
+        self._escalation_context = escalation_context
         self._check_scope()
 
     def _check_scope(self) -> None:
@@ -158,6 +163,8 @@ class HumanGateway:
         if self._receipt_ports is not None and any(
             port.scope != self._scope for port in (self._receipt_ports.store, self._receipt_ports.authority)
         ):
+            raise GatewayRefusalError("credential_scope_mismatch")
+        if self._escalation_context is not None and self._escalation_context.scope != self._scope:
             raise GatewayRefusalError("credential_scope_mismatch")
 
         if self._decision_ports is not None and any(
@@ -678,6 +685,72 @@ class HumanGateway:
             result = render(response)
             self._read_guard(sessions=(first, final), rows=((task, authority),), disclosure=disclosure)
             return result
+        except ReadRefusalError:
+            raise
+        except Exception:
+            raise ReadRefusalError("read_dependency_unavailable") from None
+
+    async def read_escalation_context(
+        self,
+        *,
+        session_secret: str,
+        task_id: str,
+        render: Callable[[TaskContextResponse], _ReadResult],
+    ) -> _ReadResult:
+        """INTERIM (DL-0050): what the attendant needs to open an ESCALATION task.
+
+        Authorization is EXACTLY the one `read_task_envelope` performs: a resolved `staff`
+        session and a task the principal's membership may read, resolved through
+        `_read_authorized`. Only after that does it ask the interim source for the context, and it
+        asks for a task that is provably an escalation task, so a valid session can never use this
+        route to read the process facts of a task it may not see, nor of a process that is not an
+        escalation. The session is resolved again AFTER the remote read, and the read grants must
+        outlive it, like every other read here.
+        """
+        try:
+            task_id = TypeAdapter(OpaqueRef).validate_python(task_id)
+        except Exception:
+            raise ReadRefusalError("invalid_request") from None
+        first = await self._read_session(session_secret)
+        try:
+            task, authority = await self._read_authorized(first, task_id, queue=False)
+            snapshot = task.snapshot
+            if (
+                snapshot.form_key != COMPLETION_FORM_KEY
+                or snapshot.process_definition_key != ESCALATION_PROCESS_KEY
+            ):
+                raise ReadRefusalError("resource_unavailable")
+            source = self._escalation_context
+            if source is None or source.scope != self._scope:
+                raise ReadRefusalError("read_dependency_unavailable")
+            try:
+                context = await source.read(task_id=task_id)
+            except GatewayRefusalError as exc:
+                # The port speaks the gateway taxonomy; the route speaks the read one. A proven
+                # absence is a 404; everything else is uncertainty, never "no context".
+                if exc.code == "task_unavailable":
+                    raise ReadRefusalError("resource_unavailable") from None
+                raise ReadRefusalError("read_dependency_unavailable") from None
+            final = await self._read_session(session_secret)  # LAST dependency I/O.
+            if final.principal != first.principal:
+                raise ReadRefusalError("refresh_required")
+            now = datetime.now(UTC)
+            if min(task.valid_until, authority.valid_until) <= now:
+                raise ReadRefusalError("refresh_required")
+            response = TaskContextResponse(
+                task_id=task_id,
+                etapa=context.etapa,
+                motivo_categoria=context.motivo_categoria,
+                severidade=context.severidade,
+                prioridade=context.prioridade,
+                grupo_atendimento=context.grupo_atendimento,
+                aberto_em=context.aberto_em,
+                ack_vence_em=context.ack_vence_em,
+                resolucao_vence_em=context.resolucao_vence_em,
+                resumo_contexto=context.resumo_contexto,
+                observed_at=now,
+            )
+            return render(response)
         except ReadRefusalError:
             raise
         except Exception:

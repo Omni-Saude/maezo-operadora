@@ -37,7 +37,11 @@ def test_exact_production_seams_and_credential_read_are_nonvacuous():
     # 11 since T1.6 (PR #500): the staff case issuer's READ-ONLY engine-REST client
     # (`gateway/staff_cases/case_issuer_runtime.py::run_round`), same boundary and the same
     # plaintext refusal outside loopback; it produces no engine effect.
-    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 11
+    # 12 since DL-0050: the READ twin of the completion client
+    # (`gateway/human/escalation_context_engine.py::EngineRestEscalationContext.__init__`), pinned
+    # byte-exactly like its sibling, same boundary, `GET`s only. Removing both with the signed read
+    # model must bring this count back to 10.
+    assert result.counters["8.2_httpx_scoped_seam_sanctioned"] == 12
     # portal_identity.build_human_identity_adapters, staff_cases.production.staff_runtime and
     # intake.native_authority._engine (the E04 installation DSNs) — exact scopes, nothing else.
     assert result.counters["8.3_secret_scoped_seam_sanctioned"] == 3

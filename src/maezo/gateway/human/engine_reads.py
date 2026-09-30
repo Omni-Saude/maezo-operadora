@@ -24,6 +24,7 @@ from .completion import (
     PseudonymizedNotes,
 )
 from .credentials import HumanCommandCredentialPartition
+from .escalation_context import EscalationContextSource
 from .gateway import HumanGateway
 from .models import AuthoritativeTask, CurrentTaskAuthority
 from .ports import AuthorityProjection, DurableAdmission, HumanTaskTransport
@@ -445,6 +446,7 @@ class EngineReadComposition:
         transport_pool: httpx.AsyncBaseTransport,
         direct_completion: DirectTaskCompletion | None = None,
         completion_audit: CompletionAuditSink | None = None,
+        escalation_context: EscalationContextSource | None = None,
     ) -> None:
         self._new_bundle = new_bundle
         self._transport_pool = transport_pool
@@ -458,6 +460,9 @@ class EngineReadComposition:
             raise unavailable()
         self._direct_completion = direct_completion
         self._completion_audit = completion_audit
+        # INTERIM (DL-0050): read-only, independent of the completion pair above, and dark unless a
+        # composition installs it. `HumanGateway` checks its scope against its own.
+        self._escalation_context = escalation_context
 
     def build(self, resolver: HumanSessionResolver) -> HumanGateway:
         from .ports import BoundHumanPorts
@@ -488,6 +493,7 @@ class EngineReadComposition:
                 admission=self._command_admission,
             ),
             completion_audit=self._completion_audit,
+            escalation_context=self._escalation_context,
             credentials=self._command_credentials,
             query=EngineHumanTaskQuery(bundle),
             catalog_anchor=bundle.anchor,
@@ -499,8 +505,12 @@ class EngineReadComposition:
     async def close(self) -> None:
         self._closed = True
         try:
-            if self._direct_completion is not None:
-                await self._direct_completion.close()
+            try:
+                if self._direct_completion is not None:
+                    await self._direct_completion.close()
+            finally:
+                if self._escalation_context is not None:
+                    await self._escalation_context.close()
         finally:
             try:
                 await self._transport_pool.aclose()
