@@ -322,3 +322,34 @@ def test_main_prints_the_real_cause_not_only_refused(tmp_path, monkeypatch, caps
     assert "offline fixture cache preparation refused" in err
     assert "returncode=2" in err
     assert "Invalid package version" in err
+
+
+def _with_pyjwt_exception(runner: Synthetic) -> None:
+    runner.inputs["uv.lock"] = runner.inputs["uv.lock"].replace(
+        b'exclude-newer="2026-08-05T00:00:00Z"\n',
+        b'exclude-newer="2026-08-05T00:00:00Z"\n[options.exclude-newer-package]\npyjwt="2026-09-12T00:00:00Z"\n',
+        1,
+    )
+
+
+def test_per_package_cutoff_travels_to_every_root_sync(tmp_path):
+    runner = Synthetic(tmp_path)
+    _with_pyjwt_exception(runner)
+    runner.inputs["pyproject.toml"] = (
+        b'[tool.uv]\nexclude-newer="2026-08-05T00:00:00Z"\n'
+        b'exclude-newer-package = { pyjwt = "2026-09-12T00:00:00Z" }\n'
+    )
+    runner.run()
+    root_syncs = [a for d, a in runner.commands if d.startswith("root-") and a[0] == "sync"]
+    assert root_syncs
+    for argv in root_syncs:
+        assert "--exclude-newer" in argv and argv[argv.index("--exclude-newer") + 1] == "2026-08-05T00:00:00Z"
+        assert "--exclude-newer-package" in argv
+        assert argv[argv.index("--exclude-newer-package") + 1] == "pyjwt=2026-09-12T00:00:00Z"
+
+
+def test_per_package_cutoff_only_in_lock_is_refused(tmp_path):
+    runner = Synthetic(tmp_path)
+    _with_pyjwt_exception(runner)
+    with pytest.raises(Exception, match="source package cutoff mismatch"):
+        runner.run()

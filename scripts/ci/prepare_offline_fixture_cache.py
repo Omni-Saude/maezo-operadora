@@ -315,7 +315,14 @@ class Preparation:
             (path / "uv.lock").write_bytes(lock)
         return path
 
-    def sync(self, project: Path, *, offline: bool, cutoff: str | None = None) -> None:
+    def sync(
+        self,
+        project: Path,
+        *,
+        offline: bool,
+        cutoff: str | None = None,
+        package_cutoffs: dict[str, str] | None = None,
+    ) -> None:
         before = {p: regular(project / p) for p in ("pyproject.toml", "uv.lock", ".python-version")}
         self.command(
             project,
@@ -331,6 +338,15 @@ class Preparation:
             "--python",
             str(self.python),
             *(["--exclude-newer", cutoff] if cutoff else []),
+            # `--no-config` descarta o [tool.uv] do pyproject, entao a excecao POR PACOTE
+            # (`exclude-newer-package`) tem de viajar pela CLI como o cutoff global ja' viaja;
+            # sem ela o `--locked` julga o lock desatualizado e recusa (medido em 30/09/2026
+            # com o pyjwt 2.14.0).
+            *(
+                arg
+                for name, when in sorted((package_cutoffs or {}).items())
+                for arg in ("--exclude-newer-package", f"{name}={when}")
+            ),
         )
         require(
             all(regular(project / p) == b for p, b in before.items()),
@@ -358,6 +374,15 @@ class Preparation:
             cutoff == config_cutoff and isinstance(cutoff, str),
             "source cutoff mismatch",
         )
+        package_cutoffs = tomllib.loads(root_lock.decode())["options"].get("exclude-newer-package", {})
+        config_package_cutoffs = tomllib.loads(self.inputs["pyproject.toml"].decode())["tool"]["uv"].get(
+            "exclude-newer-package", {}
+        )
+        require(
+            package_cutoffs == config_package_cutoffs
+            and all(isinstance(k, str) and isinstance(v, str) for k, v in package_cutoffs.items()),
+            "source package cutoff mismatch",
+        )
         # Sonda + cura do cache HOME restaurado (correcao de raiz da falha erratica).
         #
         # Evidencia medida (run 35373462749, PR #414, tentativa 2, job "lint / type /
@@ -382,6 +407,7 @@ class Preparation:
                 self.project("root-online", self.inputs["pyproject.toml"], root_lock),
                 offline=False,
                 cutoff=cutoff,
+                package_cutoffs=package_cutoffs,
             )
         except CommandRefusedError as refusal:
             print(refusal.detail(), file=sys.stderr)
@@ -410,11 +436,13 @@ class Preparation:
                 self.project("root-online-repaired", self.inputs["pyproject.toml"], root_lock),
                 offline=False,
                 cutoff=cutoff,
+                package_cutoffs=package_cutoffs,
             )
         self.sync(
             self.project("root-offline", self.inputs["pyproject.toml"], root_lock),
             offline=True,
             cutoff=cutoff,
+            package_cutoffs=package_cutoffs,
         )
         for name, dependencies in FIXTURES:
             config = fixture_config(name, dependencies)
