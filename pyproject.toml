@@ -163,13 +163,15 @@ packages = ["src/maezo"]
 # cutoff, during which yanks/advisories/registry takedowns have time to surface. The date is
 # advanced deliberately by a human bumping this line, never implicitly by the clock.
 exclude-newer = "2026-08-05T00:00:00Z"
-# Excecao POR PACOTE, deliberada (30/09/2026): PyJWT 2.13.0 recebeu 10 advisories em 29/09
-# (GHSA-ffc3-869f-jxw9, GHSA-9j54-fg26-wv3r, GHSA-w2cx-738m-mc7w e outras: bypass de chave
-# assimetrica/HMAC e falhas no PyJWKClient, que e' o caminho do JWKS do Cognito no portal). Todas
-# corrigidas em 2.14.0 (publicada 11/09, ja' envelhecida 19 dias). A janela abre so' para o pyjwt e
-# so' ate' o dia seguinte ao 2.14.0: 2.15.x (23/09 e 28/09) continua em quarentena. O cutoff global
-# acima nao muda.
-exclude-newer-package = { pyjwt = "2026-09-12T00:00:00Z" }
+# Excecoes POR PACOTE, deliberadas. O cutoff global acima nao muda; cada janela abre so' para o
+# pacote com advisory e so' ate' o dia seguinte ao release corrigido.
+# - pyjwt (30/09/2026): 2.13.0 recebeu 10 GHSA em 29/09 (fix 2.14.0) e 2.14.0 mais um em 30/09
+#   (GHSA-42vr-xj54-vc7v, DoS no PyJWKClient, fix 2.15.0 de 23/09). E' o caminho do JWKS do Cognito
+#   no portal. Janela ate' 24/09: 2.15.1 (28/09) continua em quarentena.
+# - urllib3 (30/09/2026): 2.7.0 recebeu 3 GHSA em 30/09 (GHSA-8988-9cw3-xx77 proxy TLS ignorado,
+#   GHSA-gh4c-6fx4-qh6g loop infinito no deflate, GHSA-vxq7-64xx-v4gw chunk-size sem limite), fix
+#   2.8.0 de 15/09 (transitiva via botocore/requests). Janela ate' 16/09.
+exclude-newer-package = { pyjwt = "2026-09-24T00:00:00Z", urllib3 = "2026-09-16T00:00:00Z" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
