@@ -434,6 +434,17 @@ _HTTPX_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
         "httpx.AsyncClient(verify=True, transport=transport, follow_redirects=False, "
         "trust_env=False, timeout=timeout_seconds)"
     ),
+    # DL-0050: the READ twin of the seam above. Same origin, same private-name rule (it imports
+    # `_fixed_engine_origin` from `completion_engine`), same controls, same reason it is not
+    # added to HTTPX_SANCTIONED_MODULES: the paragraph above has to be deleted with both seams
+    # when the durable, signed read model replaces this shortcut. It only ever issues `GET`s.
+    (
+        "gateway/human/escalation_context_engine.py",
+        "EngineRestEscalationContext.__init__",
+    ): (
+        "httpx.AsyncClient(verify=True, transport=transport, follow_redirects=False, "
+        "trust_env=False, timeout=timeout_seconds)"
+    ),
 }
 _SECRET_SCOPED_SEAMS: Final[dict[tuple[str, str], str]] = {
     (

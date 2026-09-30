@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 import { TaskOwnershipControls } from "./TaskOwnershipControls";
 import { TaskCompletionControls } from "./TaskCompletionControls";
+import { TaskContextPanel } from "./TaskContextPanel";
 
 import {
   listTaskQueue,
@@ -207,6 +208,10 @@ export function EmployeeQueues({
   // em menos de um minuto; escrever uma instrucao para o beneficiario demora mais do que
   // isso. Preso ao detalhe, o formulario sumia no meio da frase e levava o texto junto.
   const [completionTask, setCompletionTask] = useState<string | null>(null);
+  // INTERIM (DL-0050). The case context follows the OPENED task, like the completion above, and for
+  // the same reason: the detail snapshot lives under a minute and the attendant is still reading
+  // the reason and the deadlines while writing the instruction. Only escalation tasks have one.
+  const [contextTask, setContextTask] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueueName>(initialQueue);
   const [queueState, setQueueState] = useState<QueueState>({ kind: "loading" });
   const [detailState, setDetailState] = useState<DetailState>({ kind: "none" });
@@ -238,6 +243,7 @@ export function EmployeeQueues({
     if (error === undefined || revoked) {
       setOwnershipTask(null);
       setCompletionTask(null);
+      setContextTask(null);
     }
     setDecisionTask(null);
     invalidateDetail();
@@ -350,6 +356,7 @@ export function EmployeeQueues({
       }
       setOwnershipTask((current) => current === taskId ? current : null);
       setCompletionTask((current) => current === taskId ? current : null);
+      setContextTask((current) => current === taskId ? current : null);
       const openedItem = queueState.items.find((item) => item.task_id === taskId);
       openedTaskRevision.current = openedItem === undefined ? null : { id: taskId, revision: openedItem.task_revision };
       const epoch = ++detailEpoch.current;
@@ -374,6 +381,7 @@ export function EmployeeQueues({
           });
           setOwnershipTask(taskId);
           setCompletionTask(taskId);
+          setContextTask(result.value.task.form_key === "escalation" ? taskId : null);
         } else if (result.kind === "session_unavailable") {
           clearForSessionFailure();
         } else if (result.kind === "employee_access_required") {
@@ -382,6 +390,7 @@ export function EmployeeQueues({
           if (result.kind === "resource_unavailable") {
             setOwnershipTask(null);
             setCompletionTask(null);
+            setContextTask(null);
           }
           setDetailState({ kind: "error", error: result.kind });
         }
@@ -483,6 +492,14 @@ export function EmployeeQueues({
       {/* Os tres blocos abaixo sao irmaos e podem apontar para a MESMA tarefa ao mesmo
           tempo. Sem um prefixo por bloco, as chaves ficam identicas entre irmaos — React
           nao garante nada nesse caso e chega a manter dois nos do mesmo bloco na tela. */}
+      {contextTask && (
+        <TaskContextPanel
+          key={`contexto\u0000${sessionBinding}\u0000${contextTask}`}
+          taskId={contextTask}
+          sessionBinding={sessionBinding}
+          onSessionUnavailable={clearForSessionFailure}
+        />
+      )}
       {completionTask && csrfToken && (
         <TaskCompletionControls
           key={`conclusao\u0000${sessionBinding}\u0000${completionTask}`}

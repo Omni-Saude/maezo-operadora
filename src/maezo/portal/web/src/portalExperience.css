@@ -55,6 +55,52 @@
    a mesma separacao por linha, e os campos com o mesmo porte dos demais formularios
    do portal. Sem estas regras o navegador usa o textarea padrao (2 linhas por 20
    colunas) e um botao desabilitado indistinguivel de um habilitado. */
+/* Contexto do caso (DL-0050): irmao do bloco de conclusao, com a mesma separacao por linha. O
+   resumo e' texto livre escrito pela Helena — preserva as quebras de linha que ela escreveu, e
+   nunca e' interpretado como HTML (o React ja o entrega como texto). */
+.task-context {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #d5e2dc;
+}
+
+.task-context h3 {
+  margin-top: 0;
+  color: #143d31;
+}
+
+.task-context-lead {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: center;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.task-context-summary {
+  margin-top: 1rem;
+}
+
+.task-context-summary .eyebrow {
+  margin-bottom: 0.4rem;
+}
+
+.task-context-summary blockquote {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  border-left: 4px solid #1b604c;
+  border-radius: 0 0.5rem 0.5rem 0;
+  background: #f5faf7;
+  color: #173e33;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.context-distance {
+  color: #526d65;
+  font-weight: 500;
+}
+
 .task-completion {
   margin-top: 1.25rem;
   padding-top: 1.25rem;

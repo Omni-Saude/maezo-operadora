@@ -4808,6 +4808,35 @@
         "title": "PortalCompletionError",
         "type": "object"
       },
+      "PortalContextError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request",
+              "session_unavailable",
+              "employee_access_required",
+              "resource_unavailable",
+              "refresh_required",
+              "read_dependency_unavailable",
+              "context_unavailable"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "schema": {
+            "const": "portal-context-error.v1",
+            "default": "portal-context-error.v1",
+            "title": "Schema",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "PortalContextError",
+        "type": "object"
+      },
       "PortalDecisionError": {
         "additionalProperties": false,
         "properties": {
@@ -6626,6 +6655,149 @@
           "notas_resolucao"
         ],
         "title": "TaskCompletionSubmission",
+        "type": "object"
+      },
+      "TaskContextResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "aberto_em": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aberto Em"
+          },
+          "ack_vence_em": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ack Vence Em"
+          },
+          "etapa": {
+            "enum": [
+              "atendimento",
+              "supervisao"
+            ],
+            "title": "Etapa",
+            "type": "string"
+          },
+          "grupo_atendimento": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grupo Atendimento"
+          },
+          "motivo_categoria": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Motivo Categoria"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "prioridade": {
+            "anyOf": [
+              {
+                "pattern": "^P[0-9]{1,2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prioridade"
+          },
+          "resolucao_vence_em": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolucao Vence Em"
+          },
+          "resumo_contexto": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resumo Contexto"
+          },
+          "schema": {
+            "const": "portal-task-context.v1",
+            "default": "portal-task-context.v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "severidade": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_]{0,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severidade"
+          },
+          "task_id": {
+            "maxLength": 512,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#]+$",
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "etapa",
+          "motivo_categoria",
+          "severidade",
+          "prioridade",
+          "grupo_atendimento",
+          "aberto_em",
+          "ack_vence_em",
+          "resolucao_vence_em",
+          "resumo_contexto",
+          "observed_at"
+        ],
+        "title": "TaskContextResponse",
         "type": "object"
       },
       "TaskQueueItem": {
@@ -9529,6 +9701,116 @@
           }
         },
         "summary": "Complete Task"
+      }
+    },
+    "/api/v1/portal/tasks/{task_id}/context": {
+      "get": {
+        "description": "INTERIM (DL-0050): the reason, severity, priority, deadlines and hand-off summary of a case.\n\nThis handler owns no authorization logic. It resolves the same gateway the other two reads use\nand calls `HumanGateway.read_escalation_context`, which proves the `staff` audience and that\nthe membership may read THIS task before the engine is asked anything. What lives here is\ntransport: the declared gate, the closed request, the error map and `no-store`.",
+        "operationId": "read_task_context_api_v1_portal_tasks__task_id__context_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskContextResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "501": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Not Implemented"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortalContextError"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Read Task Context"
       }
     },
     "/api/v1/portal/tasks/{task_id}/decision-context": {

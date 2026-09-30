@@ -493,6 +493,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portal/tasks/{task_id}/context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Task Context
+         * @description INTERIM (DL-0050): the reason, severity, priority, deadlines and hand-off summary of a case.
+         *
+         *     This handler owns no authorization logic. It resolves the same gateway the other two reads use
+         *     and calls `HumanGateway.read_escalation_context`, which proves the `staff` audience and that
+         *     the membership may read THIS task before the engine is asked anything. What lives here is
+         *     transport: the declared gate, the closed request, the error map and `no-store`.
+         */
+        get: operations["read_task_context_api_v1_portal_tasks__task_id__context_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portal/tasks/{task_id}/decision-context": {
         parameters: {
             query?: never;
@@ -2190,6 +2215,20 @@ export interface components {
              */
             schema: "portal-completion-error.v1";
         };
+        /** PortalContextError */
+        PortalContextError: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_request" | "session_unavailable" | "employee_access_required" | "resource_unavailable" | "refresh_required" | "read_dependency_unavailable" | "context_unavailable";
+            /**
+             * Schema
+             * @default portal-context-error.v1
+             * @constant
+             */
+            schema: "portal-context-error.v1";
+        };
         /** PortalDecisionError */
         PortalDecisionError: {
             /**
@@ -2787,6 +2826,43 @@ export interface components {
              * @enum {string}
              */
             resultado: "resolvido_humano" | "devolvido_agente" | "emergencia_acionada";
+        };
+        /** TaskContextResponse */
+        TaskContextResponse: {
+            /** Aberto Em */
+            aberto_em: string | null;
+            /** Ack Vence Em */
+            ack_vence_em: string | null;
+            /**
+             * Etapa
+             * @enum {string}
+             */
+            etapa: "atendimento" | "supervisao";
+            /** Grupo Atendimento */
+            grupo_atendimento: string | null;
+            /** Motivo Categoria */
+            motivo_categoria: string | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Prioridade */
+            prioridade: string | null;
+            /** Resolucao Vence Em */
+            resolucao_vence_em: string | null;
+            /** Resumo Contexto */
+            resumo_contexto: string | null;
+            /**
+             * Schema
+             * @default portal-task-context.v1
+             * @constant
+             */
+            schema: "portal-task-context.v1";
+            /** Severidade */
+            severidade: string | null;
+            /** Task Id */
+            task_id: string;
         };
         /** TaskQueueItem */
         TaskQueueItem: {
@@ -5059,6 +5135,100 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortalCompletionError"];
+                };
+            };
+        };
+    };
+    read_task_context_api_v1_portal_tasks__task_id__context_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskContextResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PortalContextError"];
                 };
             };
         };

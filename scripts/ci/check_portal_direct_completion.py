@@ -36,7 +36,9 @@ O que ela reprova
      `allow_credentials` sem allowlist).
   7. A rota deixando de recusar com o portao desligado: `tasks.py::complete_task` tem de devolver
      `completion_error("completion_unavailable")` ANTES do primeiro `await` — antes de ler cookie,
-     de resolver sessao e de tocar em qualquer dependencia.
+     de resolver sessao e de tocar em qualquer dependencia. Desde DL-0050 vale tambem para a
+     leitura interina do contexto: `tasks.py::read_task_context` tem de devolver
+     `context_error("context_unavailable")` antes do primeiro `await`. Sao duas rotas, um portao.
 
 Por que ela reaproveita o analisador de `check_canal_simular`
 -------------------------------------------------------------
@@ -93,7 +95,8 @@ POLITICAS: dict[str, Politica] = {
         "booleano",
         "abre `POST /api/v1/portal/tasks/{id}/completion`, que completa a tarefa no motor SEM "
         "envelope assinado, receipt, outbox nem cerca otimista — o contrario do que a ADR-0049 "
-        "D5/D6/D7 exige (DL-0049).",
+        "D5/D6/D7 exige (DL-0049) — e `GET /api/v1/portal/tasks/{id}/context`, que le fatos do "
+        "processo direto do engine-rest, sem o modelo de leitura assinado (DL-0050).",
     ),
     "MAEZO_PORTAL_DIRECT_COMPLETION_ENGINE_ORIGIN": Politica(
         "presenca",
@@ -128,6 +131,12 @@ DEFAULTS_EXIGIDOS: tuple[tuple[Path, str, str, object], ...] = (
 
 CODIGO_RECUSA = "completion_unavailable"
 FUNCAO_ROTA = "complete_task"
+#: As rotas que o portao interino governa: `(funcao, funcao de erro, codigo declarado)`. A segunda
+#: entrou com DL-0050 e usa o MESMO portao (`CompletionPolicy.enabled`), entao a mesma cerca.
+ROTAS_COM_PORTAO: tuple[tuple[str, str, str], ...] = (
+    (FUNCAO_ROTA, "completion_error", CODIGO_RECUSA),
+    ("read_task_context", "context_error", "context_unavailable"),
+)
 MIDDLEWARE_CORS = "CORSMiddleware"
 CURINGAS_PROIBIDOS = ("allow_origin_regex",)
 #: O envoltorio que RECORTA o CORS por caminho (review DL-0049, P2). Quando ele aparece no
@@ -383,23 +392,29 @@ def checar_recusa_antes_do_await(raiz: Path = REPO_ROOT) -> list[str]:
 
     Se a recusa vier DEPOIS do primeiro `await`, um portal com o portao fechado ja teria
     resolvido sessao e potencialmente tocado numa dependencia para responder "desligado".
+    Vale para cada rota de `ROTAS_COM_PORTAO`.
     """
     achados: list[str] = []
     arvore = _arvore(raiz, ROTAS)
     if arvore is None:
         achados.append(f"{ROTAS}: nao foi possivel analisar — a cerca precisa deste arquivo.")
         return achados
+    for nome_funcao, funcao_de_erro, codigo in ROTAS_COM_PORTAO:
+        achados.extend(_recusa_de_uma_rota(arvore, nome_funcao, funcao_de_erro, codigo))
+    return achados
+
+
+def _recusa_de_uma_rota(arvore: ast.Module, nome_funcao: str, funcao_de_erro: str, codigo: str) -> list[str]:
     funcao = next(
         (
             no
             for no in ast.walk(arvore)
-            if isinstance(no, ast.AsyncFunctionDef | ast.FunctionDef) and no.name == FUNCAO_ROTA
+            if isinstance(no, ast.AsyncFunctionDef | ast.FunctionDef) and no.name == nome_funcao
         ),
         None,
     )
     if funcao is None:
-        achados.append(f"{ROTAS}: funcao {FUNCAO_ROTA} nao encontrada — cerca cega.")
-        return achados
+        return [f"{ROTAS}: funcao {nome_funcao} nao encontrada — cerca cega."]
     recusa_em: list[int] = []
     await_em: list[int] = []
     for no in ast.walk(funcao):
@@ -408,23 +423,22 @@ def checar_recusa_antes_do_await(raiz: Path = REPO_ROOT) -> list[str]:
         if (
             isinstance(no, ast.Call)
             and isinstance(no.func, ast.Name)
-            and no.func.id == "completion_error"
-            and any(isinstance(a, ast.Constant) and a.value == CODIGO_RECUSA for a in no.args)
+            and no.func.id == funcao_de_erro
+            and any(isinstance(a, ast.Constant) and a.value == codigo for a in no.args)
         ):
             recusa_em.append(no.lineno)
     if not recusa_em:
-        achados.append(
-            f"{ROTAS}: {FUNCAO_ROTA} nao recusa com `completion_error({CODIGO_RECUSA!r})` — o "
-            f"portao desligado deixou de ter resposta declarada (DL-0049)."
-        )
-        return achados
+        return [
+            f"{ROTAS}: {nome_funcao} nao recusa com `{funcao_de_erro}({codigo!r})` — o "
+            f"portao desligado deixou de ter resposta declarada (DL-0049/DL-0050)."
+        ]
     if await_em and min(recusa_em) > min(await_em):
-        achados.append(
-            f"{ROTAS}: {FUNCAO_ROTA} recusa o portao desligado na linha {min(recusa_em)}, DEPOIS "
+        return [
+            f"{ROTAS}: {nome_funcao} recusa o portao desligado na linha {min(recusa_em)}, DEPOIS "
             f"do primeiro `await` (linha {min(await_em)}) — a recusa tem de vir antes de qualquer "
             f"dependencia ser tocada."
-        )
-    return achados
+        ]
+    return []
 
 
 def executar(raiz: Path = REPO_ROOT) -> list[str]:

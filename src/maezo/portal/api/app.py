@@ -51,6 +51,7 @@ from maezo.portal.api.tasks import (
     ReadServiceFactory,
     completion_error,
     completion_router,
+    context_router,
     is_task_completion,
     is_task_read,
     read_error,
@@ -300,6 +301,9 @@ def create_app(
         origins=frozenset((config.public_origin, *cross_origins)),
     )
     app.include_router(completion_router)
+    # INTERIM (DL-0050). The context read rides the SAME gate as the completion above (the policy
+    # just stored) and lives on its own router, so `task_router` keeps its two real read routes.
+    app.include_router(context_router)
     app.state.decision_service_factory = decision_service_factory
     app.include_router(decision_router)
     app.state.case_service_factory = case_service_factory

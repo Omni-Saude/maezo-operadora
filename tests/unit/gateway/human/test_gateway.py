@@ -913,6 +913,10 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
     # in this set, and it is the only one without a pinned TLS context — because the surface it
     # calls (`engine-rest`) has no authentication in this distribution, so its boundary is the
     # network. Removing the seam with the durable relay must make this line fail.
+    # DL-0050: `escalation_context_engine.py` is the READ twin of the completion client: same
+    # origin rule, same controls, only `GET`s, and the same reason to be pinned byte-exactly in
+    # `_HTTPX_SCOPED_SEAMS` instead of joining a blanket allowlist. It goes with the completion
+    # client when the signed read model carries escalation evidence.
     assert http_owners == {
         "transport.py",
         "read_transport.py",
@@ -921,6 +925,7 @@ async def test_no_shadow_policy_flip_generic_rest_or_signing_fallback():
         "auth_transport.py",
         "production.py",
         "completion_engine.py",
+        "escalation_context_engine.py",
     }
     _assert_pool_construction_only((Path(module.__file__).parent / "production.py").read_text())
     # Q2 composition only annotates its borrowed application-owned pool here.
