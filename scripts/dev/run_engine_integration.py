@@ -499,7 +499,13 @@ def _git(checkout: Path, *args: str) -> str:
 def _uv_resolution_args(checkout: Path) -> list[str]:
     options = tomllib.loads((checkout / "uv.lock").read_text()).get("options", {})
     cutoff = options.get("exclude-newer")
-    return ["--exclude-newer", str(cutoff)] if cutoff is not None else []
+    args = ["--exclude-newer", str(cutoff)] if cutoff is not None else []
+    # `--no-config` descarta o [tool.uv] do pyproject; a excecao POR PACOTE da quarentena
+    # (`exclude-newer-package`) tem de viajar pela CLI como o cutoff global, senao o `--locked`
+    # julga o lock desatualizado ("removal of exclude newer for package") e recusa.
+    for name, when in sorted(options.get("exclude-newer-package", {}).items()):
+        args += ["--exclude-newer-package", f"{name}={when}"]
+    return args
 
 
 def _uv_python(checkout: Path, *args: str) -> list[str]:
