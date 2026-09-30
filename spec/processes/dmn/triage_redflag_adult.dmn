@@ -46,8 +46,9 @@
         <outputEntry id="r1o4"><text>"Dor toracica: possivel sindrome coronariana aguda"</text></outputEntry>
       </rule>
       <rule id="r2">
+        <description>Falta de ar sem intensidade informada escala igual (cautela, decisao do diretor de tecnologia 30/09/2026): o custo de um caso a mais e' menor que o de uma dispneia sem atendimento. Caso H03 da bateria.</description>
         <inputEntry id="r2i1"><text>"dispneia"</text></inputEntry>
-        <inputEntry id="r2i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r2i2"><text>"grave","moderada","desconhecida"</text></inputEntry>
         <inputEntry id="r2i3"><text>-</text></inputEntry>
         <outputEntry id="r2o1"><text>true</text></outputEntry>
         <outputEntry id="r2o2"><text>"P1"</text></outputEntry>
