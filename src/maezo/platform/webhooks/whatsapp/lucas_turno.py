@@ -43,13 +43,17 @@ ZONA (§3, ADR-0006). O Lucas e' `security_zone: general` e roda no processo do 
 geral. `exigir_zona_geral` recusa construir o turno de um agente cuja definicao nao seja `general`
 (ou nao carregue). O Lucas nao ve texto, e `test_lucas_turno.py` prova isso por varredura de chaves.
 
-NESTA ONDA ninguem chama `executar` em producao: o despachante so' passa a chamar na onda (e), e a
-cerca `scripts/ci/check_roteador_lucas.py` (item 5) ja' exige que `LucasTurno` so' seja construido
-dentro do `if settings.roteador_lucas_enabled`.
+QUEM CHAMA `executar`: so' `HelenaDispatcher._turno_do_lucas` (onda e), depois dos lexicos e do
+`ainvoke` da Helena. A cerca `scripts/ci/check_roteador_lucas.py` prova isso estaticamente (item 7),
+alem de exigir que `LucasTurno` so' seja construido dentro do `if settings.roteador_lucas_enabled`
+(item 5) e que o handoff so' nasca no no' `handoff_cobranca` da Helena (item 6). O HANDOFF E' DESTA
+MENSAGEM (onda f): `executar` recusa um `message_ref` que nao seja o pseudonimo keyed do id de
+entrega deste turno (`HandoffDeOutraMensagemError`).
 """
 
 from __future__ import annotations
 
+import hmac
 import re
 import time
 from collections.abc import Mapping
@@ -108,6 +112,15 @@ if frozenset(ENTRADA_POR_SUBTIPO) != frozenset(COBRANCA_SUBTIPOS):
 
 class HandoffInvalidoError(ValueError):
     """O handoff nao tem a forma de §2.4. A mensagem e' token de classe, nunca valor ecoado."""
+
+
+class HandoffDeOutraMensagemError(HandoffInvalidoError):
+    """O `message_ref` do handoff nao e' o da mensagem de entrada DESTE turno (onda f).
+
+    Um handoff velho nao se reaproveita: ir ao Lucas exige a saida tipada da Helena neste mesmo
+    request (§2.3), e e' o `message_ref` que amarra a saida a mensagem. O despachante trata esta
+    recusa como `helena`/`retorno_falha`, SEM envio do Lucas.
+    """
 
 
 class ZonaDeSegurancaError(RuntimeError):
@@ -276,6 +289,16 @@ class LucasTurno:
         if not conversa.to_hash or not conversa.beneficiario_pseudo_id:
             raise ValueError("lucas_turno: identificadores do beneficiario ausentes")
 
+    def _conferir_mensagem(self, handoff: HandoffValidado, conversa: ConversaDoTurno) -> None:
+        """O handoff e' DESTA mensagem (onda f)? O esperado e' recalculado aqui, do id de entrega
+        cru, pelo MESMO pseudonimizador keyed com que o despachante escreveu o `message_ref` da
+        Helena (`log_safe_message_id`). Nao se confia num valor que o chamador traga pronto."""
+        esperado = self.dedup.pseudonym(conversa.message_id)
+        if not hmac.compare_digest(handoff.message_ref.encode(), esperado.encode()):
+            raise HandoffDeOutraMensagemError(
+                "lucas_turno: handoff de outra mensagem — o message_ref nao e' o da entrada deste turno"
+            )
+
     async def _fatos(self, conversa: ConversaDoTurno, handoff: HandoffValidado) -> FatosCobranca | None:
         resultado = await self.fonte.fatos(conversa.beneficiario_pseudo_id, handoff.competencia)
         if isinstance(resultado, FatosCobranca):
@@ -294,12 +317,15 @@ class LucasTurno:
         """UM turno do Lucas. Devolve o estado final do grafo.
 
         Levanta `HandoffInvalidoError`/`ValueError` ANTES de qualquer efeito quando a entrada nao
-        tem a forma do contrato: um handoff malformado nunca vira turno do Lucas.
+        tem a forma do contrato: um handoff malformado nunca vira turno do Lucas. Um handoff de
+        OUTRA mensagem (`message_ref` diferente do da entrada deste turno) levanta
+        `HandoffDeOutraMensagemError`, tambem antes de qualquer efeito (nem a fonte e' consultada).
         """
         inicio = time.monotonic()
         try:
             validado = validar_handoff(handoff)
             self._conferir_conversa(conversa)
+            self._conferir_mensagem(validado, conversa)
             estado = entrada_do_lucas(
                 validado, conversa, tenant_id=self.tenant_id, fatos=await self._fatos(conversa, validado)
             )
@@ -356,6 +382,7 @@ __all__ = [
     "ENTRADA_POR_SUBTIPO",
     "PREFIXO_CHAVE_SAIDA",
     "ConversaDoTurno",
+    "HandoffDeOutraMensagemError",
     "HandoffInvalidoError",
     "HandoffValidado",
     "LucasTurno",

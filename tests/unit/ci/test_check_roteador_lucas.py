@@ -1,7 +1,8 @@
 """Regressao da cerca do roteador Helena -> Lucas (`scripts/ci/check_roteador_lucas.py`, ADR-0062).
 
-Cada teste monta uma arvore sintetica em `tmp_path` (o ambiente `dev-sa-east-1` REAL + os tres
-arquivos de codigo REAIS), aplica UMA evasao e exige que a cerca — e a cerca ESPECIFICA do item —
+Cada teste monta uma arvore sintetica em `tmp_path` (o ambiente `dev-sa-east-1` REAL + os cinco
+arquivos de codigo REAIS: settings, service, roteamento, grafo da Helena e despachante), aplica
+UMA evasao e exige que a cerca — e a cerca ESPECIFICA do item —
 reprove. As testemunhas de nao-vacuidade vem primeiro: a arvore real passa, a sintetica sem
 evasao passa, e ligar o roteador EM DEV passa (a cerca nao pode reprovar o que o plano permite).
 """
@@ -16,7 +17,9 @@ import pytest
 from scripts.ci.check_roteador_lucas import (
     checar_construcao_condicional,
     checar_default_desligado,
+    checar_handoff_so_na_helena,
     checar_ligacao_fora_de_dev,
+    checar_lucas_depois_da_helena,
     executar,
 )
 
@@ -27,7 +30,9 @@ _RECEPTOR_TF = "service-webhook-receiver.tf"
 _SETTINGS = Path("src/maezo/platform/webhooks/whatsapp/settings.py")
 _SERVICE = Path("src/maezo/platform/webhooks/service.py")
 _ROTEAMENTO = Path("src/maezo/platform/webhooks/whatsapp/roteamento.py")
-_ARQUIVOS_DE_CODIGO = (_SETTINGS, _SERVICE, _ROTEAMENTO)
+_GRAFO = Path("src/maezo/agents/helena/graph.py")
+_DESPACHANTE = Path("src/maezo/platform/webhooks/whatsapp/dispatch.py")
+_ARQUIVOS_DE_CODIGO = (_SETTINGS, _SERVICE, _ROTEAMENTO, _GRAFO, _DESPACHANTE)
 
 #: Ancoras extraidas dos arquivos REAIS. Se o PR mudar uma delas, `_trocar` falha com a ancora
 #: ausente em vez de o teste passar a testar outra coisa.
@@ -384,3 +389,260 @@ def test_item5_ancora_de_import_existe() -> None:
     """Testemunha: o `import` do roteador mora DENTRO do `if` no service real."""
     texto = (_RAIZ_REAL / _SERVICE).read_text(encoding="utf-8")
     assert texto.index(_IF_DO_SERVICE) < texto.index(_IMPORT) < texto.index(_CONSTRUCAO)
+
+
+# ---------------------------------------------------------------------------------------
+# Item 6 — o handoff so' nasce no no' `handoff_cobranca` da Helena (onda f).
+# ---------------------------------------------------------------------------------------
+_CONSTRUCAO_DO_HANDOFF = "        handoff: HandoffCobranca = {\n"
+_NO_DO_HANDOFF = "    async def handoff_cobranca(self, state: HelenaState) -> dict[str, Any]:\n"
+
+
+def _modulo(raiz: Path, nome: str, codigo: str) -> Path:
+    caminho = raiz / "src/maezo/platform/webhooks" / nome
+    caminho.write_bytes(codigo.encode("utf-8"))
+    return caminho
+
+
+def test_item6_ancoras_existem() -> None:
+    texto = (_RAIZ_REAL / _GRAFO).read_text(encoding="utf-8")
+    assert texto.count(_CONSTRUCAO_DO_HANDOFF) == 1
+    assert texto.index(_NO_DO_HANDOFF) < texto.index(_CONSTRUCAO_DO_HANDOFF)
+
+
+_KW = "para='lucas', cobranca_subtipo='outro', competencia=None, message_ref=ref"
+
+
+@pytest.mark.parametrize(
+    "codigo",
+    [
+        # chamada direta do TypedDict
+        f"from maezo.agents.helena.graph import HandoffCobranca\n\n"
+        f"def forjar(ref):\n    return HandoffCobranca({_KW})\n",
+        # alias de import
+        f"from maezo.agents.helena.graph import HandoffCobranca as H\n\n"
+        f"def forjar(ref):\n    return H({_KW})\n",
+        # atributo de modulo
+        f"from maezo.agents.helena import graph\n\n"
+        f"def forjar(ref):\n    return graph.HandoffCobranca({_KW})\n",
+        # anotacao com valor
+        "from maezo.agents.helena.graph import HandoffCobranca\n\n"
+        "def forjar(ref):\n    h: HandoffCobranca = {}\n    return h\n",
+        # anotacao em string
+        "def forjar(ref):\n    h: 'HandoffCobranca' = {}\n    return h\n",
+        # cast
+        "from typing import cast\nfrom maezo.agents.helena.graph import HandoffCobranca\n\n"
+        "def forjar(bruto):\n    return cast(HandoffCobranca, bruto)\n",
+        # dict literal SEM o tipo, com as chaves de um handoff
+        "def forjar(ref):\n"
+        "    return {'para': 'lucas', 'cobranca_subtipo': 'outro', "
+        "'competencia': None, 'message_ref': ref}\n",
+        # dict(...) por keywords
+        f"def forjar(ref):\n    return dict({_KW})\n",
+    ],
+    ids=["chamada", "alias", "atributo", "anotacao", "anotacao-string", "cast", "dict-literal", "dict-kw"],
+)
+def test_item6_handoff_construido_fora_da_helena_reprova(tmp_path: Path, codigo: str) -> None:
+    raiz = _montar(tmp_path)
+    _modulo(raiz, "forja.py", codigo)
+    achados = checar_handoff_so_na_helena(raiz)
+    assert achados and "forja.py" in achados[0], achados
+
+
+def test_item6_no_grafo_mas_fora_do_no_handoff_reprova(tmp_path: Path) -> None:
+    """Mesmo dentro de `graph.py`, so' o no' `handoff_cobranca` (o que vem depois de
+    `_handoff_recusado`) pode construir."""
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _GRAFO,
+        lambda t: (
+            t
+            + "\n\ndef _atalho(ref: str) -> HandoffCobranca:\n"
+            + "    h: HandoffCobranca = {'para': 'lucas', 'cobranca_subtipo': 'outro', "
+            + "'competencia': None, 'message_ref': ref}\n"
+            + "    return h\n"
+        ),
+    )
+    achados = checar_handoff_so_na_helena(raiz)
+    assert achados and "graph.py" in achados[0], achados
+
+
+def test_item6_funcao_aninhada_no_no_handoff_nao_herda_a_permissao(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _GRAFO,
+        lambda t: _trocar(
+            t,
+            _CONSTRUCAO_DO_HANDOFF,
+            "        def _de_novo(ref: str) -> Any:\n"
+            "            return {'para': 'lucas', 'cobranca_subtipo': 'outro', 'message_ref': ref}\n\n"
+            + _CONSTRUCAO_DO_HANDOFF,
+        ),
+    )
+    assert checar_handoff_so_na_helena(raiz)
+
+
+def test_item6_renomear_a_classe_deixa_a_cerca_cega_e_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _GRAFO, lambda t: _trocar(t, "class HandoffCobranca(TypedDict):", "class Passagem(TypedDict):")
+    )
+    achados = checar_handoff_so_na_helena(raiz)
+    assert achados and "cerca cega" in achados[0], achados
+
+
+def test_item6_renomear_o_no_deixa_a_cerca_cega_e_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _GRAFO,
+        lambda t: _trocar(t, _NO_DO_HANDOFF, _NO_DO_HANDOFF.replace("handoff_cobranca", "passar_ao_lucas")),
+    )
+    assert any("cerca cega" in a for a in checar_handoff_so_na_helena(raiz))
+
+
+# ---------------------------------------------------------------------------------------
+# Item 7 — o turno do Lucas so' depois dos lexicos e do `ainvoke` da Helena (onda f).
+# ---------------------------------------------------------------------------------------
+_PRE_ROTEAR = (
+    "        sinais = self._pre_rotear(message.text, conversation_id)"
+    " if self.roteador is not None else None\n"
+)
+_AINVOKE = "            result = await compiled.ainvoke(initial_state, thread_config)\n"
+_IF_DO_HANDOFF = '            if self._roteamento_completo and isinstance(result.get("handoff"), Mapping):\n'
+_HANDOFF_DO_RESULTADO = '                        handoff=result["handoff"],\n'
+_SINAL_LEXICO = "                sinal_saude_lexico=sinais is None or sinais.sinal_saude,\n"
+_DEF_TURNO = "    async def _turno_do_lucas(\n"
+_DEF_RESUME = "    async def resume(\n"
+_DOCSTRING_RESUME = (
+    '        """Run ONE Helena RESUME turn (GAP-XHITL-4) under the conversation' + "'s checkpoint thread.\n"
+)
+
+
+def test_item7_ancoras_existem() -> None:
+    texto = (_RAIZ_REAL / _DESPACHANTE).read_text(encoding="utf-8")
+    for ancora in (
+        _PRE_ROTEAR,
+        _IF_DO_HANDOFF,
+        _HANDOFF_DO_RESULTADO,
+        _SINAL_LEXICO,
+        _DEF_TURNO,
+        _DEF_RESUME,
+        _DOCSTRING_RESUME,
+    ):
+        assert texto.count(ancora) == 1, ancora
+    assert texto.count(_AINVOKE) == 2  # `resume` e `dispatch`; a cerca so' le' o do `dispatch`
+    assert texto.index(_PRE_ROTEAR) < texto.rindex(_AINVOKE) < texto.index(_IF_DO_HANDOFF)
+
+
+def test_item7_lexicos_depois_do_ainvoke_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+
+    def mover(t: str) -> str:
+        t = _trocar(t, _PRE_ROTEAR, "        sinais = None\n")
+        tardio = "            sinais = self._pre_rotear(message.text, conversation_id)\n"
+        return _trocar(t, _IF_DO_HANDOFF, tardio + _IF_DO_HANDOFF)
+
+    _reescrever(raiz / _DESPACHANTE, mover)
+    achados = checar_lucas_depois_da_helena(raiz)
+    assert any("DEPOIS do `ainvoke`" in a for a in achados), achados
+
+
+def test_item7_sem_lexicos_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(raiz / _DESPACHANTE, lambda t: _trocar(t, _PRE_ROTEAR, "        sinais = None\n"))
+    assert any("_pre_rotear" in a for a in checar_lucas_depois_da_helena(raiz))
+
+
+def test_item7_sinal_de_saude_que_nao_vem_dos_lexicos_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _DESPACHANTE,
+        lambda t: _trocar(t, _SINAL_LEXICO, "                sinal_saude_lexico=False,\n"),
+    )
+    assert any("sinal_saude_lexico" in a for a in checar_lucas_depois_da_helena(raiz))
+
+
+def test_item7_turno_do_lucas_sem_o_if_do_handoff_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _DESPACHANTE,
+        lambda t: _trocar(t, _IF_DO_HANDOFF, "            if self._roteamento_completo:\n"),
+    )
+    assert any("fora do `if`" in a for a in checar_lucas_depois_da_helena(raiz))
+
+
+def test_item7_handoff_que_nao_e_o_do_resultado_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _DESPACHANTE,
+        lambda t: _trocar(
+            t, _HANDOFF_DO_RESULTADO, "                        handoff=self._ultimo_handoff,\n"
+        ),
+    )
+    assert any("so' a saida do `ainvoke`" in a for a in checar_lucas_depois_da_helena(raiz))
+
+
+def test_item7_turno_do_lucas_chamado_do_resume_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _DESPACHANTE,
+        lambda t: _trocar(
+            t,
+            _DOCSTRING_RESUME,
+            "        await self._turno_do_lucas(None, phone_hash='', conversation_id=conversation_id, "
+            "beneficiario_pseudo_id='', handoff={})\n" + _DOCSTRING_RESUME,
+        ),
+    )
+    achados = checar_lucas_depois_da_helena(raiz)
+    assert any("referenciado fora" in a for a in achados), achados
+
+
+def test_item7_executar_por_alias_no_despachante_reprova(tmp_path: Path) -> None:
+    """Um alias (`lt = self.lucas_turno`) nao escapa: no despachante, QUALQUER `.executar(`
+    fora de `_turno_do_lucas` reprova."""
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _DESPACHANTE,
+        lambda t: _trocar(
+            t,
+            _DOCSTRING_RESUME,
+            "        lt = self.lucas_turno\n        await lt.executar({}, None, None)\n" + _DOCSTRING_RESUME,
+        ),
+    )
+    achados = checar_lucas_depois_da_helena(raiz)
+    assert any("lt.executar" in a for a in achados), achados
+
+
+def test_item7_executar_do_lucas_em_outro_modulo_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _modulo(
+        raiz,
+        "atalho_lucas.py",
+        "async def atender(dispatcher, handoff, conversa, remetente):\n"
+        "    return await dispatcher.lucas_turno.executar(handoff, conversa, remetente)\n",
+    )
+    achados = checar_lucas_depois_da_helena(raiz)
+    assert achados and "atalho_lucas.py" in achados[0], achados
+
+
+def test_item7_conversa_do_turno_construida_fora_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _modulo(
+        raiz,
+        "atalho_conversa.py",
+        "from maezo.platform.webhooks.whatsapp.lucas_turno import ConversaDoTurno as C\n\n"
+        "def montar():\n"
+        "    return C(conversation_id='', beneficiario_pseudo_id='', to_hash='', message_id='')\n",
+    )
+    achados = checar_lucas_depois_da_helena(raiz)
+    assert achados and "atalho_conversa.py" in achados[0], achados
+
+
+def test_item7_renomear_o_metodo_deixa_a_cerca_cega_e_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _DESPACHANTE,
+        lambda t: _trocar(t, _DEF_TURNO, "    async def _atender_cobranca(\n"),
+    )
+    achados = checar_lucas_depois_da_helena(raiz)
+    assert achados and "cerca cega" in achados[0], achados

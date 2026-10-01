@@ -58,7 +58,11 @@ Alternativas para guardar esse estado, medidas ou descartadas no plano (§2.1):
    mudança transversal, fora deste ADR.
 7. **Interruptor desligado = byte a byte o de hoje.** Com `MAEZO_ROTEADOR_LUCAS` desligado o
    roteador nem é construído (`service.py`), o despachante recebe `roteador=None` e não faz
-   nenhuma chamada a mais. A cerca de CI cobra os itens 1 a 5 de §4 do plano.
+   nenhuma chamada a mais. A cerca de CI cobra os itens 1 a 7 de §4 do plano (6 e 7 desde a
+   onda f: o handoff so' nasce no no' `handoff_cobranca` da Helena, e o turno do Lucas so' roda
+   em `_turno_do_lucas`, depois dos lexicos e do `ainvoke` da Helena, com o `result["handoff"]`
+   dela). O `LucasTurno` recusa um handoff cujo `message_ref` nao e' o da entrega corrente
+   (`HandoffDeOutraMensagemError`): `helena`/`retorno_falha`, sem envio do Lucas.
 
 ## Consequências
 
