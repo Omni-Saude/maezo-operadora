@@ -98,7 +98,11 @@ async def executar_caso(
     estado = dict(caso["estado"])
     estado.setdefault("conversation_id", f"wa:amh:lucas-bat-{execucao}-{caso['id']}")
     estado.setdefault("to_hash", f"{FAIXA_SINTETICA}{700 + indice:03d}")
-    saida: dict[str, Any] = {"id": caso["id"], "conversation_id": estado["conversation_id"], "to_hash": estado["to_hash"]}
+    saida: dict[str, Any] = {
+        "id": caso["id"],
+        "conversation_id": estado["conversation_id"],
+        "to_hash": estado["to_hash"],
+    }
     gravador.enviados.clear()
     inicio = time.monotonic()
     try:
@@ -108,7 +112,16 @@ async def executar_caso(
         saida["rejeitado_por"] = type(exc).__name__
         return saida
     try:
-        final = await grafo.ainvoke(entrada)
+        try:
+            final = await grafo.ainvoke(entrada)
+        except Exception as exc:
+            # ALERTS-WITHOUT-METRICS-a (cerca `test_every_graph_invocation_in_src_counts_agent_errors`):
+            # TODO `.ainvoke(` em src/ conta no mesmo contador que alimenta `MaezoAgentCrashLoop`,
+            # inclusive este programa de teste — um turno do Lucas que cai e' um turno que caiu.
+            from maezo.platform.observability import classify_agent_error_type, record_agent_error
+
+            record_agent_error(agent="lucas", error_type=classify_agent_error_type(exc))
+            raise
     except PROGRAMMING_ERRORS:
         raise  # bug de programacao no grafo derruba a bateria de proposito: nao vira "fato do caso"
     except EXTERNAL_DEPENDENCY_FAILURES as exc:
@@ -116,7 +129,9 @@ async def executar_caso(
         return saida
     saida["ms"] = int((time.monotonic() - inicio) * 1000)
     saida["rejeitado"] = False
-    saida["final"] = {campo: final.get(campo) for campo in _CAMPOS_SAIDA if final.get(campo) not in (None, "", [], {})}
+    saida["final"] = {
+        campo: final.get(campo) for campo in _CAMPOS_SAIDA if final.get(campo) not in (None, "", [], {})
+    }
     dossie = final.get("dossier")
     if isinstance(dossie, Mapping):
         saida["dossie"] = {
@@ -133,7 +148,9 @@ async def executar_caso(
     return saida
 
 
-async def executar(grafo: Any, gravador: GravadorDeEnvios, casos: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+async def executar(
+    grafo: Any, gravador: GravadorDeEnvios, casos: Sequence[Mapping[str, Any]]
+) -> list[dict[str, Any]]:
     execucao = time.strftime("%m%d%H%M%S", time.gmtime())
     resultados: list[dict[str, Any]] = []
     print(f"LOTE_INI {execucao} casos={len(casos)}", flush=True)
@@ -160,7 +177,11 @@ def veredito(caso: Mapping[str, Any], resultado: Mapping[str, Any]) -> tuple[str
             div.append("a borda de entrada deveria recusar este estado e aceitou")
         return ("DIVERGE" if div else "OK"), div, obs
     if resultado.get("rejeitado"):
-        return "DIVERGE", [f"a borda recusou um estado que era para ser aceito: {resultado.get('rejeitado_por')}"], obs
+        return (
+            "DIVERGE",
+            [f"a borda recusou um estado que era para ser aceito: {resultado.get('rejeitado_por')}"],
+            obs,
+        )
     if resultado.get("erro_da_execucao"):
         return "DIVERGE", [f"o grafo levantou excecao: {resultado['erro_da_execucao']}"], obs
 
