@@ -674,7 +674,8 @@ def test_contract_domains_match_the_artifacts() -> None:
     motivo_contrato = _contract_domain(contract_text, line_prefix="| `motivo_categoria` | string | sim |")
 
     assert len(severidade_contrato) == 3
-    assert len(motivo_contrato) == 6
+    # 8 desde a onda (b) de `docs/plans/lucas-numero-unico.md`: `cobranca` e `alerta_sla` entraram.
+    assert len(motivo_contrato) == 8
 
     assert severidade_contrato == mod._SEVERIDADES_CONTRATUAIS
     assert prioridade_contrato == prioridades_dmn  # contract's DMN-reference table agrees w/ DMN
@@ -864,30 +865,38 @@ def test_a_excecao_de_severidade_e_exatamente_a_que_o_contrato_declara() -> None
 
     contract_text = _CONTRACT_PATH.read_text(encoding="utf-8")
 
-    titulos = re.findall(
-        r"^### `severidade` quando `motivo_categoria = ([a-z_]+)`", contract_text, flags=re.MULTILINE
+    # Uma secao por familia de excecao; o titulo pode nomear mais de um motivo (onda (b):
+    # `cobranca` e `alerta_sla` dividem a mesma secao).
+    titulos = [
+        linha
+        for linha in contract_text.splitlines()
+        if linha.startswith("### `severidade` quando `motivo_categoria = ")
+    ]
+    assert len(titulos) == 2, f"esperava duas secoes de excecao, achei {titulos!r}"
+    motivos_isentos = frozenset(
+        motivo for titulo in titulos for motivo in re.findall(r"`motivo_categoria = ([a-z_]+)`", titulo)
     )
-    assert len(titulos) == 1, f"esperava exatamente uma secao de excecao, achei {titulos!r}"
-    motivo_isento = titulos[0]
-    assert motivo_isento in mod._MOTIVOS_CONTRATUAIS
+    assert motivos_isentos == {"falha_tecnica", "cobranca", "alerta_sla"}
+    assert motivos_isentos <= mod._MOTIVOS_CONTRATUAIS
 
     linhas = [linha for linha in contract_text.splitlines() if linha.startswith("| `severidade` | string |")]
     assert len(linhas) == 1, f"esperava uma linha de variavel `severidade`, achei {len(linhas)}"
     obrigatoria = linhas[0].split("|")[3].strip()
-    assert motivo_isento in obrigatoria, (
-        "a celula Obrigatoria da linha `severidade` nao nomeia a excecao declarada na secao "
-        f"§severidade quando motivo_categoria = {motivo_isento}: {obrigatoria!r}"
-    )
+    for motivo_isento in sorted(motivos_isentos):
+        assert f"`{motivo_isento}`" in obrigatoria, (
+            "a celula Obrigatoria da linha `severidade` nao nomeia a excecao declarada na secao "
+            f"§severidade quando motivo_categoria = {motivo_isento}: {obrigatoria!r}"
+        )
 
-    # O worker declara o MESMO motivo (getattr, nao acesso direto: sem a constante o teste falha por
-    # ASSERCAO, nunca por AttributeError).
-    assert getattr(mod, "_MOTIVO_SEM_SEVERIDADE", None) == motivo_isento
+    # O worker declara os MESMOS motivos (getattr, nao acesso direto: sem a constante o teste falha
+    # por ASSERCAO, nunca por AttributeError).
+    assert getattr(mod, "_MOTIVO_SEM_SEVERIDADE", None) == motivos_isentos
 
-    # A secao declara `null` para a falha do classificador — nunca um rotulo fabricado.
-    secao = contract_text.split(f"### `severidade` quando `motivo_categoria = {motivo_isento}`", 1)[1]
-    secao = secao.split("\n### ", 1)[0]
-    assert "`null`" in secao
-    assert "UT_TratarEscalonamento" in secao
+    # Cada secao declara `null` — nunca um rotulo fabricado — e o caso chega a uma pessoa.
+    for titulo in titulos:
+        secao = contract_text.split(titulo, 1)[1].split("\n### ", 1)[0]
+        assert "`null`" in secao, titulo
+        assert "UT_TratarEscalonamento" in secao, titulo
 
 
 def test_a_dmn_roteia_falha_tecnica_com_severidade_nula_pela_regra_r6() -> None:
@@ -903,7 +912,7 @@ def test_a_dmn_roteia_falha_tecnica_com_severidade_nula_pela_regra_r6() -> None:
     # de proposito, para esta prova nao morrer por AttributeError em vez de por assercao.
     table = read_live_table(DMN_DIR / "escalation_routing.dmn")
     veredito = evaluate(table, {"motivo_categoria": "falha_tecnica", "severidade": None})
-    assert getattr(mod, "_MOTIVO_SEM_SEVERIDADE", None) == "falha_tecnica"
+    assert "falha_tecnica" in getattr(mod, "_MOTIVO_SEM_SEVERIDADE", frozenset())
     assert veredito.regra == "r6"
     assert veredito.saidas["prioridade"] == "P3"
     assert veredito.saidas["grupo_atendimento"] == "atendimento-humano"
@@ -936,3 +945,131 @@ def test_register_escalation_workers_registers_both_topics_as_raw_handlers() -> 
         assert topic in topics, f"{topic} not registered"
         # DL-0034: raw handlers populate _handlers but NOT the WorkerRegistry.
         assert harness.registry.get(topic) is None
+
+
+# ---------------------------------------------------------------------------
+# onda (b) de `docs/plans/lucas-numero-unico.md` — `cobranca` e `alerta_sla` sem `severidade`
+#
+# Ate 01/10/2026 a passagem de negocio do Lucas e o alerta de risco de SLA do `notification_bridge`
+# entravam como `motivo_categoria="outro"` + `severidade="moderada"`: dois rotulos com cara de
+# decididos que ninguem decidiu. Agora cada um diz o que e' (`cobranca`, `alerta_sla`) e a
+# severidade clinica, que nenhum dos dois tem, viaja AUSENTE. A DMN nao muda: os dois caem na `r7`.
+# ---------------------------------------------------------------------------
+
+_MOTIVOS_SEM_SEVERIDADE_DA_ONDA_B: tuple[str, ...] = ("cobranca", "alerta_sla")
+
+
+def _r7_vars(motivo: str, **overrides: Any) -> dict[str, Any]:
+    """O que o motor entrega a `ST_NotificarTime` para um motivo que cai no catch-all `r7`
+    (P2 / atendimento-humano / PT30M / PT4H), SEM `severidade`."""
+    variables = _team_vars(
+        motivo_categoria=motivo,
+        grupo_atendimento="atendimento-humano",
+        prioridade="P2",
+        sla_ack="PT30M",
+        sla_resolucao="PT4H",
+    )
+    variables.pop("severidade", None)
+    variables.update(overrides)
+    return variables
+
+
+@pytest.mark.parametrize("ausente", [None, "", "  "])
+@pytest.mark.parametrize("motivo", _MOTIVOS_SEM_SEVERIDADE_DA_ONDA_B)
+async def test_notify_team_motivo_sem_severidade_da_onda_b_notifica_com_null(
+    motivo: str, ausente: Any
+) -> None:
+    """`cobranca`/`alerta_sla` com `severidade` ausente: o canal primario PUBLICA, com `null`, para
+    o grupo da `r7`, e o motivo viaja (esta no dominio contratual, nao e' degradado)."""
+    kafka = FakeKafkaPublisher()
+    variables = _r7_vars(motivo)
+    if ausente is not None:
+        variables["severidade"] = ausente
+
+    result = await make_notify_team_handler(kafka)(_task(variables=variables))
+
+    assert result["status"] == "teams_notified"
+    assert result["severidade"] is None
+    assert result["motivo_categoria"] == motivo
+    assert result["grupo_atendimento"] == "atendimento-humano"
+    assert result["prioridade"] == "P2"
+    assert len(kafka.published) == 1
+    payload = kafka.published[0][1]
+    assert payload["severidade"] is None
+    assert payload["motivo_categoria"] == motivo
+
+
+@pytest.mark.parametrize("motivo", _MOTIVOS_SEM_SEVERIDADE_DA_ONDA_B)
+async def test_notify_supervisor_motivo_sem_severidade_da_onda_b_notifica_com_null(motivo: str) -> None:
+    """Idem no canal de supervisao (SLA de ack estourado): o alerta sai com `null`."""
+    kafka = FakeKafkaPublisher()
+    variables = _r7_vars(motivo)
+    variables.pop("sla_ack", None)
+    variables.pop("sla_resolucao", None)
+    variables["motivo"] = "sla_ack_breached"
+
+    result = await make_notify_supervisor_handler(kafka)(
+        _task(topic="operadora.escalation.notify_supervisor", variables=variables)
+    )
+
+    assert result["status"] == "supervisor_notified"
+    assert result["severidade"] is None
+    assert len(kafka.published) == 1
+    assert kafka.published[0][1]["severidade"] is None
+
+
+@pytest.mark.parametrize("bruta", ["critica", "MODERADA", "media", 2, True])
+@pytest.mark.parametrize("motivo", _MOTIVOS_SEM_SEVERIDADE_DA_ONDA_B)
+async def test_notify_team_motivo_sem_severidade_com_valor_fora_do_dominio_recusa(
+    motivo: str, bruta: Any
+) -> None:
+    """A excecao cobre AUSENCIA, nunca CORRUPCAO: um valor PRESENTE fora de `{grave, moderada,
+    leve}` continua fail-closed em `cobranca`/`alerta_sla`, como em qualquer motivo."""
+    kafka = FakeKafkaPublisher()
+    with pytest.raises(WorkerBpmnError) as excinfo:
+        await make_notify_team_handler(kafka)(_task(variables=_r7_vars(motivo, severidade=bruta)))
+    assert excinfo.value.error_code == _ERR_ESC_NOTIFY_FAILED
+    assert kafka.published == []
+
+
+@pytest.mark.parametrize("motivo", _MOTIVOS_SEM_SEVERIDADE_DA_ONDA_B)
+async def test_notify_team_motivo_sem_severidade_com_valor_do_dominio_passa_verbatim(motivo: str) -> None:
+    """Ausencia e' permitida, nao obrigatoria: um valor PRESENTE do dominio passa como veio."""
+    kafka = FakeKafkaPublisher()
+    result = await make_notify_team_handler(kafka)(_task(variables=_r7_vars(motivo, severidade="leve")))
+    assert result["severidade"] == "leve"
+
+
+def test_a_excecao_de_severidade_tem_exatamente_os_tres_motivos() -> None:
+    """Nao-vacuidade do conjunto: os tres isentos, e nenhum dos cinco que exigem severidade
+    (`outro` inclusive — continua no dominio e continua exigindo)."""
+    from maezo.tools.workers import escalation as mod
+
+    assert frozenset({"falha_tecnica", "cobranca", "alerta_sla"}) == mod._MOTIVO_SEM_SEVERIDADE
+    assert mod._MOTIVO_SEM_SEVERIDADE <= mod._MOTIVOS_CONTRATUAIS
+    assert mod._MOTIVO_SEM_SEVERIDADE.isdisjoint(_MOTIVOS_QUE_EXIGEM_SEVERIDADE)
+    assert set(_MOTIVOS_QUE_EXIGEM_SEVERIDADE) | mod._MOTIVO_SEM_SEVERIDADE == mod._MOTIVOS_CONTRATUAIS
+
+
+@pytest.mark.parametrize("motivo", _MOTIVOS_SEM_SEVERIDADE_DA_ONDA_B)
+def test_a_dmn_roteia_os_motivos_sem_severidade_com_severidade_nula(motivo: str) -> None:
+    """A JUSTIFICATIVA, lida da DMN viva (que esta onda NAO toca): `cobranca`/`alerta_sla` com
+    `severidade=None` caem no catch-all `r7` com as MESMAS quatro saidas que `outro`+`moderada`
+    recebia — o roteamento nao muda, so' o rotulo. Se um dia alguem criar regra propria para um
+    deles, este teste fica vermelho e obriga a rever a excecao e o contrato juntos."""
+    table = read_live_table(DMN_DIR / "escalation_routing.dmn")
+    antes = evaluate(table, {"motivo_categoria": "outro", "severidade": "moderada"})
+    agora = evaluate(table, {"motivo_categoria": motivo, "severidade": None})
+
+    assert antes.regra == "r7"
+    assert agora.regra == "r7"
+    assert agora.saidas == antes.saidas
+    assert agora.saidas == {
+        "prioridade": "P2",
+        "grupo_atendimento": "atendimento-humano",
+        "sla_ack": "PT30M",
+        "sla_resolucao": "PT4H",
+    }
+    severidade_idx = table.input_names.index("severidade")
+    regra_r7 = next(regra for regra in table.rules if regra.rule_id == "r7")
+    assert regra_r7.inputs[severidade_idx] == "-"

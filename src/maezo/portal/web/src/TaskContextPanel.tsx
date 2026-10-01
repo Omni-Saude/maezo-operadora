@@ -29,6 +29,8 @@ const motivoLabels: Readonly<Record<string, string>> = {
   intencao_clinica: "Pergunta ou intenção clínica",
   solicitacao_humano: "Pediu para falar com uma pessoa",
   falha_tecnica: "Falha técnica da assistente",
+  cobranca: "Cobrança (atendimento financeiro)",
+  alerta_sla: "Alerta de prazo (SLA) do caso",
 };
 const severidadeLabels: Readonly<Record<string, string>> = { grave: "Grave", moderada: "Moderada", leve: "Leve" };
 const grupoLabels: Readonly<Record<string, string>> = {

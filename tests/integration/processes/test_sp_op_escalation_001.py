@@ -500,6 +500,63 @@ async def test_notificacao_nunca_contradiz_o_grupo_da_dmn(
     assert "group" not in notificacao
 
 
+#: As quatro saidas da regra catch-all `r7` de `escalation_routing.dmn` — as que `outro` sempre
+#: recebeu e que `cobranca`/`alerta_sla` (onda (b) de `docs/plans/lucas-numero-unico.md`) tem de
+#: receber IGUAIS: a onda troca o rotulo, nunca o roteamento.
+_SAIDAS_R7: dict[str, str] = {
+    "prioridade": "P2",
+    "grupo_atendimento": "atendimento-humano",
+    "sla_ack": "PT30M",
+    "sla_resolucao": "PT4H",
+}
+
+
+@pytest.mark.parametrize(
+    ("motivo_categoria", "severidade"),
+    [
+        ("outro", "moderada"),  # a referencia: o par que o Lucas e o bridge mandavam ate 01/10
+        ("cobranca", None),  # passagem de negocio do Lucas
+        ("alerta_sla", None),  # alerta de risco de SLA do notification_bridge
+    ],
+)
+async def test_cobranca_e_alerta_sla_tem_as_mesmas_4_saidas_da_r7_que_outro(
+    engine: EngineRest,
+    probe: EngineProbe,
+    start_escalation: StartEscalation,
+    motivo_categoria: str,
+    severidade: str | None,
+) -> None:
+    """Onda (b), prova no motor real: `cobranca` e `alerta_sla`, com `severidade` AUSENTE (`null`),
+    sao avaliados pela DMN implantada com as MESMAS quatro saidas da `r7` que `outro`+`moderada`;
+    a instancia chega a `UT_TratarEscalonamento` em `atendimento-humano`; o canal PRIMARIO
+    notifica (o worker aceita `null` nestes motivos) com o motivo intacto; e o fallback do
+    supervisor nao e' acionado."""
+    linhas, _cabecalhos, status = await engine.evaluate_decision_raw(
+        "escalation_routing", {"motivo_categoria": motivo_categoria, "severidade": severidade}
+    )
+    assert status == 200
+    assert len(linhas) == 1
+    assert {chave: linhas[0][chave] for chave in _SAIDAS_R7} == _SAIDAS_R7
+
+    inst = await start_escalation(
+        motivo_categoria=motivo_categoria,
+        severidade=severidade,
+        source_agent_id="lucas" if motivo_categoria == "cobranca" else "helena",
+    )
+    await probe.drain()
+
+    task = await engine.await_user_task(inst["id"], "UT_TratarEscalonamento")
+    assert task.candidate_groups == frozenset({_SAIDAS_R7["grupo_atendimento"]})
+
+    assert probe.notified_teams, f"notify_team recusou `{motivo_categoria}` com severidade {severidade!r}"
+    notificacao = probe.notified_teams[0]
+    assert notificacao["grupo_atendimento"] == _SAIDAS_R7["grupo_atendimento"]
+    assert notificacao["prioridade"] == _SAIDAS_R7["prioridade"]
+    assert notificacao["severidade"] == severidade  # `None` viaja como `null`, nunca um `leve`
+    assert notificacao["motivo_categoria"] == motivo_categoria
+    assert not probe.notified_supervisors, "o fallback foi acionado: o canal primario recusou"
+
+
 # --- Timers (job execution, sem sleep) -----------------------------------------------
 
 

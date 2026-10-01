@@ -62,10 +62,13 @@ As quatro condições que o caso geral exige continuam satisfeitas, e não por e
   (`sla-auth-{numero_guia_tiss}`), no espaço de nomes `sla-`, portanto nunca colide com
   uma conversa real. Determinístico: a reentrega do mesmo alerta converge na MESMA
   instância aberta em vez de inundar a fila.
-- **`motivo_categoria` = `outro`** — o vocabulário fechado não tem membro para risco de
-  SLA e inventar um seria mudança de spec que nenhum agente ratifica. `outro` cai na
-  regra fail-safe `r7` da DMN `escalation_routing` (P2 / `atendimento-humano`), que é o
-  destino correto para um relógio ADMINISTRATIVO — nunca uma fila clínica.
+- **`motivo_categoria` = `alerta_sla`, `severidade` ausente (`null`)** — desde a onda (b)
+  de `docs/plans/lucas-numero-unico.md` (2026-10-01) o vocabulário fechado tem um membro
+  que diz o que este escalonamento é; até lá ele viajava como `outro`/`moderada`, dois
+  rótulos com cara de decididos que ninguém decidiu. O roteamento NÃO mudou e nenhuma
+  regra de DMN foi criada: `alerta_sla` cai na mesma regra fail-safe `r7` da DMN
+  `escalation_routing` (P2 / `atendimento-humano` / `PT30M` / `PT4H`) em que `outro`
+  caía, que é o destino correto para um relógio ADMINISTRATIVO — nunca uma fila clínica.
 - **`canal` = `bridge_sla`** — origem não-conversacional declarada, em vez de tomar
   emprestado um dos três canais de beneficiário (o que seria fato fabricado).
 
@@ -103,8 +106,8 @@ idempotente, sem duplicar escalonamento).
 | `conversation_id` | string | sim | Conversa/caso de origem (correlaciona retomada) |
 | `beneficiario_pseudo_id` | string | sim | Pseudonimo (Zona Geral, ADR-0006 — NUNCA CPF/nome) |
 | `canal` | string | sim | `whatsapp` \| `portal` \| `telefone` |
-| `motivo_categoria` | string | sim | `red_flag_clinico` \| `risco_psicossocial` \| `intencao_clinica` \| `solicitacao_humano` \| `falha_tecnica` \| `outro` |
-| `severidade` | string | sim, EXCETO quando `motivo_categoria = falha_tecnica` (secao logo abaixo: `null` declarado) | `grave` \| `moderada` \| `leve` (red flag P1 => `grave`, P2 => `moderada`) |
+| `motivo_categoria` | string | sim | `red_flag_clinico` \| `risco_psicossocial` \| `intencao_clinica` \| `solicitacao_humano` \| `falha_tecnica` \| `cobranca` \| `alerta_sla` \| `outro` |
+| `severidade` | string | sim, EXCETO quando `motivo_categoria` e' `falha_tecnica`, `cobranca` ou `alerta_sla` (secoes logo abaixo: `null` declarado) | `grave` \| `moderada` \| `leve` (red flag P1 => `grave`, P2 => `moderada`) |
 | `resumo_contexto` | string | sim | Handoff escrito pelo agente, pseudonimizado |
 | `dmn_decision_ref` | string | nao | Tabela/regra DMN que disparou (ex.: `triage_redflag_adult#r1`) |
 
@@ -128,8 +131,33 @@ entrega e so' quando ela chega (`if var_name in task.variables`): com `null` o p
 casos um leitor recebe um `leve` fabricado, e nao ha' default em lugar nenhum do caminho. Nenhum
 consumidor le esse campo: `grep -rn severidade src/maezo/tools/workers/events.py
 src/maezo/platform` devolve apenas prosa de docstring/comentario e a constante de PRODUCAO
-`notification_bridge.SLA_ALERT_SEVERIDADE` (o alerta de risco de SLA, que escreve `moderada` com
-`motivo_categoria=outro` e nada le de volta).
+`notification_bridge.SLA_ALERT_SEVERIDADE` (o alerta de risco de SLA, que desde a onda (b) escreve
+`null` com `motivo_categoria=alerta_sla` e nada le de volta).
+
+### `severidade` quando `motivo_categoria = cobranca` ou `motivo_categoria = alerta_sla` (onda (b), 2026-10-01)
+
+`severidade` e' uma escala CLINICA. Dois produtores escalavam sem ter escala nenhuma de onde
+deriva-la e gravavam um valor do dominio assim mesmo:
+
+| Motivo | Quem emite | Antes | Agora | Por que |
+|---|---|---|---|---|
+| `cobranca` | Lucas (`agents/lucas/graph.py::_motivo_categoria`), em TODA passagem de negocio (inadimplencia, contestacao, cancelamento, ambiguidade) | `outro` + `moderada` | `cobranca` + ausente (`null`) | cobranca nunca e' clinica; o `moderada` era rotulo fixo, nao apuracao |
+| `alerta_sla` | `notification_bridge` (`SLA_ALERT_MOTIVO_CATEGORIA`/`SLA_ALERT_SEVERIDADE`), alerta de risco de SLA | `outro` + `moderada` | `alerta_sla` + ausente (`null`) | um relogio administrativo nao tem severidade clinica |
+
+Na mesma onda a falha tecnica do Lucas deixou o `leve` fixo e passou a `null`, o que ja' e' o
+declarado na secao de `falha_tecnica` acima.
+
+Legitimidade da excecao: a DMN `escalation_routing` (hitPolicy FIRST) NAO muda. Nenhuma regra
+nomeia `cobranca` ou `alerta_sla`, entao os dois caem no catch-all **`r7`**, cuja coluna
+`severidade` e' o coringa `-` (`null` inclusive) -> `P2` / `atendimento-humano` / `PT30M` /
+`PT4H`: as MESMAS quatro saidas que `outro` recebia. O roteamento nao muda; muda so' o rotulo, que
+agora diz o que o caso e'. Os limites sao os mesmos da excecao de `falha_tecnica`, os dois
+fail-closed: um valor PRESENTE fora de `{grave, moderada, leve}` continua recusando, e nenhum
+`motivo_categoria` fora destes tres (nem um ausente) aceita ausencia
+(`escalation.py::_MOTIVO_SEM_SEVERIDADE`). A notificacao de `notify_team`/`notify_supervisor`
+carrega `null`; a escalacao deve chegar a `UT_TratarEscalonamento` como em qualquer outro motivo.
+Se `cobranca` ou `alerta_sla` merecem regra propria (prioridade/SLA proprios) e' decisao de gestao,
+registrada em `docs/review-queue.md`, nao desta onda.
 
 ### Fronteira de conteudo nao confiavel no caminho do agente (HEL-06/HEL-03, 2026-09-05)
 

@@ -106,7 +106,7 @@ PROCESS_KEY_ANS_SUBMIT = "SP-OP-ANS-SUBMIT-001"
 # engine call, no new process key (`KNOWN_PROCESS_KEYS` stays 15), no BPMN change.
 #
 # THE GROUP IS NOT HARD-CODED HERE. `escalation_routing.dmn` decides it inside the process from
-# (`motivo_categoria`, `severidade`); `motivo_categoria="outro"` falls to the FAIL-SAFE catch-all
+# (`motivo_categoria`, `severidade`); `motivo_categoria="alerta_sla"` falls to the FAIL-SAFE catch-all
 # rule `r7` (`spec/processes/dmn/escalation_routing.dmn:83-90`) -> `P2` /
 # `grupo_atendimento="atendimento-humano"` / `sla_ack=PT30M` / `sla_resolucao=PT4H`. The bridge
 # therefore states FACTS about the alert and lets the ratified decision table route it — the
@@ -131,22 +131,21 @@ SLA_ALERT_TYPE_SUFFIX: Final[str] = ".notify_sla_risk"
 SLA_ALERT_SOURCE_AGENT_ID: Final[str] = "notification_bridge"
 SLA_ALERT_SOURCE_AGENT_VERSION: Final[str] = "notification_bridge@v1"
 
-#: `motivo_categoria` for an SLA-risk alert. The contract's closed vocabulary
-#: (`red_flag_clinico` | `risco_psicossocial` | `intencao_clinica` | `solicitacao_humano` |
-#: `falha_tecnica` | `outro`) has no SLA-risk member, and inventing one would be a spec change no
-#: agent may ratify — so the honest member is `outro`, which is also what `LucasGraph.
-#: _escalation_variables` (`agents/lucas/graph.py`) already sends when its own reason does not map.
-#: Routing consequence is stated above: `outro` hits the DMN's fail-safe catch-all, P2 /
-#: `atendimento-humano` — never a clinical queue, which is exactly right for an administrative
-#: SLA clock.
-SLA_ALERT_MOTIVO_CATEGORIA: Final[str] = "outro"
+#: `motivo_categoria` for an SLA-risk alert: `alerta_sla`, the contract member that names exactly
+#: this origin (onda (b) do plano `docs/plans/lucas-numero-unico.md`, 01/10/2026). Until then the
+#: alert rode as the generic catch-all category, a label that read as decided while nobody had
+#: decided it (review-queue, §Variaveis de entrada `motivo_categoria`/`severidade`). Routing does NOT
+#: change and no DMN rule was added: `alerta_sla` hits the same fail-safe catch-all `r7`, P2 /
+#: `atendimento-humano` / PT30M / PT4H — never a clinical queue, which is exactly right for an
+#: administrative SLA clock. Whether SLA risk deserves its own DMN rule stays a gestao call.
+SLA_ALERT_MOTIVO_CATEGORIA: Final[str] = "alerta_sla"
 
-#: `severidade` for an SLA-risk alert. NOT load-bearing for routing: catch-all rule `r7` matches
-#: any `severidade` (`-`), so this value cannot change the group or the SLAs. `moderada` is the
-#: same neutral default `LucasGraph._escalation_variables` uses, and it agrees with the P2 the
-#: catch-all itself assigns. PROPOSTO — a real severity ladder for SLA risk is a gestao-assistencial
-#: call, not an engineering one.
-SLA_ALERT_SEVERIDADE: Final[str] = "moderada"
+#: `severidade` for an SLA-risk alert: ABSENT (`None`). `severidade` is a clinical scale and an SLA
+#: clock has none, so any domain value here would be fabricated. The contract declares the absence
+#: for `alerta_sla` and the worker accepts `null` only under its three exempt motivos
+#: (`escalation.py::_MOTIVO_SEM_SEVERIDADE`). NOT load-bearing for routing: catch-all rule `r7`
+#: matches any `severidade` (`-`, `null` included), so the group and the SLAs are the DMN's.
+SLA_ALERT_SEVERIDADE: Final[None] = None
 
 #: `canal` for an SLA-risk alert — the ORIGIN of the escalation, per this repo's live usage.
 #: The contract's table lists the three BENEFICIARY conversation channels (`whatsapp` | `portal` |
