@@ -342,6 +342,50 @@ async def test_dispatcher_red_flag_message_starts_escalation() -> None:
     assert result["escalation_business_key"].startswith("ESC-amh-wa:amh:")
 
 
+async def test_turn_completed_log_carries_the_routing_codes_and_never_the_text() -> None:
+    """Bateria de 01/10/2026: E02, E11 e I05 abriram P3 `falha_tecnica` e o log do turno nao dizia
+    por que. O log passa a levar a intencao, a populacao, o tipo de resposta, o motivo do
+    escalonamento e a REFERENCIA da tabela — todos codigos fechados —, e continua sem o texto
+    da pessoa."""
+    dmn = FakeDmnTransport()
+    dmn.register(
+        "triage_redflag_adult",
+        [{"red_flag": True, "prioridade": "P1", "conduta": "ESCALATE_EMERGENCY", "motivo": "dor toracica"}],
+    )
+    texto_da_pessoa = "dor forte no peito CONTEUDO-SENSIVEL-DE-TESTE"
+    dispatcher = HelenaDispatcher(
+        tenant_id="amh",
+        inference=_FakeInference(
+            [
+                '{"intent": "symptom", "population": "adult", "sintoma_codigo": "dor_toracica", '
+                '"intensidade": "grave", "psychosocial_risk": false}',
+                "resumo",
+                "um humano vai continuar",
+            ]
+        ),
+        dmn=dmn,
+        cibseven=FakeCibSevenTransport(),
+        whatsapp_client=_FakeWhatsAppClient(),  # type: ignore[arg-type]
+        pseudonymizer=Pseudonymizer(),
+        audit_sink=FakeStartAuditSink(),
+    )
+
+    with structlog.testing.capture_logs() as logs:
+        await dispatcher.dispatch(
+            InboundMessage(from_number="5511988887777", text=texto_da_pessoa, message_id="wamid.diag")
+        )
+
+    concluidos = [e for e in logs if e["event"] == "helena_dispatch_turn_completed"]
+    assert len(concluidos) == 1
+    log = concluidos[0]
+    assert log["intent"] == "symptom"
+    assert log["population"] == "adult"
+    assert log["escalation_motivo"] == "red_flag_clinico"
+    assert log["response_kind"] == "escalate"
+    assert log["dmn_decision_ref"]
+    assert "CONTEUDO-SENSIVEL-DE-TESTE" not in repr(log)
+
+
 # ---------------------------------------------------------------------------
 # Input-boundary gate (T1.11 layer 2) — the state entering Helena's graph from the dispatch
 # seam carries ONLY the declared INPUT fields; no caller-planted output field can reach it.
