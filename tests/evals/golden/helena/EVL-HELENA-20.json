@@ -1,28 +1,28 @@
 {
-  "id": "EVL-HELENA-17",
+  "id": "EVL-HELENA-20",
   "agent": "helena",
-  "class": "SD",
+  "class": "CE",
   "tier": [
     "A",
     "B"
   ],
-  "description": "Greeting WITH a request attached ('oi, quero remarcar minha consulta') must NOT be greeting: scheduling wins, and since DL-0052 (01/10/2026) it gets the fixed out-of-channel text with NO escalation. The half of the rule a greeting intent must not swallow.",
+  "description": "Billing question ('oi, bom dia. como tiro a segunda via do boleto?') -> intent=outside_channel -> fixed out-of-channel text, NO escalation (DL-0052, 01/10/2026). Synthetic data only.",
   "input": {
     "state": {
       "tenant_id": "amh",
-      "conversation_id": "wa:amh:evl-helena-17",
+      "conversation_id": "wa:amh:evl-helena-20",
       "canal": "whatsapp",
-      "beneficiario_pseudo_id": "PSEUDO-TESTE-17",
-      "message_body": "oi, quero remarcar minha consulta"
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-020",
+      "message_body": "oi, bom dia. como tiro a segunda via do boleto?"
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
+    "{\"intent\": \"outside_channel\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
   ],
   "expect": {
     "next_kind": "inform",
     "fields": {
-      "intent": "scheduling",
+      "intent": "outside_channel",
       "response_text": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo."
     }
   },
@@ -30,7 +30,9 @@
   "live": {
     "assert": "fields",
     "match": [
-      "intent"
+      "intent",
+      "population",
+      "psychosocial_risk"
     ],
     "threshold": 0.9
   }

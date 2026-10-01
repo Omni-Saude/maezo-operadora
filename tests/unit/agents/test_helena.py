@@ -17,6 +17,7 @@ import yaml
 
 from maezo.agents.helena.graph import (
     HELENA_INPUT_FIELDS,
+    RESPOSTA_FORA_DO_CANAL,
     HelenaGraph,
     HelenaState,
     _business_key,
@@ -375,13 +376,53 @@ async def test_classify_greeting_with_symptom_goes_through_the_dmn_instead() -> 
     assert result["escalation_motivo"] == "red_flag_clinico"
 
 
-async def test_classify_scheduling_routes_schedule() -> None:
+async def test_classify_scheduling_routes_inform_fora_do_canal() -> None:
+    """DL-0052 (01/10/2026): agendamento deixou de escalar; recebe o texto fixo fora do canal."""
     inference = _FakeInference([_classify_json(intent="scheduling")])
     graph = _graph(inference=inference)
 
     result = await graph.classify(_base_state(message_body="quero marcar uma consulta"))
 
-    assert result["next_kind"] == "schedule"
+    assert result["next_kind"] == "inform"
+    assert "escalation_motivo" not in result
+
+
+async def test_classify_outside_channel_routes_inform_sem_escalar() -> None:
+    inference = _FakeInference([_classify_json(intent="outside_channel")])
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="como tiro a segunda via do boleto?"))
+
+    assert result["next_kind"] == "inform"
+    assert "escalation_motivo" not in result
+
+
+async def test_classify_outside_channel_com_sintoma_vai_para_a_triagem_e_nao_para_fora_do_canal() -> None:
+    """Saude vence: um sintoma extraido passa pela tabela ANTES de qualquer intencao."""
+    dmn = FakeDmnTransport()
+    dmn.register(
+        "triage_redflag_adult",
+        [{"red_flag": True, "prioridade": "P1", "conduta": "ESCALATE_EMERGENCY", "motivo": "dor toracica"}],
+    )
+    inference = _FakeInference(
+        [_classify_json(intent="outside_channel", population="adult", sintoma_codigo="dor_toracica")]
+    )
+    graph = _graph(inference=inference, dmn=dmn)
+
+    result = await graph.classify(_base_state(message_body="boleto... e estou com dor no peito"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "red_flag_clinico"
+
+
+async def test_classify_human_request_continua_escalando_em_qualquer_assunto() -> None:
+    inference = _FakeInference([_classify_json(intent="human_request")])
+    graph = _graph(inference=inference)
+
+    result = await graph.classify(_base_state(message_body="quero falar com um atendente sobre o boleto"))
+
+    assert result["next_kind"] == "escalate"
+    assert result["escalation_motivo"] == "solicitacao_humano"
 
 
 async def test_classify_dmn_unavailable_escalates_falha_tecnica_never_silent_no_red_flag() -> None:
@@ -1073,25 +1114,22 @@ async def test_schedule_records_error_on_cibseven_failure_but_still_responds() -
     assert result["response_text"] == "resposta"
 
 
-async def test_full_turn_scheduling_reaches_real_escalation_never_a_dead_end() -> None:
-    """Full-graph version: `intent=scheduling` must reach an ACTUALLY STARTED escalation, not
-    just the `schedule` response node."""
+@pytest.mark.parametrize("intent", ["scheduling", "outside_channel"])
+async def test_full_turn_fora_do_canal_envia_o_texto_fixo_e_nao_abre_processo(intent: str) -> None:
+    """DL-0052: assunto fora de saude recebe `RESPOSTA_FORA_DO_CANAL`, sem modelo na resposta e
+    SEM iniciar SP-OP-ESCALATION-001. Uma unica chamada ao modelo: a classificacao."""
     cibseven = FakeCibSevenTransport()
-    # Call order: classify, then (inside schedule -> _start_escalation) resumo, then respond.
-    inference = _FakeInference(
-        [_classify_json(intent="scheduling"), "resumo do agendamento", "um humano vai continuar"]
-    )
+    inference = _FakeInference([_classify_json(intent=intent)])
     sender = _FakeWhatsAppSender()
     graph = _graph(inference=inference, cibseven=cibseven, whatsapp=sender).compile_graph()
     compiled = graph.compile()
 
     result = await compiled.ainvoke(_base_state(message_body="preciso remarcar minha consulta"))
 
-    assert result["next_kind"] == "schedule"
-    assert result["response_kind"] == "schedule"
-    assert result["escalation_motivo"] == "solicitacao_humano"
-    assert result["escalation_started"] is True
-    assert sender.sent, "the beneficiary must still receive the scheduling-specific reply"
+    assert result["next_kind"] == "inform"
+    assert result["response_text"] == RESPOSTA_FORA_DO_CANAL
+    assert not result.get("escalation_started")
+    assert [text for _, text in sender.sent] == [RESPOSTA_FORA_DO_CANAL]
 
 
 # ---------------------------------------------------------------------------

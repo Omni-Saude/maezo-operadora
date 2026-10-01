@@ -49,7 +49,15 @@ _MINIMO_DE_CASOS: Final[int] = 100
 #: declara como `Literal` sao repetidos aqui e CONFERIDOS contra o modulo no teste abaixo, para que
 #: uma copia nao possa divergir em silencio.
 _INTENTS: Final[frozenset[str]] = frozenset(
-    {"symptom", "information", "clinical_question", "human_request", "greeting", "scheduling"}
+    {
+        "symptom",
+        "information",
+        "clinical_question",
+        "human_request",
+        "greeting",
+        "scheduling",
+        "outside_channel",
+    },
 )
 _POPULACOES: Final[frozenset[str]] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _INTENSIDADES: Final[frozenset[str]] = frozenset({"leve", "moderada", "grave", "desconhecida"})
