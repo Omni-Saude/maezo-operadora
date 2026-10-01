@@ -44,10 +44,12 @@ import asyncio
 import contextlib
 import signal
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import structlog
 
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.gateway.seams import GatedSeam
 from maezo.gateway.seams.cibseven import GatedCibSevenTransport
 from maezo.gateway.tool_registry import (
     build_agent_seam_context,
@@ -65,6 +67,9 @@ from .whatsapp.dedup import WhatsAppDedupGuard
 from .whatsapp.dispatch import HelenaDispatcher
 from .whatsapp.limite import LimitadorDeVolume
 from .whatsapp.settings import WhatsAppWebhookSettings
+
+if TYPE_CHECKING:
+    from .whatsapp.lucas_turno import LucasTurno
 
 #: F2 mode discriminator — the ONLY non-production `runtime_mode`. Anything else (Helm injects
 #: "kubernetes") is PRODUCTION, where a checkpointer that fails to provision makes the receiver
@@ -88,6 +93,10 @@ class WebhookState:
     # closed (in which case `dispatcher` is also None -> `/webhook` 501, refuse-to-serve).
     checkpointer: Checkpointer | None = None
     checkpointer_backend: str | None = None
+    #: NUMERO UNICO, onda (d) (ADR-0062). O turno do Lucas, SO' com `MAEZO_ROTEADOR_LUCAS`
+    #: ligado (`_build_lucas_turno`); desligado fica `None` e nada do Lucas existe no processo.
+    #: Nesta onda ninguem o chama: o despachante passa a chamar na onda (e).
+    lucas_turno: LucasTurno | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -261,6 +270,63 @@ def _build_dispatcher(
     return dispatcher, cibseven
 
 
+def _build_lucas_turno(settings: WhatsAppWebhookSettings, dispatcher: HelenaDispatcher) -> LucasTurno | None:
+    """Onda (d) do numero unico: o turno do Lucas, SO' com o roteador ligado. Pura construcao.
+
+    Desligado devolve `None` sem importar nada do Lucas por este caminho. Ligado, os seams vem do
+    construtor sancionado com o principal `lucas` (`build_agent_seams("lucas")`), entao o DMN, o
+    motor e o modelo decidem e registram sob o Lucas, nunca sob a Helena. Tres escolhas:
+
+    - O MESMO `InferenceProvider` cru da Helena, re-embrulhado para o Lucas (plano §3: mesma zona,
+      mesmo provedor in-region quando `helena_phi_ligado`). Construir um segundo provedor seria o
+      contra-exemplo C-A2 de `tool_registry`.
+    - O MESMO guard de dedup do despachante: as chaves de saida do Lucas (`lucas:{message_id}`)
+      saem do mesmo pseudonimizador e do mesmo store duravel que as da Helena.
+    - O seam `whatsapp` que `build_agent_seams` monta para o Lucas e' DESCARTADO: ele envia para o
+      hash literal (`agents/lucas/adapters.py`), e o envio vivo e' o remetente por turno que o
+      `LucasTurno` embrulha com o gate do principal `lucas`.
+
+    `scripts/ci/check_roteador_lucas.py` (item 5) reprova construir `LucasTurno` fora do corpo de
+    um `if settings.roteador_lucas_enabled`. Qualquer falha aqui (zona do Lucas que nao seja
+    `general`, fonte desconhecida, seam que nao embrulha) LEVANTA, e `_bring_up_dependencies`
+    recusa servir: ligado, o receptor nao sobe pela metade.
+    """
+    lucas_turno = None
+    if settings.roteador_lucas_enabled:
+        from maezo.agents.lucas.fonte_cobranca import FonteCobrancaSimulada
+        from maezo.platform.webhooks.whatsapp.lucas_turno import LucasTurno
+
+        if dispatcher.dedup is None:
+            raise ValueError(
+                "lucas_turno: o despachante nao tem guard de dedup; sem ele nao ha' chave de saida"
+            )
+        helena_inference = dispatcher.inference
+        if not isinstance(helena_inference, GatedSeam):
+            raise ValueError(
+                "lucas_turno: o provedor da Helena nao e' um seam cercado; recusando reembrulhar"
+            )
+        if settings.lucas_fonte_cobranca != "simulada":  # Literal["simulada"]: defesa em profundidade
+            raise ValueError("lucas_turno: fonte de cobranca desconhecida")
+        seams = build_agent_seams(settings=settings, agent_id="lucas", inference=helena_inference.inner)
+        lucas_turno = LucasTurno(
+            tenant_id=settings.tenant_id,
+            inference=seams["inference"],
+            dmn=seams["dmn"],
+            cibseven=seams["cibseven"],
+            audit_sink=seams["audit_sink"],
+            seam_context=build_agent_seam_context(tenant=settings.tenant_id, agent_id="lucas"),
+            dedup=dispatcher.dedup,
+            fonte=FonteCobrancaSimulada(),
+        )
+        logger.warning(
+            "lucas_turno_construido",
+            tenant_id=settings.tenant_id,
+            fonte_cobranca=settings.lucas_fonte_cobranca,
+            detail="entrada do Lucas pronta; o despachante so' a chama a partir da onda (e)",
+        )
+    return lucas_turno
+
+
 async def _provision_dispatch_checkpointer(state: WebhookState) -> None:
     """T4b: attach the durable LangGraph checkpointer to the just-built dispatcher, with F2
     fail-closed discipline (shared `runtime.checkpoint.provision_checkpointer` — the SAME policy
@@ -350,6 +416,35 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
         return
     logger.info("webhook_effect_seams_gated", tenant=state.settings.tenant_id, detail=detail)
 
+    # NUMERO UNICO, onda (d): o turno do Lucas, so' com o roteador ligado, sob a MESMA assercao de
+    # boot. Ligado e quebrado = recusa servir (o mesmo formato de um lexico invalido).
+    try:
+        state.lucas_turno = _build_lucas_turno(state.settings, state.dispatcher)
+    except Exception as exc:  # isolated: liveness/readiness must stay up.
+        state.dispatcher = None
+        state.dispatcher_error = f"lucas turn build failed — refusing to serve: {type(exc).__name__}: {exc}"
+        logger.error("webhook_lucas_turno_build_failed", exc_info=True)
+        return
+    if state.lucas_turno is not None:
+        gated, detail = effect_seams_gated(
+            {
+                "dmn": state.lucas_turno.dmn,
+                "cibseven": state.lucas_turno.cibseven,
+                "inference": state.lucas_turno.inference,
+            }
+        )
+        if not gated:
+            state.dispatcher = None
+            state.lucas_turno = None
+            state.dispatcher_error = f"lucas effect seams not gated — refusing to serve: {detail}"
+            logger.error(
+                "webhook_dispatcher_refused_ungated_lucas_seams",
+                tenant=state.settings.tenant_id,
+                detail=detail,
+            )
+            return
+        logger.info("webhook_lucas_seams_gated", tenant=state.settings.tenant_id, detail=detail)
+
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
     try:
@@ -408,6 +503,9 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
     if state.cibseven_transport is not None:
         with contextlib.suppress(Exception):
             await state.cibseven_transport.close()
+    if state.lucas_turno is not None:
+        with contextlib.suppress(Exception):
+            await state.lucas_turno.aclose()
 
     # T4b: release the checkpointer's connection pool (idempotent; no-op for the in-memory
     # fallback / when never provisioned). Non-fatal — a close failure must not mask shutdown.

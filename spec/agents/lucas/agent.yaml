@@ -113,10 +113,19 @@ a2a:
   accepted_task_types: []
   queue_ref: agents.tasks.lucas
   handler_status: ausente   # nenhum agents/lucas/delegation.py existe (gap 11.7, prosa acima)
-# GAP 11.7 (estrutural — validado por validation.agent_def): `inbound: false` porque nenhum
-# webhook receptivo aponta para Lucas — ver o comentario GAP 11.7 acima (canal de entrada) e
-# `docs/processes/contracts/SP-OP-CANCEL-001.md` "Canal de entrada" para o quadro completo.
+# GAP 11.7 — FECHADO pela onda (d) do numero unico (ADR-0062, `docs/plans/lucas-numero-unico.md`
+# §2.5/§6(d)), com uma CONDICAO: `inbound: true` vale SO' com `MAEZO_ROTEADOR_LUCAS` ligado
+# (`inbound_condicao: roteador_lucas`, validado por `validation.agent_def`). A entrada e' o webhook
+# unico da Helena: o texto do beneficiario vai SO' para o classify dela, e o Lucas recebe o
+# `handoff` tipado (subtipo em dominio fechado + competencia `YYYY-MM`), nunca texto
+# (`platform/webhooks/whatsapp/lucas_turno.py::LucasTurno.executar`, construido so' com o roteador
+# ligado em `platform/webhooks/service.py::_build_lucas_turno`). Com o roteador DESLIGADO (o
+# default, e o de todo ambiente fora de dev — `scripts/ci/check_roteador_lucas.py`), nada do Lucas
+# e' construido no receptor e o quadro e' o de antes: resposta de beneficiario so' chega a Helena.
+# Os comentarios GAP 11.7 acima ficam como historico do que faltava. `accepted_task_types: []`
+# NAO muda: a entrada nova e' pelo canal WhatsApp, nao por delegacao A2A.
 channels:
   whatsapp:
     outbound: true
-    inbound: false
+    inbound: true
+    inbound_condicao: roteador_lucas

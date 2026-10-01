@@ -990,6 +990,10 @@ lifecycle:
 #     Recontado por AST em 38 no GAP-XHITL-4: `platform/integrations/agent_resume.py` importa
 #     `HistoricVariableReadingTransport` (a leitura do historico da nota do humano); os outros 37
 #     importadores permanecem.
+#     Recontado por AST em 39 na onda (d) do Lucas (ADR-0062, #587):
+#     `platform/webhooks/whatsapp/lucas_turno.py` importa `CibSevenTransport`/`AuditStartSink`
+#     (o turno do Lucas atras do roteador abre processo so' pelo chokepoint, como a Helena); os
+#     outros 38 importadores permanecem.
 #   - harnessFanIn: `maezo.tools.workers.harness` — o padrao unico de execucao/dispatch de todo
 #     worker externo (SC-06's "fan-in 32"). A recontagem por AST encontrou 19, nao 32 — o relatorio
 #     original parece ter contado toda mencao textual a "harness" (70 arquivos), nao imports reais
@@ -1008,5 +1012,5 @@ lifecycle:
 # runtime (nenhum codigo os le para agir — sao METADADO declarado, nao configuracao).
 # ---------------------------------------------------------------------------
 throughputCeilings:
-  transportFanIn: 38
+  transportFanIn: 39
   harnessFanIn: 21

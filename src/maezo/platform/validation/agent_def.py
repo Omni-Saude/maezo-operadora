@@ -212,13 +212,22 @@ def _validate_a2a_handler_disclosure(path: Path, agent_id: str, a2a: dict[str, A
 #: `platform/webhooks/whatsapp/dispatch.py`)?
 _WHATSAPP_SEND_TOOL = "mcp-whatsapp.send_message"
 
+#: ADR-0062 (numero unico, onda d): os agentes que recebem WhatsApp inbound SO' atras de um
+#: interruptor, e o token do interruptor. `inbound: true` sem condicao continua exclusivo da
+#: Helena; o Lucas so' recebe com `MAEZO_ROTEADOR_LUCAS` ligado, e nunca texto (o `handoff`
+#: tipado da Helena, `platform/webhooks/whatsapp/lucas_turno.py`).
+_INBOUND_CONDICIONADO: dict[str, str] = {"lucas": "roteador_lucas"}
+
 
 def _validate_whatsapp_channel_posture(path: Path, definition: AgentDefinition, report: Report) -> None:
     """GAP 11.7 — an agent granting `mcp-whatsapp.send_message` must declare its INBOUND posture.
 
     `channels.whatsapp.inbound` must be an explicit `bool`: `False` for the (today, all but one)
     agents with no path back from a beneficiary reply — documented honestly instead of silently
-    implied — and `True` for the one agent `HelenaDispatcher` actually routes to (`helena`). A
+    implied — and `True` for the one agent `HelenaDispatcher` actually routes to (`helena`). The
+    one conditional exception (ADR-0062, onda d) is `lucas`: `inbound: true` together with
+    `inbound_condicao: roteador_lucas`, because he receives Helena's typed handoff (never text) only
+    while `MAEZO_ROTEADOR_LUCAS` is on (`_INBOUND_CONDICIONADO`). A
     missing/malformed block is refused rather than defaulted, for the same reason `_exigir_
     severidade` refuses rather than guesses: a silently-assumed posture is indistinguishable from
     a checked one until the day it is wrong.
@@ -234,11 +243,23 @@ def _validate_whatsapp_channel_posture(path: Path, definition: AgentDefinition, 
             "back to this agent, e.g. `channels: {whatsapp: {outbound: true, inbound: false}}`)",
         )
 
+    elif "inbound_condicao" in whatsapp:
+        condicao = whatsapp["inbound_condicao"]
+        esperada = _INBOUND_CONDICIONADO.get(definition.id)
+        if esperada is None or condicao != esperada or whatsapp["inbound"] is not True:
+            report.error(
+                path,
+                "channels.whatsapp.inbound_condicao is only valid as "
+                "`inbound: true` + the agent's own switch token (ADR-0062: lucas -> "
+                f"{_INBOUND_CONDICIONADO['lucas']!r}); no other agent receives WhatsApp inbound "
+                "behind a switch",
+            )
     elif whatsapp["inbound"] is not (definition.id == "helena"):
         report.error(
             path,
             "channels.whatsapp.inbound contradicts HelenaDispatcher: only helena receives "
-            "WhatsApp inbound (agent-scoped HTTP ingress is a different channel)",
+            "WhatsApp inbound unconditionally (lucas only behind `inbound_condicao`, ADR-0062; "
+            "agent-scoped HTTP ingress is a different channel)",
         )
 
 
