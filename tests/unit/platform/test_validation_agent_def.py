@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from maezo.platform.validation.agent_def import known_mcp_servers, validate_dir, validate_file
 from maezo.platform.validation.result import Report
 
@@ -384,9 +386,16 @@ class TestWhatsappPostureRuntimeBinding:
                 senders[definition.id] = definition.channels["whatsapp"]
         assert senders == {
             "helena": {"outbound": True, "inbound": True},
-            "lucas": {"outbound": True, "inbound": False},
+            # ADR-0062 (onda d): o Lucas recebe SO' atras do roteador, e o turno dele e' o
+            # `LucasTurno` (handoff tipado, nunca texto), construido so' com o roteador ligado.
+            "lucas": {"outbound": True, "inbound": True, "inbound_condicao": "roteador_lucas"},
             "fernando": {"outbound": True, "inbound": False},
         }
+        from maezo.agents.lucas import graph as lucas_graph
+        from maezo.platform.webhooks.whatsapp import lucas_turno
+
+        assert lucas_turno.build is lucas_graph.build
+        assert lucas_turno.new_lucas_state is lucas_graph.new_lucas_state
 
     def test_non_helena_cannot_claim_whatsapp_inbound(self, tmp_path: Path) -> None:
         content = WHATSAPP_AGENT_YAML + "channels:\n  whatsapp:\n    inbound: true\n"
@@ -395,6 +404,51 @@ class TestWhatsappPostureRuntimeBinding:
         validate_file(path, frozenset({"whatsapp"}), report)
         assert not report.ok
         assert any("HelenaDispatcher" in item.message for item in report.findings)
+
+    def test_lucas_inbound_behind_its_switch_passes(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML.replace("id: test-agent", "id: lucas") + (
+            "channels:\n  whatsapp:\n    outbound: true\n    inbound: true\n"
+            "    inbound_condicao: roteador_lucas\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="lucas")
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert report.ok, [f.message for f in report.findings]
+
+    def test_lucas_cannot_claim_unconditional_inbound(self, tmp_path: Path) -> None:
+        content = WHATSAPP_AGENT_YAML.replace("id: test-agent", "id: lucas") + (
+            "channels:\n  whatsapp:\n    inbound: true\n"
+        )
+        path = _agent_file(tmp_path, content, agent_id="lucas")
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("HelenaDispatcher" in item.message for item in report.findings)
+
+    @pytest.mark.parametrize(
+        ("agent_id", "bloco"),
+        [
+            # outro agente nao pega carona no interruptor do Lucas
+            ("test-agent", "    inbound: true\n    inbound_condicao: roteador_lucas\n"),
+            # token errado
+            ("lucas", "    inbound: true\n    inbound_condicao: outro_interruptor\n"),
+            # condicao com inbound false e' contradicao, nao postura
+            ("lucas", "    inbound: false\n    inbound_condicao: roteador_lucas\n"),
+            # a Helena nao recebe atras de interruptor
+            ("helena", "    inbound: true\n    inbound_condicao: roteador_lucas\n"),
+        ],
+    )
+    def test_inbound_condicao_fora_do_par_lucas_roteador_e_recusada(
+        self, tmp_path: Path, agent_id: str, bloco: str
+    ) -> None:
+        content = WHATSAPP_AGENT_YAML.replace("id: test-agent", f"id: {agent_id}") + (
+            "channels:\n  whatsapp:\n" + bloco
+        )
+        path = _agent_file(tmp_path, content, agent_id=agent_id)
+        report = Report()
+        validate_file(path, frozenset({"whatsapp"}), report)
+        assert not report.ok
+        assert any("inbound_condicao" in item.message for item in report.findings)
 
     def test_helena_cannot_deny_whatsapp_inbound(self, tmp_path: Path) -> None:
         content = WHATSAPP_AGENT_YAML.replace("id: test-agent", "id: helena") + (
