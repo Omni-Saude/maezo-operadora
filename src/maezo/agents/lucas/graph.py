@@ -632,6 +632,24 @@ def _is_escalation_intent(state: LucasState) -> bool:
     )
 
 
+def _ciclos_sem_conciliacao(state: LucasState) -> int | None:
+    """`ciclos_sem_conciliacao` como inteiro, ou `None` quando o fato NAO e' um inteiro.
+
+    Ausente (ou vazio) vale 0, como sempre valeu. O que mudou em 01/10/2026 (bateria do Lucas, caso
+    `L24`): um valor que nao e' numero ("dois") fazia `int()` levantar dentro de `assess` e o turno
+    MORRIA sem escalar para ninguem — um caso perdido em silencio. Agora o chamador trata `None`
+    como ambiguidade e encaminha ao humano (fail-safe fechado, mesmo principio do resto do no)."""
+    bruto = state.get("ciclos_sem_conciliacao", 0)
+    if bruto is None or bruto == "":
+        return 0
+    if isinstance(bruto, bool):
+        return None
+    try:
+        return int(bruto)
+    except (TypeError, ValueError):
+        return None
+
+
 def _escalation_motivo(state: LucasState) -> MotivoHumano:
     """Reason for the J3 handoff. Never an adverse outcome — only a reason for a human to look."""
     if state.get("intencao") == "cancelamento" or state.get("pedido_cancelamento"):
@@ -847,10 +865,14 @@ class LucasGraph:
         if _is_escalation_intent(state):
             return await self._assess_escalation(state, dmn_refs, motivo=_escalation_motivo(state))
 
+        ciclos = _ciclos_sem_conciliacao(state)
+        if ciclos is None:
+            # Fato numerico ilegivel: nunca derruba o turno e nunca vira "sem atraso" por omissao.
+            return await self._assess_escalation(state, dmn_refs, motivo="ambiguidade")
         admis_in: dict[str, Any] = {
             "tipo_solicitacao": str(state.get("tipo_solicitacao", "")),
             "status_conciliado": bool(state.get("status_conciliado", False)),
-            "ciclos_sem_conciliacao": int(state.get("ciclos_sem_conciliacao", 0) or 0),
+            "ciclos_sem_conciliacao": ciclos,
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -899,7 +921,7 @@ class LucasGraph:
         esc_in: dict[str, Any] = {
             "intencao": str(state.get("intencao", "")),
             "motivo": motivo,
-            "ciclos_sem_conciliacao": int(state.get("ciclos_sem_conciliacao", 0) or 0),
+            "ciclos_sem_conciliacao": _ciclos_sem_conciliacao(state) or 0,
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_ESCALATION_ROUTING, esc_in)
