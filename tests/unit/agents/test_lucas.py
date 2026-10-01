@@ -341,7 +341,10 @@ async def test_j2_status_conciliado_true_routes_respond_member() -> None:
 
 async def test_j2_non_conciliated_with_ciclos_escalates_inadimplencia_detectada() -> None:
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
     graph = _graph(dmn=dmn)
 
@@ -389,7 +392,10 @@ async def test_j2_status_unresolved_by_worker_never_assumed_inadimplente() -> No
     records the gap; the CATCH-ALL DMN row (never Python code) decides the conservative routing
     (never a false "admitted" outcome by assumption)."""
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "catch-all", "categoria": "ambiguidade"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "catch-all", "categoria": "ambiguidade"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "ATENDIMENTO_HUMANO"}])
     graph = _graph(dmn=dmn)
 
@@ -1202,7 +1208,10 @@ async def test_inadimplencia_chega_ao_start_como_cobranca_com_severidade_nula() 
     """Fim a fim no grafo: `assess` (J2 sem conciliacao) -> `start_process`. O que vai ao motor e'
     `cobranca` + `None` — nunca o `outro`/`moderada` de antes, nunca `""`."""
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
     cibseven = FakeCibSevenTransport()
     recording = _record_start(cibseven)
@@ -1252,7 +1261,10 @@ async def test_o_start_do_lucas_passa_pelo_worker_com_severidade_nula() -> None:
     from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
 
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
     cibseven = FakeCibSevenTransport()
     recording = _record_start(cibseven)

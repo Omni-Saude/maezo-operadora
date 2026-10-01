@@ -902,7 +902,9 @@ class LucasGraph:
             # a coluna (tabela antiga no motor) ou com valor desconhecido o caso e' `ambiguidade` —
             # nunca se acusa de inadimplencia sem indicio (bateria do Lucas, L07/L09/L18).
             categoria = str(row.get("categoria", ""))
-            motivo: MotivoHumano = "inadimplencia_detectada" if categoria == "inadimplencia" else "ambiguidade"
+            motivo: MotivoHumano = (
+                "inadimplencia_detectada" if categoria == "inadimplencia" else "ambiguidade"
+            )
             return await self._assess_escalation(state, dmn_refs, motivo=motivo)
 
         return {
