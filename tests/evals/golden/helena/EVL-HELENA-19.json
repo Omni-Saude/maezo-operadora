@@ -21,8 +21,7 @@
     "intensidade_avaliada": "moderada"
   },
   "recorded_llm": [
-    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"moderada\", \"idade_anos\": null, \"idade_meses\": null}",
-    "Obrigada por contar desde quando comecou. Pode me dizer se a febre subiu ou se apareceu algum sintoma novo?"
+    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"moderada\", \"idade_anos\": null, \"idade_meses\": null}"
   ],
   "dmn_fixture": {
     "triage_redflag_pediatric": {

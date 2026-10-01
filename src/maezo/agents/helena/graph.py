@@ -418,6 +418,29 @@ RESPOSTA_FORA_DO_CANAL: str = (
     "de emergência mais próximo."
 )
 
+#: SINTOMA SEM BANDEIRA (01/10/2026): o texto fixo de um turno `inform` cujo sintoma a tabela de red
+#: flag NAO marcou. TEXTO PROVISORIO — redacao de engenharia, aguarda aprovacao de produto e do dono
+#: clinico (Plano G4.3 / G1.6).
+#:
+#: POR QUE NAO HA MODELO AQUI. Na bateria de 01/10 o modelo, que redigia esta resposta, (a) listou
+#: sinais de alarme e limiares clinicos que nenhuma tabela nem medico aprovou ("febre por mais de
+#: 48 horas", "aplicar gelo por 15 minutos a cada 2 horas"), (b) disse "a tabela de regras nao
+#: identificou sinais de alerta" (jargao interno e, ditas pelo modelo, palavras que a cerca de
+#: negativa clinica barra e que viravam P3 `falha_tecnica` por sorteio) e (c) reabriu o cartao de
+#: apresentacao. Conduta clinica e' exatamente o que o prompt proibe e a cerca lexical nao pega:
+#: ela so' barra a NEGACAO ("nao e grave"), nunca a afirmacao ("aplique gelo").
+#:
+#: O QUE ELA FAZ: nao avalia, nao lista sinal, nao da conduta, nao opina sobre o corpo de ninguem,
+#: orienta procurar atendimento se piorar e deixa a porta de um humano aberta (gatilho 3 de
+#: `classify`). Fala de "o que foi relatado", e nao de "o que voce sente", porque o relato pode ser
+#: sobre um filho ou um pai. Cada frase tem ate' 20 palavras (regua de CLAREZA).
+RESPOSTA_SINTOMA_SEM_ALERTA: str = (
+    "Recebemos o seu relato. Este canal não avalia o que foi relatado e não substitui uma "
+    "avaliação profissional. Se os sintomas persistirem ou piorarem, procure atendimento "
+    "presencial. Se você estiver passando por uma emergência, procure o serviço de emergência "
+    "mais próximo. Se quiser falar com uma pessoa da equipe, é só me pedir."
+)
+
 RESPOSTA_INFORM_RECUSADA: str = (
     "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. "
     "Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma "
@@ -2846,6 +2869,16 @@ class HelenaGraph:
             # Texto FIXO, sem modelo: nao varia, nao se oferece para orientar o assunto e nao
             # convida a continuar. A precondicao da DMN ja' foi aplicada por `_route`.
             return {"response_text": RESPOSTA_FORA_DO_CANAL, "response_kind": "inform"}
+        if state.get("intent") == "symptom" or state.get("sintoma_codigo"):
+            # SINTOMA SEM BANDEIRA: texto FIXO, sem modelo — ver `RESPOSTA_SINTOMA_SEM_ALERTA`. A
+            # precondicao de `_route` (`_inform_recusado`) garante que a tabela JA' disse `red_flag
+            # false`; quem decide humano e' a tabela ou o pedido da pessoa, nunca a redacao. A
+            # frase de confirmacao de dado (F5) e' pronta e vem de `classify`: entra na frente.
+            confirmacao = state.get("memoria_a_confirmar")
+            texto_fixo = (
+                f"{confirmacao} {RESPOSTA_SINTOMA_SEM_ALERTA}" if confirmacao else RESPOSTA_SINTOMA_SEM_ALERTA
+            )
+            return {"response_text": texto_fixo, "response_kind": "inform"}
         text = await self._redigir_resposta(state, "inform")
         try:
             text = self._cercar_saida(text, "inform", node="inform")
