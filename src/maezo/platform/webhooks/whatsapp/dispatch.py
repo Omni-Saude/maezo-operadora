@@ -85,7 +85,7 @@ exists) — see `agent_resume.RecipientResolver`.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final
@@ -117,8 +117,9 @@ from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
 
 if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
+    from .lucas_turno import LucasTurno
     from .pre_roteamento import SinaisLexicos
-    from .roteamento import ConversaRouter
+    from .roteamento import ConversaRouter, PedidoDeHandoff
 
 logger = structlog.get_logger(__name__)
 
@@ -268,7 +269,15 @@ class _ScopedWhatsAppSender:
         self._idempotency_key_for = idempotency_key_for
         self._sends = 0
 
-    async def send(self, to_hash: str, text: str) -> dict[str, Any]:
+    async def send(self, to_hash: str, text: str, *, idempotency_key: str | None = None) -> dict[str, Any]:
+        """Envia `text` ao numero cru deste turno.
+
+        `idempotency_key` (onda e do numero unico; a pendencia que a onda d deixou): quem chama
+        pode trazer a PROPRIA chave de saida — e' o caso do `LucasTurno`, que deriva a dele num
+        espaco proprio (`lucas:{message_id}`, ordinal n) para que um envio do Lucas e um da Helena
+        causados pela mesma mensagem nunca se suprimam. Ausente, vale a fabrica por ordinal de
+        sempre, e a chamada continua byte a byte a de antes.
+        """
         if to_hash != self._expected_hash:
             # Defensive only — Helena's state always carries the SAME hash this dispatcher
             # derived from `raw_to` moments ago; a mismatch means a programming error upstream,
@@ -279,6 +288,8 @@ class _ScopedWhatsAppSender:
                 f"{self._expected_hash!r} — refusing to send to an unverified destination"
             )
         self._sends += 1
+        if idempotency_key is not None:
+            return await self._client.send_message(self._raw_to, text, idempotency_key=idempotency_key)
         if self._idempotency_key_for is None:
             # No dedup guard wired (unit tests; see `HelenaDispatcher.dedup`). The call stays
             # BYTE-IDENTICAL to the pre-dedup one so a fake client with the old two-argument
@@ -347,6 +358,18 @@ class HelenaDispatcher:
     #: roteador roda em SOMBRA: le' os lexicos antes do turno e grava o agente ativo depois dele,
     #: sem mudar a resposta.
     roteador: ConversaRouter | None = None
+    #: NUMERO UNICO, onda (e): o turno do Lucas. `None` (o default) = a Helena nunca passa a
+    #: conversa adiante. A raiz de composicao (`webhooks/service.py`) so' o liga junto com o
+    #: roteador, e SO' com os dois presentes o despachante passa as entradas do roteador a Helena
+    #: (`classify-v6`, sinais lexicos, agente ativo) e executa o Lucas depois dela. Roteador sem
+    #: Lucas e' a sombra da onda (c), intocada.
+    lucas_turno: LucasTurno | None = None
+
+    @property
+    def _roteamento_completo(self) -> bool:
+        """Roteador E Lucas presentes: o numero unico de verdade (onda e). So' um dos dois nao
+        muda resposta nenhuma."""
+        return self.roteador is not None and self.lucas_turno is not None
 
     async def _custodiar_destinatario(self, raw_from: str, conversation_id: str) -> None:
         """Grava o numero cifrado. NAO derruba o turno: a pessoa que escreveu recebe a resposta
@@ -553,6 +576,9 @@ class HelenaDispatcher:
                 # visivel aqui e' o que permite ler, num lugar so', por que a Helena lembrou (ou
                 # nao) num ambiente.
                 "memoria_clinica_enabled": self.memoria_clinica_enabled,
+                # NUMERO UNICO (onda e): `classify-v6` + a passagem ao Lucas so' com o roteamento
+                # completo. Desligado, a chave vai `False` e o grafo e' o de antes no a no'.
+                "roteador_lucas_enabled": self._roteamento_completo,
             }
         )
         saver = self.checkpointer.saver if self.checkpointer is not None else None
@@ -688,21 +714,38 @@ class HelenaDispatcher:
         # impossible to pass an output-only key (a forged `next_kind`/`error`/`escalation_*`/
         # `dmn_decision_ref`) from here into `HelenaState` — the caller-planted read-through class
         # is unreachable at the construction seam, not just neutralized inside `receive`.
-        initial_state: HelenaState = new_helena_state(
-            tenant_id=self.tenant_id,
-            conversation_id=conversation_id,
-            canal="whatsapp",
-            beneficiario_pseudo_id=beneficiario_pseudo_id,
-            message_body=message.text,
-        )
         sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
+        message_pseudonym = log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer)
+        if self._roteamento_completo:
+            # NUMERO UNICO (onda e): as entradas do roteador, todas TIPADAS e sem texto. Quem estava
+            # com a conversa decide so' se a frase de passagem sai; os sinais lexicos so' puxam para
+            # a Helena ou para uma pessoa (§2.3); `message_ref` amarra o handoff a ESTA mensagem.
+            initial_state: HelenaState = new_helena_state(
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                canal="whatsapp",
+                beneficiario_pseudo_id=beneficiario_pseudo_id,
+                message_body=message.text,
+                agente_ativo_conversa=await self._agente_ativo(conversation_id),
+                pedido_humano_lexico=bool(sinais and sinais.pedido_humano),
+                sinal_saude_lexico=bool(sinais and sinais.sinal_saude),
+                message_ref=message_pseudonym,
+            )
+        else:
+            initial_state = new_helena_state(
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                canal="whatsapp",
+                beneficiario_pseudo_id=beneficiario_pseudo_id,
+                message_body=message.text,
+            )
         logger.info(
             "helena_dispatch_turn_started",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
             # Gap `WEBHOOK-LOG-RAW-WAMID` (ver `acknowledge_non_text`): pseudonimo keyed, nunca o
             # wamid bruto que embute o telefone da contraparte.
-            message_pseudonym=log_safe_message_id(message.message_id, self.tenant_id, self.pseudonymizer),
+            message_pseudonym=message_pseudonym,
             checkpointed=saver is not None,
         )
         # `thread_config` scopes the checkpoint thread when a saver is attached; None (stateless
@@ -737,8 +780,80 @@ class HelenaDispatcher:
             error=result.get("error"),
         )
         if self.roteador is not None:
-            await self._registrar_roteamento_em_sombra(conversation_id, sinais, result)
+            handoff: PedidoDeHandoff | None = None
+            lucas_escalou = False
+            if self._roteamento_completo and isinstance(result.get("handoff"), Mapping):
+                # NUMERO UNICO (onda e): a Helena passou a conversa. O Lucas roda AQUI, depois do
+                # turno dela e no MESMO request (§2.3: ir ao Lucas exige a saida tipada deste
+                # request). Uma falha do Lucas PROPAGA: o turno cai, nada e' gravado na tabela e a
+                # reentrega recalcula — a frase da Helena e o envio do Lucas sao suprimidos pela
+                # perna de saida do dedup na segunda vez.
+                handoff, lucas_escalou = await self._turno_do_lucas(
+                    message,
+                    phone_hash=phone_hash,
+                    conversation_id=conversation_id,
+                    beneficiario_pseudo_id=beneficiario_pseudo_id,
+                    handoff=result["handoff"],
+                )
+            await self._registrar_roteamento(
+                conversation_id, sinais, result, handoff=handoff, lucas_escalou=lucas_escalou
+            )
         return dict(result)
+
+    async def _agente_ativo(self, conversation_id: str) -> str:
+        """Quem esta' com a conversa ANTES deste turno, lido da tabela do roteador. Uma falha de
+        leitura vale `helena`: o pior caso e' a frase de passagem sair de novo — nunca o Lucas
+        atendendo sem a Helena ter passado a conversa."""
+        assert self.roteador is not None
+        try:
+            return await self.roteador.agente_ativo(conversation_id)
+        except Exception as exc:
+            logger.error(
+                "roteador_leitura_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
+            return "helena"
+
+    async def _turno_do_lucas(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        beneficiario_pseudo_id: str,
+        handoff: Mapping[str, Any],
+    ) -> tuple[PedidoDeHandoff, bool]:
+        """UM turno do Lucas a partir do `handoff` da Helena. Devolve o pedido de handoff que o
+        roteador grava e se o Lucas terminou escalando (`lucas_encerrou`).
+
+        O REMETENTE e' o `_ScopedWhatsAppSender` deste turno, SEM gate e SEM fabrica de chave, e
+        isso e' deliberado: o `LucasTurno` o embrulha com o gate do principal `lucas` (nunca o da
+        Helena) e escolhe a chave de cada envio (`lucas:{message_id}`). O numero cru continua onde
+        sempre esteve — dentro do remetente, so' por este turno.
+        """
+        from .lucas_turno import ConversaDoTurno
+        from .roteamento import PedidoDeHandoff
+
+        assert self.lucas_turno is not None
+        remetente = _ScopedWhatsAppSender(
+            raw_to=message.from_number, expected_hash=phone_hash, client=self.whatsapp_client
+        )
+        final = await self.lucas_turno.executar(
+            handoff,
+            ConversaDoTurno(
+                conversation_id=conversation_id,
+                beneficiario_pseudo_id=beneficiario_pseudo_id,
+                to_hash=phone_hash,
+                message_id=message.message_id,
+            ),
+            remetente,
+        )
+        pedido = PedidoDeHandoff(
+            cobranca_subtipo=handoff["cobranca_subtipo"], competencia=handoff.get("competencia")
+        )
+        return pedido, final.get("route") == "escalate_human"
 
     def _pre_rotear(self, texto: str, conversation_id: str) -> SinaisLexicos | None:
         """Os lexicos de §2.3, antes de qualquer LLM. Em sombra so' vao para o log, e so' como
@@ -767,15 +882,26 @@ class HelenaDispatcher:
         )
         return sinais
 
-    async def _registrar_roteamento_em_sombra(
-        self, conversation_id: str, sinais: SinaisLexicos | None, result: Any
+    async def _registrar_roteamento(
+        self,
+        conversation_id: str,
+        sinais: SinaisLexicos | None,
+        result: Any,
+        *,
+        handoff: PedidoDeHandoff | None = None,
+        lucas_escalou: bool = False,
     ) -> None:
-        """Uma escrita por mensagem, DEPOIS do turno (§2.2). Em sombra a resposta ja' saiu e nao
-        muda; uma falha do roteador vira ERRO no log e nunca derruba o turno que ja' respondeu."""
+        """UMA escrita CAS por mensagem, DEPOIS dos dois turnos (§2.2). A resposta ja' saiu; uma
+        falha do roteador vira ERRO no log e nunca derruba o turno que ja' respondeu — a proxima
+        mensagem recalcula a partir da linha que ficou. Sem Lucas (onda c) e' a sombra: so' grava."""
         assert self.roteador is not None
         try:
             decisao = await self.roteador.registrar_turno(
-                conversation_id=conversation_id, sinais=sinais, resultado_helena=result
+                conversation_id=conversation_id,
+                sinais=sinais,
+                resultado_helena=result,
+                handoff=handoff,
+                lucas_escalou=lucas_escalou,
             )
         except Exception as exc:
             logger.error(
@@ -786,7 +912,7 @@ class HelenaDispatcher:
             )
             return
         logger.info(
-            "roteador_sombra_decidiu",
+            "roteador_decidiu" if self._roteamento_completo else "roteador_sombra_decidiu",
             tenant_id=self.tenant_id,
             conversation_id=conversation_id,
             agente=decisao.agente_ativo,

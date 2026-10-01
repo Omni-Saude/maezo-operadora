@@ -20,10 +20,12 @@ A REGRA ESTRUTURAL (§2.3) que `decidir_transicao` implementa por construcao: so
 tipado da Helena NESTE turno leva a conversa para o Lucas. Todo outro caminho que nao casa uma
 linha da tabela vai para a Helena — nunca se fica no Lucas por omissao.
 
-ONDA (c): SOMBRA. O roteador e' construido so' com `MAEZO_ROTEADOR_LUCAS` ligado (`service.py`),
-e mesmo ligado ele nao muda resposta nenhuma: a Helena ainda nao emite `handoff`, o Lucas ainda
-nao tem entrada (`lucas_disponivel=False`), e o que sobra e' gravar `helena` + motivo e logar os
-sinais lexicos. Desligado, o despachante recebe `roteador=None` e o caminho e' o de hoje.
+ONDA (c): SOMBRA. O roteador e' construido so' com `MAEZO_ROTEADOR_LUCAS` ligado (`service.py`).
+Sem o turno do Lucas no despachante ele nao muda resposta nenhuma: grava `helena` + motivo e loga
+os sinais lexicos. ONDA (e): com o Lucas presente (`HelenaDispatcher.lucas_turno`), a Helena emite
+o `handoff` tipado, o despachante executa o Lucas e grava `lucas` aqui (`lucas_disponivel=True`,
+passado pela raiz de composicao). Desligado, o despachante recebe `roteador=None` e o caminho e' o
+de hoje.
 
 PHI: a tabela guarda o `conversation_id` keyed (ADR-0035), enums e `YYYY-MM`. Nenhum telefone,
 nenhum texto; os logs deste modulo carregam so' tokens.
@@ -119,8 +121,8 @@ def _agora() -> datetime:
 class PedidoDeHandoff:
     """O `handoff` tipado da Helena para o Lucas (§2.4), visto pelo roteador.
 
-    Nesta onda nada o constroi em producao: a Helena so' passa a emiti-lo na onda (e). O tipo
-    existe aqui porque a maquina de §2.2 precisa dele para ser total.
+    O despachante o deriva do `HandoffCobranca` que a Helena emitiu (onda e), so' depois de o
+    turno do Lucas ter rodado. Nenhum texto: o subtipo e a competencia.
     """
 
     cobranca_subtipo: CobrancaSubtipo
@@ -477,6 +479,15 @@ class ConversaRouter:
     def pre_rotear(self, texto: str) -> SinaisLexicos:
         """A camada deterministica de §2.3, antes de qualquer LLM."""
         return self._lexicos.avaliar(texto)
+
+    async def agente_ativo(self, conversation_id: str) -> AgenteAtivo:
+        """Quem esta' com a conversa AGORA, para a Helena saber se a frase de passagem sai (onda
+        e). So' LEITURA: a escrita continua sendo uma por mensagem, em `registrar_turno`. Linha
+        ausente ou vencida e' `helena` — a mesma partida de `decidir_transicao`."""
+        atual = await self._store.ler(conversation_id)
+        if atual is None or atual.expira_em < self._relogio():
+            return "helena"
+        return atual.agente_ativo
 
     def _linha(
         self, conversation_id: str, atual: LinhaAgenteAtivo | None, decisao: Decisao, agora: datetime

@@ -9,6 +9,7 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - triagem_sintomas                   # DMN de red-flag por populacao (mcp-dmn.evaluate)
   - roteamento_intencao                # classify() decide inform | schedule | escalate
   - escalonamento_humano               # SP-OP-ESCALATION-001 (unico efeito real desta jornada)
+  - passagem_cobranca                  # onda (e) do numero unico (ADR-0062): cobranca -> Lucas, SO' com MAEZO_ROTEADOR_LUCAS ligado
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
@@ -53,6 +54,11 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
+  classify_roteador: classify-v6     # onda (e) do numero unico (ADR-0062): usado SO' com o
+                                     # roteador Helena -> Lucas ligado. Acrescenta a intencao
+                                     # `cobranca` + `cobranca_subtipo`/`competencia` e tira
+                                     # cobranca da lista de `outside_channel`. Desligado, o
+                                     # classify e' o v5 byte a byte (sha256 fixado em teste).
   response: response-v9               # 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
                                      # O NOME DO CANAL EM CADA MENCAO ("o portal do plano
                                      # mostra a mesma lista", nunca "o portal mostra"). E' a

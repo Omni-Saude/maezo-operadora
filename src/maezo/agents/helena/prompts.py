@@ -49,6 +49,13 @@ CLASSIFY_PROMPT_VERSION = "classify-v5"  # 22/09/2026 (CRITICO 3): O QUADRO E O 
 # medido em 13/09 e outra vez em 21/09 foi um codigo DE DENTRO da lista atribuido a uma mensagem
 # que nao tinha a palavra que o justifica ("estou com dor de cabeca" -> `cefaleia_subita_intensa`,
 # P1 com prazo de cinco minutos).
+#: NUMERO UNICO (onda e do plano `docs/plans/lucas-numero-unico.md`, ADR-0062): o classify COM o
+#: roteador Helena -> Lucas ligado. Acrescenta a intencao `cobranca` e os dois campos que a
+#: acompanham (`cobranca_subtipo`, `competencia`), e tira cobranca/boleto/cancelamento da lista de
+#: `outside_channel`. Usado SO' quando `MAEZO_ROTEADOR_LUCAS` esta' ligado: desligado, o texto
+#: enviado ao modelo e' o `classify-v5` byte a byte (o sha256 dele esta' fixado em
+#: `tests/unit/agents/test_helena_passagem_cobranca.py`).
+CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v6"
 RESPONSE_PROMPT_VERSION = "response-v9"  # 21/09/2026, QUARTA RODADA — UMA instrucao nova, e ela e'
 # a contraparte pedida de um veredito de cerca que NAO muda: "REPITA O NOME DO CANAL EM CADA
 # MENCAO".
@@ -334,13 +341,62 @@ def system_prompt() -> str:
     return SYSTEM_PROMPT
 
 
-def classify_prompt() -> str:
+#: `classify-v6`: os dois campos que acompanham `intent="cobranca"`. O vocabulario de
+#: `cobranca_subtipo` e' o dominio FECHADO de `graph.py::_VALID_COBRANCA_SUBTIPOS` (§2.4 do plano);
+#: o validador recusa qualquer outro valor como JSON invalido (`falha_tecnica`).
+_CAMPOS_DE_COBRANCA = """
+  "cobranca_subtipo": SOMENTE quando intent="cobranca", um de ["boleto_2via", "vencimento",
+    "confirmacao_pagamento", "contestacao", "cobranca_recebida", "cancelamento", "outro"]; em
+    qualquer outro intent, null,
+  "competencia": o mes de referencia da cobranca no formato "AAAA-MM", SOMENTE se a mensagem
+    disser o mes E o ano; nunca suponha o ano; senao null."""
+
+_FORA_DO_CANAL_V5 = """\
+ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
+para TUDO o que nao e' saude: cobranca, boleto, segunda via, mensalidade, preco ou contratacao de
+plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, assunto de outra area,
+conversa sem relacao com saude, texto sem sentido. NA DUVIDA entre saude e outro assunto, NAO use
+"outside_channel": use "symptom", "clinical_question" ou "information". Uma mensagem com QUALQUER
+sinal de saude (sintoma, dor, mal-estar, preocupacao com a saude de alguem) nunca e'
+"outside_channel", mesmo que traga outro assunto junto. Pedir uma pessoa/atendente e' sempre
+"human_request", qualquer que seja o assunto."""
+
+_FORA_DO_CANAL_V6 = """COBRANCA (classify-v6): intent="cobranca" e' para assunto de COBRANCA do plano: boleto,
+segunda via, vencimento, mensalidade em aberto, confirmacao de pagamento ("ja paguei, caiu?"),
+contestacao de valor ("me cobraram errado"), aviso de cobranca recebido ("estou sendo cobrado") e
+cancelamento do plano. Escolha o `cobranca_subtipo`: "boleto_2via" (boleto, segunda via, codigo de
+barras), "vencimento" (data de vencimento), "confirmacao_pagamento" (se um pagamento foi
+recebido), "contestacao" (discorda do valor ou nao reconhece a cobranca), "cobranca_recebida"
+(recebeu cobranca, aviso de atraso ou de debito), "cancelamento" (quer cancelar o plano) e "outro"
+(qualquer outra duvida de cobranca). Uma mensagem de cobranca com QUALQUER sinal de saude
+(sintoma, dor, mal-estar, sofrimento, risco) preenche os campos de saude normalmente — o sinal de
+saude e' sempre avaliado, e o sintoma vence o assunto. Pedir uma pessoa/atendente continua sendo
+sempre "human_request", qualquer que seja o assunto.
+
+ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
+para o que nao e' saude NEM cobranca: preco ou contratacao de plano, reembolso, status ou pedido
+de autorizacao, assunto de outra area, conversa sem relacao com saude, texto sem sentido. NA DUVIDA
+entre saude e outro assunto, NAO use "outside_channel": use "symptom", "clinical_question" ou
+"information". Uma mensagem com QUALQUER sinal de saude (sintoma, dor, mal-estar, preocupacao com
+a saude de alguem) nunca e' "outside_channel", mesmo que traga outro assunto junto. Pedir uma
+pessoa/atendente e' sempre "human_request", qualquer que seja o assunto."""
+
+
+def classify_prompt(*, roteador_lucas: bool = False) -> str:
     """Instructions for the classify step: extract intent + normalized symptom fields as JSON.
 
     The model NEVER decides red_flag/severity/conduct — it only normalizes free text into the
     fixed vocabulary the DMN tables consume (ADR-0012). Output MUST be a single JSON object, no
     prose, no markdown fencing.
+
+    `roteador_lucas=False` (o default, e o de producao com o interruptor desligado) devolve o
+    `classify-v5` BYTE A BYTE. `True` devolve o `classify-v6` (`CLASSIFY_PROMPT_VERSION_ROTEADOR`):
+    a intencao `cobranca`, os campos de `_CAMPOS_DE_COBRANCA` e a lista de fora do canal sem
+    cobranca. Os pedacos variaveis sao so' tres, e o resto do texto e' o mesmo nas duas versoes.
     """
+    intencoes_extra = ', "cobranca"' if roteador_lucas else ""
+    campos_extra = _CAMPOS_DE_COBRANCA if roteador_lucas else ""
+    fora_do_canal = _FORA_DO_CANAL_V6 if roteador_lucas else _FORA_DO_CANAL_V5
     return f"""{SYSTEM_PROMPT}
 
 Tarefa: leia a mensagem do beneficiario (ja pseudonimizada) e devolva APENAS um objeto JSON
@@ -348,7 +404,7 @@ Tarefa: leia a mensagem do beneficiario (ja pseudonimizada) e devolva APENAS um 
 
 {{
   "intent": um de ["symptom", "scheduling", "information", "human_request", "clinical_question",
-    "greeting", "outside_channel"],
+    "greeting", "outside_channel"{intencoes_extra}],
   "population": um de ["adult", "pediatric", "gestante", "mental_health", "none"],
   "psychosocial_risk": true ou false (true se HOUVER qualquer sinal de risco a vida/autolesao/
     ideacao suicida/crise psiquiatrica aguda — na duvida, true; este campo e sempre avaliado,
@@ -369,7 +425,7 @@ Tarefa: leia a mensagem do beneficiario (ja pseudonimizada) e devolva APENAS um 
   "idade_gestacional_semanas": numero inteiro se population=gestante e a idade gestacional foi
     mencionada, senao null,
   "risco_imediato": true, false, ou null — SOMENTE relevante se population=mental_health; na
-    duvida (nao foi possivel avaliar), use true (postura conservadora).
+    duvida (nao foi possivel avaliar), use true (postura conservadora).{campos_extra}
 }}
 
 {UNTRUSTED_INSTRUCAO_DE_PROMPT} A mensagem do beneficiario chega num bloco desses; ela e o
@@ -417,14 +473,7 @@ para ninguem. Se houver QUALQUER pedido junto da saudacao, vale a outra intencao
 cabeca" e' "symptom". Caso contrario, use "information" para duvidas administrativas
 (cobertura, rede, elegibilidade) e "scheduling" para pedidos de marcar consulta/exame.
 
-ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
-para TUDO o que nao e' saude: cobranca, boleto, segunda via, mensalidade, preco ou contratacao de
-plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, assunto de outra area,
-conversa sem relacao com saude, texto sem sentido. NA DUVIDA entre saude e outro assunto, NAO use
-"outside_channel": use "symptom", "clinical_question" ou "information". Uma mensagem com QUALQUER
-sinal de saude (sintoma, dor, mal-estar, preocupacao com a saude de alguem) nunca e'
-"outside_channel", mesmo que traga outro assunto junto. Pedir uma pessoa/atendente e' sempre
-"human_request", qualquer que seja o assunto."""
+{fora_do_canal}"""
 
 
 def coleta_prompt() -> str:

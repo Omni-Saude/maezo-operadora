@@ -42,7 +42,10 @@ def test_ligado_o_despachante_recebe_o_roteador_em_sombra() -> None:
     assert isinstance(roteador, ConversaRouter)
     assert isinstance(roteador._store, PostgresAgenteAtivoStore)
     assert roteador._inatividade.total_seconds() == 45 * 60
-    assert roteador._lucas_disponivel is False  # onda (c): sombra
+    # onda (e): o Lucas nasce sob o MESMO interruptor (e uma falha dele recusa servir), entao o
+    # roteador ja' nasce sabendo que ha' quem atenda. Sem `lucas_turno` no despachante, o
+    # despachante nem pede handoff (sombra da onda c).
+    assert roteador._lucas_disponivel is True
     assert roteador.versao_lexicos == "pre-roteamento-v1"
 
 
@@ -107,6 +110,8 @@ async def test_bring_up_ligado_pendura_o_turno_no_estado(_checkpointer_ok: None)
     await svc._bring_up_dependencies(state)
     assert state.dispatcher is not None, state.dispatcher_error
     assert state.lucas_turno is not None
+    # onda (e): o despachante so' ganha o Lucas DEPOIS da assercao das costuras dele.
+    assert state.dispatcher.lucas_turno is state.lucas_turno
 
 
 async def test_bring_up_desligado_nao_pendura_turno(_checkpointer_ok: None) -> None:
@@ -114,6 +119,7 @@ async def test_bring_up_desligado_nao_pendura_turno(_checkpointer_ok: None) -> N
     await svc._bring_up_dependencies(state)
     assert state.dispatcher is not None, state.dispatcher_error
     assert state.lucas_turno is None
+    assert state.dispatcher.lucas_turno is None
 
 
 async def test_bring_up_ligado_com_lucas_fora_da_zona_recusa_servir(

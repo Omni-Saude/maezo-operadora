@@ -143,7 +143,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, TypedDict, cast
 
@@ -179,6 +179,7 @@ from maezo.tools.workers.phi_vars import redact_error_message, redact_free_text
 from .prompts import (
     ALLOWED_SINTOMA_CODIGOS,
     CLASSIFY_PROMPT_VERSION,
+    CLASSIFY_PROMPT_VERSION_ROTEADOR,
     COLETA_PROMPT_VERSION,
     RECUSA_DE_SAIDA_VERSION,
     RECUSA_ESCALONAMENTO_JA_ABERTO,
@@ -211,6 +212,9 @@ Intent = Literal[
     "clinical_question",
     "greeting",
     "outside_channel",
+    # NUMERO UNICO (onda e, ADR-0062): so' existe no dominio VALIDADO com o roteador ligado
+    # (`_intents_validos`). Desligado, um `cobranca` vindo do modelo e' `invalid_intent`.
+    "cobranca",
 ]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 #: `collect` (COLETA, 09/09/2026): o turno termina numa PERGUNTA ao beneficiario, nao numa
@@ -218,13 +222,17 @@ Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 #: tabela de suficiencia (`SUFFICIENCY_DMN_KEY`) disse que faltava um dado para decidir com
 #: honestidade. Nunca substitui um escalonamento: `classify` so' chega a ele DEPOIS de a DMN de
 #: red flag ter dito `false` — uma emergencia nao espera pergunta.
-ResponseKind = Literal["inform", "schedule", "escalate", "collect"]
+#: `handoff` (onda e do numero unico): a Helena PASSA a conversa ao Lucas — sem LLM, sem processo,
+#: no maximo a frase fixa `FRASE_PASSAGEM_COBRANCA`. So' alcancavel com o roteador ligado.
+ResponseKind = Literal["inform", "schedule", "escalate", "collect", "handoff"]
 #: CC-01: o vocabulario do `response_kind` EMITIDO e um superconjunto do de ROTEAMENTO. Helena
 #: pode responder um `falha_tecnica_start` (a resposta honesta quando a escalacao nao abriu), mas
 #: nunca ROTEIA para ele — `next_kind` continua sendo `ResponseKind`, com os tres destinos que
 #: `_route` sabe mapear. Alargar o tipo de roteamento aqui criaria um valor que nenhuma aresta
 #: conhece; alargar so o de saida nao cria destino nenhum.
-ResponseKindOut = Literal["inform", "schedule", "escalate", "collect", "falha_tecnica_start", "retomada"]
+ResponseKindOut = Literal[
+    "inform", "schedule", "escalate", "collect", "falha_tecnica_start", "retomada", "handoff"
+]
 
 # --- COLETA (passo 4 do fluxo de triagem — 09/09/2026) -------------------------------------
 #
@@ -295,8 +303,38 @@ _VALID_INTENTS: frozenset[str] = frozenset(
         "clinical_question",
         "greeting",
         "outside_channel",
+        "cobranca",
     },
 )
+#: A intencao de cobranca (onda e). Membro de `_VALID_INTENTS` (o espelho do `Literal`), mas so'
+#: aceita pelo validador com o roteador ligado — `_intents_validos` decide, por chamada.
+INTENT_COBRANCA: str = "cobranca"
+#: Dominio FECHADO de `cobranca_subtipo` (§2.4 do plano). O MESMO de
+#: `platform/webhooks/whatsapp/roteamento.py::COBRANCA_SUBTIPOS` e do CHECK da migration 0017; o
+#: grafo nao importa a plataforma, entao a copia e' conferida por
+#: `tests/unit/agents/test_helena_passagem_cobranca.py`.
+_VALID_COBRANCA_SUBTIPOS: frozenset[str] = frozenset(
+    {
+        "boleto_2via",
+        "vencimento",
+        "confirmacao_pagamento",
+        "contestacao",
+        "cobranca_recebida",
+        "cancelamento",
+        "outro",
+    }
+)
+_COMPETENCIA_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def _intents_validos(*, cobranca_habilitada: bool) -> frozenset[str]:
+    """O dominio de `intent` que o validador aceita NESTE grafo. Sem o roteador, `cobranca` fica
+    fora — e o classify desligado continua byte a byte o de antes (`invalid_intent`)."""
+    if cobranca_habilitada:
+        return _VALID_INTENTS
+    return _VALID_INTENTS - {INTENT_COBRANCA}
+
+
 _VALID_POPULATIONS: frozenset[str] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _VALID_INTENSIDADES: frozenset[str] = frozenset({"leve", "moderada", "grave", "desconhecida"})
 
@@ -602,6 +640,25 @@ DESFECHO_RESPOSTA_VAZIA: str = "resposta_vazia_nao_enviada"
 #: sufixo e' o TOKEN DE CLASSE da precondicao violada (`_inform_recusado`), nunca texto de
 #: terceiro — este `error` viaja para `resumo_contexto` e dali para variaveis de processo.
 ERRO_INFORM_RECUSADO: str = "inform recusado"
+#: Onda (e): o prefixo do `error` quando `_handoff_recusado` barrou a passagem ao Lucas. Mesmo
+#: formato do de cima: o sufixo e' o TOKEN DE CLASSE da precondicao violada, nunca texto.
+ERRO_HANDOFF_RECUSADO: str = "handoff recusado"
+
+#: NUMERO UNICO (onda e, ADR-0062; plano §2.4). A frase que a Helena manda na PRIMEIRA passagem da
+#: conversa para o Lucas, e so' nela: com o Lucas ja' atendendo, a Helena nao envia nada. Texto
+#: FIXO, sem modelo, sujeito a revisao do Diretor de Tecnologia (plano §7, pergunta 1). Nao promete
+#: humano, nao cita canal e nao opina sobre saude — o veredito das cercas de saida esta' fixado em
+#: `tests/unit/agents/corpus_cercas_de_saida.json`.
+FRASE_PASSAGEM_COBRANCA: str = "Vou te passar para o atendimento de cobrança."
+#: `response_kind` do turno que passou a conversa ao Lucas.
+RESPONSE_KIND_HANDOFF: str = "handoff"
+#: Desfechos do turno de passagem. Declarados tambem em `runtime/turn_telemetry.py` (vocabulario da
+#: helena); `test_helena_passagem_cobranca.py` impede a divergencia. Dois porque sao dois fatos: a
+#: frase saiu (primeira passagem) ou nada saiu (o Lucas ja' estava com a conversa).
+DESFECHO_PASSAGEM_COBRANCA: str = "passagem_cobranca"
+DESFECHO_PASSAGEM_SEM_FRASE: str = "passagem_cobranca_sem_frase"
+#: Quem esta' com a conversa, como o despachante le' da tabela `conversa_agente_ativo`.
+AGENTES_DA_CONVERSA: frozenset[str] = frozenset({"helena", "lucas"})
 #: COLETA: desfecho de um turno que terminou em PERGUNTA. Declarado tambem em
 #: `runtime/turn_telemetry.py` (vocabulario da helena) — o teste de coleta impede a divergencia.
 DESFECHO_PERGUNTA_COLETA: str = "pergunta_coleta"
@@ -748,6 +805,20 @@ class WhatsAppSender(Protocol):
     async def send(self, to_hash: str, text: str) -> dict[str, Any]: ...
 
 
+class HandoffCobranca(TypedDict):
+    """A saida TIPADA com que a Helena passa a conversa ao Lucas (onda e; plano §2.4).
+
+    SAIDA-ONLY do `HelenaState`, e so' o no' `handoff_cobranca` deste modulo a constroi. Nenhum
+    campo carrega texto do beneficiario: o Lucas recebe enums, a competencia e a referencia
+    pseudonimizada da mensagem de entrada (`message_ref`), nunca o `message_body` (§3).
+    """
+
+    para: Literal["lucas"]
+    cobranca_subtipo: str
+    competencia: str | None
+    message_ref: str
+
+
 # --- Graph state (working memory; ADR-0002 working-memory layer) ---------------------------
 
 
@@ -765,6 +836,20 @@ class HelenaState(TypedDict, total=False):
     # see module docstring's labeled boundary on embedded-PHI-in-free-text scanning).
     message_body: str
 
+    # NUMERO UNICO (onda e, ADR-0062) — ENTRADAS que o despachante preenche com o roteador ligado.
+    # `new_helena_state` grava as quatro em TODO turno (com o neutro quando o roteador esta'
+    # desligado), para que um valor de um turno anterior nunca sobreviva no checkpoint.
+    #   * `agente_ativo_conversa`: quem estava com a conversa ANTES deste turno (`helena`/`lucas`);
+    #     decide so' se a frase de passagem sai.
+    #   * `pedido_humano_lexico` / `sinal_saude_lexico`: os lexicos deterministicos de §2.3. O
+    #     primeiro forca o gatilho 3; o segundo so' BLOQUEIA a passagem ao Lucas.
+    #   * `message_ref`: o pseudonimo keyed do wamid de entrada (`log_safe_message_id`), que vai no
+    #     `handoff` para o Lucas amarrar o turno dele a ESTA mensagem.
+    agente_ativo_conversa: str
+    pedido_humano_lexico: bool
+    sinal_saude_lexico: bool
+    message_ref: str
+
     # Filled by `classify`.
     intent: Intent
     population: Population
@@ -778,6 +863,12 @@ class HelenaState(TypedDict, total=False):
     dmn_table: str
     dmn_decision: dict[str, Any]
     dmn_decision_ref: str
+    # Onda (e): o subtipo e a competencia de uma mensagem de COBRANCA, ja' validados contra o
+    # dominio fechado. `None` em todo turno que nao e' `intent="cobranca"`.
+    cobranca_subtipo: str | None
+    cobranca_competencia: str | None
+    #: Onda (e): a passagem ao Lucas, escrita SO' pelo no' `handoff_cobranca`.
+    handoff: HandoffCobranca | None
 
     # COLETA (passo 4). Os tres primeiros sao MEMORIA DE CONVERSA: sobrevivem ao `receive` do
     # turno seguinte (ver `_HELENA_MEMORIA_DE_CONVERSA`) porque a pergunta feita num turno so'
@@ -863,7 +954,19 @@ class HelenaState(TypedDict, total=False):
 # classified into exactly one of the two sets — "any missed key is a hole".
 
 HELENA_INPUT_FIELDS: frozenset[str] = frozenset(
-    {"tenant_id", "conversation_id", "canal", "beneficiario_pseudo_id", "message_body", "origem_do_turno"}
+    {
+        "tenant_id",
+        "conversation_id",
+        "canal",
+        "beneficiario_pseudo_id",
+        "message_body",
+        "origem_do_turno",
+        # Onda (e) do numero unico — ver o bloco no `HelenaState`.
+        "agente_ativo_conversa",
+        "pedido_humano_lexico",
+        "sinal_saude_lexico",
+        "message_ref",
+    }
 )
 
 # Neutral default for every OUTPUT-ONLY field. `receive` writes a copy of this over the incoming
@@ -882,6 +985,9 @@ _HELENA_NEUTRAL_OUTPUTS: dict[str, Any] = {
     "dmn_table": None,
     "dmn_decision": None,
     "dmn_decision_ref": None,
+    "cobranca_subtipo": None,
+    "cobranca_competencia": None,
+    "handoff": None,
     # COLETA — os tres de memoria tem default neutro aqui (para a particao de campos e para o
     # PRIMEIRO turno de uma conversa), mas `receive` os PRESERVA em vez de zerar; ver
     # `_HELENA_MEMORIA_DE_CONVERSA` logo abaixo.
@@ -1647,6 +1753,10 @@ def new_helena_state(
     canal: str,
     beneficiario_pseudo_id: str,
     message_body: str,
+    agente_ativo_conversa: str = "helena",
+    pedido_humano_lexico: bool = False,
+    sinal_saude_lexico: bool = False,
+    message_ref: str = "",
 ) -> HelenaState:
     """Typed input-boundary constructor for a fresh Helena turn (T1.11).
 
@@ -1654,7 +1764,20 @@ def new_helena_state(
     explicit keyword-only signature makes it STRUCTURALLY impossible to pass an output-only key
     through it (a forged `next_kind`/`error`/`escalation_*`/`dmn_decision_ref`). Every accepted
     argument is an `HELENA_INPUT_FIELDS` member.
+
+    NUMERO UNICO (onda e): os quatro ultimos argumentos so' sao passados pelo despachante com o
+    roteador ligado. Os defaults sao o NEUTRO — `helena`, nenhum sinal lexico, sem referencia — e
+    sao GRAVADOS mesmo assim: com checkpoint, a entrada deste turno e' mesclada sobre o estado
+    salvo, e um `lucas` ou um `True` de um turno anterior decidiria este turno se nao fosse
+    reescrito aqui (o mesmo argumento de `origem_do_turno`). Valor fora do dominio e' recusado:
+    quem monta a entrada e' codigo, e um tipo errado aqui e' defeito de composicao.
     """
+    if agente_ativo_conversa not in AGENTES_DA_CONVERSA:
+        raise ValueError("new_helena_state: agente_ativo_conversa fora do dominio")
+    if not isinstance(pedido_humano_lexico, bool) or not isinstance(sinal_saude_lexico, bool):
+        raise ValueError("new_helena_state: sinais lexicos devem ser booleanos")
+    if not isinstance(message_ref, str):
+        raise ValueError("new_helena_state: message_ref deve ser texto")
     return {
         "tenant_id": tenant_id,
         "conversation_id": conversation_id,
@@ -1665,6 +1788,10 @@ def new_helena_state(
         # estado salvo — um `retomada` deixado por uma retomada que falhou no meio decidiria a
         # rota do proximo turno do beneficiario se este campo nao fosse reescrito aqui.
         "origem_do_turno": ORIGEM_BENEFICIARIO,
+        "agente_ativo_conversa": agente_ativo_conversa,
+        "pedido_humano_lexico": pedido_humano_lexico,
+        "sinal_saude_lexico": sinal_saude_lexico,
+        "message_ref": message_ref,
     }
 
 
@@ -1708,6 +1835,16 @@ def gate_inbound_state(raw: Mapping[str, Any]) -> HelenaState:
     if raw.get("origem_do_turno", ORIGEM_BENEFICIARIO) != ORIGEM_BENEFICIARIO:
         logger.warning("helena_inbound_origem_forcada", origem_recebida_ignorada=True)
     gated["origem_do_turno"] = ORIGEM_BENEFICIARIO
+    # NUMERO UNICO (onda e): um mapeamento cru nao escolhe quem esta' com a conversa — so' o
+    # despachante, que le' a tabela do roteador, sabe isso. `helena` sempre (o pior caso e' a frase
+    # de passagem sair de novo). Os sinais lexicos so' atravessam como `True` literal: os dois so'
+    # empurram para o lado seguro (uma pessoa / bloquear a passagem), entao um `True` plantado nao
+    # tira ninguem da triagem. Qualquer outro valor vira o neutro.
+    gated["agente_ativo_conversa"] = "helena"
+    gated["pedido_humano_lexico"] = raw.get("pedido_humano_lexico") is True
+    gated["sinal_saude_lexico"] = raw.get("sinal_saude_lexico") is True
+    ref = raw.get("message_ref")
+    gated["message_ref"] = ref if isinstance(ref, str) else ""
     return cast(HelenaState, gated)
 
 
@@ -1896,6 +2033,70 @@ def _rota_informativa(update: dict[str, Any]) -> dict[str, Any]:
     return update
 
 
+def _handoff_recusado(estado: Mapping[str, Any], *, roteador_ligado: bool) -> str | None:
+    """NUMERO UNICO (onda e; plano §2.4): precondicao DETERMINISTICA da passagem ao Lucas. Devolve
+    o TOKEN DE CLASSE da condicao violada, ou `None` quando a passagem e' admissivel.
+
+    A REGRA ESTRUTURAL (§2.3): ir para o Lucas exige que NADA de saude, risco ou pedido de pessoa
+    tenha aparecido neste turno — nem no classify (`psychosocial_risk`, `sintoma_codigo`, `intent`)
+    nem nos lexicos deterministicos (`sinal_saude_lexico`, `pedido_humano_lexico`). Um classify que
+    falhou (`error`) nunca vai ao Lucas. A ordem dos testes nao muda o desfecho (qualquer recusa e'
+    recusa); ela so' escolhe QUAL token aparece no log.
+
+    Chamada em DUAS camadas, como `_inform_recusado`: `_rota_de_cobranca` (dentro de `classify`,
+    produz o rotulo honesto) e `HelenaGraph._route_com_roteador` (a aresta — o backstop estrutural, para o dia
+    em que um `classify` futuro regredir e devolver `next_kind="handoff"` sem justificativa).
+    """
+    if estado.get("error"):
+        return "erro_do_turno"
+    if not roteador_ligado:
+        return "roteador_desligado"
+    if estado.get("intent") != INTENT_COBRANCA:
+        return "intent_nao_e_cobranca"
+    if estado.get("psychosocial_risk") is not False:
+        return "risco_psicossocial"
+    if estado.get("sintoma_codigo"):
+        return "sintoma_reportado"
+    if estado.get("sinal_saude_lexico") is not False:
+        return "sinal_saude_lexico"
+    if estado.get("pedido_humano_lexico") is not False:
+        return "pedido_humano_lexico"
+    if not _em_dominio(estado.get("cobranca_subtipo"), _VALID_COBRANCA_SUBTIPOS):
+        return "subtipo_fora_do_dominio"
+    competencia = estado.get("cobranca_competencia")
+    if competencia is not None and not (isinstance(competencia, str) and _COMPETENCIA_RE.match(competencia)):
+        return "competencia_invalida"
+    ref = estado.get("message_ref")
+    if not isinstance(ref, str) or not ref:
+        return "sem_referencia_da_mensagem"
+    return None
+
+
+def _rota_de_cobranca(
+    update: dict[str, Any], state: Mapping[str, Any], *, roteador_ligado: bool
+) -> dict[str, Any]:
+    """Onda (e), camada 1: so' roteia para `handoff` se `_handoff_recusado` deixar; caso contrario
+    o turno vira escalonamento `falha_tecnica` — estado injustificado vai para humano (§2.4), o
+    mesmo desenho de `_rota_informativa`. As entradas lexicas vem do `state` (o despachante as
+    escreve); o resto vem do que `classify` acabou de decidir."""
+    estado = {
+        **update,
+        "sinal_saude_lexico": state.get("sinal_saude_lexico", False),
+        "pedido_humano_lexico": state.get("pedido_humano_lexico", False),
+        "message_ref": state.get("message_ref", ""),
+    }
+    recusa = _handoff_recusado(estado, roteador_ligado=roteador_ligado)
+    if recusa is None:
+        update["next_kind"] = RESPONSE_KIND_HANDOFF
+        return update
+    logger.warning("helena_handoff_recusado", motivo=recusa, node="classify")
+    update["next_kind"] = "escalate"
+    update["escalation_motivo"] = "falha_tecnica"
+    update["escalation_severidade"] = _severidade_de_intensidade(update.get("intensidade"))
+    update["error"] = f"{ERRO_HANDOFF_RECUSADO}: {recusa}"
+    return update
+
+
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -1974,7 +2175,7 @@ def _is_explicitly_false(value: Any) -> bool:
     return False
 
 
-def _validate_extraction(data: dict[str, Any]) -> str | None:
+def _validate_extraction(data: dict[str, Any], *, cobranca_habilitada: bool = False) -> str | None:
     """Validate the classify LLM's parsed JSON against classify-v1's own schema.
 
     Returns a CLASS TOKEN failure reason (e.g. `invalid_intent`,
@@ -2014,8 +2215,16 @@ def _validate_extraction(data: dict[str, Any]) -> str | None:
       talking about their own age, it is a skewed extraction, and the pediatric table reads
       `idade_meses`. `idade_gestacional_semanas` has no ceiling BY DECLARED DECISION (clinical
       judgement — see `_TETO_DE_IDADE`).
+
+    NUMERO UNICO (onda e, `cobranca_habilitada=True` SO' com o roteador ligado — `classify-v6`):
+    `intent="cobranca"` passa a existir no dominio, e com ele dois campos. `cobranca_subtipo` e'
+    OBRIGATORIO em `cobranca` e tem dominio fechado (`_VALID_COBRANCA_SUBTIPOS`); fora de `cobranca`
+    ele tem de ser nulo ou ausente. `competencia`, quando presente, e' `AAAA-MM`. Qualquer desvio e'
+    `invalid_cobranca_subtipo`/`invalid_competencia`, ou seja `falha_tecnica`, nunca Lucas. Com
+    `cobranca_habilitada=False` NADA disto e' lido: o validador e' o de antes, e `cobranca` e'
+    `invalid_intent`.
     """
-    if not _em_dominio(data.get("intent"), _VALID_INTENTS):
+    if not _em_dominio(data.get("intent"), _intents_validos(cobranca_habilitada=cobranca_habilitada)):
         return "invalid_intent"
     if not _em_dominio(data.get("population"), _VALID_POPULATIONS):
         return "invalid_population"
@@ -2042,6 +2251,18 @@ def _validate_extraction(data: dict[str, Any]) -> str | None:
         # DMN a correctly typed integer. Absent fields (coerced None) are left as-is.
         if coerced is not None:
             data[field] = coerced
+    if cobranca_habilitada:
+        subtipo = data.get("cobranca_subtipo")
+        if data.get("intent") == INTENT_COBRANCA:
+            if not _em_dominio(subtipo, _VALID_COBRANCA_SUBTIPOS):
+                return "invalid_cobranca_subtipo"
+        elif subtipo is not None:
+            return "invalid_cobranca_subtipo"
+        competencia = data.get("competencia")
+        if competencia is not None and not (
+            isinstance(competencia, str) and _COMPETENCIA_RE.match(competencia)
+        ):
+            return "invalid_competencia"
     return None
 
 
@@ -2067,8 +2288,14 @@ class HelenaGraph:
         agent_version: str = "helena@v0",
         coleta_enabled: bool = False,
         memoria_clinica_enabled: bool = True,
+        roteador_lucas_enabled: bool = False,
     ) -> None:
         self._llm = inference
+        # NUMERO UNICO (onda e, ADR-0062): DESLIGADO por default, e desligado e' o grafo de antes
+        # byte a byte — `classify-v5`, `cobranca` fora do dominio validado e nem o no'
+        # `handoff_cobranca` existe. So' a composicao do receptor com `MAEZO_ROTEADOR_LUCAS` ligado
+        # passa `True` (`platform/webhooks/whatsapp/dispatch.py`).
+        self._roteador_lucas_enabled = roteador_lucas_enabled is True
         self._dmn = dmn
         self._cibseven = cibseven
         # COLETA (passo 4): DESLIGADA por default. Ligar exige que `triage_sufficiency` exista no
@@ -2207,6 +2434,11 @@ class HelenaGraph:
             "idade_meses": extraction.get("idade_meses"),
             "idade_gestacional_semanas": extraction.get("idade_gestacional_semanas"),
         }
+        if intent == INTENT_COBRANCA:
+            # Onda (e): so' existe com o roteador ligado (o validador recusa `cobranca` desligado),
+            # e os dois valores ja' passaram pelo dominio fechado de `_validate_extraction`.
+            update["cobranca_subtipo"] = extraction.get("cobranca_subtipo")
+            update["cobranca_competencia"] = extraction.get("competencia")
 
         # CRITICO 2 (22/09/2026): O CODIGO TEM DE EXISTIR NA TABELA QUE ESTE TURNO VAI CONSULTAR.
         #
@@ -2314,6 +2546,18 @@ class HelenaGraph:
             logger.info("helena_saudacao_com_sintoma", node="classify")
             intent = "symptom"
             update["intent"] = intent
+
+        # COBRANCA COM SINTOMA NAO E' COBRANCA (onda e; §1.2, P2 vence P3) — o mesmo idioma da
+        # saudacao acima, pela mesma razao: a rota nao depende da obediencia do modelo. "o boleto
+        # venceu e estou com dor no peito" segue o caminho do SINTOMA (tabela de red flag, coleta,
+        # resposta), nunca o Lucas. `_handoff_recusado` barraria de qualquer jeito, mas viraria
+        # `falha_tecnica` — desperdicar a triagem que a mensagem pede.
+        if intent == INTENT_COBRANCA and extraction.get("sintoma_codigo"):
+            logger.info("helena_cobranca_com_sintoma", node="classify")
+            intent = "symptom"
+            update["intent"] = intent
+            update["cobranca_subtipo"] = None
+            update["cobranca_competencia"] = None
 
         # PERGUNTA DE IDENTIDADE NAO E' PEDIDO DE HUMANO (23/09/2026, caso `A2`) — ver
         # `_PERGUNTA_DE_IDENTIDADE`. Vira `information`: a resposta honesta ("sou um assistente
@@ -2447,7 +2691,20 @@ class HelenaGraph:
             return update
 
         # Gatilho 3: explicit request for a human.
-        if intent == "human_request":
+        #
+        # NUMERO UNICO (onda e; §2.3, P5): o lexico deterministico de pedido de pessoa
+        # (`pedido_humano_lexico`, so' preenchido com o roteador ligado) FORCA este gatilho depois
+        # do 5 e do 1 (e do 2: saude vence pedido de pessoa, §1.2) — um falso positivo leva a uma
+        # pessoa, que e' o lado seguro. A UNICA excecao e' a pergunta de identidade sem pedido
+        # ("voce e humano?"), o caso `A2` de 23/09: o termo "humano" esta' no lexico, e forcar o
+        # gatilho ali reabriria o chamado P3 que aquela cerca fechou. Um pedido explicito na mesma
+        # mensagem ("voce e um robo? quero falar com uma pessoa") continua vencendo.
+        pedido_lexico = state.get("pedido_humano_lexico") is True and not _pergunta_de_identidade_sem_pedido(
+            str(state.get("message_body") or "")
+        )
+        if pedido_lexico and intent != "human_request":
+            logger.info("helena_pedido_humano_lexico", node="classify", intent=intent)
+        if intent == "human_request" or pedido_lexico:
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "solicitacao_humano"
             update["escalation_severidade"] = "leve"
@@ -2463,6 +2720,12 @@ class HelenaGraph:
         # nenhuma das cinco intencoes do prompt cabia numa saudacao, e a instrucao de
         # `human_request` exige pedido EXPLICITO. Sem lugar para por, o modelo escolheu o vizinho
         # mais proximo. Em operacao, todo "oi" podia virar trabalho numa fila humana.
+        # COBRANCA (onda e): passa ao Lucas SO' pela precondicao de 2 camadas. Chegar aqui ja'
+        # significa sem risco psicossocial, sem bandeira da tabela, sem pergunta clinica e sem
+        # pedido de pessoa; `_handoff_recusado` confere de novo, mais o sintoma e os lexicos.
+        if intent == INTENT_COBRANCA:
+            return _rota_de_cobranca(update, state, roteador_ligado=self._roteador_lucas_enabled)
+
         if intent == "greeting":
             return _rota_informativa(update)
 
@@ -2804,6 +3067,34 @@ class HelenaGraph:
             }
         return {"response_text": text, "response_kind": "inform"}
 
+    async def handoff_cobranca(self, state: HelenaState) -> dict[str, Any]:
+        """NUMERO UNICO (onda e; plano §2.4): escreve a saida tipada `handoff` e a frase de
+        passagem. SEM LLM, SEM processo — o Lucas e' quem atende, no despachante, depois do turno.
+
+        A frase (`FRASE_PASSAGEM_COBRANCA`) so' sai na PRIMEIRA passagem: com o Lucas ja' ativo
+        (`agente_ativo_conversa == "lucas"`) o texto fica vazio e `respond` nao envia nada. Este
+        e' o UNICO lugar do repositorio que constroi um `HandoffCobranca`.
+        """
+        handoff: HandoffCobranca = {
+            "para": "lucas",
+            "cobranca_subtipo": str(state.get("cobranca_subtipo") or ""),
+            "competencia": state.get("cobranca_competencia"),
+            "message_ref": str(state.get("message_ref") or ""),
+        }
+        lucas_ativo = state.get("agente_ativo_conversa") == "lucas"
+        logger.info(
+            "helena_handoff_cobranca",
+            node="handoff_cobranca",
+            cobranca_subtipo=handoff["cobranca_subtipo"],
+            competencia_presente=handoff["competencia"] is not None,
+            frase_de_passagem=not lucas_ativo,
+        )
+        return {
+            "handoff": handoff,
+            "response_kind": RESPONSE_KIND_HANDOFF,
+            "response_text": "" if lucas_ativo else FRASE_PASSAGEM_COBRANCA,
+        }
+
     async def schedule(self, state: HelenaState) -> dict[str, Any]:
         """GAP 9.2 fix: direct scheduling is out of scope this phase, but the beneficiary is
         actually HANDED OFF to a human, not just told one will follow up. Pre-fix this node only
@@ -3059,6 +3350,23 @@ class HelenaGraph:
         propria E ja grava `desfecho=erro_inicio_processo` no dict que retorna — emitir aqui
         tambem duplicaria o turno.
         """
+        # NUMERO UNICO (onda e): o Lucas ja' estava com a conversa, entao a Helena NAO envia nada
+        # — quem responde e' o Lucas, no despachante. Desfecho proprio, e nao a guarda HEL-07 de
+        # resposta vazia: nao e' um rascunho que sumiu, e' um silencio decidido.
+        if (
+            state.get("response_kind") == RESPONSE_KIND_HANDOFF
+            and state.get("start_failed") is not True
+            and not str(state.get("response_text") or "").strip()
+        ):
+            emit_turn_desfecho(
+                state,
+                agent_id="helena",
+                desfecho=DESFECHO_PASSAGEM_SEM_FRASE,
+                route=RESPONSE_KIND_HANDOFF,
+                motivo_categoria=None,
+                enviada=False,
+            )
+            return {"desfecho": DESFECHO_PASSAGEM_SEM_FRASE}
         # UM unico `send` e UM unico handler de falha de envio nos dois ramos — o que muda entre
         # eles e O QUE se diz e O QUE o turno declara, nunca o mecanismo de envio.
         if state.get("start_failed") is True:
@@ -3121,6 +3429,9 @@ class HelenaGraph:
                 # COLETA: nem resolvido nem escalado — a conversa continua. Rotular como
                 # `resolvido_automatico` inflaria a taxa de resolucao com perguntas.
                 desfecho = DESFECHO_PERGUNTA_COLETA
+            elif state.get("response_kind") == RESPONSE_KIND_HANDOFF:
+                # Onda (e): a frase de passagem saiu; a conversa e' do Lucas a partir daqui.
+                desfecho = DESFECHO_PASSAGEM_COBRANCA
             else:
                 desfecho = "resolvido_automatico"
             emit_turn_desfecho(
@@ -3564,6 +3875,22 @@ class HelenaGraph:
             return "escalate"
         return "inform"
 
+    def _route_com_roteador(self, state: HelenaState) -> str:
+        """Onda (e), camada 2 (backstop ESTRUTURAL de `_rota_de_cobranca`) — a aresta do grafo SO'
+        com o roteador ligado; desligado, a aresta e' `_route`, intocada.
+
+        A aresta nao entrega o turno ao Lucas sem a precondicao: recusado aqui, cai em `escalate`
+        (humano), nunca em `inform`. Todo outro `next_kind` segue a regra de `_route`.
+        """
+        if state.get("next_kind") != RESPONSE_KIND_HANDOFF:
+            return HelenaGraph._route(state)
+        recusa = _handoff_recusado(state, roteador_ligado=self._roteador_lucas_enabled)
+        if recusa is not None:
+            logger.warning("helena_handoff_recusado", motivo=recusa, node="_route")
+            return "escalate"
+        # Literal, como os destinos de `_route`: e' o NOME de uma aresta, nao texto ao beneficiario.
+        return "handoff"
+
     # -- DMN (ADR-0012/ADR-0028): the DMN decides red flag, never the LLM -------------------
 
     async def _evaluate_dmn(
@@ -3647,7 +3974,10 @@ class HelenaGraph:
         if self._coleta_enabled and state.get("coleta_pendente") and state.get("coleta_contexto"):
             anteriores = state.get("coleta_contexto")
             corpo = f"[mensagens anteriores desta conversa] {anteriores}\n[mensagem atual] {corpo}"
-        prompt = f"{classify_prompt()}\n\n{render_untrusted_block('message_body', corpo)}"
+        # NUMERO UNICO (onda e): `classify-v6` SO' com o roteador ligado; desligado, o texto e' o
+        # `classify-v5` byte a byte (sha256 fixado em teste).
+        instrucoes = classify_prompt(roteador_lucas=self._roteador_lucas_enabled)
+        prompt = f"{instrucoes}\n\n{render_untrusted_block('message_body', corpo)}"
         try:
             raw = await self._llm.generate(
                 prompt,
@@ -3671,7 +4001,7 @@ class HelenaGraph:
         data = _parse_json_object(raw)
         if data is None:
             return None, "classify LLM returned unparseable JSON"
-        schema_failure = _validate_extraction(data)
+        schema_failure = _validate_extraction(data, cobranca_habilitada=self._roteador_lucas_enabled)
         if schema_failure is not None:
             return None, f"classify LLM returned schema-invalid JSON: {schema_failure}"
         return data, None
@@ -3840,14 +4170,23 @@ class HelenaGraph:
         g.add_node("collect", self.collect)
         g.add_node("respond", self.respond)
         g.add_node("resume", self.resume)
+        destinos: dict[Hashable, str] = {
+            "inform": "inform",
+            "schedule": "schedule",
+            "escalate": "escalate",
+            "collect": "collect",
+        }
+        if self._roteador_lucas_enabled:
+            # Onda (e): o no' de passagem so' EXISTE com o roteador ligado — desligado, o grafo
+            # compilado e' o de antes, no a no'.
+            g.add_node("handoff_cobranca", self.handoff_cobranca)
+            g.add_edge("handoff_cobranca", "respond")
+            destinos[RESPONSE_KIND_HANDOFF] = "handoff_cobranca"
 
         g.add_conditional_edges(START, self._entrada, {"receive": "receive", "resume": "resume"})
         g.add_edge("receive", "classify")
-        g.add_conditional_edges(
-            "classify",
-            self._route,
-            {"inform": "inform", "schedule": "schedule", "escalate": "escalate", "collect": "collect"},
-        )
+        aresta = self._route_com_roteador if self._roteador_lucas_enabled else self._route
+        g.add_conditional_edges("classify", aresta, destinos)
         g.add_edge("inform", "respond")
         g.add_edge("collect", "respond")
         g.add_edge("schedule", "respond")
@@ -3903,6 +4242,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
     # coleta. Uma composicao que nao diz nada sobre memoria recebe a Helena que lembra quem e' o
     # paciente — ver a justificativa do default no construtor.
     memoria_clinica_enabled = cfg.get("memoria_clinica_enabled", True) is not False
+    # NUMERO UNICO (onda e): como a coleta, `True` SO' quando a composicao disser explicitamente.
+    roteador_lucas_enabled = cfg.get("roteador_lucas_enabled", False) is True
     return HelenaGraph(
         inference=cast(InferenceProvider, inference),
         dmn=cast(DmnTransport, dmn),
@@ -3912,6 +4253,7 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
         agent_version=agent_version,
         coleta_enabled=coleta_enabled,
         memoria_clinica_enabled=memoria_clinica_enabled,
+        roteador_lucas_enabled=roteador_lucas_enabled,
     ).compile_graph()
 
 
@@ -3919,6 +4261,8 @@ def build(config: dict[str, Any] | None = None) -> StateGraph[HelenaState]:
 PROMPT_VERSIONS: dict[str, str] = {
     "system": SYSTEM_PROMPT_VERSION,
     "classify": CLASSIFY_PROMPT_VERSION,
+    # Onda (e) do numero unico: o classify usado SO' com `MAEZO_ROTEADOR_LUCAS` ligado.
+    "classify_roteador": CLASSIFY_PROMPT_VERSION_ROTEADOR,
     "response": RESPONSE_PROMPT_VERSION,
     "coleta": COLETA_PROMPT_VERSION,
     # A lista de recusa nao e' um prompt, mas e' um artefato VERSIONADO que decide o que chega ao

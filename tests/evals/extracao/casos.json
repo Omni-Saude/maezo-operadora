@@ -1,5 +1,5 @@
 {
-  "versao": "extracao-v3",
+  "versao": "extracao-v4",
   "casos": [
     {
       "id": "r2-cefaleia-comum-01",
@@ -2519,6 +2519,46 @@
       "regras": [
         "R5"
       ]
+    },
+    {
+      "id": "onda-e-boleto-segunda-via",
+      "mensagem": "bom dia, preciso da segunda via do boleto desse mes que ainda nao chegou",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Onda (e) do numero unico (ADR-0062): com o roteador ligado (`classify-v6`), boleto e segunda via sao COBRANCA e passam ao Lucas (subtipo `boleto_2via`, competencia nula porque o ano nao foi dito). Sem sintoma, sem pedido de pessoa. Com o roteador desligado este caso nao e' medido: o `classify-v5` nao conhece a intencao.",
+      "origem": "plano-lucas-numero-unico",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v6"
+    },
+    {
+      "id": "onda-e-cobranca-indevida",
+      "mensagem": "estao me cobrando uma mensalidade que eu ja paguei, isso ta errado",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Onda (e): contestacao de cobranca e' `cobranca` (subtipo `contestacao`, que o Lucas SEMPRE leva a um humano — J3). Nao e' `outside_channel` nem `human_request`: a pessoa nao pediu uma pessoa, contestou um valor.",
+      "origem": "plano-lucas-numero-unico",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v6"
     }
   ]
 }
