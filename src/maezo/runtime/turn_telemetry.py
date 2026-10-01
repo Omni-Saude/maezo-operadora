@@ -295,7 +295,9 @@ _MOTIVO_CATEGORIA_VOCAB: Final[dict[str, frozenset[str]]] = {
             "outro",
         }
     ),
-    "lucas": frozenset({"outro", "solicitacao_humano", "falha_tecnica"}),
+    # Onda (b) de `docs/plans/lucas-numero-unico.md`: a passagem de negocio do Lucas e' `cobranca`,
+    # nunca mais `outro` — que continua sendo so' o token de normalizacao deste modulo.
+    "lucas": frozenset({"cobranca", "solicitacao_humano", "falha_tecnica"}),
 }
 
 

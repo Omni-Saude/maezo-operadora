@@ -99,9 +99,13 @@ function TaskName({ taskKey }: { taskKey: string }) {
 
 type Escalation = NonNullable<StaffPage["items"][number]["escalation"]>;
 
-// Closed map, sourced from the motivo_categoria entries of
-// spec/processes/dmn/escalation_routing.dmn. Unknown codes are shown raw.
+// Closed map: the motivo_categoria entries named by
+// spec/processes/dmn/escalation_routing.dmn plus the contract motivos that fall
+// on its catch-all r7 without a rule of their own (cobranca, alerta_sla —
+// docs/processes/contracts/SP-OP-ESCALATION-001.md). Unknown codes are shown raw.
 export const reasonLabels: Readonly<Record<string, string>> = {
+  alerta_sla: "Alerta de prazo (SLA)",
+  cobranca: "Cobrança",
   falha_tecnica: "Falha técnica",
   intencao_clinica: "Intenção clínica",
   red_flag_clinico: "Sinal de alerta clínico",

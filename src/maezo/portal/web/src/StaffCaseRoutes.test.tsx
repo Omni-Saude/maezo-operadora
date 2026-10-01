@@ -16,6 +16,7 @@ import { reasonLabels, taskLabels } from "./StaffCaseWorkspace";
 import {
   escalatedStaffCaseDetail,
   escalatedStaffCasePage,
+  reasonCodesOnCatchAll,
   staffCaseDetail,
   staffCasePage,
   staffCaseRefs,
@@ -225,7 +226,25 @@ it("motivo fora do mapa da DMN aparece cru; mapa bate com a DMN", async () => {
   const [inputs] = dmn.split("<rule");
   expect(inputs).toContain("motivo_categoria");
   const codes = [...dmn.matchAll(/<rule[\s\S]*?<inputEntry[^>]*><text>"([^"]+)"<\/text>/g)].map((m) => m[1]);
-  expect(Object.keys(reasonLabels).sort()).toEqual([...new Set(codes)].sort());
+  // The catch-all motivos have no rule to name them, so they come from the
+  // fixture list — and each of them must really be absent from the DMN, or it
+  // would be counted twice and this map would hide a new routing rule.
+  for (const code of reasonCodesOnCatchAll) expect(codes).not.toContain(code);
+  expect(Object.keys(reasonLabels).sort()).toEqual([...new Set([...codes, ...reasonCodesOnCatchAll])].sort());
+});
+
+it.each([
+  ["cobranca", "Cobrança"],
+  ["alerta_sla", "Alerta de prazo (SLA)"],
+])("motivo %s do catch-all r7 aparece com rótulo, não cru", async (code, label) => {
+  const contract = readFileSync("../../../../docs/processes/contracts/SP-OP-ESCALATION-001.md", "utf8");
+  expect(contract).toContain(`\`${code}\``);
+  const bodies = escalatedStaffCasePage();
+  bodies.items[0].escalation = { ...bodies.items[0].escalation!, reason_code: code };
+  window.history.replaceState(null, "", "/portal/cases");
+  serve(casesList(() => json(bodies)));
+  render(<App />);
+  expect(await screen.findByText(label)).toBeInTheDocument();
 });
 
 it("engine antigo (sem escalation) esconde as colunas sem erro", async () => {

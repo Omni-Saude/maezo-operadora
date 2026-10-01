@@ -243,17 +243,17 @@ MotivoHumano = Literal[
 # exactly this case, `helena/graph.py:709`) but is DISCLOSED, OWNER-GATED UNREACHABLE from
 # Lucas today (LUC-04, Agent Fleet Audit): `Intencao` below has no "beneficiario pede um
 # humano" variant, so a beneficiary explicitly asking to talk to a person is misfiled as
-# ambiguidade->outro instead of the correct category. Wiring a real path needs a new
+# ambiguidade->cobranca instead of the correct category. Wiring a real path needs a new
 # `Intencao` value the `lucas_escalation_routing.dmn`/`lucas_billing_admissibility.dmn`
 # inputs would have to recognize — both are DRAFT tables, so this needs the SAME owner
 # ratification LUC-03 already names, not a Python-only fix (C3: no business rule invented
 # here). See `test_solicitacao_humano_is_disclosed_as_unreachable_pending_ratification`.
-MotivoCategoria = Literal["outro", "solicitacao_humano", "falha_tecnica"]
-
-# Full shared contract domain (kept for type-fidelity with `docs/processes/contracts/
-# SP-OP-ESCALATION-001.md`) — `grave` is intentionally unreachable from Lucas's own motivo mapping
-# (cobranca/contrato is never P1 clinical, mirrors the donor's own comment on this point).
-Severidade = Literal["grave", "moderada", "leve"]
+#
+# `cobranca` (onda (b) do plano `docs/plans/lucas-numero-unico.md`, 01/10/2026): toda passagem de
+# NEGOCIO do Lucas (inadimplencia, contestacao, cancelamento, ambiguidade) declara o que e' —
+# cobranca — em vez do `outro` que parecia decidido e ninguem decidiu (review-queue, ADJ-3). A DMN
+# `escalation_routing` NAO muda: `cobranca` cai no mesmo catch-all `r7` que o `outro` caia.
+MotivoCategoria = Literal["cobranca", "solicitacao_humano", "falha_tecnica"]
 
 
 class WhatsAppSender(Protocol):
@@ -382,7 +382,10 @@ class LucasState(TypedDict, total=False):
     route: Route
     motivo_humano: MotivoHumano
     motivo_categoria: MotivoCategoria
-    severidade: Severidade
+    #: Sempre `None` nas escritas reais: os dois motivos que o Lucas emite (`cobranca`,
+    #: `falha_tecnica`) sao isentos de `severidade` no contrato (`_severidade_humano`). O `""` do
+    #: reset de `receive` e' o "ainda nao resolvido" que o worker recusa fail-closed.
+    severidade: str | None
     grupo_humano: str
 
     # Filled by `respond_member` / `escalate_human` / `send_escalation_ack`.
@@ -643,16 +646,29 @@ def _motivo_categoria(motivo: MotivoHumano) -> MotivoCategoria:
     NEVER escalates by a clinical category — that is not his domain (L0 hard)."""
     if motivo in {"falha_tecnica", "dmn_indisponivel"}:
         return "falha_tecnica"
-    return "outro"
+    return "cobranca"
 
 
-def _severidade_humano(motivo: MotivoHumano) -> Severidade:
-    """Cobranca/contrato is never P1 clinical (`grave` is unreachable) — technical failures are
-    `leve` (mirrors Helena's falha_tecnica -> leve convention); every business-handoff reason is
-    `moderada` (mirrors the donor's own fixed choice, documented as deliberate there)."""
-    if motivo in {"falha_tecnica", "dmn_indisponivel"}:
-        return "leve"
-    return "moderada"
+def _severidade_humano(motivo: MotivoHumano) -> str | None:
+    """`severidade` do escalonamento do Lucas: AUSENTE (`None`) nos dois motivos que ele emite.
+
+    `severidade` e' uma escala CLINICA (`grave`/`moderada`/`leve`) e nenhum caminho do Lucas
+    apura uma: cobranca nunca e' clinica, e na falha tecnica nao houve extracao de onde derivar.
+    Ate a onda (b) o Lucas gravava `moderada` em toda passagem de negocio e `leve` na falha — dois
+    rotulos com cara de decididos que ninguem decidiu. O contrato SP-OP-ESCALATION-001 declara a
+    ausencia para `falha_tecnica`, `cobranca` e `alerta_sla`, e o worker
+    (`escalation.py::_MOTIVO_SEM_SEVERIDADE`) aceita `null` SO' nesses tres. Roteamento intocado:
+    a `r6` (falha) e a `r7` (catch-all, onde cai `cobranca`) casam `severidade` no coringa `-`.
+    O parametro e o tipo `str | None` (o da variavel de contrato) ficam para a assinatura continuar
+    dizendo DE QUE motivo isto e' derivado e o que a fronteira aceita."""
+    del motivo
+    return None
+
+
+#: Rotulo de exibicao do `resumo_contexto` de fallback quando nenhum `motivo_humano` foi resolvido
+#: (so' o dossie vazio chega aqui). Token proprio, nunca um membro do dominio de `motivo_categoria`:
+#: o texto e' lido por uma pessoa e nao pode sugerir uma classificacao que nao houve.
+_MOTIVO_HUMANO_NAO_RESOLVIDO: Final[str] = "nao_resolvido"
 
 
 # --- Graph -----------------------------------------------------------------------------------
@@ -994,7 +1010,7 @@ class LucasGraph:
             defaults = {
                 "motivo_humano": "falha_tecnica",
                 "motivo_categoria": "falha_tecnica",
-                "severidade": "leve",
+                "severidade": _severidade_humano("falha_tecnica"),
                 "grupo_humano": "atendimento-humano",
             }
             state = cast(LucasState, {**state, **defaults})
@@ -1183,20 +1199,20 @@ class LucasGraph:
         `rafael_route` additive style) — never a decision, only an instruction for the human."""
         dossier = state.get("dossier") or {}
         resumo = str(dossier.get("narrativa", "")) or (
-            f"Encaminhamento automatico ({state.get('motivo_humano') or 'outro'})."
+            f"Encaminhamento automatico ({state.get('motivo_humano') or _MOTIVO_HUMANO_NAO_RESOLVIDO})."
         )
         # LUCAS-MOTIVO-SEVERIDADE-DEFAULTS: NO `or`-fallback on `motivo_categoria`/`severidade`
         # — both are Literal-typed contract fields (`:221,:226` domains), and inventing a
-        # well-formed-looking class token (`"outro"`/`"moderada"`) for a value this graph never
+        # well-formed-looking class token (a generic category or a mid severity) for a value this graph never
         # actually determined is the SAME class of bug GAP-ESC-SEVERITY-GROUP fixed one layer
         # down, in the worker (`escalation.py::_exigir_severidade`/`_rotulo_opcional_validado`):
         # a fabricated label reads as authoritative and is indistinguishable from a real one.
         # After `receive`'s R1 cycle-1 F2 reset these keys are PRESENT but `""` until `assess`/
         # `escalate_human`/`_escalate_min` write a real value (every real path does); an
         # UNRESOLVED `""` now rides through verbatim — `severidade` (contract-mandatory) refuses
-        # fail-closed at the ALREADY-fixed worker boundary (never silently `moderada`), and
+        # fail-closed at the ALREADY-fixed worker boundary (never silently a domain value), and
         # `motivo_categoria` (optional, ESC-D1-MOTIVO-STRICTER-THAN-R7) is simply treated as
-        # absent there — never silently `outro`. Every other field below keeps its plain
+        # absent there — never silently a catch-all category. Every other field below keeps its plain
         # `.get(k, "")`: those are free-text/administrative, not closed-domain contract tokens.
         variables: dict[str, Any] = {
             "tenant_id": state.get("tenant_id", ""),
@@ -1354,7 +1370,8 @@ class LucasGraph:
             "grupo_humano": state.get("grupo_humano"),
             "fatos": facts,
             "dmn_decision_refs": state.get("dmn_refs", {}),
-            "narrativa": narrativa or f"Encaminhamento automatico ({state.get('motivo_humano', 'outro')}).",
+            "narrativa": narrativa
+            or f"Encaminhamento automatico ({state.get('motivo_humano') or _MOTIVO_HUMANO_NAO_RESOLVIDO}).",
             # STRUCTURAL GUARDRAIL (L0 hard): the dossier NEVER carries the adverse decision.
             "decisao_cancelamento": None,  # rescindir/manter/suspender — always human (CANCEL-001)
         }

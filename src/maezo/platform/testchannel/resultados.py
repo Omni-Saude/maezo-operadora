@@ -96,6 +96,8 @@ MOTIVOS = {
     "intencao_clinica": "pedido de orientação clínica",
     "solicitacao_humano": "pediu falar com uma pessoa",
     "falha_tecnica": "falha técnica",
+    "cobranca": "cobrança",
+    "alerta_sla": "alerta de prazo (SLA)",
     "outro": "outro",
 }
 RESULTADOS = {

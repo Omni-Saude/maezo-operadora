@@ -110,6 +110,21 @@ it("um fato ausente aparece como ausente, nunca como um valor inventado", async 
   expect(screen.queryByText(/^P\d/)).not.toBeInTheDocument();
 });
 
+it.each([
+  ["cobranca", "Cobrança (atendimento financeiro)"],
+  ["alerta_sla", "Alerta de prazo (SLA) do caso"],
+])("motivo %s chega com severidade nula: rótulo próprio e severidade não informada", async (motivo, rotulo) => {
+  vi.mocked(fetch).mockResolvedValueOnce(
+    json(context({ motivo_categoria: motivo, severidade: null, prioridade: "P2", grupo_atendimento: "atendimento-humano" })),
+  );
+  render(panel());
+
+  expect(await screen.findByText(rotulo)).toBeInTheDocument();
+  expect(screen.queryByText(motivo)).not.toBeInTheDocument();
+  expect(screen.getByText("Não informada")).toBeInTheDocument();
+  expect(screen.queryByText("Moderada")).not.toBeInTheDocument();
+});
+
 it("um código sem rótulo aparece como ele mesmo, e não some", async () => {
   vi.mocked(fetch).mockResolvedValueOnce(
     json(context({ motivo_categoria: "motivo_novo", severidade: "critica", grupo_atendimento: "grupo-novo" })),

@@ -356,7 +356,8 @@ async def test_j2_non_conciliated_with_ciclos_escalates_inadimplencia_detectada(
 
     assert result["route"] == "escalate_human"
     assert result["motivo_humano"] == "inadimplencia_detectada"
-    assert result["motivo_categoria"] == "outro"
+    assert result["motivo_categoria"] == "cobranca"
+    assert result["severidade"] is None
 
 
 async def test_j2_status_unresolved_by_worker_never_assumed_inadimplente() -> None:
@@ -569,7 +570,9 @@ async def test_escalate_is_idempotent_on_active_instance() -> None:
     graph = _graph(cibseven=cibseven)
 
     result = await graph.start_process(
-        _base_state(route="escalate_human", motivo_humano="inadimplencia_detectada", motivo_categoria="outro")
+        _base_state(
+            route="escalate_human", motivo_humano="inadimplencia_detectada", motivo_categoria="cobranca"
+        )
     )
 
     assert result["process_ref"]["instance_id"] == "existing-1"
@@ -622,7 +625,7 @@ def test_motivo_categoria_never_clinical() -> None:
     the clinical categories from the shared SP-OP-ESCALATION-001 domain
     (`red_flag_clinico`/`risco_psicossocial`/`intencao_clinica`)."""
     allowed = set(MotivoCategoria.__args__)  # type: ignore[attr-defined]
-    assert allowed == {"outro", "solicitacao_humano", "falha_tecnica"}
+    assert allowed == {"cobranca", "solicitacao_humano", "falha_tecnica"}
     assert allowed.isdisjoint({"red_flag_clinico", "risco_psicossocial", "intencao_clinica"})
 
 
@@ -913,7 +916,7 @@ async def test_dossier_narrativa_identifiers_never_reach_the_engine_variables() 
         _base_state(
             route="escalate_human",
             motivo_humano="inadimplencia_detectada",
-            motivo_categoria="outro",
+            motivo_categoria="cobranca",
             dossier={
                 "prompt_version": "dossier@v1",
                 "tipo": "dossie_escalacao",
@@ -1135,3 +1138,157 @@ def test_o_desfecho_de_envio_suprimido_esta_no_vocabulario_de_telemetria() -> No
     from maezo.runtime import turn_telemetry
 
     assert DESFECHO_ENVIO_SUPRIMIDO_DUPLICATA in turn_telemetry._DESFECHO_VOCAB["lucas"]
+
+
+# ---------------------------------------------------------------------------
+# Onda (b) de `docs/plans/lucas-numero-unico.md` (01/10/2026): fim do "outro / moderada" em silencio
+#
+# Toda passagem de negocio do Lucas era gravada como `motivo_categoria="outro"` +
+# `severidade="moderada"`, e a falha tecnica como `severidade="leve"`: rotulos que parecem
+# decididos e que ninguem decidiu. Agora a passagem de negocio e' `cobranca`, e a severidade
+# (escala CLINICA, que nenhum caminho do Lucas apura) viaja AUSENTE nos dois motivos que ele emite.
+# ---------------------------------------------------------------------------
+
+_MOTIVOS_TECNICOS: frozenset[str] = frozenset({"falha_tecnica", "dmn_indisponivel"})
+
+
+@pytest.mark.parametrize("motivo", get_args(MotivoHumano))
+def test_toda_passagem_de_negocio_e_cobranca_e_nenhuma_tem_severidade(motivo: str) -> None:
+    """Tabela inteira de `MotivoHumano`: negocio -> `cobranca`, tecnico -> `falha_tecnica`, e
+    `severidade` `None` nos dois. Nenhum motivo cai no generico `outro`."""
+    from maezo.agents.lucas.graph import _severidade_humano
+
+    esperado = "falha_tecnica" if motivo in _MOTIVOS_TECNICOS else "cobranca"
+    assert _motivo_categoria(motivo) == esperado  # type: ignore[arg-type]
+    assert _severidade_humano(motivo) is None  # type: ignore[arg-type]
+
+
+def test_os_motivos_que_o_lucas_emite_sao_os_isentos_de_severidade_no_worker() -> None:
+    """A ausencia so' e' honesta se a fronteira do worker a aceita: todo `motivo_categoria` que o
+    Lucas de fato produz esta' em `_MOTIVO_SEM_SEVERIDADE` (senao a escalacao morreria no
+    `notify_team` com `ERR_ESC_NOTIFY_FAILED`)."""
+    from maezo.tools.workers.escalation import _MOTIVO_SEM_SEVERIDADE
+
+    emitidos = {_motivo_categoria(motivo) for motivo in get_args(MotivoHumano)}
+    assert emitidos == {"cobranca", "falha_tecnica"}
+    assert emitidos <= _MOTIVO_SEM_SEVERIDADE
+
+
+async def test_inadimplencia_chega_ao_start_como_cobranca_com_severidade_nula() -> None:
+    """Fim a fim no grafo: `assess` (J2 sem conciliacao) -> `start_process`. O que vai ao motor e'
+    `cobranca` + `None` — nunca o `outro`/`moderada` de antes, nunca `""`."""
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso"}])
+    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    graph = _graph(dmn=dmn, cibseven=cibseven)
+    state = _base_state(
+        intencao="confirmacao_pagamento",
+        tipo_solicitacao="status_pagamento",
+        status_conciliado=False,
+        ciclos_sem_conciliacao=2,
+    )
+
+    assessed = await graph.assess(state)
+    result = await graph.start_process({**state, **assessed})  # type: ignore[typeddict-item]
+
+    assert result["process_started"] is True
+    assert recording[0]["motivo_categoria"] == "cobranca"
+    assert "severidade" in recording[0]
+    assert recording[0]["severidade"] is None
+
+
+async def test_falha_tecnica_do_lucas_chega_ao_start_sem_o_leve_inventado() -> None:
+    """Os tres caminhos de falha (contexto ausente em `receive`, DMN indisponivel em `assess`,
+    chegada anomala em `escalate_human`) gravam `falha_tecnica` + `None` — o `leve` sumiu."""
+    graph = _graph()
+    sem_contexto = await graph.receive({"intencao": "cobranca_info"})
+    assert sem_contexto["motivo_categoria"] == "falha_tecnica"
+    assert sem_contexto["severidade"] is None
+
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_escalation_routing", [{"roteamento": "ATENDIMENTO_HUMANO"}])
+    dmn_fora = await _graph(dmn=dmn).assess(_base_state())
+    assert dmn_fora["motivo_categoria"] == "falha_tecnica"
+    assert dmn_fora["severidade"] is None
+
+    anomalo = await graph.escalate_human(_base_state())
+    assert anomalo["motivo_categoria"] == "falha_tecnica"
+    assert "severidade" in anomalo
+    assert anomalo["severidade"] is None
+
+
+async def test_o_start_do_lucas_passa_pelo_worker_com_severidade_nula() -> None:
+    """Prova entre camadas: as variaveis que o Lucas manda ao motor, mais as quatro saidas que a
+    `r7` da DMN viva da' para `cobranca`, sao aceitas pelo `notify_team` REAL — a notificacao sai
+    com `null`, para `atendimento-humano`, P2."""
+    from maezo.tools.workers.escalation import make_notify_team_handler
+    from maezo.tools.workers.harness import ExternalTask, FakeKafkaPublisher
+    from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
+
+    dmn = FakeDmnTransport()
+    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso"}])
+    dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
+    cibseven = FakeCibSevenTransport()
+    recording = _record_start(cibseven)
+    graph = _graph(dmn=dmn, cibseven=cibseven)
+    state = _base_state(intencao="inadimplencia", tipo_solicitacao="boleto")
+    await graph.start_process({**state, **(await graph.assess(state))})  # type: ignore[typeddict-item]
+    variaveis = recording[0]
+
+    veredito = evaluate(
+        read_live_table(DMN_DIR / "escalation_routing.dmn"),
+        {"motivo_categoria": variaveis["motivo_categoria"], "severidade": variaveis["severidade"]},
+    )
+    assert veredito.regra == "r7"
+    kafka = FakeKafkaPublisher()
+    task = ExternalTask(
+        task_id="t-1",
+        topic="operadora.escalation.notify_team",
+        process_instance_id="p-1",
+        business_key="ESC-amh-wa:amh:deadbeef",
+        worker_id="w-1",
+        variables={**variaveis, **veredito.saidas},
+    )
+    result = await make_notify_team_handler(kafka)(task)
+
+    assert result["status"] == "teams_notified"
+    assert result["severidade"] is None
+    assert result["motivo_categoria"] == "cobranca"
+    assert result["grupo_atendimento"] == "atendimento-humano"
+    assert result["prioridade"] == "P2"
+
+
+@pytest.mark.parametrize(
+    "modulo",
+    ["src/maezo/agents/lucas/graph.py", "src/maezo/platform/notification_bridge.py"],
+)
+def test_varredura_nenhum_literal_outro_ou_moderada(modulo: str) -> None:
+    """Varredura: nenhuma CONSTANTE de string igual a `"outro"` ou `"moderada"` (valor, `Literal[...]`,
+    default de `.get`, pedaco de f-string) sobrevive no grafo do Lucas nem no bridge — sao os dois
+    rotulos que a onda (b) tirou de circulacao. Comentario e docstring podem CITAR as palavras (a
+    historia fica contada); o que nao pode e' um token igual a elas virar dado."""
+    import ast
+
+    repo = Path(__file__).resolve().parents[3]
+    arvore = ast.parse((repo / modulo).read_bytes().decode("utf-8"))
+    achados = [
+        (no.lineno, no.value)
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.Constant) and no.value in {"outro", "moderada"}
+    ]
+    assert achados == [], f"{modulo}: literais proibidos {achados}"
+    # Nao-vacuidade: a varredura enxerga constantes de verdade neste modulo.
+    assert any(isinstance(no, ast.Constant) and isinstance(no.value, str) for no in ast.walk(arvore))
+
+
+def test_alerta_sla_do_bridge_e_alerta_sla_sem_severidade() -> None:
+    """O par do bridge: `alerta_sla` + `None`, e os dois estao na excecao do worker."""
+    from maezo.platform.notification_bridge import SLA_ALERT_MOTIVO_CATEGORIA, SLA_ALERT_SEVERIDADE
+    from maezo.tools.workers.escalation import _MOTIVO_SEM_SEVERIDADE, _MOTIVOS_CONTRATUAIS
+
+    assert SLA_ALERT_MOTIVO_CATEGORIA == "alerta_sla"
+    assert SLA_ALERT_SEVERIDADE is None
+    assert SLA_ALERT_MOTIVO_CATEGORIA in _MOTIVOS_CONTRATUAIS
+    assert SLA_ALERT_MOTIVO_CATEGORIA in _MOTIVO_SEM_SEVERIDADE

@@ -40,6 +40,12 @@ export function staffCasePage(
 
 type Escalation = NonNullable<StaffPage["items"][number]["escalation"]>;
 
+// Contract motivos (SP-OP-ESCALATION-001, `motivo_categoria`) that NO rule of
+// escalation_routing.dmn names: they fall on the catch-all r7 (P2,
+// atendimento-humano), exactly like `outro`, but the portal still owes them a
+// label — a token without one would show up raw on the operator's screen.
+export const reasonCodesOnCatchAll = ["alerta_sla", "cobranca"] as const;
+
 // D-M escalation per staffCaseRefs position: P2 due in 3 h, P1 overdue by
 // 20 min, and one the engine could not resolve (fields null, guide kept).
 export function staffEscalations(now = Date.now(), full = false): Escalation[] {
