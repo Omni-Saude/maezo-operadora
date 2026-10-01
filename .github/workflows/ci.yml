@@ -1215,6 +1215,16 @@ jobs:
         # Ver scripts/ci/check_portal_direct_completion.py.
         run: uv run python scripts/ci/check_portal_direct_completion.py
 
+      - name: Cerca do roteador Helena -> Lucas so' em dev (ADR-0062)
+        # MAEZO_ROTEADOR_LUCAS liga o roteamento por conversa do numero unico: a conversa pode
+        # sair da Helena para o Lucas, que atende cobranca com fatos SIMULADOS. A cerca reprova
+        # (1) o roteador ligado ou a fonte de cobranca presente fora de dev-sa-east-1, (2) valor
+        # por segredo ou nao resolvivel, (3) declaracao fora do Terraform analisado, (4) default
+        # do settings diferente de False literal e (5) construcao de ConversaRouter/LucasTurno
+        # fora de um `if settings.roteador_lucas_enabled`.
+        # Ver scripts/ci/check_roteador_lucas.py.
+        run: uv run python scripts/ci/check_roteador_lucas.py
+
       - name: Cerca do engine-rest aberto so' em dev (decisao N5 — T1.9)
         # O engine de dev expoe o engine-rest sem autenticacao na 8080 (divida D7), e o plano de
         # autoridade nativa mantem isso na Onda 4. O dono aceitou SO' em dev (N5, 23/09/2026).

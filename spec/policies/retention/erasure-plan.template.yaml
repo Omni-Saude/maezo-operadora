@@ -614,3 +614,18 @@ camadas:
     decisao_dpo: PENDENTE
     base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
     retencao: PENDENTE-RETENCAO-DPO-JURIDICO
+
+  - camada: roteamento_conversa
+    tabela: conversa_agente_ativo
+    migracao: "0017_conversa_agente_ativo.py::upgrade (conversa_agente_ativo; ultimo_turno_em index)"
+    identificacao: "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row holds only which agent is active in the conversation (enum), the transition reason (enum), a closed billing subtype and a `YYYY-MM` competence (ADR-0062) - no phone, no text. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and cannot reach `conversation_id`, so the bridge is absent"
+    resolucao_identidade: PONTE_AUSENTE
+    ordem: 28
+    tensao: null
+    notas: >-
+      ADR-0062 (Proposto), numero unico Helena -> Lucas. Uma linha por conversa, gravada por CAS;
+      o roteador apaga ate' 100 linhas com ultimo_turno_em de mais de 30 dias no maximo uma vez a
+      cada 10 minutos por processo. Esse prazo e' PROPOSTA de engenharia — pertence ao DPO.
+    decisao_dpo: PENDENTE
+    base_legal: PENDENTE-BASE-LEGAL-DPO-JURIDICO
+    retencao: PENDENTE-RETENCAO-DPO-JURIDICO

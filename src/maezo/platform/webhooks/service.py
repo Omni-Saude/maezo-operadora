@@ -196,6 +196,31 @@ def _build_dispatcher(
             wrapper=AwsKmsKeyWrapper(key_arn=settings.recipient_vault_kms_key_arn),
             ttl_days=settings.recipient_vault_ttl_days,
         )
+    # NUMERO UNICO (ADR-0062, plano `lucas-numero-unico.md` §4). O roteador SO' e' construido com
+    # `MAEZO_ROTEADOR_LUCAS` ligado: desligado, `roteador` fica `None` e o despachante segue o
+    # caminho de hoje. `scripts/ci/check_roteador_lucas.py` (item 5) reprova construir
+    # `ConversaRouter` fora de um `if settings.roteador_lucas_enabled`. Um lexico invalido recusa
+    # aqui, no boot, como qualquer politica do repo (`pre_roteamento.carregar` e' fail-closed).
+    roteador = None
+    if settings.roteador_lucas_enabled:
+        from datetime import timedelta
+
+        from maezo.platform.webhooks.whatsapp import pre_roteamento
+        from maezo.platform.webhooks.whatsapp.roteamento import ConversaRouter, PostgresAgenteAtivoStore
+
+        roteador = ConversaRouter(
+            tenant_id=settings.tenant_id,
+            store=PostgresAgenteAtivoStore(dsn=settings.database_url, tenant=settings.tenant_id),
+            lexicos=pre_roteamento.carregar(),
+            inatividade=timedelta(minutes=settings.lucas_inatividade_minutos),
+        )
+        logger.warning(
+            "roteador_lucas_ligado_em_sombra",
+            tenant_id=settings.tenant_id,
+            lexicos=roteador.versao_lexicos,
+            inatividade_minutos=settings.lucas_inatividade_minutos,
+            fonte_cobranca=settings.lucas_fonte_cobranca,
+        )
     dispatcher = HelenaDispatcher(
         tenant_id=settings.tenant_id,
         inference=seams["inference"],
@@ -230,6 +255,7 @@ def _build_dispatcher(
         # for the three rejected alternatives and their counterexamples.
         seam_context=seam_context,
         recipient_vault=recipient_vault,
+        roteador=roteador,
     )
     cibseven = seams["cibseven"]
     return dispatcher, cibseven
