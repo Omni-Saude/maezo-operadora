@@ -22,7 +22,7 @@
     "Um atendente humano vai continuar seu atendimento em breve."
   ],
   "dmn_fixture": {
-    "lucas_billing_admissibility": {"roteamento": "ESCALAR_HUMANO", "motivo": "atraso"},
+    "lucas_billing_admissibility": {"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"},
     "lucas_escalation_routing": {"roteamento": "COBRANCA_HUMANO"}
   },
   "expect": {
