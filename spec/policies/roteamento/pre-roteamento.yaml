@@ -1,0 +1,64 @@
+# =============================================================================
+# DRAFT — lexicos do PRE-ROTEAMENTO do numero unico (ADR-0062, plano
+# docs/plans/lucas-numero-unico.md §2.3). NAO RATIFICADO.
+# =============================================================================
+#
+# O que e': os dois lexicos DETERMINISTICOS que o receptor consulta em toda
+# mensagem, antes de qualquer LLM (`platform/webhooks/whatsapp/pre_roteamento.py`).
+#
+# A regra estrutural (§2.3): esta camada so' consegue PUXAR para a Helena ou
+# para um humano, nunca para o Lucas. Um falso positivo aqui leva a uma pessoa
+# (pedido de humano) ou bloqueia o handoff de cobranca (sinal de saude) — os
+# dois erros vao para o lado seguro.
+#
+# * `pedido_humano_lexico` (P5): a pessoa pediu para falar com alguem.
+# * `sinal_saude_lexico` (P2): termo FORTE de saude ou risco. Ele NAO decide
+#   triagem nenhuma (quem decide e' a DMN da Helena); so' impede que a conversa
+#   va para o Lucas.
+#
+# Normalizacao (aplicada ao texto e conferida em cada termo no carregamento):
+# sem acento (NFKD), caixa baixa (casefold), pontuacao vira espaco, espacos
+# colapsados. O termo casa como palavra(s) INTEIRA(S): "humano" nao casa
+# "desumano". Um termo escrito fora da forma normalizada e' recusado no boot.
+#
+# Na onda (c) o roteador roda em SOMBRA: os sinais so' aparecem em log
+# (booleanos, nunca o termo nem o texto). Mudar uma lista e' mudar `versao`.
+# =============================================================================
+
+status: DRAFT
+versao: pre-roteamento-v1
+
+pedido_humano_lexico:
+  - atendente
+  - atendimento humano
+  - humano
+  - falar com uma pessoa
+  - falar com alguem
+  - falar com um humano
+  - falar com gente
+  - pessoa de verdade
+  - pessoa real
+  - operador
+
+sinal_saude_lexico:
+  - dor no peito
+  - falta de ar
+  - nao consigo respirar
+  - me matar
+  - quero morrer
+  - suicidio
+  - suicidar
+  - tirar minha vida
+  - tirar a minha vida
+  - acabar com a minha vida
+  - nao aguento mais viver
+  - desmaiei
+  - desmaio
+  - convulsao
+  - convulsionando
+  - sangramento
+  - infarto
+  - avc
+  - derrame
+  - overdose
+  - envenenamento

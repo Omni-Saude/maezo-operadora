@@ -636,6 +636,23 @@ PERSISTENCE_LAYERS: Final[tuple[PersistenceLayer, ...]] = (
         # `portal_memberships`), so a count would be a fabricated zero.
         count_statement=None,
     ),
+    PersistenceLayer(
+        camada="roteamento_conversa",
+        tabela="conversa_agente_ativo",
+        migracao="0017_conversa_agente_ativo.py::upgrade (conversa_agente_ativo; ultimo_turno_em index)",
+        identificacao=(
+            "tenant + conversation_id (`wa:{tenant}:hk1_{hmac}`, keyed pseudonym of the phone); the row "
+            "holds only which agent is active in the conversation (enum), the transition reason "
+            "(enum), a closed billing subtype and a `YYYY-MM` competence (ADR-0062) - no phone, no "
+            "text. The DSR reference (`beneficiario_pseudo_id`) is a second keyed derivation and "
+            "cannot reach `conversation_id`, so the bridge is absent"
+        ),
+        resolucao=IdentityResolution.PONTE_AUSENTE,
+        ordem=28,
+        subject_column="conversation_id",
+        # No probe, same reason as `beneficiario_contato_retomada`: a count would be a fabricated zero.
+        count_statement=None,
+    ),
 )
 
 KNOWN_TABLES: Final[frozenset[str]] = frozenset(layer.tabela for layer in PERSISTENCE_LAYERS)

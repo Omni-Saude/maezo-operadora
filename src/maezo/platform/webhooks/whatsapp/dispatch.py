@@ -88,7 +88,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
@@ -115,6 +115,10 @@ from maezo.tools.workers.dmn_transport import DmnTransport
 from .dedup import WhatsAppDedupGuard
 from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
+
+if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
+    from .pre_roteamento import SinaisLexicos
+    from .roteamento import ConversaRouter
 
 logger = structlog.get_logger(__name__)
 
@@ -338,6 +342,11 @@ class HelenaDispatcher:
     #: comportamento anterior). Com custodia, toda mensagem recebida (texto ou nao) atualiza o
     #: numero CIFRADO e o `last_inbound_at` da conversa — o relogio da janela de 24h da Meta.
     recipient_vault: RecipientSealer | None = None
+    #: NUMERO UNICO (ADR-0062). `None` (o default, e o que `service.py` passa com o interruptor
+    #: do roteador desligado) = o caminho de hoje, sem nenhuma chamada a mais. Nesta onda o
+    #: roteador roda em SOMBRA: le' os lexicos antes do turno e grava o agente ativo depois dele,
+    #: sem mudar a resposta.
+    roteador: ConversaRouter | None = None
 
     async def _custodiar_destinatario(self, raw_from: str, conversation_id: str) -> None:
         """Grava o numero cifrado. NAO derruba o turno: a pessoa que escreveu recebe a resposta
@@ -686,6 +695,7 @@ class HelenaDispatcher:
             beneficiario_pseudo_id=beneficiario_pseudo_id,
             message_body=message.text,
         )
+        sinais = self._pre_rotear(message.text, conversation_id) if self.roteador is not None else None
         logger.info(
             "helena_dispatch_turn_started",
             tenant_id=self.tenant_id,
@@ -726,4 +736,59 @@ class HelenaDispatcher:
             escalation_business_key=result.get("escalation_business_key"),
             error=result.get("error"),
         )
+        if self.roteador is not None:
+            await self._registrar_roteamento_em_sombra(conversation_id, sinais, result)
         return dict(result)
+
+    def _pre_rotear(self, texto: str, conversation_id: str) -> SinaisLexicos | None:
+        """Os lexicos de §2.3, antes de qualquer LLM. Em sombra so' vao para o log, e so' como
+        booleanos e contagens — nunca o termo casado nem o texto. Uma falha aqui nao derruba o
+        turno da Helena: o pior caso e' a linha gravada sem os sinais lexicos."""
+        assert self.roteador is not None
+        try:
+            sinais = self.roteador.pre_rotear(texto)
+        except Exception as exc:
+            logger.error(
+                "roteador_pre_roteamento_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
+            return None
+        logger.info(
+            "roteador_sinais_lexicos",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            pedido_humano=sinais.pedido_humano,
+            sinal_saude=sinais.sinal_saude,
+            termos_pedido_humano=sinais.termos_pedido_humano,
+            termos_sinal_saude=sinais.termos_sinal_saude,
+            lexicos=sinais.versao,
+        )
+        return sinais
+
+    async def _registrar_roteamento_em_sombra(
+        self, conversation_id: str, sinais: SinaisLexicos | None, result: Any
+    ) -> None:
+        """Uma escrita por mensagem, DEPOIS do turno (§2.2). Em sombra a resposta ja' saiu e nao
+        muda; uma falha do roteador vira ERRO no log e nunca derruba o turno que ja' respondeu."""
+        assert self.roteador is not None
+        try:
+            decisao = await self.roteador.registrar_turno(
+                conversation_id=conversation_id, sinais=sinais, resultado_helena=result
+            )
+        except Exception as exc:
+            logger.error(
+                "roteador_registro_falhou",
+                tenant_id=self.tenant_id,
+                conversation_id=conversation_id,
+                error_type=type(exc).__name__,
+            )
+            return
+        logger.info(
+            "roteador_sombra_decidiu",
+            tenant_id=self.tenant_id,
+            conversation_id=conversation_id,
+            agente=decisao.agente_ativo,
+            transicao=decisao.transicao_motivo,
+        )

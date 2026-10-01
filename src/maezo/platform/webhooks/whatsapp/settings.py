@@ -11,7 +11,7 @@ outside T1.6's scope; local dev sets these via `docker-compose.yml` env directly
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -257,6 +257,32 @@ class WhatsAppWebhookSettings(BaseSettings):
     devolve_turno: bool = Field(
         default=False,
         validation_alias=AliasChoices("WHATSAPP_WEBHOOK_DEVOLVE_TURNO", "devolve_turno"),
+    )
+
+    # NUMERO UNICO: ROTEADOR HELENA -> LUCAS (ADR-0062, plano `docs/plans/lucas-numero-unico.md`
+    # §4). DESLIGADO por padrao, e o default e' o LITERAL `False` de proposito:
+    # `scripts/ci/check_roteador_lucas.py` (item 4) reprova qualquer outra forma, porque um default
+    # ligado abriria o roteador em todo ambiente que nao o declara — o oposto do que a cerca de
+    # `deploy/**` consegue ver. Desligado, o roteador NEM E' CONSTRUIDO (`service.py`) e o
+    # despachante segue byte a byte o caminho de hoje. Ligado nesta onda, ele roda em SOMBRA: grava
+    # o agente ativo (`helena`) e o motivo, loga os sinais lexicos e nao muda resposta nenhuma.
+    roteador_lucas_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("MAEZO_ROTEADOR_LUCAS", "roteador_lucas_enabled"),
+    )
+    # Janela de inatividade da conversa com o Lucas (§2.2): depois dela, um "oi" volta para a
+    # Helena. `expira_em = ultimo_turno_em + janela`. A faixa recusa no boot o que nao faz sentido.
+    lucas_inatividade_minutos: int = Field(
+        default=60,
+        ge=5,
+        le=1440,
+        validation_alias=AliasChoices("MAEZO_LUCAS_INATIVIDADE_MINUTOS", "lucas_inatividade_minutos"),
+    )
+    # Fonte dos fatos de cobranca do Lucas. So' existe a simulada; a cerca reprova a variavel
+    # presente fora de `dev-sa-east-1`, e a fonte real (CNAB) entra com o seu proprio valor.
+    lucas_fonte_cobranca: Literal["simulada"] = Field(
+        default="simulada",
+        validation_alias=AliasChoices("MAEZO_LUCAS_FONTE_COBRANCA", "lucas_fonte_cobranca"),
     )
 
     @model_validator(mode="before")
