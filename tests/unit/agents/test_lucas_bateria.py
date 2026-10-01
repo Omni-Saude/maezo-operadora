@@ -78,17 +78,16 @@ async def test_cada_caso_roda_no_grafo_real_sem_excecao(caso: dict[str, Any]) ->
     assert "erro_da_execucao" not in resultado, resultado.get("erro_da_execucao")
 
 
-#: ACHADO ABERTO (bateria do Lucas, 01/10/2026): quando a tabela `lucas_billing_admissibility` cai no
-#: catch-all "ambiguidade de cobranca" (L07, L09, L18), o grafo mapeia QUALQUER `ESCALAR_HUMANO` para
-#: `motivo_humano="inadimplencia_detectada"` — o humano recebe um caso rotulado como inadimplencia
-#: sem haver indicio de atraso. A tabela nao expoe um token que distinga as duas regras, entao a
-#: correcao e' uma mudanca de DMN (sign-off do financeiro/PO), nao deste PR. Este teste FIXA o achado:
-#: quando for corrigido, ele cai e deve ser atualizado junto com os casos.
-_ACHADOS_ABERTOS = {"L07", "L09", "L18"}
+#: ACHADO DE 01/10/2026 (bateria do Lucas), AGORA FECHADO: o catch-all de "ambiguidade" (L07, L09, L18)
+#: era rotulado `inadimplencia_detectada` e o beneficiario lia "inadimplencia detectada" sem haver
+#: indicio de atraso. A `lucas_billing_admissibility` passou a devolver `categoria` (atraso vs
+#: ambiguidade) e o grafo a usa. Este conjunto ficou vazio de proposito: um caso novo que divirja
+#: derruba o teste, em vez de ser engolido por uma lista de excecoes.
+_ACHADOS_ABERTOS: set[str] = set()
 
 
 async def test_veredito_offline_contra_as_tabelas_vivas() -> None:
-    """Todo caso fecha OK, exceto os achados abertos acima — que DEVEM divergir, e so' neles."""
+    """Todo caso fecha OK contra as tabelas vivas (nenhum achado aberto)."""
     divergentes: set[str] = set()
     for indice, caso in enumerate(CASOS):
         grafo, gravador = _grafo()

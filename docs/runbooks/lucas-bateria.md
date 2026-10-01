@@ -37,9 +37,12 @@ logs `/ecs/<name>/agent-helena`, uma linha `CASE {...}` por caso.
 ## Depois
 Encerrar as tarefas humanas abertas pelos casos que escalam (chaves `ESC-amh-wa:amh:lucas-bat-*`).
 
-## Achados abertos (medidos offline contra as DMN vivas)
-- **L07, L09, L18:** quando `lucas_billing_admissibility` cai no catch-all "ambiguidade", o grafo
-  rotula o caso como `inadimplencia_detectada`. Corrigir exige a tabela expor um token que distinga
-  as regras (sign-off do financeiro/PO).
-- Com `ciclos_sem_conciliacao` ilegivel o grafo levantava excecao e o turno morria sem escalar
-  (L24). Corrigido neste PR: escala por `ambiguidade`.
+## Achados (bateria de 01/10/2026)
+- **Fechado (DL-0055):** L07, L09 e L18 — o catch-all de ambiguidade era rotulado `inadimplencia_detectada`
+  e o texto ao beneficiario dizia "inadimplencia detectada" sem indicio de atraso. A DMN agora devolve
+  `categoria`. **Depende de reimplantar a tabela no motor**: com a tabela antiga o grafo rotula
+  `ambiguidade` tambem nos casos de atraso (falha para o lado de nao acusar).
+- **Fechado (DL-0054):** com `ciclos_sem_conciliacao` ilegivel o grafo levantava excecao e o turno morria
+  sem escalar (L24).
+- **Aberto (L19):** sem `tenant_id` o motor recusa abrir o caso (isolamento de tenant) e o Lucas nao
+  envia nada ao beneficiario.

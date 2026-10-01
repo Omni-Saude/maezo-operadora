@@ -341,7 +341,10 @@ async def test_j2_status_conciliado_true_routes_respond_member() -> None:
 
 async def test_j2_non_conciliated_with_ciclos_escalates_inadimplencia_detectada() -> None:
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
     graph = _graph(dmn=dmn)
 
@@ -360,12 +363,39 @@ async def test_j2_non_conciliated_with_ciclos_escalates_inadimplencia_detectada(
     assert result["severidade"] is None
 
 
+async def test_escalar_humano_so_vira_inadimplencia_quando_a_tabela_diz_categoria_inadimplencia() -> None:
+    """01/10/2026 (bateria do Lucas, L07/L09/L18): o catch-all de ambiguidade NAO e' inadimplencia.
+    A DMN devolve `categoria`; sem ela (tabela antiga no motor) ou com valor desconhecido o caso e'
+    `ambiguidade` — nunca se acusa de inadimplencia sem indicio."""
+    esperado = {
+        "inadimplencia": "inadimplencia_detectada",
+        "ambiguidade": "ambiguidade",
+        "": "ambiguidade",  # coluna ausente
+        "qualquer-coisa": "ambiguidade",
+    }
+    for categoria, motivo in esperado.items():
+        linha: dict[str, str] = {"roteamento": "ESCALAR_HUMANO"}
+        if categoria:
+            linha["categoria"] = categoria
+        dmn = FakeDmnTransport()
+        dmn.register("lucas_billing_admissibility", [linha])
+        dmn.register("lucas_escalation_routing", [{"roteamento": "ATENDIMENTO_HUMANO"}])
+        result = await _graph(dmn=dmn).assess(
+            _base_state(intencao="cobranca_info", tipo_solicitacao="boleto", status_conciliado=False)
+        )
+        assert result["route"] == "escalate_human"
+        assert result["motivo_humano"] == motivo, categoria
+
+
 async def test_j2_status_unresolved_by_worker_never_assumed_inadimplente() -> None:
     """Worker has not yet pre-resolved the conciliation (`status_conciliado=None`) — `gather`
     records the gap; the CATCH-ALL DMN row (never Python code) decides the conservative routing
     (never a false "admitted" outcome by assumption)."""
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "catch-all"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "catch-all", "categoria": "ambiguidade"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "ATENDIMENTO_HUMANO"}])
     graph = _graph(dmn=dmn)
 
@@ -1178,7 +1208,10 @@ async def test_inadimplencia_chega_ao_start_como_cobranca_com_severidade_nula() 
     """Fim a fim no grafo: `assess` (J2 sem conciliacao) -> `start_process`. O que vai ao motor e'
     `cobranca` + `None` — nunca o `outro`/`moderada` de antes, nunca `""`."""
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
     cibseven = FakeCibSevenTransport()
     recording = _record_start(cibseven)
@@ -1228,7 +1261,10 @@ async def test_o_start_do_lucas_passa_pelo_worker_com_severidade_nula() -> None:
     from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
 
     dmn = FakeDmnTransport()
-    dmn.register("lucas_billing_admissibility", [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso"}])
+    dmn.register(
+        "lucas_billing_admissibility",
+        [{"roteamento": "ESCALAR_HUMANO", "motivo": "atraso", "categoria": "inadimplencia"}],
+    )
     dmn.register("lucas_escalation_routing", [{"roteamento": "COBRANCA_HUMANO"}])
     cibseven = FakeCibSevenTransport()
     recording = _record_start(cibseven)
