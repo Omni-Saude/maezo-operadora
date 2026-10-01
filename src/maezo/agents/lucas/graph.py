@@ -639,7 +639,7 @@ def _ciclos_sem_conciliacao(state: LucasState) -> int | None:
     `L24`): um valor que nao e' numero ("dois") fazia `int()` levantar dentro de `assess` e o turno
     MORRIA sem escalar para ninguem — um caso perdido em silencio. Agora o chamador trata `None`
     como ambiguidade e encaminha ao humano (fail-safe fechado, mesmo principio do resto do no)."""
-    bruto = state.get("ciclos_sem_conciliacao", 0)
+    bruto: object = state.get("ciclos_sem_conciliacao", 0)
     if bruto is None or bruto == "":
         return 0
     if isinstance(bruto, bool):
