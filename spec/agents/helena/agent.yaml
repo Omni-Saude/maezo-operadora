@@ -53,7 +53,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
-  response: response-v9               # 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
+  response: response-v10              # 01/10/2026: o contexto deixa de levar o `motivo` da tabela de red flag
+                                     # (era repetido ao beneficiario como "nao ha sinais de alerta" e como
+                                     # diagnostico). v9 — 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
                                      # O NOME DO CANAL EM CADA MENCAO ("o portal do plano
                                      # mostra a mesma lista", nunca "o portal mostra"). E' a
                                      # contraparte de instrucao de um veredito de cerca que NAO

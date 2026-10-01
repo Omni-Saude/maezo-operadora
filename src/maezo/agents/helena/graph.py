@@ -3758,9 +3758,15 @@ class HelenaGraph:
     async def _redigir_resposta(self, state: HelenaState, response_kind: ResponseKind) -> str:
         """O rascunho do modelo, SEM cerca. O unico chamador que o usa cru e' quem vai julgar a
         recusa por grupo (`inform`); todos os outros entram por `_respond_llm`."""
+        # O `motivo` DA TABELA NAO VAI MAIS AO MODELO (01/10/2026). Ele e' texto de engenharia
+        # escrito para o atendente ("Sem criterio de red flag adulto", "Dor toracica: possivel
+        # sindrome coronariana aguda", "suspeita de AVC"), e o modelo o repetia ao beneficiario:
+        # "nao ha sinais de alerta" (que a cerca de negativa clinica barra e que, em `inform`,
+        # virava P3 `falha_tecnica` por sorteio) e "possivel sindrome coronariana aguda" (diagnostico).
+        # O motivo continua na auditoria e no resumo do atendente (`_resumo_contexto`); o que o
+        # modelo precisa para redigir esta' na mensagem da pessoa e em `response_kind`.
         context: dict[str, Any] = {
             "response_kind": response_kind,
-            "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
             "escalation_severidade": state.get("escalation_severidade"),
         }
         # F6: o prompt proibe repetir o cartao quando isto vem no contexto (ver `response_prompt`).

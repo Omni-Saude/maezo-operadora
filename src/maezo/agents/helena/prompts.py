@@ -49,7 +49,12 @@ CLASSIFY_PROMPT_VERSION = "classify-v5"  # 22/09/2026 (CRITICO 3): O QUADRO E O 
 # medido em 13/09 e outra vez em 21/09 foi um codigo DE DENTRO da lista atribuido a uma mensagem
 # que nao tinha a palavra que o justifica ("estou com dor de cabeca" -> `cefaleia_subita_intensa`,
 # P1 com prazo de cinco minutos).
-RESPONSE_PROMPT_VERSION = "response-v9"  # 21/09/2026, QUARTA RODADA — UMA instrucao nova, e ela e'
+RESPONSE_PROMPT_VERSION = "response-v10"  # 01/10/2026: o contexto da resposta deixa de levar o `motivo`
+# da tabela de red flag (graph.py::_redigir_resposta). Ele era o texto de engenharia que o modelo
+# repetia ao beneficiario — "nao ha sinais de alerta" (barrado pela cerca e convertido em P3
+# `falha_tecnica`, bateria de 01/10: C07, C08, C09) e "possivel sindrome coronariana aguda"
+# (diagnostico, I04). O prompt deixa de citar o motivo.
+# v9 — 21/09/2026, QUARTA RODADA — UMA instrucao nova, e ela e'
 # a contraparte pedida de um veredito de cerca que NAO muda: "REPITA O NOME DO CANAL EM CADA
 # MENCAO".
 #
@@ -535,8 +540,8 @@ def response_prompt() -> str:
     return f"""{SYSTEM_PROMPT}
 
 Tarefa: redija uma resposta breve, acolhedora e em portugues para o beneficiario via WhatsApp,
-de acordo com o contexto estruturado fornecido (response_kind, motivo da DMN se houver,
-severidade do encaminhamento se houver). Nunca de conduta clinica, nunca minimize um
+de acordo com o contexto estruturado fornecido (response_kind, severidade do encaminhamento
+se houver). Nunca de conduta clinica, nunca minimize um
 encaminhamento humano, nunca prometa prazos que voce nao controla.
 
 NUNCA AFIRME QUE O BENEFICIARIO NAO TEM SINAIS DE ALERTA, que o quadro nao e grave, ou que nao
