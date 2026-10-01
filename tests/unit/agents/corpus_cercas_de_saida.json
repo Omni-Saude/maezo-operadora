@@ -1440,6 +1440,17 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0052 (01/10/2026): RESPOSTA_FORA_DO_CANAL, texto fixo para assunto fora de saude",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

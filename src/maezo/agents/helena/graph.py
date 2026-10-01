@@ -203,7 +203,15 @@ logger = structlog.get_logger(__name__)
 
 # --- Domain enums (mirror the SP-OP-ESCALATION-001 contract + DMN schema) -------------------
 
-Intent = Literal["symptom", "scheduling", "information", "human_request", "clinical_question", "greeting"]
+Intent = Literal[
+    "symptom",
+    "scheduling",
+    "information",
+    "human_request",
+    "clinical_question",
+    "greeting",
+    "outside_channel",
+]
 Population = Literal["adult", "pediatric", "gestante", "mental_health", "none"]
 #: `collect` (COLETA, 09/09/2026): o turno termina numa PERGUNTA ao beneficiario, nao numa
 #: resposta — a mensagem descreveu um sintoma, a tabela de red flag NAO acusou bandeira, e a
@@ -279,7 +287,15 @@ def _rodadas_de_coleta(valor: object) -> int:
 # frozensets (not `typing.get_args` derivations) so the validation surface is self-contained
 # and greppable next to the Literal types it mirrors.
 _VALID_INTENTS: frozenset[str] = frozenset(
-    {"symptom", "scheduling", "information", "human_request", "clinical_question", "greeting"}
+    {
+        "symptom",
+        "scheduling",
+        "information",
+        "human_request",
+        "clinical_question",
+        "greeting",
+        "outside_channel",
+    },
 )
 _VALID_POPULATIONS: frozenset[str] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _VALID_INTENSIDADES: frozenset[str] = frozenset({"leve", "moderada", "grave", "desconhecida"})
@@ -388,6 +404,18 @@ RESPOSTA_HANDOFF_RECUSADA: str = (
 #: com `response_kind="inform"` e sem start, o que a torna segura por CONSTRUCAO (o corpus
 #: `corpus_cercas_de_saida.json` fixa o veredito). E ela nao traz a abertura do cartao, para nao
 #: acender `apresentacao_ja_feita` num turno que nao apresentou nada.
+#: FORA DO CANAL (01/10/2026, DL-0052): a Helena e' navegadora de SAUDE — triagem, roteamento e
+#: escalonamento. Qualquer outro assunto (cobranca, boleto, preco de plano, agendamento, reembolso,
+#: cancelamento, conversa sem relacao com saude) recebe ESTE texto fixo: nao se oferece para
+#: orientar o assunto, nao convida a seguir conversando e NAO abre processo. A unica porta aberta e'
+#: a de sempre: quem pede uma pessoa cai no gatilho 3 de `classify`, em qualquer assunto.
+RESPOSTA_FORA_DO_CANAL: str = (
+    "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você "
+    "para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa "
+    "da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço "
+    "de emergência mais próximo."
+)
+
 RESPOSTA_INFORM_RECUSADA: str = (
     "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. "
     "Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma "
@@ -1789,7 +1817,16 @@ def _severidade_de_intensidade(intensidade: object) -> Severidade:
 #: nao se aplica a ela, e responder "bom dia" nao e' resolver preocupacao clinica nenhuma. Era
 #: justamente esta allowlist que fazia um `greeting` recem-criado cair em `falha_tecnica` — o
 #: comportamento correto ate' alguem decidir, que e' o que esta linha registra.
-_INTENTS_ADMISSIVEIS_INFORM: frozenset[str] = frozenset({"information", "symptom", "greeting"})
+#:
+#: `outside_channel` e `scheduling` entraram em 01/10/2026 (decisao do Diretor de Tecnologia, DL-0052):
+#: assunto que nao e' saude recebe `RESPOSTA_FORA_DO_CANAL` e NAO abre processo. A admissao nao
+#: afrouxa a precondicao da DMN: com `sintoma_codigo` preenchido ela continua exigindo o veredito.
+_INTENTS_ADMISSIVEIS_INFORM: frozenset[str] = frozenset(
+    {"information", "symptom", "greeting", "outside_channel", "scheduling"}
+)
+
+#: Os `intent` cuja resposta e' a constante `RESPOSTA_FORA_DO_CANAL`, sem passar pelo modelo.
+_INTENTS_FORA_DO_CANAL: frozenset[str] = frozenset({"outside_channel", "scheduling"})
 
 
 def _inform_recusado(estado: Mapping[str, Any]) -> str | None:
@@ -2451,9 +2488,10 @@ class HelenaGraph:
                     return update
             return _rota_informativa(update)
 
-        if intent == "scheduling":
-            update["next_kind"] = "schedule"
-            return update
+        # FORA DO CANAL (DL-0052): agendamento deixou de escalar. Chegar aqui significa que nao
+        # houve sintoma, risco psicossocial, pergunta clinica nem pedido de humano neste turno.
+        if intent in _INTENTS_FORA_DO_CANAL:
+            return _rota_informativa(update)
 
         return _rota_informativa(update)
 
@@ -2736,6 +2774,10 @@ class HelenaGraph:
         mensagem tende ao mesmo texto, e um laco de tentativas transforma uma cerca num atraso
         (a mesma escolha de CC-01 e da cerca TEXTO x FATO).
         """
+        if state.get("intent") in _INTENTS_FORA_DO_CANAL:
+            # Texto FIXO, sem modelo: nao varia, nao se oferece para orientar o assunto e nao
+            # convida a continuar. A precondicao da DMN ja' foi aplicada por `_route`.
+            return {"response_text": RESPOSTA_FORA_DO_CANAL, "response_kind": "inform"}
         text = await self._redigir_resposta(state, "inform")
         try:
             text = self._cercar_saida(text, "inform", node="inform")

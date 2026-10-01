@@ -1,5 +1,5 @@
 {
-  "versao": "extracao-v2",
+  "versao": "extracao-v3",
   "casos": [
     {
       "id": "r2-cefaleia-comum-01",
@@ -2480,6 +2480,44 @@
       "origem": "bateria-22-09",
       "regras": [
         "R2"
+      ]
+    },
+    {
+      "id": "dl0052-segunda-via-boleto",
+      "mensagem": "Preciso da segunda via do boleto do plano, o meu venceu ontem",
+      "esperado": {
+        "intent": "outside_channel",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0052 (30/09-01/10): cobranca e boleto nao sao saude. Antes caia em `information` e a Helena redigia uma resposta; agora a intencao propria `outside_channel` leva ao texto fixo e NAO abre processo. Sem sintoma, sem pedido de humano.",
+      "origem": "bateria-30-09",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "dl0052-preco-do-plano",
+      "mensagem": "Quanto custa o plano familiar pra incluir minha esposa?",
+      "esperado": {
+        "intent": "outside_channel",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "DL-0052: preco e contratacao de plano sao assunto comercial, fora do canal de saude. `outside_channel`, nao `information` — a diferenca e' que o modelo nao redige nada e nenhum caso e' aberto.",
+      "origem": "bateria-30-09",
+      "regras": [
+        "R5"
       ]
     }
   ]

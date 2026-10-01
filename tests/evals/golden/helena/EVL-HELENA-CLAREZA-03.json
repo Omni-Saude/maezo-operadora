@@ -2,8 +2,10 @@
   "id": "EVL-HELENA-CLAREZA-03",
   "agent": "helena",
   "class": "CL",
-  "tier": ["A"],
-  "description": "Clarity/legibility (gap 10.3, WP-EVALS): scheduling hand-off (same intent shape as EVL-HELENA-08) -- checks that the reply stays short-sentenced, free of leaked internal/engine jargon, and names that a human will follow up (response_prompt()'s own instruction for response_kind=schedule). Synthetic data only (tenant amh, pseudo id).",
+  "tier": [
+    "A"
+  ],
+  "description": "Clarity/legibility (gap 10.3, WP-EVALS): the fixed out-of-channel reply (DL-0052, 01/10/2026; was the scheduling hand-off) -- short sentences, no leaked internal/engine jargon, and says how to reach a person. Synthetic data only (tenant amh, pseudo id).",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -14,12 +16,10 @@
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Beneficiario pediu reagendamento; canal nao agenda diretamente, encaminhado para atendimento humano.",
-    "Ainda nao conseguimos remarcar consultas direto por aqui. Um atendente vai entrar em contato em breve para ajudar."
+    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
   ],
   "expect": {
-    "next_kind": "schedule",
+    "next_kind": "inform",
     "fields": {
       "intent": "scheduling"
     }
@@ -40,7 +40,10 @@
       "next_kind"
     ],
     "required_disclaimers": [
-      ["atendente", "humano", "profissional"]
+      [
+        "pessoa",
+        "equipe"
+      ]
     ]
   }
 }

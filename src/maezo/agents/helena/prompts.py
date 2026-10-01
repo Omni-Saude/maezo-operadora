@@ -348,7 +348,7 @@ Tarefa: leia a mensagem do beneficiario (ja pseudonimizada) e devolva APENAS um 
 
 {{
   "intent": um de ["symptom", "scheduling", "information", "human_request", "clinical_question",
-    "greeting"],
+    "greeting", "outside_channel"],
   "population": um de ["adult", "pediatric", "gestante", "mental_health", "none"],
   "psychosocial_risk": true ou false (true se HOUVER qualquer sinal de risco a vida/autolesao/
     ideacao suicida/crise psiquiatrica aguda — na duvida, true; este campo e sempre avaliado,
@@ -415,7 +415,16 @@ NENHUM ("oi", "bom dia", "opa", "ola, tudo bem?"): ela nao pede nada, entao nao 
 para ninguem. Se houver QUALQUER pedido junto da saudacao, vale a outra intencao e nunca
 "greeting" — "oi, quero remarcar minha consulta" e' "scheduling", "bom dia, estou com dor de
 cabeca" e' "symptom". Caso contrario, use "information" para duvidas administrativas
-(cobertura, rede, elegibilidade) e "scheduling" para pedidos de marcar consulta/exame."""
+(cobertura, rede, elegibilidade) e "scheduling" para pedidos de marcar consulta/exame.
+
+ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
+para TUDO o que nao e' saude: cobranca, boleto, segunda via, mensalidade, preco ou contratacao de
+plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, assunto de outra area,
+conversa sem relacao com saude, texto sem sentido. NA DUVIDA entre saude e outro assunto, NAO use
+"outside_channel": use "symptom", "clinical_question" ou "information". Uma mensagem com QUALQUER
+sinal de saude (sintoma, dor, mal-estar, preocupacao com a saude de alguem) nunca e'
+"outside_channel", mesmo que traga outro assunto junto. Pedir uma pessoa/atendente e' sempre
+"human_request", qualquer que seja o assunto."""
 
 
 def coleta_prompt() -> str:

@@ -12,7 +12,7 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
-    disposicao: "recusa honesta + handoff humano real (SP-OP-ESCALATION-001, motivo_categoria=solicitacao_humano)"
+    disposicao: "DL-0052 (01/10/2026): texto fixo fora do canal, sem caso; quem pede uma pessoa escala por human_request"
     onde: "graph.py:schedule() -> _start_escalation() (node dedicado; ver escalation.triggers abaixo)"
 process_keys:
   - SP-OP-ESCALATION-001
@@ -203,7 +203,7 @@ escalation:
     - dmn: triage_redflag_*           # red_flag=true        -> red_flag_clinico
     - intent: clinical_question       # pergunta clinica     -> intencao_clinica (L0 hard)
     - intent: human_request           # pedido de humano     -> solicitacao_humano
-    - intent: scheduling              # agendamento (fora de escopo, Fase 0; GAP 9.2) -> solicitacao_humano
+    - intent: scheduling              # DL-0052 (01/10/2026): NAO escala mais; texto fixo fora do canal (RESPOSTA_FORA_DO_CANAL)
     - signal: tool_failure            # falha tecnica/loop   -> falha_tecnica
       # ALCANCE (22/09/2026, ADR-0059 — PROPOSTO, NAO RATIFICADO). A RECUSA DA CERCA DE SAIDA
       # DEIXOU DE SER `tool_failure` PARA 3 DOS 4 GRUPOS. Entre 13/09 e 21/09, qualquer rascunho

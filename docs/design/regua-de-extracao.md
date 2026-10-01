@@ -131,7 +131,7 @@ a cerca de saída existe. Aqui a cobrança é o conjunto de casos rotulados (3.2
 
 | Peça | O que faz | Onde |
 |---|---|---|
-| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` (`extracao-v2`, 128 casos) |
+| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` (`extracao-v3`, 130 casos — v3 em 01/10/2026: dois casos `outside_channel` da DL-0052) |
 | Cerca do corpus | o corpus não pode apodrecer: vocabulário fechado, cobertura das 4 populações e dos 25 códigos, toda regra com caso, justificativa obrigatória | `tests/unit/evals/test_corpus_de_extracao.py` |
 | Medição ao vivo | roda o `classify` real contra o corpus e pontua **campo a campo** | `tests/evals/test_extracao_live.py` |
 

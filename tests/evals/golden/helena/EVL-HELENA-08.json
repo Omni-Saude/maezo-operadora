@@ -2,8 +2,11 @@
   "id": "EVL-HELENA-08",
   "agent": "helena",
   "class": "CE",
-  "tier": ["A", "B"],
-  "description": "Beneficiary asks to reschedule a consultation -> intent=scheduling -> Helena offers a human follow-up AND actually starts SP-OP-ESCALATION-001 (GAP 9.2 fix: the follow-up promise is now backed by a real handoff, not just an honest but unrouted reply). Synthetic data only.",
+  "tier": [
+    "A",
+    "B"
+  ],
+  "description": "Beneficiary asks to reschedule a consultation -> intent=scheduling -> FORA DO CANAL (DL-0052, 01/10/2026): Helena answers the fixed out-of-channel text and opens NO escalation. Synthetic data only.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -14,22 +17,23 @@
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Beneficiario pediu reagendamento; canal nao agenda diretamente, encaminhado para atendimento humano.",
-    "Vamos providenciar seu reagendamento; um atendente vai te contatar em breve."
+    "{\"intent\": \"scheduling\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
   ],
   "expect": {
-    "next_kind": "schedule",
+    "next_kind": "inform",
     "fields": {
       "intent": "scheduling",
-      "escalation_motivo": "solicitacao_humano",
-      "escalation_started": true
+      "response_text": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo."
     }
   },
   "leak_canaries": [],
   "live": {
     "assert": "fields",
-    "match": ["intent", "population", "psychosocial_risk"],
+    "match": [
+      "intent",
+      "population",
+      "psychosocial_risk"
+    ],
     "threshold": 0.9
   }
 }
