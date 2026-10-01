@@ -63,6 +63,9 @@ def _trocar(texto: str, alvo: str, novo: str) -> str:
 def _montar(tmp_path: Path) -> Path:
     raiz = tmp_path / "arvore"
     shutil.copytree(_RAIZ_REAL / _ENV_DEV, raiz / _ENV_DEV)
+    # Linha de base INDEPENDENTE do valor real de dev: as testemunhas abaixo trocam esta linha, e o
+    # estado ligado/desligado do ambiente nao pode mudar o que elas provam.
+    (raiz / _ENV_DEV / _TFVARS_LUCAS).write_bytes(_LINHA_TFVARS.encode("utf-8"))
     for relativo in _ARQUIVOS_DE_CODIGO:
         (raiz / relativo).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(_RAIZ_REAL / relativo, raiz / relativo)
@@ -98,13 +101,16 @@ def test_a_arvore_sintetica_sem_evasao_passa(tmp_path: Path) -> None:
     assert executar(_montar(tmp_path)) == []
 
 
-def test_o_receptor_real_declara_as_tres_entradas_e_o_tfvars_nasce_desligado() -> None:
+def test_o_receptor_real_declara_as_tres_entradas_e_o_tfvars_e_literal() -> None:
     """Ancora das testemunhas abaixo: se a forma real mudar, elas nao testam outra coisa."""
     receptor = (_RAIZ_REAL / _ENV_DEV / _RECEPTOR_TF).read_bytes().decode("utf-8")
     for entrada in (_ENTRADA_ROTEADOR, _ENTRADA_JANELA, _ENTRADA_FONTE):
         assert receptor.count(entrada) == 1, entrada
+    # O VALOR de dev e' decisao de cada momento (ligado em 01/10/2026); o que esta ancora fixa e' a
+    # FORMA: uma atribuicao literal `true`/`false`, que e' o que a cerca consegue resolver.
     tfvars = (_RAIZ_REAL / _ENV_DEV / _TFVARS_LUCAS).read_bytes().decode("utf-8")
-    assert _LINHA_TFVARS in tfvars.splitlines(keepends=True)
+    atribuicoes = [linha.strip() for linha in tfvars.splitlines() if linha.startswith("roteador_lucas_enabled")]
+    assert atribuicoes in (["roteador_lucas_enabled = false"], ["roteador_lucas_enabled = true"]), atribuicoes
 
 
 def test_ligar_em_dev_pelo_tfvars_passa(tmp_path: Path) -> None:
