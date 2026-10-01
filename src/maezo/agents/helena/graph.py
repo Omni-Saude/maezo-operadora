@@ -185,6 +185,8 @@ from .prompts import (
     RECUSA_HANDOFF_SEM_MENCAO,
     RECUSA_NEGATIVA_CLINICA,
     RESPONSE_PROMPT_VERSION,
+    RESPOSTA_NAO_CONSIGO_IDENTIFICAR,
+    RESPOSTA_SOU_ASSISTENTE_VIRTUAL,
     SINTOMA_CODIGOS_BY_POPULATION,
     SYSTEM_PROMPT_VERSION,
     classify_prompt,
@@ -1772,7 +1774,68 @@ _PEDIDO_DE_HUMANO = re.compile(
 def _pergunta_de_identidade_sem_pedido(texto: str) -> bool:
     """`True` quando a mensagem pergunta O QUE a Helena e' e nao pede humano nenhum."""
     plano = _normalizar_texto(texto or "")
-    return bool(_PERGUNTA_DE_IDENTIDADE.search(plano)) and not _PEDIDO_DE_HUMANO.search(plano)
+    # Os padroes estritos de baixo cobrem as duas perguntas que o prompt de resposta lista como
+    # identidade e que `_PERGUNTA_DE_IDENTIDADE` nao casava ("isso e automatico?", "estou falando
+    # com uma pessoa?"): classificadas `human_request`, abriam P3 sem que ninguem tivesse pedido.
+    e_identidade = (
+        _PERGUNTA_DE_IDENTIDADE.search(plano)
+        or _PERGUNTA_SOBRE_A_HELENA.search(plano)
+        or _PERGUNTA_SOBRE_O_BENEFICIARIO.search(plano)
+    )
+    return bool(e_identidade) and not _PEDIDO_DE_HUMANO.search(plano)
+
+
+# AS DUAS FRASES DE CONFORMIDADE (F6, 21/09/2026) NAO PODEM DEPENDER DA INTENCAO (01/10/2026).
+#
+# O DEFEITO, medido na bateria de 01/10 (A04 e A05) depois do DL-0052 (#577): "voce e uma pessoa ou
+# um robo?" e "voce sabe quem eu sou?" passaram a sair do classificador como `outside_channel`
+# ("conversa sem relacao com saude") e `inform` devolve `RESPOSTA_FORA_DO_CANAL` SEM chamar o
+# modelo. O desvio de 23/09 (`classify`, acima) so' roda quando a intencao e' `human_request`, e
+# as frases F6 so' existem no prompt de resposta, que esse caminho nao usa. A resposta que o dono
+# exigiu — dizer que e' um sistema automatizado — deixou de ser dada, e nenhum teste pegou porque os
+# de A2 forjam o classificador em `human_request` e nunca leem o texto enviado.
+#
+# A CORRECAO E' DETERMINISTICA E NAO TOCA O CLASSIFICADOR: a mesma pergunta recebe a mesma frase,
+# qualquer que seja a intencao que o modelo atribuiu. Os padroes abaixo sao MAIS ESTREITOS que
+# `_PERGUNTA_DE_IDENTIDADE` (que so' decide "nao e' pedido de humano" e por isso aceita "quem e"
+# solto): aqui o custo de um falso positivo e' responder "sou um assistente virtual" a "quem e o
+# titular do contrato?", entao so' casa a pergunta sobre a propria Helena.
+_PERGUNTA_SOBRE_A_HELENA = re.compile(
+    r"\bquem (?:e|eh|seria) (?:voce|vc|tu)\b"
+    r"|\bquem (?:esta|ta) falando\b"
+    r"|\bcom quem (?:eu )?(?:estou|to|tou|falo)\b"
+    r"|\b(?:voce|vc|tu|isso|isto) (?:e|eh|seria)(?: uma?)? (?:pessoa|humano|humana|gente|robo|bot|ia"
+    r"|inteligencia artificial|maquina|sistema|assistente|atendente|real|de verdade)\b"
+    r"|\bfalando com (?:uma? )?(?:pessoa|humano|humana|robo|bot|maquina)\b"
+    r"|\b(?:e|eh) (?:uma? )?(?:pessoa|humano|humana|robo|bot|maquina)\b"
+    r"|\b(?:isso|isto|esse atendimento|este atendimento) (?:e|eh) automatic[oa]\b"
+)
+_PERGUNTA_SOBRE_O_BENEFICIARIO = re.compile(
+    r"\b(?:voce|vc|tu) (?:sabe|conhece|lembra) (?:quem (?:eu )?sou|meu nome|de mim|com quem)\b"
+    r"|\b(?:voce|vc|tu) me (?:conhece|identifica|reconhece|conhecia)\b"
+    r"|\bsabe (?:o )?meu nome\b"
+)
+
+
+def _resposta_fixa_de_identidade(estado: Mapping[str, Any]) -> str | None:
+    """As frases F6 EXATAS do dono (`prompts.RESPOSTA_*`), ou `None` se nao e' pergunta de identidade.
+
+    So' vale para a mensagem que e' PERGUNTA de identidade e nada mais: sem codigo de sintoma, sem
+    risco psicossocial e sem pedido de humano (esses tem rota propria e vencem — "voce e um robo?
+    quero falar com uma pessoa" continua `human_request`). Pergunta sobre a Helena e sobre a pessoa
+    na mesma mensagem recebe as duas frases, nessa ordem.
+    """
+    if estado.get("sintoma_codigo") or estado.get("psychosocial_risk") is True:
+        return None
+    plano = _normalizar_texto(str(estado.get("message_body") or ""))
+    if _PEDIDO_DE_HUMANO.search(plano):
+        return None
+    partes: list[str] = []
+    if _PERGUNTA_SOBRE_A_HELENA.search(plano):
+        partes.append(RESPOSTA_SOU_ASSISTENTE_VIRTUAL)
+    if _PERGUNTA_SOBRE_O_BENEFICIARIO.search(plano):
+        partes.append(RESPOSTA_NAO_CONSIGO_IDENTIFICAR)
+    return " ".join(partes) or None
 
 
 def _severidade_from_prioridade(prioridade: str) -> Severidade:
@@ -2774,6 +2837,11 @@ class HelenaGraph:
         mensagem tende ao mesmo texto, e um laco de tentativas transforma uma cerca num atraso
         (a mesma escolha de CC-01 e da cerca TEXTO x FATO).
         """
+        identidade = _resposta_fixa_de_identidade(state)
+        if identidade is not None:
+            # F6: a pergunta de identidade recebe a frase do dono, LITERAL, antes de qualquer
+            # decisao sobre "fora do canal" — ver `_resposta_fixa_de_identidade`.
+            return {"response_text": identidade, "response_kind": "inform"}
         if state.get("intent") in _INTENTS_FORA_DO_CANAL:
             # Texto FIXO, sem modelo: nao varia, nao se oferece para orientar o assunto e nao
             # convida a continuar. A precondicao da DMN ja' foi aplicada por `_route`.
