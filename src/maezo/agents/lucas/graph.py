@@ -644,10 +644,14 @@ def _ciclos_sem_conciliacao(state: LucasState) -> int | None:
         return 0
     if isinstance(bruto, bool):
         return None
-    try:
-        return int(bruto)
-    except (TypeError, ValueError):
-        return None
+    if isinstance(bruto, int):
+        return bruto
+    if isinstance(bruto, str | float):
+        try:
+            return int(bruto)
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _escalation_motivo(state: LucasState) -> MotivoHumano:
