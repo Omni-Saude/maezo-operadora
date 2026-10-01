@@ -508,8 +508,9 @@ def test_helena_dispatcher_is_the_only_dispatch_class_gap_11_7(monkeypatch: pyte
        devolve `None` e o `LucasTurno` nao e' construido;
     3. o `LucasTurno` so' e' construido com o roteador ligado (a cerca de CI item 5 cobre o lado
        estatico; aqui o lado vivo);
-    4. nesta onda o `dispatch.py` ainda NAO chama o Lucas (isso e' a onda e), e Fernando segue sem
-       entrada.
+    4. desde a onda (e) o `dispatch.py` chama o Lucas num lugar SO' (`_turno_do_lucas`, uma
+       chamada a `executar`), e esse lugar so' e' alcancado DEPOIS do `ainvoke` da Helena;
+       Fernando segue sem entrada.
     """
     import inspect
 
@@ -530,7 +531,11 @@ def test_helena_dispatcher_is_the_only_dispatch_class_gap_11_7(monkeypatch: pyte
     ]
 
     source = inspect.getsource(dispatch_module).lower()
-    assert "lucas" not in source  # onda (e) e' quem liga o despachante ao LucasTurno
+    assert source.count(".executar(") == 1  # onda (e): um unico ponto de chamada do Lucas
+    corpo_do_dispatch = inspect.getsource(dispatch_module.HelenaDispatcher.dispatch)
+    assert corpo_do_dispatch.index("await compiled.ainvoke(initial_state") < corpo_do_dispatch.index(
+        "self._turno_do_lucas("
+    )
     assert "fernando" not in source
 
     construidos: list[object] = []

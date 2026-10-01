@@ -190,6 +190,12 @@ _DESFECHO_VOCAB: Final[dict[str, frozenset[str]]] = {
             # Decisao do dono (25/09/2026): fora da janela de 24h da Meta nada e' enviado, a
             # equipe e' avisada; emitido por `platform/integrations/agent_resume.py`.
             "retomada_fora_da_janela",
+            # NUMERO UNICO (onda e, ADR-0062): a Helena passou a conversa ao Lucas. Dois tokens
+            # porque sao dois fatos: a frase de passagem saiu, ou nada saiu (o Lucas ja' estava com
+            # a conversa). Literais duplicados de `agents/helena/graph.py::DESFECHO_PASSAGEM_*`;
+            # `test_helena_passagem_cobranca.py` impede a divergencia.
+            "passagem_cobranca",
+            "passagem_cobranca_sem_frase",
         }
     ),
     "lucas": frozenset(
@@ -273,7 +279,10 @@ _ROUTE_VOCAB: Final[dict[str, frozenset[str]]] = {
     # PERGUNTA ficava indistinguivel de qualquer valor desconhecido. A cerca que impede a
     # reincidencia compara com o proprio `Literal`
     # (`test_helena_adv_extracao_e_wiring.py`), nao com uma lista copiada.
-    "helena": frozenset({"inform", "schedule", "escalate", "collect", "falha_tecnica_start", "retomada"}),
+    # `handoff` entrou na onda (e) do numero unico: a passagem ao Lucas (so' com o roteador ligado).
+    "helena": frozenset(
+        {"inform", "schedule", "escalate", "collect", "falha_tecnica_start", "retomada", "handoff"}
+    ),
     "lucas": frozenset({"respond_member", "escalate_human"}),
     "marina": frozenset({"auto_route", "human_review"}),
     "rafael": frozenset({"auto_approve", "human_auditor"}),

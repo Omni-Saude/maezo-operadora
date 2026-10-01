@@ -1451,6 +1451,28 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Vou te passar para o atendimento de cobrança.",
+      "rota": "handoff",
+      "start_aconteceu": false,
+      "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a rota real da frase, `respond` sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Vou te passar para o atendimento de cobrança.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a mesma frase julgada como `inform`, para provar que o veredito nao depende da rota nova",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

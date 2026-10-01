@@ -20,10 +20,12 @@ A REGRA ESTRUTURAL (§2.3) que `decidir_transicao` implementa por construcao: so
 tipado da Helena NESTE turno leva a conversa para o Lucas. Todo outro caminho que nao casa uma
 linha da tabela vai para a Helena — nunca se fica no Lucas por omissao.
 
-ONDA (c): SOMBRA. O roteador e' construido so' com `MAEZO_ROTEADOR_LUCAS` ligado (`service.py`),
-e mesmo ligado ele nao muda resposta nenhuma: a Helena ainda nao emite `handoff`, o Lucas ainda
-nao tem entrada (`lucas_disponivel=False`), e o que sobra e' gravar `helena` + motivo e logar os
-sinais lexicos. Desligado, o despachante recebe `roteador=None` e o caminho e' o de hoje.
+ONDA (c): SOMBRA. O roteador e' construido so' com `MAEZO_ROTEADOR_LUCAS` ligado (`service.py`).
+Sem o turno do Lucas no despachante ele nao muda resposta nenhuma: grava `helena` + motivo e loga
+os sinais lexicos. ONDA (e): com o Lucas presente (`HelenaDispatcher.lucas_turno`), a Helena emite
+o `handoff` tipado, o despachante executa o Lucas e grava `lucas` aqui (`lucas_disponivel=True`,
+passado pela raiz de composicao). Desligado, o despachante recebe `roteador=None` e o caminho e' o
+de hoje.
 
 PHI: a tabela guarda o `conversation_id` keyed (ADR-0035), enums e `YYYY-MM`. Nenhum telefone,
 nenhum texto; os logs deste modulo carregam so' tokens.
@@ -31,7 +33,6 @@ nenhum texto; os logs deste modulo carregam so' tokens.
 
 from __future__ import annotations
 
-import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -42,6 +43,7 @@ import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import structlog
 
 from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
+from maezo.runtime.competencia import competencia_valida
 
 from .pre_roteamento import PreRoteamento, SinaisLexicos
 
@@ -78,7 +80,6 @@ AGENTES: Final[tuple[str, ...]] = get_args(AgenteAtivo)
 TRANSICOES: Final[tuple[str, ...]] = get_args(TransicaoMotivo)
 COBRANCA_SUBTIPOS: Final[tuple[str, ...]] = get_args(CobrancaSubtipo)
 
-_COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 #: Motivos de escalonamento da Helena que sao SAUDE (§2.2, linha `retorno_saude`).
 _MOTIVOS_DE_SAUDE: Final[frozenset[str]] = frozenset(
@@ -90,6 +91,10 @@ _INTENCOES_DE_SAUDE: Final[frozenset[str]] = frozenset({"symptom", "clinical_que
 _INTENCOES_QUE_CONTINUAM: Final[frozenset[str]] = frozenset({"greeting", "information"})
 #: Intencoes que tiram a conversa do Lucas com o texto fixo (§2.2, `retorno_fora_do_canal`).
 _INTENCOES_FORA_DO_CANAL: Final[frozenset[str]] = frozenset({"outside_channel", "scheduling"})
+
+#: PENDENCIA de §2.2 (`continua_lucas`): `False` enquanto nenhuma onda fizer o Lucas responder
+#: "ok"/"e o de setembro?" sem um handoff no mesmo turno. Ver `decidir_transicao`, regra 5.
+CONTINUA_LUCAS_ATENDIDO: Final[bool] = False
 
 #: Purga (§3): ate' 100 linhas com mais de 30 dias, no maximo 1 vez a cada 10 minutos por processo.
 PURGA_IDADE: Final[timedelta] = timedelta(days=30)
@@ -119,8 +124,8 @@ def _agora() -> datetime:
 class PedidoDeHandoff:
     """O `handoff` tipado da Helena para o Lucas (§2.4), visto pelo roteador.
 
-    Nesta onda nada o constroi em producao: a Helena so' passa a emiti-lo na onda (e). O tipo
-    existe aqui porque a maquina de §2.2 precisa dele para ser total.
+    O despachante o deriva do `HandoffCobranca` que a Helena emitiu (onda e), so' depois de o
+    turno do Lucas ter rodado. Nenhum texto: o subtipo e a competencia.
     """
 
     cobranca_subtipo: CobrancaSubtipo
@@ -129,7 +134,7 @@ class PedidoDeHandoff:
     def __post_init__(self) -> None:
         if self.cobranca_subtipo not in COBRANCA_SUBTIPOS:
             raise ValueError("roteamento: cobranca_subtipo fora do dominio")
-        if self.competencia is not None and not _COMPETENCIA.match(self.competencia):
+        if self.competencia is not None and not competencia_valida(self.competencia):
             raise ValueError("roteamento: competencia fora do formato YYYY-MM")
 
 
@@ -247,7 +252,8 @@ def decidir_transicao(atual: LinhaAgenteAtivo | None, evento: EventoDoTurno, *, 
       3. falha tecnica -> helena
       4. `handoff` tipado -> lucas (`handoff_cobranca`; frase so' vindo da Helena), ou
          `lucas_encerrou` se o Lucas terminou o turno escalando
-      5. Lucas ativo + `greeting`/`information` -> lucas (`continua_lucas`), ou `lucas_encerrou`
+      5. Lucas ativo + `greeting`/`information` -> helena (`retorno_falha`) enquanto o Lucas
+         nao atende sem handoff (`CONTINUA_LUCAS_ATENDIDO`); `lucas_encerrou` se ele escalou
       6. Lucas ativo + `outside_channel`/`scheduling` -> helena (`retorno_fora_do_canal`)
       7. Lucas ativo + qualquer outra coisa -> helena (`retorno_falha`): estado injustificado nao
          fica no Lucas
@@ -288,12 +294,17 @@ def decidir_transicao(atual: LinhaAgenteAtivo | None, evento: EventoDoTurno, *, 
         if evento.intent in _INTENCOES_QUE_CONTINUAM:
             if evento.lucas_escalou:
                 return _para_helena("lucas_encerrou")
-            return Decisao(
-                agente_ativo="lucas",
-                transicao_motivo="continua_lucas",
-                lucas_cobranca_subtipo=subtipo,
-                lucas_competencia=competencia,
-            )
+            # PENDENCIA (01/10/2026, review do #589): §2.2 manda o Lucas atender aqui, com o
+            # contexto das tres colunas, mas nenhuma onda ainda faz o Lucas responder sem um
+            # `handoff` NESTE turno — quem responde o "ok" e' a Helena. Gravar `lucas`/
+            # `continua_lucas` seria a tabela mentir sobre quem atendeu (e renovar `expira_em`
+            # de um atendimento que nao houve). Ate' a onda que fizer o Lucas atender, volta a
+            # Helena como estado injustificado. `continua_lucas` segue no dominio da coluna e da
+            # migration 0017, sem produtor.
+            del subtipo, competencia
+            if not CONTINUA_LUCAS_ATENDIDO:
+                return _para_helena("retorno_falha")
+            return Decisao(agente_ativo="lucas", transicao_motivo="continua_lucas")
         if evento.intent in _INTENCOES_FORA_DO_CANAL:
             return _para_helena("retorno_fora_do_canal")
         return _para_helena("retorno_falha")
@@ -477,6 +488,15 @@ class ConversaRouter:
     def pre_rotear(self, texto: str) -> SinaisLexicos:
         """A camada deterministica de §2.3, antes de qualquer LLM."""
         return self._lexicos.avaliar(texto)
+
+    async def agente_ativo(self, conversation_id: str) -> AgenteAtivo:
+        """Quem esta' com a conversa AGORA, para a Helena saber se a frase de passagem sai (onda
+        e). So' LEITURA: a escrita continua sendo uma por mensagem, em `registrar_turno`. Linha
+        ausente ou vencida e' `helena` — a mesma partida de `decidir_transicao`."""
+        atual = await self._store.ler(conversation_id)
+        if atual is None or atual.expira_em < self._relogio():
+            return "helena"
+        return atual.agente_ativo
 
     def _linha(
         self, conversation_id: str, atual: LinhaAgenteAtivo | None, decisao: Decisao, agora: datetime

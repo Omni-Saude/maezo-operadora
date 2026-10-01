@@ -366,6 +366,29 @@ def _memoria_clinica_for(case: Mapping[str, Any]) -> dict[str, Any] | None:
     return {**dict(bloco), "gravado_em": datetime.now(UTC).isoformat()}
 
 
+#: As chaves de `build(config)` que um golden pode ligar pelo bloco OPCIONAL `"build_config"`.
+#: Allowlist FECHADA: um golden nao injeta dependencia nenhuma por aqui, so' liga um interruptor de
+#: composicao que o receptor tambem liga (onda e do numero unico: `roteador_lucas_enabled`).
+_BUILD_CONFIG_PERMITIDO: frozenset[str] = frozenset({"roteador_lucas_enabled"})
+
+
+def _build_config_for(case: Mapping[str, Any]) -> dict[str, Any]:
+    """Read a case's OPTIONAL top-level `"build_config"` block (onda e, ADR-0062) — absent in every
+    earlier golden, so none of them is touched. A key outside `_BUILD_CONFIG_PERMITIDO` or a
+    non-boolean value fails LOUDLY: a golden that silently built a different graph than it claims
+    would be green while proving nothing."""
+    bloco = case.get("build_config")
+    if bloco is None:
+        return {}
+    if not isinstance(bloco, Mapping) or not set(bloco) <= _BUILD_CONFIG_PERMITIDO:
+        raise ValueError(
+            f"golden {case.get('id')!r}: build_config fora da allowlist {_BUILD_CONFIG_PERMITIDO}"
+        )
+    if not all(isinstance(v, bool) for v in bloco.values()):
+        raise ValueError(f"golden {case.get('id')!r}: build_config so' aceita booleanos")
+    return dict(bloco)
+
+
 async def run_case(
     build_fn: Callable[[dict[str, Any]], Any],
     case: Mapping[str, Any],
@@ -414,6 +437,7 @@ async def run_case(
         # its own `whatsapp` double (e.g. `FakeWhatsAppSender(fail=True)`).
         "whatsapp": FakeWhatsAppSender(),
     }
+    config.update(_build_config_for(case))
     if extra_config:
         config.update(extra_config)
 

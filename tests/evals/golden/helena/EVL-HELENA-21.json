@@ -1,0 +1,45 @@
+{
+  "id": "EVL-HELENA-21",
+  "agent": "helena",
+  "class": "CE",
+  "tier": [
+    "A"
+  ],
+  "description": "Numero unico, onda (e) (ADR-0062): with the Helena -> Lucas router ON (build_config.roteador_lucas_enabled, classify-v6), a billing question ('preciso da segunda via do boleto de setembro de 2026') -> intent=cobranca, subtipo boleto_2via -> typed handoff to Lucas + the fixed passage phrase, NO escalation and NO extra LLM call. Tier A only: the router ships OFF, so the live tier keeps measuring classify-v5. Synthetic data only.",
+  "build_config": {
+    "roteador_lucas_enabled": true
+  },
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-21",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-021",
+      "message_body": "preciso da segunda via do boleto de setembro de 2026",
+      "agente_ativo_conversa": "helena",
+      "pedido_humano_lexico": false,
+      "sinal_saude_lexico": false,
+      "message_ref": "hk1_evlhelena21"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"cobranca\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\", \"cobranca_subtipo\": \"boleto_2via\", \"competencia\": \"2026-09\"}"
+  ],
+  "expect": {
+    "next_kind": "handoff",
+    "fields": {
+      "intent": "cobranca",
+      "response_kind": "handoff",
+      "response_text": "Vou te passar para o atendimento de cobrança.",
+      "handoff": {
+        "para": "lucas",
+        "cobranca_subtipo": "boleto_2via",
+        "competencia": "2026-09",
+        "message_ref": "hk1_evlhelena21"
+      },
+      "desfecho": "passagem_cobranca",
+      "escalation_started": false
+    }
+  },
+  "leak_canaries": []
+}

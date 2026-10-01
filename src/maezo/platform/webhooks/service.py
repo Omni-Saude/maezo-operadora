@@ -222,9 +222,13 @@ def _build_dispatcher(
             store=PostgresAgenteAtivoStore(dsn=settings.database_url, tenant=settings.tenant_id),
             lexicos=pre_roteamento.carregar(),
             inatividade=timedelta(minutes=settings.lucas_inatividade_minutos),
+            # Onda (e): o Lucas e' construido logo depois, sob o MESMO interruptor
+            # (`_build_lucas_turno`), e uma falha ali recusa servir — entao, com o roteador
+            # existindo, o Lucas existe. Sem ele o despachante nem chega a pedir um handoff.
+            lucas_disponivel=True,
         )
         logger.warning(
-            "roteador_lucas_ligado_em_sombra",
+            "roteador_lucas_ligado",
             tenant_id=settings.tenant_id,
             lexicos=roteador.versao_lexicos,
             inatividade_minutos=settings.lucas_inatividade_minutos,
@@ -444,6 +448,9 @@ async def _bring_up_dependencies(state: WebhookState) -> None:
             )
             return
         logger.info("webhook_lucas_seams_gated", tenant=state.settings.tenant_id, detail=detail)
+        # Onda (e): so' agora, com as costuras do Lucas conferidas, o despachante ganha o turno do
+        # Lucas — e com ele a passagem de cobranca (`HelenaDispatcher._roteamento_completo`).
+        state.dispatcher.lucas_turno = state.lucas_turno
 
     # T4b: wire durable multi-turn persistence into the dispatcher, fail-closed in production.
     # Isolated exactly like the construction above — a failure here must not crash bring-up.
