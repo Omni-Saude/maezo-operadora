@@ -118,7 +118,8 @@ async def executar_caso(
             # ALERTS-WITHOUT-METRICS-a (cerca `test_every_graph_invocation_in_src_counts_agent_errors`):
             # TODO `.ainvoke(` em src/ conta no mesmo contador que alimenta `MaezoAgentCrashLoop`,
             # inclusive este programa de teste — um turno do Lucas que cai e' um turno que caiu.
-            from maezo.platform.observability import classify_agent_error_type, record_agent_error
+            from maezo.platform.observability import record_agent_error
+            from maezo.runtime.metrics import classify_agent_error_type
 
             record_agent_error(agent="lucas", error_type=classify_agent_error_type(exc))
             raise

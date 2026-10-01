@@ -8,7 +8,6 @@ tabelas ANTES de gastar uma execucao no ambiente de desenvolvimento.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -39,7 +38,9 @@ class _DmnVivo:
         if tabela is None:
             raise DmnEvaluationError(f"tabela desconhecida: {key}")
         veredito_ = evaluate(tabela, {nome: variables[nome] for nome in tabela.input_names})
-        return [veredito_.saidas], DmnVersion(key=key, id=f"{key}:1:offline", version=1, deployment_id="offline")
+        return [veredito_.saidas], DmnVersion(
+            key=key, id=f"{key}:1:offline", version=1, deployment_id="offline"
+        )
 
 
 class _Modelo:
