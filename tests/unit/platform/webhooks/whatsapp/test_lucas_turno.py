@@ -100,6 +100,11 @@ def _conversa(
     )
 
 
+#: Marcador: `_rodar` o troca pelo `message_ref` REAL da entrega do turno (o pseudonimo keyed do
+#: `message_id`), que e' o unico que o `LucasTurno` aceita desde a onda (f).
+_REF_DESTA_MENSAGEM = "msg-ref-sintetico"
+
+
 def _handoff(
     subtipo: str = "boleto_2via", competencia: str | None = "2026-09", **extra: Any
 ) -> dict[str, Any]:
@@ -107,7 +112,7 @@ def _handoff(
         "para": "lucas",
         "cobranca_subtipo": subtipo,
         "competencia": competencia,
-        "message_ref": "msg-ref-sintetico",
+        "message_ref": _REF_DESTA_MENSAGEM,
         **extra,
     }
 
@@ -144,6 +149,8 @@ def _turno(
 async def _rodar(
     turno: lt.LucasTurno, conversa: lt.ConversaDoTurno, handoff: Mapping[str, Any], cliente: _ClienteComDedup
 ) -> dict[str, Any]:
+    if isinstance(handoff, Mapping) and handoff.get("message_ref") == _REF_DESTA_MENSAGEM:
+        handoff = {**handoff, "message_ref": turno.dedup.pseudonym(conversa.message_id)}
     return await turno.executar(handoff, conversa, _RemetenteDoTurno(cliente, hash_esperado=conversa.to_hash))
 
 
@@ -354,6 +361,62 @@ async def test_conversa_fora_do_formato_e_recusada_antes_de_efeito(
     with pytest.raises(ValueError):
         await _rodar(turno, conversa, _handoff(), cliente)
     assert cliente.enviados == []
+
+
+# --- Onda (f): o handoff e' DESTA mensagem -------------------------------------------------------
+
+
+class _FonteQueConta:
+    def __init__(self) -> None:
+        self.pedidos = 0
+
+    async def fatos(self, pseudo_id: str, competencia: str | None) -> Any:
+        del pseudo_id, competencia
+        self.pedidos += 1
+        return FatosCobranca(
+            status_conciliado=True, ciclos_sem_conciliacao=0, numero_boleto="SIM-X", cnab_ref="c"
+        )
+
+
+@pytest.mark.parametrize(
+    "ref_do_handoff",
+    [
+        "de-outra-entrega",  # a referencia de outra mensagem da mesma conversa
+        "<wamid-sem-pseudonimo>",  # o marcador constante de `log_safe_message_id` sem pseudonimizador
+        "hk1_0000",  # forma de pseudonimo, valor errado
+    ],
+)
+async def test_handoff_de_outra_mensagem_e_recusado_antes_de_qualquer_efeito(
+    ref_do_handoff: str, seam_lucas: SeamContext
+) -> None:
+    fonte = _FonteQueConta()
+    turno, registry, cibseven = _turno(seam_lucas, fonte=fonte)
+    cliente = _ClienteComDedup(registry)
+    with pytest.raises(lt.HandoffDeOutraMensagemError) as exc:
+        await _rodar(turno, _conversa("velho"), _handoff(message_ref=ref_do_handoff), cliente)
+    assert ref_do_handoff not in str(exc.value)
+    assert cliente.enviados == []
+    assert registry.calls == []
+    assert fonte.pedidos == 0
+    del cibseven
+
+
+async def test_handoff_velho_nao_se_reaproveita_na_mensagem_seguinte(seam_lucas: SeamContext) -> None:
+    """O handoff emitido para a mensagem A nao abre um turno do Lucas na mensagem B."""
+    turno, registry, _ = _turno(seam_lucas)
+    cliente = _ClienteComDedup(registry)
+    a = _conversa("seq", message_id="wamid.SINTETICO-SEQ-A")
+    b = dataclasses.replace(a, message_id="wamid.SINTETICO-SEQ-B")
+    handoff_de_a = _handoff(message_ref=turno.dedup.pseudonym(a.message_id))
+    await _rodar(turno, a, handoff_de_a, cliente)
+    assert len(cliente.enviados) == 1
+    with pytest.raises(lt.HandoffDeOutraMensagemError):
+        await _rodar(turno, b, handoff_de_a, cliente)
+    assert len(cliente.enviados) == 1
+
+
+def test_recusa_de_outra_mensagem_e_um_handoff_invalido() -> None:
+    assert issubclass(lt.HandoffDeOutraMensagemError, lt.HandoffInvalidoError)
 
 
 # --- Fonte de cobranca ----------------------------------------------------------------------------

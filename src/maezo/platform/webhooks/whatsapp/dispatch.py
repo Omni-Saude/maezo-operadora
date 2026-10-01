@@ -807,6 +807,13 @@ class HelenaDispatcher:
                 # `helena`/`retorno_falha`. `CancelledError` nao e' `Exception` e passa direto (turno
                 # drenado nao e' agente falho). Erro de PROGRAMACAO escala e grava do mesmo jeito,
                 # mas re-levanta depois: um bug nao pode virar so' uma fila humana silenciosa.
+                #
+                # HANDOFF DE OUTRA MENSAGEM (onda f): o `LucasTurno` recusa, antes de qualquer
+                # efeito, um `message_ref` que nao e' o desta entrega. Nao e' falha do motor: e' um
+                # handoff que nao se reaproveita. Vira `helena`/`retorno_falha`, SEM envio — nem do
+                # Lucas nem de um escalonamento (o turno da Helena ja' respondeu).
+                from .lucas_turno import HandoffDeOutraMensagemError
+
                 try:
                     handoff, lucas_escalou = await self._turno_do_lucas(
                         message,
@@ -815,6 +822,15 @@ class HelenaDispatcher:
                         beneficiario_pseudo_id=beneficiario_pseudo_id,
                         handoff=result["handoff"],
                     )
+                except HandoffDeOutraMensagemError:
+                    record_roteamento_falha(tenant=self.tenant_id, tipo="lucas_turno")
+                    logger.error(
+                        "lucas_turno_handoff_de_outra_mensagem",
+                        tenant_id=self.tenant_id,
+                        conversation_id=conversation_id,
+                    )
+                    await self._registrar_roteamento(conversation_id, sinais, result, lucas_recusou=True)
+                    return dict(result)
                 except Exception as exc:
                     # `record_agent_error(agent="lucas")` ja' foi contado por `LucasTurno.executar`
                     # (que conta TODA falha do turno, antes e dentro do grafo); aqui conta-se so' a
@@ -985,6 +1001,7 @@ class HelenaDispatcher:
         *,
         handoff: PedidoDeHandoff | None = None,
         lucas_escalou: bool = False,
+        lucas_recusou: bool = False,
     ) -> None:
         """UMA escrita CAS por mensagem, DEPOIS dos dois turnos (§2.2). A resposta ja' saiu; uma
         falha do roteador vira ERRO no log e nunca derruba o turno que ja' respondeu — a proxima
@@ -997,6 +1014,7 @@ class HelenaDispatcher:
                 resultado_helena=result,
                 handoff=handoff,
                 lucas_escalou=lucas_escalou,
+                lucas_recusou=lucas_recusou,
             )
         except Exception as exc:
             record_roteamento_falha(tenant=self.tenant_id, tipo="registro")
