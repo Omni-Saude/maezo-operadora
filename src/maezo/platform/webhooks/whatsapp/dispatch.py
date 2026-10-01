@@ -88,11 +88,12 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import structlog
 
 from maezo.agents.helena.graph import (
+    HelenaGraph,
     HelenaState,
     WhatsAppSender,
     build,
@@ -103,9 +104,13 @@ from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.recipient_custody import RecipientSealer
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
-from maezo.platform.observability import record_agent_first_response, record_mensagem_limitada
+from maezo.platform.observability import (
+    record_agent_first_response,
+    record_mensagem_limitada,
+    record_roteamento_falha,
+)
 from maezo.runtime.checkpoint import Checkpointer, checkpoint_thread_config
-from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES
+from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -123,6 +128,10 @@ if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
 
 logger = structlog.get_logger(__name__)
 
+
+#: O `error` do turno em que o Lucas caiu depois da passagem (review do #589). O sufixo e' so' o
+#: nome da classe da excecao — token, nunca mensagem (ele viaja para `resumo_contexto`).
+ERRO_LUCAS_FALHOU: Final[str] = "lucas turno falhou"
 
 #: The ONE fixed pt-BR reply a non-text inbound gets. Deliberately a module-level constant, not an
 #: f-string assembled per message: nothing about the media (type, caption, filename, media id) may
@@ -728,7 +737,10 @@ class HelenaDispatcher:
                 message_body=message.text,
                 agente_ativo_conversa=await self._agente_ativo(conversation_id),
                 pedido_humano_lexico=bool(sinais and sinais.pedido_humano),
-                sinal_saude_lexico=bool(sinais and sinais.sinal_saude),
+                # FAIL-CLOSED (review do #589): lexico que falhou (`sinais is None`) conta como SINAL
+                # DE SAUDE. O sinal so' bloqueia a passagem ao Lucas — e' o lado seguro; tratar a
+                # falha como "sem sinal" abriria o Lucas justamente quando a cerca nao rodou.
+                sinal_saude_lexico=sinais is None or sinais.sinal_saude,
                 message_ref=message_pseudonym,
             )
         else:
@@ -785,16 +797,46 @@ class HelenaDispatcher:
             if self._roteamento_completo and isinstance(result.get("handoff"), Mapping):
                 # NUMERO UNICO (onda e): a Helena passou a conversa. O Lucas roda AQUI, depois do
                 # turno dela e no MESMO request (§2.3: ir ao Lucas exige a saida tipada deste
-                # request). Uma falha do Lucas PROPAGA: o turno cai, nada e' gravado na tabela e a
-                # reentrega recalcula — a frase da Helena e o envio do Lucas sao suprimidos pela
-                # perna de saida do dedup na segunda vez.
-                handoff, lucas_escalou = await self._turno_do_lucas(
-                    message,
-                    phone_hash=phone_hash,
-                    conversation_id=conversation_id,
-                    beneficiario_pseudo_id=beneficiario_pseudo_id,
-                    handoff=result["handoff"],
-                )
+                # request).
+                #
+                # O LUCAS CAINDO NAO DEIXA A PESSOA SO' COM A FRASE (review do #589). Ate' aqui a
+                # falha propagava: nada gravado, nenhum escalonamento, e uma falha PERSISTENTE se
+                # repetia a cada reentrega com o beneficiario lendo "vou te passar..." e mais nada.
+                # Agora a falha vira `falha_tecnica` pelo caminho de escalonamento que a Helena ja'
+                # tem (start idempotente + resposta honesta pelas cercas), e a linha vai a
+                # `helena`/`retorno_falha`. `CancelledError` nao e' `Exception` e passa direto (turno
+                # drenado nao e' agente falho). Erro de PROGRAMACAO escala e grava do mesmo jeito,
+                # mas re-levanta depois: um bug nao pode virar so' uma fila humana silenciosa.
+                try:
+                    handoff, lucas_escalou = await self._turno_do_lucas(
+                        message,
+                        phone_hash=phone_hash,
+                        conversation_id=conversation_id,
+                        beneficiario_pseudo_id=beneficiario_pseudo_id,
+                        handoff=result["handoff"],
+                    )
+                except Exception as exc:
+                    # `record_agent_error(agent="lucas")` ja' foi contado por `LucasTurno.executar`
+                    # (que conta TODA falha do turno, antes e dentro do grafo); aqui conta-se so' a
+                    # degradacao do roteador.
+                    record_roteamento_falha(tenant=self.tenant_id, tipo="lucas_turno")
+                    logger.error(
+                        "lucas_turno_falhou",
+                        tenant_id=self.tenant_id,
+                        conversation_id=conversation_id,
+                        error_type=type(exc).__name__,
+                    )
+                    escalado = await self._escalar_falha_do_lucas(
+                        message,
+                        phone_hash=phone_hash,
+                        conversation_id=conversation_id,
+                        resultado_helena=result,
+                        erro=type(exc).__name__,
+                    )
+                    await self._registrar_roteamento(conversation_id, sinais, escalado)
+                    if isinstance(exc, PROGRAMMING_ERRORS):
+                        raise
+                    return dict(escalado)
             await self._registrar_roteamento(
                 conversation_id, sinais, result, handoff=handoff, lucas_escalou=lucas_escalou
             )
@@ -808,6 +850,7 @@ class HelenaDispatcher:
         try:
             return await self.roteador.agente_ativo(conversation_id)
         except Exception as exc:
+            record_roteamento_falha(tenant=self.tenant_id, tipo="leitura")
             logger.error(
                 "roteador_leitura_falhou",
                 tenant_id=self.tenant_id,
@@ -855,6 +898,57 @@ class HelenaDispatcher:
         )
         return pedido, final.get("route") == "escalate_human"
 
+    async def _escalar_falha_do_lucas(
+        self,
+        message: InboundMessage,
+        *,
+        phone_hash: str,
+        conversation_id: str,
+        resultado_helena: Mapping[str, Any],
+        erro: str,
+    ) -> dict[str, Any]:
+        """O Lucas caiu depois da frase de passagem: escala `falha_tecnica` pelos MESMOS nos da
+        Helena (`escalate` -> `respond`), sem segundo caminho de efeito.
+
+        O `escalate` abre SP-OP-ESCALATION-001 pelo chokepoint idempotente (business key
+        `ESC-{tenant}-{conversation_id}` — numa reentrega, `ja_ativo`) e o `respond` passa o texto
+        pelas cercas de saida e pela TEXTO x FATO, como em qualquer escalonamento. A chave de saida
+        vive num espaco proprio (`lucas-falha:{message_id}`): a ordinal 1 da Helena ja' foi gasta
+        pela frase, e reusa-la suprimiria esta resposta como duplicata.
+
+        O `error` leva so' o NOME da classe da excecao (token), nunca a mensagem dela.
+        """
+        sender = self._gated_scoped_sender(
+            raw_to=message.from_number,
+            phone_hash=phone_hash,
+            conversation_id=conversation_id,
+            idempotency_key_for=self._outbound_key_factory(f"lucas-falha:{message.message_id}"),
+        )
+        helena = HelenaGraph(
+            inference=self.inference,
+            dmn=self.dmn,
+            cibseven=self.cibseven,
+            audit_sink=self.audit_sink,
+            whatsapp=sender,
+            agent_version="helena@v0",
+            memoria_clinica_enabled=self.memoria_clinica_enabled,
+            roteador_lucas_enabled=True,
+        )
+        estado: dict[str, Any] = {
+            **resultado_helena,
+            "next_kind": "escalate",
+            "escalation_motivo": "falha_tecnica",
+            "escalation_severidade": None,
+            "error": f"{ERRO_LUCAS_FALHOU}: {erro}",
+            "handoff": None,
+            "response_kind": None,
+            "response_text": None,
+            "desfecho": "",
+        }
+        estado.update(await helena.escalate(cast(HelenaState, estado)))
+        estado.update(await helena.respond(cast(HelenaState, estado)))
+        return estado
+
     def _pre_rotear(self, texto: str, conversation_id: str) -> SinaisLexicos | None:
         """Os lexicos de §2.3, antes de qualquer LLM. Em sombra so' vao para o log, e so' como
         booleanos e contagens — nunca o termo casado nem o texto. Uma falha aqui nao derruba o
@@ -863,6 +957,7 @@ class HelenaDispatcher:
         try:
             sinais = self.roteador.pre_rotear(texto)
         except Exception as exc:
+            record_roteamento_falha(tenant=self.tenant_id, tipo="pre_roteamento")
             logger.error(
                 "roteador_pre_roteamento_falhou",
                 tenant_id=self.tenant_id,
@@ -904,6 +999,7 @@ class HelenaDispatcher:
                 lucas_escalou=lucas_escalou,
             )
         except Exception as exc:
+            record_roteamento_falha(tenant=self.tenant_id, tipo="registro")
             logger.error(
                 "roteador_registro_falhou",
                 tenant_id=self.tenant_id,

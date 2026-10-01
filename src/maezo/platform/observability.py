@@ -858,6 +858,25 @@ def record_mensagem_limitada(*, tenant: str, escopo: str) -> None:
         logger.warning("mensagem_limitada_metric_failed", tenant=tenant, exc_info=True)
 
 
+#: Os tipos de falha do roteador do numero unico (ADR-0062). Fechado: um valor fora vira `outro`.
+ROTEAMENTO_FALHA_TIPOS: frozenset[str] = frozenset({"leitura", "registro", "pre_roteamento", "lucas_turno"})
+
+
+def record_roteamento_falha(*, tenant: str, tipo: str) -> None:
+    """Record ONE router failure that degraded to the safe side (ADR-0062, review do #589).
+
+    `leitura` (agente ativo ilegivel -> `helena`), `registro` (CAS/escrita falhou -> a linha fica a
+    anterior), `pre_roteamento` (lexico falhou -> tratado como sinal de saude) e `lucas_turno` (o
+    Lucas caiu -> `falha_tecnica` pela Helena). Best-effort, como os demais registros deste modulo.
+    """
+    rotulo = tipo if tipo in ROTEAMENTO_FALHA_TIPOS else "outro"
+    try:
+        collector = _get_metrics_collector()
+        collector.roteamento_falhas.labels(tenant=tenant, tipo=rotulo).inc()
+    except Exception:  # telemetria nunca derruba o turno que ela conta (ver docstring)
+        logger.warning("roteamento_falha_metric_failed", tenant=tenant, exc_info=True)
+
+
 def record_resposta_recusada(*, agent_id: str, motivo: str, response_kind: str) -> None:
     """Record ONE model-drafted reply that was BLOCKED before reaching the beneficiary.
 

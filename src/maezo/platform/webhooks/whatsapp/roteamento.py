@@ -33,7 +33,6 @@ nenhum texto; os logs deste modulo carregam so' tokens.
 
 from __future__ import annotations
 
-import re
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -44,6 +43,7 @@ import asyncpg  # type: ignore[import-untyped]  # no py.typed upstream
 import structlog
 
 from maezo.gateway.audit_postgres import normalize_dsn, schema_for_tenant
+from maezo.runtime.competencia import competencia_valida
 
 from .pre_roteamento import PreRoteamento, SinaisLexicos
 
@@ -80,7 +80,6 @@ AGENTES: Final[tuple[str, ...]] = get_args(AgenteAtivo)
 TRANSICOES: Final[tuple[str, ...]] = get_args(TransicaoMotivo)
 COBRANCA_SUBTIPOS: Final[tuple[str, ...]] = get_args(CobrancaSubtipo)
 
-_COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 #: Motivos de escalonamento da Helena que sao SAUDE (§2.2, linha `retorno_saude`).
 _MOTIVOS_DE_SAUDE: Final[frozenset[str]] = frozenset(
@@ -92,6 +91,10 @@ _INTENCOES_DE_SAUDE: Final[frozenset[str]] = frozenset({"symptom", "clinical_que
 _INTENCOES_QUE_CONTINUAM: Final[frozenset[str]] = frozenset({"greeting", "information"})
 #: Intencoes que tiram a conversa do Lucas com o texto fixo (§2.2, `retorno_fora_do_canal`).
 _INTENCOES_FORA_DO_CANAL: Final[frozenset[str]] = frozenset({"outside_channel", "scheduling"})
+
+#: PENDENCIA de §2.2 (`continua_lucas`): `False` enquanto nenhuma onda fizer o Lucas responder
+#: "ok"/"e o de setembro?" sem um handoff no mesmo turno. Ver `decidir_transicao`, regra 5.
+CONTINUA_LUCAS_ATENDIDO: Final[bool] = False
 
 #: Purga (§3): ate' 100 linhas com mais de 30 dias, no maximo 1 vez a cada 10 minutos por processo.
 PURGA_IDADE: Final[timedelta] = timedelta(days=30)
@@ -131,7 +134,7 @@ class PedidoDeHandoff:
     def __post_init__(self) -> None:
         if self.cobranca_subtipo not in COBRANCA_SUBTIPOS:
             raise ValueError("roteamento: cobranca_subtipo fora do dominio")
-        if self.competencia is not None and not _COMPETENCIA.match(self.competencia):
+        if self.competencia is not None and not competencia_valida(self.competencia):
             raise ValueError("roteamento: competencia fora do formato YYYY-MM")
 
 
@@ -249,7 +252,8 @@ def decidir_transicao(atual: LinhaAgenteAtivo | None, evento: EventoDoTurno, *, 
       3. falha tecnica -> helena
       4. `handoff` tipado -> lucas (`handoff_cobranca`; frase so' vindo da Helena), ou
          `lucas_encerrou` se o Lucas terminou o turno escalando
-      5. Lucas ativo + `greeting`/`information` -> lucas (`continua_lucas`), ou `lucas_encerrou`
+      5. Lucas ativo + `greeting`/`information` -> helena (`retorno_falha`) enquanto o Lucas
+         nao atende sem handoff (`CONTINUA_LUCAS_ATENDIDO`); `lucas_encerrou` se ele escalou
       6. Lucas ativo + `outside_channel`/`scheduling` -> helena (`retorno_fora_do_canal`)
       7. Lucas ativo + qualquer outra coisa -> helena (`retorno_falha`): estado injustificado nao
          fica no Lucas
@@ -290,12 +294,17 @@ def decidir_transicao(atual: LinhaAgenteAtivo | None, evento: EventoDoTurno, *, 
         if evento.intent in _INTENCOES_QUE_CONTINUAM:
             if evento.lucas_escalou:
                 return _para_helena("lucas_encerrou")
-            return Decisao(
-                agente_ativo="lucas",
-                transicao_motivo="continua_lucas",
-                lucas_cobranca_subtipo=subtipo,
-                lucas_competencia=competencia,
-            )
+            # PENDENCIA (01/10/2026, review do #589): §2.2 manda o Lucas atender aqui, com o
+            # contexto das tres colunas, mas nenhuma onda ainda faz o Lucas responder sem um
+            # `handoff` NESTE turno — quem responde o "ok" e' a Helena. Gravar `lucas`/
+            # `continua_lucas` seria a tabela mentir sobre quem atendeu (e renovar `expira_em`
+            # de um atendimento que nao houve). Ate' a onda que fizer o Lucas atender, volta a
+            # Helena como estado injustificado. `continua_lucas` segue no dominio da coluna e da
+            # migration 0017, sem produtor.
+            del subtipo, competencia
+            if not CONTINUA_LUCAS_ATENDIDO:
+                return _para_helena("retorno_falha")
+            return Decisao(agente_ativo="lucas", transicao_motivo="continua_lucas")
         if evento.intent in _INTENCOES_FORA_DO_CANAL:
             return _para_helena("retorno_fora_do_canal")
         return _para_helena("retorno_falha")

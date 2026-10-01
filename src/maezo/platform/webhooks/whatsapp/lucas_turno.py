@@ -64,6 +64,7 @@ from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.seams import SeamContext
 from maezo.gateway.seams.whatsapp import gate_whatsapp
 from maezo.platform.observability import record_agent_first_response
+from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.inference import InferenceProvider
 from maezo.runtime.metrics import classify_agent_error_type
 from maezo.tools.mcp_cibseven.transport import AuditStartSink, CibSevenTransport
@@ -84,7 +85,6 @@ CHAVES_DO_HANDOFF: Final[frozenset[str]] = frozenset(
     {"para", "cobranca_subtipo", "competencia", "message_ref"}
 )
 
-_COMPETENCIA: Final[re.Pattern[str]] = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _CONVERSATION_ID: Final[re.Pattern[str]] = re.compile(r"^wa:[^:]+:hk1_[0-9a-f]+$")
 
 #: §2.5: subtipo do handoff -> entrada do Lucas. J1 = `cobranca_info` sem flag, J2 =
@@ -159,7 +159,7 @@ def validar_handoff(handoff: Mapping[str, Any]) -> HandoffValidado:
     if not isinstance(subtipo, str) or subtipo not in ENTRADA_POR_SUBTIPO:
         raise HandoffInvalidoError("lucas_turno: cobranca_subtipo fora do dominio")
     competencia = handoff["competencia"]
-    if competencia is not None and (not isinstance(competencia, str) or not _COMPETENCIA.match(competencia)):
+    if competencia is not None and not competencia_valida(competencia):
         raise HandoffInvalidoError("lucas_turno: competencia fora do formato YYYY-MM")
     message_ref = handoff["message_ref"]
     if not isinstance(message_ref, str) or not message_ref:
@@ -296,12 +296,21 @@ class LucasTurno:
         Levanta `HandoffInvalidoError`/`ValueError` ANTES de qualquer efeito quando a entrada nao
         tem a forma do contrato: um handoff malformado nunca vira turno do Lucas.
         """
-        validado = validar_handoff(handoff)
-        self._conferir_conversa(conversa)
         inicio = time.monotonic()
-        estado = entrada_do_lucas(
-            validado, conversa, tenant_id=self.tenant_id, fatos=await self._fatos(conversa, validado)
-        )
+        try:
+            validado = validar_handoff(handoff)
+            self._conferir_conversa(conversa)
+            estado = entrada_do_lucas(
+                validado, conversa, tenant_id=self.tenant_id, fatos=await self._fatos(conversa, validado)
+            )
+        except Exception as exc:
+            # A falha ANTES do grafo (forma do handoff/conversa, fonte) tambem e' erro do agente
+            # `lucas` (review do #589); a do grafo e' contada no `ainvoke` abaixo. Um ponto por
+            # falha, e o despachante, que trata a falha, nao conta de novo.
+            from maezo.platform.observability import record_agent_error
+
+            record_agent_error(agent=AGENT_ID, error_type=classify_agent_error_type(exc))
+            raise
         remetente = gate_whatsapp(
             _RemetenteDoLucas(inner=sender, dedup=self.dedup, message_id=conversa.message_id),
             self.seam_context,

@@ -96,15 +96,18 @@ class _LucasEspiao:
     """Embrulha o `LucasTurno` real e guarda O QUE chegou a ele (o handoff), para provar que o
     texto do beneficiario nao chega."""
 
-    def __init__(self, real: lt.LucasTurno, *, falhar: bool = False) -> None:
+    def __init__(
+        self, real: lt.LucasTurno, *, falhar: bool = False, erro: type[Exception] = RuntimeError
+    ) -> None:
         self._real = real
         self._falhar = falhar
+        self._erro = erro
         self.handoffs: list[dict[str, Any]] = []
 
     async def executar(self, handoff: Any, conversa: Any, sender: Any) -> dict[str, Any]:
         self.handoffs.append(dict(handoff))
         if self._falhar:
-            raise RuntimeError("motor do lucas fora")
+            raise self._erro("motor do lucas fora")
         return await self._real.executar(handoff, conversa, sender)
 
 
@@ -115,6 +118,7 @@ def _montar(
     com_lucas: bool = True,
     rascunho_lucas: str | None = _RESPOSTA_DO_LUCAS,
     lucas_falha: bool = False,
+    lucas_erro: type[Exception] = RuntimeError,
     store: FakeAgenteAtivoStore | None = None,
     registry: FakeDedupRegistry | None = None,
 ) -> tuple[HelenaDispatcher, _Cliente, FakeAgenteAtivoStore, _LucasEspiao | None, _Inferencia]:
@@ -146,7 +150,7 @@ def _montar(
             dedup=dedup,
             fonte=_fonte(),
         )
-        espiao = _LucasEspiao(real, falhar=lucas_falha)
+        espiao = _LucasEspiao(real, falhar=lucas_falha, erro=lucas_erro)
     inferencia = _Inferencia(classificacoes)
     dispatcher = HelenaDispatcher(
         tenant_id=TENANT,
@@ -269,11 +273,90 @@ async def test_lucas_escalando_devolve_a_conversa_para_a_helena() -> None:
     assert (linha.agente_ativo, linha.transicao_motivo) == ("helena", "lucas_encerrou")
 
 
-async def test_lucas_caindo_derruba_o_turno_e_nada_e_gravado() -> None:
-    dispatcher, _, store, _, _ = _montar([_classify()], lucas_falha=True)
-    with pytest.raises(RuntimeError):
+async def test_lucas_caindo_escala_falha_tecnica_e_devolve_a_conversa_a_helena() -> None:
+    """Review do #589: a pessoa nao fica so' com a frase. A falha do Lucas vira `falha_tecnica`
+    pelo escalonamento da Helena (processo aberto + resposta honesta) e a linha vai a
+    `helena`/`retorno_falha`; o turno NAO levanta (a reentrega nao repete a falha)."""
+    dispatcher, cliente, store, _, _ = _montar([_classify()], lucas_falha=True)
+    resultado = await dispatcher.dispatch(_msg())
+
+    assert resultado["escalation_motivo"] == "falha_tecnica"
+    assert resultado["escalation_started"] is True
+    assert resultado["error"] == "lucas turno falhou: RuntimeError"
+    assert resultado.get("handoff") is None
+    assert cliente.textos[0] == FRASE_PASSAGEM_COBRANCA
+    assert len(cliente.textos) == 2  # a frase + a resposta honesta do escalonamento
+    linha = _linha(store)
+    assert (linha.agente_ativo, linha.transicao_motivo) == ("helena", "retorno_falha")
+
+
+async def test_lucas_com_erro_de_programacao_escala_grava_e_re_levanta() -> None:
+    dispatcher, cliente, store, _, _ = _montar([_classify()], lucas_falha=True, lucas_erro=TypeError)
+    with pytest.raises(TypeError):
         await dispatcher.dispatch(_msg())
-    assert store.gravacoes == 0
+    assert len(cliente.textos) == 2
+    assert _linha(store).transicao_motivo == "retorno_falha"
+
+
+async def test_reentrega_depois_da_falha_do_lucas_prova_o_dedup_de_saida() -> None:
+    """1a entrega: o Lucas cai (frase + escalonamento). 2a entrega da MESMA mensagem, Lucas sadio,
+    mesmo registry e mesmo store: a frase NAO sai de novo (a chave da Helena ja' foi gasta), o
+    Lucas responde UMA vez e a conversa fica com ele."""
+    registry = FakeDedupRegistry()
+    store = FakeAgenteAtivoStore()
+    d1, c1, _, _, _ = _montar([_classify()], store=store, registry=registry, lucas_falha=True)
+    await d1.dispatch(_msg())
+    d2, c2, _, espiao2, _ = _montar([_classify()], store=store, registry=registry)
+    await d2.dispatch(_msg())
+
+    todos = c1.textos + c2.textos
+    assert todos.count(FRASE_PASSAGEM_COBRANCA) == 1
+    assert todos.count(_RESPOSTA_DO_LUCAS) == 1
+    assert c2.textos == [_RESPOSTA_DO_LUCAS]
+    assert espiao2 is not None and len(espiao2.handoffs) == 1
+    assert _linha(store).agente_ativo == "lucas"
+
+
+async def test_lexico_que_falha_conta_como_sinal_de_saude_e_nao_passa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review do #589 (security): `pre_rotear` levantando nao pode abrir o Lucas."""
+    dispatcher, cliente, _, espiao, _ = _montar([_classify(), "Recebemos sua mensagem.", "resumo"])
+    assert dispatcher.roteador is not None
+
+    def _quebra(texto: str) -> Any:
+        raise RuntimeError("lexico quebrado")
+
+    monkeypatch.setattr(dispatcher.roteador, "pre_rotear", _quebra)
+    resultado = await dispatcher.dispatch(_msg())
+
+    assert resultado.get("handoff") is None
+    assert resultado["error"] == "handoff recusado: sinal_saude_lexico"
+    assert espiao is not None and espiao.handoffs == []
+    assert FRASE_PASSAGEM_COBRANCA not in cliente.textos
+
+
+async def test_falhas_do_roteador_sao_contadas(monkeypatch: pytest.MonkeyPatch) -> None:
+    from maezo.platform.webhooks.whatsapp import dispatch as dispatch_module
+
+    contadas: list[str] = []
+    monkeypatch.setattr(
+        dispatch_module, "record_roteamento_falha", lambda *, tenant, tipo: contadas.append(tipo)
+    )
+    dispatcher, _, store, _, _ = _montar([_classify()], lucas_falha=True)
+    assert dispatcher.roteador is not None
+
+    async def _ler_quebrado(conversation_id: str) -> Any:
+        raise OSError("banco fora")
+
+    monkeypatch.setattr(dispatcher.roteador, "agente_ativo", _ler_quebrado)
+    monkeypatch.setattr(store, "gravar", _gravar_quebrado)
+    await dispatcher.dispatch(_msg())
+    assert contadas == ["leitura", "lucas_turno", "registro"]
+
+
+async def _gravar_quebrado(linha: Any, *, revisao_esperada: int | None) -> bool:
+    raise OSError("banco fora")
 
 
 # --- o que NAO passa ------------------------------------------------------------------------------

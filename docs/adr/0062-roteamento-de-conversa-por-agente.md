@@ -75,6 +75,26 @@ decidir qualquer coisa.
   processo) é proposta de engenharia; a decisão é do DPO (`erasure-plan.template.yaml`, camada
   `roteamento_conversa`, `PENDENTE`).
 
+## Pendências e riscos conhecidos (01/10/2026, revisão do PR #589, onda e)
+
+- **`continua_lucas` não tem produtor.** O §2.2 do plano prevê que o Lucas responda a um
+  `greeting`/`information` quando ele já está com a conversa ("ok", "e o de setembro?"), usando as
+  três colunas da tabela. Nenhuma onda faz isso ainda: quem responde esse turno é a Helena. Até a
+  onda que fizer o Lucas atender sem um `handoff` no mesmo turno, `decidir_transicao` grava
+  `helena`/`retorno_falha` nesse caso (`roteamento.py::CONTINUA_LUCAS_ATENDIDO = False`). Gravar
+  `lucas`/`continua_lucas` faria a tabela registrar um atendimento que não aconteceu e renovaria
+  `expira_em`. O token continua no domínio da coluna e da migration 0017.
+- **Risco aceito: duas réplicas podem enviar a frase de passagem.** Se duas mensagens da mesma
+  conversa chegarem ao mesmo tempo em réplicas diferentes, as duas leem `helena` antes de qualquer
+  escrita, e as duas mandam a frase. A chave de saída é por mensagem de entrada, então ela não
+  deduplica entre mensagens distintas. O CAS resolve a linha (quem perde relê e recalcula), mas a
+  frase duplicada já foi enviada. O custo é uma mensagem de cortesia repetida, sem efeito adverso.
+  Não foi tratado nesta onda.
+- **Falha do Lucas depois da frase** vira `falha_tecnica` pelo escalonamento da Helena (processo
+  aberto e resposta honesta), e a linha volta para `helena`/`retorno_falha`. O beneficiário não fica
+  só com "vou te passar…". Falha do léxico conta como sinal de saúde, ou seja, bloqueia a passagem.
+  As degradações do roteador são contadas em `maezo_roteamento_falhas_total{tipo}`.
+
 ## Supersedes
 
 —

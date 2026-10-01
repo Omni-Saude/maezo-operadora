@@ -31,15 +31,13 @@ dev (a cerca que impoe isso e' a da onda (c), §4).
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass
 from typing import Any, Final, Literal, Protocol, runtime_checkable
 
+from maezo.runtime.competencia import competencia_valida
+
 #: Motivos de `Indisponivel`. Fechado: a fonte real tem de mapear as falhas dela para um destes.
 MotivoIndisponivel = Literal["pseudo_id_ausente", "competencia_invalida", "fonte_indisponivel"]
-
-#: `YYYY-MM`, mes 01..12 — a mesma regra da coluna `lucas_competencia` (§5 do plano).
-_COMPETENCIA: Final[re.Pattern[str]] = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +113,8 @@ class FonteCobrancaSimulada:
     async def fatos(self, pseudo_id: str, competencia: str | None) -> FatosCobranca | Indisponivel:
         if not pseudo_id:
             return Indisponivel("pseudo_id_ausente")
-        if competencia is not None and not _COMPETENCIA.match(competencia):
+        # `YYYY-MM`: a regra unica de `runtime/competencia.py` (a da coluna `lucas_competencia`).
+        if competencia is not None and not competencia_valida(competencia):
             return Indisponivel("competencia_invalida")
         perfil = perfil_simulado(pseudo_id)
         if perfil == "indisponivel":

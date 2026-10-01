@@ -145,12 +145,13 @@ import json
 import re
 from collections.abc import Hashable, Mapping
 from datetime import UTC, datetime
-from typing import Any, Literal, Protocol, TypedDict, cast
+from typing import Any, Literal, Protocol, TypedDict, cast, get_args
 
 import structlog
 from langgraph.graph import END, START, StateGraph
 
 from maezo.platform.observability import record_resposta_recusada, record_sintoma_fora_da_tabela
+from maezo.runtime.competencia import competencia_valida
 from maezo.runtime.dependency_failures import EXTERNAL_DEPENDENCY_FAILURES, PROGRAMMING_ERRORS
 from maezo.runtime.error_text import (
     dmn_unavailable_error,
@@ -313,18 +314,16 @@ INTENT_COBRANCA: str = "cobranca"
 #: `platform/webhooks/whatsapp/roteamento.py::COBRANCA_SUBTIPOS` e do CHECK da migration 0017; o
 #: grafo nao importa a plataforma, entao a copia e' conferida por
 #: `tests/unit/agents/test_helena_passagem_cobranca.py`.
-_VALID_COBRANCA_SUBTIPOS: frozenset[str] = frozenset(
-    {
-        "boleto_2via",
-        "vencimento",
-        "confirmacao_pagamento",
-        "contestacao",
-        "cobranca_recebida",
-        "cancelamento",
-        "outro",
-    }
-)
-_COMPETENCIA_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+CobrancaSubtipo = Literal[
+    "boleto_2via",
+    "vencimento",
+    "confirmacao_pagamento",
+    "contestacao",
+    "cobranca_recebida",
+    "cancelamento",
+    "outro",
+]
+_VALID_COBRANCA_SUBTIPOS: frozenset[str] = frozenset(get_args(CobrancaSubtipo))
 
 
 def _intents_validos(*, cobranca_habilitada: bool) -> frozenset[str]:
@@ -814,7 +813,7 @@ class HandoffCobranca(TypedDict):
     """
 
     para: Literal["lucas"]
-    cobranca_subtipo: str
+    cobranca_subtipo: CobrancaSubtipo
     competencia: str | None
     message_ref: str
 
@@ -865,7 +864,7 @@ class HelenaState(TypedDict, total=False):
     dmn_decision_ref: str
     # Onda (e): o subtipo e a competencia de uma mensagem de COBRANCA, ja' validados contra o
     # dominio fechado. `None` em todo turno que nao e' `intent="cobranca"`.
-    cobranca_subtipo: str | None
+    cobranca_subtipo: CobrancaSubtipo | None
     cobranca_competencia: str | None
     #: Onda (e): a passagem ao Lucas, escrita SO' pelo no' `handoff_cobranca`.
     handoff: HandoffCobranca | None
@@ -2064,7 +2063,7 @@ def _handoff_recusado(estado: Mapping[str, Any], *, roteador_ligado: bool) -> st
     if not _em_dominio(estado.get("cobranca_subtipo"), _VALID_COBRANCA_SUBTIPOS):
         return "subtipo_fora_do_dominio"
     competencia = estado.get("cobranca_competencia")
-    if competencia is not None and not (isinstance(competencia, str) and _COMPETENCIA_RE.match(competencia)):
+    if competencia is not None and not competencia_valida(competencia):
         return "competencia_invalida"
     ref = estado.get("message_ref")
     if not isinstance(ref, str) or not ref:
@@ -2259,9 +2258,7 @@ def _validate_extraction(data: dict[str, Any], *, cobranca_habilitada: bool = Fa
         elif subtipo is not None:
             return "invalid_cobranca_subtipo"
         competencia = data.get("competencia")
-        if competencia is not None and not (
-            isinstance(competencia, str) and _COMPETENCIA_RE.match(competencia)
-        ):
+        if competencia is not None and not competencia_valida(competencia):
             return "invalid_competencia"
     return None
 
@@ -3077,7 +3074,8 @@ class HelenaGraph:
         """
         handoff: HandoffCobranca = {
             "para": "lucas",
-            "cobranca_subtipo": str(state.get("cobranca_subtipo") or ""),
+            # Ja' validado em `_validate_extraction` e de novo em `_handoff_recusado` (2 camadas).
+            "cobranca_subtipo": cast(CobrancaSubtipo, state.get("cobranca_subtipo")),
             "competencia": state.get("cobranca_competencia"),
             "message_ref": str(state.get("message_ref") or ""),
         }

@@ -143,14 +143,16 @@ ESPERADO: dict[str, dict[str, tuple[str, str, bool]]] = {
     "greeting": {
         "ausente": (H, "inicio", False),
         "helena_viva": (H, "retorno_saude", False),
-        "lucas_vivo": (L, "continua_lucas", False),
+        # Pendencia de §2.2 (review do #589): o Lucas ainda nao atende sem handoff -> Helena.
+        "lucas_vivo": (H, "retorno_falha", False),
         "helena_vencida": (H, "retorno_inatividade", False),
         "lucas_vencido": (H, "retorno_inatividade", False),
     },
     "information": {
         "ausente": (H, "inicio", False),
         "helena_viva": (H, "retorno_saude", False),
-        "lucas_vivo": (L, "continua_lucas", False),
+        # Pendencia de §2.2 (review do #589): o Lucas ainda nao atende sem handoff -> Helena.
+        "lucas_vivo": (H, "retorno_falha", False),
         "helena_vencida": (H, "retorno_inatividade", False),
         "lucas_vencido": (H, "retorno_inatividade", False),
     },
@@ -194,7 +196,10 @@ def test_a_tabela_de_verdade_cobre_todo_estado_e_todo_evento() -> None:
     for evento, por_estado in ESPERADO.items():
         assert set(por_estado) == set(ESTADOS), evento
     motivos_cobertos = {motivo for por_estado in ESPERADO.values() for _, motivo, _ in por_estado.values()}
-    assert motivos_cobertos == set(TRANSICOES), "todo token de transicao tem pelo menos uma celula"
+    # `continua_lucas` esta' SEM PRODUTOR ate' o Lucas atender sem handoff (review do #589); e' o
+    # unico token do dominio que a tabela nao alcanca, e a ausencia e' declarada, nao esquecida.
+    sem_produtor = {"continua_lucas"}
+    assert motivos_cobertos == set(TRANSICOES) - sem_produtor, "todo token de transicao tem uma celula"
 
 
 @pytest.mark.parametrize(("evento", "estado"), list(itertools.product(EVENTOS, ESTADOS)))
@@ -210,9 +215,17 @@ def test_handoff_leva_subtipo_e_competencia_do_handoff() -> None:
     assert (decisao.lucas_cobranca_subtipo, decisao.lucas_competencia) == ("contestacao", "2026-08")
 
 
-def test_continua_lucas_preserva_as_colunas_do_lucas() -> None:
-    decisao = decidir_transicao(ESTADOS["lucas_vivo"], EVENTOS["greeting"], agora=_AGORA)
-    assert (decisao.lucas_cobranca_subtipo, decisao.lucas_competencia) == ("boleto_2via", "2026-09")
+def test_continua_lucas_nao_tem_produtor_enquanto_o_lucas_nao_atende_sem_handoff() -> None:
+    """Review do #589: gravar `lucas`/`continua_lucas` com a Helena respondendo seria a tabela mentir
+    sobre quem atendeu (e renovar `expira_em`). Ate' a onda que fizer o Lucas atender, nenhuma
+    combinacao produz `continua_lucas`; o token segue no dominio da coluna."""
+    from maezo.platform.webhooks.whatsapp import roteamento
+
+    assert roteamento.CONTINUA_LUCAS_ATENDIDO is False
+    assert "continua_lucas" in TRANSICOES
+    for evento in _grade():
+        for estado in ESTADOS.values():
+            assert decidir_transicao(estado, evento, agora=_AGORA).transicao_motivo != "continua_lucas"
 
 
 def test_toda_decisao_para_a_helena_zera_as_colunas_do_lucas() -> None:
@@ -226,9 +239,7 @@ def test_vencimento_e_estrito_expira_em_igual_a_agora_ainda_vale() -> None:
     linha = ESTADOS["lucas_vivo"]
     assert linha is not None
     no_limite = _substituir(linha, expira_em=_AGORA)
-    assert (
-        decidir_transicao(no_limite, EVENTOS["greeting"], agora=_AGORA).transicao_motivo == "continua_lucas"
-    )
+    assert decidir_transicao(no_limite, EVENTOS["greeting"], agora=_AGORA).transicao_motivo == "retorno_falha"
     vencida = _substituir(linha, expira_em=_AGORA - timedelta(microseconds=1))
     assert (
         decidir_transicao(vencida, EVENTOS["greeting"], agora=_AGORA).transicao_motivo
@@ -307,8 +318,8 @@ def _grade() -> list[EventoDoTurno]:
 
 def test_so_handoff_tipado_ou_lucas_vivo_continuando_levam_ao_lucas() -> None:
     """§2.3: a camada deterministica so' puxa para a Helena; o Lucas exige o handoff DESTE turno
-    (ou o Lucas ja' vivo e a conversa seguindo nele). Saude, pedido de pessoa e falha nunca vao
-    para o Lucas, em nenhuma combinacao."""
+    (ou, com `CONTINUA_LUCAS_ATENDIDO`, o Lucas ja' vivo e a conversa seguindo nele). Saude, pedido
+    de pessoa e falha nunca vao para o Lucas, em nenhuma combinacao."""
     for evento in _grade():
         for nome, estado in ESTADOS.items():
             decisao = decidir_transicao(estado, evento, agora=_AGORA)
