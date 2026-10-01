@@ -1,0 +1,686 @@
+{
+  "versao": 1,
+  "plano": "docs/plans/lucas-numero-unico.md, secao 6(a)",
+  "nota": "Esperados refletem as DMN DRAFT lucas_billing_admissibility e lucas_escalation_routing ate o time aprovar. motivo_categoria e severidade NAO sao comparados: a onda (b) muda os dois.",
+  "casos": [
+    {
+      "id": "LUC-PRG-J1-01",
+      "jornada": "J1",
+      "subtipo_handoff": "boleto_2via",
+      "descricao": "Duvida de boleto, pagamento conciliado: resposta informativa (regra lba_r_boleto_2via).",
+      "pseudo_id": "pseudo-lucas-003",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "boleto",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J1-02",
+      "jornada": "J1",
+      "subtipo_handoff": "boleto_2via",
+      "descricao": "Pedido de 2a via, em aberto sem ciclo vencido: resposta informativa, nunca emissao (lba_r_boleto_2via).",
+      "pseudo_id": "pseudo-lucas-002",
+      "perfil_fonte": "em_aberto",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "2a_via",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J1-03",
+      "jornada": "J1",
+      "subtipo_handoff": "vencimento",
+      "descricao": "Duvida de vencimento sem indicio de inadimplencia: lembrete (lba_r_vencimento).",
+      "pseudo_id": "pseudo-lucas-004",
+      "perfil_fonte": "em_aberto",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "vencimento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "respond_member",
+        "admissibilidade": "LEMBRETE",
+        "desfecho": "lembrete_enviado",
+        "process_started": false,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J1-04",
+      "jornada": "J1",
+      "subtipo_handoff": "boleto_2via",
+      "descricao": "Duvida de boleto com 1 ciclo sem conciliacao: a DMN escala (lba_r_atraso_escala); o Lucas nao responde sozinho.",
+      "pseudo_id": "pseudo-lucas-010",
+      "perfil_fonte": "atraso_1_ciclo",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "boleto",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J1-05",
+      "jornada": "J1",
+      "subtipo_handoff": "outro",
+      "descricao": "Subtipo 'outro' (tipo_solicitacao vazio): cai no catch-all da DMN e escala. ACHADO DRAFT: graph.py::assess rotula esse catch-all como inadimplencia_detectada, embora o pagamento esteja conciliado.",
+      "pseudo_id": "pseudo-lucas-013",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J1-06",
+      "jornada": "J1",
+      "subtipo_handoff": "vencimento",
+      "descricao": "Rascunho do modelo ameaca suspensao num lembrete: a cerca de saida barra e o texto enviado e' a constante RESPOSTA_INFORMATIVA_RECUSADA.",
+      "pseudo_id": "pseudo-lucas-008",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "vencimento",
+        "competencia": "2026-09"
+      },
+      "rascunho_llm": "Lembramos que seu plano sera suspenso caso o boleto nao seja pago ate o vencimento.",
+      "esperado": {
+        "route": "respond_member",
+        "admissibilidade": "LEMBRETE",
+        "desfecho": "resposta_recusada_na_saida",
+        "process_started": false,
+        "envios": 1,
+        "recusa_de_saida": true,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J2-01",
+      "jornada": "J2",
+      "subtipo_handoff": "confirmacao_pagamento",
+      "descricao": "Confirmacao de pagamento conciliado: reporta o status (lba_r_status_conciliado).",
+      "pseudo_id": "pseudo-lucas-017",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "confirmacao_pagamento",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_informativa_enviada",
+        "process_started": false,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J2-02",
+      "jornada": "J2",
+      "subtipo_handoff": "confirmacao_pagamento",
+      "descricao": "Rascunho cita valor ausente dos fatos: a cerca (valor_sem_fato) barra e o texto enviado e' a constante.",
+      "pseudo_id": "pseudo-lucas-021",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "confirmacao_pagamento",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "rascunho_llm": "Seu pagamento consta como conciliado. O valor em aberto e de R$ 450,00.",
+      "esperado": {
+        "route": "respond_member",
+        "admissibilidade": "RESPONDER",
+        "desfecho": "resposta_recusada_na_saida",
+        "process_started": false,
+        "envios": 1,
+        "recusa_de_saida": true,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J2-03",
+      "jornada": "J2",
+      "subtipo_handoff": "confirmacao_pagamento",
+      "descricao": "Pagamento nao conciliado e sem ciclo vencido: combinacao nao mapeada, o catch-all escala (mesmo rotulo inadimplencia_detectada do J1-05).",
+      "pseudo_id": "pseudo-lucas-005",
+      "perfil_fonte": "em_aberto",
+      "entrada": {
+        "intencao": "confirmacao_pagamento",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J2-04",
+      "jornada": "J2",
+      "subtipo_handoff": "confirmacao_pagamento",
+      "descricao": "Nao conciliado por 1 ciclo: indicio de inadimplencia, escala para cobranca humana.",
+      "pseudo_id": "pseudo-lucas-011",
+      "perfil_fonte": "atraso_1_ciclo",
+      "entrada": {
+        "intencao": "confirmacao_pagamento",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J2-05",
+      "jornada": "J2",
+      "subtipo_handoff": "confirmacao_pagamento",
+      "descricao": "Nao conciliado por 2 ciclos: escala para cobranca humana; o Lucas nunca comunica consequencia.",
+      "pseudo_id": "pseudo-lucas-001",
+      "perfil_fonte": "atraso_2_ciclos",
+      "entrada": {
+        "intencao": "confirmacao_pagamento",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J2-06",
+      "jornada": "J2",
+      "subtipo_handoff": "confirmacao_pagamento",
+      "descricao": "Fonte de cobranca indisponivel: nenhum fato inventado, os campos de conciliacao ficam ausentes e o catch-all da DMN escala.",
+      "pseudo_id": "pseudo-lucas-012",
+      "perfil_fonte": "indisponivel",
+      "entrada": {
+        "intencao": "confirmacao_pagamento",
+        "tipo_solicitacao": "status_pagamento",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-01",
+      "jornada": "J3",
+      "subjornada": "inadimplencia",
+      "subtipo_handoff": "cobranca_recebida",
+      "descricao": "'Estou sendo cobrado' com 1 ciclo em aberto: J3, escala sem passar pela DMN de admissibilidade.",
+      "pseudo_id": "pseudo-lucas-018",
+      "perfil_fonte": "atraso_1_ciclo",
+      "entrada": {
+        "intencao": "inadimplencia",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-02",
+      "jornada": "J3",
+      "subjornada": "inadimplencia",
+      "subtipo_handoff": "cobranca_recebida",
+      "descricao": "'Estou sendo cobrado' com 2 ciclos em aberto: J3, escala.",
+      "pseudo_id": "pseudo-lucas-006",
+      "perfil_fonte": "atraso_2_ciclos",
+      "entrada": {
+        "intencao": "inadimplencia",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-03",
+      "jornada": "J3",
+      "subjornada": "inadimplencia",
+      "subtipo_handoff": "cobranca_recebida",
+      "descricao": "'Estou sendo cobrado' sem atraso registrado: J3 escala do mesmo jeito; o fato nao muda a jornada.",
+      "pseudo_id": "pseudo-lucas-007",
+      "perfil_fonte": "em_aberto",
+      "entrada": {
+        "intencao": "inadimplencia",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "inadimplencia_detectada",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-04",
+      "jornada": "J3",
+      "subjornada": "contestacao",
+      "subtipo_handoff": "contestacao",
+      "descricao": "Contestacao de cobranca ja conciliada: humano decide o merito.",
+      "pseudo_id": "pseudo-lucas-023",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09",
+        "contesta_cobranca": true
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "contestacao_cobranca",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-05",
+      "jornada": "J3",
+      "subjornada": "contestacao",
+      "subtipo_handoff": "contestacao",
+      "descricao": "Contestacao com 1 ciclo em aberto: humano decide o merito.",
+      "pseudo_id": "pseudo-lucas-022",
+      "perfil_fonte": "atraso_1_ciclo",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09",
+        "contesta_cobranca": true
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "contestacao_cobranca",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-06",
+      "jornada": "J3",
+      "subjornada": "contestacao",
+      "subtipo_handoff": "contestacao",
+      "descricao": "Contestacao com fonte indisponivel, e o rascunho do ACK ameaca cancelar o contrato: a cerca barra e sai ACK_ESCALACAO_RECUSADO.",
+      "pseudo_id": "pseudo-lucas-014",
+      "perfil_fonte": "indisponivel",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09",
+        "contesta_cobranca": true
+      },
+      "rascunho_llm": "Recebemos sua contestacao. Seu contrato sera cancelado se a contestacao nao for aceita.",
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "contestacao_cobranca",
+        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": true,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-07",
+      "jornada": "J3",
+      "subjornada": "cancelamento",
+      "subtipo_handoff": "cancelamento",
+      "descricao": "Pedido de cancelamento em dia: vai para gestao de contratos; o Lucas nunca cancela.",
+      "pseudo_id": "pseudo-lucas-027",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "cancelamento",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09",
+        "pedido_cancelamento": true
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "pedido_cancelamento",
+        "roteamento_escalacao": "CONTRATOS_HUMANO",
+        "grupo_humano": "gestao-contratos",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-08",
+      "jornada": "J3",
+      "subjornada": "cancelamento",
+      "subtipo_handoff": "cancelamento",
+      "descricao": "Pedido de cancelamento com 2 ciclos em aberto, e o rascunho do ACK afirma o cancelamento: a cerca barra.",
+      "pseudo_id": "pseudo-lucas-024",
+      "perfil_fonte": "atraso_2_ciclos",
+      "entrada": {
+        "intencao": "cancelamento",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09",
+        "pedido_cancelamento": true
+      },
+      "rascunho_llm": "Recebemos seu pedido e o cancelamento foi aprovado.",
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "pedido_cancelamento",
+        "roteamento_escalacao": "CONTRATOS_HUMANO",
+        "grupo_humano": "gestao-contratos",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": true,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-J3-09",
+      "jornada": "J3",
+      "subjornada": "cancelamento",
+      "subtipo_handoff": "cancelamento",
+      "descricao": "Pedido de cancelamento em aberto sem atraso: gestao de contratos.",
+      "pseudo_id": "pseudo-lucas-009",
+      "perfil_fonte": "em_aberto",
+      "entrada": {
+        "intencao": "cancelamento",
+        "tipo_solicitacao": "",
+        "competencia": "2026-09",
+        "pedido_cancelamento": true
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "pedido_cancelamento",
+        "roteamento_escalacao": "CONTRATOS_HUMANO",
+        "grupo_humano": "gestao-contratos",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-FS-01",
+      "jornada": "failsafe",
+      "subtipo_handoff": "boleto_2via",
+      "descricao": "DMN fora do ar numa duvida de boleto que, com a DMN de pe, seria respondida: escala, com o grupo catch-all.",
+      "pseudo_id": "pseudo-lucas-028",
+      "perfil_fonte": "conciliado",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "boleto",
+        "competencia": "2026-09"
+      },
+      "dmn": "indisponivel",
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "dmn_indisponivel",
+        "roteamento_escalacao": "",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": [
+          "lucas_billing_admissibility",
+          "lucas_escalation_routing"
+        ]
+      }
+    },
+    {
+      "id": "LUC-PRG-FS-02",
+      "jornada": "failsafe",
+      "descricao": "Intencao fora do dominio: o gate de `receive` escala por ambiguidade, sem DMN; nunca le como J1.",
+      "pseudo_id": "pseudo-lucas-015",
+      "perfil_fonte": "em_aberto",
+      "entrada": {
+        "intencao": "reembolso",
+        "tipo_solicitacao": "boleto",
+        "competencia": "2026-09"
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "ambiguidade",
+        "roteamento_escalacao": "",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": []
+      }
+    },
+    {
+      "id": "LUC-PRG-FS-03",
+      "jornada": "failsafe",
+      "subtipo_handoff": "boleto_2via",
+      "descricao": "Contexto de runtime ausente (conversation_id vazio): falha_tecnica, escala sem DMN.",
+      "pseudo_id": "pseudo-lucas-031",
+      "perfil_fonte": "atraso_1_ciclo",
+      "entrada": {
+        "intencao": "cobranca_info",
+        "tipo_solicitacao": "boleto",
+        "competencia": "2026-09"
+      },
+      "contexto": {
+        "conversation_id": ""
+      },
+      "esperado": {
+        "route": "escalate_human",
+        "admissibilidade": "",
+        "motivo_humano": "falha_tecnica",
+        "roteamento_escalacao": "",
+        "grupo_humano": "atendimento-humano",
+        "desfecho": "escalado_humano",
+        "process_started": true,
+        "envios": 1,
+        "recusa_de_saida": false,
+        "ack_recusado": false,
+        "dmn_avaliadas": []
+      }
+    }
+  ]
+}
