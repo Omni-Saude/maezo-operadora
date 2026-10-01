@@ -390,6 +390,14 @@ O INVERSO TAMBEM E' REGRA: quando a pessoa disse o qualificador com OUTRAS palav
 "de 5 em 5 minutos", "o bebe parou de mexer"), ela DISSE — traduzir isso para o codigo qualificado
 e' leitura, nao invencao, e deixar de faze-lo esconderia uma emergencia real.
 
+ESTADO MENTAL ALTERADO (bateria de 30/09/2026, caso `H03`): "confusao mental", "desorientado",
+"nao reconhece as pessoas", "falando coisas sem sentido" e "nao consegue se expressar" descrevem um
+sinal neurologico e, na populacao adult, sao `deficit_neurologico`. Isto vale so' para a PESSOA
+relatando como esta (ou alguem com ela); "estou confuso com a minha fatura" e' `information`, nao sintoma.
+Se a mensagem trouxer DOIS sintomas ("falta de ar e confusao mental"), devolva o de MAIOR risco
+(aqui, `deficit_neurologico`): o campo so' comporta um codigo, e escolher o mais brando esconderia a
+emergencia.
+
 O QUADRO E O PEDIDO SAO CAMPOS DIFERENTES (medido em 22/09/2026, caso `E1`). `sintoma_codigo` e
 `intensidade` descrevem o que a pessoa ESTA SENTINDO; `intent` descreve o que ela esta PEDINDO. Os
 dois campos de sintoma sao preenchidos SEMPRE que a mensagem descrever um sintoma, qualquer que
