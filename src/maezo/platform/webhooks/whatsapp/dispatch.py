@@ -342,10 +342,10 @@ class HelenaDispatcher:
     #: comportamento anterior). Com custodia, toda mensagem recebida (texto ou nao) atualiza o
     #: numero CIFRADO e o `last_inbound_at` da conversa — o relogio da janela de 24h da Meta.
     recipient_vault: RecipientSealer | None = None
-    #: NUMERO UNICO (ADR-0062). `None` (o default, e o que `service.py` passa com
-    #: `MAEZO_ROTEADOR_LUCAS` desligado) = o caminho de hoje, sem nenhuma chamada a mais. Nesta
-    #: onda o roteador roda em SOMBRA: le' os lexicos antes do turno e grava o agente ativo
-    #: depois dele, sem mudar a resposta.
+    #: NUMERO UNICO (ADR-0062). `None` (o default, e o que `service.py` passa com o interruptor
+    #: do roteador desligado) = o caminho de hoje, sem nenhuma chamada a mais. Nesta onda o
+    #: roteador roda em SOMBRA: le' os lexicos antes do turno e grava o agente ativo depois dele,
+    #: sem mudar a resposta.
     roteador: ConversaRouter | None = None
 
     async def _custodiar_destinatario(self, raw_from: str, conversation_id: str) -> None:

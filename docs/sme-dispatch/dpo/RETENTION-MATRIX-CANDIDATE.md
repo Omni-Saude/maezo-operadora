@@ -71,8 +71,10 @@ marcadas `retirada: true` (§8.3). Ver §8.2.
 `inbox_escalonamento`/`escalation_team_notice` (migração `0015`, WP-J1-09 — linha de inbox do
 aviso `escalation.notify_team`, endereçada a um GRUPO de atendimento e sem coluna de titular); e
 `custodia_contato_retomada`/`beneficiario_contato_retomada` (migração `0016`, GAP-XHITL-4 /
-ADR-0061 Proposto — telefone do beneficiário CIFRADO para a retomada, TTL proposto de 30 dias).
-Essas dezesseis relações continuam sem decisão de
+ADR-0061 Proposto — telefone do beneficiário CIFRADO para a retomada, TTL proposto de 30 dias); e
+`roteamento_conversa`/`conversa_agente_ativo` (migração `0017`, ADR-0062 Proposto — agente ativo
+da conversa no número único, só enums e `YYYY-MM`, purga proposta de 30 dias após o último turno).
+Essas dezessete relações continuam sem decisão de
 retenção — e sem qualquer mecanismo que as toque. As seis últimas foram introduzidas pelas
 migrações `src/maezo/platform/migrations/versions/0012_portal_identity_session.py` e
 `src/maezo/platform/migrations/versions/0013_human_command_outbox.py`: as três primeiras relações
@@ -232,6 +234,16 @@ escopo_b:
         expires_at proposto de 30 dias apos a ultima mensagem; PONTE_AUSENTE (conversation_id e'
         pseudonimo keyed, a referencia DSR nao o alcanca); exige ciencia do DPO antes de ligar;
         sem decisao de retencao ratificada
+    - camada: roteamento_conversa
+      tabelas: [conversa_agente_ativo]
+      motivo: >-
+        fora do escopo B; 0017 (ADR-0062 Proposto, numero unico Helena -> Lucas) guarda so' o
+        agente ativo da conversa (enum), o motivo da transicao (enum), um subtipo de cobranca
+        fechado e uma competencia YYYY-MM, uma linha por conversa — nenhum telefone, nenhum
+        texto; o roteador apaga ate' 100 linhas com ultimo_turno_em de mais de 30 dias no maximo
+        uma vez a cada 10 minutos por processo (PROPOSTA de engenharia, nao decisao); PONTE_AUSENTE
+        (conversation_id e' pseudonimo keyed, a referencia DSR nao o alcanca); sem decisao de
+        retencao ratificada
   categorias_nao_cobertas:
     - financeiros_faturamento
     - regulatorios_ans

@@ -480,6 +480,13 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         # Por isso ele e' varrido (a cerca nao confia na promessa) e nao aparece em
         # `calls_per_module` com valor exigido.
         "limite.py",
+        # `pre_roteamento.py` e `roteamento.py` (ADR-0062, onda c, 01/10/2026): revisados ao entrar
+        # nesta lista. `pre_roteamento.py` nao tem chamada de logger (devolve so' booleanos e
+        # contagens). `roteamento.py` loga `tenant_id`, o `conversation_id` keyed, tokens de
+        # transicao, numero da tentativa, `error_type` e a contagem da purga — nunca wamid nem
+        # telefone; ele nem recebe o wamid. Os dois sao varridos abaixo como os demais.
+        "pre_roteamento.py",
+        "roteamento.py",
         "security.py",
         "settings.py",
     ], "o pacote mudou de forma — reveja a cerca antes de ajustar esta lista"
@@ -495,6 +502,7 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
     # chamadas de logger de verdade.
     assert calls_per_module["app.py"] > 0
     assert calls_per_module["dispatch.py"] > 0
+    assert calls_per_module["roteamento.py"] > 0
     assert findings == [], "wamid bruto numa chamada de logger:\n" + "\n".join(findings)
 
 

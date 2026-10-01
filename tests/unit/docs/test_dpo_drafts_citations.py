@@ -578,9 +578,10 @@ def test_the_nine_portal_human_command_and_assignment_relations_are_explicitly_u
     # NOT covered: the row is addressed to a staff candidate GROUP and has no subject column, and
     # no retention disposition has been ratified for it. The signer's scope GROWS with a new
     # relation and must never shrink — 25 -> 26 total, 14 -> 15 uncovered. GAP-XHITL-4 (0016)
-    # added `custodia_contato_retomada`, also NOT covered — 27 total, 16 uncovered.
-    assert len(covered | uncovered) == 27
-    assert len(uncovered) == 16
+    # added `custodia_contato_retomada`, also NOT covered — 27 total, 16 uncovered. ADR-0062 (0017)
+    # added `roteamento_conversa`/`conversa_agente_ativo`, also NOT covered — 28 total, 17 uncovered.
+    assert len(covered | uncovered) == 28
+    assert len(uncovered) == 17
     by_key = {(layer.camada, layer.tabela): layer for layer in PERSISTENCE_LAYERS}
     assert all(by_key[key].count_statement is None for key in expected)
     assert {key: by_key[key].resolucao for key in expected} == {

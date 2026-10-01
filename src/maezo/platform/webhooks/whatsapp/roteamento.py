@@ -96,7 +96,7 @@ PURGA_IDADE: Final[timedelta] = timedelta(days=30)
 PURGA_INTERVALO: Final[timedelta] = timedelta(minutes=10)
 PURGA_LOTE: Final[int] = 100
 
-#: Quantas vezes o roteador rele' e recalcula depois de perder o CAS antes de desistir.
+#: Quantas vezes o roteador rele' e recalcula apos perder o CAS; esgotadas, levanta o conflito.
 MAX_TENTATIVAS_CAS: Final[int] = 3
 
 
