@@ -15,8 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"information\", \"population\": \"none\", \"psychosocial_risk\": true, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\", \"risco_imediato\": true}",
-    "Beneficiario relatou risco psicossocial; encaminhado para avaliacao humana imediata.",
-    "Um profissional vai continuar seu atendimento agora."
+    "Beneficiario relatou risco psicossocial; encaminhado para avaliacao humana imediata."
   ],
   "dmn_fixture": {
     "triage_redflag_mental_health": {

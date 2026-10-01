@@ -441,6 +441,43 @@ RESPOSTA_SINTOMA_SEM_ALERTA: str = (
     "mais próximo. Se quiser falar com uma pessoa da equipe, é só me pedir."
 )
 
+#: ESCALONAMENTO COM TEXTO FIXO POR PRIORIDADE (01/10/2026). TEXTOS PROVISORIOS — redacao de
+#: engenharia, aguardam aprovacao de produto e do dono clinico (Plano G4.3 / G1.6).
+#:
+#: POR QUE NAO HA MODELO AQUI. Na bateria de 01/10 o modelo que redigia o aviso de encaminhamento
+#: (a) declarou a gravidade ("Este e' um quadro grave", "Como a situacao e' grave"), (b) deu conduta
+#: ("evite esforcos fisicos", "pressione o ferimento com um pano limpo"), (c) expôs o mecanismo e a
+#: classificacao ("a tabela de regras identificou...", "classificada como leve, o contato pode levar
+#: algumas horas") e (d) nomeou o diagnostico suspeito ("sindrome coronariana aguda", "suspeita de
+#: AVC"). O prompt diz que a Helena NUNCA decide se um caso e' grave; a unica garantia disso e' nao
+#: dar a ela a caneta.
+#:
+#: A PRIORIDADE ESCOLHE O TEXTO, e nao a falar dela: urgente (P1 clinico) manda procurar a emergencia
+#: sem esperar o contato; psicossocial acolhe antes; o resto usa `RESPOSTA_HANDOFF_RECUSADA`. Nenhum
+#: promete prazo (o relogio e' do processo, e o SLA do motor nao e' exato) nem canal (nao ha ligacao).
+#: O resumo clinico vai ao ATENDENTE (`_resumo_contexto`), nao a pessoa. Cada frase tem ate' 20 palavras.
+RESPOSTA_ESCALONAMENTO_URGENTE: str = (
+    "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. "
+    "Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, "
+    "procure o serviço de emergência mais próximo sem esperar o nosso contato."
+)
+RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL: str = (
+    "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de "
+    "saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco "
+    "agora, procure o serviço de emergência mais próximo sem esperar o nosso contato."
+)
+
+
+def _texto_de_escalonamento(motivo: MotivoCategoria | None, severidade: Severidade | None) -> str:
+    """O texto fixo do aviso de encaminhamento, escolhido pelo MOTIVO e pela severidade do processo
+    que esta' sendo aberto (que derivam da tabela, nunca de redacao)."""
+    if motivo == "risco_psicossocial":
+        return RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
+    if motivo == "red_flag_clinico" and severidade == "grave":
+        return RESPOSTA_ESCALONAMENTO_URGENTE
+    return RESPOSTA_HANDOFF_RECUSADA
+
+
 RESPOSTA_INFORM_RECUSADA: str = (
     "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. "
     "Se quiser, me conte com mais detalhes o que esta acontecendo. Se voce quiser falar com uma "
@@ -3031,14 +3068,19 @@ class HelenaGraph:
         if ref:
             variables["dmn_decision_ref"] = ref
 
-        try:
-            response_text = await self._respond_llm(state, response_kind)
-        except RespostaRecusadaError:
-            # A recusa ja foi registrada e contada em `_respond_llm`. AQUI um humano FOI mesmo
-            # acionado (este metodo esta' abrindo o processo), entao a constante honesta promete o
-            # que e' verdade e nao contem nenhum dos padroes proibidos. Nao ha nova tentativa pelo
-            # mesmo motivo que em `inform`.
-            response_text = RESPOSTA_HANDOFF_RECUSADA
+        if response_kind == "escalate":
+            # TEXTO FIXO, sem modelo — ver `RESPOSTA_ESCALONAMENTO_URGENTE`. O modelo continua
+            # redigindo so' o `schedule` (hoje sem rota de entrada, DL-0052).
+            response_text = _texto_de_escalonamento(motivo, severidade)
+        else:
+            try:
+                response_text = await self._respond_llm(state, response_kind)
+            except RespostaRecusadaError:
+                # A recusa ja foi registrada e contada em `_respond_llm`. AQUI um humano FOI mesmo
+                # acionado (este metodo esta' abrindo o processo), entao a constante honesta promete
+                # o que e' verdade e nao contem nenhum dos padroes proibidos. Nao ha nova tentativa
+                # pelo mesmo motivo que em `inform`.
+                response_text = RESPOSTA_HANDOFF_RECUSADA
         provenance = AgentDecisionProvenance(
             agent_id="helena",
             agent_version=self._agent_version,

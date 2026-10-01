@@ -283,13 +283,14 @@ async def test_o_terceiro_turno_do_d2_nao_tria_um_sintoma_que_ninguem_relatou() 
     )
     graph = _graph(
         [
+            # Desde 01/10/2026 o turno de SINTOMA sem bandeira nao pede rascunho ao modelo (texto
+            # fixo), entao so' a classificacao aparece no roteiro; o turno 2 (`information`) ainda
+            # redige a resposta.
             _classify_json(intent="symptom", population="pediatric", sintoma_codigo="febre"),
-            "Entendi. Ha quanto tempo isso comecou?",
             _classify_json(intent="information", population="pediatric", idade_meses=36),
             "Obrigada. Pode me contar mais?",
             # O turno 3, medido: populacao de adulto e um codigo qualificado de adulto.
             _classify_json(intent="symptom", population="adult", sintoma_codigo="cefaleia_subita_intensa"),
-            "Entendi que e' sobre uma crianca de 3 anos, certo? Vou te orientar.",
         ],
         dmn=dmn,
     )

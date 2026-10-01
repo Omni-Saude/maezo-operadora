@@ -13,7 +13,7 @@
       "message_body": "nao consigo respirar direito"
     }
   },
-  "recorded_llm": ["{{{malformed", "resumo tecnico", "um humano vai continuar"],
+  "recorded_llm": ["{{{malformed", "resumo tecnico"],
   "expect": {
     "next_kind": "escalate",
     "fields": {

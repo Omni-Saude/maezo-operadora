@@ -15,8 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"clinical_question\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Beneficiario pediu orientacao clinica; Helena nao responde, encaminhado para avaliacao humana.",
-    "Um profissional de saude vai continuar seu atendimento em breve."
+    "Beneficiario pediu orientacao clinica; Helena nao responde, encaminhado para avaliacao humana."
   ],
   "expect": {
     "next_kind": "escalate",

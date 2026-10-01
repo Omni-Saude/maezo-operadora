@@ -1462,6 +1462,28 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "DL-0057 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
+    },
+    {
+      "texto": "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
+      "rota": "escalate",
+      "start_aconteceu": true,
+      "origem": "DL-0057 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": true
+      }
     }
   ]
 }

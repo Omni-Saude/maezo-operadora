@@ -17,7 +17,9 @@ import yaml
 
 from maezo.agents.helena.graph import (
     HELENA_INPUT_FIELDS,
+    RESPOSTA_ESCALONAMENTO_URGENTE,
     RESPOSTA_FORA_DO_CANAL,
+    RESPOSTA_HANDOFF_RECUSADA,
     HelenaGraph,
     HelenaState,
     _business_key,
@@ -878,12 +880,13 @@ async def test_escalate_starts_process_with_contract_variables() -> None:
     assert result["response_kind"] == "escalate"
 
 
-async def test_escalate_declares_task_kind_reasoning_then_task_default() -> None:
-    """CC-12/BEA-01 (ADR-0009 §2): `escalate` drafts TWO LLM calls, in order — `_resumo_contexto`
-    (what the human attendant reads before taking over: `reasoning`, same rationale as lucas's
-    escalation dossier) then `_respond_llm` (the beneficiary-facing handoff text, phrasing
-    already-decided facts: `task_default`)."""
-    inference = _FakeInference(["resumo do caso", "um humano vai continuar"])
+async def test_escalate_declares_task_kind_reasoning_and_sends_the_fixed_text() -> None:
+    """CC-12/BEA-01 (ADR-0009 §2): `escalate` makes ONE LLM call — `_resumo_contexto` (what the
+    human attendant reads before taking over: `reasoning`, same rationale as lucas's escalation
+    dossier). Since 01/10/2026 (DL-0057) the beneficiary-facing handoff text is a FIXED constant
+    chosen by priority, so the second call (`task_default`) no longer exists: the model cannot
+    declare the gravity, give conduct or name a diagnosis."""
+    inference = _FakeInference(["resumo do caso"])
     graph = _graph(inference=inference)
 
     state = _base_state(
@@ -891,9 +894,10 @@ async def test_escalate_declares_task_kind_reasoning_then_task_default() -> None
         escalation_severidade="grave",
         dmn_decision_ref="triage_redflag_adult#1",
     )
-    await graph.escalate(state)
+    result = await graph.escalate(state)
 
-    assert inference.task_kinds == ["reasoning", "task_default"]
+    assert inference.task_kinds == ["reasoning"]
+    assert result["response_text"] == RESPOSTA_ESCALONAMENTO_URGENTE
 
 
 async def test_escalate_is_idempotent_on_active_instance() -> None:
@@ -1049,7 +1053,7 @@ async def test_escalate_records_error_on_cibseven_failure_but_still_responds() -
 
     assert result["escalation_started"] is False
     assert "error" in result
-    assert result["response_text"] == "resposta"
+    assert result["response_text"] == RESPOSTA_HANDOFF_RECUSADA
 
 
 # ---------------------------------------------------------------------------
