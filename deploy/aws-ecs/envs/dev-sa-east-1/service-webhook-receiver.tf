@@ -113,6 +113,23 @@ resource "aws_ecs_task_definition" "webhook_receiver" {
       { name = "WHATSAPP_LIMITE_POR_CONVERSA_POR_MINUTO", value = tostring(var.limite_por_conversa_por_minuto) },
       { name = "WHATSAPP_LIMITE_POR_TENANT_POR_MINUTO", value = tostring(var.limite_por_tenant_por_minuto) },
 
+      # NUMERO UNICO: ROTEADOR HELENA -> LUCAS (ADR-0062, `docs/plans/lucas-numero-unico.md` §4).
+      # So' NESTE container: o roteador mora no receptor (`service.py` o constroi), e
+      # agent-resume/bridge nao despacham turno. NAO existe `agent-lucas` em `local.agentes` de
+      # proposito (§6g): seria um daemon sem turno pagando Fargate, o erro do agent-helena de 13/08.
+      #
+      # O valor de dev mora em `lucas.auto.tfvars` (versionado) e NASCE `false`: desligado, o
+      # roteador nem e' construido e o despacho segue byte a byte o de hoje. Ligar e' um PR que
+      # troca aquele arquivo, seguido de `apply` pelo time.
+      #
+      # Os tres valores tem de ser LITERAIS que `scripts/ci/check_roteador_lucas.py` resolve (var
+      # com default, `*.auto.tfvars` do diretorio, `tostring()` de escalar): `valueFrom` ou
+      # indirecao nao resolvivel REPROVA, e qualquer um destes ligados/presentes fora de
+      # `dev-sa-east-1` tambem. A fonte so' existe `simulada` — por isso ela fica so' em dev.
+      { name = "MAEZO_ROTEADOR_LUCAS", value = tostring(var.roteador_lucas_enabled) },
+      { name = "MAEZO_LUCAS_INATIVIDADE_MINUTOS", value = tostring(var.lucas_inatividade_minutos) },
+      { name = "MAEZO_LUCAS_FONTE_COBRANCA", value = var.lucas_fonte_cobranca },
+
       # DEVOLVE O TURNO NO CORPO DO ACK (12/09/2026). Com isto, a resposta 200 de `/webhook`
       # ganha `resposta` (o texto que a Helena redigiu) e `conversation_id`. Sem isto o corpo
       # fica byte por byte como sempre foi — e e' assim que producao tem de ficar, porque la'

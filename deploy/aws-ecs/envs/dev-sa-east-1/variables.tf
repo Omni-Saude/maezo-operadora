@@ -718,3 +718,53 @@ variable "metrics_collector_memory" {
   type        = number
   default     = 512
 }
+
+# ---------------------------------------------------------------------------------------
+# Numero unico: roteador Helena -> Lucas (ADR-0062, `docs/plans/lucas-numero-unico.md` §4/§6g).
+# Os tres viram env SO' na task definition do receptor (service-webhook-receiver.tf). O valor
+# de dev mora em `lucas.auto.tfvars`, versionado. A cerca `scripts/ci/check_roteador_lucas.py`
+# reprova o roteador ligado, ou a fonte presente, em qualquer ambiente que nao seja este.
+# ---------------------------------------------------------------------------------------
+variable "roteador_lucas_enabled" {
+  description = <<-EOT
+    Liga o roteamento por conversa do numero unico no receptor: a conversa pode sair da Helena e
+    ir para o Lucas (cobranca, com fatos SIMULADOS). DESLIGADO por padrao: desligado, o roteador
+    nem e' construido e o despacho e' byte a byte o de antes. Nesta onda, ligado roda em SOMBRA
+    (grava o agente ativo e o motivo, nao muda resposta). So' pode ser `true` em dev-sa-east-1.
+  EOT
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "lucas_inatividade_minutos" {
+  description = <<-EOT
+    Janela de inatividade da conversa com o Lucas, em minutos: depois dela, um "oi" volta para a
+    Helena. Inerte com o roteador desligado. A faixa e' a mesma que o settings recusa no boot
+    (5..1440): recusar aqui poupa um deploy que nao sobe.
+  EOT
+  type        = number
+  default     = 60
+  nullable    = false
+
+  validation {
+    condition     = var.lucas_inatividade_minutos >= 5 && var.lucas_inatividade_minutos <= 1440 && floor(var.lucas_inatividade_minutos) == var.lucas_inatividade_minutos
+    error_message = "lucas_inatividade_minutos tem de ser inteiro entre 5 e 1440."
+  }
+}
+
+variable "lucas_fonte_cobranca" {
+  description = <<-EOT
+    Fonte dos fatos de cobranca do Lucas. So' existe `simulada`; a fonte real (CNAB) entra com o
+    seu proprio valor e a sua propria revisao. Presente fora de dev-sa-east-1 significa o Lucas
+    montado onde ele nao pode existir — a cerca reprova.
+  EOT
+  type        = string
+  default     = "simulada"
+  nullable    = false
+
+  validation {
+    condition     = contains(["simulada"], var.lucas_fonte_cobranca)
+    error_message = "lucas_fonte_cobranca so' aceita \"simulada\" (a unica fonte que existe)."
+  }
+}

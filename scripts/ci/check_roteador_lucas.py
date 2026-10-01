@@ -24,6 +24,18 @@ O que ela reprova (itens 1-5 de §4; 6-7 entram na onda (f), quando os simbolos 
      modulo) em qualquer arquivo de `src/maezo/` fora do CORPO de um
      `if <algo>.roteador_lucas_enabled:` — nem no `else`, nem sob um `if` negado ou de outro nome.
 
+O valor EFETIVO, e nao so' o default (onda g)
+---------------------------------------------
+O receptor declara os tres como `tostring(var.x)` / `var.x`, e o valor de dev mora em
+`lucas.auto.tfvars`. O resolvedor compartilhado so' conhece string literal, `local.x` e o
+`default` de `var.x`: sozinho, ele reprovaria o `tostring()` (item 2) e, pior, leria o default
+`false` de um diretorio cujo `*.auto.tfvars` diz `true`. Por isso esta cerca resolve as entradas
+VIGIADAS com o que o Terraform carrega sozinho em cada diretorio de ambiente: `terraform.tfvars`,
+`terraform.tfvars.json`, `*.auto.tfvars` e `*.auto.tfvars.json` (nessa ordem; o ultimo vence),
+depois o `default` da variavel; `tostring()` de um escalar (`true`/`false`/numero) vira a
+string que o Terraform produziria. Continua valendo que o que nao se resolve REPROVA. O que
+nenhuma analise estatica ve' e' `-var` na linha de comando — por isso o valor mora versionado.
+
 Por que ela reaproveita o analisador de `check_canal_simular`
 -------------------------------------------------------------
 Pelo mesmo motivo de `check_portal_direct_completion.py`: o analisador de HCL de la' passou pela
@@ -36,6 +48,8 @@ e as cercas de codigo dos itens 4 e 5.
 from __future__ import annotations
 
 import ast
+import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,8 +61,14 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.ci.check_canal_simular import (  # noqa: E402
     AMBIENTE_PERMITIDO,
+    PROFUNDIDADE_MAX,
+    Entrada,
+    Escopo,
+    _atributos,
+    _escopo_do_diretorio,
     _inventario,
     _ligado,
+    _mascarar,
 )
 
 SOMENTE_DEV = "somente-dev"
@@ -91,11 +111,102 @@ CODIGO = Path("src/maezo")
 
 
 # ---------------------------------------------------------------------------------------
+# O valor efetivo de uma entrada vigiada: tfvars do diretorio > default > nada.
+# ---------------------------------------------------------------------------------------
+_TOSTRING = re.compile(r"tostring\(\s*(.+?)\s*\)", re.DOTALL)
+_ESCALAR = re.compile(r"true|false|-?[0-9]+(?:\.[0-9]+)?")
+_REF_LOCAL = re.compile(r"local\.([A-Za-z_][A-Za-z0-9_-]*)")
+_REF_VAR = re.compile(r"var\.([A-Za-z_][A-Za-z0-9_-]*)")
+#: Marca de "um tfvars deste diretorio nao foi lido": nenhuma variavel dele se resolve.
+_ILEGIVEL = "*"
+
+
+def _do_json(valor: object) -> str | None:
+    """Um valor de `*.tfvars.json` reescrito como a expressao HCL equivalente (so' escalares)."""
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    if isinstance(valor, (int, float, str)):
+        return json.dumps(valor)
+    return None
+
+
+def _tfvars_do_diretorio(diretorio: Path) -> dict[str, str | None]:
+    """O que o Terraform carrega SOZINHO do diretorio, na ordem dele (o ultimo vence).
+
+    Um `.tfvars.json` ilegivel marca o diretorio inteiro como nao resolvivel; um valor nao
+    escalar entra como `None`. Nos dois casos quem consulta recebe "nao resolvivel", que REPROVA.
+    """
+    arquivos = [diretorio / "terraform.tfvars", diretorio / "terraform.tfvars.json"]
+    arquivos += sorted(diretorio.glob("*.auto.tfvars")) + sorted(diretorio.glob("*.auto.tfvars.json"))
+    valores: dict[str, str | None] = {}
+    for arquivo in arquivos:
+        if not arquivo.is_file():
+            continue
+        bruto = arquivo.read_text(encoding="utf-8", errors="replace")
+        if arquivo.suffix == ".json":
+            try:
+                dados = json.loads(bruto)
+            except ValueError:
+                dados = None
+            if not isinstance(dados, dict):
+                valores[_ILEGIVEL] = None
+                continue
+            valores.update({str(k): _do_json(v) for k, v in dados.items()})
+            continue
+        texto, e_string = _mascarar(bruto)
+        valores.update(_atributos(texto, e_string, 0, len(texto)))
+    return valores
+
+
+@dataclass
+class _Diretorio:
+    escopo: Escopo
+    tfvars: dict[str, str | None]
+
+    def resolver(self, expressao: str, profundidade: int = 0) -> str | None:
+        """Como `Escopo.resolver`, mais `tostring(<escalar>)`, escalar nu e tfvars do diretorio."""
+        e = expressao.strip()
+        if not e or profundidade > PROFUNDIDADE_MAX:
+            return None
+        casamento = _TOSTRING.fullmatch(e)
+        if casamento:
+            return self.resolver(casamento.group(1), profundidade + 1)
+        if _ESCALAR.fullmatch(e):
+            return e
+        if e.startswith('"') and e.endswith('"') and len(e) >= 2:
+            corpo = e[1:-1]
+            if "${" not in corpo and "\\" not in corpo and '"' not in corpo:
+                return corpo
+            interpolacao = re.fullmatch(r"\$\{([^{}]+)\}", corpo)
+            return self.resolver(interpolacao.group(1), profundidade + 1) if interpolacao else None
+        referencia = _REF_LOCAL.fullmatch(e)
+        if referencia:
+            alvo = self.escopo.locais.get(referencia.group(1))
+            return self.resolver(alvo, profundidade + 1) if alvo is not None else None
+        referencia = _REF_VAR.fullmatch(e)
+        if referencia:
+            if _ILEGIVEL in self.tfvars:
+                return None
+            nome = referencia.group(1)
+            alvo = self.tfvars[nome] if nome in self.tfvars else self.escopo.variaveis.get(nome)
+            return self.resolver(alvo, profundidade + 1) if alvo is not None else None
+        return None
+
+
+def _valor_efetivo(entrada: Entrada, diretorios: dict[Path, _Diretorio]) -> str | None:
+    diretorio = entrada.arquivo.parent
+    if diretorio not in diretorios:
+        diretorios[diretorio] = _Diretorio(_escopo_do_diretorio(diretorio), _tfvars_do_diretorio(diretorio))
+    return diretorios[diretorio].resolver(entrada.valor_cru)
+
+
+# ---------------------------------------------------------------------------------------
 # Itens 1, 2 e 3 — a configuracao efetiva das task definitions.
 # ---------------------------------------------------------------------------------------
 def checar_ligacao_fora_de_dev(raiz: Path = REPO_ROOT) -> list[str]:
     achados: list[str] = []
     _, entradas, textos = _inventario(raiz)
+    diretorios: dict[Path, _Diretorio] = {}
 
     avaliadas: dict[tuple[Path, str], int] = {}
     for entrada in entradas:
@@ -114,7 +225,8 @@ def checar_ligacao_fora_de_dev(raiz: Path = REPO_ROOT) -> list[str]:
                 f"({politica.justificativa})"
             )
             continue
-        if entrada.valor is None:
+        valor = _valor_efetivo(entrada, diretorios)
+        if valor is None:
             achados.append(
                 f"{onde}: {nome} = {entrada.valor_cru!r} nao e' um literal que a cerca consiga "
                 f"resolver — indirecao nao resolvivel e' REPROVACAO, nao silencio. "
@@ -122,14 +234,14 @@ def checar_ligacao_fora_de_dev(raiz: Path = REPO_ROOT) -> list[str]:
             )
             continue
         if politica.forma == "booleano":
-            ligado = _ligado(entrada.valor)
+            ligado = _ligado(valor)
         elif politica.forma == "presenca":
-            ligado = bool(entrada.valor.strip())
+            ligado = bool(valor.strip())
         else:
             ligado = False
         if ligado and entrada.ambiente != AMBIENTE_PERMITIDO:
             achados.append(
-                f"{onde}: {nome}={entrada.valor!r} no ambiente "
+                f"{onde}: {nome}={valor!r} no ambiente "
                 f"{entrada.ambiente or '<fora de envs/>'} — interruptor de escopo {SOMENTE_DEV}, "
                 f"so' pode ser ligado em {AMBIENTE_PERMITIDO}. ({politica.justificativa})"
             )

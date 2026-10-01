@@ -32,6 +32,15 @@ _ARQUIVOS_DE_CODIGO = (_SETTINGS, _SERVICE, _ROTEAMENTO)
 #: Ancoras extraidas dos arquivos REAIS. Se o PR mudar uma delas, `_trocar` falha com a ancora
 #: ausente em vez de o teste passar a testar outra coisa.
 _ANCORA_ENV = '      { name = "PYTHONDONTWRITEBYTECODE", value = "1" },'
+#: As tres entradas REAIS do receptor em dev (onda g). A fonte so' existe em dev: um clone
+#: "prod sem Lucas" tem de tira-la, e o clone verbatim tem de reprovar por causa dela.
+_ENTRADA_ROTEADOR = '      { name = "MAEZO_ROTEADOR_LUCAS", value = tostring(var.roteador_lucas_enabled) },\n'
+_ENTRADA_JANELA = (
+    '      { name = "MAEZO_LUCAS_INATIVIDADE_MINUTOS", value = tostring(var.lucas_inatividade_minutos) },\n'
+)
+_ENTRADA_FONTE = '      { name = "MAEZO_LUCAS_FONTE_COBRANCA", value = var.lucas_fonte_cobranca },\n'
+_TFVARS_LUCAS = "lucas.auto.tfvars"
+_LINHA_TFVARS = "roteador_lucas_enabled = false\n"
 _DEFAULT = "    roteador_lucas_enabled: bool = Field(\n        default=False,\n"
 _IF_DO_SERVICE = "    roteador = None\n    if settings.roteador_lucas_enabled:\n"
 _CONSTRUCAO = "        roteador = ConversaRouter(\n"
@@ -55,9 +64,14 @@ def _montar(tmp_path: Path) -> Path:
     return raiz
 
 
-def _clonar_prod(raiz: Path) -> Path:
+def _clonar_prod(raiz: Path, *, com_fonte: bool = False) -> Path:
+    """Copia dev para prod. Sem `com_fonte`, tira a entrada da fonte simulada: e' o "prod sem
+    Lucas" legitimo, onde o roteador desligado tem de passar."""
     shutil.copytree(raiz / _ENV_DEV, raiz / _ENV_PROD)
-    return raiz / _ENV_PROD / _RECEPTOR_TF
+    tf = raiz / _ENV_PROD / _RECEPTOR_TF
+    if not com_fonte:
+        _reescrever(tf, lambda t: _trocar(t, _ENTRADA_FONTE, ""))
+    return tf
 
 
 def _reescrever(caminho: Path, transformar: Callable[[str], str]) -> None:
@@ -77,6 +91,25 @@ def test_a_arvore_real_do_repositorio_passa() -> None:
 
 def test_a_arvore_sintetica_sem_evasao_passa(tmp_path: Path) -> None:
     assert executar(_montar(tmp_path)) == []
+
+
+def test_o_receptor_real_declara_as_tres_entradas_e_o_tfvars_nasce_desligado() -> None:
+    """Ancora das testemunhas abaixo: se a forma real mudar, elas nao testam outra coisa."""
+    receptor = (_RAIZ_REAL / _ENV_DEV / _RECEPTOR_TF).read_bytes().decode("utf-8")
+    for entrada in (_ENTRADA_ROTEADOR, _ENTRADA_JANELA, _ENTRADA_FONTE):
+        assert receptor.count(entrada) == 1, entrada
+    tfvars = (_RAIZ_REAL / _ENV_DEV / _TFVARS_LUCAS).read_bytes().decode("utf-8")
+    assert _LINHA_TFVARS in tfvars.splitlines(keepends=True)
+
+
+def test_ligar_em_dev_pelo_tfvars_passa(tmp_path: Path) -> None:
+    """O caminho previsto pelo plano (§4): o PR troca `lucas.auto.tfvars` para `true` em dev."""
+    raiz = _montar(tmp_path)
+    _reescrever(
+        raiz / _ENV_DEV / _TFVARS_LUCAS,
+        lambda t: _trocar(t, _LINHA_TFVARS, "roteador_lucas_enabled = true\n"),
+    )
+    assert executar(raiz) == []
 
 
 @pytest.mark.parametrize(
@@ -126,6 +159,55 @@ def test_item1_ligado_fora_de_dev_reprova(tmp_path: Path, entrada: str) -> None:
     assert achados and all("prod-sa-east-1" in a for a in achados), achados
 
 
+def test_item1_clone_verbatim_de_dev_reprova_pela_fonte(tmp_path: Path) -> None:
+    """Copiar o receptor de dev para outro ambiente como esta' leva a fonte simulada junto."""
+    raiz = _montar(tmp_path)
+    _clonar_prod(raiz, com_fonte=True)
+    achados = checar_ligacao_fora_de_dev(raiz)
+    assert achados and all("prod-sa-east-1" in a for a in achados), achados
+    assert any("MAEZO_LUCAS_FONTE_COBRANCA" in a for a in achados), achados
+
+
+@pytest.mark.parametrize(
+    "arquivo",
+    ["lucas.auto.tfvars", "terraform.tfvars", "zz-outro.auto.tfvars"],
+)
+def test_item1_ligado_pelo_tfvars_fora_de_dev_reprova(tmp_path: Path, arquivo: str) -> None:
+    """O default continua `false`; quem liga e' o tfvars que o Terraform carrega sozinho."""
+    raiz = _montar(tmp_path)
+    _clonar_prod(raiz)
+    (raiz / _ENV_PROD / arquivo).write_bytes(b"roteador_lucas_enabled = true\n")
+    if arquivo == "terraform.tfvars":
+        # `*.auto.tfvars` carrega DEPOIS de `terraform.tfvars`: o `false` copiado de dev venceria.
+        (raiz / _ENV_PROD / _TFVARS_LUCAS).unlink()
+    achados = checar_ligacao_fora_de_dev(raiz)
+    assert any("MAEZO_ROTEADOR_LUCAS='true'" in a and "prod-sa-east-1" in a for a in achados), achados
+
+
+def test_item1_ligado_pelo_tfvars_json_fora_de_dev_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _clonar_prod(raiz)
+    (raiz / _ENV_PROD / "zz.auto.tfvars.json").write_bytes(b'{"roteador_lucas_enabled": true}')
+    achados = checar_ligacao_fora_de_dev(raiz)
+    assert any("MAEZO_ROTEADOR_LUCAS='true'" in a and "prod-sa-east-1" in a for a in achados), achados
+
+
+def test_item1_default_da_variavel_ligado_fora_de_dev_reprova(tmp_path: Path) -> None:
+    raiz = _montar(tmp_path)
+    _clonar_prod(raiz)
+    (raiz / _ENV_PROD / _TFVARS_LUCAS).unlink()
+    _reescrever(
+        raiz / _ENV_PROD / "variables.tf",
+        lambda t: _trocar(
+            t,
+            '  default     = false\n  nullable    = false\n}\n\nvariable "lucas_inatividade_minutos"',
+            '  default     = true\n  nullable    = false\n}\n\nvariable "lucas_inatividade_minutos"',
+        ),
+    )
+    achados = checar_ligacao_fora_de_dev(raiz)
+    assert any("MAEZO_ROTEADOR_LUCAS='true'" in a and "prod-sa-east-1" in a for a in achados), achados
+
+
 def test_item1_ligado_por_local_resolvivel_fora_de_dev_reprova(tmp_path: Path) -> None:
     """A evasao RV-371: trocar o literal por `local.x`. O analisador resolve como o Terraform."""
     raiz = _montar(tmp_path)
@@ -145,12 +227,23 @@ def test_item1_ligado_por_local_resolvivel_fora_de_dev_reprova(tmp_path: Path) -
         '      { name = "MAEZO_LUCAS_INATIVIDADE_MINUTOS", valueFrom = "arn:aws:ssm:x:y:parameter/z" },',
         '      { name = "MAEZO_ROTEADOR_LUCAS", value = data.aws_ssm_parameter.lucas.value },',
         '      { name = "MAEZO_LUCAS_FONTE_COBRANCA", value = local.nao_existe },',
+        '      { name = "MAEZO_ROTEADOR_LUCAS", value = tostring(var.nao_existe) },',
+        '      { name = "MAEZO_ROTEADOR_LUCAS", value = tostring(data.aws_ssm_parameter.x.value) },',
+        '      { name = "MAEZO_ROTEADOR_LUCAS", value = var.roteador_lucas_enabled ? "true" : "false" },',
     ],
 )
 def test_item2_segredo_ou_indirecao_reprova_ate_em_dev(tmp_path: Path, entrada: str) -> None:
     raiz = _montar(tmp_path)
     _acrescentar_env(raiz / _ENV_DEV / _RECEPTOR_TF, entrada)
     assert checar_ligacao_fora_de_dev(raiz)
+
+
+def test_item2_tfvars_json_ilegivel_reprova_ate_em_dev(tmp_path: Path) -> None:
+    """Nao se sabe o que um tfvars ilegivel sobrescreve: a entrada por `var.` nao se resolve."""
+    raiz = _montar(tmp_path)
+    (raiz / _ENV_DEV / "zz.auto.tfvars.json").write_bytes(b"{nao e' json")
+    achados = checar_ligacao_fora_de_dev(raiz)
+    assert any("nao e' um literal" in a for a in achados), achados
 
 
 # ---------------------------------------------------------------------------------------
