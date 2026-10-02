@@ -54,7 +54,7 @@ it("mostra motivo, gravidade, prioridade, grupo, prazos e o resumo da Helena", a
   expect(screen.getByText("Plantão clínico")).toBeInTheDocument();
   expect(screen.getByText("Sinal de alerta clínico")).toBeInTheDocument();
   expect(screen.getByText("Grave")).toBeInTheDocument();
-  expect(screen.getByRole("group", { name: /Resumo escrito pela Helena/ })).toHaveTextContent(
+  expect(screen.getByRole("group", { name: /Resumo escrito pelo agente/ })).toHaveTextContent(
     "Idoso com dor no peito e falta de ar.",
   );
 });
@@ -106,7 +106,7 @@ it("um fato ausente aparece como ausente, nunca como um valor inventado", async 
   // Motivo e "aberto" chegaram nulos: dois campos dizem que não sabem, nenhum inventa.
   expect(await screen.findAllByText("Não informado", { selector: "dd" })).toHaveLength(2);
   expect(screen.getByText("Não informada")).toBeInTheDocument();
-  expect(screen.getByText("A Helena não gerou um resumo para este caso.")).toBeInTheDocument();
+  expect(screen.getByText("O agente não gerou um resumo para este caso.")).toBeInTheDocument();
   expect(screen.queryByText(/^P\d/)).not.toBeInTheDocument();
 });
 
@@ -141,7 +141,7 @@ it("o resumo é texto: marcação HTML digitada nele nunca vira elemento", async
   vi.mocked(fetch).mockResolvedValueOnce(json(context({ resumo_contexto: hostile })));
   const { container } = render(panel());
 
-  const group = await screen.findByRole("group", { name: /Resumo escrito pela Helena/ });
+  const group = await screen.findByRole("group", { name: /Resumo escrito pelo agente/ });
   expect(group).toHaveTextContent(hostile);
   expect(container.querySelector("img")).toBeNull();
   expect(container.querySelector("script")).toBeNull();
