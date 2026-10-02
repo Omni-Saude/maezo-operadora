@@ -1,4 +1,4 @@
-"""Bateria de 01/10/2026 (B13): "vou abrir reclamacao na ANS" abre atendimento humano (DL-0068, interino).
+"""Bateria de 01/10/2026 (B13): "vou abrir reclamacao na ANS" abre atendimento humano (DL-0070, interino).
 
 Antes a mensagem recebia o texto fixo de fora do canal e a pessoa ficava sem ninguem. A rota usada e'
 a que ja' existe (`solicitacao_humano`, P3): motivo e fila proprios (SP-OP-NIP-001) dependem do Diretor

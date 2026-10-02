@@ -16,7 +16,7 @@ O QUE ELA NAO FAZ, e e' proposital:
   * NAO decide nada de cobranca. Nenhuma das proibicoes do Lucas e' afrouxada: o texto final passa
     pelas MESMAS cercas de saida do grafo (`lucas.prompts.motivo_de_recusa`, rota `retomada`, sem fatos:
     desfecho adverso, capacidade, valor sem fato e promessa de humano). Texto recusado vira a constante
-    `RESPOSTA_INFORMATIVA_RECUSADA`, e o desfecho conta a recusa.
+    `RETOMADA_RECUSADA_TEXTO`, e o desfecho conta a recusa.
   * NAO usa o numero fora desta chamada. O destino e' o `_ScopedWhatsAppSender` (numero cru so' aqui,
     recusado se `hash_phone(raw_to)` nao bater com a conversa), embrulhado com o gate do principal
     `lucas` — o envio decide e registra sob o Lucas, nunca sob a Helena.
@@ -37,7 +37,6 @@ from typing import Any, Final
 import structlog
 
 from maezo.agents.helena.graph import motivo_de_recusa_da_retomada
-from maezo.agents.lucas.graph import RESPOSTA_INFORMATIVA_RECUSADA
 from maezo.agents.lucas.prompts import motivo_de_recusa
 from maezo.gateway.effect_pep import PHI_ZONE_GENERAL
 from maezo.gateway.pseudonymizer import Pseudonymizer
@@ -66,6 +65,16 @@ RETOMADA_TEMPLATE: Final[str] = (
     "Olá, aqui é o atendimento de cobrança do seu plano. Um profissional da nossa equipe "
     'revisou o seu caso e pediu que repassássemos: "{instrucoes}". '
     "Se precisar de algo mais, é só responder esta mensagem."
+)
+
+#: O texto que sai quando as cercas barram a instrucao do atendente. Medido no teste do Filipe em
+#: 02/10/2026: a nota "Entraremos em contato." foi barrada (promessa de humano) e a pessoa, que tinha
+#: pedido CANCELAMENTO, recebeu `RESPOSTA_INFORMATIVA_RECUSADA`, que manda "consultar os dados do seu
+#: boleto" — texto de outra jornada. Este e' neutro: nao cita boleto, nao promete retorno e nao repete
+#: a nota barrada.
+RETOMADA_RECUSADA_TEXTO: Final[str] = (
+    "Recebemos o retorno do seu atendimento, mas não foi possível repassar o texto por aqui. "
+    "Para saber o andamento, fale com a central de atendimento do plano."
 )
 
 DESFECHO_RETOMADA_ENVIADA: Final[str] = "retomada_enviada"
@@ -185,7 +194,7 @@ class LucasRetomada:
                 conversation_id=conversation_id,
                 grupo=recusa[0],
             )
-            texto = RESPOSTA_INFORMATIVA_RECUSADA
+            texto = RETOMADA_RECUSADA_TEXTO
             desfecho = DESFECHO_RETOMADA_RECUSADA
 
         from .dispatch import _ScopedWhatsAppSender

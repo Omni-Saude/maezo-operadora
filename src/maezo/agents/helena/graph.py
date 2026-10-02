@@ -268,6 +268,14 @@ ResponseKindOut = Literal[
 #      vira pergunta.
 SUFFICIENCY_DMN_KEY: str = "triage_sufficiency"
 COLETA_MAX_RODADAS: int = 2
+
+#: CLASSIFICADOR: quantas vezes o modelo e' chamado quando devolve JSON ilegivel ou fora do schema.
+#: Medido em 02/10/2026 (bateria de 118 casos): ~2% das classificacoes falhavam por JSON ilegivel ou
+#: schema invalido, e cada falha PERDIA a leitura de saude ("o boleto venceu e estou com dor no peito"
+#: virava `falha_tecnica` P3 em vez de P1). A segunda chamada converte falha transitoria em acerto e
+#: NUNCA aceita JSON invalido: o que o validador recusa continua recusado, e a falha da ultima
+#: tentativa segue para `falha_tecnica` como antes (fail-closed). Excecao do provedor NAO e' repetida.
+CLASSIFY_TENTATIVAS: int = 2
 #: Decisao do documento do diretor (08/09/2026): "se duas rodadas de pergunta nao resolverem,
 #: escalar como pedido de humano". `solicitacao_humano` roteia P3 / atendimento-humano / ack 4h
 #: (`escalation_routing` r5). ALTERNATIVA NAO ADOTADA, registrada para a ratificacao: um sintoma
@@ -2013,7 +2021,7 @@ _PEDIDO_DE_HUMANO = re.compile(
 )
 
 
-# AMEACA DE RECLAMACAO A ORGAO REGULADOR (DL-0068, 02/10/2026, caso B13: "vou abrir reclamacao na
+# AMEACA DE RECLAMACAO A ORGAO REGULADOR (DL-0070, 02/10/2026, caso B13: "vou abrir reclamacao na
 # ANS, ninguem resolve nada"). Antes recebia o texto fixo de fora do canal e a pessoa ficava sem
 # ninguem; agora abre atendimento humano pela rota que ja' existe (`solicitacao_humano`, P3). Os
 # dois lados do padrao sao exigidos — um orgao citado SEM verbo de reclamacao ("o que e a ANS?")
@@ -2893,7 +2901,7 @@ class HelenaGraph:
             update["escalation_severidade"] = "leve"
             return update
 
-        # Gatilho 3b (DL-0068): ameaca de reclamacao a orgao regulador. Vence a rota de fora do canal,
+        # Gatilho 3b (DL-0070): ameaca de reclamacao a orgao regulador. Vence a rota de fora do canal,
         # perde para sintoma, risco psicossocial e pergunta clinica (todos acima).
         if intent != "greeting" and _ameaca_regulatoria(str(state.get("message_body") or "")):
             update["next_kind"] = "escalate"
@@ -4201,26 +4209,43 @@ class HelenaGraph:
         # `classify-v5` byte a byte (sha256 fixado em teste).
         instrucoes = classify_prompt(roteador_lucas=self._roteador_lucas_enabled)
         prompt = f"{instrucoes}\n\n{render_untrusted_block('message_body', corpo)}"
-        try:
-            raw = await self._llm.generate(
-                prompt,
-                phi=True,
-                agent_id="helena",
-                tenant_id=state.get("tenant_id", ""),
-                # ADR-0009 §2 / CC-12: extracao estruturada (JSON) -> task_default.
-                task_kind="task_default",
-            )
-        except PROGRAMMING_ERRORS:
-            raise
-        except EXTERNAL_DEPENDENCY_FAILURES as exc:  # classified into a failure reason, never swallowed.
-            # HEL-05 (feeder): `str(exc)[:200]` was a LENGTH bound, never a CONTENT one, and this
-            # string becomes `state["error"]` (`classify`) which `_start_escalation` appends to
-            # `resumo_contexto` as `[falha tecnica: ...]` — i.e. straight into engine process
-            # variables, IN THE SAME TURN. The exception comes from the inference provider, whose
-            # message may echo the request (which carries the beneficiary's own message body and
-            # any identifier typed into it). `redact_error_message` bounds BOTH, and keeps the
-            # `{ClassName}: ` prefix this f-string used to build by hand.
-            return None, f"classify LLM call failed: {redact_error_message(exc)}"
+        falha: str | None = None
+        for tentativa in range(1, CLASSIFY_TENTATIVAS + 1):
+            try:
+                raw = await self._llm.generate(
+                    prompt,
+                    phi=True,
+                    agent_id="helena",
+                    tenant_id=state.get("tenant_id", ""),
+                    # ADR-0009 §2 / CC-12: extracao estruturada (JSON) -> task_default.
+                    task_kind="task_default",
+                )
+            except PROGRAMMING_ERRORS:
+                raise
+            except EXTERNAL_DEPENDENCY_FAILURES as exc:  # classified into a failure reason, never swallowed.
+                # HEL-05 (feeder): `str(exc)[:200]` was a LENGTH bound, never a CONTENT one, and this
+                # string becomes `state["error"]` (`classify`) which `_start_escalation` appends to
+                # `resumo_contexto` as `[falha tecnica: ...]` — i.e. straight into engine process
+                # variables, IN THE SAME TURN. The exception comes from the inference provider, whose
+                # message may echo the request (which carries the beneficiary's own message body and
+                # any identifier typed into it). `redact_error_message` bounds BOTH, and keeps the
+                # `{ClassName}: ` prefix this f-string used to build by hand.
+                return None, f"classify LLM call failed: {redact_error_message(exc)}"
+            data, falha = self._avaliar_extracao(raw)
+            if data is not None:
+                return data, None
+            if tentativa < CLASSIFY_TENTATIVAS:
+                # So' o NOME da classe da falha vai ao log: nunca o valor do campo nem o texto do modelo.
+                logger.warning(
+                    "helena_classify_repetido",
+                    tenant_id=state.get("tenant_id", ""),
+                    tentativa=tentativa,
+                    falha=falha,
+                )
+        return None, falha
+
+    def _avaliar_extracao(self, raw: str) -> tuple[dict[str, Any] | None, str | None]:
+        """A resposta do classificador: `(extracao, None)` ou `(None, motivo_da_falha)`."""
         data = _parse_json_object(raw)
         if data is None:
             return None, "classify LLM returned unparseable JSON"

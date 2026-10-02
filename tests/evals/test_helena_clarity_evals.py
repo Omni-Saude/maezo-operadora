@@ -123,7 +123,7 @@ async def test_evl_helena_clareza_01_mutation_check_jargon_plant_is_non_vacuous(
     """Planting a forbidden internal token onto the escalate handoff's response must make
     `assert_clarity` fail — proves the jargon check is actually exercised, not vacuously green.
 
-    01/10/2026 (DL-0060): the escalate handoff is a FIXED constant, not a model draft, so the
+    01/10/2026 (DL-0062): the escalate handoff is a FIXED constant, not a model draft, so the
     defect is planted on the FINAL `response_text` instead of on `recorded_llm`. The green case is
     run first and must pass: that is what proves the plant — and not the text — makes it fail."""
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-01")
@@ -138,7 +138,7 @@ async def test_evl_helena_clareza_01_mutation_check_jargon_plant_is_non_vacuous(
 async def test_evl_helena_clareza_01_mutation_check_long_sentence_is_non_vacuous() -> None:
     """Extending the escalate handoff's final sentence past `max_words_per_sentence` must make
     `assert_clarity` fail — proves the sentence-length check is actually exercised. Planted on the
-    final `response_text` (fixed text since DL-0060), after the green case passes."""
+    final `response_text` (fixed text since DL-0062), after the green case passes."""
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-01")
     result = await run_case(build, case, extra_config=_helena_extra_config())
     assert_clarity(_clarity_report(result.state, case["clarity"]))
@@ -163,7 +163,7 @@ async def test_evl_helena_clareza_01_mutation_check_missing_disclaimer_is_non_va
     group 2 ("emergencia") — so the probe targets the clarity check again, which is its job.
     """
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-01")
-    # 01/10/2026 (DL-0060): o texto do escalonamento e' fixo; a troca e' feita no `response_text`
+    # 01/10/2026 (DL-0062): o texto do escalonamento e' fixo; a troca e' feita no `response_text`
     # final, depois de provar que o caso verde passa na regua.
     result = await run_case(build, case, extra_config=_helena_extra_config())
     assert_clarity(_clarity_report(result.state, case["clarity"]))

@@ -70,7 +70,7 @@
         <outputEntry id="r4o4"><text>"Agitacao grave / quadro psicotico agudo"</text></outputEntry>
       </rule>
       <rule id="r5">
-        <description>INTERINO (DL-0067, 02/10/2026, caso E08): crise de ansiedade/panico passa de P2 para P1. O cabecalho desta tabela e o escalation_routing (r2) ja diziam que saude mental e' sempre P1; a linha P2 contradizia os dois. PENDENTE de ratificacao do dono clinico (psiquiatra/psicologo).</description>
+        <description>INTERINO (DL-0069, 02/10/2026, caso E08): crise de ansiedade/panico passa de P2 para P1. O cabecalho desta tabela e o escalation_routing (r2) ja diziam que saude mental e' sempre P1; a linha P2 contradizia os dois. PENDENTE de ratificacao do dono clinico (psiquiatra/psicologo).</description>
         <inputEntry id="r5i1"><text>"crise_ansiedade","crise_panico"</text></inputEntry>
         <inputEntry id="r5i2"><text>-</text></inputEntry>
         <inputEntry id="r5i3"><text>-</text></inputEntry>

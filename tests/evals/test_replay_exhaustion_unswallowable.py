@@ -13,10 +13,10 @@ deliberately mis-sized copies of that shape -- no network, no live model, fully 
 
 WHY THIS PATH (01/10/2026). The proof used to run on `human_request` -> `escalate`, which made
 THREE calls (`classify`, `_resumo_contexto`, `_respond_llm`). The beneficiary-facing escalation text
-is now a FIXED constant chosen by priority (DL-0060), so `escalate` no longer ends in a model draft
+is now a FIXED constant chosen by priority (DL-0062), so `escalate` no longer ends in a model draft
 and its fallback is gone. The administrative `inform` is the path that still drafts with the model
 and still has the swallowing fallback, so it is the one that keeps this proof non-vacuous.
-(Symptoms without a red flag are also fixed text since DL-0059.)
+(Symptoms without a red flag are also fixed text since DL-0061.)
 
 Three cases:
   1. `test_...one_entry_short_still_fails_even_though_agent_produced_a_fallback_answer` -- the

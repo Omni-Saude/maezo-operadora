@@ -189,9 +189,9 @@ function ContextBody({ value, now }: { value: TaskContext; now: number }) {
       </dl>
 
       <div className="task-context-summary" role="group" aria-labelledby={summaryId}>
-        <p id={summaryId} className="eyebrow">Resumo escrito pela Helena para o atendente</p>
+        <p id={summaryId} className="eyebrow">Resumo escrito pelo agente para o atendente</p>
         {value.resumo_contexto === null ? (
-          <p>A Helena não gerou um resumo para este caso.</p>
+          <p>O agente não gerou um resumo para este caso.</p>
         ) : (
           <blockquote>{value.resumo_contexto}</blockquote>
         )}

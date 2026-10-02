@@ -177,6 +177,14 @@ export function TaskCompletionControls({
           Obrigatória. Em “devolvo ao agente”, é o texto que o agente repassa ao beneficiário.
           Até {maxNotes} caracteres.
         </p>
+        {outcome === "devolvido_agente" && (
+          <p className="field-hint" data-testid="devolucao-filtro">
+            Por segurança, o sistema <strong>não envia</strong> uma instrução que prometa contato ou
+            retorno (“entraremos em contato”), cite valores em R$ ou anuncie cancelamento ou
+            suspensão. Nesses casos a pessoa recebe uma mensagem genérica. Escreva o que ela deve
+            fazer e onde, por exemplo: “Seu boleto vence dia 10; use a 2ª via no portal do plano.”
+          </p>
+        )}
         <button className="primary-action" type="submit" disabled={!ready || state.kind === "sending"}>
           {state.kind === "sending" ? "Concluindo…" : "Concluir tarefa"}
         </button>

@@ -1,4 +1,4 @@
-"""Bateria de 01/10/2026 (E02, E06, E07): o sintoma da regra escala mesmo sem intensidade dita (DL-0065).
+"""Bateria de 01/10/2026 (E02, E06, E07): o sintoma da regra escala mesmo sem intensidade dita (DL-0067).
 
 Decisao INTERINA, pelo principio do DL-0051: o custo de um caso a mais e' menor que o de um sintoma
 sem atendimento. Nao ratificada pelo dono clinico; este teste fixa o comportamento para que a
@@ -50,7 +50,7 @@ def test_e07_febre_na_gestacao_sem_intensidade_escala_p2() -> None:
 
 
 def test_o_que_nao_foi_tocado_continua_dependendo_da_intensidade() -> None:
-    """Escopo do DL-0065: sangramento, dor abdominal e o fail-safe nao mapeado ficam como estavam."""
+    """Escopo do DL-0067: sangramento, dor abdominal e o fail-safe nao mapeado ficam como estavam."""
     for codigo in ("sangramento_ativo", "dor_abdominal", "sintoma_nao_mapeado"):
         veredito = evaluate(
             _mesa("triage_redflag_adult.dmn"),

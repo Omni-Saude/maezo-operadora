@@ -84,6 +84,23 @@ it("exige desfecho e instrução antes de permitir o envio", async () => {
   expect(vi.mocked(fetch)).not.toHaveBeenCalled();
 });
 
+it("avisa o que o sistema NÃO envia, mas só quando o desfecho é devolver ao agente", async () => {
+  // Teste do Filipe em 02/10/2026: a nota "Entraremos em contato." foi barrada pelas cercas de saida e a
+  // pessoa recebeu um texto generico, sem que a tela tivesse avisado o atendente.
+  const user = userEvent.setup();
+  render(controls());
+  expect(screen.queryByTestId("devolucao-filtro")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("radio", { name: "Resolvi o caso" }));
+  expect(screen.queryByTestId("devolucao-filtro")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("radio", { name: "Devolvo ao agente, com instrução" }));
+  const aviso = screen.getByTestId("devolucao-filtro");
+  expect(aviso).toHaveTextContent("não envia");
+  expect(aviso).toHaveTextContent("entraremos em contato");
+  expect(aviso).toHaveTextContent("R$");
+});
+
 it("envia o desfecho com CSRF e mostra os dois elos de auditoria", async () => {
   const user = userEvent.setup();
   const onCompleted = vi.fn();

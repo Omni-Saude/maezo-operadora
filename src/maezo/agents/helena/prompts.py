@@ -62,7 +62,7 @@ CLASSIFY_PROMPT_VERSION = "classify-v5.2"  # 01/10/2026: privacidade e armazenam
 #: enviado ao modelo e' o `classify-v5` byte a byte (o sha256 dele esta' fixado em
 #: `tests/unit/agents/test_helena_passagem_cobranca.py`).
 CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v6.1"  # 02/10/2026: o paragrafo de `outside_channel` do v6
-# ganhou autorizacao NEGADA e privacidade/LGPD (as mesmas do v5.1/v5.2, DL-0061 e DL-0062). v6 — 01/10/2026:
+# ganhou autorizacao NEGADA e privacidade/LGPD (as mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026:
 # a onda (e).
 RESPONSE_PROMPT_VERSION = "response-v10"  # 01/10/2026: o contexto da resposta deixa de levar o `motivo`
 # da tabela de red flag (graph.py::_redigir_resposta). Ele era o texto de engenharia que o modelo
@@ -727,8 +727,8 @@ mensagem, sem JSON."""
 RECUSA_DE_SAIDA_VERSION = "recusa-v9"  # 01/10/2026: duas cercas mudaram de veredito. (1) FINALIDADE DO
 # CANAL: uma oracao que cita aplicativo/portal junto de autorizacao, negativa, justificativa,
 # glosa, protocolo, reembolso, cancelamento ou status de guia e' recusada (grupo
-# `canal_nao_confirmado`, DL-0061). (2) ALEGACAO SOBRE O TRATAMENTO DOS DADOS: literais de
-# armazenamento, pseudonimizacao e LGPD entram em `PROMESSA_DE_CAPACIDADE_PROIBIDA` (DL-0062).
+# `canal_nao_confirmado`, DL-0063). (2) ALEGACAO SOBRE O TRATAMENTO DOS DADOS: literais de
+# armazenamento, pseudonimizacao e LGPD entram em `PROMESSA_DE_CAPACIDADE_PROIBIDA` (DL-0064).
 # Os dois commits originais esqueceram de subir este numero; o pin de
 # `tests/unit/agents/test_helena_prompt_versions_pin.py` agora cobra isso por hash.
 # v8 — 21/09/2026, QUINTA RODADA: a negacao passou a ser

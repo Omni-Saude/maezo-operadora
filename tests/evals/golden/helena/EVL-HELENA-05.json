@@ -3,7 +3,7 @@
   "agent": "helena",
   "class": "FC",
   "tier": ["A"],
-  "description": "classify LLM returns unparseable JSON -> fail-closed escalate falha_tecnica, never a silent inform default (R1 cycle-1 fix). Synthetic data only.",
+  "description": "classify LLM returns unparseable JSON -> fail-closed escalate falha_tecnica, never a silent inform default (R1 cycle-1 fix). The classifier retries ONCE on a rejected extraction (CLASSIFY_TENTATIVAS=2, DL-0058): the model fails on BOTH attempts here, so two classify responses are recorded. Synthetic data only.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -13,7 +13,7 @@
       "message_body": "nao consigo respirar direito"
     }
   },
-  "recorded_llm": ["{{{malformed", "resumo tecnico"],
+  "recorded_llm": ["{{{malformed", "{{{malformed", "resumo tecnico"],
   "expect": {
     "next_kind": "escalate",
     "fields": {

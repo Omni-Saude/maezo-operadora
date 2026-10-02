@@ -3,7 +3,7 @@
   "agent": "helena",
   "class": "DD",
   "tier": ["A"],
-  "description": "clinical routing — SME-ratification pending. Pediatric symptom with age emitted as the fractional string \"5.9\" -> _coerce_age fails closed (invalid_age) -> escalate falha_tecnica; the ambiguous age NEVER reaches the red-flag DMN (age-input gate, PR #107). Synthetic data only.",
+  "description": "clinical routing — SME-ratification pending. Pediatric symptom with age emitted as the fractional string \"5.9\" -> _coerce_age fails closed (invalid_age) -> escalate falha_tecnica; the ambiguous age NEVER reaches the red-flag DMN (age-input gate, PR #107). The classifier retries ONCE on a rejected extraction (CLASSIFY_TENTATIVAS=2, DL-0058): the model emits the same fractional age on BOTH attempts, so two classify responses are recorded. Synthetic data only.",
   "input": {
     "state": {
       "tenant_id": "amh",
@@ -14,6 +14,7 @@
     }
   },
   "recorded_llm": [
+    "{\"intent\": \"symptom\", \"population\": \"pediatric\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"leve\", \"idade_meses\": \"5.9\"}",
     "{\"intent\": \"symptom\", \"population\": \"pediatric\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"leve\", \"idade_meses\": \"5.9\"}",
     "resumo tecnico"
   ],

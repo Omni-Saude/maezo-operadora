@@ -103,7 +103,7 @@ async def test_evl_helena_19_mutation_check_memoria_is_non_vacuous() -> None:
     sem_memoria = {k: v for k, v in copy.deepcopy(dict(case)).items() if k != "memoria_clinica"}
     # O turno DEGRADADO faz DUAS chamadas (classify + `_resumo_contexto`) em vez da UNICA do caso
     # verde (so' o classify: desde 01/10/2026 o sintoma sem bandeira recebe texto fixo, sem modelo),
-    # porque ele termina em `escalate`, cujo aviso tambem e' texto fixo (DL-0060). O contrato
+    # porque ele termina em `escalate`, cujo aviso tambem e' texto fixo (DL-0062). O contrato
     # un-swallowable do `run_case` exige a contagem exata, e essa diferenca de contagem e' ela mesma
     # parte da prova.
     sem_memoria["recorded_llm"] = [*case["recorded_llm"], "Resumo para o atendente."]

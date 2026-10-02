@@ -49,7 +49,7 @@ from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
 #: sha256 do texto do `classify-v5.2` (02/10/2026; o `classify-v5` era 5b480bd3...; v5.1 e v5.2 acrescentaram
-#: autorizacao negada e privacidade a `outside_channel`, DL-0061 e DL-0062). Desligado, o roteador NAO pode
+#: autorizacao negada e privacidade a `outside_channel`, DL-0063 e DL-0064). Desligado, o roteador NAO pode
 #: mudar um byte do que vai ao modelo: se este numero mudar, o v5 mudou, e isso e' bump de versao.
 SHA256_CLASSIFY_V5 = "2f8eb9ca08166d3266aa59c0c14b9e1e1b6f20715208fcca23552d86f105e144"
 
@@ -182,7 +182,7 @@ async def test_desligado_o_grafo_nao_tem_o_no_de_passagem() -> None:
 
 
 async def test_desligado_um_cobranca_do_modelo_vira_falha_tecnica_como_hoje() -> None:
-    compilado, sender, _ = _grafo(_FakeInference([_json(), _HANDOFF, "resumo"]), ligado=False)
+    compilado, sender, _ = _grafo(_FakeInference([_json(), _json(), _HANDOFF, "resumo"]), ligado=False)
     resultado = await compilado.ainvoke(_entrada())
     assert resultado["escalation_motivo"] == "falha_tecnica"
     assert "invalid_intent" in resultado["error"]

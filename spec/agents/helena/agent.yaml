@@ -57,7 +57,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
   classify_roteador: classify-v6.1   # 02/10/2026: paragrafo de outside_channel com
-                                     # autorizacao negada e privacidade (DL-0061/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o
+                                     # autorizacao negada e privacidade (DL-0063/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o
                                      # roteador Helena -> Lucas ligado. Acrescenta a intencao
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira
                                      # cobranca da lista de `outside_channel`. Desligado, o
@@ -94,8 +94,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v9          # 01/10/2026: cerca de FINALIDADE do canal (DL-0061) e alegacao
-                                      # sobre o tratamento dos dados (DL-0062).
+  recusa_de_saida: recusa-v9          # 01/10/2026: cerca de FINALIDADE do canal (DL-0063) e alegacao
+                                      # sobre o tratamento dos dados (DL-0064).
                                       # v8 — 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
                                       # (lookbehind antes da acao) + `numero` volta a ser pista
                                       # de telefone fora do genitivo administrativo.

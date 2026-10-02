@@ -77,7 +77,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/triage_redflag_pediatric.dmn
-  sha256: "ff275bf4a6ccdfe1a1a07677816df8f24730ec6c3217a03decaccaffe56a3f3f"
+  sha256: "bee9e516c97cbd50ea528071041f482353c3a64b6856118618c693bd98bad408"
 
 modo_operacao: sombra
 
@@ -165,7 +165,7 @@ achados:
         saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
         leitura: "o MESMO sintoma com gravidade conhecida escala; com gravidade DESCONHECIDA, nao"
     tratamento_interino: >-
-      DL-0065 (02/10/2026): a regra r6 passou a aceitar `desconhecida` (decisao interina do Diretor, mesmo
+      DL-0067 (02/10/2026): a regra r6 passou a aceitar `desconhecida` (decisao interina do Diretor, mesmo
       principio do DL-0051). PENDENTE de ratificacao do dono clinico — este achado segue aberto ate la.
     porque_nao_foi_fechado: >-
       A disposicao de uma intensidade desconhecida (escalar como se fosse grave? pedir
@@ -278,7 +278,7 @@ regras_candidatas:
   - ordem: 6
     id: r6
     candidato: true
-    origem: "r6 de triage_redflag_pediatric.dmn, com `desconhecida` acrescentada (DL-0065, interino)"
+    origem: "r6 de triage_redflag_pediatric.dmn, com `desconhecida` acrescentada (DL-0067, interino)"
     entradas: {sintoma_codigo: '"sinais_desidratacao"', intensidade: '"grave","moderada","desconhecida"', idade_meses: "-"}
     saidas:
       red_flag: true
