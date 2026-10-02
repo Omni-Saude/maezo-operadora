@@ -70,13 +70,14 @@
         <outputEntry id="r4o4"><text>"Agitacao grave / quadro psicotico agudo"</text></outputEntry>
       </rule>
       <rule id="r5">
+        <description>INTERINO (DL-0064, 02/10/2026, caso E08): crise de ansiedade/panico passa de P2 para P1. O cabecalho desta tabela e o escalation_routing (r2) ja diziam que saude mental e' sempre P1; a linha P2 contradizia os dois. PENDENTE de ratificacao do dono clinico (psiquiatra/psicologo).</description>
         <inputEntry id="r5i1"><text>"crise_ansiedade","crise_panico"</text></inputEntry>
         <inputEntry id="r5i2"><text>-</text></inputEntry>
         <inputEntry id="r5i3"><text>-</text></inputEntry>
         <outputEntry id="r5o1"><text>true</text></outputEntry>
-        <outputEntry id="r5o2"><text>"P2"</text></outputEntry>
-        <outputEntry id="r5o3"><text>"ESCALATE_NURSE"</text></outputEntry>
-        <outputEntry id="r5o4"><text>"Crise de ansiedade/panico — acolhimento humano"</text></outputEntry>
+        <outputEntry id="r5o2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r5o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r5o4"><text>"Crise de ansiedade/panico — acolhimento humano imediato"</text></outputEntry>
       </rule>
       <rule id="r6">
         <description>Fail-safe saude mental: qualquer relato grave escala para humano</description>
