@@ -1,0 +1,43 @@
+{
+  "id": "EVL-HELENA-21",
+  "agent": "helena",
+  "class": "CE",
+  "tier": [
+    "A",
+    "B"
+  ],
+  "description": "Denied authorization ('Minha autorizacao de ressonancia foi negada, por que?') -> intent=outside_channel -> fixed out-of-channel text, NO escalation, and NO pointer to the app/portal (B07 of the 01/10/2026 battery: classify-v5 answered `information` and the model sent the person to look for a justification in the app, which does not resolve authorizations). The Helena never explains a denial: that is the auditing physician's decision. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-21",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-021",
+      "message_body": "Minha autorizacao de ressonancia foi negada, por que?"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"outside_channel\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
+  ],
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "intent": "outside_channel",
+      "response_text": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo."
+    }
+  },
+  "leak_canaries": [
+    "aplicativo",
+    "portal",
+    "justificativa"
+  ],
+  "live": {
+    "assert": "fields",
+    "match": [
+      "intent",
+      "population",
+      "psychosocial_risk"
+    ],
+    "threshold": 0.9
+  }
+}

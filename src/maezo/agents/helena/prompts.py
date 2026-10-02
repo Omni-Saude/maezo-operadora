@@ -40,7 +40,10 @@ from typing import NamedTuple
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-CLASSIFY_PROMPT_VERSION = "classify-v5"  # 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO CAMPOS
+CLASSIFY_PROMPT_VERSION = "classify-v5.1"  # 01/10/2026: autorizacao NEGADA e status de guia sao
+# `outside_channel` (B07: o DL-0052 ja' listava "autorizacao", mas "minha autorizacao de ressonancia
+# foi negada, por que?" saia `information` e a Helena mandava ver a justificativa no aplicativo,
+# que nao resolve autorizacao). v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO CAMPOS
 # DIFERENTES — `sintoma_codigo`/`intensidade` sao preenchidos em QUALQUER `intent`, inclusive
 # `clinical_question`. Sem o codigo, a tabela de red flag nao tem o que triar e a pergunta volta a
 # decidir a prioridade sozinha (v4, 21/09: a REGRA DO QUALIFICADOR — nenhum codigo com qualificador
@@ -424,9 +427,12 @@ cabeca" e' "symptom". Caso contrario, use "information" para duvidas administrat
 
 ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
 para TUDO o que nao e' saude: cobranca, boleto, segunda via, mensalidade, preco ou contratacao de
-plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, assunto de outra area,
-conversa sem relacao com saude, texto sem sentido. NA DUVIDA entre saude e outro assunto, NAO use
-"outside_channel": use "symptom", "clinical_question" ou "information". Uma mensagem com QUALQUER
+plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, autorizacao NEGADA ou
+negativa de procedimento ("minha autorizacao foi negada, por que?", "qual o status da minha guia?"),
+assunto de outra area, conversa sem relacao com saude, texto sem sentido. Voce NUNCA explica uma
+negativa de autorizacao: isso e' decisao de medico auditor, e a mensagem nao traz sintoma nenhum.
+NA DUVIDA entre saude e outro assunto, NAO use "outside_channel": use "symptom",
+"clinical_question" ou "information". Uma mensagem com QUALQUER
 sinal de saude (sintoma, dor, mal-estar, preocupacao com a saude de alguem) nunca e'
 "outside_channel", mesmo que traga outro assunto junto. Pedir uma pessoa/atendente e' sempre
 "human_request", qualquer que seja o assunto."""
@@ -1466,6 +1472,31 @@ def motivo_de_recusa(
 _ROTAS_QUE_PODEM_PROMETER_HUMANO: frozenset[str] = frozenset({"escalate", "schedule"})
 
 
+# FINALIDADE DO CANAL (01/10/2026, B07/B08 da bateria). As duas passagens abaixo julgam o NOME do canal;
+# nenhuma julga PARA QUE ele e' citado. O aplicativo e o portal resolvem boleto, carteirinha, rede e
+# historico (`_AUTOATENDIMENTO`), e o comentario de `CanalConfirmado` ja' diz que citar o aplicativo
+# para autorizacao de exame seria errado "mesmo com o nome certo". O modelo fez exatamente isso: "verificar
+# no aplicativo Austa Clinicas se ha alguma justificativa registrada" (autorizacao negada) e "o portal tem o
+# formulario e o envio digital" (reembolso). A cerca olha a MESMA ORACAO: um canal e um assunto que ele
+# nao resolve juntos. Por oracao, e nao no texto inteiro, para nao recusar "Guia Medico" nem uma frase
+# sobre o aplicativo seguida de outra sobre a central.
+_CANAL_CITADO = re.compile(r"\b(?:aplicativo|app|portal)\b")
+_ASSUNTO_QUE_O_APP_NAO_RESOLVE = re.compile(
+    r"\bautoriza\w*|\bnegativ\w*|\bnegad[oa]s?\b|\bjustificativ\w*|\bglosa\w*|\bprotocolo\b"
+    r"|\breembols\w*|\bcancelament\w*"
+    r"|\bstatus d\w+ (?:sua |minha |suas |minhas )?(?:guias?|solicitac\w*|pedidos?)\b"
+)
+
+
+def _canal_para_assunto_que_ele_nao_resolve(plano: str) -> str | None:
+    """O `padrao` (rotulo para o log) se UMA oracao cita o aplicativo/portal junto de um assunto que
+    eles nao resolvem, ou `None`. `plano` ja' vem normalizado por `_normalizar`."""
+    for oracao in _FIM_DE_ORACAO.split(plano):
+        if _CANAL_CITADO.search(oracao) and (assunto := _ASSUNTO_QUE_O_APP_NAO_RESOLVE.search(oracao)):
+            return f"finalidade do canal: {assunto.group(0)}"
+    return None
+
+
 def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
     """`(grupo, padrao)` do primeiro canal NAO CONFIRMADO citado em `texto`, ou `None`.
 
@@ -1508,6 +1539,9 @@ def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
     for padrao in CANAL_NAO_CONFIRMADO_PROIBIDO:
         if padrao in plano:
             return (RECUSA_CANAL_NAO_CONFIRMADO, padrao)
+    finalidade = _canal_para_assunto_que_ele_nao_resolve(plano)
+    if finalidade is not None:
+        return (RECUSA_CANAL_NAO_CONFIRMADO, finalidade)
     for termo in CANAL_TERMO_QUE_EXIGE_O_NOME:
         # TODA ocorrencia, nao a primeira (21/09/2026, terceira rodada). `re.search` julgava so' a
         # primeira, e com o veredito dependendo de o termo estar NU ou QUALIFICADO isso abria uma

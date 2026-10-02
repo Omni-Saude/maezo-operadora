@@ -1484,6 +1484,105 @@
         "canal": null,
         "menciona": true
       }
+    },
+    {
+      "texto": "Verificar no aplicativo Austa Clinicas ou no portal do plano se ha alguma mensagem ou justificativa registrada.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026), B07 da bateria (medido): aplicativo citado para autorizacao negada",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Voce pode acessar o aplicativo Austa Clinicas ou o portal do plano, onde e possivel verificar o status das guias.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026), B07 da bateria (medido): status de guia no aplicativo",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Para pedir reembolso, acesse o portal do plano ou o aplicativo Austa Clinicas e envie os documentos.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026), B08 da bateria (medido): reembolso no portal",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "No portal do plano voce acompanha o protocolo da sua solicitacao.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026): protocolo no portal (nao ha esse recurso confirmado)",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "O cancelamento do plano pode ser pedido pelo aplicativo Austa Clinicas.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026), B05 da bateria (medido no WhatsApp): cancelamento no aplicativo",
+      "esperado": {
+        "recusa": null,
+        "canal": "canal_nao_confirmado",
+        "menciona": false
+      }
+    },
+    {
+      "texto": "A carteirinha digital fica no aplicativo Austa Clinicas e no portal do plano.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026): o que o aplicativo RESOLVE continua permitido",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "No aplicativo Austa Clinicas voce consulta a rede credenciada e o Guia Medico.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026): Guia Medico nao e' guia de autorizacao",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Para saber da sua autorizacao, procure a central de atendimento do plano. A carteirinha fica no aplicativo Austa Clinicas.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026): canal e assunto em oracoes separadas (a cerca e' por oracao)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Para autorizacao de exame, fale com a central de atendimento do plano.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0058 (01/10/2026): autorizacao encaminhada a central, sem citar aplicativo",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

@@ -41,7 +41,8 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v5               # 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
+  classify: classify-v5.1             # 01/10/2026: autorizacao NEGADA e status de guia sao `outside_channel`
+                                     # (B07). v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
                                      # CAMPOS DIFERENTES — `sintoma_codigo`/`intensidade`
                                      # sao preenchidos em QUALQUER intent, inclusive
                                      # clinical_question ("tenho 45 anos e estou com dor no

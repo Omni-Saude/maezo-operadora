@@ -1,5 +1,5 @@
 {
-  "versao": "extracao-v3",
+  "versao": "extracao-v4",
   "casos": [
     {
       "id": "r2-cefaleia-comum-01",
@@ -1366,7 +1366,7 @@
       "id": "intent-info-guia",
       "mensagem": "qual o status da minha guia de autorizacao",
       "esperado": {
-        "intent": "information",
+        "intent": "outside_channel",
         "population": "none",
         "psychosocial_risk": false,
         "sintoma_codigo": null,
@@ -1375,7 +1375,7 @@
         "idade_meses": null,
         "idade_gestacional_semanas": null
       },
-      "porque": "Administrativo.",
+      "porque": "DL-0052 + classify-v5.1: status de guia/autorizacao nao e' saude e o aplicativo nao o resolve. Antes (extracao-v3) era `information`: a Helena redigia uma resposta e citava o aplicativo.",
       "origem": "bateria-13-09",
       "regras": [
         "R5"
@@ -2516,6 +2516,44 @@
       },
       "porque": "DL-0052: preco e contratacao de plano sao assunto comercial, fora do canal de saude. `outside_channel`, nao `information` — a diferenca e' que o modelo nao redige nada e nenhum caso e' aberto.",
       "origem": "bateria-30-09",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "dl0052-autorizacao-negada",
+      "mensagem": "Minha autorizacao de ressonancia foi negada, por que?",
+      "esperado": {
+        "intent": "outside_channel",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "B07 da bateria de 01/10/2026. A Helena nunca explica negativa de autorizacao (decisao de medico auditor). A mensagem cita um exame, mas nao traz sintoma: nao e' `symptom` nem `clinical_question`.",
+      "origem": "bateria-01-10",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "dl0052-negativa-de-procedimento",
+      "mensagem": "o plano negou o procedimento que meu medico pediu",
+      "esperado": {
+        "intent": "outside_channel",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "Mesma familia de B07: negativa de procedimento, sem sintoma e sem pedido de pessoa.",
+      "origem": "bateria-01-10",
       "regras": [
         "R5"
       ]
