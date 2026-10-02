@@ -619,7 +619,9 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
             "agent_resume.lucas_retomada_indisponivel",
             tenant_id=settings.tenant_id,
             error_type=type(exc).__name__,
-            detail="o servico segue so' com a retomada da Helena; casos devolvidos do Lucas nao serao retomados",
+            detail=(
+                "o servico segue so' com a retomada da Helena; casos devolvidos do Lucas nao serao retomados"
+            ),
         )
     handler = ResumeHandler(
         tenant_id=settings.tenant_id,

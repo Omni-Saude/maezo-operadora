@@ -76,7 +76,9 @@ async def _retomar(r: lr.LucasRetomada, conversa: str, nota: str, ref: str = "in
 
 
 def test_a_mensagem_cita_a_instrucao_entre_aspas_e_atribui_a_equipe() -> None:
-    texto = lr.compor_mensagem_de_retomada('Seu boleto de   setembro vence dia 10.\nUse a "2a via" do portal do plano.')
+    texto = lr.compor_mensagem_de_retomada(
+        'Seu boleto de   setembro vence dia 10.\nUse a "2a via" do portal do plano.'
+    )
     assert "Um profissional da nossa equipe" in texto
     assert "Seu boleto de setembro vence dia 10. Use a '2a via' do portal do plano." in texto
     assert "\n" not in texto
@@ -85,7 +87,9 @@ def test_a_mensagem_cita_a_instrucao_entre_aspas_e_atribui_a_equipe() -> None:
 def test_o_modelo_fixo_passa_nas_cercas_do_lucas_com_uma_nota_ordinaria() -> None:
     from maezo.agents.lucas.prompts import motivo_de_recusa
 
-    texto = lr.compor_mensagem_de_retomada("Seu boleto de setembro vence dia 10; use a 2a via no portal do plano.")
+    texto = lr.compor_mensagem_de_retomada(
+        "Seu boleto de setembro vence dia 10; use a 2a via no portal do plano."
+    )
     from maezo.agents.helena.graph import motivo_de_recusa_da_retomada
 
     assert motivo_de_recusa(texto, lr.RESPONSE_KIND_RETOMADA, {}) is None
@@ -137,7 +141,9 @@ async def test_destinatario_que_nao_bate_com_o_hash_keyed_e_recusado_antes_do_en
 async def test_conversa_alheia_ou_malformada_e_recusada(conversa: str) -> None:
     retomada, cliente, _, _ = _montar()
     with pytest.raises(ValueError, match="conversation_id"):
-        await retomada.resume(conversation_id=conversa, instrucoes="Orientacao.", raw_to=NUMERO, resume_ref="i")
+        await retomada.resume(
+            conversation_id=conversa, instrucoes="Orientacao.", raw_to=NUMERO, resume_ref="i"
+        )
     assert cliente.enviados == []
 
 
@@ -203,7 +209,9 @@ def test_seam_de_outro_principal_nao_constroi() -> None:
             tenant_id=TENANT,
             pseudonymizer=Pseudonymizer(),
             whatsapp_client=object(),
-            dedup=WhatsAppDedupGuard(registry=FakeDedupRegistry(), pseudonymizer=Pseudonymizer(), tenant=TENANT),
+            dedup=WhatsAppDedupGuard(
+                registry=FakeDedupRegistry(), pseudonymizer=Pseudonymizer(), tenant=TENANT
+            ),
             seam_context=build_agent_seam_context(tenant=TENANT, agent_id="helena"),
         )
 
