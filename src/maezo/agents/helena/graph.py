@@ -468,6 +468,52 @@ RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL: str = (
 )
 
 
+#: SAUDACAO E DESPEDIDA COM TEXTO FIXO (01/10/2026). TEXTOS PROVISORIOS — redacao de engenharia,
+#: aguardam aprovacao de produto (Plano G4.3: "nao existe texto de boas-vindas aprovado").
+#:
+#: O DEFEITO, medido em 6 de 6 execucoes (A02, A03, A10): o modelo, que redigia a resposta a "oi",
+#: "tudo bem?" e "obrigado, era so isso", REABRIA o cartao de apresentacao a cada turno, depois de
+#: ja' ter se apresentado — o que o `response_prompt` proibe em letras maiusculas. Instrucao de
+#: prompt nao segura uma regra que depende de memoria da conversa; `apresentacao_ja_feita` ja' e'
+#: mantido pelo grafo (e' aceso quando o texto ENVIADO traz "Helena"), entao a decisao passa a ser
+#: dele: primeira vez, o cartao (que diz o que o canal faz — o mesmo escopo do DL-0052); depois, uma
+#: frase curta. A frase de abertura NAO diz que o canal "orienta duvidas administrativas": desde o
+#: DL-0052 esse assunto recebe `RESPOSTA_FORA_DO_CANAL`, e o cartao antigo prometia o contrario.
+RESPOSTA_SAUDACAO_ABERTURA: str = (
+    "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você "
+    "para a equipe de saúde. Como posso ajudar?"
+)
+RESPOSTA_SAUDACAO_CURTA: str = "Olá! Como posso te ajudar?"
+RESPOSTA_DESPEDIDA: str = "De nada! Se precisar de algo, é só me chamar."
+
+#: A DESPEDIDA E' DETECTADA POR VOCABULARIO FECHADO, e e' conservadora de proposito: a mensagem
+#: inteira tem de ser agradecimento ou adeus. Um falso positivo engoliria um pedido ("obrigado, e
+#: agora me liga?" tem tokens fora da lista e nao casa); um falso negativo so' devolve o turno ao
+#: modelo, que e' o comportamento de antes. "ok" sozinho fica de fora: costuma responder a uma
+#: pergunta da propria Helena, e "de nada" ali seria estranho.
+_DESPEDIDA_NUCLEO = frozenset({"obrigado", "obrigada", "brigado", "brigada", "valeu", "vlw", "tchau", "xau"})
+_DESPEDIDA_FRASES = ("era so isso", "so isso", "ate mais", "ate logo")
+_DESPEDIDA_ACOMPANHANTES = frozenset(
+    {
+        *("muito", "era", "so", "isso", "ate", "mais", "logo", "tudo", "certo", "bom", "ta"),
+        *("show", "beleza", "por", "pela", "ajuda", "atencao", "e", "de", "nada", "ok"),
+    }
+)
+
+
+def _e_despedida(texto: str) -> bool:
+    """`True` quando a mensagem INTEIRA e' agradecimento ou adeus (vocabulario fechado acima)."""
+    plano = re.sub(r"[^\w\s]", " ", _normalizar_texto(texto or ""))
+    palavras = plano.split()
+    if not palavras or len(palavras) > 8:
+        return False
+    if not all(p in _DESPEDIDA_NUCLEO or p in _DESPEDIDA_ACOMPANHANTES for p in palavras):
+        return False
+    return any(p in _DESPEDIDA_NUCLEO for p in palavras) or any(
+        f in " ".join(palavras) for f in _DESPEDIDA_FRASES
+    )
+
+
 def _texto_de_escalonamento(motivo: MotivoCategoria | None, severidade: Severidade | None) -> str:
     """O texto fixo do aviso de encaminhamento, escolhido pelo MOTIVO e pela severidade do processo
     que esta' sendo aberto (que derivam da tabela, nunca de redacao)."""
@@ -2916,6 +2962,17 @@ class HelenaGraph:
                 f"{confirmacao} {RESPOSTA_SINTOMA_SEM_ALERTA}" if confirmacao else RESPOSTA_SINTOMA_SEM_ALERTA
             )
             return {"response_text": texto_fixo, "response_kind": "inform"}
+        if state.get("intent") in ("greeting", "information") and _e_despedida(
+            str(state.get("message_body") or "")
+        ):
+            # Despedida: agradecimento ou adeus e nada mais — ver `_e_despedida`.
+            return {"response_text": RESPOSTA_DESPEDIDA, "response_kind": "inform"}
+        if state.get("intent") == "greeting":
+            # Saudacao SEM pedido (`classify` so' devolve `greeting` quando nao ha pedido nenhum).
+            # O cartao so' na primeira vez; `apresentacao_ja_feita` e' mantido pelo grafo.
+            ja_se_apresentou = state.get("apresentacao_ja_feita") is True
+            abertura = RESPOSTA_SAUDACAO_CURTA if ja_se_apresentou else RESPOSTA_SAUDACAO_ABERTURA
+            return {"response_text": abertura, "response_kind": "inform"}
         text = await self._redigir_resposta(state, "inform")
         try:
             text = self._cercar_saida(text, "inform", node="inform")

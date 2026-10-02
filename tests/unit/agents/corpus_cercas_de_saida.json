@@ -1627,6 +1627,39 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Como posso ajudar?",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0060 (01/10/2026): RESPOSTA_SAUDACAO_ABERTURA, cartao de abertura fixo (primeira saudacao)",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Olá! Como posso te ajudar?",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0060 (01/10/2026): RESPOSTA_SAUDACAO_CURTA, saudacao depois de a Helena ja ter se apresentado",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "De nada! Se precisar de algo, é só me chamar.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0060 (01/10/2026): RESPOSTA_DESPEDIDA, resposta a agradecimento ou adeus",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }
