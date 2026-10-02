@@ -102,9 +102,9 @@
         <outputEntry id="r7o4"><text>"Sincope/desmaio: avaliacao de enfermagem imediata"</text></outputEntry>
       </rule>
       <rule id="r8">
-        <description>Idoso com febre: limiar mais baixo (DRAFT clinico)</description>
+        <description>Idoso com febre: limiar mais baixo (DRAFT clinico). INTERINO (DL-0062, 02/10/2026, caso E02): intensidade nao informada escala igual a moderada/grave. PENDENTE de ratificacao do dono clinico.</description>
         <inputEntry id="r8i1"><text>"febre"</text></inputEntry>
-        <inputEntry id="r8i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r8i2"><text>"grave","moderada","desconhecida"</text></inputEntry>
         <inputEntry id="r8i3"><text>&gt;= 65</text></inputEntry>
         <outputEntry id="r8o1"><text>true</text></outputEntry>
         <outputEntry id="r8o2"><text>"P2"</text></outputEntry>

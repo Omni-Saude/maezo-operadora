@@ -76,8 +76,9 @@
         <outputEntry id="r5o4"><text>"Trabalho de parto pre-termo"</text></outputEntry>
       </rule>
       <rule id="r6">
+        <description>INTERINO (DL-0062, 02/10/2026, caso E07 da bateria): febre na gestacao sem intensidade informada escala igual. PENDENTE de ratificacao do dono clinico (obstetra).</description>
         <inputEntry id="r6i1"><text>"febre"</text></inputEntry>
-        <inputEntry id="r6i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r6i2"><text>"grave","moderada","desconhecida"</text></inputEntry>
         <inputEntry id="r6i3"><text>-</text></inputEntry>
         <outputEntry id="r6o1"><text>true</text></outputEntry>
         <outputEntry id="r6o2"><text>"P2"</text></outputEntry>
