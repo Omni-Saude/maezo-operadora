@@ -748,6 +748,17 @@ RESPOSTA_INFORMATIVA_RECUSADA: str = (
 #: acionado — `send_escalation_ack` so' roda com `process_started is True` —, entao a promessa e'
 #: verdadeira, e a frase nao contem nenhum dos padroes proibidos. E' saida segura por construcao,
 #: nao por sorte do modelo.
+#: ATENDIMENTO JA' ABERTO (02/10/2026, bateria do circuito humano): quando o start devolve uma instancia
+#: que JA' existia (`already_existed` — a mesma chave `ESC-{tenant}-{conversa}` da Helena e do Lucas),
+#: nenhum atendimento novo foi aberto e o ACK redigido pelo modelo ("um atendente vai entrar em contato")
+#: anunciaria um encaminhamento que nao aconteceu agora. Constante, sem modelo: diz a verdade e nao
+#: promete prazo. Mesmo espirito de `RESPOSTA_HANDOFF_JA_ABERTO` da Helena; nao nomeia "cobranca"
+#: porque o caso aberto pode ser de saude.
+ACK_ATENDIMENTO_JA_ABERTO: str = (
+    "Recebemos sua mensagem. Seu atendimento com a nossa equipe ja esta aberto e continua em "
+    "andamento, por isso nao abrimos outro. Nenhuma decisao sobre seu plano foi tomada."
+)
+
 ACK_ESCALACAO_RECUSADO: str = (
     "Recebemos sua solicitacao e ela ja esta com um atendente da nossa equipe, que vai continuar "
     "o atendimento por aqui. Nenhuma decisao sobre seu plano foi tomada."
@@ -1152,7 +1163,10 @@ class LucasGraph:
         if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
             return {"ack_pending": True}
 
-        ack_text = await self._build_escalation_ack(state)
+        if (state.get("process_ref") or {}).get("already_existed") is True:
+            ack_text = ACK_ATENDIMENTO_JA_ABERTO
+        else:
+            ack_text = await self._build_escalation_ack(state)
         try:
             resultado = await self._whatsapp.send(
                 to_hash, ack_text, idempotency_key=_idempotency_key(state, node="send_escalation_ack")
