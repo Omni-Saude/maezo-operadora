@@ -15,7 +15,7 @@ from tests.support.dmn_first_hit import DMN_DIR, evaluate, read_live_table
 _ADULT = DMN_DIR / "triage_redflag_adult.dmn"
 
 
-@pytest.mark.parametrize("intensidade", ["grave", "moderada", "desconhecida"])
+@pytest.mark.parametrize("intensidade", ["grave", "moderada", "leve", "desconhecida"])
 def test_dispneia_adulta_escala_p1_com_intensidade_conhecida_ou_nao(intensidade: str) -> None:
     verdict = evaluate(
         read_live_table(_ADULT), {"sintoma_codigo": "dispneia", "intensidade": intensidade, "idade_anos": 40}
@@ -23,13 +23,6 @@ def test_dispneia_adulta_escala_p1_com_intensidade_conhecida_ou_nao(intensidade:
     assert verdict.regra == "r2"
     assert verdict.saidas["red_flag"] is True
     assert verdict.saidas["prioridade"] == "P1"
-
-
-def test_dispneia_leve_continua_sem_alerta() -> None:
-    verdict = evaluate(
-        read_live_table(_ADULT), {"sintoma_codigo": "dispneia", "intensidade": "leve", "idade_anos": 40}
-    )
-    assert verdict.saidas["red_flag"] is False
 
 
 def test_outros_codigos_com_intensidade_desconhecida_nao_mudaram() -> None:
