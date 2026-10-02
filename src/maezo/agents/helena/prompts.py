@@ -40,7 +40,13 @@ from typing import NamedTuple
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-CLASSIFY_PROMPT_VERSION = "classify-v5"  # 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO CAMPOS
+CLASSIFY_PROMPT_VERSION = "classify-v5.2"  # 01/10/2026: privacidade e armazenamento de dados sao
+# `outside_channel` (J09: "voces guardam minhas mensagens?" saia `information` e a Helena afirmava
+# que as mensagens sao "armazenadas de forma segura e pseudonimizada" — sem base no repositorio).
+# v5.1 — 01/10/2026: autorizacao NEGADA e status de guia sao
+# `outside_channel` (B07: o DL-0052 ja' listava "autorizacao", mas "minha autorizacao de ressonancia
+# foi negada, por que?" saia `information` e a Helena mandava ver a justificativa no aplicativo,
+# que nao resolve autorizacao). v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO CAMPOS
 # DIFERENTES — `sintoma_codigo`/`intensidade` sao preenchidos em QUALQUER `intent`, inclusive
 # `clinical_question`. Sem o codigo, a tabela de red flag nao tem o que triar e a pergunta volta a
 # decidir a prioridade sozinha (v4, 21/09: a REGRA DO QUALIFICADOR — nenhum codigo com qualificador
@@ -55,8 +61,15 @@ CLASSIFY_PROMPT_VERSION = "classify-v5"  # 22/09/2026 (CRITICO 3): O QUADRO E O 
 #: `outside_channel`. Usado SO' quando `MAEZO_ROTEADOR_LUCAS` esta' ligado: desligado, o texto
 #: enviado ao modelo e' o `classify-v5` byte a byte (o sha256 dele esta' fixado em
 #: `tests/unit/agents/test_helena_passagem_cobranca.py`).
-CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v6"
-RESPONSE_PROMPT_VERSION = "response-v9"  # 21/09/2026, QUARTA RODADA — UMA instrucao nova, e ela e'
+CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v6.1"  # 02/10/2026: o paragrafo de `outside_channel` do v6
+# ganhou autorizacao NEGADA e privacidade/LGPD (as mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026:
+# a onda (e).
+RESPONSE_PROMPT_VERSION = "response-v10"  # 01/10/2026: o contexto da resposta deixa de levar o `motivo`
+# da tabela de red flag (graph.py::_redigir_resposta). Ele era o texto de engenharia que o modelo
+# repetia ao beneficiario — "nao ha sinais de alerta" (barrado pela cerca e convertido em P3
+# `falha_tecnica`, bateria de 01/10: C07, C08, C09) e "possivel sindrome coronariana aguda"
+# (diagnostico, I04). O prompt deixa de citar o motivo.
+# v9 — 21/09/2026, QUARTA RODADA — UMA instrucao nova, e ela e'
 # a contraparte pedida de um veredito de cerca que NAO muda: "REPITA O NOME DO CANAL EM CADA
 # MENCAO".
 #
@@ -354,9 +367,13 @@ _CAMPOS_DE_COBRANCA = """
 _FORA_DO_CANAL_V5 = """\
 ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
 para TUDO o que nao e' saude: cobranca, boleto, segunda via, mensalidade, preco ou contratacao de
-plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, assunto de outra area,
-conversa sem relacao com saude, texto sem sentido. NA DUVIDA entre saude e outro assunto, NAO use
-"outside_channel": use "symptom", "clinical_question" ou "information". Uma mensagem com QUALQUER
+plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, autorizacao NEGADA ou
+negativa de procedimento ("minha autorizacao foi negada, por que?", "qual o status da minha guia?"),
+privacidade e armazenamento de dados ("voces guardam minhas mensagens?", LGPD), assunto de outra
+area, conversa sem relacao com saude, texto sem sentido. Voce NUNCA explica uma negativa de
+autorizacao: isso e' decisao de medico auditor, e a mensagem nao traz sintoma nenhum.
+NA DUVIDA entre saude e outro assunto, NAO use "outside_channel": use "symptom",
+"clinical_question" ou "information". Uma mensagem com QUALQUER
 sinal de saude (sintoma, dor, mal-estar, preocupacao com a saude de alguem) nunca e'
 "outside_channel", mesmo que traga outro assunto junto. Pedir uma pessoa/atendente e' sempre
 "human_request", qualquer que seja o assunto."""
@@ -375,11 +392,14 @@ sempre "human_request", qualquer que seja o assunto.
 
 ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
 para o que nao e' saude NEM cobranca: preco ou contratacao de plano, reembolso, status ou pedido
-de autorizacao, assunto de outra area, conversa sem relacao com saude, texto sem sentido. NA DUVIDA
-entre saude e outro assunto, NAO use "outside_channel": use "symptom", "clinical_question" ou
-"information". Uma mensagem com QUALQUER sinal de saude (sintoma, dor, mal-estar, preocupacao com
-a saude de alguem) nunca e' "outside_channel", mesmo que traga outro assunto junto. Pedir uma
-pessoa/atendente e' sempre "human_request", qualquer que seja o assunto."""
+de autorizacao, autorizacao NEGADA ou negativa de procedimento ("minha autorizacao foi negada, por
+que?", "qual o status da minha guia?"), privacidade e armazenamento de dados ("voces guardam minhas
+mensagens?", LGPD), assunto de outra area, conversa sem relacao com saude, texto sem sentido. Voce
+NUNCA explica uma negativa de autorizacao: isso e' decisao de medico auditor, e a mensagem nao traz
+sintoma nenhum. NA DUVIDA entre saude e outro assunto, NAO use "outside_channel": use "symptom",
+"clinical_question" ou "information". Uma mensagem com QUALQUER sinal de saude (sintoma, dor,
+mal-estar, preocupacao com a saude de alguem) nunca e' "outside_channel", mesmo que traga outro
+assunto junto. Pedir uma pessoa/atendente e' sempre "human_request", qualquer que seja o assunto."""
 
 
 def classify_prompt(*, roteador_lucas: bool = False) -> str:
@@ -584,8 +604,8 @@ def response_prompt() -> str:
     return f"""{SYSTEM_PROMPT}
 
 Tarefa: redija uma resposta breve, acolhedora e em portugues para o beneficiario via WhatsApp,
-de acordo com o contexto estruturado fornecido (response_kind, motivo da DMN se houver,
-severidade do encaminhamento se houver). Nunca de conduta clinica, nunca minimize um
+de acordo com o contexto estruturado fornecido (response_kind, severidade do encaminhamento
+se houver). Nunca de conduta clinica, nunca minimize um
 encaminhamento humano, nunca prometa prazos que voce nao controla.
 
 NUNCA AFIRME QUE O BENEFICIARIO NAO TEM SINAIS DE ALERTA, que o quadro nao e grave, ou que nao
@@ -704,7 +724,14 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v8"  # 21/09/2026, QUINTA RODADA: a negacao passou a ser
+RECUSA_DE_SAIDA_VERSION = "recusa-v9"  # 01/10/2026: duas cercas mudaram de veredito. (1) FINALIDADE DO
+# CANAL: uma oracao que cita aplicativo/portal junto de autorizacao, negativa, justificativa,
+# glosa, protocolo, reembolso, cancelamento ou status de guia e' recusada (grupo
+# `canal_nao_confirmado`, DL-0063). (2) ALEGACAO SOBRE O TRATAMENTO DOS DADOS: literais de
+# armazenamento, pseudonimizacao e LGPD entram em `PROMESSA_DE_CAPACIDADE_PROIBIDA` (DL-0064).
+# Os dois commits originais esqueceram de subir este numero; o pin de
+# `tests/unit/agents/test_helena_prompt_versions_pin.py` agora cobra isso por hash.
+# v8 — 21/09/2026, QUINTA RODADA: a negacao passou a ser
 # testada ONDE ela nega (lookbehind imediatamente antes da acao, em vez de janela sem `nao`) e
 # `numero` voltou a ser pista de telefone, menos no genitivo administrativo. Os dois recortes
 # mudam veredito de texto, entao o numero sobe. v7 (QUARTA RODADA — os achados do code-reviewer
@@ -876,6 +903,25 @@ PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
     "seu protocolo",
     "ja foi visto",
     "esta sendo avaliado",
+    # 01/10/2026 (J09 da bateria) — ALEGACAO SOBRE O TRATAMENTO DOS DADOS. "Vocês guardam minhas
+    # mensagens?" saiu, em 7 de 7 execucoes, como "as mensagens sao armazenadas de forma segura e
+    # pseudonimizada, seguindo as normas de privacidade do plano". Nada no repositorio autoriza essa
+    # frase: o consentimento nao esta modelado, a matriz de retencao e' um template que o carregador
+    # recusa e a custodia do telefone esta' ligada em dev sob excecao (Plano G2.1 / G2.4, ADR-0061).
+    # E' a mesma familia de "prometer o que o canal nao pode garantir", entao mora aqui, proibida em
+    # TODA rota e sem grupo novo de metrica. Quando o DPO aprovar um texto, ele entra como constante
+    # fixa e estes literais continuam valendo para o que o modelo improvisar.
+    "armazenadas de forma segura",
+    "armazenados de forma segura",
+    "armazenamos suas",
+    "guardamos suas",
+    "sao guardadas",
+    "pseudonimiz",
+    "normas de privacidade",
+    "protegidos pela lgpd",
+    "conforme a lgpd",
+    "de acordo com a lgpd",
+    "criptografad",
 )
 
 #: MENCAO OBRIGATORIA (21/09/2026, F2 da bateria do diretor) — o AVESSO da promessa proibida.
@@ -1510,6 +1556,31 @@ def motivo_de_recusa(
 _ROTAS_QUE_PODEM_PROMETER_HUMANO: frozenset[str] = frozenset({"escalate", "schedule"})
 
 
+# FINALIDADE DO CANAL (01/10/2026, B07/B08 da bateria). As duas passagens abaixo julgam o NOME do canal;
+# nenhuma julga PARA QUE ele e' citado. O aplicativo e o portal resolvem boleto, carteirinha, rede e
+# historico (`_AUTOATENDIMENTO`), e o comentario de `CanalConfirmado` ja' diz que citar o aplicativo
+# para autorizacao de exame seria errado "mesmo com o nome certo". O modelo fez exatamente isso: "verificar
+# no aplicativo Austa Clinicas se ha alguma justificativa registrada" (autorizacao negada) e "o portal tem o
+# formulario e o envio digital" (reembolso). A cerca olha a MESMA ORACAO: um canal e um assunto que ele
+# nao resolve juntos. Por oracao, e nao no texto inteiro, para nao recusar "Guia Medico" nem uma frase
+# sobre o aplicativo seguida de outra sobre a central.
+_CANAL_CITADO = re.compile(r"\b(?:aplicativo|app|portal)\b")
+_ASSUNTO_QUE_O_APP_NAO_RESOLVE = re.compile(
+    r"\bautoriza\w*|\bnegativ\w*|\bnegad[oa]s?\b|\bjustificativ\w*|\bglosa\w*|\bprotocolo\b"
+    r"|\breembols\w*|\bcancelament\w*"
+    r"|\bstatus d\w+ (?:sua |minha |suas |minhas )?(?:guias?|solicitac\w*|pedidos?)\b"
+)
+
+
+def _canal_para_assunto_que_ele_nao_resolve(plano: str) -> str | None:
+    """O `padrao` (rotulo para o log) se UMA oracao cita o aplicativo/portal junto de um assunto que
+    eles nao resolvem, ou `None`. `plano` ja' vem normalizado por `_normalizar`."""
+    for oracao in _FIM_DE_ORACAO.split(plano):
+        if _CANAL_CITADO.search(oracao) and (assunto := _ASSUNTO_QUE_O_APP_NAO_RESOLVE.search(oracao)):
+            return f"finalidade do canal: {assunto.group(0)}"
+    return None
+
+
 def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
     """`(grupo, padrao)` do primeiro canal NAO CONFIRMADO citado em `texto`, ou `None`.
 
@@ -1552,6 +1623,9 @@ def motivo_de_canal_nao_confirmado(texto: str) -> tuple[str, str] | None:
     for padrao in CANAL_NAO_CONFIRMADO_PROIBIDO:
         if padrao in plano:
             return (RECUSA_CANAL_NAO_CONFIRMADO, padrao)
+    finalidade = _canal_para_assunto_que_ele_nao_resolve(plano)
+    if finalidade is not None:
+        return (RECUSA_CANAL_NAO_CONFIRMADO, finalidade)
     for termo in CANAL_TERMO_QUE_EXIGE_O_NOME:
         # TODA ocorrencia, nao a primeira (21/09/2026, terceira rodada). `re.search` julgava so' a
         # primeira, e com o veredito dependendo de o termo estar NU ou QUALIFICADO isso abria uma

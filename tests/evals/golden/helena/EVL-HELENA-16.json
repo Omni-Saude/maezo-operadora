@@ -17,8 +17,7 @@
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"greeting\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Ola! Sou a Helena, navegadora de saude. Como posso ajudar voce hoje?"
+    "{\"intent\": \"greeting\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
   ],
   "expect": {
     "next_kind": "inform",

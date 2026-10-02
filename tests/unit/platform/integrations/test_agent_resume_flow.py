@@ -89,6 +89,9 @@ class _Alerter:
     async def alert_outside_window(self, event: Any) -> None:
         self.alerts.append(event.business_key)
 
+    async def alert_undeliverable(self, event: Any) -> None:
+        self.alerts.append(event.business_key)
+
 
 class _DlqPublisher:
     def __init__(self) -> None:

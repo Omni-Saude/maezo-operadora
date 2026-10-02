@@ -16,8 +16,7 @@
   "recorded_llm": [
     "{\"intent\": \"symptom\", \"population\": \"pediatric\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"leve\", \"idade_meses\": \"5.9\"}",
     "{\"intent\": \"symptom\", \"population\": \"pediatric\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"febre\", \"intensidade\": \"leve\", \"idade_meses\": \"5.9\"}",
-    "resumo tecnico",
-    "um humano vai continuar"
+    "resumo tecnico"
   ],
   "expect": {
     "next_kind": "escalate",

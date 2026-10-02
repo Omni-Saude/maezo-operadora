@@ -15,8 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"human_request\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Beneficiario solicitou atendente humano; informou CPF 123.456.789-09, e-mail beneficiario.teste@exemplo.com.br e telefone (11) 98765-4321.",
-    "Um atendente humano vai continuar seu atendimento."
+    "Beneficiario solicitou atendente humano; informou CPF 123.456.789-09, e-mail beneficiario.teste@exemplo.com.br e telefone (11) 98765-4321."
   ],
   "expect": {
     "next_kind": "escalate",

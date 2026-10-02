@@ -77,7 +77,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/triage_redflag_pediatric.dmn
-  sha256: "2ba20aebb28d6adb08920ad1595dcec48a93276abcb9677ac246fc26a925fafc"
+  sha256: "d033a4e3f5e1e2c5ed0b819748110fd15342042d062b4772f9247e179fc7e954"
 
 modo_operacao: sombra
 
@@ -158,12 +158,15 @@ achados:
       (:89).
     vetores_repro:
       - entrada: {sintoma_codigo: sinais_desidratacao, intensidade: desconhecida, idade_meses: 8}
-        regra_viva: r8
-        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+        regra_viva: r6
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
       - entrada: {sintoma_codigo: sinais_desidratacao, intensidade: moderada, idade_meses: 8}
         regra_viva: r6
         saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
         leitura: "o MESMO sintoma com gravidade conhecida escala; com gravidade DESCONHECIDA, nao"
+    tratamento_interino: >-
+      DL-0067 (02/10/2026): a regra r6 passou a aceitar `desconhecida` (decisao interina do Diretor, mesmo
+      principio do DL-0051). PENDENTE de ratificacao do dono clinico — este achado segue aberto ate la.
     porque_nao_foi_fechado: >-
       A disposicao de uma intensidade desconhecida (escalar como se fosse grave? pedir
       reclassificacao? seguir a jornada?) e decisao clinica/assistencial. Nada nesta tabela nem no
@@ -275,8 +278,8 @@ regras_candidatas:
   - ordem: 6
     id: r6
     candidato: true
-    origem: "PRESERVADA verbatim de r6 (triage_redflag_pediatric.dmn:77-85)"
-    entradas: {sintoma_codigo: '"sinais_desidratacao"', intensidade: '"grave","moderada"', idade_meses: "-"}
+    origem: "r6 de triage_redflag_pediatric.dmn, com `desconhecida` acrescentada (DL-0067, interino)"
+    entradas: {sintoma_codigo: '"sinais_desidratacao"', intensidade: '"grave","moderada","desconhecida"', idade_meses: "-"}
     saidas:
       red_flag: true
       prioridade: P2

@@ -77,7 +77,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/triage_redflag_gestante.dmn
-  sha256: "2c3d908c9846602d8412afc06b2bf37d562a3aa7d2c02d65df02df599006f871"
+  sha256: "8a9b4da3d05237b517d9e3f357bc903b788d66dcd825fb4b1ac35f127cb93fd4"
 
 modo_operacao: sombra
 
@@ -188,11 +188,14 @@ achados:
       exige a string exata "grave" (:90).
     vetores_repro:
       - entrada: {sintoma_codigo: febre, intensidade: desconhecida, idade_gestacional_semanas: 30}
-        regra_viva: r8
-        saida_viva: {red_flag: false, prioridade: "-", conduta: CONTINUE}
+        regra_viva: r6
+        saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
       - entrada: {sintoma_codigo: febre, intensidade: moderada, idade_gestacional_semanas: 30}
         regra_viva: r6
         saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
+    tratamento_interino: >-
+      DL-0067 (02/10/2026): a regra r6 passou a aceitar `desconhecida` (decisao interina do Diretor, mesmo
+      principio do DL-0051). PENDENTE de ratificacao do dono clinico — este achado segue aberto ate la.
     porque_nao_foi_fechado: >-
       A disposicao de uma intensidade desconhecida e decisao clinica/assistencial; nada nesta
       tabela nem no schema comum a declara. Vale identicamente para a tabela pediatrica
@@ -292,8 +295,8 @@ regras_candidatas:
   - ordem: 6
     id: r6
     candidato: true
-    origem: "PRESERVADA verbatim de r6 (triage_redflag_gestante.dmn:78-86)"
-    entradas: {sintoma_codigo: '"febre"', intensidade: '"grave","moderada"', idade_gestacional_semanas: "-"}
+    origem: "r6 de triage_redflag_gestante.dmn, com `desconhecida` acrescentada (DL-0067, interino)"
+    entradas: {sintoma_codigo: '"febre"', intensidade: '"grave","moderada","desconhecida"', idade_gestacional_semanas: "-"}
     saidas:
       red_flag: true
       prioridade: P2

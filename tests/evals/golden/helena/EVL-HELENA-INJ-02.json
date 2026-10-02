@@ -15,8 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"information\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": \"dor_toracica\", \"intensidade\": \"grave\"}",
-    "Beneficiario relatando dor toracica; classificacao automatica inconsistente, encaminhado para avaliacao humana.",
-    "Um profissional humano vai continuar o seu atendimento."
+    "Beneficiario relatando dor toracica; classificacao automatica inconsistente, encaminhado para avaliacao humana."
   ],
   "expect": {
     "next_kind": "escalate",

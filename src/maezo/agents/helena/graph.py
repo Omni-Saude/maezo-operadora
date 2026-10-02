@@ -187,6 +187,8 @@ from .prompts import (
     RECUSA_HANDOFF_SEM_MENCAO,
     RECUSA_NEGATIVA_CLINICA,
     RESPONSE_PROMPT_VERSION,
+    RESPOSTA_NAO_CONSIGO_IDENTIFICAR,
+    RESPOSTA_SOU_ASSISTENTE_VIRTUAL,
     SINTOMA_CODIGOS_BY_POPULATION,
     SYSTEM_PROMPT_VERSION,
     classify_prompt,
@@ -460,6 +462,112 @@ RESPOSTA_FORA_DO_CANAL: str = (
     "da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço "
     "de emergência mais próximo."
 )
+
+#: SINTOMA SEM BANDEIRA (01/10/2026): o texto fixo de um turno `inform` cujo sintoma a tabela de red
+#: flag NAO marcou. TEXTO PROVISORIO — redacao de engenharia, aguarda aprovacao de produto e do dono
+#: clinico (Plano G4.3 / G1.6).
+#:
+#: POR QUE NAO HA MODELO AQUI. Na bateria de 01/10 o modelo, que redigia esta resposta, (a) listou
+#: sinais de alarme e limiares clinicos que nenhuma tabela nem medico aprovou ("febre por mais de
+#: 48 horas", "aplicar gelo por 15 minutos a cada 2 horas"), (b) disse "a tabela de regras nao
+#: identificou sinais de alerta" (jargao interno e, ditas pelo modelo, palavras que a cerca de
+#: negativa clinica barra e que viravam P3 `falha_tecnica` por sorteio) e (c) reabriu o cartao de
+#: apresentacao. Conduta clinica e' exatamente o que o prompt proibe e a cerca lexical nao pega:
+#: ela so' barra a NEGACAO ("nao e grave"), nunca a afirmacao ("aplique gelo").
+#:
+#: O QUE ELA FAZ: nao avalia, nao lista sinal, nao da conduta, nao opina sobre o corpo de ninguem,
+#: orienta procurar atendimento se piorar e deixa a porta de um humano aberta (gatilho 3 de
+#: `classify`). Fala de "o que foi relatado", e nao de "o que voce sente", porque o relato pode ser
+#: sobre um filho ou um pai. Cada frase tem ate' 20 palavras (regua de CLAREZA).
+RESPOSTA_SINTOMA_SEM_ALERTA: str = (
+    "Recebemos o seu relato. Este canal não avalia o que foi relatado e não substitui uma "
+    "avaliação profissional. Se os sintomas persistirem ou piorarem, procure atendimento "
+    "presencial. Se você estiver passando por uma emergência, procure o serviço de emergência "
+    "mais próximo. Se quiser falar com uma pessoa da equipe, é só me pedir."
+)
+
+#: ESCALONAMENTO COM TEXTO FIXO POR PRIORIDADE (01/10/2026). TEXTOS PROVISORIOS — redacao de
+#: engenharia, aguardam aprovacao de produto e do dono clinico (Plano G4.3 / G1.6).
+#:
+#: POR QUE NAO HA MODELO AQUI. Na bateria de 01/10 o modelo que redigia o aviso de encaminhamento
+#: (a) declarou a gravidade ("Este e' um quadro grave", "Como a situacao e' grave"), (b) deu conduta
+#: ("evite esforcos fisicos", "pressione o ferimento com um pano limpo"), (c) expôs o mecanismo e a
+#: classificacao ("a tabela de regras identificou...", "classificada como leve, o contato pode levar
+#: algumas horas") e (d) nomeou o diagnostico suspeito ("sindrome coronariana aguda", "suspeita de
+#: AVC"). O prompt diz que a Helena NUNCA decide se um caso e' grave; a unica garantia disso e' nao
+#: dar a ela a caneta.
+#:
+#: A PRIORIDADE ESCOLHE O TEXTO, e nao a falar dela: urgente (P1 clinico) manda procurar a emergencia
+#: sem esperar o contato; psicossocial acolhe antes; o resto usa `RESPOSTA_HANDOFF_RECUSADA`. Nenhum
+#: promete prazo (o relogio e' do processo, e o SLA do motor nao e' exato) nem canal (nao ha ligacao).
+#: O resumo clinico vai ao ATENDENTE (`_resumo_contexto`), nao a pessoa. Cada frase tem ate' 20 palavras.
+RESPOSTA_ESCALONAMENTO_URGENTE: str = (
+    "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. "
+    "Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, "
+    "procure o serviço de emergência mais próximo sem esperar o nosso contato."
+)
+RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL: str = (
+    "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de "
+    "saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco "
+    "agora, procure o serviço de emergência mais próximo sem esperar o nosso contato."
+)
+
+
+#: SAUDACAO E DESPEDIDA COM TEXTO FIXO (01/10/2026). TEXTOS PROVISORIOS — redacao de engenharia,
+#: aguardam aprovacao de produto (Plano G4.3: "nao existe texto de boas-vindas aprovado").
+#:
+#: O DEFEITO, medido em 6 de 6 execucoes (A02, A03, A10): o modelo, que redigia a resposta a "oi",
+#: "tudo bem?" e "obrigado, era so isso", REABRIA o cartao de apresentacao a cada turno, depois de
+#: ja' ter se apresentado — o que o `response_prompt` proibe em letras maiusculas. Instrucao de
+#: prompt nao segura uma regra que depende de memoria da conversa; `apresentacao_ja_feita` ja' e'
+#: mantido pelo grafo (e' aceso quando o texto ENVIADO traz "Helena"), entao a decisao passa a ser
+#: dele: primeira vez, o cartao (que diz o que o canal faz — o mesmo escopo do DL-0052); depois, uma
+#: frase curta. A frase de abertura NAO diz que o canal "orienta duvidas administrativas": desde o
+#: DL-0052 esse assunto recebe `RESPOSTA_FORA_DO_CANAL`, e o cartao antigo prometia o contrario.
+RESPOSTA_SAUDACAO_ABERTURA: str = (
+    "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você "
+    "para a equipe de saúde. Como posso ajudar?"
+)
+RESPOSTA_SAUDACAO_CURTA: str = "Olá! Como posso te ajudar?"
+RESPOSTA_DESPEDIDA: str = "De nada! Se precisar de algo, é só me chamar."
+
+#: A DESPEDIDA E' DETECTADA POR VOCABULARIO FECHADO, e e' conservadora de proposito: a mensagem
+#: inteira tem de ser agradecimento ou adeus. Um falso positivo engoliria um pedido ("obrigado, e
+#: agora me liga?" tem tokens fora da lista e nao casa); um falso negativo so' devolve o turno ao
+#: modelo, que e' o comportamento de antes. "ok" sozinho fica de fora: costuma responder a uma
+#: pergunta da propria Helena, e "de nada" ali seria estranho.
+_DESPEDIDA_NUCLEO = frozenset({"obrigado", "obrigada", "brigado", "brigada", "valeu", "vlw", "tchau", "xau"})
+_DESPEDIDA_FRASES = ("era so isso", "so isso", "ate mais", "ate logo")
+_DESPEDIDA_ACOMPANHANTES = frozenset(
+    {
+        *("muito", "era", "so", "isso", "ate", "mais", "logo", "tudo", "certo", "bom", "ta"),
+        *("show", "beleza", "por", "pela", "ajuda", "atencao", "e", "de", "nada", "ok"),
+    }
+)
+
+
+def _e_despedida(texto: str) -> bool:
+    """`True` quando a mensagem INTEIRA e' agradecimento ou adeus (vocabulario fechado acima)."""
+    plano = re.sub(r"[^\w\s]", " ", _normalizar_texto(texto or ""))
+    palavras = plano.split()
+    if not palavras or len(palavras) > 8:
+        return False
+    if not all(p in _DESPEDIDA_NUCLEO or p in _DESPEDIDA_ACOMPANHANTES for p in palavras):
+        return False
+    return any(p in _DESPEDIDA_NUCLEO for p in palavras) or any(
+        f in " ".join(palavras) for f in _DESPEDIDA_FRASES
+    )
+
+
+def _texto_de_escalonamento(motivo: MotivoCategoria | None, severidade: Severidade | None) -> str:
+    """O texto fixo do aviso de encaminhamento, escolhido pelo MOTIVO e pela severidade do processo
+    que esta' sendo aberto (que derivam da tabela, nunca de redacao)."""
+    if motivo == "risco_psicossocial":
+        return RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL
+    if motivo == "red_flag_clinico" and severidade == "grave":
+        return RESPOSTA_ESCALONAMENTO_URGENTE
+    return RESPOSTA_HANDOFF_RECUSADA
+
 
 RESPOSTA_INFORM_RECUSADA: str = (
     "Recebemos sua mensagem. Nao consegui preparar uma resposta para ela agora. "
@@ -1913,10 +2021,88 @@ _PEDIDO_DE_HUMANO = re.compile(
 )
 
 
+# AMEACA DE RECLAMACAO A ORGAO REGULADOR (DL-0070, 02/10/2026, caso B13: "vou abrir reclamacao na
+# ANS, ninguem resolve nada"). Antes recebia o texto fixo de fora do canal e a pessoa ficava sem
+# ninguem; agora abre atendimento humano pela rota que ja' existe (`solicitacao_humano`, P3). Os
+# dois lados do padrao sao exigidos — um orgao citado SEM verbo de reclamacao ("o que e a ANS?")
+# nao escala. INTERINO: motivo e fila proprios (SP-OP-NIP-001) dependem do Diretor e do regulatorio.
+_AMEACA_REGULATORIA = re.compile(
+    r"\b(?:reclam\w+|denunci\w+|queix\w+|processar|aciona\w*|recorr\w+|registr\w+)\b"
+    r"[^.!?\n]{0,40}\b(?:ans|procon|ouvidoria|justica|agencia nacional de saude)\b"
+    r"|\b(?:ans|procon|ouvidoria|justica)\b[^.!?\n]{0,25}\b(?:reclam\w+|denunci\w+|queix\w+)\b"
+)
+
+
+def _ameaca_regulatoria(texto: str) -> bool:
+    """`True` quando a mensagem ameaca ou anuncia reclamacao a ANS, Procon, ouvidoria ou justica."""
+    return bool(_AMEACA_REGULATORIA.search(_normalizar_texto(texto or "")))
+
+
 def _pergunta_de_identidade_sem_pedido(texto: str) -> bool:
     """`True` quando a mensagem pergunta O QUE a Helena e' e nao pede humano nenhum."""
     plano = _normalizar_texto(texto or "")
-    return bool(_PERGUNTA_DE_IDENTIDADE.search(plano)) and not _PEDIDO_DE_HUMANO.search(plano)
+    # Os padroes estritos de baixo cobrem as duas perguntas que o prompt de resposta lista como
+    # identidade e que `_PERGUNTA_DE_IDENTIDADE` nao casava ("isso e automatico?", "estou falando
+    # com uma pessoa?"): classificadas `human_request`, abriam P3 sem que ninguem tivesse pedido.
+    e_identidade = (
+        _PERGUNTA_DE_IDENTIDADE.search(plano)
+        or _PERGUNTA_SOBRE_A_HELENA.search(plano)
+        or _PERGUNTA_SOBRE_O_BENEFICIARIO.search(plano)
+    )
+    return bool(e_identidade) and not _PEDIDO_DE_HUMANO.search(plano)
+
+
+# AS DUAS FRASES DE CONFORMIDADE (F6, 21/09/2026) NAO PODEM DEPENDER DA INTENCAO (01/10/2026).
+#
+# O DEFEITO, medido na bateria de 01/10 (A04 e A05) depois do DL-0052 (#577): "voce e uma pessoa ou
+# um robo?" e "voce sabe quem eu sou?" passaram a sair do classificador como `outside_channel`
+# ("conversa sem relacao com saude") e `inform` devolve `RESPOSTA_FORA_DO_CANAL` SEM chamar o
+# modelo. O desvio de 23/09 (`classify`, acima) so' roda quando a intencao e' `human_request`, e
+# as frases F6 so' existem no prompt de resposta, que esse caminho nao usa. A resposta que o dono
+# exigiu — dizer que e' um sistema automatizado — deixou de ser dada, e nenhum teste pegou porque os
+# de A2 forjam o classificador em `human_request` e nunca leem o texto enviado.
+#
+# A CORRECAO E' DETERMINISTICA E NAO TOCA O CLASSIFICADOR: a mesma pergunta recebe a mesma frase,
+# qualquer que seja a intencao que o modelo atribuiu. Os padroes abaixo sao MAIS ESTREITOS que
+# `_PERGUNTA_DE_IDENTIDADE` (que so' decide "nao e' pedido de humano" e por isso aceita "quem e"
+# solto): aqui o custo de um falso positivo e' responder "sou um assistente virtual" a "quem e o
+# titular do contrato?", entao so' casa a pergunta sobre a propria Helena.
+_PERGUNTA_SOBRE_A_HELENA = re.compile(
+    r"\bquem (?:e|eh|seria) (?:voce|vc|tu)\b"
+    r"|\bquem (?:esta|ta) falando\b"
+    r"|\bcom quem (?:eu )?(?:estou|to|tou|falo)\b"
+    r"|\b(?:voce|vc|tu|isso|isto) (?:e|eh|seria)(?: uma?)? (?:pessoa|humano|humana|gente|robo|bot|ia"
+    r"|inteligencia artificial|maquina|sistema|assistente|atendente|real|de verdade)\b"
+    r"|\bfalando com (?:uma? )?(?:pessoa|humano|humana|robo|bot|maquina)\b"
+    r"|\b(?:e|eh) (?:uma? )?(?:pessoa|humano|humana|robo|bot|maquina)\b"
+    r"|\b(?:isso|isto|esse atendimento|este atendimento) (?:e|eh) automatic[oa]\b"
+)
+_PERGUNTA_SOBRE_O_BENEFICIARIO = re.compile(
+    r"\b(?:voce|vc|tu) (?:sabe|conhece|lembra) (?:quem (?:eu )?sou|meu nome|de mim|com quem)\b"
+    r"|\b(?:voce|vc|tu) me (?:conhece|identifica|reconhece|conhecia)\b"
+    r"|\bsabe (?:o )?meu nome\b"
+)
+
+
+def _resposta_fixa_de_identidade(estado: Mapping[str, Any]) -> str | None:
+    """As frases F6 EXATAS do dono (`prompts.RESPOSTA_*`), ou `None` se nao e' pergunta de identidade.
+
+    So' vale para a mensagem que e' PERGUNTA de identidade e nada mais: sem codigo de sintoma, sem
+    risco psicossocial e sem pedido de humano (esses tem rota propria e vencem — "voce e um robo?
+    quero falar com uma pessoa" continua `human_request`). Pergunta sobre a Helena e sobre a pessoa
+    na mesma mensagem recebe as duas frases, nessa ordem.
+    """
+    if estado.get("sintoma_codigo") or estado.get("psychosocial_risk") is True:
+        return None
+    plano = _normalizar_texto(str(estado.get("message_body") or ""))
+    if _PEDIDO_DE_HUMANO.search(plano):
+        return None
+    partes: list[str] = []
+    if _PERGUNTA_SOBRE_A_HELENA.search(plano):
+        partes.append(RESPOSTA_SOU_ASSISTENTE_VIRTUAL)
+    if _PERGUNTA_SOBRE_O_BENEFICIARIO.search(plano):
+        partes.append(RESPOSTA_NAO_CONSIGO_IDENTIFICAR)
+    return " ".join(partes) or None
 
 
 def _severidade_from_prioridade(prioridade: str) -> Severidade:
@@ -2715,6 +2901,14 @@ class HelenaGraph:
             update["escalation_severidade"] = "leve"
             return update
 
+        # Gatilho 3b (DL-0070): ameaca de reclamacao a orgao regulador. Vence a rota de fora do canal,
+        # perde para sintoma, risco psicossocial e pergunta clinica (todos acima).
+        if intent != "greeting" and _ameaca_regulatoria(str(state.get("message_body") or "")):
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "solicitacao_humano"
+            update["escalation_severidade"] = "leve"
+            return update
+
         # SAUDACAO: responde e encerra, SEM abrir processo. NAO e' um gatilho de escalonamento —
         # e' a ausencia de um.
         #
@@ -3042,10 +3236,36 @@ class HelenaGraph:
         mensagem tende ao mesmo texto, e um laco de tentativas transforma uma cerca num atraso
         (a mesma escolha de CC-01 e da cerca TEXTO x FATO).
         """
+        identidade = _resposta_fixa_de_identidade(state)
+        if identidade is not None:
+            # F6: a pergunta de identidade recebe a frase do dono, LITERAL, antes de qualquer
+            # decisao sobre "fora do canal" — ver `_resposta_fixa_de_identidade`.
+            return {"response_text": identidade, "response_kind": "inform"}
         if state.get("intent") in _INTENTS_FORA_DO_CANAL:
             # Texto FIXO, sem modelo: nao varia, nao se oferece para orientar o assunto e nao
             # convida a continuar. A precondicao da DMN ja' foi aplicada por `_route`.
             return {"response_text": RESPOSTA_FORA_DO_CANAL, "response_kind": "inform"}
+        if state.get("intent") == "symptom" or state.get("sintoma_codigo"):
+            # SINTOMA SEM BANDEIRA: texto FIXO, sem modelo — ver `RESPOSTA_SINTOMA_SEM_ALERTA`. A
+            # precondicao de `_route` (`_inform_recusado`) garante que a tabela JA' disse `red_flag
+            # false`; quem decide humano e' a tabela ou o pedido da pessoa, nunca a redacao. A
+            # frase de confirmacao de dado (F5) e' pronta e vem de `classify`: entra na frente.
+            confirmacao = state.get("memoria_a_confirmar")
+            texto_fixo = (
+                f"{confirmacao} {RESPOSTA_SINTOMA_SEM_ALERTA}" if confirmacao else RESPOSTA_SINTOMA_SEM_ALERTA
+            )
+            return {"response_text": texto_fixo, "response_kind": "inform"}
+        if state.get("intent") in ("greeting", "information") and _e_despedida(
+            str(state.get("message_body") or "")
+        ):
+            # Despedida: agradecimento ou adeus e nada mais — ver `_e_despedida`.
+            return {"response_text": RESPOSTA_DESPEDIDA, "response_kind": "inform"}
+        if state.get("intent") == "greeting":
+            # Saudacao SEM pedido (`classify` so' devolve `greeting` quando nao ha pedido nenhum).
+            # O cartao so' na primeira vez; `apresentacao_ja_feita` e' mantido pelo grafo.
+            ja_se_apresentou = state.get("apresentacao_ja_feita") is True
+            abertura = RESPOSTA_SAUDACAO_CURTA if ja_se_apresentou else RESPOSTA_SAUDACAO_ABERTURA
+            return {"response_text": abertura, "response_kind": "inform"}
         text = await self._redigir_resposta(state, "inform")
         try:
             text = self._cercar_saida(text, "inform", node="inform")
@@ -3227,14 +3447,19 @@ class HelenaGraph:
         if ref:
             variables["dmn_decision_ref"] = ref
 
-        try:
-            response_text = await self._respond_llm(state, response_kind)
-        except RespostaRecusadaError:
-            # A recusa ja foi registrada e contada em `_respond_llm`. AQUI um humano FOI mesmo
-            # acionado (este metodo esta' abrindo o processo), entao a constante honesta promete o
-            # que e' verdade e nao contem nenhum dos padroes proibidos. Nao ha nova tentativa pelo
-            # mesmo motivo que em `inform`.
-            response_text = RESPOSTA_HANDOFF_RECUSADA
+        if response_kind == "escalate":
+            # TEXTO FIXO, sem modelo — ver `RESPOSTA_ESCALONAMENTO_URGENTE`. O modelo continua
+            # redigindo so' o `schedule` (hoje sem rota de entrada, DL-0052).
+            response_text = _texto_de_escalonamento(motivo, severidade)
+        else:
+            try:
+                response_text = await self._respond_llm(state, response_kind)
+            except RespostaRecusadaError:
+                # A recusa ja foi registrada e contada em `_respond_llm`. AQUI um humano FOI mesmo
+                # acionado (este metodo esta' abrindo o processo), entao a constante honesta promete
+                # o que e' verdade e nao contem nenhum dos padroes proibidos. Nao ha nova tentativa
+                # pelo mesmo motivo que em `inform`.
+                response_text = RESPOSTA_HANDOFF_RECUSADA
         provenance = AgentDecisionProvenance(
             agent_id="helena",
             agent_version=self._agent_version,
@@ -4043,9 +4268,15 @@ class HelenaGraph:
     async def _redigir_resposta(self, state: HelenaState, response_kind: ResponseKind) -> str:
         """O rascunho do modelo, SEM cerca. O unico chamador que o usa cru e' quem vai julgar a
         recusa por grupo (`inform`); todos os outros entram por `_respond_llm`."""
+        # O `motivo` DA TABELA NAO VAI MAIS AO MODELO (01/10/2026). Ele e' texto de engenharia
+        # escrito para o atendente ("Sem criterio de red flag adulto", "Dor toracica: possivel
+        # sindrome coronariana aguda", "suspeita de AVC"), e o modelo o repetia ao beneficiario:
+        # "nao ha sinais de alerta" (que a cerca de negativa clinica barra e que, em `inform`,
+        # virava P3 `falha_tecnica` por sorteio) e "possivel sindrome coronariana aguda" (diagnostico).
+        # O motivo continua na auditoria e no resumo do atendente (`_resumo_contexto`); o que o
+        # modelo precisa para redigir esta' na mensagem da pessoa e em `response_kind`.
         context: dict[str, Any] = {
             "response_kind": response_kind,
-            "dmn_motivo": (state.get("dmn_decision") or {}).get("motivo"),
             "escalation_severidade": state.get("escalation_severidade"),
         }
         # F6: o prompt proibe repetir o cartao quando isto vem no contexto (ver `response_prompt`).

@@ -14,8 +14,7 @@
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\", \"idade_anos\": null}",
-    "Ola! Sinto muito que voce nao esteja bem. Por aqui eu consigo orientar sobre o plano, encaminhar voce para um profissional e ajudar com agendamento. Pode me contar um pouco mais sobre o que voce esta sentindo?"
+    "{\"intent\": \"symptom\", \"population\": \"adult\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\", \"idade_anos\": null}"
   ],
   "dmn_fixture": {
     "triage_redflag_adult": {
@@ -28,7 +27,8 @@
   "expect": {
     "next_kind": "inform",
     "fields": {
-      "intent": "symptom"
+      "intent": "symptom",
+      "response_text": "Recebemos o seu relato. Este canal não avalia o que foi relatado e não substitui uma avaliação profissional. Se os sintomas persistirem ou piorarem, procure atendimento presencial. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo. Se quiser falar com uma pessoa da equipe, é só me pedir."
     }
   },
   "leak_canaries": [

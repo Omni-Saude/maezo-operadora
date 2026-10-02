@@ -110,12 +110,18 @@ class _Recipients:
 class _Alerter:
     def __init__(self, *, fail: bool = False) -> None:
         self.alerts: list[str] = []
+        self.undeliverable: list[str] = []
         self._fail = fail
 
     async def alert_outside_window(self, event: Any) -> None:
         if self._fail:
             raise ConnectionError("broker down")
         self.alerts.append(event.business_key)
+
+    async def alert_undeliverable(self, event: Any) -> None:
+        if self._fail:
+            raise ConnectionError("broker down")
+        self.undeliverable.append(event.business_key)
 
 
 class _Resumer:
@@ -475,6 +481,122 @@ async def test_nota_no_evento_vai_para_dlq_com_auditoria_sem_o_texto() -> None:
     record, _ = sink.calls[0]
     assert "Paciente" not in json.dumps(record.details)
     assert resumer.calls == [] and consumer.commits == 1
+
+
+# --- G05 da bateria de 01/10/2026: devolvido sem como entregar NAO pode ser silencioso -------------
+
+
+async def test_nota_vazia_avisa_a_equipe_e_ainda_vai_para_a_fila_morta() -> None:
+    """A tarefa fechou como `devolvido_agente` com a nota vazia: o evento ia para a fila morta e
+    NINGUEM era avisado — a pessoa ficava sem retorno e a equipe achando que tinha respondido."""
+    engine = _Engine()
+    engine.seed_historic_variables(_historico(notas_resolucao="   "))
+    alerter = _Alerter()
+    handler, _, resumer = _handler(engine, alerter=alerter)
+
+    with pytest.raises(MalformedResumeEventError) as exc:
+        await handler.handle(_evento())
+
+    assert exc.value.code == REASON_RESUME_HISTORY_MISMATCH, "continua sendo fila morta"
+    assert alerter.undeliverable == [_BK]
+    assert alerter.alerts == [], "nao e' o aviso de janela fechada"
+    assert resumer.calls == []
+
+
+async def test_custodia_sem_numero_tambem_avisa_a_equipe() -> None:
+    alerter = _Alerter()
+    handler, _, resumer = _handler(recipients=_Recipients(None), alerter=alerter)
+
+    with pytest.raises(MalformedResumeEventError) as exc:
+        await handler.handle(_evento())
+
+    assert exc.value.code == REASON_RESUME_RECIPIENT_UNAVAILABLE
+    assert alerter.undeliverable == [_BK]
+    assert resumer.calls == []
+
+
+@pytest.mark.parametrize(
+    "historico",
+    [
+        _historico(resultado="resolvido_humano"),
+        HistoricProcessVariables(_PID, "ESC-amh-outra", "SP-OP-ESCALATION-001", "COMPLETED", {}),
+        HistoricProcessVariables(
+            _PID,
+            _BK,
+            "SP-OP-AUTH-001",
+            "COMPLETED",
+            {"resultado": "devolvido_agente", "notas_resolucao": "x"},
+        ),
+    ],
+)
+async def test_evento_sem_lastro_no_historico_nao_avisa_a_equipe(historico: HistoricProcessVariables) -> None:
+    """So' a conclusao LEGITIMA que nao chega a pessoa avisa. Evento inconsistente com o historico
+    (forjado, de outro processo, de outro resultado) continua indo para a fila morta em silencio —
+    nao e' um caso real esperando retorno."""
+    engine = _Engine()
+    engine.seed_historic_variables(historico)
+    alerter = _Alerter()
+    handler, _, _ = _handler(engine, alerter=alerter)
+
+    with pytest.raises(MalformedResumeEventError):
+        await handler.handle(_evento())
+
+    assert alerter.undeliverable == [] and alerter.alerts == []
+
+
+async def test_se_o_aviso_falha_a_excecao_dele_propaga_e_o_offset_nao_anda() -> None:
+    """`best_effort=False`: um aviso perdido deixaria a pessoa sem retorno E sem ninguem sabendo."""
+    engine = _Engine()
+    engine.seed_historic_variables(_historico(notas_resolucao=""))
+    handler, _, _ = _handler(engine, alerter=_Alerter(fail=True))
+    sink = FakeStartAuditSink()
+    dlq = BridgeDlqShunt(publisher=_DlqPublisher(), audit_sink=sink, tenant_id="amh")
+    consumer = FakeBridgeKafkaConsumer([_msg(_evento())])
+
+    with pytest.raises(ConnectionError):
+        await run_resume_loop(consumer, handler, dlq=dlq)
+
+    assert consumer.commits == 0 and dlq.shunted == []
+
+
+async def test_no_laco_a_nota_vazia_avisa_a_equipe_e_confirma_a_fila_morta() -> None:
+    engine = _Engine()
+    engine.seed_historic_variables(_historico(notas_resolucao=""))
+    alerter = _Alerter()
+    handler, _, resumer = _handler(engine, alerter=alerter)
+    dlq = BridgeDlqShunt(publisher=_DlqPublisher(), audit_sink=FakeStartAuditSink(), tenant_id="amh")
+    consumer = FakeBridgeKafkaConsumer([_msg(_evento())])
+
+    await run_resume_loop(consumer, handler, dlq=dlq)
+
+    assert alerter.undeliverable == [_BK]
+    assert dlq.shunted == [(f"{PROCESS_COMPLETED_TOPIC}.dlq", REASON_RESUME_HISTORY_MISMATCH)]
+    assert consumer.commits == 1 and resumer.calls == []
+
+
+async def test_o_aviso_de_nao_entregue_e_o_mesmo_formato_do_de_janela_e_sem_nota_nem_telefone() -> None:
+    from maezo.platform.integrations.agent_resume import NotifyTeamAlerter, parse_process_completed
+    from maezo.platform.integrations.notifications_inbox import parse_team_notice
+
+    class _Pub:
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, dict[str, Any], Any]] = []
+
+        async def publish(
+            self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+        ) -> bool:
+            self.sent.append((topic, value, best_effort))
+            return True
+
+    pub = _Pub()
+    await NotifyTeamAlerter(pub).alert_undeliverable(parse_process_completed(_evento(), tenant_id="amh"))
+    topic, value, best_effort = pub.sent[0]
+    assert topic == "operadora.notifications.internal" and best_effort is False
+    notice = parse_team_notice(value)
+    assert (
+        notice is not None and notice.business_key == _BK and notice.grupo_atendimento == "atendimento-humano"
+    )
+    assert "5511" not in json.dumps(value) and "guia" not in json.dumps(value).lower()
 
 
 def test_bpmn_publica_process_completed_sem_nenhuma_variavel_phi() -> None:

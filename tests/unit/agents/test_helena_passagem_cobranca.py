@@ -48,9 +48,10 @@ from maezo.tools.mcp_cibseven.transport import FakeCibSevenTransport
 from maezo.tools.workers.dmn_transport import FakeDmnTransport
 from tests.support.audit_fakes import FakeStartAuditSink
 
-#: sha256 do texto do `classify-v5` (01/10/2026, base 9da9bd59). Desligado, o roteador NAO pode
+#: sha256 do texto do `classify-v5.2` (02/10/2026; o `classify-v5` era 5b480bd3...; v5.1 e v5.2 acrescentaram
+#: autorizacao negada e privacidade a `outside_channel`, DL-0063 e DL-0064). Desligado, o roteador NAO pode
 #: mudar um byte do que vai ao modelo: se este numero mudar, o v5 mudou, e isso e' bump de versao.
-SHA256_CLASSIFY_V5 = "5b480bd3d62d5641fb04a1d18bdf9d23cbfb5890ec2d63d7d881ca8ca9172dcc"
+SHA256_CLASSIFY_V5 = "2f8eb9ca08166d3266aa59c0c14b9e1e1b6f20715208fcca23552d86f105e144"
 
 _REF = "hk1_abc123"
 #: Rascunho de handoff para as rotas que escalam (o fake devolve "" quando acaba a lista, e a
@@ -130,15 +131,15 @@ def test_desligado_o_prompt_e_o_classify_v5_byte_a_byte() -> None:
     texto = classify_prompt()
     assert hashlib.sha256(texto.encode("utf-8")).hexdigest() == SHA256_CLASSIFY_V5
     assert classify_prompt(roteador_lucas=False) == texto
-    assert CLASSIFY_PROMPT_VERSION == "classify-v5"
+    assert CLASSIFY_PROMPT_VERSION == "classify-v5.2"
     assert '"cobranca"' not in texto.split("population")[0]
 
 
 def test_ligado_o_prompt_e_o_v6_e_so_ele_conhece_cobranca() -> None:
     v6 = classify_prompt(roteador_lucas=True)
     assert v6 != classify_prompt()
-    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v6"
-    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v6"
+    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == "classify-v6.1"
+    assert PROMPT_VERSIONS["classify_roteador"] == "classify-v6.1"
     assert '"cobranca"]' in v6
     for subtipo in _VALID_COBRANCA_SUBTIPOS:
         assert f'"{subtipo}"' in v6

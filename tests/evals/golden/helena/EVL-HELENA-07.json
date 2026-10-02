@@ -15,8 +15,7 @@
   },
   "recorded_llm": [
     "{\"intent\": \"human_request\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}",
-    "Beneficiario solicitou atendimento humano.",
-    "Um atendente humano vai continuar seu atendimento."
+    "Beneficiario solicitou atendimento humano."
   ],
   "expect": {
     "next_kind": "escalate",

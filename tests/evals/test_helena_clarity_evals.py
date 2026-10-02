@@ -44,9 +44,7 @@ from ._harness import (
     assert_no_leak,
     load_golden,
     mutate_expected_route,
-    mutate_extend_last_sentence,
     mutate_plant_canary,
-    mutate_replace_last_response,
     run_case,
     run_mutation_check,
     score_clarity,
@@ -122,25 +120,31 @@ async def test_helena_clareza_route_mutation_check_is_non_vacuous(case: dict[str
 
 @pytest.mark.eval
 async def test_evl_helena_clareza_01_mutation_check_jargon_plant_is_non_vacuous() -> None:
-    """Planting a forbidden internal token onto the escalate handoff's drafted response must
-    make `assert_clarity` fail — proves the jargon check is actually exercised, not vacuously
-    green."""
+    """Planting a forbidden internal token onto the escalate handoff's response must make
+    `assert_clarity` fail — proves the jargon check is actually exercised, not vacuously green.
+
+    01/10/2026 (DL-0062): the escalate handoff is a FIXED constant, not a model draft, so the
+    defect is planted on the FINAL `response_text` instead of on `recorded_llm`. The green case is
+    run first and must pass: that is what proves the plant — and not the text — makes it fail."""
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-01")
-    mutated = mutate_plant_canary(case, "red_flag")
-    result = await run_case(build, mutated, extra_config=_helena_extra_config())
+    result = await run_case(build, case, extra_config=_helena_extra_config())
+    assert_clarity(_clarity_report(result.state, case["clarity"]))
+    plantado = {**result.state, "response_text": f"{result.state['response_text']} red_flag"}
     with pytest.raises(AssertionError, match="forbidden jargon"):
-        assert_clarity(_clarity_report(result.state, mutated["clarity"]))
+        assert_clarity(_clarity_report(plantado, case["clarity"]))
 
 
 @pytest.mark.eval
 async def test_evl_helena_clareza_01_mutation_check_long_sentence_is_non_vacuous() -> None:
     """Extending the escalate handoff's final sentence past `max_words_per_sentence` must make
-    `assert_clarity` fail — proves the sentence-length check is actually exercised."""
+    `assert_clarity` fail — proves the sentence-length check is actually exercised. Planted on the
+    final `response_text` (fixed text since DL-0062), after the green case passes."""
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-01")
-    mutated = mutate_extend_last_sentence(case, extra_words=30)
-    result = await run_case(build, mutated, extra_config=_helena_extra_config())
+    result = await run_case(build, case, extra_config=_helena_extra_config())
+    assert_clarity(_clarity_report(result.state, case["clarity"]))
+    longo = result.state["response_text"].rstrip(".") + " " + " ".join(["palavra"] * 30) + "."
     with pytest.raises(AssertionError, match="max-words-per-sentence"):
-        assert_clarity(_clarity_report(result.state, mutated["clarity"]))
+        assert_clarity(_clarity_report({**result.state, "response_text": longo}, case["clarity"]))
 
 
 @pytest.mark.eval
@@ -159,10 +163,13 @@ async def test_evl_helena_clareza_01_mutation_check_missing_disclaimer_is_non_va
     group 2 ("emergencia") — so the probe targets the clarity check again, which is its job.
     """
     case = next(c for c in HELENA_CLAREZA_CASES if c["id"] == "EVL-HELENA-CLAREZA-01")
-    mutated = mutate_replace_last_response(case, "Um atendente vai continuar o seu atendimento.")
-    result = await run_case(build, mutated, extra_config=_helena_extra_config())
+    # 01/10/2026 (DL-0062): o texto do escalonamento e' fixo; a troca e' feita no `response_text`
+    # final, depois de provar que o caso verde passa na regua.
+    result = await run_case(build, case, extra_config=_helena_extra_config())
+    assert_clarity(_clarity_report(result.state, case["clarity"]))
+    sem_emergencia = {**result.state, "response_text": "Um atendente vai continuar o seu atendimento."}
     with pytest.raises(AssertionError, match="missing mandatory disclaimer"):
-        assert_clarity(_clarity_report(result.state, mutated["clarity"]))
+        assert_clarity(_clarity_report(sem_emergencia, case["clarity"]))
 
 
 @pytest.mark.eval

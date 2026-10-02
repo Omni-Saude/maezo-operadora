@@ -75,8 +75,9 @@
         <outputEntry id="r5o4"><text>"Crianca letargica/irresponsiva"</text></outputEntry>
       </rule>
       <rule id="r6">
+        <description>INTERINO (DL-0067, 02/10/2026, caso E06 da bateria): sinais de desidratacao sem intensidade informada escalam igual — cuidador raramente mede o degrau; o custo de um caso a mais e' menor que o de uma crianca desidratada sem atendimento. PENDENTE de ratificacao do dono clinico (pediatra).</description>
         <inputEntry id="r6i1"><text>"sinais_desidratacao"</text></inputEntry>
-        <inputEntry id="r6i2"><text>"grave","moderada"</text></inputEntry>
+        <inputEntry id="r6i2"><text>"grave","moderada","desconhecida"</text></inputEntry>
         <inputEntry id="r6i3"><text>-</text></inputEntry>
         <outputEntry id="r6o1"><text>true</text></outputEntry>
         <outputEntry id="r6o2"><text>"P2"</text></outputEntry>

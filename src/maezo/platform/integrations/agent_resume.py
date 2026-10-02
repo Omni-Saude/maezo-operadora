@@ -146,6 +146,19 @@ class MalformedResumeEventError(MalformedBridgeMessageError):
     """
 
 
+class ResumeUndeliverableError(MalformedResumeEventError):
+    """O atendente DEVOLVEU o caso ao agente (o historico do motor confirma) e, mesmo assim, nao ha
+    como entrega-lo ao beneficiario: a nota esta' vazia, ou a custodia nao tem o numero (vencido pelo
+    TTL, apagado por pedido LGPD).
+
+    E' um `MalformedResumeEventError` — reentregar nao conserta, entao vai para a fila morta como os
+    irmaos —, MAS ao contrario da malformacao de um evento forjado ou inconsistente, aqui a conclusao
+    e' LEGITIMA e a pessoa fica sem retorno. Silencio nao serve (G05 da bateria de 01/10/2026: a
+    tarefa fechou com a nota vazia, o evento foi para a fila morta e ninguem foi avisado): o
+    `ResumeHandler` avisa a equipe antes de deixar a excecao subir.
+    """
+
+
 class RecipientCustodyUnavailableError(RuntimeError):
     """Nao ha custodia de destinatario configurada — o daemon RECUSA SUBIR (ver docstring)."""
 
@@ -285,7 +298,7 @@ class EngineHistoryInstructionSource:
             )
         notas = historico.variables.get("notas_resolucao")
         if not isinstance(notas, str) or not notas.strip():
-            raise MalformedResumeEventError(
+            raise ResumeUndeliverableError(
                 "engine history has no notas_resolucao to relay", {}, code=REASON_RESUME_HISTORY_MISMATCH
             )
         return notas
@@ -302,9 +315,15 @@ class RecipientResolver(Protocol):
 
 
 class TeamAlerter(Protocol):
-    """Avisa a equipe humana de que a retomada NAO pode sair pelo WhatsApp (fora da janela)."""
+    """Avisa a equipe humana de que a retomada NAO chegou ao beneficiario."""
 
-    async def alert_outside_window(self, event: ProcessCompletedEvent) -> None: ...
+    async def alert_outside_window(self, event: ProcessCompletedEvent) -> None:
+        """Janela da Meta fechada: nada sai pelo WhatsApp."""
+        ...
+
+    async def alert_undeliverable(self, event: ProcessCompletedEvent) -> None:
+        """Caso devolvido sem como entregar (nota vazia, custodia sem numero): `ResumeUndeliverableError`."""
+        ...
 
 
 class KafkaPublisherLike(Protocol):
@@ -335,6 +354,14 @@ class NotifyTeamAlerter:
         self._grupo = grupo_atendimento
 
     async def alert_outside_window(self, event: ProcessCompletedEvent) -> None:
+        await self._publicar_aviso(event)
+
+    async def alert_undeliverable(self, event: ProcessCompletedEvent) -> None:
+        """O MESMO aviso (`business_key` + fila), porque a acao da equipe e' a mesma: falar com a
+        pessoa por outro meio. Nenhum dado novo viaja — nem a nota, nem o telefone."""
+        await self._publicar_aviso(event)
+
+    async def _publicar_aviso(self, event: ProcessCompletedEvent) -> None:
         from maezo.tools.workers.escalation import NOTIFY_TEAM_NOTIFICATION_TYPE
 
         await self._publisher.publish(
@@ -426,16 +453,29 @@ class ResumeHandler:
                 "retomou a conversa",
             )
             return ResumeReceipt(ResumeOutcome.SKIPPED_NO_RESUMER, event.agent_id, event.resultado)
-        instrucoes = await self.instructions.fetch(event)
-        contato = await self.recipients.lookup(
-            tenant_id=event.tenant_id, conversation_id=event.conversation_id
-        )
-        if contato is None or not contato.phone:
-            raise MalformedResumeEventError(
-                "recipient custody has no number for this conversation",
-                {},
-                code=REASON_RESUME_RECIPIENT_UNAVAILABLE,
+        try:
+            instrucoes = await self.instructions.fetch(event)
+            contato = await self.recipients.lookup(
+                tenant_id=event.tenant_id, conversation_id=event.conversation_id
             )
+            if contato is None or not contato.phone:
+                raise ResumeUndeliverableError(
+                    "recipient custody has no number for this conversation",
+                    {},
+                    code=REASON_RESUME_RECIPIENT_UNAVAILABLE,
+                )
+        except ResumeUndeliverableError as exc:
+            # Avisa ANTES de deixar a excecao seguir para a fila morta. Se o aviso falhar, a excecao
+            # DELE propaga e o offset nao anda (`best_effort=False`): reentregar tenta de novo.
+            await self.alerter.alert_undeliverable(event)
+            logger.warning(
+                "agent_resume.undeliverable_team_alerted",
+                tenant_id=event.tenant_id,
+                agent_id=event.agent_id,
+                conversation_id=event.conversation_id,
+                reason=exc.code,
+            )
+            raise
         if not dentro_da_janela(contato.last_inbound_at):
             # Janela da Meta fechada: NADA sai pelo WhatsApp. Avisa a equipe (propaga se falhar)
             # e so' depois conta o desfecho — um aviso que nao saiu nao pode ser contado.

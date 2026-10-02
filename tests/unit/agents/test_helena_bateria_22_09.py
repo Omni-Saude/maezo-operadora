@@ -202,13 +202,19 @@ async def test_o_c1_e_o_b5_tem_o_mesmo_desfecho_porque_tem_o_mesmo_estado_clinic
 
 @pytest.mark.asyncio
 async def test_a_recusa_em_inform_troca_o_texto_por_uma_constante_honesta() -> None:
-    """O que a pessoa do C1 passa a ler: nenhuma promessa, e nenhuma fila aberta as costas dela."""
+    """O que a pessoa do C1 passa a ler: nenhuma promessa, e nenhuma fila aberta as costas dela.
+
+    Desde 01/10/2026 o SINTOMA sem bandeira nao tem mais rascunho do modelo (texto fixo,
+    `RESPOSTA_SINTOMA_SEM_ALERTA`, ver `test_helena_sintoma_texto_fixo.py`). A troca por constante
+    continua valendo para o que ainda e' redigido pelo modelo em `inform` — a duvida administrativa
+    —, que e' o que este teste exercita.
+    """
     graph = _graph(
-        [_classify_json(intent="symptom", population="adult"), C1_RASCUNHO_COM_PROMESSA],
+        [_classify_json(intent="information"), C1_RASCUNHO_COM_PROMESSA],
         dmn=_catch_all_adulto(),
     )
 
-    saida = await _turno(graph, _estado("estou com dor de cabeca"))
+    saida = await _turno(graph, _estado("qual o horario de funcionamento da central?"))
 
     assert saida["response_text"] == RESPOSTA_INFORM_RECUSADA
     assert saida["error"] == ERRO_RESPOSTA_RECUSADA, "a recusa tem de deixar rastro no turno"
@@ -223,12 +229,14 @@ async def test_a_negativa_clinica_em_inform_continua_escalando() -> None:
     legitima, e quem tem e' um humano. Este e' o grupo que continua abrindo fila.
     """
     negativa = "Pela sua descricao, voce nao tem sinais de alerta e nao precisa procurar atendimento."
+    # Desde 01/10/2026 o sintoma sem bandeira tem texto fixo e nao chega aqui; o que ainda e'
+    # redigido pelo modelo em `inform` e' a duvida administrativa, e a regra de 22/09 vale para ela.
     graph = _graph(
-        [_classify_json(intent="symptom", population="adult"), negativa, "Vou te encaminhar."],
+        [_classify_json(intent="information"), negativa, "Vou te encaminhar."],
         dmn=_catch_all_adulto(),
     )
 
-    saida = await _turno(graph, _estado("estou com dor de cabeca"))
+    saida = await _turno(graph, _estado("qual o horario de funcionamento da central?"))
 
     # A ROTA do turno continua sendo `inform` — a conversao acontece DENTRO do no', que e' o unico
     # lugar onde o rascunho ja' existe para ser julgado.
@@ -275,13 +283,14 @@ async def test_o_terceiro_turno_do_d2_nao_tria_um_sintoma_que_ninguem_relatou() 
     )
     graph = _graph(
         [
+            # Desde 01/10/2026 o turno de SINTOMA sem bandeira nao pede rascunho ao modelo (texto
+            # fixo), entao so' a classificacao aparece no roteiro; o turno 2 (`information`) ainda
+            # redige a resposta.
             _classify_json(intent="symptom", population="pediatric", sintoma_codigo="febre"),
-            "Entendi. Ha quanto tempo isso comecou?",
             _classify_json(intent="information", population="pediatric", idade_meses=36),
             "Obrigada. Pode me contar mais?",
             # O turno 3, medido: populacao de adulto e um codigo qualificado de adulto.
             _classify_json(intent="symptom", population="adult", sintoma_codigo="cefaleia_subita_intensa"),
-            "Entendi que e' sobre uma crianca de 3 anos, certo? Vou te orientar.",
         ],
         dmn=dmn,
     )

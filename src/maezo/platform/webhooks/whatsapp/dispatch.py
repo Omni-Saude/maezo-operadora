@@ -790,6 +790,14 @@ class HelenaDispatcher:
             escalation_started=result.get("escalation_started"),
             escalation_business_key=result.get("escalation_business_key"),
             error=result.get("error"),
+            # Diagnostico da bateria de 01/10/2026 (E02, E11, I05 abriram P3 `falha_tecnica` sem que o
+            # log dissesse por que). Todos sao CODIGOS FECHADOS ou a referencia da tabela — nunca
+            # texto da pessoa, sintoma em palavras nem resumo —, entao nao entram na zona PHI.
+            intent=result.get("intent"),
+            population=result.get("population"),
+            response_kind=result.get("response_kind"),
+            escalation_motivo=result.get("escalation_motivo"),
+            dmn_decision_ref=result.get("dmn_decision_ref"),
         )
         if self.roteador is not None:
             handoff: PedidoDeHandoff | None = None
