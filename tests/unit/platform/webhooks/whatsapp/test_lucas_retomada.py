@@ -19,7 +19,6 @@ from typing import Any
 
 import pytest
 
-from maezo.agents.lucas.graph import RESPOSTA_INFORMATIVA_RECUSADA
 from maezo.gateway.pseudonymizer import Pseudonymizer
 from maezo.gateway.tool_registry import build_agent_seam_context
 from maezo.platform.integrations import agent_resume as ar
@@ -176,7 +175,7 @@ async def test_nota_que_as_cercas_barram_vira_a_constante_segura(nota: str) -> N
     retomada, cliente, conversa, _ = _montar()
     resultado = await _retomar(retomada, conversa, nota)
     assert resultado == {"desfecho": lr.DESFECHO_RETOMADA_RECUSADA}
-    assert [texto for _, texto, _ in cliente.enviados] == [RESPOSTA_INFORMATIVA_RECUSADA]
+    assert [texto for _, texto, _ in cliente.enviados] == [lr.RETOMADA_RECUSADA_TEXTO]
 
 
 # --- falha de envio -------------------------------------------------------------------------------------
@@ -302,3 +301,26 @@ async def test_sem_a_porta_do_lucas_o_caso_continua_sendo_descartado() -> None:
 def test_o_vocabulario_de_telemetria_do_lucas_conhece_a_retomada(desfecho: str) -> None:
     assert desfecho in turn_telemetry._DESFECHO_VOCAB["lucas"]
     assert "retomada" in turn_telemetry._ROUTE_VOCAB["lucas"]
+
+
+# --- texto de seguranca (teste do Filipe, 02/10/2026) ---------------------------------------------------
+
+
+async def test_a_nota_entraremos_em_contato_cai_no_texto_neutro_e_nao_no_de_boleto() -> None:
+    """A nota que o proprio Filipe escreveu no portal. E' barrada (promessa de humano) e a pessoa, que
+    pediu cancelamento, NAO pode receber instrucao sobre boleto."""
+    retomada, cliente, conversa, _ = _montar()
+    resultado = await _retomar(retomada, conversa, "Entraremos em contato.")
+    assert resultado == {"desfecho": lr.DESFECHO_RETOMADA_RECUSADA}
+    texto = cliente.enviados[0][1]
+    assert texto == lr.RETOMADA_RECUSADA_TEXTO
+    assert "boleto" not in texto.lower()
+    assert "entraremos" not in texto.lower()
+
+
+def test_o_texto_neutro_passa_nas_cercas_do_lucas_e_nas_da_retomada() -> None:
+    from maezo.agents.helena.graph import motivo_de_recusa_da_retomada
+    from maezo.agents.lucas.prompts import motivo_de_recusa
+
+    assert motivo_de_recusa(lr.RETOMADA_RECUSADA_TEXTO, lr.RESPONSE_KIND_RETOMADA, {}) is None
+    assert motivo_de_recusa_da_retomada(lr.RETOMADA_RECUSADA_TEXTO) is None
