@@ -796,6 +796,42 @@ def checar_lucas_depois_da_helena(raiz: Path = REPO_ROOT) -> list[str]:
     return achados
 
 
+LEXICO_DIR = "spec/policies/roteamento"
+
+
+def checar_lexico_empacotado(raiz: Path) -> list[str]:
+    """Item 8: o lexico do pre-roteamento CHEGA ao container.
+
+    Medido em 02/10/2026: com `MAEZO_ROTEADOR_LUCAS=true`, o receptor em dev subiu sem
+    `spec/policies/roteamento/` na imagem, `carregar()` levantou `LexicoInvalidoError(FileNotFoundError)`
+    dentro de `_build_dispatcher` e `/webhook` ficou degradado a 501 por 4 minutos. A imagem embarca o
+    `spec/` pelo force-include do pyproject (copia para `maezo/spec/`, que `resolve_spec_dir()` acha) e
+    pela COPY correspondente no Dockerfile; os dois tem de citar o diretorio do lexico. Arvore sem
+    pyproject/Dockerfile (clones sinteticos dos outros itens) nao e' julgada por este item.
+    """
+    pyproject_path = raiz / "pyproject.toml"
+    dockerfile_path = raiz / "deploy" / "Dockerfile"
+    if not pyproject_path.is_file() and not dockerfile_path.is_file():
+        return []
+    achados: list[str] = []
+    if pyproject_path.is_file() and f'"{LEXICO_DIR}" = "maezo/{LEXICO_DIR}"' not in pyproject_path.read_text(
+        encoding="utf-8"
+    ):
+        achados.append(
+            f'item 8: pyproject.toml sem o force-include `"{LEXICO_DIR}" = "maezo/{LEXICO_DIR}"`: '
+            "o lexico do pre-roteamento nao chega ao container e o receptor morre no boot com o roteador "
+            "ligado"
+        )
+    if dockerfile_path.is_file() and f"COPY {LEXICO_DIR} ./{LEXICO_DIR}" not in dockerfile_path.read_text(
+        encoding="utf-8"
+    ):
+        achados.append(
+            f"item 8: deploy/Dockerfile sem `COPY {LEXICO_DIR} ./{LEXICO_DIR}`: o force-include falha "
+            "fechado no `uv sync --no-editable`"
+        )
+    return achados
+
+
 def executar(raiz: Path = REPO_ROOT) -> list[str]:
     return (
         checar_ligacao_fora_de_dev(raiz)
@@ -803,6 +839,7 @@ def executar(raiz: Path = REPO_ROOT) -> list[str]:
         + checar_construcao_condicional(raiz)
         + checar_handoff_so_na_helena(raiz)
         + checar_lucas_depois_da_helena(raiz)
+        + checar_lexico_empacotado(raiz)
     )
 
 

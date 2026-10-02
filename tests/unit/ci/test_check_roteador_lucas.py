@@ -18,6 +18,7 @@ from scripts.ci.check_roteador_lucas import (
     checar_construcao_condicional,
     checar_default_desligado,
     checar_handoff_so_na_helena,
+    checar_lexico_empacotado,
     checar_ligacao_fora_de_dev,
     checar_lucas_depois_da_helena,
     executar,
@@ -657,3 +658,42 @@ def test_item7_renomear_o_metodo_deixa_a_cerca_cega_e_reprova(tmp_path: Path) ->
     )
     achados = checar_lucas_depois_da_helena(raiz)
     assert achados and "cerca cega" in achados[0], achados
+
+
+# -- item 8: o lexico do pre-roteamento chega ao container ------------------------------------
+
+
+def _montar_empacotamento(tmp_path: Path) -> Path:
+    raiz = tmp_path / "pacote"
+    (raiz / "deploy").mkdir(parents=True)
+    shutil.copy2(_RAIZ_REAL / "pyproject.toml", raiz / "pyproject.toml")
+    shutil.copy2(_RAIZ_REAL / "deploy" / "Dockerfile", raiz / "deploy" / "Dockerfile")
+    return raiz
+
+
+def test_item8_arvore_real_empacota_o_lexico() -> None:
+    assert checar_lexico_empacotado(_RAIZ_REAL) == []
+
+
+def test_item8_arvore_sintetica_sem_pyproject_nem_dockerfile_nao_e_julgada(tmp_path: Path) -> None:
+    assert checar_lexico_empacotado(_montar(tmp_path)) == []
+
+
+def test_item8_sem_force_include_reprova(tmp_path: Path) -> None:
+    raiz = _montar_empacotamento(tmp_path)
+    _reescrever(
+        raiz / "pyproject.toml",
+        lambda t: _trocar(t, '"spec/policies/roteamento" = "maezo/spec/policies/roteamento"', "# removido"),
+    )
+    achados = checar_lexico_empacotado(raiz)
+    assert achados and "force-include" in achados[0], achados
+
+
+def test_item8_sem_copy_no_dockerfile_reprova(tmp_path: Path) -> None:
+    raiz = _montar_empacotamento(tmp_path)
+    _reescrever(
+        raiz / "deploy" / "Dockerfile",
+        lambda t: _trocar(t, "COPY spec/policies/roteamento ./spec/policies/roteamento", "# removido"),
+    )
+    achados = checar_lexico_empacotado(raiz)
+    assert achados and "Dockerfile" in achados[0], achados
