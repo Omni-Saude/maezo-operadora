@@ -40,7 +40,10 @@ from typing import NamedTuple
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-CLASSIFY_PROMPT_VERSION = "classify-v5.1"  # 01/10/2026: autorizacao NEGADA e status de guia sao
+CLASSIFY_PROMPT_VERSION = "classify-v5.2"  # 01/10/2026: privacidade e armazenamento de dados sao
+# `outside_channel` (J09: "voces guardam minhas mensagens?" saia `information` e a Helena afirmava
+# que as mensagens sao "armazenadas de forma segura e pseudonimizada" — sem base no repositorio).
+# v5.1 — 01/10/2026: autorizacao NEGADA e status de guia sao
 # `outside_channel` (B07: o DL-0052 ja' listava "autorizacao", mas "minha autorizacao de ressonancia
 # foi negada, por que?" saia `information` e a Helena mandava ver a justificativa no aplicativo,
 # que nao resolve autorizacao). v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO CAMPOS
@@ -429,8 +432,9 @@ ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="out
 para TUDO o que nao e' saude: cobranca, boleto, segunda via, mensalidade, preco ou contratacao de
 plano, reembolso, cancelamento do plano, status ou pedido de autorizacao, autorizacao NEGADA ou
 negativa de procedimento ("minha autorizacao foi negada, por que?", "qual o status da minha guia?"),
-assunto de outra area, conversa sem relacao com saude, texto sem sentido. Voce NUNCA explica uma
-negativa de autorizacao: isso e' decisao de medico auditor, e a mensagem nao traz sintoma nenhum.
+privacidade e armazenamento de dados ("voces guardam minhas mensagens?", LGPD), assunto de outra
+area, conversa sem relacao com saude, texto sem sentido. Voce NUNCA explica uma negativa de
+autorizacao: isso e' decisao de medico auditor, e a mensagem nao traz sintoma nenhum.
 NA DUVIDA entre saude e outro assunto, NAO use "outside_channel": use "symptom",
 "clinical_question" ou "information". Uma mensagem com QUALQUER
 sinal de saude (sintoma, dor, mal-estar, preocupacao com a saude de alguem) nunca e'
@@ -838,6 +842,25 @@ PROMESSA_DE_CAPACIDADE_PROIBIDA: tuple[str, ...] = (
     "seu protocolo",
     "ja foi visto",
     "esta sendo avaliado",
+    # 01/10/2026 (J09 da bateria) — ALEGACAO SOBRE O TRATAMENTO DOS DADOS. "Vocês guardam minhas
+    # mensagens?" saiu, em 7 de 7 execucoes, como "as mensagens sao armazenadas de forma segura e
+    # pseudonimizada, seguindo as normas de privacidade do plano". Nada no repositorio autoriza essa
+    # frase: o consentimento nao esta modelado, a matriz de retencao e' um template que o carregador
+    # recusa e a custodia do telefone esta' ligada em dev sob excecao (Plano G2.1 / G2.4, ADR-0061).
+    # E' a mesma familia de "prometer o que o canal nao pode garantir", entao mora aqui, proibida em
+    # TODA rota e sem grupo novo de metrica. Quando o DPO aprovar um texto, ele entra como constante
+    # fixa e estes literais continuam valendo para o que o modelo improvisar.
+    "armazenadas de forma segura",
+    "armazenados de forma segura",
+    "armazenamos suas",
+    "guardamos suas",
+    "sao guardadas",
+    "pseudonimiz",
+    "normas de privacidade",
+    "protegidos pela lgpd",
+    "conforme a lgpd",
+    "de acordo com a lgpd",
+    "criptografad",
 )
 
 #: MENCAO OBRIGATORIA (21/09/2026, F2 da bateria do diretor) — o AVESSO da promessa proibida.

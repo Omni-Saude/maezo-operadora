@@ -1583,6 +1583,50 @@
         "canal": null,
         "menciona": false
       }
+    },
+    {
+      "texto": "Por aqui, as mensagens sao armazenadas de forma segura e pseudonimizada, seguindo as normas de privacidade do plano.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0059 (01/10/2026), J09 da bateria (medido): alegacao de armazenamento seguro e pseudonimizado",
+      "esperado": {
+        "recusa": "promessa_de_capacidade",
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "As conversas sao armazenadas de forma segura e pseudonimizada para garantir a continuidade do atendimento.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0059 (01/10/2026), J09 da bateria (medido): variante com finalidade",
+      "esperado": {
+        "recusa": "promessa_de_capacidade",
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Seus dados estao protegidos pela LGPD.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0059 (01/10/2026): alegacao de conformidade com a LGPD, sem base no repositorio",
+      "esperado": {
+        "recusa": "promessa_de_capacidade",
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Este canal nao consulta cadastro nem identifica beneficiarios.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "DL-0059 (01/10/2026): afirmar o que o canal NAO faz continua permitido",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
     }
   ]
 }

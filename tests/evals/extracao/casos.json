@@ -1,5 +1,5 @@
 {
-  "versao": "extracao-v4",
+  "versao": "extracao-v5",
   "casos": [
     {
       "id": "r2-cefaleia-comum-01",
@@ -2553,6 +2553,44 @@
         "idade_gestacional_semanas": null
       },
       "porque": "Mesma familia de B07: negativa de procedimento, sem sintoma e sem pedido de pessoa.",
+      "origem": "bateria-01-10",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "dl0058-privacidade-guardam-mensagens",
+      "mensagem": "Voces guardam minhas mensagens?",
+      "esperado": {
+        "intent": "outside_channel",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "J09 da bateria de 01/10/2026. A Helena nao tem base para afirmar nada sobre o tratamento dos dados (consentimento nao modelado, matriz de retencao em template): a pergunta nao e' saude e recebe o texto fixo, nunca uma garantia improvisada.",
+      "origem": "bateria-01-10",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "dl0058-privacidade-lgpd",
+      "mensagem": "meus dados estao protegidos pela LGPD?",
+      "esperado": {
+        "intent": "outside_channel",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "J09 da bateria de 01/10/2026. A Helena nao tem base para afirmar nada sobre o tratamento dos dados (consentimento nao modelado, matriz de retencao em template): a pergunta nao e' saude e recebe o texto fixo, nunca uma garantia improvisada.",
       "origem": "bateria-01-10",
       "regras": [
         "R5"
