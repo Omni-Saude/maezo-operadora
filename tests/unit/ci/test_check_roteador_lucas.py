@@ -109,8 +109,13 @@ def test_o_receptor_real_declara_as_tres_entradas_e_o_tfvars_e_literal() -> None
     # O VALOR de dev e' decisao de cada momento (ligado em 01/10/2026); o que esta ancora fixa e' a
     # FORMA: uma atribuicao literal `true`/`false`, que e' o que a cerca consegue resolver.
     tfvars = (_RAIZ_REAL / _ENV_DEV / _TFVARS_LUCAS).read_bytes().decode("utf-8")
-    atribuicoes = [linha.strip() for linha in tfvars.splitlines() if linha.startswith("roteador_lucas_enabled")]
-    assert atribuicoes in (["roteador_lucas_enabled = false"], ["roteador_lucas_enabled = true"]), atribuicoes
+    atribuicoes = [
+        linha.strip() for linha in tfvars.splitlines() if linha.startswith("roteador_lucas_enabled")
+    ]
+    assert atribuicoes in (
+        ["roteador_lucas_enabled = false"],
+        ["roteador_lucas_enabled = true"],
+    ), atribuicoes
 
 
 def test_ligar_em_dev_pelo_tfvars_passa(tmp_path: Path) -> None:
