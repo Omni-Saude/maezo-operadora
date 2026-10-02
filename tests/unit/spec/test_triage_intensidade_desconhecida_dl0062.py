@@ -1,4 +1,4 @@
-"""Bateria de 01/10/2026 (E02, E06, E07): sintoma que a regra cobre escala mesmo sem intensidade dita (DL-0062).
+"""Bateria de 01/10/2026 (E02, E06, E07): o sintoma da regra escala mesmo sem intensidade dita (DL-0062).
 
 Decisao INTERINA, pelo principio do DL-0051: o custo de um caso a mais e' menor que o de um sintoma
 sem atendimento. Nao ratificada pelo dono clinico; este teste fixa o comportamento para que a
