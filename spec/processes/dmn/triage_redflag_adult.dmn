@@ -92,6 +92,16 @@
         <outputEntry id="r6o3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
         <outputEntry id="r6o4"><text>"Suspeita de anafilaxia"</text></outputEntry>
       </rule>
+      <rule id="r7a">
+        <description>Sincope com intensidade grave escala como emergencia (P1). Caso B03 da bateria de 02/10/2026: a r7 ignora a intensidade e o resultado variava com a leitura do classificador. Sincope leve/moderada/desconhecida continua na r7 (enfermagem). DRAFT clinico — requer validacao medica.</description>
+        <inputEntry id="r7ai1"><text>"sincope"</text></inputEntry>
+        <inputEntry id="r7ai2"><text>"grave"</text></inputEntry>
+        <inputEntry id="r7ai3"><text>-</text></inputEntry>
+        <outputEntry id="r7ao1"><text>true</text></outputEntry>
+        <outputEntry id="r7ao2"><text>"P1"</text></outputEntry>
+        <outputEntry id="r7ao3"><text>"ESCALATE_EMERGENCY"</text></outputEntry>
+        <outputEntry id="r7ao4"><text>"Sincope grave: avaliacao de emergencia imediata"</text></outputEntry>
+      </rule>
       <rule id="r7">
         <inputEntry id="r7i1"><text>"sincope"</text></inputEntry>
         <inputEntry id="r7i2"><text>-</text></inputEntry>

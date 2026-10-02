@@ -181,7 +181,7 @@ async def test_desligado_o_grafo_nao_tem_o_no_de_passagem() -> None:
 
 
 async def test_desligado_um_cobranca_do_modelo_vira_falha_tecnica_como_hoje() -> None:
-    compilado, sender, _ = _grafo(_FakeInference([_json(), _HANDOFF, "resumo"]), ligado=False)
+    compilado, sender, _ = _grafo(_FakeInference([_json(), _json(), _HANDOFF, "resumo"]), ligado=False)
     resultado = await compilado.ainvoke(_entrada())
     assert resultado["escalation_motivo"] == "falha_tecnica"
     assert "invalid_intent" in resultado["error"]

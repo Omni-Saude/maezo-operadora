@@ -57,6 +57,12 @@ class _FakeInference:
         return self._responses.pop(0) if self._responses else ""
 
 
+def _FakeInferenceRepetido(respostas: list[str]) -> _FakeInference:  # noqa: N802
+    """O classificador repete UMA vez quando o JSON e' invalido (`CLASSIFY_TENTATIVAS`): estes testes
+    exercitam o JSON invalido PERSISTENTE, entao a mesma resposta serve as duas tentativas."""
+    return _FakeInference([*respostas, *respostas])
+
+
 class _FakeWhatsAppSender:
     def __init__(self, *, fail: bool = False) -> None:
         self.sent: list[tuple[str, str]] = []
@@ -494,7 +500,7 @@ async def test_classify_unparseable_json_escalates_falha_tecnica_never_informs()
 
 async def test_classify_unknown_intent_enum_escalates_falha_tecnica() -> None:
     """Schema-invalid: an intent value outside classify-v1's enum is a classify failure."""
-    inference = _FakeInference([_classify_json(intent="diagnose")])
+    inference = _FakeInference([_classify_json(intent="diagnose"), _classify_json(intent="diagnose")])
     graph = _graph(inference=inference)
 
     result = await graph.classify(_base_state(message_body="me diga o que eu tenho"))
@@ -507,7 +513,7 @@ async def test_classify_unknown_intent_enum_escalates_falha_tecnica() -> None:
 async def test_classify_invented_sintoma_codigo_escalates_falha_tecnica() -> None:
     """Schema-invalid: a non-allow-listed sintoma_codigo would silently miss every DMN symptom
     rule and land on the no-red-flag catch-all — it must escalate instead."""
-    inference = _FakeInference(
+    inference = _FakeInferenceRepetido(
         [_classify_json(intent="symptom", population="adult", sintoma_codigo="dor_de_cotovelo")]
     )
     graph = _graph(inference=inference)
@@ -520,7 +526,14 @@ async def test_classify_invented_sintoma_codigo_escalates_falha_tecnica() -> Non
 
 
 async def test_classify_invalid_population_escalates_falha_tecnica() -> None:
-    inference = _FakeInference([_classify_json(intent="symptom", population="idoso")])
+    inference = _FakeInference(
+        [
+            _classify_json(intent="symptom", population="idoso"),
+            _classify_json(intent="symptom", population="idoso"),
+            _classify_json(intent="symptom", population="idoso"),
+            _classify_json(intent="symptom", population="idoso"),
+        ]
+    )
     graph = _graph(inference=inference)
 
     result = await graph.classify(_base_state(message_body="dor"))
@@ -532,7 +545,9 @@ async def test_classify_invalid_population_escalates_falha_tecnica() -> None:
 
 async def test_classify_missing_psychosocial_risk_escalates_falha_tecnica() -> None:
     """Schema-invalid: the always-active gatilho-5 signal must never be silently absent."""
-    inference = _FakeInference(['{"intent": "information", "population": "none"}'])
+    inference = _FakeInference(
+        ['{"intent": "information", "population": "none"}', '{"intent": "information", "population": "none"}']
+    )
     graph = _graph(inference=inference)
 
     result = await graph.classify(_base_state(message_body="oi"))
@@ -545,7 +560,7 @@ async def test_classify_missing_psychosocial_risk_escalates_falha_tecnica() -> N
 async def test_classify_out_of_domain_intensidade_escalates_falha_tecnica() -> None:
     """Schema-invalid: an out-of-domain intensidade would miss the DMN's own 'grave' fail-safe
     rows the same way an invented code would."""
-    inference = _FakeInference(
+    inference = _FakeInferenceRepetido(
         [
             _classify_json(
                 intent="symptom", population="adult", sintoma_codigo="febre", intensidade="gravissima"
@@ -622,7 +637,7 @@ async def test_classify_malformed_age_list_escalates_falha_tecnica_never_reaches
     downstream engine error — and never be handed to the red-flag DMN."""
     dmn = FakeDmnTransport()  # register the table so a leak-through would NOT error incidentally
     dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
-    inference = _FakeInference(
+    inference = _FakeInferenceRepetido(
         [_classify_json(intent="symptom", population="adult", sintoma_codigo="febre", idade_anos=[5])]
     )
     graph = _graph(inference=inference, dmn=dmn)
@@ -636,7 +651,7 @@ async def test_classify_malformed_age_list_escalates_falha_tecnica_never_reaches
 
 
 async def test_classify_non_numeric_string_age_escalates_falha_tecnica() -> None:
-    inference = _FakeInference(
+    inference = _FakeInferenceRepetido(
         [_classify_json(intent="symptom", population="pediatric", sintoma_codigo="febre", idade_meses="abc")]
     )
     graph = _graph(inference=inference)
@@ -650,7 +665,7 @@ async def test_classify_non_numeric_string_age_escalates_falha_tecnica() -> None
 
 async def test_classify_fractional_age_string_fails_closed_never_truncates() -> None:
     """`"5.9"` must NOT be silently truncated to 5 (a plausible-but-wrong age) — fail closed."""
-    inference = _FakeInference(
+    inference = _FakeInferenceRepetido(
         [_classify_json(intent="symptom", population="adult", sintoma_codigo="febre", idade_anos="5.9")]
     )
     graph = _graph(inference=inference)
@@ -682,7 +697,26 @@ async def test_classify_absent_age_still_works() -> None:
     """Many turns carry no age — absence is valid and must classify normally."""
     dmn = FakeDmnTransport()
     dmn.register("triage_redflag_adult", [{"red_flag": False, "conduta": "CONTINUE"}])
-    inference = _FakeInference([_classify_json(intent="symptom", population="adult", sintoma_codigo="febre")])
+    inference = _FakeInference(
+        [
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+            _classify_json(intent="symptom", population="adult", sintoma_codigo="febre"),
+        ]
+    )
     graph = _graph(inference=inference, dmn=dmn)
 
     result = await graph.classify(_base_state(message_body="febre"))
@@ -743,7 +777,16 @@ async def test_full_turn_malformed_json_reaches_escalation_never_inform() -> Non
     STARTED (escalation_started True), not just routed."""
     cibseven = FakeCibSevenTransport()
     # Call order after the classify failure: _resumo_contexto, then _respond_llm.
-    inference = _FakeInference(["{{{malformed", "resumo tecnico", "um humano vai continuar"])
+    inference = _FakeInference(
+        [
+            "{{{malformed",
+            "resumo tecnico",
+            "um humano vai continuar",
+            "{{{malformed",
+            "resumo tecnico",
+            "um humano vai continuar",
+        ]
+    )
     sender = _FakeWhatsAppSender()
     graph = _graph(inference=inference, cibseven=cibseven, whatsapp=sender).compile_graph()
     compiled = graph.compile()
@@ -817,6 +860,7 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables() -> None:
 
     inference = _FakeInference(
         [
+            _classify_json(intent="symptom", population="adult", sintoma_codigo=leaked_value),
             _classify_json(intent="symptom", population="adult", sintoma_codigo=leaked_value),
             "resumo tecnico",
             "um humano vai continuar",

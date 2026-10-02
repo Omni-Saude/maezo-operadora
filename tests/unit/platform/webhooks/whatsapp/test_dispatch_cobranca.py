@@ -392,9 +392,13 @@ async def test_classify_falho_nunca_vai_ao_lucas() -> None:
 
 
 async def test_roteador_sem_lucas_e_a_sombra_a_helena_nao_conhece_cobranca() -> None:
-    dispatcher, cliente, store, _, inferencia = _montar([_classify()], com_lucas=False)
+    # O classificador repete UMA vez quando a extracao e' recusada (CLASSIFY_TENTATIVAS=2, DL-0058).
+    # O modelo insiste em `cobranca` nas duas: a recusa da 2a tentativa e' o veredito do turno.
+    dispatcher, cliente, store, _, inferencia = _montar([_classify(), _classify()], com_lucas=False)
     resultado = await dispatcher.dispatch(_msg())
-    assert '"cobranca"]' not in inferencia.prompts[0]  # classify-v5
+    classificacoes = [p for p in inferencia.prompts if "Tarefa: leia a mensagem do beneficiario" in p]
+    assert len(classificacoes) == 2
+    assert all('"cobranca"]' not in p for p in classificacoes)  # classify-v5
     assert resultado.get("handoff") is None
     assert "invalid_intent" in str(resultado.get("error"))
     assert FRASE_PASSAGEM_COBRANCA not in cliente.textos
