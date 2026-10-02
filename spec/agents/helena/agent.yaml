@@ -87,7 +87,9 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v8          # 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
+  recusa_de_saida: recusa-v9          # 01/10/2026: cerca de FINALIDADE do canal (DL-0058) e alegacao
+                                      # sobre o tratamento dos dados (DL-0059).
+                                      # v8 — 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
                                       # (lookbehind antes da acao) + `numero` volta a ser pista
                                       # de telefone fora do genitivo administrativo.
                                       # v7 — QUARTA RODADA (achados do code-reviewer

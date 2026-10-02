@@ -670,7 +670,14 @@ mensagem, sem JSON."""
 
 #: Versao desta lista. Sobe junto com qualquer alteracao nos padroes — e' o numero que diz QUAL
 #: cerca estava valendo quando um texto foi recusado (ou deixado passar).
-RECUSA_DE_SAIDA_VERSION = "recusa-v8"  # 21/09/2026, QUINTA RODADA: a negacao passou a ser
+RECUSA_DE_SAIDA_VERSION = "recusa-v9"  # 01/10/2026: duas cercas mudaram de veredito. (1) FINALIDADE DO
+# CANAL: uma oracao que cita aplicativo/portal junto de autorizacao, negativa, justificativa,
+# glosa, protocolo, reembolso, cancelamento ou status de guia e' recusada (grupo
+# `canal_nao_confirmado`, DL-0058). (2) ALEGACAO SOBRE O TRATAMENTO DOS DADOS: literais de
+# armazenamento, pseudonimizacao e LGPD entram em `PROMESSA_DE_CAPACIDADE_PROIBIDA` (DL-0059).
+# Os dois commits originais esqueceram de subir este numero; o pin de
+# `tests/unit/agents/test_helena_prompt_versions_pin.py` agora cobra isso por hash.
+# v8 — 21/09/2026, QUINTA RODADA: a negacao passou a ser
 # testada ONDE ela nega (lookbehind imediatamente antes da acao, em vez de janela sem `nao`) e
 # `numero` voltou a ser pista de telefone, menos no genitivo administrativo. Os dois recortes
 # mudam veredito de texto, entao o numero sobe. v7 (QUARTA RODADA — os achados do code-reviewer
