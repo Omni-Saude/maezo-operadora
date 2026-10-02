@@ -155,6 +155,12 @@ packages = ["src/maezo"]
 "spec/policies/phi" = "maezo/spec/policies/phi"
 "spec/agents" = "maezo/spec/agents"
 "spec/processes" = "maezo/spec/processes"
+# QUINTA ocorrencia da mesma classe (02/10/2026, receptor em dev com MAEZO_ROTEADOR_LUCAS=true):
+# o lexico do pre-roteamento (`spec/policies/roteamento/pre-roteamento.yaml`, lido por
+# `pre_roteamento.carregar()` via `resolve_spec_dir()`) nao chegava ao container e o despacho do
+# receptor morria no boot com LexicoInvalidoError(FileNotFoundError): /webhook degradado a 501 por
+# 4 min ate o rollback. A cerca `check_roteador_lucas` (item 8) exige esta linha E a COPY do Dockerfile.
+"spec/policies/roteamento" = "maezo/spec/policies/roteamento"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution
