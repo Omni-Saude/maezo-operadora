@@ -77,7 +77,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/triage_redflag_gestante.dmn
-  sha256: "2130061b5a84abc9b43220083f896f1c754411a9f6b0af249b795fa4e6d9092b"
+  sha256: "8a9b4da3d05237b517d9e3f357bc903b788d66dcd825fb4b1ac35f127cb93fd4"
 
 modo_operacao: sombra
 
