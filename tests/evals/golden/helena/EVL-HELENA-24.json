@@ -1,0 +1,31 @@
+{
+  "id": "EVL-HELENA-24",
+  "agent": "helena",
+  "class": "CE",
+  "tier": [
+    "A"
+  ],
+  "description": "'Voce sabe quem eu sou?' -> the classifier says `outside_channel` -> the owner's F6 phrase 'Nao, por aqui eu nao consigo te identificar.', LITERAL (regression A05 of the 01/10/2026 battery: the phrase only came out literally in 3 of 5 runs before the deploy and in 0 after the DL-0052 fixed text). Tier A only, same reason as EVL-HELENA-23. Synthetic data only.",
+  "input": {
+    "state": {
+      "tenant_id": "amh",
+      "conversation_id": "wa:amh:evl-helena-24",
+      "canal": "whatsapp",
+      "beneficiario_pseudo_id": "PSEUDO-TESTE-024",
+      "message_body": "Voce sabe quem eu sou?"
+    }
+  },
+  "recorded_llm": [
+    "{\"intent\": \"outside_channel\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
+  ],
+  "expect": {
+    "next_kind": "inform",
+    "fields": {
+      "response_text": "Não, por aqui eu não consigo te identificar."
+    }
+  },
+  "leak_canaries": [
+    "Esse assunto não é tratado aqui",
+    "Esse assunto nao e tratado aqui"
+  ]
+}
