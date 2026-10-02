@@ -9,6 +9,7 @@ scope:                                 # GAP 9.2 — limite de fase explicito (o
   - triagem_sintomas                   # DMN de red-flag por populacao (mcp-dmn.evaluate)
   - roteamento_intencao                # classify() decide inform | schedule | escalate
   - escalonamento_humano               # SP-OP-ESCALATION-001 (unico efeito real desta jornada)
+  - passagem_cobranca                  # onda (e) do numero unico (ADR-0062): cobranca -> Lucas, SO' com MAEZO_ROTEADOR_LUCAS ligado
 out_of_scope:                          # o que Helena NAO faz, rastreado (nao e recusa muda)
   - id: agendamento_direto             # trabalho #1 do beneficiario (D9/D11) — nao entregue aqui
     fase: 0
@@ -55,6 +56,12 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
+  classify_roteador: classify-v6.1   # 02/10/2026: paragrafo de outside_channel com
+                                     # autorizacao negada e privacidade (DL-0061/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o
+                                     # roteador Helena -> Lucas ligado. Acrescenta a intencao
+                                     # `cobranca` + `cobranca_subtipo`/`competencia` e tira
+                                     # cobranca da lista de `outside_channel`. Desligado, o
+                                     # classify e' o v5 byte a byte (sha256 fixado em teste).
   response: response-v10              # 01/10/2026: o contexto deixa de levar o `motivo` da tabela de red flag
                                      # (era repetido ao beneficiario como "nao ha sinais de alerta" e como
                                      # diagnostico). v9 — 21/09/2026, QUARTA RODADA: UMA instrucao nova — REPITA
@@ -87,8 +94,8 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # Nao e' nem uma nem outra: chamar de v5 apontaria um auditor
                                      # para um texto que nunca existiu.
   coleta: coleta-v1                   # passo 4 (09/09/2026): pergunta pelo dado que falta; nó `collect`
-  recusa_de_saida: recusa-v9          # 01/10/2026: cerca de FINALIDADE do canal (DL-0058) e alegacao
-                                      # sobre o tratamento dos dados (DL-0059).
+  recusa_de_saida: recusa-v9          # 01/10/2026: cerca de FINALIDADE do canal (DL-0061) e alegacao
+                                      # sobre o tratamento dos dados (DL-0062).
                                       # v8 — 21/09/2026, QUINTA RODADA: negacao testada ONDE nega
                                       # (lookbehind antes da acao) + `numero` volta a ser pista
                                       # de telefone fora do genitivo administrativo.

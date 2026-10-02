@@ -1,4 +1,4 @@
-"""Bateria de 01/10/2026 (E08): crise de ansiedade/panico e' P1, como o roteamento de saude mental (DL-0064).
+"""Bateria de 01/10/2026 (E08): crise de ansiedade/panico e' P1, como o roteamento de saude mental (DL-0067).
 
 Decisao INTERINA. O cabecalho da tabela e o `escalation_routing` r2 ja' diziam que saude mental e'
 sempre P1; a linha r5 (P2) contradizia os dois. Nao ratificada pelo dono clinico.

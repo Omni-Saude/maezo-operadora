@@ -222,7 +222,7 @@ def test_an_explicitly_unknown_intensity_never_raises_a_red_flag(name: str) -> N
 
     unknown = evaluate(table, {"sintoma_codigo": code, "intensidade": "desconhecida", population: age})
     known = evaluate(table, {"sintoma_codigo": code, "intensidade": "moderada", population: age})
-    # DL-0062 (02/10/2026, interino): o sintoma que a regra cobre escala mesmo sem intensidade dita.
+    # DL-0065 (02/10/2026, interino): o sintoma que a regra cobre escala mesmo sem intensidade dita.
     assert unknown.saidas["red_flag"] is True
     assert known.saidas["red_flag"] is True
     assert unknown.saidas == known.saidas

@@ -480,6 +480,18 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
         # Por isso ele e' varrido (a cerca nao confia na promessa) e nao aparece em
         # `calls_per_module` com valor exigido.
         "limite.py",
+        # `lucas_retomada.py` (DL-0056, 02/10/2026): revisado ao entrar nesta lista. Ele NAO recebe
+        # wamid nenhum: a retomada parte de um evento do motor (`conversation_id` keyed, numero cru
+        # so' para o envio, `resume_ref` = id da instancia do processo). Os logs dele carregam
+        # `tenant_id`, o `conversation_id` keyed, o grupo da recusa de saida (token), um booleano e a
+        # duracao — nunca o telefone, a instrucao do humano ou o texto enviado. Varrido abaixo.
+        "lucas_retomada.py",
+        # `lucas_turno.py` (ADR-0062, onda d, 01/10/2026): revisado ao entrar nesta lista. Ele
+        # RECEBE o wamid (`ConversaDoTurno.message_id`), mas so' para derivar a chave de saida por
+        # `WhatsAppDedupGuard.outbound_key` (sanitizador da allowlist). Os logs dele carregam
+        # `tenant_id`, o `conversation_id` keyed, tokens (subtipo, intencao, rota, desfecho, motivo
+        # da fonte) e booleanos — nunca o wamid nem o telefone. Varrido abaixo e exigido nao-vazio.
+        "lucas_turno.py",
         # `pre_roteamento.py` e `roteamento.py` (ADR-0062, onda c, 01/10/2026): revisados ao entrar
         # nesta lista. `pre_roteamento.py` nao tem chamada de logger (devolve so' booleanos e
         # contagens). `roteamento.py` loga `tenant_id`, o `conversation_id` keyed, tokens de
@@ -503,6 +515,8 @@ def test_no_logger_call_in_the_whatsapp_webhook_package_carries_a_raw_wamid() ->
     assert calls_per_module["app.py"] > 0
     assert calls_per_module["dispatch.py"] > 0
     assert calls_per_module["roteamento.py"] > 0
+    assert calls_per_module["lucas_turno.py"] > 0
+    assert calls_per_module["lucas_retomada.py"] > 0
     assert findings == [], "wamid bruto numa chamada de logger:\n" + "\n".join(findings)
 
 

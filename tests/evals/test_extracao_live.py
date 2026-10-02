@@ -78,7 +78,7 @@ def _estado(mensagem: str) -> HelenaState:
     }
 
 
-def _grafo() -> HelenaGraph:
+def _grafo(*, roteador_lucas: bool = False) -> HelenaGraph:
     """Um grafo com o modelo REAL e todo o resto falso.
 
     A DMN e' um duplo VAZIO de proposito: se `classify` chegar a consulta-la, o duplo levanta e o
@@ -92,6 +92,8 @@ def _grafo() -> HelenaGraph:
         audit_sink=FakeStartAuditSink(),
         whatsapp=FakeWhatsAppSender(),
         memoria_clinica_enabled=False,  # cada caso do corpus e' rotulado como mensagem SOZINHA
+        # Onda (e): os casos `"prompt": "classify-v6"` medem o classify do roteador ligado.
+        roteador_lucas_enabled=roteador_lucas,
     )
 
 
@@ -167,6 +169,7 @@ async def test_extracao_ao_vivo_contra_o_corpus_rotulado() -> None:
     "a R2 esta em 0,71" e' uma frase acionavel; "a extracao esta em 0,89" nao e'.
     """
     grafo = _grafo()
+    grafo_do_roteador = _grafo(roteador_lucas=True)
     casos = _casos()
 
     notas: list[float] = []
@@ -175,7 +178,8 @@ async def test_extracao_ao_vivo_contra_o_corpus_rotulado() -> None:
     falhas: list[str] = []
 
     for caso in casos:
-        extracao, falha = await grafo._classify_llm(_estado(caso["mensagem"]))
+        medidor = grafo_do_roteador if caso.get("prompt") == "classify-v6.1" else grafo
+        extracao, falha = await medidor._classify_llm(_estado(caso["mensagem"]))
         if extracao is None:
             # Extracao INVALIDA conta como zero, nunca como caso pulado: em producao isto vira
             # `falha_tecnica` e o turno inteiro cai em humano. Pular baixaria o denominador e faria

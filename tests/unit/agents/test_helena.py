@@ -883,7 +883,7 @@ async def test_escalate_starts_process_with_contract_variables() -> None:
 async def test_escalate_declares_task_kind_reasoning_and_sends_the_fixed_text() -> None:
     """CC-12/BEA-01 (ADR-0009 §2): `escalate` makes ONE LLM call — `_resumo_contexto` (what the
     human attendant reads before taking over: `reasoning`, same rationale as lucas's escalation
-    dossier). Since 01/10/2026 (DL-0057) the beneficiary-facing handoff text is a FIXED constant
+    dossier). Since 01/10/2026 (DL-0060) the beneficiary-facing handoff text is a FIXED constant
     chosen by priority, so the second call (`task_default`) no longer exists: the model cannot
     declare the gravity, give conduct or name a diagnosis."""
     inference = _FakeInference(["resumo do caso"])

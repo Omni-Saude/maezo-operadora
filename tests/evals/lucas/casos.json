@@ -111,7 +111,7 @@
       "id": "LUC-PRG-J1-05",
       "jornada": "J1",
       "subtipo_handoff": "outro",
-      "descricao": "Subtipo 'outro' (tipo_solicitacao vazio): cai no catch-all da DMN e escala. ACHADO DRAFT: graph.py::assess rotula esse catch-all como inadimplencia_detectada, embora o pagamento esteja conciliado.",
+      "descricao": "Subtipo 'outro' (tipo_solicitacao vazio): cai no catch-all da DMN e escala. Desde 01/10/2026 a DMN devolve `categoria=ambiguidade` e o grafo rotula `ambiguidade` (antes: inadimplencia_detectada, embora o pagamento estivesse conciliado).",
       "pseudo_id": "pseudo-lucas-013",
       "perfil_fonte": "conciliado",
       "entrada": {
@@ -122,8 +122,8 @@
       "esperado": {
         "route": "escalate_human",
         "admissibilidade": "",
-        "motivo_humano": "inadimplencia_detectada",
-        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "motivo_humano": "ambiguidade",
+        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
         "grupo_humano": "atendimento-humano",
         "desfecho": "escalado_humano",
         "process_started": true,
@@ -217,7 +217,7 @@
       "id": "LUC-PRG-J2-03",
       "jornada": "J2",
       "subtipo_handoff": "confirmacao_pagamento",
-      "descricao": "Pagamento nao conciliado e sem ciclo vencido: combinacao nao mapeada, o catch-all escala (mesmo rotulo inadimplencia_detectada do J1-05).",
+      "descricao": "Pagamento nao conciliado e sem ciclo vencido: combinacao nao mapeada, o catch-all escala com `categoria=ambiguidade` (mesmo rotulo do J1-05).",
       "pseudo_id": "pseudo-lucas-005",
       "perfil_fonte": "em_aberto",
       "entrada": {
@@ -228,8 +228,8 @@
       "esperado": {
         "route": "escalate_human",
         "admissibilidade": "",
-        "motivo_humano": "inadimplencia_detectada",
-        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "motivo_humano": "ambiguidade",
+        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
         "grupo_humano": "atendimento-humano",
         "desfecho": "escalado_humano",
         "process_started": true,
@@ -315,8 +315,8 @@
       "esperado": {
         "route": "escalate_human",
         "admissibilidade": "",
-        "motivo_humano": "inadimplencia_detectada",
-        "roteamento_escalacao": "COBRANCA_HUMANO",
+        "motivo_humano": "ambiguidade",
+        "roteamento_escalacao": "ATENDIMENTO_HUMANO",
         "grupo_humano": "atendimento-humano",
         "desfecho": "escalado_humano",
         "process_started": true,

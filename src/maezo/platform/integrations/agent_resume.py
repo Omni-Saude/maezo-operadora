@@ -634,11 +634,40 @@ async def main() -> None:  # pragma: no cover - composition root, exercised by i
     await _provision_dispatch_checkpointer(state)
     if state.dispatcher is None:
         raise RuntimeError(f"agent_resume: Helena dispatcher unavailable: {state.dispatcher_error}")
+    # O Lucas tambem devolve casos (cobranca): sem esta porta o `agent-resume` registrava
+    # `no_resumer_for_agent` e a instrucao do atendente nunca chegava a quem perguntou. Determinista,
+    # sem modelo/DMN/motor, sob o gate do principal `lucas` (`whatsapp/lucas_retomada.py`).
+    #
+    # ISOLADA DE PROPOSITO: a retomada da Helena e' o caminho critico deste servico. Se a do Lucas nao
+    # montar (zona, definicao, seam), o servico sobe so' com a Helena — o estado de antes — e o erro
+    # sai ALTO no log, com o nome da classe e nunca a mensagem. O Lucas devolvido volta a cair em
+    # `no_resumer_for_agent`, que ja' e' um WARNING.
+    resumers: dict[str, AgentResumer] = {"helena": state.dispatcher}
+    try:
+        from maezo.gateway.tool_registry import build_agent_seam_context
+        from maezo.platform.webhooks.whatsapp.lucas_retomada import LucasRetomada
+
+        resumers["lucas"] = LucasRetomada(
+            tenant_id=settings.tenant_id,
+            pseudonymizer=state.dispatcher.pseudonymizer,
+            whatsapp_client=state.dispatcher.whatsapp_client,
+            dedup=state.dispatcher.dedup,
+            seam_context=build_agent_seam_context(tenant=settings.tenant_id, agent_id="lucas"),
+        )
+    except Exception as exc:
+        logger.error(
+            "agent_resume.lucas_retomada_indisponivel",
+            tenant_id=settings.tenant_id,
+            error_type=type(exc).__name__,
+            detail=(
+                "o servico segue so' com a retomada da Helena; casos devolvidos do Lucas nao serao retomados"
+            ),
+        )
     handler = ResumeHandler(
         tenant_id=settings.tenant_id,
         instructions=EngineHistoryInstructionSource(state.dispatcher.cibseven),
         recipients=recipients,
-        resumers={"helena": state.dispatcher},
+        resumers=resumers,
         alerter=NotifyTeamAlerter(build_notifications_publisher(settings.kafka_bootstrap_servers)),
     )
     # The DLQ publisher is a fenced effect class (§8.1): built ONLY through the bridge's own

@@ -77,6 +77,9 @@ COPY spec/policies/amh ./spec/policies/amh
 COPY spec/policies/phi ./spec/policies/phi
 COPY spec/agents ./spec/agents
 COPY spec/processes ./spec/processes
+# Quinta ocorrencia (02/10/2026): lexico do pre-roteamento Helena->Lucas (ADR-0062). Sem esta COPY o
+# `uv sync --no-editable` falha fechado no force-include e, se passasse, o receptor subiria sem o lexico.
+COPY spec/policies/roteamento ./spec/policies/roteamento
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable

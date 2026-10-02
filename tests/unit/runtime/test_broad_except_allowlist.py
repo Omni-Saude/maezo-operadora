@@ -100,6 +100,11 @@ _SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 31
 #:      largos, e a afirmacao 3 desta cerca garante que o bug propaga mesmo assim.
 BROAD_EXCEPT_ALLOWLIST: Final[dict[str, tuple[int, str]]] = {
     # -- (a) conta-e-re-levanta -----------------------------------------------------------
+    "src/maezo/agents/lucas/bateria.py::executar_caso": (
+        1,
+        "conta maezo_agent_errors_total no seam ainvoke e RE-LEVANTA (ALERTS-WITHOUT-METRICS-a); o try "
+        "externo so' absorve EXTERNAL_DEPENDENCY_FAILURES e re-levanta PROGRAMMING_ERRORS",
+    ),
     "src/maezo/agents/andre/delegation.py::make_andre_handler::handler": (
         1,
         "conta maezo_agent_errors_total no seam ainvoke e RE-LEVANTA (ALERTS-WITHOUT-METRICS-a)",

@@ -120,31 +120,10 @@ _ALLOWLIST: Final[dict[_Hit, _Allowed]] = {
         "decision-input effect. Pre-existing convention predating fleet audit ciclo 2, not one "
         "of this WP's named fields.",
     ),
-    _Hit("lucas/graph.py", "assess", "ciclos_sem_conciliacao"): _Allowed(
-        1,
-        "ciclos_sem_conciliacao (assess) -- RESIDUAL-ABERTO: LIVE DMN decision-input masking "
-        '(§Delta NONE-GUARDRAIL F2). Feeds `admis_in["ciclos_sem_conciliacao"]` into '
-        "`lucas_billing_admissibility.dmn` (hitPolicy=FIRST). That table's FIRST rule, "
-        "`lba_r_atraso_escala`, fires when `ciclos_sem_conciliacao >= 1` and routes to "
-        "`ESCALAR_HUMANO` -- the ONLY input that can trigger this table's human-escalation "
-        "rule. A present-but-NULL `ciclos_sem_conciliacao` is masked to `0` here, so "
-        "`0 >= 1` is false, `lba_r_atraso_escala` never fires, and the case instead falls "
-        "through to whichever LATER rule matches (e.g. `lba_r_vencimento` -> `LEMBRETE`, a "
-        "merely-informational reminder) or the conservative catch-all `ESCALAR_HUMANO` for a "
-        "truly unmapped combination -- i.e. the masking can move a case AWAY from the exact "
-        "human-escalation rule that exists to catch a delinquency indicator. This is the same "
-        "NONE-GUARDRAIL-MISSING harm this WP exists to end, living in a field this WP was NOT "
-        "scoped to fix (BEA-04/VAL-05/AND-08/FER-08 are score_indicadores, the consent "
-        "desfecho, decisao_pagamento, and the *_iso SLA/deadline fields -- not this counter). "
-        "Fixing the CODE at this site is OUT of this WP's scope: the honest fix is a "
-        "null-handling rule inside `lucas_billing_admissibility.dmn` itself (CODEOWNED under "
-        "`spec/processes/dmn/`, owner decision) -- routing a lacuna to human escalation from "
-        "Python instead would move a business rule OUT of the DMN (C3). Registered here as an "
-        "OPEN residual for a future owner-gated WP to pick up (see this WP's report's "
-        "adjacencies section); the sibling gap LUCAS-MOTIVO-SEVERIDADE-DEFAULTS "
-        "(GAP-REGISTER, MERGED #336) closed a DIFFERENT default in the same file (severidade), "
-        "not this counter.",
-    ),
+    # 01/10/2026 (bateria do Lucas): a entrada de `assess` saiu daqui porque a leitura de
+    # `ciclos_sem_conciliacao` foi para `_ciclos_sem_conciliacao`, que mantem o mascaramento
+    # ausente -> 0 DOCUMENTADO na propria docstring (comportamento inalterado) e passou a tratar um
+    # valor ilegivel como `ambiguidade` em vez de levantar excecao.
     _Hit("lucas/graph.py", "_assess_escalation", "ciclos_sem_conciliacao"): _Allowed(
         1,
         "ciclos_sem_conciliacao (_assess_escalation) -- DEAD-COLUMN residual, not a live "

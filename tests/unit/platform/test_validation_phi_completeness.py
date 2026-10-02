@@ -981,6 +981,19 @@ CORPUS_DELTA_LOG: tuple[CorpusDelta, ...] = (
             "fora dele vira `falha_tecnica`, nunca resposta automatica. "
         ),
     ),
+    CorpusDelta(
+        date="2026-10-01",
+        pr="#593",
+        name="categoria",
+        name_delta=1,
+        occurrence_delta=1,
+        reason=(
+            "CLEAN. SAIDA nova de `lucas_billing_admissibility` (DL-0055): vocabulario fechado de dois "
+            "valores "
+            "(`inadimplencia`/`ambiguidade`) que diz POR QUE o Lucas escala; valor desconhecido ou coluna "
+            "ausente vira `ambiguidade`, o lado de nao acusar. Nao carrega dado do beneficiario. "
+        ),
+    ),
 )
 
 
@@ -991,7 +1004,7 @@ class TestBuckets:
         # LISTED and SHAPE_SUSPECT are pinned independently below (exact membership, with
         # provenance); CLEAN is everything else, cross-checked against CORPUS_DELTA_LOG.
         expected_clean = expected_names - 6 - 10
-        assert expected_clean == 325
+        assert expected_clean == 326
         assert {key: len(value) for key, value in buckets.items()} == {
             LISTED: 6,
             SHAPE_SUSPECT: 10,
@@ -1020,8 +1033,8 @@ class TestBuckets:
         """
         expected_names = _BASELINE_NAMES + sum(delta.name_delta for delta in CORPUS_DELTA_LOG)
         expected_refs = _BASELINE_OCCURRENCES + sum(delta.occurrence_delta for delta in CORPUS_DELTA_LOG)
-        assert len(live_sweep.names) == expected_names == 341
-        assert len(live_sweep.refs) == expected_refs == 1653
+        assert len(live_sweep.names) == expected_names == 342
+        assert len(live_sweep.refs) == expected_refs == 1654
 
     def test_the_corpus_delta_log_names_only_names_the_live_sweep_actually_moved(
         self, live_sweep: Sweep
@@ -1147,7 +1160,7 @@ class TestBuckets:
         assert f"## {LISTED} (6)" in rendered
         assert f"## {SHAPE_SUSPECT} (10)" in rendered
         assert (
-            f"## {CLEAN} (325)" in rendered
+            f"## {CLEAN} (326)" in rendered
         )  # see CORPUS_DELTA_LOG — #339's two names, #345's `lastro_decisor_id`, and #407's seven
         assert "SP-OP-AUTH-001_Autorizacao_Previa.bpmn:77" in rendered
         # The LITERAL, not the symbol: counting occurrences of `DRAFT_VERIFY`

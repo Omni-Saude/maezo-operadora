@@ -543,8 +543,24 @@ async def test_dispatch_stateless_when_no_checkpointer_starts_fresh_each_turn() 
 # ---------------------------------------------------------------------------
 
 
-def test_helena_dispatcher_is_the_only_dispatch_class_gap_11_7() -> None:
+def test_helena_dispatcher_is_the_only_dispatch_class_gap_11_7(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GAP 11.7 sob o ADR-0062 (numero unico, onda d). O invariante mudou de forma, nao de forca:
+
+    1. `HelenaDispatcher` continua a UNICA classe de despacho: o Lucas nao ganhou um despachante
+       proprio, ganhou um TURNO (`lucas_turno.LucasTurno`) atras do da Helena;
+    2. desligado (`MAEZO_ROTEADOR_LUCAS` no default), so' existe a Helena: `_build_lucas_turno`
+       devolve `None` e o `LucasTurno` nao e' construido;
+    3. o `LucasTurno` so' e' construido com o roteador ligado (a cerca de CI item 5 cobre o lado
+       estatico; aqui o lado vivo);
+    4. desde a onda (e) o `dispatch.py` chama o Lucas num lugar SO' (`_turno_do_lucas`, uma
+       chamada a `executar`), e esse lugar so' e' alcancado DEPOIS do `ainvoke` da Helena;
+       Fernando segue sem entrada.
+    """
     import inspect
+
+    import maezo.platform.webhooks.service as svc
+    from maezo.platform.webhooks.whatsapp import lucas_turno as lucas_turno_module
+    from maezo.platform.webhooks.whatsapp.settings import WhatsAppWebhookSettings
 
     dispatcher_classes = sorted(
         name
@@ -552,10 +568,49 @@ def test_helena_dispatcher_is_the_only_dispatch_class_gap_11_7() -> None:
         if inspect.isclass(obj) and name.endswith("Dispatcher")
     )
     assert dispatcher_classes == ["HelenaDispatcher"], dispatcher_classes
+    assert not [
+        name
+        for name, obj in vars(lucas_turno_module).items()
+        if inspect.isclass(obj) and name.endswith("Dispatcher")
+    ]
 
     source = inspect.getsource(dispatch_module).lower()
-    assert "lucas" not in source
+    assert source.count(".executar(") == 1  # onda (e): um unico ponto de chamada do Lucas
+    corpo_do_dispatch = inspect.getsource(dispatch_module.HelenaDispatcher.dispatch)
+    assert corpo_do_dispatch.index("await compiled.ainvoke(initial_state") < corpo_do_dispatch.index(
+        "self._turno_do_lucas("
+    )
     assert "fernando" not in source
+
+    construidos: list[object] = []
+    original_init = lucas_turno_module.LucasTurno.__init__
+
+    def _conta(self: object, *args: Any, **kwargs: Any) -> None:
+        construidos.append(self)
+        original_init(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    def _settings(ligado: bool) -> WhatsAppWebhookSettings:
+        return WhatsAppWebhookSettings(  # type: ignore[call-arg]
+            app_secret="s3cret",
+            verify_token="vt",
+            tenant_id="amh",
+            phi_hmac_key="test-phi-hmac-key",
+            database_url="postgresql+asyncpg://user:pw@localhost:5432/maezo",
+            roteador_lucas_enabled=ligado,
+        )
+
+    monkeypatch.setattr(lucas_turno_module.LucasTurno, "__init__", _conta)
+    desligado = _settings(False)
+    dispatcher, _ = svc._build_dispatcher(desligado)
+    assert svc._build_lucas_turno(desligado, dispatcher) is None
+    assert construidos == []
+
+    ligado = _settings(True)
+    dispatcher, _ = svc._build_dispatcher(ligado)
+    turno = svc._build_lucas_turno(ligado, dispatcher)
+    assert isinstance(turno, lucas_turno_module.LucasTurno)
+    assert construidos == [turno]
+    assert turno.seam_context.principal == "lucas"
 
 
 # ---------------------------------------------------------------------------

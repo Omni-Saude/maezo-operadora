@@ -132,6 +132,40 @@ async def test_ack_is_sent_only_after_a_successful_start() -> None:
     assert saida["desfecho"] == "escalado_humano"
 
 
+async def test_caso_que_ja_existia_recebe_o_aviso_de_atendimento_aberto_sem_chamar_o_modelo() -> None:
+    """02/10/2026: o start devolve a instancia EXISTENTE (`already_existed`) — nada novo foi aberto, e
+    o ACK nao pode prometer de novo "um atendente vai entrar em contato". Constante, sem modelo."""
+    from maezo.agents.lucas.graph import ACK_ATENDIMENTO_JA_ABERTO
+
+    whatsapp = _RecordingWhatsApp()
+    cibseven = FakeCibSevenTransport()
+    cibseven.seed_instance(
+        ProcessInstance(
+            instance_id="inst-pre-existente",
+            process_key="SP-OP-ESCALATION-001",
+            business_key=_ESTADO["business_key"],
+            state="ACTIVE",
+            already_existed=True,  # como o transporte HTTP real reporta uma instancia ativa encontrada
+        )
+    )
+    graph = _graph(whatsapp, cibseven)
+
+    estado = {**_ESTADO, **await graph.escalate_human(dict(_ESTADO))}
+    estado = {**estado, **await graph.start_process(estado)}
+    assert estado["process_ref"]["already_existed"] is True
+    saida = await graph.send_escalation_ack(estado)
+
+    assert [texto for _, texto, _ in whatsapp.sent] == [ACK_ATENDIMENTO_JA_ABERTO]
+    assert saida["mensagem_enviada"] is True and saida["ack_pending"] is False
+
+
+def test_o_aviso_de_atendimento_aberto_passa_nas_cercas_do_lucas() -> None:
+    from maezo.agents.lucas.graph import ACK_ATENDIMENTO_JA_ABERTO
+    from maezo.agents.lucas.prompts import motivo_de_recusa
+
+    assert motivo_de_recusa(ACK_ATENDIMENTO_JA_ABERTO, "ack_escalacao", None) is None
+
+
 async def test_failed_start_sends_nothing_and_ends_in_the_error_desfecho(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

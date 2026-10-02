@@ -57,8 +57,14 @@ _INTENTS: Final[frozenset[str]] = frozenset(
         "greeting",
         "scheduling",
         "outside_channel",
+        "cobranca",
     },
 )
+#: Onda (e) do numero unico: a intencao que so' o `classify-v6` (roteador ligado) conhece. Todo caso
+#: rotulado com ela declara `"prompt": "classify-v6"` — e so' eles —, para a medicao ao vivo usar o
+#: prompt que de fato produz aquela intencao (`test_extracao_live.py::_grafo`).
+_INTENTS_SO_COM_O_ROTEADOR: Final[frozenset[str]] = frozenset({"cobranca"})
+_PROMPT_DO_ROTEADOR: Final[str] = "classify-v6.1"
 _POPULACOES: Final[frozenset[str]] = frozenset({"adult", "pediatric", "gestante", "mental_health", "none"})
 _INTENSIDADES: Final[frozenset[str]] = frozenset({"leve", "moderada", "grave", "desconhecida"})
 _REGRAS_DA_REGUA: Final[frozenset[str]] = frozenset({"R1", "R2", "R3", "R4", "R5"})
@@ -104,6 +110,25 @@ def test_os_vocabularios_deste_arquivo_batem_com_os_do_grafo() -> None:
     assert helena_graph._VALID_POPULATIONS == _POPULACOES
     assert helena_graph._VALID_INTENSIDADES == _INTENSIDADES
     assert helena_graph._VALID_INTENTS == _INTENTS
+
+
+def test_so_a_intencao_do_roteador_declara_o_prompt_do_roteador() -> None:
+    """Um caso `cobranca` medido com o `classify-v5` seria um erro garantido (o v5 nao conhece a
+    intencao); um caso de outra intencao medido com o v6 mediria um prompt que nao e' o de producao
+    com o roteador desligado. O campo `prompt` existe para separar os dois, e so' aceita um valor.
+    """
+    from maezo.agents.helena.prompts import CLASSIFY_PROMPT_VERSION_ROTEADOR
+
+    assert CLASSIFY_PROMPT_VERSION_ROTEADOR == _PROMPT_DO_ROTEADOR
+    problemas: list[str] = []
+    for caso in _casos():
+        do_roteador = caso["esperado"]["intent"] in _INTENTS_SO_COM_O_ROTEADOR
+        prompt = caso.get("prompt")
+        if do_roteador and prompt != _PROMPT_DO_ROTEADOR:
+            problemas.append(f"{caso['id']}: intent do roteador sem `prompt: {_PROMPT_DO_ROTEADOR}`")
+        if not do_roteador and prompt is not None:
+            problemas.append(f"{caso['id']}: `prompt` declarado num caso que nao e' do roteador")
+    assert not problemas, "caso fora da regra do prompt:\n  " + "\n  ".join(problemas)
 
 
 def test_todo_rotulo_usa_apenas_valores_do_vocabulario_fechado() -> None:

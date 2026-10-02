@@ -297,6 +297,19 @@ class MetricsCollector:
             registry=self._registry,
         )
 
+        # NUMERO UNICO (ADR-0062, review do #589): falhas do roteador Helena -> Lucas que NAO
+        # derrubam o turno — a leitura do agente ativo (vale `helena`), o registro CAS (a linha
+        # fica a anterior), o pre-roteamento (vale "sinal de saude") e o turno do Lucas (vira
+        # `falha_tecnica`). So' log de ERRO deixava o modo degradado invisivel em numero.
+        # CONTENT-FREE: `tipo` e' vocabulario fechado (`observability.ROTEAMENTO_FALHA_TIPOS`).
+        self._roteamento_falhas = Counter(
+            "maezo_roteamento_falhas_total",
+            "Falhas do roteador do numero unico que degradaram para o lado seguro, por tenant e "
+            "tipo (COUNTS ONLY, vocabulario fechado, nunca a conversa nem o texto)",
+            labelnames=["tenant", "tipo"],
+            registry=self._registry,
+        )
+
         # RECUSA DE SAIDA (13/09/2026). Quantas vezes o texto redigido pelo modelo foi BARRADO
         # antes de sair, por grupo de padrao e rota. CONTENT-FREE: `motivo` e' um dos dois rotulos
         # fechados de `prompts.py` (nunca o texto nem o padrao exato, que vao para o log), e
@@ -580,6 +593,14 @@ class MetricsCollector:
         cardinality and would turn into one time series per person.
         """
         return self._mensagem_limitada
+
+    @property
+    def roteamento_falhas(self) -> Counter:
+        """Counter for router failures that degraded to the safe side (ADR-0062).
+
+        Labels: tenant, tipo (`leitura` | `registro` | `pre_roteamento` | `lucas_turno`).
+        """
+        return self._roteamento_falhas
 
     @property
     def agent_resposta_recusada(self) -> Counter:

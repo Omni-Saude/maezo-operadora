@@ -1453,10 +1453,32 @@
       }
     },
     {
+      "texto": "Vou te passar para o atendimento de cobrança.",
+      "rota": "handoff",
+      "start_aconteceu": false,
+      "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a rota real da frase, `respond` sem start",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
+      "texto": "Vou te passar para o atendimento de cobrança.",
+      "rota": "inform",
+      "start_aconteceu": null,
+      "origem": "constante FRASE_PASSAGEM_COBRANCA (onda e do numero unico, ADR-0062; plano §2.4): a mesma frase julgada como `inform`, para provar que o veredito nao depende da rota nova",
+      "esperado": {
+        "recusa": null,
+        "canal": null,
+        "menciona": false
+      }
+    },
+    {
       "texto": "Recebemos o seu relato. Este canal não avalia o que foi relatado e não substitui uma avaliação profissional. Se os sintomas persistirem ou piorarem, procure atendimento presencial. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo. Se quiser falar com uma pessoa da equipe, é só me pedir.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0056 (01/10/2026): RESPOSTA_SINTOMA_SEM_ALERTA, texto fixo para sintoma que a tabela nao marcou",
+      "origem": "DL-0059 (01/10/2026): RESPOSTA_SINTOMA_SEM_ALERTA, texto fixo para sintoma que a tabela nao marcou",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1467,7 +1489,7 @@
       "texto": "Recebemos o seu relato e encaminhamos o seu caso para a nossa equipe de saúde. Um profissional vai dar continuidade ao seu atendimento. Se você estiver com sintomas agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0057 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico",
+      "origem": "DL-0060 (01/10/2026): RESPOSTA_ESCALONAMENTO_URGENTE, texto fixo do aviso de encaminhamento para P1 clinico",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1478,7 +1500,7 @@
       "texto": "Sinto muito que você esteja passando por isso. Encaminhamos o seu caso para a nossa equipe de saúde, e um profissional vai dar continuidade ao seu atendimento. Se você estiver em risco agora, procure o serviço de emergência mais próximo sem esperar o nosso contato.",
       "rota": "escalate",
       "start_aconteceu": true,
-      "origem": "DL-0057 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial",
+      "origem": "DL-0060 (01/10/2026): RESPOSTA_ESCALONAMENTO_PSICOSSOCIAL, texto fixo do aviso de encaminhamento para risco psicossocial",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1489,7 +1511,7 @@
       "texto": "Verificar no aplicativo Austa Clinicas ou no portal do plano se ha alguma mensagem ou justificativa registrada.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026), B07 da bateria (medido): aplicativo citado para autorizacao negada",
+      "origem": "DL-0061 (01/10/2026), B07 da bateria (medido): aplicativo citado para autorizacao negada",
       "esperado": {
         "recusa": null,
         "canal": "canal_nao_confirmado",
@@ -1500,7 +1522,7 @@
       "texto": "Voce pode acessar o aplicativo Austa Clinicas ou o portal do plano, onde e possivel verificar o status das guias.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026), B07 da bateria (medido): status de guia no aplicativo",
+      "origem": "DL-0061 (01/10/2026), B07 da bateria (medido): status de guia no aplicativo",
       "esperado": {
         "recusa": null,
         "canal": "canal_nao_confirmado",
@@ -1511,7 +1533,7 @@
       "texto": "Para pedir reembolso, acesse o portal do plano ou o aplicativo Austa Clinicas e envie os documentos.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026), B08 da bateria (medido): reembolso no portal",
+      "origem": "DL-0061 (01/10/2026), B08 da bateria (medido): reembolso no portal",
       "esperado": {
         "recusa": null,
         "canal": "canal_nao_confirmado",
@@ -1522,7 +1544,7 @@
       "texto": "No portal do plano voce acompanha o protocolo da sua solicitacao.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026): protocolo no portal (nao ha esse recurso confirmado)",
+      "origem": "DL-0061 (01/10/2026): protocolo no portal (nao ha esse recurso confirmado)",
       "esperado": {
         "recusa": null,
         "canal": "canal_nao_confirmado",
@@ -1533,7 +1555,7 @@
       "texto": "O cancelamento do plano pode ser pedido pelo aplicativo Austa Clinicas.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026), B05 da bateria (medido no WhatsApp): cancelamento no aplicativo",
+      "origem": "DL-0061 (01/10/2026), B05 da bateria (medido no WhatsApp): cancelamento no aplicativo",
       "esperado": {
         "recusa": null,
         "canal": "canal_nao_confirmado",
@@ -1544,7 +1566,7 @@
       "texto": "A carteirinha digital fica no aplicativo Austa Clinicas e no portal do plano.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026): o que o aplicativo RESOLVE continua permitido",
+      "origem": "DL-0061 (01/10/2026): o que o aplicativo RESOLVE continua permitido",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1555,7 +1577,7 @@
       "texto": "No aplicativo Austa Clinicas voce consulta a rede credenciada e o Guia Medico.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026): Guia Medico nao e' guia de autorizacao",
+      "origem": "DL-0061 (01/10/2026): Guia Medico nao e' guia de autorizacao",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1566,7 +1588,7 @@
       "texto": "Para saber da sua autorizacao, procure a central de atendimento do plano. A carteirinha fica no aplicativo Austa Clinicas.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026): canal e assunto em oracoes separadas (a cerca e' por oracao)",
+      "origem": "DL-0061 (01/10/2026): canal e assunto em oracoes separadas (a cerca e' por oracao)",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1577,7 +1599,7 @@
       "texto": "Para autorizacao de exame, fale com a central de atendimento do plano.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0058 (01/10/2026): autorizacao encaminhada a central, sem citar aplicativo",
+      "origem": "DL-0061 (01/10/2026): autorizacao encaminhada a central, sem citar aplicativo",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1588,7 +1610,7 @@
       "texto": "Por aqui, as mensagens sao armazenadas de forma segura e pseudonimizada, seguindo as normas de privacidade do plano.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0059 (01/10/2026), J09 da bateria (medido): alegacao de armazenamento seguro e pseudonimizado",
+      "origem": "DL-0062 (01/10/2026), J09 da bateria (medido): alegacao de armazenamento seguro e pseudonimizado",
       "esperado": {
         "recusa": "promessa_de_capacidade",
         "canal": null,
@@ -1599,7 +1621,7 @@
       "texto": "As conversas sao armazenadas de forma segura e pseudonimizada para garantir a continuidade do atendimento.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0059 (01/10/2026), J09 da bateria (medido): variante com finalidade",
+      "origem": "DL-0062 (01/10/2026), J09 da bateria (medido): variante com finalidade",
       "esperado": {
         "recusa": "promessa_de_capacidade",
         "canal": null,
@@ -1610,7 +1632,7 @@
       "texto": "Seus dados estao protegidos pela LGPD.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0059 (01/10/2026): alegacao de conformidade com a LGPD, sem base no repositorio",
+      "origem": "DL-0062 (01/10/2026): alegacao de conformidade com a LGPD, sem base no repositorio",
       "esperado": {
         "recusa": "promessa_de_capacidade",
         "canal": null,
@@ -1621,7 +1643,7 @@
       "texto": "Este canal nao consulta cadastro nem identifica beneficiarios.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0059 (01/10/2026): afirmar o que o canal NAO faz continua permitido",
+      "origem": "DL-0062 (01/10/2026): afirmar o que o canal NAO faz continua permitido",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1632,7 +1654,7 @@
       "texto": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Como posso ajudar?",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0060 (01/10/2026): RESPOSTA_SAUDACAO_ABERTURA, cartao de abertura fixo (primeira saudacao)",
+      "origem": "DL-0063 (01/10/2026): RESPOSTA_SAUDACAO_ABERTURA, cartao de abertura fixo (primeira saudacao)",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1643,7 +1665,7 @@
       "texto": "Olá! Como posso te ajudar?",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0060 (01/10/2026): RESPOSTA_SAUDACAO_CURTA, saudacao depois de a Helena ja ter se apresentado",
+      "origem": "DL-0063 (01/10/2026): RESPOSTA_SAUDACAO_CURTA, saudacao depois de a Helena ja ter se apresentado",
       "esperado": {
         "recusa": null,
         "canal": null,
@@ -1654,7 +1676,7 @@
       "texto": "De nada! Se precisar de algo, é só me chamar.",
       "rota": "inform",
       "start_aconteceu": null,
-      "origem": "DL-0060 (01/10/2026): RESPOSTA_DESPEDIDA, resposta a agradecimento ou adeus",
+      "origem": "DL-0063 (01/10/2026): RESPOSTA_DESPEDIDA, resposta a agradecimento ou adeus",
       "esperado": {
         "recusa": null,
         "canal": null,

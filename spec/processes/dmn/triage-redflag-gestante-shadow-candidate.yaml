@@ -77,7 +77,7 @@ ratificado_em: "PLACEHOLDER_YYYY-MM-DD"
 # src/maezo/tools/workers/adequacao_shadow.py (docstring do modulo, porta 1b).
 tabela_viva:
   path: spec/processes/dmn/triage_redflag_gestante.dmn
-  sha256: "4a95f9265c59593560d09c63f239dc04cd1cae5cd5af132cd107f9129555a7e5"
+  sha256: "ee9474a5fdd418b94ea50c6d97c7198e28eef25507ae89d7a9f342d388080aa3"
 
 modo_operacao: sombra
 
@@ -194,7 +194,7 @@ achados:
         regra_viva: r6
         saida_viva: {red_flag: true, prioridade: P2, conduta: ESCALATE_NURSE}
     tratamento_interino: >-
-      DL-0062 (02/10/2026): a regra r6 passou a aceitar `desconhecida` (decisao interina do Diretor, mesmo
+      DL-0065 (02/10/2026): a regra r6 passou a aceitar `desconhecida` (decisao interina do Diretor, mesmo
       principio do DL-0051). PENDENTE de ratificacao do dono clinico — este achado segue aberto ate la.
     porque_nao_foi_fechado: >-
       A disposicao de uma intensidade desconhecida e decisao clinica/assistencial; nada nesta
@@ -295,7 +295,7 @@ regras_candidatas:
   - ordem: 6
     id: r6
     candidato: true
-    origem: "r6 de triage_redflag_gestante.dmn, com `desconhecida` acrescentada (DL-0062, interino)"
+    origem: "r6 de triage_redflag_gestante.dmn, com `desconhecida` acrescentada (DL-0065, interino)"
     entradas: {sintoma_codigo: '"febre"', intensidade: '"grave","moderada","desconhecida"', idade_gestacional_semanas: "-"}
     saidas:
       red_flag: true

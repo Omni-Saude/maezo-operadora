@@ -327,9 +327,9 @@ Fora de escopo e registrado: a custódia 0016 também não tem chamador vivo de 
    `ESC-{tenant}-{conversation_id}`. Se a Helena já tem caso aberto, o escalonamento do Lucas
    devolve `ja_ativo` e o humano não vê o motivo de cobrança. Aceitar, ou chave própria
    (`...-COB`, mudança de contrato)?
-4. **Caso do Lucas devolvido ao agente.** Não há retomador do Lucas (`agent_resume` conta
-   `skipped_no_resumer`). O atendente deve fechar caso de cobrança só com `resolvido_humano`, ou a
-   retomada do Lucas entra numa onda futura?
+4. **Caso do Lucas devolvido ao agente.** ~~Não há retomador do Lucas~~ **Resolvido em 02/10/2026
+   (DL-0056):** `LucasRetomada` registrada no `agent_resume`; a instrução do atendente volta ao WhatsApp
+   num modelo fixo (a frase é proposta, o dono aprova).
 5. **Memória do Lucas entre turnos.** Hoje ficam 3 colunas na tabela. Se quiserem mais (histórico
    de boletos na conversa), o Lucas precisa de thread próprio (`lucas:` + `conversation_id`), e
    isso altera a regra "thread_id = conversation_id" só para ele.

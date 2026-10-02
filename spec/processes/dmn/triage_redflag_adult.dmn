@@ -46,7 +46,7 @@
         <outputEntry id="r1o4"><text>"Dor toracica: possivel sindrome coronariana aguda"</text></outputEntry>
       </rule>
       <rule id="r2">
-        <description>Falta de ar sem intensidade informada escala igual (cautela, decisao do diretor de tecnologia 30/09/2026): o custo de um caso a mais e' menor que o de uma dispneia sem atendimento. Caso H03 da bateria. INTERINO (DL-0063, 02/10/2026, caso C06): 'leve' tambem escala — quem diz 'so um pouquinho' de falta de ar e' quem mais subestima; qualquer intensidade de dispneia abre atendimento. PENDENTE de ratificacao do dono clinico.</description>
+        <description>Falta de ar sem intensidade informada escala igual (cautela, decisao do diretor de tecnologia 30/09/2026): o custo de um caso a mais e' menor que o de uma dispneia sem atendimento. Caso H03 da bateria. INTERINO (DL-0066, 02/10/2026, caso C06): 'leve' tambem escala — quem diz 'so um pouquinho' de falta de ar e' quem mais subestima; qualquer intensidade de dispneia abre atendimento. PENDENTE de ratificacao do dono clinico.</description>
         <inputEntry id="r2i1"><text>"dispneia"</text></inputEntry>
         <inputEntry id="r2i2"><text>"grave","moderada","leve","desconhecida"</text></inputEntry>
         <inputEntry id="r2i3"><text>-</text></inputEntry>
@@ -102,7 +102,7 @@
         <outputEntry id="r7o4"><text>"Sincope/desmaio: avaliacao de enfermagem imediata"</text></outputEntry>
       </rule>
       <rule id="r8">
-        <description>Idoso com febre: limiar mais baixo (DRAFT clinico). INTERINO (DL-0062, 02/10/2026, caso E02): intensidade nao informada escala igual a moderada/grave. PENDENTE de ratificacao do dono clinico.</description>
+        <description>Idoso com febre: limiar mais baixo (DRAFT clinico). INTERINO (DL-0065, 02/10/2026, caso E02): intensidade nao informada escala igual a moderada/grave. PENDENTE de ratificacao do dono clinico.</description>
         <inputEntry id="r8i1"><text>"febre"</text></inputEntry>
         <inputEntry id="r8i2"><text>"grave","moderada","desconhecida"</text></inputEntry>
         <inputEntry id="r8i3"><text>&gt;= 65</text></inputEntry>

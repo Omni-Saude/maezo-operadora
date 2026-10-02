@@ -632,6 +632,28 @@ def _is_escalation_intent(state: LucasState) -> bool:
     )
 
 
+def _ciclos_sem_conciliacao(state: LucasState) -> int | None:
+    """`ciclos_sem_conciliacao` como inteiro, ou `None` quando o fato NAO e' um inteiro.
+
+    Ausente (ou vazio) vale 0, como sempre valeu. O que mudou em 01/10/2026 (bateria do Lucas, caso
+    `L24`): um valor que nao e' numero ("dois") fazia `int()` levantar dentro de `assess` e o turno
+    MORRIA sem escalar para ninguem — um caso perdido em silencio. Agora o chamador trata `None`
+    como ambiguidade e encaminha ao humano (fail-safe fechado, mesmo principio do resto do no)."""
+    bruto: object = state.get("ciclos_sem_conciliacao", 0)
+    if bruto is None or bruto == "":
+        return 0
+    if isinstance(bruto, bool):
+        return None
+    if isinstance(bruto, int):
+        return bruto
+    if isinstance(bruto, str | float):
+        try:
+            return int(bruto)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def _escalation_motivo(state: LucasState) -> MotivoHumano:
     """Reason for the J3 handoff. Never an adverse outcome — only a reason for a human to look."""
     if state.get("intencao") == "cancelamento" or state.get("pedido_cancelamento"):
@@ -726,6 +748,17 @@ RESPOSTA_INFORMATIVA_RECUSADA: str = (
 #: acionado — `send_escalation_ack` so' roda com `process_started is True` —, entao a promessa e'
 #: verdadeira, e a frase nao contem nenhum dos padroes proibidos. E' saida segura por construcao,
 #: nao por sorte do modelo.
+#: ATENDIMENTO JA' ABERTO (02/10/2026, bateria do circuito humano): quando o start devolve uma instancia
+#: que JA' existia (`already_existed` — a mesma chave `ESC-{tenant}-{conversa}` da Helena e do Lucas),
+#: nenhum atendimento novo foi aberto e o ACK redigido pelo modelo ("um atendente vai entrar em contato")
+#: anunciaria um encaminhamento que nao aconteceu agora. Constante, sem modelo: diz a verdade e nao
+#: promete prazo. Mesmo espirito de `RESPOSTA_HANDOFF_JA_ABERTO` da Helena; nao nomeia "cobranca"
+#: porque o caso aberto pode ser de saude.
+ACK_ATENDIMENTO_JA_ABERTO: str = (
+    "Recebemos sua mensagem. Seu atendimento com a nossa equipe ja esta aberto e continua em "
+    "andamento, por isso nao abrimos outro. Nenhuma decisao sobre seu plano foi tomada."
+)
+
 ACK_ESCALACAO_RECUSADO: str = (
     "Recebemos sua solicitacao e ela ja esta com um atendente da nossa equipe, que vai continuar "
     "o atendimento por aqui. Nenhuma decisao sobre seu plano foi tomada."
@@ -847,10 +880,14 @@ class LucasGraph:
         if _is_escalation_intent(state):
             return await self._assess_escalation(state, dmn_refs, motivo=_escalation_motivo(state))
 
+        ciclos = _ciclos_sem_conciliacao(state)
+        if ciclos is None:
+            # Fato numerico ilegivel: nunca derruba o turno e nunca vira "sem atraso" por omissao.
+            return await self._assess_escalation(state, dmn_refs, motivo="ambiguidade")
         admis_in: dict[str, Any] = {
             "tipo_solicitacao": str(state.get("tipo_solicitacao", "")),
             "status_conciliado": bool(state.get("status_conciliado", False)),
-            "ciclos_sem_conciliacao": int(state.get("ciclos_sem_conciliacao", 0) or 0),
+            "ciclos_sem_conciliacao": ciclos,
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_BILLING_ADMISSIBILITY, admis_in)
@@ -872,7 +909,14 @@ class LucasGraph:
 
         admissibilidade = cast(AdmissibilidadeCobranca, roteamento)
         if admissibilidade == "ESCALAR_HUMANO":
-            return await self._assess_escalation(state, dmn_refs, motivo="inadimplencia_detectada")
+            # A tabela diz POR QUE escala (`categoria`): so' a regra de atraso vira inadimplencia. Sem
+            # a coluna (tabela antiga no motor) ou com valor desconhecido o caso e' `ambiguidade` —
+            # nunca se acusa de inadimplencia sem indicio (bateria do Lucas, L07/L09/L18).
+            categoria = str(row.get("categoria", ""))
+            motivo: MotivoHumano = (
+                "inadimplencia_detectada" if categoria == "inadimplencia" else "ambiguidade"
+            )
+            return await self._assess_escalation(state, dmn_refs, motivo=motivo)
 
         return {
             "admissibilidade": admissibilidade,
@@ -899,7 +943,7 @@ class LucasGraph:
         esc_in: dict[str, Any] = {
             "intencao": str(state.get("intencao", "")),
             "motivo": motivo,
-            "ciclos_sem_conciliacao": int(state.get("ciclos_sem_conciliacao", 0) or 0),
+            "ciclos_sem_conciliacao": _ciclos_sem_conciliacao(state) or 0,
         }
         try:
             rows, version = await self._dmn.evaluate(DMN_ESCALATION_ROUTING, esc_in)
@@ -1119,7 +1163,10 @@ class LucasGraph:
         if not to_hash or state.get("canal", "whatsapp") != "whatsapp":
             return {"ack_pending": True}
 
-        ack_text = await self._build_escalation_ack(state)
+        if (state.get("process_ref") or {}).get("already_existed") is True:
+            ack_text = ACK_ATENDIMENTO_JA_ABERTO
+        else:
+            ack_text = await self._build_escalation_ack(state)
         try:
             resultado = await self._whatsapp.send(
                 to_hash, ack_text, idempotency_key=_idempotency_key(state, node="send_escalation_ack")

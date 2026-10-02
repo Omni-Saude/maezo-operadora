@@ -3,41 +3,43 @@
   "agent": "helena",
   "class": "CE",
   "tier": [
-    "A",
-    "B"
+    "A"
   ],
-  "description": "Denied authorization ('Minha autorizacao de ressonancia foi negada, por que?') -> intent=outside_channel -> fixed out-of-channel text, NO escalation, and NO pointer to the app/portal (B07 of the 01/10/2026 battery: classify-v5 answered `information` and the model sent the person to look for a justification in the app, which does not resolve authorizations). The Helena never explains a denial: that is the auditing physician's decision. Synthetic data only.",
+  "description": "Numero unico, onda (e) (ADR-0062): with the Helena -> Lucas router ON (build_config.roteador_lucas_enabled, classify-v6), a billing question ('preciso da segunda via do boleto de setembro de 2026') -> intent=cobranca, subtipo boleto_2via -> typed handoff to Lucas + the fixed passage phrase, NO escalation and NO extra LLM call. Tier A only: the router ships OFF, so the live tier keeps measuring classify-v5. Synthetic data only.",
+  "build_config": {
+    "roteador_lucas_enabled": true
+  },
   "input": {
     "state": {
       "tenant_id": "amh",
       "conversation_id": "wa:amh:evl-helena-21",
       "canal": "whatsapp",
       "beneficiario_pseudo_id": "PSEUDO-TESTE-021",
-      "message_body": "Minha autorizacao de ressonancia foi negada, por que?"
+      "message_body": "preciso da segunda via do boleto de setembro de 2026",
+      "agente_ativo_conversa": "helena",
+      "pedido_humano_lexico": false,
+      "sinal_saude_lexico": false,
+      "message_ref": "hk1_evlhelena21"
     }
   },
   "recorded_llm": [
-    "{\"intent\": \"outside_channel\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\"}"
+    "{\"intent\": \"cobranca\", \"population\": \"none\", \"psychosocial_risk\": false, \"sintoma_codigo\": null, \"intensidade\": \"desconhecida\", \"cobranca_subtipo\": \"boleto_2via\", \"competencia\": \"2026-09\"}"
   ],
   "expect": {
-    "next_kind": "inform",
+    "next_kind": "handoff",
     "fields": {
-      "intent": "outside_channel",
-      "response_text": "Sou a Helena, navegadora de saúde. Neste canal eu cuido de sintomas e de encaminhar você para a equipe de saúde. Esse assunto não é tratado aqui. Se quiser falar com uma pessoa da equipe, é só me pedir. Se você estiver passando por uma emergência, procure o serviço de emergência mais próximo."
+      "intent": "cobranca",
+      "response_kind": "handoff",
+      "response_text": "Vou te passar para o atendimento de cobrança.",
+      "handoff": {
+        "para": "lucas",
+        "cobranca_subtipo": "boleto_2via",
+        "competencia": "2026-09",
+        "message_ref": "hk1_evlhelena21"
+      },
+      "desfecho": "passagem_cobranca",
+      "escalation_started": false
     }
   },
-  "leak_canaries": [
-    "aplicativo",
-    "portal",
-    "justificativa"
-  ],
-  "live": {
-    "assert": "fields",
-    "match": [
-      "intent",
-      "population",
-      "psychosocial_risk"
-    ],
-    "threshold": 0.9
-  }
+  "leak_canaries": []
 }
