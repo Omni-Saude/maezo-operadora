@@ -1877,6 +1877,23 @@ _PEDIDO_DE_HUMANO = re.compile(
 )
 
 
+# AMEACA DE RECLAMACAO A ORGAO REGULADOR (DL-0065, 02/10/2026, caso B13: "vou abrir reclamacao na
+# ANS, ninguem resolve nada"). Antes recebia o texto fixo de fora do canal e a pessoa ficava sem
+# ninguem; agora abre atendimento humano pela rota que ja' existe (`solicitacao_humano`, P3). Os
+# dois lados do padrao sao exigidos — um orgao citado SEM verbo de reclamacao ("o que e a ANS?")
+# nao escala. INTERINO: motivo e fila proprios (SP-OP-NIP-001) dependem do Diretor e do regulatorio.
+_AMEACA_REGULATORIA = re.compile(
+    r"\b(?:reclam\w+|denunci\w+|queix\w+|processar|aciona\w*|recorr\w+|registr\w+)\b"
+    r"[^.!?\n]{0,40}\b(?:ans|procon|ouvidoria|justica|agencia nacional de saude)\b"
+    r"|\b(?:ans|procon|ouvidoria|justica)\b[^.!?\n]{0,25}\b(?:reclam\w+|denunci\w+|queix\w+)\b"
+)
+
+
+def _ameaca_regulatoria(texto: str) -> bool:
+    """`True` quando a mensagem ameaca ou anuncia reclamacao a ANS, Procon, ouvidoria ou justica."""
+    return bool(_AMEACA_REGULATORIA.search(_normalizar_texto(texto or "")))
+
+
 def _pergunta_de_identidade_sem_pedido(texto: str) -> bool:
     """`True` quando a mensagem pergunta O QUE a Helena e' e nao pede humano nenhum."""
     plano = _normalizar_texto(texto or "")
@@ -2617,6 +2634,14 @@ class HelenaGraph:
 
         # Gatilho 3: explicit request for a human.
         if intent == "human_request":
+            update["next_kind"] = "escalate"
+            update["escalation_motivo"] = "solicitacao_humano"
+            update["escalation_severidade"] = "leve"
+            return update
+
+        # Gatilho 3b (DL-0065): ameaca de reclamacao a orgao regulador. Vence a rota de fora do canal,
+        # perde para sintoma, risco psicossocial e pergunta clinica (todos acima).
+        if intent != "greeting" and _ameaca_regulatoria(str(state.get("message_body") or "")):
             update["next_kind"] = "escalate"
             update["escalation_motivo"] = "solicitacao_humano"
             update["escalation_severidade"] = "leve"
