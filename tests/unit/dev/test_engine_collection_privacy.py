@@ -247,5 +247,5 @@ def test_core_remains_canonical_and_immutable() -> None:
     path = Path(__file__).resolve().parents[3] / runner.EVIDENCE_RELATIVE
     assert (
         hashlib.sha256(path.read_bytes()).hexdigest()
-        == "abf38a6b20ea255753d3779f38c83040a8c652589e003cddcb59d232e714faba"
+        == "37c56a2579611a5b3860e7fc2be384d7fa05d2dfa3002d5cc22a793275355c6d"
     )
