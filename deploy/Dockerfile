@@ -80,6 +80,13 @@ COPY spec/processes ./spec/processes
 # Quinta ocorrencia (02/10/2026): lexico do pre-roteamento Helena->Lucas (ADR-0062). Sem esta COPY o
 # `uv sync --no-editable` falha fechado no force-include e, se passasse, o receptor subiria sem o lexico.
 COPY spec/policies/roteamento ./spec/policies/roteamento
+# Sexta e setima ocorrencias (02/10/2026): o scrubber de PHI (`phi_key_policy`, que fala para OFF
+# EM SILANCIO quando o manifesto nao existe — nunca da sinal) e o pin de schema TISS
+# (`tiss_schema_pin`, artefato DRAFT que vai a bordo de proposito) carregam estes dois diretorios
+# via `resolve_spec_dir()`. Sem as COPY o `uv sync --no-editable` falha fechado no force-include
+# e, se passasse, o scrubber de PHI nunca instalaria na imagem sem erro nenhum.
+COPY spec/policies/privacy ./spec/policies/privacy
+COPY spec/policies/ans ./spec/policies/ans
 COPY src/ ./src/
 COPY config/ ./config/
 RUN uv sync --frozen --no-dev --no-editable

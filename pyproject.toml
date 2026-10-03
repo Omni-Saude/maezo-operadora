@@ -161,6 +161,21 @@ packages = ["src/maezo"]
 # receptor morria no boot com LexicoInvalidoError(FileNotFoundError): /webhook degradado a 501 por
 # 4 min ate o rollback. A cerca `check_roteador_lucas` (item 8) exige esta linha E a COPY do Dockerfile.
 "spec/policies/roteamento" = "maezo/spec/policies/roteamento"
+# SEXTA e SETIMA ocorrencias da mesma classe (02/10/2026, cerca de CLASSE
+# `tests/unit/ci/test_spec_packaging_fence.py` — nao mais um patch por instancia):
+#   - `spec/policies/privacy/phi-business-key-remediation.yaml` e lido por
+#     `phi_key_policy.load_phi_key_policy` via `resolve_spec_dir()` (phi_key_policy.py:145) e
+#     esse carregador FALA PARA OFF EM SILANCIO ("never raises"): sem o arquivo no container o
+#     scrubber de PHI nunca instala e NADA errou — o pior modo de falha da casa
+#     (phi_key_policy.py:298-312; chamadores base.py:493+, observability.py:151, key_scrubber.py:116).
+#   - `spec/policies/ans/tiss-schema-pin.yaml` e lido por `tiss_schema_pin` via
+#     `resolve_spec_dir()` (tiss_schema_pin.py:293). O artefato esta DRAFT hoje, mas vai a bordo
+#     DE PROPOSITO: quando a ANS ratificar, o loader tem de achar o arquivo e falhar com o
+#     reason code do schema — nao com um FileNotFoundError de arquivo que nunca chegou.
+# A cerca exige, para todo spec/ que o runtime citar, esta linha E a COPY correspondente no
+# deploy/Dockerfile.
+"spec/policies/privacy" = "maezo/spec/policies/privacy"
+"spec/policies/ans" = "maezo/spec/policies/ans"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution
