@@ -1,11 +1,20 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./EmployeeQueues", () => ({
-  EmployeeQueues: ({ initialQueue = "mine" }: { initialQueue?: "mine" | "team" }) => (
-    <section aria-label="Filas de colaboradores">{initialQueue}</section>
-  ),
+  EmployeeQueues: ({
+    initialQueue = "mine",
+  }: {
+    initialQueue?: "mine" | "team";
+  }) => <section aria-label="Filas de colaboradores">{initialQueue}</section>,
 }));
 
 import { App } from "./App";
@@ -51,13 +60,15 @@ const future = "2099-09-10T13:00:00.000000Z";
 function selectedCasePage() {
   return {
     ...emptyCasePage("beneficiary"),
-    items: [{
-      case_ref: selectedCaseRef,
-      kind: "authorization",
-      state: "active",
-      record_revision: "1",
-      state_observed_at: observed,
-    }],
+    items: [
+      {
+        case_ref: selectedCaseRef,
+        kind: "authorization",
+        state: "active",
+        record_revision: "1",
+        state_observed_at: observed,
+      },
+    ],
   } as const;
 }
 
@@ -92,9 +103,13 @@ it("mostra carregamento enquanto a validação real está pendente", async () =>
   const pending = deferred<Response>();
   vi.mocked(fetch).mockReturnValue(pending.promise);
   render(<App />);
-  expect(screen.getByRole("heading", { name: "Validando sua sessão" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "Validando sua sessão" }),
+  ).toBeInTheDocument();
   pending.resolve(jsonResponse(session()));
-  expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área de colaboradores" }),
+  ).toBeInTheDocument();
 });
 
 describe.each([
@@ -105,7 +120,9 @@ describe.each([
   it("usa somente o público determinado pelo servidor", async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse(session(audience)));
     render(<App />);
-    expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: heading }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("opaque-principal")).not.toBeInTheDocument();
     expect(screen.queryByText("csrf-secret")).not.toBeInTheDocument();
     expect(screen.queryByText("authorized-role")).not.toBeInTheDocument();
@@ -115,28 +132,44 @@ describe.each([
 it("oferece sete áreas e abre a fila autorizada na visão geral e nas áreas de trabalho", async () => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session("staff")));
   const view = render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área de colaboradores" }),
+  ).toBeInTheDocument();
   expect(screen.getAllByRole("tab")).toHaveLength(7);
-  expect(screen.getByRole("heading", { name: "Visão geral do trabalho" })).toBeInTheDocument();
-  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("mine");
+  expect(
+    screen.getByRole("heading", { name: "Visão geral do trabalho" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("region", { name: "Filas de colaboradores" }),
+  ).toHaveTextContent("mine");
   await userEvent.click(screen.getByRole("tab", { name: /Meu trabalho/ }));
-  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("mine");
+  expect(
+    screen.getByRole("region", { name: "Filas de colaboradores" }),
+  ).toHaveTextContent("mine");
   await userEvent.click(screen.getByRole("tab", { name: /Filas da equipe/ }));
-  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toHaveTextContent("team");
+  expect(
+    screen.getByRole("region", { name: "Filas de colaboradores" }),
+  ).toHaveTextContent("team");
   await userEvent.click(screen.getByRole("tab", { name: /^Casos/ }));
   // StaffCaseWorkspace mounts fresh on tab activation and auto-loads its case
   // list (see StaffCaseWorkspace.test.tsx for full coverage of that flow);
   // this smoke assertion only confirms the right area renders with its real
   // accessible heading and search-by-reference affordance.
-  expect(screen.getByRole("heading", { name: "Casos de autorização" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "Casos de autorização" }),
+  ).toBeInTheDocument();
   expect(screen.getByLabelText("Abrir pela referência exata")).toHaveValue("");
   expect(fetch).toHaveBeenCalledTimes(2);
   view.unmount();
 
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session("provider")));
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área do prestador" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("region", { name: "Filas de colaboradores" }),
+  ).not.toBeInTheDocument();
 });
 
 it("compõe a consulta externa real sem enviar público ou CSRF na leitura", async () => {
@@ -144,40 +177,71 @@ it("compõe a consulta externa real sem enviar público ou CSRF na leitura", asy
     .mockResolvedValueOnce(jsonResponse(session("beneficiary")))
     .mockResolvedValueOnce(jsonResponse(emptyCasePage("beneficiary")));
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área do beneficiário" })).toBeInTheDocument();
-  expect(await screen.findByRole("heading", { name: "Autorizações", level: 2 })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área do beneficiário" }),
+  ).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Autorizações", level: 2 }),
+  ).toBeInTheDocument();
   expect(screen.getAllByRole("tab")).toHaveLength(4);
-  expect(await within(screen.getByRole("tabpanel")).findByText(
-    "Nenhuma solicitação autorizada foi encontrada.",
-  )).toBeInTheDocument();
+  expect(
+    await within(screen.getByRole("tabpanel")).findByText(
+      "Nenhuma solicitação autorizada foi encontrada.",
+    ),
+  ).toBeInTheDocument();
   await userEvent.click(screen.getByRole("tab", { name: "Documentos" }));
-  expect(within(screen.getByRole("tabpanel")).getByText(
-    "Abra uma solicitação para consultar esta área.",
-  )).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("tabpanel")).getByText(
+      "Abra uma solicitação para consultar esta área.",
+    ),
+  ).toBeInTheDocument();
   const [path, options] = vi.mocked(fetch).mock.calls[1];
   expect(path).toBe("/api/v1/portal/cases");
   expect(options).toMatchObject({
-    method: "GET", credentials: "same-origin", cache: "no-store", redirect: "error",
+    method: "GET",
+    credentials: "same-origin",
+    cache: "no-store",
+    redirect: "error",
     headers: { Accept: "application/json" },
   });
-  expect(JSON.stringify([path, options])).not.toMatch(/beneficiary|csrf-secret|opaque-principal/i);
+  expect(JSON.stringify([path, options])).not.toMatch(
+    /beneficiary|csrf-secret|opaque-principal/i,
+  );
 });
 
 it("mantém o formulário do prestador indisponível sem provedor de opções autorizado", async () => {
   vi.mocked(fetch).mockImplementation(async (path) => {
-    if (path === "/api/v1/portal/session") return jsonResponse(session("provider"));
-    if (path === "/api/v1/portal/cases") return jsonResponse(emptyCasePage("provider"));
+    if (path === "/api/v1/portal/session")
+      return jsonResponse(session("provider"));
+    if (path === "/api/v1/portal/cases")
+      return jsonResponse(emptyCasePage("provider"));
     if (path === "/api/v1/portal/intake-recovery") {
-      return jsonResponse({ schema_version: 1, scope: "actor_admissions", items: [], next_cursor: null });
+      return jsonResponse({
+        schema_version: 1,
+        scope: "actor_admissions",
+        items: [],
+        next_cursor: null,
+      });
     }
     throw new Error("Unexpected request in provider form fixture");
   });
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
-  const unavailable = await screen.findByText("Este recurso não está mais disponível.");
+  expect(
+    await screen.findByRole("heading", { name: "Área do prestador" }),
+  ).toBeInTheDocument();
+  const unavailable = await screen.findByText(
+    "Este recurso não está mais disponível.",
+  );
   expect(unavailable.closest('[role="alert"]')).toBeInTheDocument();
-  expect(vi.mocked(fetch).mock.calls.map(([path]) => path).sort()).toEqual([
-    "/api/v1/portal/cases", "/api/v1/portal/intake-recovery", "/api/v1/portal/session",
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.map(([path]) => path)
+      .sort(),
+  ).toEqual([
+    "/api/v1/portal/cases",
+    "/api/v1/portal/intake-recovery",
+    "/api/v1/portal/session",
   ]);
 });
 
@@ -185,7 +249,10 @@ it("trata 401 como sessão ausente e oferece a entrada canônica", async () => {
   vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 401 }));
   render(<App />);
   const link = await screen.findByRole("link", { name: "Entrar no portal" });
-  expect(link).toHaveAttribute("href", "/api/v1/portal/auth/login?return_to=/portal/");
+  expect(link).toHaveAttribute(
+    "href",
+    "/api/v1/portal/auth/login?return_to=/portal/",
+  );
   await userEvent.tab();
   expect(link).toHaveFocus();
 });
@@ -196,9 +263,17 @@ it("distingue 503, nega acesso e permite repetir a validação", async () => {
     .mockResolvedValueOnce(jsonResponse(session("beneficiary")))
     .mockResolvedValueOnce(jsonResponse(emptyCasePage("beneficiary")));
   render(<App />);
-  expect(await screen.findByText("Uma dependência do portal não respondeu. Nenhum acesso foi concedido.")).toBeInTheDocument();
-  await userEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
-  expect(await screen.findByRole("heading", { name: "Área do beneficiário" })).toBeInTheDocument();
+  expect(
+    await screen.findByText(
+      "Uma dependência do portal não respondeu. Nenhum acesso foi concedido.",
+    ),
+  ).toBeInTheDocument();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Tentar novamente" }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Área do beneficiário" }),
+  ).toBeInTheDocument();
 });
 
 it.each([
@@ -208,7 +283,11 @@ it.each([
 ])("falha fechada para schema ou público inesperado %#", async (payload) => {
   vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
   render(<App />);
-  expect(await screen.findByText("O portal recusou uma resposta inesperada. Nenhum acesso foi concedido.")).toBeInTheDocument();
+  expect(
+    await screen.findByText(
+      "O portal recusou uma resposta inesperada. Nenhum acesso foi concedido.",
+    ),
+  ).toBeInTheDocument();
   expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
 });
 
@@ -217,10 +296,17 @@ it("invalida a sessão quando a revalidação visível recebe 401", async () => 
     .mockResolvedValueOnce(jsonResponse(session()))
     .mockResolvedValueOnce(new Response(null, { status: 401 }));
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  expect(
+    await screen.findByRole("heading", { name: "Área de colaboradores" }),
+  ).toBeInTheDocument();
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
   fireEvent(document, new Event("visibilitychange"));
-  expect(await screen.findByRole("heading", { name: "Sua sessão não está ativa" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Sua sessão não está ativa" }),
+  ).toBeInTheDocument();
 });
 
 it("remove o workspace antes de aplicar uma mudança de audiência", async () => {
@@ -231,13 +317,24 @@ it("remove o workspace antes de aplicar uma mudança de audiência", async () =>
   render(<App />);
   await screen.findByRole("heading", { name: "Área de colaboradores" });
   await userEvent.click(screen.getByRole("tab", { name: /Meu trabalho/ }));
-  expect(screen.getByRole("region", { name: "Filas de colaboradores" })).toBeInTheDocument();
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  expect(
+    screen.getByRole("region", { name: "Filas de colaboradores" }),
+  ).toBeInTheDocument();
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
   fireEvent(document, new Event("visibilitychange"));
-  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("region", { name: "Filas de colaboradores" }),
+  ).not.toBeInTheDocument();
   changedAudience.resolve(jsonResponse(session("provider")));
-  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
-  expect(screen.queryByRole("region", { name: "Filas de colaboradores" })).not.toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área do prestador" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("region", { name: "Filas de colaboradores" }),
+  ).not.toBeInTheDocument();
 });
 
 it("substitui o serviço externo e descarta a consulta antiga após revalidar a sessão", async () => {
@@ -248,7 +345,9 @@ it("substitui o serviço externo e descarta a consulta antiga após revalidar a 
     const path = String(input);
     if (path === "/api/v1/portal/session") {
       sessionReads += 1;
-      return Promise.resolve(jsonResponse(session(sessionReads === 1 ? "beneficiary" : "provider")));
+      return Promise.resolve(
+        jsonResponse(session(sessionReads === 1 ? "beneficiary" : "provider")),
+      );
     }
     if (path === "/api/v1/portal/cases") {
       caseReads += 1;
@@ -259,32 +358,47 @@ it("substitui o serviço externo e descarta a consulta antiga após revalidar a 
     throw new Error(`rota inesperada: ${path}`);
   });
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área do beneficiário" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área do beneficiário" }),
+  ).toBeInTheDocument();
   await waitFor(() => expect(caseReads).toBe(1));
-  const oldCaseCall = vi.mocked(fetch).mock.calls.find(([path]) => path === "/api/v1/portal/cases");
+  const oldCaseCall = vi
+    .mocked(fetch)
+    .mock.calls.find(([path]) => path === "/api/v1/portal/cases");
   const oldSignal = oldCaseCall?.[1]?.signal;
   expect(oldSignal).toBeInstanceOf(AbortSignal);
 
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
   fireEvent(document, new Event("visibilitychange"));
-  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área do prestador" }),
+  ).toBeInTheDocument();
   expect(oldSignal?.aborted).toBe(true);
 
-  oldCases.resolve(jsonResponse({
-    ...emptyCasePage("beneficiary"),
-    items: [{
-      case_ref: "case_old_abcdefghijklmnop",
-      kind: "authorization",
-      state: "active",
-      record_revision: "1",
-      state_observed_at: "2099-09-10T12:00:00.000000Z",
-    }],
-  }));
+  oldCases.resolve(
+    jsonResponse({
+      ...emptyCasePage("beneficiary"),
+      items: [
+        {
+          case_ref: "case_old_abcdefghijklmnop",
+          kind: "authorization",
+          state: "active",
+          record_revision: "1",
+          state_observed_at: "2099-09-10T12:00:00.000000Z",
+        },
+      ],
+    }),
+  );
   await act(async () => Promise.resolve());
   expect(screen.queryByText(/case_old_/)).not.toBeInTheDocument();
-  expect(await within(screen.getByRole("tabpanel")).findByText(
-    "Nenhuma solicitação autorizada foi encontrada.",
-  )).toBeInTheDocument();
+  expect(
+    await within(screen.getByRole("tabpanel")).findByText(
+      "Nenhuma solicitação autorizada foi encontrada.",
+    ),
+  ).toBeInTheDocument();
 });
 
 it("alcança caixa e histórico do caso e aborta ambas as leituras na revalidação", async () => {
@@ -296,22 +410,30 @@ it("alcança caixa e histórico do caso e aborta ambas as leituras na revalidaç
     const path = String(input);
     if (path === "/api/v1/portal/session") {
       sessionReads += 1;
-      return Promise.resolve(jsonResponse(session(sessionReads === 1 ? "beneficiary" : "provider")));
+      return Promise.resolve(
+        jsonResponse(session(sessionReads === 1 ? "beneficiary" : "provider")),
+      );
     }
     if (path === "/api/v1/portal/cases") {
       casePageReads += 1;
-      return Promise.resolve(jsonResponse(casePageReads === 1
-        ? selectedCasePage()
-        : emptyCasePage("provider")));
+      return Promise.resolve(
+        jsonResponse(
+          casePageReads === 1 ? selectedCasePage() : emptyCasePage("provider"),
+        ),
+      );
     }
     if (path === `/api/v1/portal/cases/${selectedCaseRef}`) {
       return Promise.resolve(jsonResponse(caseDetail()));
     }
     if (path === `/api/v1/portal/cases/${selectedCaseRef}/documents`) {
-      return Promise.resolve(jsonResponse({ case_ref: selectedCaseRef, documents: [] }));
+      return Promise.resolve(
+        jsonResponse({ case_ref: selectedCaseRef, documents: [] }),
+      );
     }
     if (path === `/api/v1/portal/cases/${selectedCaseRef}/document-requests`) {
-      return Promise.resolve(jsonResponse({ case_ref: selectedCaseRef, requests: [] }));
+      return Promise.resolve(
+        jsonResponse({ case_ref: selectedCaseRef, requests: [] }),
+      );
     }
     if (path === `/api/v1/portal/cases/${selectedCaseRef}/communications`) {
       return pendingCommunications.promise;
@@ -324,52 +446,85 @@ it("alcança caixa e histórico do caso e aborta ambas as leituras na revalidaç
 
   render(<App />);
   await userEvent.click(await screen.findByRole("tab", { name: "Mensagens" }));
-  await userEvent.click(screen.getByRole("button", { name: "Abrir solicitação" }));
-  await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([path]) =>
-    path === `/api/v1/portal/cases/${selectedCaseRef}/history`)).toBe(true));
-  const communicationsCall = vi.mocked(fetch).mock.calls.find(([path]) =>
-    path === `/api/v1/portal/cases/${selectedCaseRef}/communications`);
-  const historyCall = vi.mocked(fetch).mock.calls.find(([path]) =>
-    path === `/api/v1/portal/cases/${selectedCaseRef}/history`);
+  await userEvent.click(
+    screen.getByRole("button", { name: "Abrir solicitação" }),
+  );
+  await waitFor(() =>
+    expect(
+      vi
+        .mocked(fetch)
+        .mock.calls.some(
+          ([path]) =>
+            path === `/api/v1/portal/cases/${selectedCaseRef}/history`,
+        ),
+    ).toBe(true),
+  );
+  const communicationsCall = vi
+    .mocked(fetch)
+    .mock.calls.find(
+      ([path]) =>
+        path === `/api/v1/portal/cases/${selectedCaseRef}/communications`,
+    );
+  const historyCall = vi
+    .mocked(fetch)
+    .mock.calls.find(
+      ([path]) => path === `/api/v1/portal/cases/${selectedCaseRef}/history`,
+    );
   expect(communicationsCall?.[1]).toMatchObject({
-    method: "GET", credentials: "same-origin", cache: "no-store", redirect: "error",
+    method: "GET",
+    credentials: "same-origin",
+    cache: "no-store",
+    redirect: "error",
     headers: { Accept: "application/json" },
   });
   expect(JSON.stringify([communicationsCall, historyCall])).not.toMatch(
     /csrf-secret|opaque-principal|beneficiary/,
   );
 
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
   fireEvent(document, new Event("visibilitychange"));
-  expect(await screen.findByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área do prestador" }),
+  ).toBeInTheDocument();
   expect(communicationsCall?.[1]?.signal?.aborted).toBe(true);
   expect(historyCall?.[1]?.signal?.aborted).toBe(true);
 
-  pendingCommunications.resolve(jsonResponse({
-    schema_version: "portal-communications.v1",
-    case_ref: selectedCaseRef,
-    items: [{
-      communication_ref: "late_communication_abcdefghijklmnop",
-      sender_kind: "system",
-      authored_at: observed,
-      inbox_available_at: observed,
-      delivery_state: "inbox_available",
-      body_ref: null,
-    }],
-    next_cursor: null,
-    observed_at: observed,
-    valid_until: future,
-  }));
-  pendingHistory.resolve(jsonResponse({
-    schema_version: "portal-history.v1",
-    history_scope: "portal_events",
-    case_ref: selectedCaseRef,
-    items: [],
-    next_cursor: null,
-    observed_at: observed,
-    valid_until: future,
-  }));
-  await act(async () => Promise.all([pendingCommunications.promise, pendingHistory.promise]));
+  pendingCommunications.resolve(
+    jsonResponse({
+      schema_version: "portal-communications.v1",
+      case_ref: selectedCaseRef,
+      items: [
+        {
+          communication_ref: "late_communication_abcdefghijklmnop",
+          sender_kind: "system",
+          authored_at: observed,
+          inbox_available_at: observed,
+          delivery_state: "inbox_available",
+          body_ref: null,
+        },
+      ],
+      next_cursor: null,
+      observed_at: observed,
+      valid_until: future,
+    }),
+  );
+  pendingHistory.resolve(
+    jsonResponse({
+      schema_version: "portal-history.v1",
+      history_scope: "portal_events",
+      case_ref: selectedCaseRef,
+      items: [],
+      next_cursor: null,
+      observed_at: observed,
+      valid_until: future,
+    }),
+  );
+  await act(async () =>
+    Promise.all([pendingCommunications.promise, pendingHistory.promise]),
+  );
   expect(screen.queryByText(/late_communication/)).not.toBeInTheDocument();
 });
 
@@ -385,42 +540,67 @@ it("revalida ao expirar e remove a autoridade da tela antes da resposta", async 
         ? jsonResponse(session("provider", expiresAt))
         : pendingSession.promise;
     }
-    if (path === "/api/v1/portal/cases") return jsonResponse(emptyCasePage("provider"));
+    if (path === "/api/v1/portal/cases")
+      return jsonResponse(emptyCasePage("provider"));
     if (path === "/api/v1/portal/intake-recovery") {
-      return jsonResponse({ schema_version: 1, scope: "actor_admissions", items: [], next_cursor: null });
+      return jsonResponse({
+        schema_version: 1,
+        scope: "actor_admissions",
+        items: [],
+        next_cursor: null,
+      });
     }
     throw new Error("Unexpected request in session expiry fixture");
   });
   render(<App />);
   await act(async () => Promise.resolve());
-  expect(screen.getByRole("heading", { name: "Área do prestador" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "Área do prestador" }),
+  ).toBeInTheDocument();
   await act(async () => vi.advanceTimersByTimeAsync(1_001));
   expect(sessionReads).toBe(2);
-  expect(screen.getByRole("heading", { name: "Revalidando sua sessão" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "Revalidando sua sessão" }),
+  ).toBeInTheDocument();
   expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Área do prestador" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "Área do prestador" }),
+  ).not.toBeInTheDocument();
   await act(async () => {
     pendingSession.resolve(new Response(null, { status: 401 }));
     await pendingSession.promise;
   });
-  expect(screen.getByRole("heading", { name: "Sua sessão não está ativa" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "Sua sessão não está ativa" }),
+  ).toBeInTheDocument();
   expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
 });
 
 it("encerra por POST com credenciais same-origin, no-store e CSRF apenas no header", async () => {
   vi.mocked(fetch)
     .mockResolvedValueOnce(jsonResponse(session()))
-    .mockResolvedValueOnce(jsonResponse({ schema_version: 1, idp_logout_url: "https://attacker.test/logout" }));
+    .mockResolvedValueOnce(
+      jsonResponse({
+        schema_version: 1,
+        idp_logout_url: "https://attacker.test/logout",
+      }),
+    );
   render(<App />);
-  const logout = await screen.findByRole("button", { name: "Sair com segurança" });
+  const logout = await screen.findByRole("button", {
+    name: "Sair com segurança",
+  });
   const user = userEvent.setup();
   await user.tab();
-  expect(screen.getByRole("link", { name: "Pular para o conteúdo" })).toHaveFocus();
+  expect(
+    screen.getByRole("link", { name: "Pular para o conteúdo" }),
+  ).toHaveFocus();
   await user.tab();
   await user.tab();
   expect(logout).toHaveFocus();
   await user.click(logout);
-  expect(await screen.findByRole("heading", { name: "Sessão encerrada" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Sessão encerrada" }),
+  ).toBeInTheDocument();
   const [, init] = vi.mocked(fetch).mock.calls[1];
   expect(init).toMatchObject({
     method: "POST",
@@ -436,17 +616,37 @@ it("não anuncia logout no erro, limpa a sessão visível e oferece retry seguro
     .mockResolvedValueOnce(jsonResponse(session("beneficiary")))
     .mockResolvedValueOnce(jsonResponse(emptyCasePage("beneficiary")))
     .mockResolvedValueOnce(new Response(null, { status: 503 }))
-    .mockResolvedValueOnce(jsonResponse({ schema_version: 1, idp_logout_url: "https://attacker.test/logout" }));
+    .mockResolvedValueOnce(
+      jsonResponse({
+        schema_version: 1,
+        idp_logout_url: "https://attacker.test/logout",
+      }),
+    );
   render(<App />);
-  await userEvent.click(await screen.findByRole("button", { name: "Sair com segurança" }));
-  expect(await screen.findByRole("heading", { name: "Não foi possível confirmar a saída" })).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Área do beneficiário" })).not.toBeInTheDocument();
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Sair com segurança" }),
+  );
+  expect(
+    await screen.findByRole("heading", {
+      name: "Não foi possível confirmar a saída",
+    }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "Área do beneficiário" }),
+  ).not.toBeInTheDocument();
   expect(screen.queryByText("Sessão encerrada")).not.toBeInTheDocument();
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
   fireEvent(document, new Event("visibilitychange"));
   expect(fetch).toHaveBeenCalledTimes(3);
-  await userEvent.click(screen.getByRole("button", { name: "Tentar sair novamente" }));
-  expect(await screen.findByRole("heading", { name: "Sessão encerrada" })).toBeInTheDocument();
+  await userEvent.click(
+    screen.getByRole("button", { name: "Tentar sair novamente" }),
+  );
+  expect(
+    await screen.findByRole("heading", { name: "Sessão encerrada" }),
+  ).toBeInTheDocument();
 });
 
 it("ignora resposta GET antiga que chega depois de uma invalidação 401", async () => {
@@ -458,17 +658,28 @@ it("ignora resposta GET antiga que chega depois de uma invalidação 401", async
     return Promise.resolve(new Response(null, { status: 401 }));
   });
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+  expect(
+    await screen.findByRole("heading", { name: "Área de colaboradores" }),
+  ).toBeInTheDocument();
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
   act(() => {
     document.dispatchEvent(new Event("visibilitychange"));
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  expect(await screen.findByRole("heading", { name: "Sua sessão não está ativa" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Sua sessão não está ativa" }),
+  ).toBeInTheDocument();
   staleGet.resolve(jsonResponse(session("staff")));
   await act(async () => Promise.resolve());
-  expect(screen.getByRole("heading", { name: "Sua sessão não está ativa" })).toBeInTheDocument();
-  expect(screen.queryByRole("heading", { name: "Área de colaboradores" })).not.toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "Sua sessão não está ativa" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "Área de colaboradores" }),
+  ).not.toBeInTheDocument();
 });
 
 it("não usa storage persistente do navegador", async () => {
@@ -476,7 +687,9 @@ it("não usa storage persistente do navegador", async () => {
   const remove = vi.spyOn(Storage.prototype, "removeItem");
   vi.mocked(fetch).mockResolvedValue(jsonResponse(session()));
   render(<App />);
-  expect(await screen.findByRole("heading", { name: "Área de colaboradores" })).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Área de colaboradores" }),
+  ).toBeInTheDocument();
   expect(local).not.toHaveBeenCalled();
   expect(remove).not.toHaveBeenCalled();
 });
@@ -490,10 +703,14 @@ it("leva o foco pelo carregamento até o destino após retry pelo teclado", asyn
   const retry = await screen.findByRole("button", { name: "Tentar novamente" });
   retry.focus();
   await userEvent.keyboard("{Enter}");
-  const loading = screen.getByRole("heading", { name: "Revalidando sua sessão" });
+  const loading = screen.getByRole("heading", {
+    name: "Revalidando sua sessão",
+  });
   await waitFor(() => expect(loading).toHaveFocus());
   retried.resolve(jsonResponse(session()));
-  const destination = await screen.findByRole("heading", { name: "Área de colaboradores" });
+  const destination = await screen.findByRole("heading", {
+    name: "Área de colaboradores",
+  });
   await waitFor(() => expect(destination).toHaveFocus());
   expect(screen.getByRole("status")).toHaveTextContent(
     "Sessão confirmada. Área de colaboradores.",
@@ -513,7 +730,9 @@ it("leva o foco ao erro útil quando o retry pelo teclado falha", async () => {
   });
   await waitFor(() => expect(destination).toHaveFocus());
   expect(
-    screen.getByText("Uma dependência do portal não respondeu. Nenhum acesso foi concedido."),
+    screen.getByText(
+      "Uma dependência do portal não respondeu. Nenhum acesso foi concedido.",
+    ),
   ).toBeInTheDocument();
 });
 
@@ -525,10 +744,14 @@ it("orienta o foco no logout confirmado e no retry após falha", async () => {
     .mockReturnValueOnce(firstLogout.promise)
     .mockReturnValueOnce(retryLogout.promise);
   render(<App />);
-  const logout = await screen.findByRole("button", { name: "Sair com segurança" });
+  const logout = await screen.findByRole("button", {
+    name: "Sair com segurança",
+  });
   logout.focus();
   await userEvent.keyboard("{Enter}");
-  const loggingOut = screen.getByRole("heading", { name: "Encerrando a sessão" });
+  const loggingOut = screen.getByRole("heading", {
+    name: "Encerrando a sessão",
+  });
   await waitFor(() => expect(loggingOut).toHaveFocus());
 
   firstLogout.resolve(new Response(null, { status: 503 }));
@@ -542,10 +765,19 @@ it("orienta o foco no logout confirmado e no retry após falha", async () => {
   retry.focus();
   await userEvent.keyboard("{Enter}");
   await waitFor(() =>
-    expect(screen.getByRole("heading", { name: "Encerrando a sessão" })).toHaveFocus(),
+    expect(
+      screen.getByRole("heading", { name: "Encerrando a sessão" }),
+    ).toHaveFocus(),
   );
-  retryLogout.resolve(jsonResponse({ schema_version: 1, idp_logout_url: "https://attacker.test/logout" }));
-  const confirmed = await screen.findByRole("heading", { name: "Sessão encerrada" });
+  retryLogout.resolve(
+    jsonResponse({
+      schema_version: 1,
+      idp_logout_url: "https://attacker.test/logout",
+    }),
+  );
+  const confirmed = await screen.findByRole("heading", {
+    name: "Sessão encerrada",
+  });
   await waitFor(() => expect(confirmed).toHaveFocus());
 });
 
@@ -555,19 +787,27 @@ it("revalidação automática anuncia o estado sem focar o destino", async () =>
     .mockResolvedValueOnce(jsonResponse(session()))
     .mockReturnValueOnce(revalidated.promise);
   render(<App />);
-  const logout = await screen.findByRole("button", { name: "Sair com segurança" });
+  const logout = await screen.findByRole("button", {
+    name: "Sair com segurança",
+  });
   logout.focus();
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     value: "visible",
   });
   fireEvent(document, new Event("visibilitychange"));
-  const loading = screen.getByRole("heading", { name: "Revalidando sua sessão" });
+  // O estado "revalidando" entra num re-render assincrono depois do evento; getBy sincrono corria
+  // na frente dele (flaky no CI).
+  const loading = await screen.findByRole("heading", {
+    name: "Revalidando sua sessão",
+  });
   expect(loading).not.toHaveFocus();
   expect(screen.queryByText("Sessão ativa")).not.toBeInTheDocument();
 
   revalidated.resolve(jsonResponse(session()));
-  const destination = await screen.findByRole("heading", { name: "Área de colaboradores" });
+  const destination = await screen.findByRole("heading", {
+    name: "Área de colaboradores",
+  });
   expect(destination).not.toHaveFocus();
   expect(screen.getByRole("status")).toHaveTextContent(
     "Sessão confirmada. Área de colaboradores.",
