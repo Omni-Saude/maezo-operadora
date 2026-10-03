@@ -603,6 +603,10 @@ async def test_cpf_bearing_field_value_never_reaches_engine_variables_live(
     whatsapp = _FakeWhatsAppSender()
     inference = _FakeInference(
         [
+            # O classificador REPETE uma vez quando a extracao e' recusada (#602): as duas tentativas
+            # devolvem o mesmo JSON com o codigo fora da allowlist, para o erro continuar sendo
+            # `non_allowlisted_sintoma_codigo` (e nao o "unparseable JSON" do proximo roteiro).
+            _classify_json(intent="symptom", population="adult", sintoma_codigo=leaked_value),
             _classify_json(intent="symptom", population="adult", sintoma_codigo=leaked_value),
             "Resumo tecnico: classificador produziu saida invalida; encaminhado para atendimento humano.",
             "Tivemos um problema tecnico ao processar sua mensagem. Um atendente humano vai "
