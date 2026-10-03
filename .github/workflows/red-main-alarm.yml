@@ -38,6 +38,21 @@ name: red-main-alarm
 #   content-signoff/terraform/helm all pass for real; integration/evals/
 #   evals-nightly/fhir-sync-simulator all report a visible, loud, non-failing skip),
 #   and the next scheduled run of red-main-alarm reports "main is GREEN".
+#
+# Nightly-canary leg (IMPL-7, 2026-10-02):
+#   The push-only scope above has a blind spot BY CONSTRUCTION: ci.yml's
+#   integration shards run only on `pull_request`/`schedule` (ci.yml:1382) — a red
+#   nightly canary never produces a failing push-event run on main's tip, so it
+#   paged nobody. Measured: 36223240788..36972852809, seven consecutive red
+#   nightlies (2026-09-26..10-02), zero alarms. The second step below applies the
+#   SAME detection (latest COMPLETED, non-cancelled/skipped run; page only on
+#   failure/timed_out) to ci.yml's `schedule` event on the default branch, annotated
+#   as "nightly canary (run <id>, head <short-sha>)": a schedule run tests the
+#   PREVIOUS tip, so its verdict is annotated, never correlated to the current tip.
+#   Staleness guard: a verdict older than 36h (24h nightly cadence + 12h margin —
+#   one missed/cancelled night is tolerated, since the next nightly re-covers it)
+#   emits a WARNING, not a page — a missed cron is an observability gap, not a red
+#   main, and paging it as if main were red is the noise T2.3 tuned away.
 # ---------------------------------------------------------------------------
 
 on:
@@ -130,3 +145,115 @@ jobs:
 
           echo "main is RED — see step summary for failing run(s)/job(s)."
           exit 1
+
+      # Nightly-canary leg. `!cancelled()` (house style, cf. cd.yml:372) so the
+      # canary verdict still lands in the summary when the push leg above already
+      # paged: one red run should show BOTH legs, not just whichever fired first.
+      - name: Detect red nightly canary (schedule-event CI run of ci.yml on main)
+        if: ${{ !cancelled() }}
+        env:
+          # 24h nightly cadence (ci.yml:8) + 12h of margin: ONE missed/cancelled
+          # night is tolerated silently — the next nightly re-covers it — and only
+          # a verdict older than this (or no usable verdict at all) warns. A
+          # warning, NOT a page: a missed cron is an observability gap, not a red
+          # main, and paging it as if main were red is the noise T2.3 tuned away.
+          CANARY_MAX_AGE_HOURS: "36"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # `--workflow ci.yml` by FILENAME, not display name — a rename of the
+          # `name:` field must not blind this leg. `--branch main` = default branch.
+          # limit 10, not 1: the SAME detection as the push leg needs the latest
+          # COMPLETED, non-cancelled/skipped run, and ci.yml's concurrency group
+          # cancels an in-flight schedule run on every push to main (ci.yml:14-16),
+          # so a cancelled canary must be skipped over, not mistaken for "no canary".
+          runs_json="$(gh run list --repo "${REPO}" --workflow ci.yml --event schedule \
+            --branch main --limit 10 \
+            --json databaseId,name,status,conclusion,url,headSha,createdAt)"
+
+          # Same detection as the push leg: latest COMPLETED run per the query,
+          # dropping cancelled/skipped (in_progress is pending, not a verdict).
+          # `max_by` over an empty list yields null in jq — guarded back to [].
+          latest_json="$(printf '%s' "${runs_json}" | jq -c '
+            [ .[] | select(.status == "completed")
+                   | select(.conclusion != "cancelled" and .conclusion != "skipped") ]
+            | max_by(.databaseId)
+            | if . == null then [] else [.] end
+          ')"
+
+          if [ "$(printf '%s' "${latest_json}" | jq 'length')" -eq 0 ]; then
+            {
+              echo "## red-main-alarm: nightly-canary leg — canary missing (WARNING)"
+              echo ""
+              echo "No COMPLETED, non-cancelled/skipped \`schedule\` run of \`ci.yml\` on"
+              echo "\`main\` exists — the nightly canary has never produced a verdict"
+              echo "this alarm can read. Check whether the \`0 6 * * *\` cron is firing."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::nightly-canary leg: no completed schedule run of ci.yml on main — canary missing, not paging."
+            exit 0
+          fi
+
+          run_id="$(printf '%s' "${latest_json}" | jq -r '.[0].databaseId')"
+          head_sha="$(printf '%s' "${latest_json}" | jq -r '.[0].headSha')"
+          conclusion="$(printf '%s' "${latest_json}" | jq -r '.[0].conclusion')"
+          run_url="$(printf '%s' "${latest_json}" | jq -r '.[0].url')"
+          short_sha="${head_sha:0:8}"
+
+          # Age in hours, computed in jq (fromdateiso8601 + now) so the math is
+          # identical on any runner image — no GNU/BSD `date -d` divergence.
+          age_hours="$(printf '%s' "${latest_json}" | jq -r \
+            '.[0].createdAt | ((now - fromdateiso8601) / 3600) | floor')"
+          echo "nightly canary: run ${run_id}, head ${short_sha}, ${conclusion}, age ${age_hours}h (max ${CANARY_MAX_AGE_HOURS}h)"
+
+          if [ "${age_hours}" -gt "${CANARY_MAX_AGE_HOURS}" ]; then
+            {
+              echo "## red-main-alarm: nightly-canary leg — canary STALE (WARNING, not a page)"
+              echo ""
+              echo "Latest usable \`schedule\` run of \`ci.yml\` on \`main\` is ${age_hours}h old"
+              echo "(max ${CANARY_MAX_AGE_HOURS}h = 24h nightly cadence + 12h margin):"
+              echo "the canary is stale or its cron stopped firing."
+              echo ""
+              echo "### nightly canary (run ${run_id}, head ${short_sha}) — last known: ${conclusion}"
+              echo "${run_url}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::nightly-canary leg: latest schedule run ${run_id} (head ${short_sha}) is ${age_hours}h old (max ${CANARY_MAX_AGE_HOURS}h) — canary stale/missing, not paging."
+            exit 0
+          fi
+
+          if [ "${conclusion}" = "failure" ] || [ "${conclusion}" = "timed_out" ]; then
+            {
+              echo "## red-main-alarm: nightly canary is RED"
+              echo ""
+              echo "Latest completed \`schedule\` run of \`ci.yml\` on \`main\` is failing."
+              echo "It tested head \`${short_sha}\` — the tip main had at 06:00 UTC, which may"
+              echo "predate the current tip; the lanes involved run only on"
+              echo "\`pull_request\`/\`schedule\` (ci.yml:1382), so this redness is otherwise"
+              echo "invisible to the push leg above."
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            echo "RED: nightly canary (run ${run_id}, head ${short_sha}) (${conclusion})"
+
+            {
+              echo ""
+              echo "### nightly canary (run ${run_id}, head ${short_sha}) — ${conclusion}"
+              echo "${run_url}"
+              echo ""
+              echo "Failed jobs:"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            gh run view "${run_id}" --repo "${REPO}" --json jobs \
+              --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | "- " + .name + " (" + .conclusion + ")"' \
+              >> "$GITHUB_STEP_SUMMARY"
+
+            echo "nightly canary is RED — see step summary for failing job(s)."
+            exit 1
+          fi
+
+          {
+            echo "## red-main-alarm: nightly canary is GREEN"
+            echo ""
+            echo "nightly canary (run ${run_id}, head \`${short_sha}\`) concluded \`${conclusion}\`"
+            echo "(${age_hours}h old, max ${CANARY_MAX_AGE_HOURS}h)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 0
