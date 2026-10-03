@@ -1341,10 +1341,21 @@ async def test_deployed_ans_timer_reaches_source_guard_and_real_kafka(
         == hashlib.sha256(source_xml).digest()
     )
     start_activity = f"Start_Cron{activity_suffix}"
-    jobs_response = await engine_client.get("/job", params={"activityId": start_activity})
+    # Escopo por `processDefinitionId`, nao pela activity so' (03/10/2026): a lane canonical agora
+    # deploya o MESMO BPMN no tenant `amh` E na copia compartilhada (`make deploy-artifacts` ==
+    # `--tenant amh --shared all`), e cada copia tem o SEU timer-start job pendente para esta
+    # activity. A consulta sem escopo via 2 jobs (o da copia alheia + o nosso) e quebrava o
+    # "exactly one" sem que nada aqui tivesse mudado. A definicao resolvida acima por
+    # `/process-definition/key/{key}` E o alvo canonico deste teste (a compartilhada, `tenantId`
+    # null) — o mesmo escopo que as consultas de instancia abaixo ja' usam — entao contar jobs
+    # DENTRO dela mantem o invariante inteiro: exatamente UM job pendente de timer-start para a
+    # definicao sob teste, so' que agora identificado por deployment e nao por colisao de activity.
+    jobs_response = await engine_client.get(
+        "/job", params={"processDefinitionId": definition_id, "activityId": start_activity}
+    )
     jobs_response.raise_for_status()
     jobs = jobs_response.json()
-    assert len(jobs) == 1, "exactly one canonical pending timer-start job is required"
+    assert len(jobs) == 1, f"exactly one canonical pending timer-start job is required for {definition_id}"
     job = jobs[0]
     assert job["processDefinitionId"] == definition_id
     assert job["processInstanceId"] is None
