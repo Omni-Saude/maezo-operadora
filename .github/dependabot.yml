@@ -55,3 +55,38 @@ updates:
       - "terraform"
     commit-message:
       prefix: "chore(terraform)"
+
+  # maven: osv-scanner ja escaneia o pom do motor (security.yml) e ACENA para
+  # as vulnerabilidades, mas nada abria PR de patch-currency — o bump do
+  # jackson-core (#583) foi manual. Estes sao os UNICOS dois poms rastreados
+  # do repo; copias sob docs/audits sao arquivais (nao-rastreadas, logo
+  # invisiveis ao Dependabot). `directory` aponta para cada pom: sem pom na
+  # raiz nem <modules>/<parent> ligando os dois, directory "/" seria INERTE
+  # (o file fetcher de maven so segue a arvore a partir de um pom raiz).
+  - package-ecosystem: "maven"
+    directory: "/src/maezo/portal/engine/java"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:05"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "java"
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "maven"
+    directory: "/src/maezo/portal/engine/read-provider"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:20"
+      timezone: "America/Sao_Paulo"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "java"
+    commit-message:
+      prefix: "chore(deps)"
