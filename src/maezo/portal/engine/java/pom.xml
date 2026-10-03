@@ -18,7 +18,7 @@
       <execution><id>native-rest-spi</id><phase>package</phase><goals><goal>jar</goal></goals><configuration><classifier>rest-spi</classifier><includes><include>br/com/maezo/workload/CertificateAuthenticationProvider.class</include><include>br/com/maezo/workload/SecuredFetchAndLockContextListener*.class</include></includes></configuration></execution>
     </executions></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
-    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.2</version><configuration><excludes><exclude>**/*EngineIT.java</exclude></excludes><failIfNoTests>true</failIfNoTests></configuration></plugin>
+    <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.6.0</version><configuration><excludes><exclude>**/*EngineIT.java</exclude></excludes><failIfNoTests>true</failIfNoTests></configuration></plugin>
     <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.2</version><executions><execution><phase>package</phase><goals><goal>shade</goal></goals><configuration><createDependencyReducedPom>false</createDependencyReducedPom><relocations><relocation><pattern>com.fasterxml.jackson.core</pattern><shadedPattern>br.com.maezo.human.internal.jackson</shadedPattern></relocation></relocations></configuration></execution></executions></plugin>
   </plugins></build>
   <profiles><profile><id>phi-consumer-engine-it</id><build><plugins>
