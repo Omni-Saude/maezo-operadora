@@ -27,6 +27,7 @@ from maezo.gateway.capabilities.models import (
 )
 from maezo.gateway.capabilities.service import CapabilityService
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.platform.error_types import classify_agent_error_type
 
 from .handoff import AdministrativeInputError, AdministrativeTask, handoff_priority, require_reference
 from .state import (
@@ -130,6 +131,12 @@ class CompiledAdministrativeConsumer:
     async def ainvoke(
         self, values: Mapping[str, object], config: RunnableConfig | None = None
     ) -> AdministrativeState:
+        return await self._invoke(values, config)
+
+    async def _invoke(
+        self, values: Mapping[str, object], config: RunnableConfig | None = None
+    ) -> AdministrativeState:
+        """Shared validated runner; both public paths count at this one graph seam."""
         initial = validate_administrative_input(values, memberships=self.__consumer.service.memberships)
         turn = initial["turn"]
         if (
@@ -138,10 +145,18 @@ class CompiledAdministrativeConsumer:
         ):
             raise AdministrativeInputError("administrative_consumer_object_mismatch")
         trusted_config = self.__config(turn.envelope.journey_ref, config)
-        return cast(
-            AdministrativeState,
-            await _in_administrative_context(lambda: self.__compiled.ainvoke(initial, trusted_config)),
-        )
+        try:
+            return cast(
+                AdministrativeState,
+                await _in_administrative_context(lambda: self.__compiled.ainvoke(initial, trusted_config)),
+            )
+        except Exception as exc:
+            # Count a failed graph turn once, without logging its input or error text.
+            # Validation remains outside this seam; drained cancellation is not failure.
+            from maezo.platform.observability import record_agent_error
+
+            record_agent_error(agent="lucas", error_type=classify_agent_error_type(exc))
+            raise
 
     async def aget_state(self, *, journey_ref: str) -> StateSnapshot:
         if self.__pseudonymizer is None:
@@ -254,7 +269,7 @@ class AdministrativeConsumer:
 
     async def invoke(self, values: Mapping[str, object]) -> AdministrativeState:
         """One candidate step through the strict boundary, without a checkpointer."""
-        return await self.build().compile().ainvoke(values)
+        return await self.build().compile()._invoke(values)
 
 
 def compras_consumer(

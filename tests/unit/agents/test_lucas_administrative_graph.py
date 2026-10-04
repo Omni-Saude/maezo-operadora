@@ -34,6 +34,7 @@ from maezo.gateway.capabilities.models import (
 )
 from maezo.gateway.capabilities.service import CapabilityService
 from maezo.gateway.pseudonymizer import Pseudonymizer
+from maezo.platform.observability import get_metrics_collector
 
 
 class RecordingCapabilityService(CapabilityService):
@@ -107,6 +108,113 @@ def values(
         "health_priority": False,
         "human_requested": False,
     }
+
+
+def lucas_error_counts() -> dict[str, float]:
+    return {
+        sample.labels["error_type"]: sample.value
+        for metric in get_metrics_collector().registry.collect()
+        for sample in metric.samples
+        if sample.name == "maezo_agent_errors_total" and sample.labels.get("agent") == "lucas"
+    }
+
+
+class UncataloguedAdministrativeError(RuntimeError):
+    pass
+
+
+class AdministrativeAbort(BaseException):
+    pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task", ["journey.compras.step", "journey.suporte.step"])
+@pytest.mark.parametrize("entry", ["consumer", "compiled"])
+@pytest.mark.parametrize(
+    ("error_class", "error_type"),
+    [(RuntimeError, "runtime"), (TimeoutError, "timeout"), (UncataloguedAdministrativeError, "outro")],
+)
+async def test_failed_graph_turn_counts_once_with_bounded_private_labels(
+    task: str, entry: str, error_class: type[Exception], error_type: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    marker = "SYNTHETIC_CLINICAL_ERROR_BODY_90210"
+    original = error_class(marker)
+
+    class FailingService(RecordingCapabilityService):
+        async def execute(self, envelope: CapabilityEnvelope, payload: object) -> CapabilityOutcome:
+            await super().execute(envelope, payload)
+            raise original
+
+    service = FailingService(task)
+    factory = compras_consumer if task == "journey.compras.step" else suporte_consumer
+    consumer = factory(tenant_ref="unit-tenant-a", service=service, enabled=True)
+    saver = InMemorySaver()
+    runner = consumer.build().compile(
+        checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-error-metric-key")
+    )
+    invoke = runner.ainvoke if entry == "compiled" else consumer.invoke
+    before = lucas_error_counts()
+    with warnings.catch_warnings(record=True) as warnings_seen, pytest.raises(error_class) as caught:
+        await invoke(values(task))
+    after = lucas_error_counts()
+    changes = {
+        label: after.get(label, 0.0) - before.get(label, 0.0)
+        for label in before.keys() | after.keys()
+        if after.get(label, 0.0) != before.get(label, 0.0)
+    }
+    assert changes == {error_type: 1.0}
+    assert caught.value is original
+    assert len(service.calls) == 1
+    assert bool(saver.storage) is (entry == "compiled")
+    samples = [
+        sample
+        for metric in get_metrics_collector().registry.collect()
+        for sample in metric.samples
+        if sample.name == "maezo_agent_errors_total" and sample.labels.get("agent") == "lucas"
+    ]
+    assert all(set(sample.labels) == {"agent", "error_type"} for sample in samples)
+    assert marker not in repr(samples) + caplog.text + repr(warnings_seen)
+    assert "unit-tenant-a" not in repr(samples)
+    assert "unit-journey-a" not in repr(samples)
+    assert error_class.__name__ not in repr(samples)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["consumer", "compiled"])
+@pytest.mark.parametrize("outcome", ["disabled", "refused", "health", "human", "invalid"])
+async def test_non_failed_graph_turn_and_rejected_input_do_not_count_errors(entry: str, outcome: str) -> None:
+    service = RecordingCapabilityService("journey.compras.step")
+    consumer = compras_consumer(tenant_ref="unit-tenant-a", service=service, enabled=outcome != "disabled")
+    saver = InMemorySaver()
+    runner = consumer.build().compile(
+        checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-non-error-metric-key")
+    )
+    invoke = runner.ainvoke if entry == "compiled" else consumer.invoke
+    initial = values()
+    if outcome == "health":
+        initial["health_priority"] = True
+    elif outcome == "human":
+        initial["human_requested"] = True
+    elif outcome == "invalid":
+        initial["clinical_body"] = "SYNTHETIC_CLINICAL_BODY_90210"
+    before = lucas_error_counts()
+    if outcome == "invalid":
+        with pytest.raises(AdministrativeInputError, match="administrative_input_contract_mismatch"):
+            await invoke(initial)
+        assert not saver.storage and not saver.blobs and not saver.writes
+    else:
+        result = await invoke(initial)
+        assert (
+            result["technical_status"]
+            == {
+                "disabled": "disabled",
+                "refused": "refused",
+                "health": "interrupted_health",
+                "human": "interrupted_human",
+            }[outcome]
+        )
+    assert lucas_error_counts() == before
+    assert len(service.calls) == (outcome == "refused")
 
 
 @pytest.mark.asyncio
@@ -740,8 +848,9 @@ async def test_parent_time_travel_coordinates_cannot_replay_child_state() -> Non
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["exception", "cancellation"])
-async def test_runnable_context_is_restored_after_child_failure(failure: str) -> None:
+@pytest.mark.parametrize("failure", ["exception", "abort", "cancellation"])
+@pytest.mark.parametrize("entry", ["consumer", "compiled"])
+async def test_runnable_context_is_restored_after_child_failure(failure: str, entry: str) -> None:
     started, stopped = asyncio.Event(), asyncio.Event()
 
     class FailingService(ContextRecordingService):
@@ -751,6 +860,8 @@ async def test_runnable_context_is_restored_after_child_failure(failure: str) ->
             try:
                 if failure == "exception":
                     raise RuntimeError("unit-service-failure")
+                if failure == "abort":
+                    raise AdministrativeAbort("unit-service-abort")
                 await asyncio.Event().wait()
                 raise AssertionError("cancelled execution resumed")
             finally:
@@ -758,25 +869,34 @@ async def test_runnable_context_is_restored_after_child_failure(failure: str) ->
 
     saver = InMemorySaver()
     service = FailingService("journey.compras.step")
-    runner = (
-        compras_consumer(tenant_ref="unit-tenant-a", service=service, enabled=True)
-        .build()
-        .compile(checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-context-failure-key"))
+    consumer = compras_consumer(tenant_ref="unit-tenant-a", service=service, enabled=True)
+    runner = consumer.build().compile(
+        checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-context-failure-key")
     )
+    invoke = runner.ainvoke if entry == "compiled" else consumer.invoke
     callbacks = ParentCallbacks()
     identity = ("unit-tenant-a", "unit-correlation-a")
 
     async def child(_: str) -> str:
         before, tracing_before = ensure_config(), get_tracing_context()
+        errors_before = lucas_error_counts()
         if failure == "exception":
             with pytest.raises(RuntimeError, match="unit-service-failure"):
-                await runner.ainvoke(values())
+                await invoke(values())
+            assert lucas_error_counts() == errors_before | {
+                "runtime": errors_before.get("runtime", 0.0) + 1.0
+            }
+        elif failure == "abort":
+            with pytest.raises(AdministrativeAbort, match="unit-service-abort"):
+                await invoke(values())
+            assert lucas_error_counts() == errors_before
         else:
-            running = asyncio.create_task(runner.ainvoke(values()))
+            running = asyncio.create_task(invoke(values()))
             await asyncio.wait_for(started.wait(), timeout=2)
             running.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await running
+            assert lucas_error_counts() == errors_before
         assert stopped.is_set()
         assert _APPLICATION_IDENTITY.get() == identity
         assert_parent_context_unchanged(before, tracing_before)
