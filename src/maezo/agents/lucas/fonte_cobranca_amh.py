@@ -39,7 +39,7 @@ class ResolvedorDeSujeito(Protocol):
     seria falar da cobranca de outra pessoa. A pergunta "de quem?" e' da conversa, nao desta fonte.
     """
 
-    async def portable_ref(self, pseudo_id: str) -> str | None: ...
+    async def portable_ref(self, pseudo_id: str, *, phone_hash: str | None) -> str | None: ...
 
 
 @runtime_checkable
@@ -75,13 +75,15 @@ class FonteCobrancaAmh:
         self._consentimento = consentimento
         self._purpose = purpose_of_use
 
-    async def fatos(self, pseudo_id: str, competencia: str | None) -> FatosCobranca | Indisponivel:
+    async def fatos(
+        self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None
+    ) -> FatosCobranca | Indisponivel:
         if not pseudo_id:
             return Indisponivel("pseudo_id_ausente")
         if competencia is not None and not competencia_valida(competencia):
             return Indisponivel("competencia_invalida")
         try:
-            ref = await self._resolvedor.portable_ref(pseudo_id)
+            ref = await self._resolvedor.portable_ref(pseudo_id, phone_hash=phone_hash)
             if not ref:
                 return Indisponivel("sujeito_nao_resolvido")
             consentimento = await self._consentimento.decisao(ref, self._purpose)

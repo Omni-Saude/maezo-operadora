@@ -171,7 +171,7 @@ class _FonteConciliada:
     """Fonte fixa: pagamento conciliado (perfil `conciliado` do corpus da onda a), para a 2a via
     cair na J1 sem depender do hash do pseudonimo que a fonte simulada usa."""
 
-    async def fatos(self, pseudo_id: str, competencia: str | None) -> Any:
+    async def fatos(self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None) -> Any:
         from maezo.agents.lucas.fonte_cobranca import FatosCobranca
 
         del pseudo_id, competencia

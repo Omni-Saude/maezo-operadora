@@ -42,7 +42,7 @@ security_zone: general                # PHI pseudonimizado (ADR-0006)
 graph: graph.py:build
 prompt_versions:                      # versionados (ADR-0009) — gate de eval no golden
   system: system-v1
-  classify: classify-v5.2             # 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
+  classify: classify-v5.3             # 01/10/2026: privacidade e armazenamento de dados sao `outside_channel`
                                      # (J09). v5.1: autorizacao NEGADA e status de guia (B07).
                                      # v5 — 22/09/2026 (CRITICO 3): O QUADRO E O PEDIDO SAO
                                      # CAMPOS DIFERENTES — `sintoma_codigo`/`intensidade`
@@ -56,7 +56,7 @@ prompt_versions:                      # versionados (ADR-0009) — gate de eval 
                                      # ("estou com dor de cabeca" nao e'
                                      # cefaleia_subita_intensa), e `intensidade` nunca e'
                                      # inferida do sintoma.
-  classify_roteador: classify-v6.1   # 02/10/2026: paragrafo de outside_channel com
+  classify_roteador: classify-v6.2   # 02/10/2026: paragrafo de outside_channel com
                                      # autorizacao negada e privacidade (DL-0063/0059). v6: onda (e) do numero unico (ADR-0062): usado SO' com o
                                      # roteador Helena -> Lucas ligado. Acrescenta a intencao
                                      # `cobranca` + `cobranca_subtipo`/`competencia` e tira

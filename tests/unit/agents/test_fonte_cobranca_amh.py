@@ -71,7 +71,7 @@ class _Resolvedor:
     def __init__(self, ref: str | None = REF, erro: BaseException | None = None) -> None:
         self.ref, self.erro = ref, erro
 
-    async def portable_ref(self, pseudo_id: str) -> str | None:
+    async def portable_ref(self, pseudo_id: str, *, phone_hash: str | None) -> str | None:
         if self.erro:
             raise self.erro
         return self.ref
