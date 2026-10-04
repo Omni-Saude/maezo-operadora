@@ -75,8 +75,9 @@ _SCANNED_ROOTS: Final[tuple[str, ...]] = ("src/maezo/agents", "src/maezo/runtime
 #: 25/09/2026: 31 — `HelenaGraph.resume` (GAP-XHITL-4, retomada pos-humano) envia pelo WhatsApp com
 #: o `try` ESTREITADO (`PROGRAMMING_ERRORS` re-levanta, `EXTERNAL_DEPENDENCY_FAILURES` vira
 #: `RetomadaEnvioFalhouError`, que o consumidor usa para NAO confirmar o offset).
-#: 04/10/2026: 32 — `HelenaGraph._caso_aberto_e_clinico` (DL-0072) le' o caso aberto da conversa no motor; a falha
-#: dessa LEITURA vira "nao e' clinico" (abre o caso clinico paralelo, o lado seguro), e erro de programacao sobe.
+#: 04/10/2026: 32 — `HelenaGraph._caso_aberto_e_clinico` (DL-0072) le' o caso aberto da conversa no
+#: motor; a falha dessa LEITURA vira "nao e' clinico" (abre o caso clinico paralelo, o lado seguro),
+#: e erro de programacao sobe.
 _SITIOS_COM_GUARDA_EXIGIDA: Final[int] = 32
 
 #: `file::simbolo` -> (quantos `except` largos aquele simbolo ainda tem, POR QUE).
