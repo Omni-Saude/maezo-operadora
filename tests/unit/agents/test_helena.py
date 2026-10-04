@@ -954,7 +954,9 @@ async def test_escalate_is_idempotent_on_active_instance() -> None:
             business_key=business_key,
             state="ACTIVE",
             already_existed=True,
-        )
+        ),
+        # O caso aberto e um alerta CLINICO: o novo alerta nao abre outro (DL-0072).
+        variables={"motivo_categoria": "red_flag_clinico"},
     )
     inference = _FakeInference(["resumo", "resposta"])
     graph = _graph(inference=inference, cibseven=cibseven)

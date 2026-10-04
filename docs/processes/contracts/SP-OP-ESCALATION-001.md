@@ -96,6 +96,21 @@ Maximo UMA instancia ativa por conversa. `mcp-cibseven.start_process` DEVE consu
 business key antes de iniciar; instancia ativa existente => retorna a existente (start
 idempotente, sem duplicar escalonamento).
 
+**Excecao ratificada (DL-0072, 04/10/2026) — caso clinico paralelo.** Um alerta clinico GRAVE
+(`motivo_categoria` = `red_flag_clinico` ou `risco_psicossocial`, `severidade` = `grave`) nunca e
+suprimido por um caso aberto de OUTRA classe na mesma conversa (por exemplo, cobranca do Lucas).
+Nesse caso a Helena abre UMA segunda instancia, sob a chave
+
+```
+ESC-{tenant_id}-{conversation_id}-clin
+```
+
+com o mesmo contrato de variaveis (o `resumo_contexto` anota que ha outro caso aberto). O caso
+original nao e cancelado nem alterado. Com um caso CLINICO ja aberto na conversa (qualquer das duas
+chaves) nao se abre outro. O `agent-resume` aceita as duas chaves como ancora da conversa
+(`runtime/caso_clinico.py::chave_e_da_conversa`); o `conversation_id` das duas instancias e o mesmo,
+entao a retomada volta para a mesma conversa. Cobranca nunca abre caso clinico.
+
 ## Variaveis de entrada
 
 | Variavel | Tipo | Obrigatoria | Descricao |
