@@ -1,0 +1,1471 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CA_UTILIZACAO" targetNamespace="http://central-atendimento/bpmn/arq01" exporter="Camunda Modeler" exporterVersion="5.36.1" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.24.0">
+  <bpmn:collaboration id="Collaboration_CA_UTILIZACAO" name="Central de Atendimento — 2 · UTILIZAÇÃO">
+    <bpmn:documentation>UTILIZAÇÃO cobre preparo, entrega, acompanhamento e liquidação, com cancelamento e evento clínico como sub-processos de evento em planos de diagrama próprios. As nove interseções de coordenadas entre planos são conhecidas e mantidas (avaliação visual original não reproduzida); regenerar apenas o plano principal quando houver novos elementos.</bpmn:documentation>
+    <bpmn:participant id="Participant_Cliente" name="Cliente — necessidade · visão · intenção"/>
+    <bpmn:participant id="Participant_CompraSup" name="Macroprocessos COMPRA · SUPORTE"/>
+    <bpmn:participant id="Participant_CA_UTILIZACAO" name="UTILIZAÇÃO — Receber o cuidado contratado" processRef="Process_CA_UTILIZACAO"/>
+    <bpmn:participant id="Participant_Prestador" name="Prestador / Hospital"/>
+    <bpmn:participant id="Participant_CA_UTILIZACAO_U1_Preparar" name="U1 — Preparar o consumo" processRef="Process_CA_UTILIZACAO_U1_Preparar"/>
+    <bpmn:participant id="Participant_CA_UTILIZACAO_U2_Receber" name="U2 — Receber o cuidado" processRef="Process_CA_UTILIZACAO_U2_Receber"/>
+    <bpmn:participant id="Participant_CA_UTILIZACAO_U3_Acompanhar" name="U3 — Acompanhar o resultado" processRef="Process_CA_UTILIZACAO_U3_Acompanhar"/>
+    <bpmn:participant id="Participant_CA_UTILIZACAO_U4_LiquidarAvaliar" name="U4 — Liquidar e avaliar o consumo" processRef="Process_CA_UTILIZACAO_U4_LiquidarAvaliar"/>
+    <bpmn:messageFlow id="MF_UT_01" name="T-01 Direito habilitado" sourceRef="Participant_CompraSup" targetRef="UT_Start"/>
+    <bpmn:messageFlow id="MF_UT_02" name="T-02 No-show" sourceRef="UT_End_NoShow" targetRef="Participant_CompraSup"/>
+    <bpmn:messageFlow id="MF_UT_03" name="T-05 SLA violado" sourceRef="UT_End_SLA" targetRef="Participant_CompraSup"/>
+    <bpmn:messageFlow id="MF_UT_04" name="T-04 Insatisfação" sourceRef="UT_End_Insatisfeito" targetRef="Participant_CompraSup"/>
+    <bpmn:messageFlow id="MF_UT_06" sourceRef="Participant_Cliente" targetRef="UT_ES_Cancelamento"/>
+    <bpmn:messageFlow id="MF_UT_07" sourceRef="Participant_Prestador" targetRef="UT_ES_EventoClinico"/>
+    <bpmn:messageFlow id="MF_UT_08" name="Chegada do cliente" sourceRef="Participant_Prestador" targetRef="U2_EV_Chegou"/>
+    <bpmn:messageFlow id="MF_UT_09" name="Serviço realizado" sourceRef="Participant_Prestador" targetRef="U2_T_Aguardar"/>
+    <bpmn:messageFlow id="MF_UT_10" name="Resultado disponível" sourceRef="Participant_Prestador" targetRef="U3_T_Aguardar"/>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_CA_UTILIZACAO" name="UTILIZAÇÃO — Receber o cuidado contratado" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Macroprocesso 2 (ARQ-01 §5). Entrada: direito habilitado (T-01). Resultado: cuidado realizado, resultado entregue, consumo encerrado e avaliado. Variantes: requerPreparo, geraResultado, statusEntrega. Journey ID = business key (correlaciona cancelamentos e eventos clínicos).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_UTILIZACAO">
+      <bpmn:lane id="LN_CA2_UTILIZACAO_AgendamentoAutorizacao" name="Agendamento e autorização">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.12 · Ref: UT_CA_U1</bpmn:documentation>
+        <bpmn:flowNodeRef>UT_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_CA_U1</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA2_UTILIZACAO_EquipeAssistencial" name="Equipe assistencial (prestador)">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.13 · Ref: UT_CA_U2</bpmn:documentation>
+        <bpmn:flowNodeRef>UT_CA_U2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_B_SLA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_End_SLA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_GW_Status</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_End_NoShow</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA2_UTILIZACAO_AcompanhamentoCuidado" name="Acompanhamento e gestão de cuidado">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.14 · Ref: UT_CA_U3</bpmn:documentation>
+        <bpmn:flowNodeRef>UT_CA_U3</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA2_UTILIZACAO_LiquidacaoAuditoria" name="Liquidação e auditoria de contas">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.15 · Ref: UT_CA_U4</bpmn:documentation>
+        <bpmn:flowNodeRef>UT_CA_U4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_GW_Satisfacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_End_Encerrado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>UT_End_Insatisfeito</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA2_UTILIZACAO_EquipeClinicaUrgencia" name="Equipe clínica e urgência">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.17 · Ref: UT_ES_EventoClinico</bpmn:documentation>
+        <bpmn:flowNodeRef>UT_ES_EventoClinico</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA2_UTILIZACAO_AtendenteSuporte" name="Atendente de suporte">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.16 · Ref: UT_ES_Cancelamento</bpmn:documentation>
+        <bpmn:flowNodeRef>UT_ES_Cancelamento</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="UT_Start" name="Direito habilitado">
+      <bpmn:documentation>EV-U01 (T-01). Payload: clienteId, agendamentoId, autorizacaoId, dataHoraServico, dataLembrete, limiteNoShow, geraResultado, promessaResultado. | Origem: ES_Start + M2_EV_MarcoAutorizado</bpmn:documentation>
+      <bpmn:outgoing>F_CA_UTILIZACAO_01</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_DireitoHabilitado"/>
+    </bpmn:startEvent>
+    <bpmn:callActivity id="UT_CA_U1" name="Preparar o consumo" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U1_Preparar">
+      <bpmn:documentation>Origem: ARQ-01 U1</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="requerPreparo" target="requerPreparo"/>
+        <camunda:out source="marcoJornada" target="marcoJornada"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_02</bpmn:outgoing>
+      <bpmn:property id="Property_UT_CA_U1_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_022_1">
+        <bpmn:sourceRef>DOR_INS_022_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_CA_U1_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:dataInputAssociation id="DIA_INS_023_1">
+        <bpmn:sourceRef>DSR_INS_023_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_CA_U1_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="UT_CA_U2" name="Receber o cuidado" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U2_Receber">
+      <bpmn:documentation>Origem: ARQ-01 U2</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:out source="statusEntrega" target="statusEntrega"/>
+        <camunda:out source="marcoJornada" target="marcoJornada"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_03</bpmn:outgoing>
+      <bpmn:property id="Property_UT_CA_U2_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_024_1">
+        <bpmn:sourceRef>DOR_INS_024_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_CA_U2_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:boundaryEvent id="UT_B_SLA" name="SLA de entrega violado" cancelActivity="false" attachedToRef="UT_CA_U2">
+      <bpmn:documentation>Origem: M2_Boundary_Escalacao</bpmn:documentation>
+      <bpmn:outgoing>F_CA_UTILIZACAO_04</bpmn:outgoing>
+      <bpmn:escalationEventDefinition escalationRef="Escalation_CA_SLAEntrega"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="UT_End_SLA" name="Escalado ao SUPORTE">
+      <bpmn:documentation>T-05 → SUPORTE (não interrompe a entrega). | Origem: ES_EV_EscalarSLA → M2_T_Escalar</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="transicao">T-05</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_04</bpmn:incoming>
+      <bpmn:messageEventDefinition messageRef="Message_CA_SLAEntregaViolado" camunda:delegateExpression="${journeyTransitionPublisher}"/>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="UT_GW_Status" name="Desfecho da entrega?" default="F_CA_UTILIZACAO_06">
+      <bpmn:documentation>Regra: serviço realizado segue para acompanhamento e liquidação; não realizado registra no-show e libera o slot — dono: Equipe assistencial (prestador) | Origem: M2_GW_JoinEntrega</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_05</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_UTILIZACAO_06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="UT_End_NoShow" name="Consumo não realizado — no-show">
+      <bpmn:documentation>T-02 → COMPRA C4 (remarcação proativa). | Origem: ES_End_NoShow → M2_T_Reagendar</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="transicao">T-02</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_06</bpmn:incoming>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ConsumoNaoRealizado" camunda:delegateExpression="${journeyTransitionPublisher}"/>
+    </bpmn:endEvent>
+    <bpmn:callActivity id="UT_CA_U3" name="Acompanhar o resultado" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U3_Acompanhar">
+      <bpmn:documentation>Origem: ARQ-01 U3</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="geraResultado" target="geraResultado"/>
+        <camunda:out source="marcoJornada" target="marcoJornada"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_07</bpmn:outgoing>
+      <bpmn:property id="Property_UT_CA_U3_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_025_1">
+        <bpmn:sourceRef>DOR_INS_025_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_CA_U3_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="UT_CA_U4" name="Liquidar e avaliar o consumo" camunda:asyncBefore="true" calledElement="Process_CA_UTILIZACAO_U4_LiquidarAvaliar">
+      <bpmn:documentation>Origem: ARQ-01 U4 | Pendência: confirmar com a equipe quem produz experienciaSatisfatoria/npsScore (documentação da tarefa de pesquisa afirma; nenhum produtor declarado no modelo).</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="proximaAcaoIndicada" target="proximaAcaoIndicada"/>
+        <camunda:out source="transicao" target="transicao"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_07</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_08</bpmn:outgoing>
+      <bpmn:property id="Property_UT_CA_U4_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_026_1">
+        <bpmn:sourceRef>DOR_INS_026_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_CA_U4_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:exclusiveGateway id="UT_GW_Satisfacao" name="Experiência satisfatória?" default="F_CA_UTILIZACAO_09">
+      <bpmn:documentation>Regra: experiência insatisfatória encaminha ao suporte com o contexto do consumo — dono: Liquidação e auditoria de contas | Origem: M2_GW_Satisfaction</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_09</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_UTILIZACAO_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="UT_End_Encerrado" name="Consumo encerrado">
+      <bpmn:documentation>Dados alimentam H3 (reward da NBA = adesão real). | Origem: M2_End_OK</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="tipoEventoNegocio">SERVICO_ENTREGUE</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_09</bpmn:incoming>
+      <bpmn:messageEventDefinition messageRef="Message_CA_EventoNegocio" camunda:delegateExpression="${businessEventPublisher}"/>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="UT_End_Insatisfeito" name="Experiência insatisfatória">
+      <bpmn:documentation>T-04 → SUPORTE (service recovery). | Origem: M2_EV_ServiceRecovery</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="transicao">T-04</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_10</bpmn:incoming>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ExperienciaInsatisfatoria" camunda:delegateExpression="${journeyTransitionPublisher}"/>
+    </bpmn:endEvent>
+    <bpmn:subProcess id="UT_ES_Cancelamento" name="Cancelamentos durante o consumo" triggeredByEvent="true">
+      <bpmn:documentation>Origem: ES_Sub_Cancelamento</bpmn:documentation>
+      <bpmn:property id="Property_UT_ES_Cancelamento_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_027_1">
+        <bpmn:sourceRef>DOR_INS_027_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_ES_Cancelamento_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:startEvent id="UT_ES_Start_CancCliente" name="Cliente cancelou">
+        <bpmn:documentation>Origem: ES_Start_CancelCliente</bpmn:documentation>
+        <bpmn:extensionElements>
+          <camunda:executionListener expression="${execution.setVariable('statusEntrega', 'CANCELADO_CLIENTE')}" event="start"/>
+        </bpmn:extensionElements>
+        <bpmn:outgoing>UT_ES_F1</bpmn:outgoing>
+        <bpmn:messageEventDefinition messageRef="Message_CA_CancelamentoCliente"/>
+      </bpmn:startEvent>
+      <bpmn:endEvent id="UT_ES_End_CancCliente" name="Consumo cancelado pelo cliente">
+        <bpmn:documentation>T-03 → COMPRA C4. | Origem: ES_End_CancelCliente</bpmn:documentation>
+        <bpmn:extensionElements>
+          <camunda:inputOutput>
+            <camunda:inputParameter name="transicao">T-03</camunda:inputParameter>
+          </camunda:inputOutput>
+        </bpmn:extensionElements>
+        <bpmn:incoming>UT_ES_F1</bpmn:incoming>
+        <bpmn:messageEventDefinition messageRef="Message_CA_ConsumoNaoRealizado" camunda:delegateExpression="${journeyTransitionPublisher}"/>
+      </bpmn:endEvent>
+      <bpmn:startEvent id="UT_ES_Start_CancPrestador" name="Prestador cancelou">
+        <bpmn:documentation>Origem: ES_Start_CancelPrestador</bpmn:documentation>
+        <bpmn:extensionElements>
+          <camunda:executionListener expression="${execution.setVariable('statusEntrega', 'CANCELADO_PRESTADOR')}" event="start"/>
+        </bpmn:extensionElements>
+        <bpmn:outgoing>UT_ES_F2</bpmn:outgoing>
+        <bpmn:messageEventDefinition messageRef="Message_CA_CancelamentoPrestador"/>
+      </bpmn:startEvent>
+      <bpmn:endEvent id="UT_ES_End_CancPrestador" name="Consumo cancelado pelo prestador">
+        <bpmn:documentation>T-02 → COMPRA C4 (remarcação automática). | Origem: ES_End_CancelPrestador</bpmn:documentation>
+        <bpmn:extensionElements>
+          <camunda:inputOutput>
+            <camunda:inputParameter name="transicao">T-02</camunda:inputParameter>
+          </camunda:inputOutput>
+        </bpmn:extensionElements>
+        <bpmn:incoming>UT_ES_F2</bpmn:incoming>
+        <bpmn:messageEventDefinition messageRef="Message_CA_ConsumoNaoRealizado" camunda:delegateExpression="${journeyTransitionPublisher}"/>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="UT_ES_F1" sourceRef="UT_ES_Start_CancCliente" targetRef="UT_ES_End_CancCliente"/>
+      <bpmn:sequenceFlow id="UT_ES_F2" sourceRef="UT_ES_Start_CancPrestador" targetRef="UT_ES_End_CancPrestador"/>
+    </bpmn:subProcess>
+    <bpmn:subProcess id="UT_ES_EventoClinico" name="Eventos clínicos durante o consumo" triggeredByEvent="true">
+      <bpmn:documentation>Origem: M3_Start_EventoClinico</bpmn:documentation>
+      <bpmn:property id="Property_UT_ES_EventoClinico_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_028_1">
+        <bpmn:sourceRef>DOR_INS_028_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_ES_EventoClinico_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:dataInputAssociation id="DIA_INS_029_1">
+        <bpmn:sourceRef>DOR_INS_029_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_UT_ES_EventoClinico_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:startEvent id="UT_EC_Start" name="Evento clínico relevante" isInterrupting="false">
+        <bpmn:documentation>EV-U02. Mensagem do hospital/prestador. Payload: evento, urgenciaSugerida. Correlacionada pelo Journey ID (FR-03). | Origem: M3_Start_EventoClinico</bpmn:documentation>
+        <bpmn:outgoing>sub_clin_01</bpmn:outgoing>
+        <bpmn:messageEventDefinition messageRef="Message_CA_EventoClinico"/>
+      </bpmn:startEvent>
+      <bpmn:intermediateThrowEvent id="UT_EC_Comunicar" name="Informar evento clínico ao cliente">
+        <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: EVENTO_CLINICO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: M3_F01 → M3_T_Classificar</bpmn:documentation>
+        <bpmn:extensionElements>
+          <camunda:inputOutput>
+            <camunda:inputParameter name="marcoJornada">EVENTO_CLINICO</camunda:inputParameter>
+          </camunda:inputOutput>
+        </bpmn:extensionElements>
+        <bpmn:incoming>sub_clin_01</bpmn:incoming>
+        <bpmn:outgoing>sub_clin_02</bpmn:outgoing>
+        <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+      </bpmn:intermediateThrowEvent>
+      <bpmn:endEvent id="UT_EC_End" name="Cliente informado">
+        <bpmn:incoming>sub_clin_02</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="sub_clin_01" sourceRef="UT_EC_Start" targetRef="UT_EC_Comunicar"/>
+      <bpmn:sequenceFlow id="sub_clin_02" sourceRef="UT_EC_Comunicar" targetRef="UT_EC_End"/>
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_01" sourceRef="UT_Start" targetRef="UT_CA_U1"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_02" sourceRef="UT_CA_U1" targetRef="UT_CA_U2"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_03" sourceRef="UT_CA_U2" targetRef="UT_GW_Status"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_04" sourceRef="UT_B_SLA" targetRef="UT_End_SLA"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_05" name="Realizado" sourceRef="UT_GW_Status" targetRef="UT_CA_U3">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${statusEntrega == "REALIZADO"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_06" name="No-show" sourceRef="UT_GW_Status" targetRef="UT_End_NoShow"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_07" sourceRef="UT_CA_U3" targetRef="UT_CA_U4"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_08" sourceRef="UT_CA_U4" targetRef="UT_GW_Satisfacao"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_09" name="Sim / sem resposta" sourceRef="UT_GW_Satisfacao" targetRef="UT_End_Encerrado"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_10" name="Não" sourceRef="UT_GW_Satisfacao" targetRef="UT_End_Insatisfeito">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable("experienciaSatisfatoria") == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:dataObject id="DO_INS_022_1" name="Guia/autorização">
+      <bpmn:documentation>Insumo INS-022 · Origem: SUB-01 §2.12 Insumo (JIT); SUB-01 §2.12 · coluna Subprocesso genérico; SUB-01 §2.12 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_022_1" name="Guia/autorização" dataObjectRef="DO_INS_022_1">
+      <bpmn:documentation>Insumo INS-022 · Origem: SUB-01 §2.12 Insumo (JIT); SUB-01 §2.12 · coluna Subprocesso genérico; SUB-01 §2.12 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataStoreReference id="DSR_INS_023_1" name="Dados da rede credenciada" dataStoreRef="DS_INS_023">
+      <bpmn:documentation>Insumo INS-023 · Origem: SUB-01 §2.12 Insumo (JIT); SUB-01 §2.12 · coluna Subprocesso genérico</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataObject id="DO_INS_024_1" name="Recursos assistenciais (materiais/insumos clínicos)">
+      <bpmn:documentation>Insumo INS-024 · Origem: SUB-01 §2.13 Insumo (JIT); SUB-01 §2.13 · coluna Subprocesso genérico; SUB-01 §2.13 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_024_1" name="Recursos assistenciais (materiais/insumos clínicos)" dataObjectRef="DO_INS_024_1">
+      <bpmn:documentation>Insumo INS-024 · Origem: SUB-01 §2.13 Insumo (JIT); SUB-01 §2.13 · coluna Subprocesso genérico; SUB-01 §2.13 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_INS_025_1" name="Registro do atendimento realizado (dados clínicos)">
+      <bpmn:documentation>Insumo INS-025 · Origem: SUB-01 §2.14 Insumo (JIT); SUB-01 §2.14 · coluna Subprocesso genérico; SUB-01 §2.14 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_025_1" name="Registro do atendimento realizado (dados clínicos)" dataObjectRef="DO_INS_025_1">
+      <bpmn:documentation>Insumo INS-025 · Origem: SUB-01 §2.14 Insumo (JIT); SUB-01 §2.14 · coluna Subprocesso genérico; SUB-01 §2.14 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_INS_026_1" name="Dados de faturamento/glosa do prestador">
+      <bpmn:documentation>Insumo INS-026 · Origem: SUB-01 §2.15 Insumo (JIT); SUB-01 §2.15 · coluna Subprocesso genérico; SUB-01 §2.15 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_026_1" name="Dados de faturamento/glosa do prestador" dataObjectRef="DO_INS_026_1">
+      <bpmn:documentation>Insumo INS-026 · Origem: SUB-01 §2.15 Insumo (JIT); SUB-01 §2.15 · coluna Subprocesso genérico; SUB-01 §2.15 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_INS_027_1" name="Dados do agendamento vigente (agendamento/guia a cancelar)">
+      <bpmn:documentation>Insumo INS-027 · Origem: SUB-01 §2.16 Insumo (JIT); SUB-01 §2.16 · coluna Subprocesso genérico; SUB-01 §2.16 · coluna Entrada ⚠️ AMBIGUIDADE — UT_ES_Cancelamento é subprocesso de evento (triggeredByEvent) com elementos aninhados; associação de entrada ao próprio subprocesso segue o mapeamento caixa → elemento do SUB-01 §1. Alternativa: entrada nos eventos de fim internos (UT_ES_End_CancCliente, UT_ES_End_CancPrestador).</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_027_1" name="Dados do agendamento vigente (agendamento/guia a cancelar)" dataObjectRef="DO_INS_027_1">
+      <bpmn:documentation>Insumo INS-027 · Origem: SUB-01 §2.16 Insumo (JIT); SUB-01 §2.16 · coluna Subprocesso genérico; SUB-01 §2.16 · coluna Entrada ⚠️ AMBIGUIDADE — UT_ES_Cancelamento é subprocesso de evento (triggeredByEvent) com elementos aninhados; associação de entrada ao próprio subprocesso segue o mapeamento caixa → elemento do SUB-01 §1. Alternativa: entrada nos eventos de fim internos (UT_ES_End_CancCliente, UT_ES_End_CancPrestador).</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_INS_028_1" name="Protocolo clínico de contingência">
+      <bpmn:documentation>Insumo INS-028 · Origem: SUB-01 §2.17 Insumo (JIT); SUB-01 §2.17 · coluna Subprocesso genérico; SUB-01 §2.17 · coluna Observação ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia (documento de protocolo × repositório de protocolos) e conteúdo do protocolo pendente na origem (SUB-01 §2.17). Alvo é subprocesso de evento (triggeredByEvent); alternativa de alvo: evento interno UT_EC_Comunicar ou UT_EC_End. Modelado como DO ligado ao subprocesso.</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_028_1" name="Protocolo clínico de contingência" dataObjectRef="DO_INS_028_1">
+      <bpmn:documentation>Insumo INS-028 · Origem: SUB-01 §2.17 Insumo (JIT); SUB-01 §2.17 · coluna Subprocesso genérico; SUB-01 §2.17 · coluna Observação ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia (documento de protocolo × repositório de protocolos) e conteúdo do protocolo pendente na origem (SUB-01 §2.17). Alvo é subprocesso de evento (triggeredByEvent); alternativa de alvo: evento interno UT_EC_Comunicar ou UT_EC_End. Modelado como DO ligado ao subprocesso.</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_INS_029_1" name="Dados do caso em andamento">
+      <bpmn:documentation>Insumo INS-029 · Origem: SUB-01 §2.17 Insumo (JIT); SUB-01 §2.17 · coluna Subprocesso genérico; SUB-01 §2.17 · coluna Entrada ⚠️ AMBIGUIDADE — Alvo é subprocesso de evento (triggeredByEvent) com elementos aninhados; associação ao próprio subprocesso segue SUB-01 §1. Alternativa: saída do evento de início interno UT_EC_Start (mensagem do hospital/prestador com payload do evento).</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_029_1" name="Dados do caso em andamento" dataObjectRef="DO_INS_029_1">
+      <bpmn:documentation>Insumo INS-029 · Origem: SUB-01 §2.17 Insumo (JIT); SUB-01 §2.17 · coluna Subprocesso genérico; SUB-01 §2.17 · coluna Entrada ⚠️ AMBIGUIDADE — Alvo é subprocesso de evento (triggeredByEvent) com elementos aninhados; associação ao próprio subprocesso segue SUB-01 §1. Alternativa: saída do evento de início interno UT_EC_Start (mensagem do hospital/prestador com payload do evento).</bpmn:documentation>
+    </bpmn:dataObjectReference>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_UTILIZACAO_U1_Preparar" name="U1 — Preparar o consumo" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Cliente chega pronto: preparo (jejum, medicação, documentos), escolha/confirmação de profissional, wayfinding.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_UTILIZACAO_U1_Preparar">
+      <bpmn:lane id="LN_CA2_U1_AgendamentoAutorizacao" name="Agendamento e autorização">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.12 · Ref: UT_CA_U1</bpmn:documentation>
+        <bpmn:flowNodeRef>U1_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_GW_Preparo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_T_CheckIn</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_B_Lembrete</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_EV_Lembrete</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_End_Lembrete</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_B_DiaServico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_GW_Merge</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_EV_Pronto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U1_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="U1_Start" name="Consumo a preparar">
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="U1_GW_Preparo" name="Requer preparo/check-in?" default="F_CA_UTILIZACAO_U1_Preparar_02">
+      <bpmn:documentation>Variante requerPreparo proposta na ARQ-01 (a origem executa o preparo sempre). Regra: exigir preparo/check-in somente quando o serviço requer; caso contrário, seguir direto — dono: Agendamento e autorização | Origem: [SEM ORIGEM] — ARQ-01 GW-U01</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_02</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_03</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="U1_T_CheckIn" name="Fazer check-in digital e preparo" camunda:formKey="ced:checkin-preparo" camunda:assignee="${clienteId}">
+      <bpmn:documentation>Origem: ES_T_CheckIn</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_04</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="U1_B_Lembrete" name="Lembrete D-1" cancelActivity="false" attachedToRef="U1_T_CheckIn">
+      <bpmn:documentation>Origem: ES_Boundary_Lembrete</bpmn:documentation>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_06</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${dataLembrete}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:intermediateThrowEvent id="U1_EV_Lembrete" name="Marco: lembrete de preparo">
+      <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: LEMBRETE_PREPARO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: ES_EV_Lembrete</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">LEMBRETE_PREPARO</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_07</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="U1_End_Lembrete" name="Lembrete enviado">
+      <bpmn:documentation>Origem: ES_End_Lembrete</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_07</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="U1_B_DiaServico" name="Dia do serviço" attachedToRef="U1_T_CheckIn">
+      <bpmn:documentation>Origem: ES_Boundary_SemCheckin</bpmn:documentation>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_05</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${dataHoraServico}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:exclusiveGateway id="U1_GW_Merge" name="">
+      <bpmn:documentation>Origem: ES_GW_MergeCheckin</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_03</bpmn:incoming>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_04</bpmn:incoming>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateThrowEvent id="U1_EV_Pronto" name="Marco: pronto para o serviço">
+      <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: PREPARADO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: ES_EV_MarcoPreparado</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">PREPARADO</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U1_Preparar_09</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="U1_End" name="Cliente preparado">
+      <bpmn:incoming>F_CA_UTILIZACAO_U1_Preparar_09</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_01" sourceRef="U1_Start" targetRef="U1_GW_Preparo"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_02" name="Sim" sourceRef="U1_GW_Preparo" targetRef="U1_T_CheckIn"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_03" name="Não" sourceRef="U1_GW_Preparo" targetRef="U1_GW_Merge">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable("requerPreparo") == false}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_04" sourceRef="U1_T_CheckIn" targetRef="U1_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_05" sourceRef="U1_B_DiaServico" targetRef="U1_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_06" sourceRef="U1_B_Lembrete" targetRef="U1_EV_Lembrete"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_07" sourceRef="U1_EV_Lembrete" targetRef="U1_End_Lembrete"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_08" sourceRef="U1_GW_Merge" targetRef="U1_EV_Pronto"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U1_Preparar_09" sourceRef="U1_EV_Pronto" targetRef="U1_End"/>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_UTILIZACAO_U2_Receber" name="U2 — Receber o cuidado" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Realizar o cuidado no dia e hora prometidos. Saída: statusEntrega ∈ {REALIZADO, NO_SHOW}; cancelamentos são tratados pelo subprocesso de evento do processo principal.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_UTILIZACAO_U2_Receber">
+      <bpmn:lane id="LN_CA2_U2_EquipeAssistencial" name="Equipe assistencial (prestador)">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.13 · Ref: UT_CA_U2</bpmn:documentation>
+        <bpmn:flowNodeRef>U2_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_GW_Chegada</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_EV_Chegou</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_EV_EmAtendimento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_T_Aguardar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_B_SLA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_EV_Escalar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_End_Escalado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_EV_Realizado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_End_Realizado</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA2_U2_AgendaCapacidade" name="Agenda e capacidade">
+        <bpmn:documentation>Dimensão: Slot · Origem: SUB-01 §2.13 e §3 · Ref: UT_CA_U2, UT_CA_U1</bpmn:documentation>
+        <bpmn:flowNodeRef>U2_EV_NoShow</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_T_NoShow</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U2_End_NoShow</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="U2_Start" name="Cliente preparado">
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:eventBasedGateway id="U2_GW_Chegada" name="Aguardar chegada">
+      <bpmn:documentation>Origem: ES_GW_Chegada</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_02</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_03</bpmn:outgoing>
+    </bpmn:eventBasedGateway>
+    <bpmn:intermediateCatchEvent id="U2_EV_Chegou" name="Cliente chegou">
+      <bpmn:documentation>Mensagem do prestador. | Origem: ES_EV_Chegou</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_06</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ChegadaCliente"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:intermediateCatchEvent id="U2_EV_NoShow" name="Limite de no-show atingido">
+      <bpmn:documentation>Calculado pelo scheduling (D+1h). | Origem: ES_EV_NoShow</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_04</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${limiteNoShow}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:serviceTask id="U2_T_NoShow" name="Registrar no-show e liberar slot" camunda:delegateExpression="${noShowRecorder}">
+      <bpmn:documentation>Origem: ES_T_RegistrarNoShow</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="U2_End_NoShow" name="No-show">
+      <bpmn:documentation>Origem: ES_End_NoShow</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('statusEntrega', 'NO_SHOW')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_05</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:intermediateThrowEvent id="U2_EV_EmAtendimento" name="Marco: em atendimento">
+      <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: EM_ATENDIMENTO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: ES_EV_MarcoEmAtendimento</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">EM_ATENDIMENTO</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_07</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:receiveTask id="U2_T_Aguardar" name="Aguardar realização do serviço" messageRef="Message_CA_ServicoRealizado">
+      <bpmn:documentation>Origem: ES_T_AguardarRealizacao</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_07</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_08</bpmn:outgoing>
+    </bpmn:receiveTask>
+    <bpmn:boundaryEvent id="U2_B_SLA" name="SLA 2h estourado" cancelActivity="false" attachedToRef="U2_T_Aguardar">
+      <bpmn:documentation>Origem: ES_Boundary_SLA</bpmn:documentation>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_10</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:intermediateThrowEvent id="U2_EV_Escalar" name="Escalar SLA de entrega">
+      <bpmn:documentation>Escalação factual: SLA violado ACONTECEU no instante do evento. | Origem: ES_EV_EscalarSLA</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_11</bpmn:outgoing>
+      <bpmn:escalationEventDefinition escalationRef="Escalation_CA_SLAEntrega"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="U2_End_Escalado" name="Escalação registrada">
+      <bpmn:documentation>Origem: ES_End_Escalado</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_11</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:intermediateThrowEvent id="U2_EV_Realizado" name="Marco: realizado">
+      <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: REALIZADO. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: M2_EV_MarcoRealizado</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">REALIZADO</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U2_Receber_09</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="U2_End_Realizado" name="Serviço realizado">
+      <bpmn:documentation>Origem: ES_End_Realizado</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('statusEntrega', 'REALIZADO')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U2_Receber_09</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_01" sourceRef="U2_Start" targetRef="U2_GW_Chegada"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_02" sourceRef="U2_GW_Chegada" targetRef="U2_EV_Chegou"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_03" sourceRef="U2_GW_Chegada" targetRef="U2_EV_NoShow"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_04" sourceRef="U2_EV_NoShow" targetRef="U2_T_NoShow"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_05" sourceRef="U2_T_NoShow" targetRef="U2_End_NoShow"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_06" sourceRef="U2_EV_Chegou" targetRef="U2_EV_EmAtendimento"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_07" sourceRef="U2_EV_EmAtendimento" targetRef="U2_T_Aguardar"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_08" sourceRef="U2_T_Aguardar" targetRef="U2_EV_Realizado"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_09" sourceRef="U2_EV_Realizado" targetRef="U2_End_Realizado"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_10" sourceRef="U2_B_SLA" targetRef="U2_EV_Escalar"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U2_Receber_11" sourceRef="U2_EV_Escalar" targetRef="U2_End_Escalado"/>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_UTILIZACAO_U3_Acompanhar" name="U3 — Acompanhar o resultado" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Manter o cliente informado até o resultado, avisando antes de qualquer atraso.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_UTILIZACAO_U3_Acompanhar">
+      <bpmn:lane id="LN_CA2_U3_AcompanhamentoCuidado" name="Acompanhamento e gestão de cuidado">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.14 · Ref: UT_CA_U3</bpmn:documentation>
+        <bpmn:flowNodeRef>U3_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_GW_Resultado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_T_Aguardar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_B_Atraso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_EV_Atraso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_End_Atraso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_EV_Resultado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_GW_Merge</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U3_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="U3_Start" name="Serviço realizado">
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="U3_GW_Resultado" name="Serviço gera resultado/laudo?" default="F_CA_UTILIZACAO_U3_Acompanhar_03">
+      <bpmn:documentation>Regra: serviço com resultado ou laudo entra em acompanhamento de prazo; demais encerram — dono: Acompanhamento e gestão de cuidado | Origem: ES_GW_Resultado</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_02</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_03</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:receiveTask id="U3_T_Aguardar" name="Aguardar liberação do resultado" messageRef="Message_CA_ResultadoDisponivel">
+      <bpmn:documentation>Origem: ES_T_AguardarResultado</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_04</bpmn:outgoing>
+    </bpmn:receiveTask>
+    <bpmn:boundaryEvent id="U3_B_Atraso" name="Prazo em risco" cancelActivity="false" attachedToRef="U3_T_Aguardar">
+      <bpmn:documentation>Origem: ES_Boundary_AtrasoPredito</bpmn:documentation>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_07</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${prazoResultadoAlerta}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:intermediateThrowEvent id="U3_EV_Atraso" name="Marco: atraso predito">
+      <bpmn:documentation>Nova estimativa comunicada antes do atraso. Predição (previsão de atraso): antecipa o que PODE acontecer — distinto de marco factual. | Origem: ES_EV_AtrasoPredito</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">ATRASO_PREDITO</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_07</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_08</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="U3_End_Atraso" name="Cliente avisado antes do atraso">
+      <bpmn:documentation>Origem: ES_End_AtrasoPredito</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_08</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:intermediateThrowEvent id="U3_EV_Resultado" name="Marco: resultado disponível">
+      <bpmn:documentation>Aciona H2 (Comunicar o cliente) com o Journey ID. Marco: RESULTADO_DISPONIVEL. Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: ES_EV_MarcoResultado</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">RESULTADO_DISPONIVEL</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_05</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:exclusiveGateway id="U3_GW_Merge" name="">
+      <bpmn:documentation>Origem: ES_GW_MergeFim</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_03</bpmn:incoming>
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U3_Acompanhar_06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="U3_End" name="Acompanhamento concluído">
+      <bpmn:incoming>F_CA_UTILIZACAO_U3_Acompanhar_06</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_01" sourceRef="U3_Start" targetRef="U3_GW_Resultado"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_02" name="Sim" sourceRef="U3_GW_Resultado" targetRef="U3_T_Aguardar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${geraResultado == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_03" name="Não" sourceRef="U3_GW_Resultado" targetRef="U3_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_04" sourceRef="U3_T_Aguardar" targetRef="U3_EV_Resultado"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_05" sourceRef="U3_EV_Resultado" targetRef="U3_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_06" sourceRef="U3_GW_Merge" targetRef="U3_End"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_07" sourceRef="U3_B_Atraso" targetRef="U3_EV_Atraso"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U3_Acompanhar_08" sourceRef="U3_EV_Atraso" targetRef="U3_End_Atraso"/>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_UTILIZACAO_U4_LiquidarAvaliar" name="U4 — Liquidar e avaliar o consumo" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Encerrar o consumo: desfecho clínico ‖ avaliação da experiência; depois a liquidação. ⚠️ LA-02: liquidação financeira sem elemento de origem.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_UTILIZACAO_U4_LiquidarAvaliar">
+      <bpmn:lane id="LN_CA2_U4_LiquidacaoAuditoria" name="Liquidação e auditoria de contas">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.15 · Ref: UT_CA_U4</bpmn:documentation>
+        <bpmn:flowNodeRef>U4_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_GW_Split</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_T_Pesquisa</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_B_Pesquisa</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_GW_Join</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_T_Liquidar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_End</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_GW_EscapePesquisa</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA2_U4_AcompanhamentoCuidado" name="Acompanhamento e gestão de cuidado">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.14 · Ref: UT_CA_U3</bpmn:documentation>
+        <bpmn:flowNodeRef>U4_T_Desfecho</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_GW_ProxAcao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_EV_ProxAcao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>U4_GW_MergeProx</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="U4_Start" name="Consumo a encerrar">
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:parallelGateway id="U4_GW_Split" name="">
+      <bpmn:documentation>Origem: M2_GW_Pos</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_02</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_03</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:serviceTask id="U4_T_Desfecho" name="Registrar desfecho e próxima ação clínica" camunda:asyncBefore="true" camunda:delegateExpression="${careOutcomeRecorder}">
+      <bpmn:documentation>Fecha o reward da NBA (adesão real) e alimenta prontuário/perfil 360. | Origem: M2_T_DesfechoClinico</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="U4_GW_ProxAcao" name="Próxima ação clínica indicada?" default="F_CA_UTILIZACAO_U4_LiquidarAvaliar_06">
+      <bpmn:documentation>Regra: próxima ação clínica indicada gera nova necessidade de cuidado; caso contrário, o consumo encerra — dono: Acompanhamento e gestão de cuidado | Origem: [SEM ORIGEM] — ARQ-01 T-06 (PD-05)</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_05</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateThrowEvent id="U4_EV_ProxAcao" name="Nova necessidade de cuidado">
+      <bpmn:documentation>T-06 → COMPRA C1 (proposto — PD-05). Marco factual: registra o que ACONTECEU com o cliente, não estimativa nem previsão. | Origem: [SEM ORIGEM] — ARQ-01 T-06</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="transicao">T-06</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_07</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_NovaNecessidade" camunda:delegateExpression="${journeyTransitionPublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:exclusiveGateway id="U4_GW_MergeProx" name="">
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_06</bpmn:incoming>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_07</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="U4_T_Pesquisa" name="Responder pesquisa pós-serviço (NPS + desfecho)" camunda:formKey="ced:pos-servico" camunda:assignee="${clienteId}">
+      <bpmn:documentation>Produz npsScore, experienciaSatisfatoria. | Origem: M2_T_PosAtendimento</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="U4_B_Pesquisa" name="72h sem resposta" attachedToRef="U4_T_Pesquisa">
+      <bpmn:documentation>Timeout evita deadlock do join. | Origem: M2_Boundary_SLAPesquisa</bpmn:documentation>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_10</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT72H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:exclusiveGateway id="U4_GW_EscapePesquisa" name="Pesquisa respondida ou tempo esgotado?">
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_09</bpmn:incoming>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_13</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:parallelGateway id="U4_GW_Join" name="">
+      <bpmn:documentation>Origem: M2_GW_JoinPos</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_08</bpmn:incoming>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_13</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_11</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:task id="U4_T_Liquidar" name="Liquidar o consumo">
+      <bpmn:documentation>⚠️ LACUNA LA-02 [SEM ORIGEM]: coparticipação, faturamento e contas não modelados nas fontes. Tarefa abstrata mantida para a visão E2E — decisão pendente da Process Owner. | Origem: [SEM ORIGEM] — ARQ-01 LA-02</bpmn:documentation>
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_11</bpmn:incoming>
+      <bpmn:outgoing>F_CA_UTILIZACAO_U4_LiquidarAvaliar_12</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:endEvent id="U4_End" name="Consumo liquidado e avaliado">
+      <bpmn:incoming>F_CA_UTILIZACAO_U4_LiquidarAvaliar_12</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_01" sourceRef="U4_Start" targetRef="U4_GW_Split"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_02" sourceRef="U4_GW_Split" targetRef="U4_T_Desfecho"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_03" sourceRef="U4_GW_Split" targetRef="U4_T_Pesquisa"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_04" sourceRef="U4_T_Desfecho" targetRef="U4_GW_ProxAcao"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_05" name="Sim" sourceRef="U4_GW_ProxAcao" targetRef="U4_EV_ProxAcao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable("proximaAcaoIndicada") == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_06" name="Não" sourceRef="U4_GW_ProxAcao" targetRef="U4_GW_MergeProx"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_07" sourceRef="U4_EV_ProxAcao" targetRef="U4_GW_MergeProx"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_08" sourceRef="U4_GW_MergeProx" targetRef="U4_GW_Join"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_09" sourceRef="U4_T_Pesquisa" targetRef="U4_GW_EscapePesquisa"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_10" sourceRef="U4_B_Pesquisa" targetRef="U4_GW_EscapePesquisa"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_11" sourceRef="U4_GW_Join" targetRef="U4_T_Liquidar"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_12" sourceRef="U4_T_Liquidar" targetRef="U4_End"/>
+    <bpmn:sequenceFlow id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_13" sourceRef="U4_GW_EscapePesquisa" targetRef="U4_GW_Join"/>
+  </bpmn:process>
+  <bpmn:dataStore id="DS_INS_023" name="Dados da rede credenciada">
+    <bpmn:documentation>Insumo INS-023 · Origem: SUB-01 §2.12 Insumo (JIT); SUB-01 §2.12 · coluna Subprocesso genérico</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:message id="Message_CA_ConsumoNaoRealizado" name="CA_ConsumoNaoRealizado"/>
+  <bpmn:message id="Message_CA_NovaNecessidade" name="CA_NovaNecessidade"/>
+  <bpmn:message id="Message_CA_DireitoHabilitado" name="CA_DireitoHabilitado"/>
+  <bpmn:message id="Message_CA_CancelamentoCliente" name="CA_CancelamentoCliente"/>
+  <bpmn:message id="Message_CA_CancelamentoPrestador" name="CA_CancelamentoPrestador"/>
+  <bpmn:message id="Message_CA_EventoClinico" name="CA_EventoClinico"/>
+  <bpmn:message id="Message_CA_ChegadaCliente" name="CA_ChegadaCliente"/>
+  <bpmn:message id="Message_CA_ServicoRealizado" name="CA_ServicoRealizado"/>
+  <bpmn:message id="Message_CA_ResultadoDisponivel" name="CA_ResultadoDisponivel"/>
+  <bpmn:message id="Message_CA_ExperienciaInsatisfatoria" name="CA_ExperienciaInsatisfatoria"/>
+  <bpmn:message id="Message_CA_SLAEntregaViolado" name="CA_SLAEntregaViolado"/>
+  <bpmn:message id="Message_CA_ComunicarCliente" name="CA_ComunicarCliente"/>
+  <bpmn:message id="Message_CA_EventoNegocio" name="CA_EventoNegocio"/>
+  <bpmn:escalation id="Escalation_CA_SLAEntrega" name="SLA de entrega violado" escalationCode="SLA_ENTREGA"/>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_CA_UTILIZACAO">
+    <bpmndi:BPMNPlane id="BPMNPlane_CA_UTILIZACAO" bpmnElement="Collaboration_CA_UTILIZACAO">
+      <bpmndi:BPMNShape id="Participant_Cliente_di" bpmnElement="Participant_Cliente" isHorizontal="true">
+        <dc:Bounds x="149" y="80" width="1407" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CompraSup_di" bpmnElement="Participant_CompraSup" isHorizontal="true">
+        <dc:Bounds x="149" y="190" width="1407" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CA_UTILIZACAO_di" bpmnElement="Participant_CA_UTILIZACAO" isHorizontal="true">
+        <dc:Bounds x="149" y="300" width="1407" height="1460"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_UTILIZACAO_AgendamentoAutorizacao_di" bpmnElement="LN_CA2_UTILIZACAO_AgendamentoAutorizacao" isHorizontal="true">
+        <dc:Bounds x="179" y="300" width="1377" height="240"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_UTILIZACAO_EquipeAssistencial_di" bpmnElement="LN_CA2_UTILIZACAO_EquipeAssistencial" isHorizontal="true">
+        <dc:Bounds x="179" y="540" width="1377" height="330"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_UTILIZACAO_AcompanhamentoCuidado_di" bpmnElement="LN_CA2_UTILIZACAO_AcompanhamentoCuidado" isHorizontal="true">
+        <dc:Bounds x="179" y="870" width="1377" height="190"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_UTILIZACAO_LiquidacaoAuditoria_di" bpmnElement="LN_CA2_UTILIZACAO_LiquidacaoAuditoria" isHorizontal="true">
+        <dc:Bounds x="179" y="1060" width="1377" height="290"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_UTILIZACAO_EquipeClinicaUrgencia_di" bpmnElement="LN_CA2_UTILIZACAO_EquipeClinicaUrgencia" isHorizontal="true">
+        <dc:Bounds x="179" y="1350" width="1377" height="170"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_UTILIZACAO_AtendenteSuporte_di" bpmnElement="LN_CA2_UTILIZACAO_AtendenteSuporte" isHorizontal="true">
+        <dc:Bounds x="179" y="1520" width="1377" height="240"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_Start_di" bpmnElement="UT_Start">
+        <dc:Bounds x="272" y="356" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_CA_U1_di" bpmnElement="UT_CA_U1">
+        <dc:Bounds x="390" y="334" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_CA_U2_di" bpmnElement="UT_CA_U2">
+        <dc:Bounds x="540" y="573" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_End_SLA_di" bpmnElement="UT_End_SLA">
+        <dc:Bounds x="722" y="752" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_GW_Status_di" bpmnElement="UT_GW_Status" isMarkerVisible="true">
+        <dc:Bounds x="715" y="588" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="705" y="555" width="70" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_End_NoShow_di" bpmnElement="UT_End_NoShow">
+        <dc:Bounds x="872" y="752" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_CA_U3_di" bpmnElement="UT_CA_U3">
+        <dc:Bounds x="840" y="925" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_CA_U4_di" bpmnElement="UT_CA_U4">
+        <dc:Bounds x="990" y="1094" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_GW_Satisfacao_di" bpmnElement="UT_GW_Satisfacao" isMarkerVisible="true">
+        <dc:Bounds x="1165" y="1109" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1219" y="1161" width="82" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_End_Encerrado_di" bpmnElement="UT_End_Encerrado">
+        <dc:Bounds x="1322" y="1116" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_End_Insatisfeito_di" bpmnElement="UT_End_Insatisfeito">
+        <dc:Bounds x="1322" y="1244" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_ES_Cancelamento_di" bpmnElement="UT_ES_Cancelamento">
+        <dc:Bounds x="240" y="1550" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_ES_EventoClinico_di" bpmnElement="UT_ES_EventoClinico">
+        <dc:Bounds x="240" y="1395" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_B_SLA_di" bpmnElement="UT_B_SLA">
+        <dc:Bounds x="572" y="635" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="488" y="673" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_01_di" bpmnElement="F_CA_UTILIZACAO_01">
+        <di:waypoint x="308" y="374"/>
+        <di:waypoint x="390" y="374"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_02_di" bpmnElement="F_CA_UTILIZACAO_02">
+        <di:waypoint x="440" y="414"/>
+        <di:waypoint x="440" y="613"/>
+        <di:waypoint x="540" y="613"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_03_di" bpmnElement="F_CA_UTILIZACAO_03">
+        <di:waypoint x="640" y="613"/>
+        <di:waypoint x="715" y="613"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_04_di" bpmnElement="F_CA_UTILIZACAO_04">
+        <di:waypoint x="590" y="671"/>
+        <di:waypoint x="590" y="770"/>
+        <di:waypoint x="722" y="770"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_05_di" bpmnElement="F_CA_UTILIZACAO_05">
+        <di:waypoint x="765" y="613"/>
+        <di:waypoint x="778" y="613"/>
+        <di:waypoint x="778" y="965"/>
+        <di:waypoint x="840" y="965"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="769" y="596" width="58" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_06_di" bpmnElement="F_CA_UTILIZACAO_06">
+        <di:waypoint x="740" y="638"/>
+        <di:waypoint x="740" y="658"/>
+        <di:waypoint x="890" y="658"/>
+        <di:waypoint x="890" y="752"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="689" y="641" width="46" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_07_di" bpmnElement="F_CA_UTILIZACAO_07">
+        <di:waypoint x="890" y="1005"/>
+        <di:waypoint x="890" y="1134"/>
+        <di:waypoint x="990" y="1134"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_08_di" bpmnElement="F_CA_UTILIZACAO_08">
+        <di:waypoint x="1090" y="1134"/>
+        <di:waypoint x="1165" y="1134"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_09_di" bpmnElement="F_CA_UTILIZACAO_09">
+        <di:waypoint x="1215" y="1134"/>
+        <di:waypoint x="1322" y="1134"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1240" y="1103" width="58" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_10_di" bpmnElement="F_CA_UTILIZACAO_10">
+        <di:waypoint x="1190" y="1159"/>
+        <di:waypoint x="1190" y="1262"/>
+        <di:waypoint x="1322" y="1262"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1195" y="1204" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_Prestador_di" bpmnElement="Participant_Prestador" isHorizontal="true">
+        <dc:Bounds x="149" y="1800" width="1407" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CA_UTILIZACAO_U1_Preparar_di" bpmnElement="Participant_CA_UTILIZACAO_U1_Preparar" isHorizontal="true">
+        <dc:Bounds x="149" y="1910" width="1407" height="310"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_U1_AgendamentoAutorizacao_di" bpmnElement="LN_CA2_U1_AgendamentoAutorizacao" isHorizontal="true">
+        <dc:Bounds x="179" y="1910" width="1377" height="310"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_Start_di" bpmnElement="U1_Start">
+        <dc:Bounds x="240" y="1966" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_GW_Preparo_di" bpmnElement="U1_GW_Preparo" isMarkerVisible="true">
+        <dc:Bounds x="383" y="1959" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="285" y="1915" width="94" height="42"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_T_CheckIn_di" bpmnElement="U1_T_CheckIn">
+        <dc:Bounds x="508" y="1944" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_EV_Lembrete_di" bpmnElement="U1_EV_Lembrete">
+        <dc:Bounds x="690" y="2115" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_End_Lembrete_di" bpmnElement="U1_End_Lembrete">
+        <dc:Bounds x="840" y="2115" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_GW_Merge_di" bpmnElement="U1_GW_Merge" isMarkerVisible="true">
+        <dc:Bounds x="683" y="1959" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_EV_Pronto_di" bpmnElement="U1_EV_Pronto">
+        <dc:Bounds x="840" y="1966" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_End_di" bpmnElement="U1_End">
+        <dc:Bounds x="990" y="1966" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_B_DiaServico_di" bpmnElement="U1_B_DiaServico">
+        <dc:Bounds x="560" y="2006" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="538" y="2047" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U1_B_Lembrete_di" bpmnElement="U1_B_Lembrete">
+        <dc:Bounds x="520" y="2006" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="436" y="2044" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_01_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_01">
+        <di:waypoint x="276" y="1984"/>
+        <di:waypoint x="383" y="1984"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_02_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_02">
+        <di:waypoint x="433" y="1984"/>
+        <di:waypoint x="508" y="1984"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="444" y="1967" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_03_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_03">
+        <di:waypoint x="408" y="1959"/>
+        <di:waypoint x="408" y="1926"/>
+        <di:waypoint x="708" y="1926"/>
+        <di:waypoint x="708" y="1959"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="413" y="1936" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_04_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_04">
+        <di:waypoint x="608" y="1984"/>
+        <di:waypoint x="683" y="1984"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_05_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_05">
+        <di:waypoint x="578" y="2042"/>
+        <di:waypoint x="578" y="2048"/>
+        <di:waypoint x="708" y="2048"/>
+        <di:waypoint x="708" y="2009"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_06_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_06">
+        <di:waypoint x="538" y="2042"/>
+        <di:waypoint x="538" y="2133"/>
+        <di:waypoint x="690" y="2133"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_07_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_07">
+        <di:waypoint x="726" y="2133"/>
+        <di:waypoint x="840" y="2133"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_08_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_08">
+        <di:waypoint x="733" y="1984"/>
+        <di:waypoint x="840" y="1984"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U1_Preparar_09_di" bpmnElement="F_CA_UTILIZACAO_U1_Preparar_09">
+        <di:waypoint x="876" y="1984"/>
+        <di:waypoint x="990" y="1984"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_UTILIZACAO_U2_Receber_di" bpmnElement="Participant_CA_UTILIZACAO_U2_Receber" isHorizontal="true">
+        <dc:Bounds x="149" y="2260" width="1407" height="380"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_U2_EquipeAssistencial_di" bpmnElement="LN_CA2_U2_EquipeAssistencial" isHorizontal="true">
+        <dc:Bounds x="179" y="2260" width="1377" height="210"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_U2_AgendaCapacidade_di" bpmnElement="LN_CA2_U2_AgendaCapacidade" isHorizontal="true">
+        <dc:Bounds x="179" y="2470" width="1377" height="170"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_Start_di" bpmnElement="U2_Start">
+        <dc:Bounds x="240" y="2322" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_GW_Chegada_di" bpmnElement="U2_GW_Chegada">
+        <dc:Bounds x="383" y="2315" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="437" y="2367" width="52" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_EV_Chegou_di" bpmnElement="U2_EV_Chegou">
+        <dc:Bounds x="540" y="2322" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_EV_NoShow_di" bpmnElement="U2_EV_NoShow">
+        <dc:Bounds x="540" y="2524" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_T_NoShow_di" bpmnElement="U2_T_NoShow">
+        <dc:Bounds x="658" y="2502" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_End_NoShow_di" bpmnElement="U2_End_NoShow">
+        <dc:Bounds x="840" y="2524" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_EV_EmAtendimento_di" bpmnElement="U2_EV_EmAtendimento">
+        <dc:Bounds x="690" y="2322" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_T_Aguardar_di" bpmnElement="U2_T_Aguardar">
+        <dc:Bounds x="808" y="2300" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_EV_Escalar_di" bpmnElement="U2_EV_Escalar">
+        <dc:Bounds x="1290" y="2322" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1330" y="2360" width="88" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_End_Escalado_di" bpmnElement="U2_End_Escalado">
+        <dc:Bounds x="1440" y="2322" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_EV_Realizado_di" bpmnElement="U2_EV_Realizado">
+        <dc:Bounds x="990" y="2322" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_End_Realizado_di" bpmnElement="U2_End_Realizado">
+        <dc:Bounds x="1140" y="2322" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U2_B_SLA_di" bpmnElement="U2_B_SLA">
+        <dc:Bounds x="840" y="2362" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="818" y="2403" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_01_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_01">
+        <di:waypoint x="276" y="2340"/>
+        <di:waypoint x="383" y="2340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_02_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_02">
+        <di:waypoint x="433" y="2340"/>
+        <di:waypoint x="540" y="2340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_03_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_03">
+        <di:waypoint x="408" y="2365"/>
+        <di:waypoint x="408" y="2542"/>
+        <di:waypoint x="540" y="2542"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_04_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_04">
+        <di:waypoint x="576" y="2542"/>
+        <di:waypoint x="658" y="2542"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_05_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_05">
+        <di:waypoint x="758" y="2542"/>
+        <di:waypoint x="840" y="2542"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_06_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_06">
+        <di:waypoint x="576" y="2340"/>
+        <di:waypoint x="690" y="2340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_07_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_07">
+        <di:waypoint x="726" y="2340"/>
+        <di:waypoint x="808" y="2340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_08_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_08">
+        <di:waypoint x="908" y="2340"/>
+        <di:waypoint x="990" y="2340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_09_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_09">
+        <di:waypoint x="1026" y="2340"/>
+        <di:waypoint x="1140" y="2340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_10_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_10">
+        <di:waypoint x="858" y="2398"/>
+        <di:waypoint x="858" y="2404"/>
+        <di:waypoint x="1308" y="2404"/>
+        <di:waypoint x="1308" y="2358"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U2_Receber_11_di" bpmnElement="F_CA_UTILIZACAO_U2_Receber_11">
+        <di:waypoint x="1326" y="2340"/>
+        <di:waypoint x="1440" y="2340"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_UTILIZACAO_U3_Acompanhar_di" bpmnElement="Participant_CA_UTILIZACAO_U3_Acompanhar" isHorizontal="true">
+        <dc:Bounds x="149" y="2680" width="1407" height="310"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_U3_AcompanhamentoCuidado_di" bpmnElement="LN_CA2_U3_AcompanhamentoCuidado" isHorizontal="true">
+        <dc:Bounds x="179" y="2680" width="1377" height="310"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_Start_di" bpmnElement="U3_Start">
+        <dc:Bounds x="240" y="2732" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_GW_Resultado_di" bpmnElement="U3_GW_Resultado" isMarkerVisible="true">
+        <dc:Bounds x="383" y="2725" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_T_Aguardar_di" bpmnElement="U3_T_Aguardar">
+        <dc:Bounds x="508" y="2710" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_EV_Atraso_di" bpmnElement="U3_EV_Atraso">
+        <dc:Bounds x="690" y="2889" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_End_Atraso_di" bpmnElement="U3_End_Atraso">
+        <dc:Bounds x="840" y="2889" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_EV_Resultado_di" bpmnElement="U3_EV_Resultado">
+        <dc:Bounds x="690" y="2732" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_GW_Merge_di" bpmnElement="U3_GW_Merge" isMarkerVisible="true">
+        <dc:Bounds x="833" y="2725" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_End_di" bpmnElement="U3_End">
+        <dc:Bounds x="990" y="2732" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U3_B_Atraso_di" bpmnElement="U3_B_Atraso">
+        <dc:Bounds x="540" y="2772" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="580" y="2810" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_01_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_01">
+        <di:waypoint x="276" y="2750"/>
+        <di:waypoint x="383" y="2750"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_02_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_02">
+        <di:waypoint x="433" y="2750"/>
+        <di:waypoint x="508" y="2750"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="460" y="2733" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_03_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_03">
+        <di:waypoint x="408" y="2725"/>
+        <di:waypoint x="408" y="2692"/>
+        <di:waypoint x="858" y="2692"/>
+        <di:waypoint x="858" y="2725"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="413" y="2702" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_04_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_04">
+        <di:waypoint x="608" y="2750"/>
+        <di:waypoint x="690" y="2750"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_05_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_05">
+        <di:waypoint x="726" y="2750"/>
+        <di:waypoint x="833" y="2750"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_06_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_06">
+        <di:waypoint x="883" y="2750"/>
+        <di:waypoint x="990" y="2750"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_07_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_07">
+        <di:waypoint x="558" y="2808"/>
+        <di:waypoint x="558" y="2907"/>
+        <di:waypoint x="690" y="2907"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U3_Acompanhar_08_di" bpmnElement="F_CA_UTILIZACAO_U3_Acompanhar_08">
+        <di:waypoint x="726" y="2907"/>
+        <di:waypoint x="840" y="2907"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_UTILIZACAO_U4_LiquidarAvaliar_di" bpmnElement="Participant_CA_UTILIZACAO_U4_LiquidarAvaliar" isHorizontal="true">
+        <dc:Bounds x="149" y="3030" width="1407" height="400"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_U4_LiquidacaoAuditoria_di" bpmnElement="LN_CA2_U4_LiquidacaoAuditoria" isHorizontal="true">
+        <dc:Bounds x="179" y="3030" width="1377" height="210"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA2_U4_AcompanhamentoCuidado_di" bpmnElement="LN_CA2_U4_AcompanhamentoCuidado" isHorizontal="true">
+        <dc:Bounds x="179" y="3240" width="1377" height="190"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_Start_di" bpmnElement="U4_Start">
+        <dc:Bounds x="240" y="3092" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_GW_Split_di" bpmnElement="U4_GW_Split">
+        <dc:Bounds x="383" y="3085" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_T_Desfecho_di" bpmnElement="U4_T_Desfecho">
+        <dc:Bounds x="508" y="3278" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_GW_ProxAcao_di" bpmnElement="U4_GW_ProxAcao" isMarkerVisible="true">
+        <dc:Bounds x="683" y="3293" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_EV_ProxAcao_di" bpmnElement="U4_EV_ProxAcao">
+        <dc:Bounds x="840" y="3300" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_GW_MergeProx_di" bpmnElement="U4_GW_MergeProx" isMarkerVisible="true">
+        <dc:Bounds x="983" y="3293" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_T_Pesquisa_di" bpmnElement="U4_T_Pesquisa">
+        <dc:Bounds x="508" y="3070" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_GW_Join_di" bpmnElement="U4_GW_Join">
+        <dc:Bounds x="1133" y="3085" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_T_Liquidar_di" bpmnElement="U4_T_Liquidar">
+        <dc:Bounds x="1258" y="3070" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_End_di" bpmnElement="U4_End">
+        <dc:Bounds x="1440" y="3092" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_B_Pesquisa_di" bpmnElement="U4_B_Pesquisa">
+        <dc:Bounds x="540" y="3132" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="456" y="3170" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="U4_GW_EscapePesquisa_di" bpmnElement="U4_GW_EscapePesquisa" isMarkerVisible="true">
+        <dc:Bounds x="850" y="3085" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_01_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_01">
+        <di:waypoint x="276" y="3110"/>
+        <di:waypoint x="383" y="3110"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_02_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_02">
+        <di:waypoint x="408" y="3135"/>
+        <di:waypoint x="408" y="3318"/>
+        <di:waypoint x="508" y="3318"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_03_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_03">
+        <di:waypoint x="433" y="3110"/>
+        <di:waypoint x="508" y="3110"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_04_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_04">
+        <di:waypoint x="608" y="3318"/>
+        <di:waypoint x="683" y="3318"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_05_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_05">
+        <di:waypoint x="733" y="3318"/>
+        <di:waypoint x="840" y="3318"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="776" y="3301" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_06_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_06">
+        <di:waypoint x="708" y="3293"/>
+        <di:waypoint x="708" y="3276"/>
+        <di:waypoint x="1008" y="3276"/>
+        <di:waypoint x="1008" y="3293"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="713" y="3278" width="21" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_07_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_07">
+        <di:waypoint x="876" y="3318"/>
+        <di:waypoint x="983" y="3318"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_08_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_08">
+        <di:waypoint x="1033" y="3318"/>
+        <di:waypoint x="1158" y="3318"/>
+        <di:waypoint x="1158" y="3135"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_09_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_09">
+        <di:waypoint x="608" y="3110"/>
+        <di:waypoint x="850" y="3110"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_10_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_10">
+        <di:waypoint x="558" y="3168"/>
+        <di:waypoint x="558" y="3188"/>
+        <di:waypoint x="875" y="3188"/>
+        <di:waypoint x="875" y="3135"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_11_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_11">
+        <di:waypoint x="1183" y="3110"/>
+        <di:waypoint x="1258" y="3110"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_12_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_12">
+        <di:waypoint x="1358" y="3110"/>
+        <di:waypoint x="1440" y="3110"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_UTILIZACAO_U4_LiquidarAvaliar_13_di" bpmnElement="F_CA_UTILIZACAO_U4_LiquidarAvaliar_13">
+        <di:waypoint x="900" y="3110"/>
+        <di:waypoint x="1133" y="3110"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_01_di" bpmnElement="MF_UT_01">
+        <di:waypoint x="290" y="260"/>
+        <di:waypoint x="290" y="356"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="295" y="314" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_02_di" bpmnElement="MF_UT_02">
+        <di:waypoint x="908" y="770"/>
+        <di:waypoint x="920" y="770"/>
+        <di:waypoint x="920" y="260"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="925" y="376" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_03_di" bpmnElement="MF_UT_03">
+        <di:waypoint x="740" y="752"/>
+        <di:waypoint x="740" y="676"/>
+        <di:waypoint x="680" y="676"/>
+        <di:waypoint x="680" y="260"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="685" y="347" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_04_di" bpmnElement="MF_UT_04">
+        <di:waypoint x="1340" y="1244"/>
+        <di:waypoint x="1340" y="1206"/>
+        <di:waypoint x="1400" y="1206"/>
+        <di:waypoint x="1400" y="260"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1405" y="586" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_06_di" bpmnElement="MF_UT_06">
+        <di:waypoint x="230" y="150"/>
+        <di:waypoint x="230" y="1590"/>
+        <di:waypoint x="240" y="1590"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_07_di" bpmnElement="MF_UT_07">
+        <di:waypoint x="380" y="1800"/>
+        <di:waypoint x="380" y="1495"/>
+        <di:waypoint x="290" y="1495"/>
+        <di:waypoint x="290" y="1475"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_08_di" bpmnElement="MF_UT_08">
+        <di:waypoint x="468" y="1870"/>
+        <di:waypoint x="468" y="2151"/>
+        <di:waypoint x="558" y="2151"/>
+        <di:waypoint x="558" y="2322"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="563" y="2283" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_09_di" bpmnElement="MF_UT_09">
+        <di:waypoint x="918" y="1870"/>
+        <di:waypoint x="918" y="2169"/>
+        <di:waypoint x="883" y="2169"/>
+        <di:waypoint x="883" y="2300"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="888" y="2267" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_UT_10_di" bpmnElement="MF_UT_10">
+        <di:waypoint x="498" y="1870"/>
+        <di:waypoint x="498" y="2730"/>
+        <di:waypoint x="508" y="2730"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="403" y="2588" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_022_1_di" bpmnElement="DOR_INS_022_1">
+        <dc:Bounds x="542" y="349" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="515" y="403" width="90" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_022_1_di" bpmnElement="DIA_INS_022_1">
+        <di:waypoint x="542" y="374"/>
+        <di:waypoint x="490" y="374"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_024_1_di" bpmnElement="DOR_INS_024_1">
+        <dc:Bounds x="407" y="648" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="380" y="702" width="90" height="52"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_024_1_di" bpmnElement="DIA_INS_024_1">
+        <di:waypoint x="425" y="648"/>
+        <di:waypoint x="425" y="633"/>
+        <di:waypoint x="540" y="633"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_025_1_di" bpmnElement="DOR_INS_025_1">
+        <dc:Bounds x="992" y="940" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="965" y="994" width="90" height="52"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_025_1_di" bpmnElement="DIA_INS_025_1">
+        <di:waypoint x="992" y="965"/>
+        <di:waypoint x="940" y="965"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_026_1_di" bpmnElement="DOR_INS_026_1">
+        <dc:Bounds x="1022" y="1199" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="995" y="1253" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_026_1_di" bpmnElement="DIA_INS_026_1">
+        <di:waypoint x="1040" y="1199"/>
+        <di:waypoint x="1040" y="1174"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_028_1_di" bpmnElement="DOR_INS_028_1">
+        <dc:Bounds x="437" y="1410" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="410" y="1464" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_028_1_di" bpmnElement="DIA_INS_028_1">
+        <di:waypoint x="437" y="1435"/>
+        <di:waypoint x="340" y="1435"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_029_1_di" bpmnElement="DOR_INS_029_1">
+        <dc:Bounds x="547" y="1410" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="520" y="1464" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_029_1_di" bpmnElement="DIA_INS_029_1">
+        <di:waypoint x="565" y="1410"/>
+        <di:waypoint x="565" y="1385"/>
+        <di:waypoint x="320" y="1385"/>
+        <di:waypoint x="320" y="1395"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_023_1_di" bpmnElement="DSR_INS_023_1">
+        <dc:Bounds x="455" y="438" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="509" y="450" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_023_1_di" bpmnElement="DIA_INS_023_1">
+        <di:waypoint x="480" y="438"/>
+        <di:waypoint x="480" y="414"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_027_1_di" bpmnElement="DOR_INS_027_1">
+        <dc:Bounds x="232" y="1654" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="272" y="1654" width="90" height="65"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_027_1_di" bpmnElement="DIA_INS_027_1">
+        <di:waypoint x="250" y="1654"/>
+        <di:waypoint x="250" y="1630"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram>
+    <bpmndi:BPMNPlane bpmnElement="UT_ES_Cancelamento">
+      <bpmndi:BPMNShape id="UT_ES_Start_CancCliente_di" bpmnElement="UT_ES_Start_CancCliente">
+        <dc:Bounds x="180" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_ES_End_CancCliente_di" bpmnElement="UT_ES_End_CancCliente">
+        <dc:Bounds x="330" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_ES_Start_CancPrestador_di" bpmnElement="UT_ES_Start_CancPrestador">
+        <dc:Bounds x="180" y="300" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_ES_End_CancPrestador_di" bpmnElement="UT_ES_End_CancPrestador">
+        <dc:Bounds x="330" y="300" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="UT_ES_F1_di" bpmnElement="UT_ES_F1">
+        <di:waypoint x="216" y="178"/>
+        <di:waypoint x="330" y="178"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="UT_ES_F2_di" bpmnElement="UT_ES_F2">
+        <di:waypoint x="216" y="318"/>
+        <di:waypoint x="330" y="318"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+  <bpmndi:BPMNDiagram>
+    <bpmndi:BPMNPlane bpmnElement="UT_ES_EventoClinico">
+      <bpmndi:BPMNShape id="UT_EC_Start_di" bpmnElement="UT_EC_Start">
+        <dc:Bounds x="180" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_EC_Comunicar_di" bpmnElement="UT_EC_Comunicar">
+        <dc:Bounds x="330" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="UT_EC_End_di" bpmnElement="UT_EC_End">
+        <dc:Bounds x="480" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="sub_clin_01_di" bpmnElement="sub_clin_01">
+        <di:waypoint x="216" y="178"/>
+        <di:waypoint x="330" y="178"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="sub_clin_02_di" bpmnElement="sub_clin_02">
+        <di:waypoint x="366" y="178"/>
+        <di:waypoint x="480" y="178"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
