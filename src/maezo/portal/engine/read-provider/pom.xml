@@ -18,7 +18,7 @@
   <dependencies>
     <dependency><groupId>br.com.maezo</groupId><artifactId>human-command-engine</artifactId><version>1.0.0</version><scope>provided</scope></dependency>
     <!-- Only the tests build a ProcessEngineConfiguration around the real PortalReadPlugin. -->
-    <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.1.0</version><scope>test</scope></dependency>
+    <dependency><groupId>org.cibseven.bpm</groupId><artifactId>cibseven-engine</artifactId><version>2.2.0</version><scope>test</scope></dependency>
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.11.4</version><scope>test</scope></dependency>
     <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>42.7.13</version><scope>test</scope></dependency>
   </dependencies>
