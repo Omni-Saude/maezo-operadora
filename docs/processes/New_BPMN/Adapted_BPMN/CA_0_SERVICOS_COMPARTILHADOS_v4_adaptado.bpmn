@@ -1,0 +1,2032 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CA_SERVICOS" targetNamespace="http://central-atendimento/bpmn/arq01" exporter="Camunda Modeler" exporterVersion="5.44.0" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.24.0">
+  <bpmn:collaboration id="Collaboration_CA_SERVICOS" name="Central de Atendimento — Serviços compartilhados">
+    <bpmn:documentation>Serviços compartilhados: este arquivo concentra H1 (identidade e consentimento), H2 (comunicação) e H3 (perfil e recomendação), chamados por COMPRA, UTILIZAÇÃO e SUPORTE por callActivity entre arquivos. Dependência de implantação: publicar este arquivo antes dos chamadores. Estrutura: 1 colaboração, 9 participantes, 6 processos, 6 laneSets, 1 plano de diagrama.</bpmn:documentation>
+    <bpmn:participant id="Participant_Macros" name="Macroprocessos COMPRA · UTILIZAÇÃO · SUPORTE"/>
+    <bpmn:participant id="Participant_CA_H2_ComunicarCliente" name="H2 — Comunicar o cliente" processRef="Process_CA_H2_ComunicarCliente"/>
+    <bpmn:participant id="Participant_Cliente" name="Cliente — necessidade · visão · intenção"/>
+    <bpmn:participant id="Participant_CA_H2_SelecionarCanal" name="H2.1 — Selecionar canal e momento" processRef="Process_CA_H2_SelecionarCanal"/>
+    <bpmn:participant id="Participant_CA_H1_IdentidadeConsentimento" name="H1 — Identidade e consentimento" processRef="Process_CA_H1_IdentidadeConsentimento"/>
+    <bpmn:participant id="Participant_CA_H3_ConhecerCliente" name="H3 — Conhecer o cliente e aprender" processRef="Process_CA_H3_ConhecerCliente"/>
+    <bpmn:participant id="Participant_CA_H3_EnriquecerCliente" name="H3.1 — Enriquecer perfil 360 do cliente" processRef="Process_CA_H3_EnriquecerCliente"/>
+    <bpmn:participant id="Participant_Fontes" name="Fontes externas (DATASUS, ANS, FHIR)"/>
+    <bpmn:participant id="Participant_CA_H3_ProximaMelhorAcao" name="H3.2 — Calcular próxima melhor ação" processRef="Process_CA_H3_ProximaMelhorAcao"/>
+    <bpmn:messageFlow id="MF_SV_01" sourceRef="Participant_Macros" targetRef="H2_Start"/>
+    <bpmn:messageFlow id="MF_SV_02" name="Mensagem" sourceRef="H2_T_Enviar" targetRef="Participant_Cliente"/>
+    <bpmn:messageFlow id="MF_SV_03" name="SMS" sourceRef="H2_T_Fallback" targetRef="Participant_Cliente"/>
+    <bpmn:messageFlow id="MF_SV_04" sourceRef="Participant_Macros" targetRef="H3_Start_Evento"/>
+    <bpmn:messageFlow id="MF_SV_05" name="Dados abertos" sourceRef="Participant_Fontes" targetRef="EC_T_Abertos"/>
+    <bpmn:messageFlow id="MF_SV_06" name="Dados clínicos" sourceRef="Participant_Fontes" targetRef="EC_T_Clinicos"/>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_CA_H2_ComunicarCliente" name="H2 — Comunicar o cliente" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Serviço compartilhado: informar antes de o cliente perguntar. Acionado pelos marcos de COMPRA, UTILIZAÇÃO e SUPORTE e por recomendações de H3, sempre com o Journey ID (corrige FR-02). Mensagem: situação na 1ª frase, próxima ação na 2ª.</bpmn:documentation>
+    <bpmn:documentation>Barreiras de contato: opt-in/base legal por categoria, frequency capping e horário silencioso, limiar de confiança com revisão humana e respeito à decisão de envio (enviar, adiar ou suprimir). Toda nova comunicação deve passar por essas barreiras.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_H2_ComunicarCliente">
+      <bpmn:lane id="LN_CA0_H2_CrmEComunicacao" name="CRM e comunicação">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.1 · Ref: H2_CA_Canal</bpmn:documentation>
+        <bpmn:flowNodeRef>H2_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_T_Classificar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_GW_Tipo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_T_Gerar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_GW_Confiavel</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_GW_MergeRevisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_CA_Canal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_GW_Envio</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_EV_Janela</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_End_Suprimido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_T_Enviar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_GW_Entregue</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_End_Informado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_T_Fallback</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_End_Contingencia</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_T_Portal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_End_Portal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_T_Log</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_End_Log</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H2_GovernancaClinica" name="Governança clínica">
+        <bpmn:documentation>Dimensão: Staff · Origem: candidateGroups da tarefa</bpmn:documentation>
+        <bpmn:flowNodeRef>H2_T_Revisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_B_SLA_Revisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_T_EscalarRevisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H2_End_SLA_Revisao</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="H2_Start" name="Marco ou informação a comunicar">
+      <bpmn:documentation>Payload: journeyId, clienteId, marcoJornada, estadoFactual, etaEstimada, urgenciaSugerida. | Origem: M3_Start_StatusEntrega + M3_Start_Perfil + M3_Start_Recomendacao + M3_Start_Reengajar + M3_Start_ServiceRecovery + M3_Start_EventoClinico (consolidados)</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_01</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente"/>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="H2_T_Classificar" name="Classificar evento (IA): tipo, urgência, categoria" camunda:asyncBefore="true" camunda:delegateExpression="${eventClassifierAI}">
+      <bpmn:documentation>Produz tipoEvento ∈ {ACAO, REFERENCIA, REGISTRO}, urgencia ∈ {CRITICA, ACIONAVEL, INFORMATIVA}, categoriaMensagem. | Origem: M3_T_Classificar</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_02</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H2_GW_Tipo" name="Evento exige ação ou antecipa dúvida?" default="F_CA_H2_ComunicarCliente_05">
+      <bpmn:documentation>Origem: M3_GW_Classifica</bpmn:documentation>
+      <bpmn:documentation>Regra: comunicar somente quando o evento exige ação do cliente ou antecipa dúvida; demais casos não geram envio — dono: CRM e comunicação</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_03</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_04</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_05</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="H2_T_Gerar" name="Gerar mensagem (IA)" camunda:asyncBefore="true" camunda:delegateExpression="${proactiveMessageAI}">
+      <bpmn:documentation>Situação na 1ª frase, ação na 2ª. Templates com revisão de compliance. Produz confiancaMensagem, tierClinico, mensagem. | Origem: M3_T_GerarMsg</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_06</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H2_GW_Confiavel" name="Mensagem confiável e fora do risco clínico 3?" default="F_CA_H2_ComunicarCliente_08">
+      <bpmn:documentation>Origem: M3_GW_ConfiancaProativa</bpmn:documentation>
+      <bpmn:documentation>Regra: envio automático só com confiança igual ou acima do limiar e fora de risco clínico alto; caso contrário, revisão humana — dono: CRM e comunicação</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_07</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="H2_T_Revisao" name="Revisar clinicamente a mensagem" camunda:formKey="ced:revisao-clinica-mensagem" camunda:candidateGroups="governanca-clinica">
+      <bpmn:documentation>Origem: M3_T_RevisaoClinica</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="H2_B_SLA_Revisao" name="SLA 4h sem revisão" cancelActivity="false" attachedToRef="H2_T_Revisao">
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_22</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT4H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="H2_T_EscalarRevisao" name="Escalar revisão clínica pendente">
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_22</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_23</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="H2_End_SLA_Revisao" name="Revisão escalada — mensagem retida">
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_23</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="H2_GW_MergeRevisao" name="">
+      <bpmn:documentation>Origem: M3_GW_MergeRevisao</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_07</bpmn:incoming>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_09</bpmn:incoming>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_15</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:callActivity id="H2_CA_Canal" name="Selecionar canal e momento" camunda:asyncBefore="true" calledElement="Process_CA_H2_SelecionarCanal">
+      <bpmn:documentation>Origem: M3_CA_SelecionarCanal</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="categoriaPermitida" target="categoriaPermitida"/>
+        <camunda:in source="urgencia" target="urgencia"/>
+        <camunda:in source="envioPermitidoAgora" target="envioPermitidoAgora"/>
+        <camunda:in source="proximaJanela" target="proximaJanela"/>
+        <camunda:out source="decisaoEnvio" target="decisaoEnvio"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_11</bpmn:outgoing>
+      <bpmn:property id="Property_H2_CA_Canal_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_001_2">
+        <bpmn:sourceRef>DSR_INS_001_2</bpmn:sourceRef>
+        <bpmn:targetRef>Property_H2_CA_Canal_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:exclusiveGateway id="H2_GW_Envio" name="Decisão de envio?" default="F_CA_H2_ComunicarCliente_14">
+      <bpmn:documentation>Origem: M3_GW_Envio</bpmn:documentation>
+      <bpmn:documentation>Regra: a decisão de envio do cliente prevalece — enviar agora, adiar para a próxima janela ou suprimir — dono: CRM e comunicação</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_11</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_12</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_13</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_14</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateCatchEvent id="H2_EV_Janela" name="Aguardar próxima janela permitida">
+      <bpmn:documentation>Horário silencioso / batching. | Origem: M3_EV_AguardarJanela</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_13</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_15</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${proximaJanela}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="H2_End_Suprimido" name="Suprimido ou agrupado por preferência">
+      <bpmn:documentation>Origem: M3_End_Suprimido</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="H2_T_Enviar" name="Enviar no canal selecionado" camunda:asyncBefore="true" camunda:delegateExpression="${omniChannelDispatcher}">
+      <bpmn:documentation>Produz entregue. | Origem: M3_T_Enviar</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_12</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_16</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H2_GW_Entregue" name="Entregue no canal?" default="F_CA_H2_ComunicarCliente_18">
+      <bpmn:documentation>Origem: M3_GW_Entregue</bpmn:documentation>
+      <bpmn:documentation>Regra: sem confirmação de entrega, reenviar pelo canal de contingência — dono: CRM e comunicação</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_16</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_17</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_18</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="H2_End_Informado" name="Cliente informado antes de perguntar">
+      <bpmn:documentation>Origem: M3_End_Proativo</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_17</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="H2_T_Fallback" name="Enviar por canal de contingência (SMS)" camunda:asyncBefore="true" camunda:delegateExpression="${fallbackChannelDispatcher}">
+      <bpmn:documentation>Evita o anti-padrão "push sem app instalado". | Origem: M3_T_Fallback</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_18</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_19</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="H2_End_Contingencia" name="Informado pelo canal de contingência">
+      <bpmn:documentation>Origem: M3_End_ProativoFallback</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_19</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="H2_T_Portal" name="Atualizar FAQ personalizada e central de ajuda" camunda:asyncBefore="true" camunda:delegateExpression="${helpCenterPublisher}">
+      <bpmn:documentation>Origem: M3_T_AtualizarPortal</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_20</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="H2_End_Portal" name="Informação disponível quando o cliente buscar">
+      <bpmn:documentation>Origem: M3_End_Portal</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_20</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="H2_T_Log" name="Registrar evento no contexto do cliente" camunda:asyncBefore="true" camunda:delegateExpression="${contextEventLogger}">
+      <bpmn:documentation>Origem: M3_T_LogEvento</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_ComunicarCliente_21</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="H2_End_Log" name="Contexto atualizado">
+      <bpmn:documentation>Origem: M3_End_Log</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_ComunicarCliente_21</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_01" sourceRef="H2_Start" targetRef="H2_T_Classificar"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_02" sourceRef="H2_T_Classificar" targetRef="H2_GW_Tipo"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_03" name="Ação / antecipação" sourceRef="H2_GW_Tipo" targetRef="H2_T_Gerar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${tipoEvento == "ACAO"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_04" name="Referência" sourceRef="H2_GW_Tipo" targetRef="H2_T_Portal">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${tipoEvento == "REFERENCIA"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_05" name="Registro" sourceRef="H2_GW_Tipo" targetRef="H2_T_Log"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_06" sourceRef="H2_T_Gerar" targetRef="H2_GW_Confiavel"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_07" name="Sim — liberada" sourceRef="H2_GW_Confiavel" targetRef="H2_GW_MergeRevisao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${confiancaMensagem &gt;= limiarConfianca &amp;&amp; tierClinico != "T3"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_08" name="Não — revisão humana" sourceRef="H2_GW_Confiavel" targetRef="H2_T_Revisao"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_09" name="Aprovada" sourceRef="H2_T_Revisao" targetRef="H2_GW_MergeRevisao"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_10" sourceRef="H2_GW_MergeRevisao" targetRef="H2_CA_Canal"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_11" sourceRef="H2_CA_Canal" targetRef="H2_GW_Envio"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_12" name="Enviar agora" sourceRef="H2_GW_Envio" targetRef="H2_T_Enviar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisaoEnvio == "ENVIAR"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_13" name="Adiar" sourceRef="H2_GW_Envio" targetRef="H2_EV_Janela">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${decisaoEnvio == "ADIAR"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_14" name="Suprimir" sourceRef="H2_GW_Envio" targetRef="H2_End_Suprimido"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_15" sourceRef="H2_EV_Janela" targetRef="H2_GW_MergeRevisao"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_16" sourceRef="H2_T_Enviar" targetRef="H2_GW_Entregue"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_17" name="Sim" sourceRef="H2_GW_Entregue" targetRef="H2_End_Informado">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${entregue == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_18" name="Não — contingência" sourceRef="H2_GW_Entregue" targetRef="H2_T_Fallback"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_19" sourceRef="H2_T_Fallback" targetRef="H2_End_Contingencia"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_20" sourceRef="H2_T_Portal" targetRef="H2_End_Portal"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_21" sourceRef="H2_T_Log" targetRef="H2_End_Log"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_22" sourceRef="H2_B_SLA_Revisao" targetRef="H2_T_EscalarRevisao"/>
+    <bpmn:sequenceFlow id="F_CA_H2_ComunicarCliente_23" sourceRef="H2_T_EscalarRevisao" targetRef="H2_End_SLA_Revisao"/>
+    <bpmn:dataStoreReference id="DSR_INS_001_2" name="Central de preferências (preferências de canal e histórico de contato do cliente)" dataStoreRef="DS_INS_001">
+      <bpmn:documentation>Insumo INS-001 · Origem: SUB-01 §2.1 Insumo (JIT); SUB-01 §2.1 · coluna Subprocesso genérico; SUB-01 §2.1 · coluna Entrada; CA_0 · SC_T_Preferencias · rótulo; CA_0 · SC_T_Preferencias · documentation ⚠️ AMBIGUIDADE — SUB-01 §2.1 nomeia como Entrada o 'Cadastro/histórico de interações do cliente'; o diagrama nomeia a fonte como 'central de preferências', cuja documentation lista categoria, canal, frequência, horário silencioso e opt-in, sem histórico de interações. Modelado como um único DS (leitura mais sustentada: a atividade que executa a consulta é SC_T_Preferencias). Alternativa: dois DS distintos (central de preferências; cadastro/histórico de interações do cliente).</bpmn:documentation>
+    </bpmn:dataStoreReference>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_H2_SelecionarCanal" name="H2.1 — Selecionar canal e momento" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Entrada: clienteId, urgencia, categoriaMensagem. Saída: decisaoEnvio ∈ {ENVIAR, ADIAR, SUPRIMIR}, canalSelecionado, proximaJanela. Crítico = push + SMS sempre; acionável = in-app + follow-up; informativo = digest/e-mail; nunca push para marketing.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_H2_SelecionarCanal">
+      <bpmn:lane id="LN_CA0_H21_CrmEComunicacao" name="CRM e comunicação">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.1 (Staff) · Ref: H2_CA_Canal</bpmn:documentation>
+        <bpmn:flowNodeRef>SC_T_Canal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_GW_Critico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_GW_MergeEnviar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_End_Enviar</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H21_AgendaECapacidade" name="Agenda e capacidade">
+        <bpmn:documentation>Dimensão: Slot · Origem: SUB-01 §2.1 (Slot) · Ref: H2_CA_Canal</bpmn:documentation>
+        <bpmn:flowNodeRef>SC_T_Capping</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_GW_Decisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_End_Adiar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_End_Suprimir</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H21_DisponibilizacaoDeInsumos" name="Disponibilização de insumos">
+        <bpmn:documentation>Dimensão: Insumo JIT · Origem: SUB-01 §2.1 (Insumo) · Ref: H2_CA_Canal</bpmn:documentation>
+        <bpmn:flowNodeRef>SC_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_T_Preferencias</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_GW_OptIn</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_End_OptOut</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="SC_Start" name="Mensagem pronta para envio">
+      <bpmn:documentation>Origem: SC_Start</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="SC_T_Preferencias" name="Consultar central de preferências" camunda:delegateExpression="${preferenceCenterService}">
+      <bpmn:documentation>Categoria × canal × frequência × horário silencioso × opt-in por finalidade (LGPD). Produz categoriaPermitida. | Origem: SC_T_Preferencias</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_02</bpmn:outgoing>
+      <bpmn:property id="Property_SC_T_Preferencias_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_001_1">
+        <bpmn:sourceRef>DSR_INS_001_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_SC_T_Preferencias_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="SC_GW_OptIn" name="Categoria permitida (opt-in / base legal)?" default="F_CA_H2_SelecionarCanal_04">
+      <bpmn:documentation>Origem: SC_GW_OptIn</bpmn:documentation>
+      <bpmn:documentation>Regra: só comunicar com opt-in/base legal da categoria; sem opt-in, suprimir — dono: Disponibilização de insumos</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_03</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_04</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="SC_End_OptOut" name="Suprimido — sem opt-in">
+      <bpmn:documentation>Origem: SC_End_OptOut</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('decisaoEnvio', 'SUPRIMIR')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_04</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="SC_T_Canal" name="Mapear urgência para canal" camunda:delegateExpression="${channelRoutingService}">
+      <bpmn:documentation>Produz canalSelecionado. | Origem: SC_T_Canal</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="SC_GW_Critico" name="Urgência crítica?" default="F_CA_H2_SelecionarCanal_07">
+      <bpmn:documentation>Origem: SC_GW_Critico</bpmn:documentation>
+      <bpmn:documentation>Regra: urgência crítica usa o canal imediato, sem esperar janela — dono: CRM e comunicação</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_06</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_07</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="SC_T_Capping" name="Aplicar frequency capping e horário silencioso" camunda:delegateExpression="${frequencyCappingService}">
+      <bpmn:documentation>Produz envioPermitidoAgora e proximaJanela (batching: "10 novidades" em vez de 10 toques). | Origem: SC_T_Capping</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_07</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_08</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="SC_GW_Decisao" name="Enviar agora?" default="F_CA_H2_SelecionarCanal_11">
+      <bpmn:documentation>Origem: SC_GW_Decisao</bpmn:documentation>
+      <bpmn:documentation>Regra: enviar somente dentro da janela permitida; fora dela, agendar para a próxima janela — dono: Agenda e capacidade</bpmn:documentation>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_09</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_10</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="SC_GW_MergeEnviar" name="">
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_06</bpmn:incoming>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_09</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H2_SelecionarCanal_12</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="SC_End_Enviar" name="Enviar">
+      <bpmn:documentation>Origem: SC_End_Enviar</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('decisaoEnvio', 'ENVIAR')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_12</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="SC_End_Adiar" name="Adiar até a próxima janela">
+      <bpmn:documentation>Origem: SC_End_Adiar</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('decisaoEnvio', 'ADIAR')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="SC_End_Suprimir" name="Suprimir (cap atingido / agrupado)">
+      <bpmn:documentation>Origem: SC_End_Suprimir</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('decisaoEnvio', 'SUPRIMIR')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H2_SelecionarCanal_11</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_01" sourceRef="SC_Start" targetRef="SC_T_Preferencias"/>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_02" sourceRef="SC_T_Preferencias" targetRef="SC_GW_OptIn"/>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_03" name="Sim" sourceRef="SC_GW_OptIn" targetRef="SC_T_Canal">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${categoriaPermitida == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_04" name="Não" sourceRef="SC_GW_OptIn" targetRef="SC_End_OptOut"/>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_05" sourceRef="SC_T_Canal" targetRef="SC_GW_Critico"/>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_06" name="Sim — push + SMS, sem capping" sourceRef="SC_GW_Critico" targetRef="SC_GW_MergeEnviar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${urgencia == "CRITICA"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_07" name="Não" sourceRef="SC_GW_Critico" targetRef="SC_T_Capping"/>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_08" sourceRef="SC_T_Capping" targetRef="SC_GW_Decisao"/>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_09" name="Sim" sourceRef="SC_GW_Decisao" targetRef="SC_GW_MergeEnviar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${envioPermitidoAgora == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_10" name="Não — há janela" sourceRef="SC_GW_Decisao" targetRef="SC_End_Adiar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${envioPermitidoAgora == false &amp;&amp; proximaJanela != null}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_11" name="Não — suprimir" sourceRef="SC_GW_Decisao" targetRef="SC_End_Suprimir"/>
+    <bpmn:sequenceFlow id="F_CA_H2_SelecionarCanal_12" sourceRef="SC_GW_MergeEnviar" targetRef="SC_End_Enviar"/>
+    <bpmn:dataStoreReference id="DSR_INS_001_1" name="Central de preferências (preferências de canal e histórico de contato do cliente)" dataStoreRef="DS_INS_001">
+      <bpmn:documentation>Insumo INS-001 · Origem: SUB-01 §2.1 Insumo (JIT); SUB-01 §2.1 · coluna Subprocesso genérico; SUB-01 §2.1 · coluna Entrada; CA_0 · SC_T_Preferencias · rótulo; CA_0 · SC_T_Preferencias · documentation ⚠️ AMBIGUIDADE — SUB-01 §2.1 nomeia como Entrada o 'Cadastro/histórico de interações do cliente'; o diagrama nomeia a fonte como 'central de preferências', cuja documentation lista categoria, canal, frequência, horário silencioso e opt-in, sem histórico de interações. Modelado como um único DS (leitura mais sustentada: a atividade que executa a consulta é SC_T_Preferencias). Alternativa: dois DS distintos (central de preferências; cadastro/histórico de interações do cliente).</bpmn:documentation>
+    </bpmn:dataStoreReference>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_H1_IdentidadeConsentimento" name="H1 — Identidade e consentimento" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Serviço compartilhado (ARQ-01 §7). Entrada: clienteId, finalidade. Saída: consentimentoValido, identidadeUnificada. Negado → erro LGPD_CONSENT_NEGADO, capturado no chamador. Chamado por C1, S1 e H3-Enriquecer.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_H1_IdentidadeConsentimento">
+      <bpmn:lane id="LN_CA0_H1_VerificadorDeIdentidade" name="Verificador de identidade">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.3 (Staff) · Ref: EC_CA_H1, C1_CA_H1, S1_CA_H1</bpmn:documentation>
+        <bpmn:flowNodeRef>H1_T_Auditoria</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_End_Negado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_T_Diagnostico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_GW_Identidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_T_Unificar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_GW_Merge</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_End_OK</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H1_DisponibilizacaoDeInsumos" name="Disponibilização de insumos">
+        <bpmn:documentation>Dimensão: Insumo JIT · Origem: SUB-01 §2.3 (Insumo) · Ref: EC_CA_H1</bpmn:documentation>
+        <bpmn:flowNodeRef>H1_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_T_Consentimento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H1_GW_Consentimento</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="H1_Start" name="Verificação solicitada">
+      <bpmn:documentation>Origem: M0_Start</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="H1_T_Consentimento" name="Consultar consentimento por finalidade" camunda:delegateExpression="${lgpdConsentService}">
+      <bpmn:documentation>LGPD art. 8º. Produz consentimentoValido. | Origem: M0_T_ConsultaConsentimento</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_02</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H1_GW_Consentimento" name="Consentimento válido?" default="F_CA_H1_IdentidadeConsentimento_04">
+      <bpmn:documentation>Origem: M0_GW_Consentimento</bpmn:documentation>
+      <bpmn:documentation>Regra: sem consentimento válido para a finalidade, não usar o dado e registrar a tentativa negada — dono: Disponibilização de insumos</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_03</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_04</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="H1_T_Auditoria" name="Registrar tentativa negada" camunda:delegateExpression="${lgpdAuditService}">
+      <bpmn:documentation>Origem: M0_T_Auditoria</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="H1_End_Negado" name="Consentimento negado">
+      <bpmn:documentation>Origem: M0_End_Negado</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_05</bpmn:incoming>
+      <bpmn:errorEventDefinition errorRef="Error_CA_ConsentimentoNegado"/>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="H1_T_Diagnostico" name="Avaliar completude do perfil e identidade" camunda:delegateExpression="${profileAssessmentService}">
+      <bpmn:documentation>Produz identidadeUnificada e perfilSuficiente. | Origem: EC_T_Diagnostico</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_06</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H1_GW_Identidade" name="Identidade digital já unificada?" default="F_CA_H1_IdentidadeConsentimento_08">
+      <bpmn:documentation>Origem: M1_GW_Perfil</bpmn:documentation>
+      <bpmn:documentation>Regra: identidade já unificada segue direto; caso contrário, executar a unificação — dono: Verificador de identidade</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_07</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="H1_T_Unificar" name="Unificar identidade digital" camunda:asyncBefore="true" camunda:delegateExpression="${identityResolutionService}">
+      <bpmn:documentation>Origem: M1_T_Unificar</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_09</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H1_GW_Merge" name="">
+      <bpmn:documentation>Origem: EC_GW_Merge</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_07</bpmn:incoming>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_09</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H1_IdentidadeConsentimento_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="H1_End_OK" name="Cliente identificado e autorizado">
+      <bpmn:documentation>Origem: M0_End_OK</bpmn:documentation>
+      <bpmn:incoming>F_CA_H1_IdentidadeConsentimento_10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_01" sourceRef="H1_Start" targetRef="H1_T_Consentimento"/>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_02" sourceRef="H1_T_Consentimento" targetRef="H1_GW_Consentimento"/>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_03" name="Sim" sourceRef="H1_GW_Consentimento" targetRef="H1_T_Diagnostico">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${consentimentoValido == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_04" name="Não / expirado" sourceRef="H1_GW_Consentimento" targetRef="H1_T_Auditoria"/>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_05" sourceRef="H1_T_Auditoria" targetRef="H1_End_Negado"/>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_06" sourceRef="H1_T_Diagnostico" targetRef="H1_GW_Identidade"/>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_07" name="Sim" sourceRef="H1_GW_Identidade" targetRef="H1_GW_Merge">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${identidadeUnificada == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_08" name="Não — unificar" sourceRef="H1_GW_Identidade" targetRef="H1_T_Unificar"/>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_09" sourceRef="H1_T_Unificar" targetRef="H1_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_H1_IdentidadeConsentimento_10" sourceRef="H1_GW_Merge" targetRef="H1_End_OK"/>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_H3_ConhecerCliente" name="H3 — Conhecer o cliente e aprender" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Serviço compartilhado, rotina interna sem cliente na entrada (ARQ-01 §7). Trilha A: lote diário de enriquecimento + retreino com gate de métricas. Trilha C: ingestão dos eventos de negócio de COMPRA, UTILIZAÇÃO e SUPORTE (fecha os loops de aprendizado). Perfil publicado NÃO gera mensagem ao cliente (corrige I-06).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_H3_ConhecerCliente">
+      <bpmn:lane id="LN_CA0_H3_DadosECrm" name="Dados e CRM (consolidação de perfil)">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.2 (Staff) · Ref: H3_CA_Lote</bpmn:documentation>
+        <bpmn:flowNodeRef>H3_CA_Lote</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_Start_Evento</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_T_Registrar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_GW_Nutrir</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_EV_Recomendar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_GW_MergeEvt</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_End_Evento</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H3_ModelagemEGrowth" name="Modelagem e growth (motor de recomendação)">
+        <bpmn:documentation>Dimensão: Staff · Origem: rótulo dos elementos de retreino, promoção e alerta do modelo; SUB-01 §2.10 (Staff) · Ref: C1_CA_NBA</bpmn:documentation>
+        <bpmn:flowNodeRef>H3_T_Retreinar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_GW_Modelo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_T_Promover</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_End_Pipeline</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_EV_AlertaDS</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_End_ModeloRetido</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H3_DisponibilizacaoDeInsumos" name="Disponibilização de insumos">
+        <bpmn:documentation>Dimensão: Insumo JIT · Origem: SUB-01 §2.2 (Insumo) · Ref: H3_CA_Lote</bpmn:documentation>
+        <bpmn:flowNodeRef>H3_Start_Ciclo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>H3_T_Lote</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="H3_Start_Ciclo" name="Ciclo diário de enriquecimento (03:00)">
+      <bpmn:documentation>Origem: M1_Start_Ciclo</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_01</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeCycle xsi:type="bpmn:tFormalExpression">0 0 3 * * ?</bpmn:timeCycle>
+      </bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="H3_T_Lote" name="Selecionar lote de clientes elegíveis" camunda:asyncBefore="true" camunda:delegateExpression="${enrichmentBatchSelector}">
+      <bpmn:documentation>Produz clientesLote. Lista vazia → multi-instância completa imediatamente. | Origem: M1_T_SelecionarLote</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_02</bpmn:outgoing>
+      <bpmn:property id="Property_H3_T_Lote_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_002_1">
+        <bpmn:sourceRef>DSR_INS_002_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_H3_T_Lote_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:dataOutputAssociation id="DOA_INS_003_1">
+        <bpmn:targetRef>DOR_INS_003_1</bpmn:targetRef>
+      </bpmn:dataOutputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:callActivity id="H3_CA_Lote" name="Enriquecer clientes do lote" camunda:asyncBefore="true" calledElement="Process_CA_H3_EnriquecerCliente">
+      <bpmn:documentation>Origem: M1_CA_EnriquecerLote</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_03</bpmn:outgoing>
+      <bpmn:property id="Property_H3_CA_Lote_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_003_2">
+        <bpmn:sourceRef>DOR_INS_003_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_H3_CA_Lote_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:multiInstanceLoopCharacteristics camunda:asyncBefore="true" camunda:collection="clientesLote" camunda:elementVariable="clienteId"/>
+    </bpmn:callActivity>
+    <bpmn:serviceTask id="H3_T_Retreinar" name="Retreinar modelo de recomendação" camunda:asyncBefore="true" camunda:class="br.amh.ced.m1.DataScienceTrainingJob">
+      <bpmn:documentation>Uma vez por lote. Produz metricasModeloOK (precision@k, adesão prevista). | Origem: M1_T_Training</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_04</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H3_GW_Modelo" name="Modelo atingiu métricas mínimas?" default="F_CA_H3_ConhecerCliente_06">
+      <bpmn:documentation>Origem: M1_GW_ModeloOK</bpmn:documentation>
+      <bpmn:documentation>Regra: promover modelo somente com métricas mínimas atingidas; caso contrário, manter o modelo anterior — dono: Modelagem e growth (motor de recomendação)</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_05</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="H3_T_Promover" name="Promover modelo ao registro de produção" camunda:asyncBefore="true" camunda:delegateExpression="${modelRegistryService}">
+      <bpmn:documentation>Origem: M1_T_PromoverModelo</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_07</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="H3_End_Pipeline" name="Pipeline diário concluído">
+      <bpmn:documentation>Origem: M1_End_Pipeline</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_07</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:intermediateThrowEvent id="H3_EV_AlertaDS" name="Alertar cientistas de dados">
+      <bpmn:documentation>Consumido por tooling externo do time de Data Science. | Origem: M1_EV_AlertaDS</bpmn:documentation>
+      <bpmn:documentation>Sinal "Alerta Time Data Science" é consumido pelo monitoramento do time de Ciência de Dados, fora do conjunto de processos modelado. Contrato de payload: a definir pelo time de Ciência de Dados.</bpmn:documentation>
+      <bpmn:documentation>Marco factual: registra o que ACONTECEU (evento de negócio consumido), não estimativa nem previsão.</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_08</bpmn:outgoing>
+      <bpmn:signalEventDefinition signalRef="Signal_CA_AlertaDS"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="H3_End_ModeloRetido" name="Modelo anterior mantido">
+      <bpmn:documentation>Origem: M1_End_ModeloRetido</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_08</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:startEvent id="H3_Start_Evento" name="Evento de negócio recebido">
+      <bpmn:documentation>tipoEventoNegocio ∈ {SERVICO_ENTREGUE, VENDA_PERDIDA, FILA_NUTRICAO, PERFIL_INICIAL, APRENDIZADO_INTERACAO}. | Origem: M1_Start_ServicoEntregue + M1_Start_VendaPerdida + M1_Start_FilaNutricao + M1_Start_Aprendizado</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_09</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_EventoNegocio"/>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="H3_T_Registrar" name="Registrar evento de negócio no perfil 360" camunda:asyncBefore="true" camunda:delegateExpression="${businessEventIngestionService}">
+      <bpmn:documentation>Desfecho (reward), motivo de perda/cancelamento, nutrição de conteúdo, aprendizado da IA. | Origem: M1_T_RegistrarEvento</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_09</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="H3_GW_Nutrir" name="Nutrir o cliente com conteúdo?" default="F_CA_H3_ConhecerCliente_12">
+      <bpmn:documentation>Necessidade sem proposta vira recomendação/informação de valor via H2. | Origem: M2_End_SemProposta → M1_Start_FilaNutricao / M3_Start_Perfil</bpmn:documentation>
+      <bpmn:documentation>Regra: somente eventos de fila de nutrição entram no fluxo de conteúdo; demais apenas enriquecem o perfil — dono: Dados e CRM (consolidação de perfil)</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_11</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_12</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateThrowEvent id="H3_EV_Recomendar" name="Enviar recomendação de valor ao cliente">
+      <bpmn:documentation>"Seu plano cobre X". Se o cliente reagir, começa COMPRA (EV-C02). | Origem: M1_End_Recomendado → M3_Start_Recomendacao</bpmn:documentation>
+      <bpmn:documentation>Marco factual: registra o que ACONTECEU (evento de negócio consumido), não estimativa nem previsão.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">RECOMENDACAO</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_11</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_13</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:exclusiveGateway id="H3_GW_MergeEvt" name="">
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_12</bpmn:incoming>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_13</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ConhecerCliente_14</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="H3_End_Evento" name="Evento incorporado ao perfil 360">
+      <bpmn:documentation>Origem: M1_End_EventoRegistrado</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ConhecerCliente_14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_01" sourceRef="H3_Start_Ciclo" targetRef="H3_T_Lote"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_02" sourceRef="H3_T_Lote" targetRef="H3_CA_Lote"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_03" sourceRef="H3_CA_Lote" targetRef="H3_T_Retreinar"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_04" sourceRef="H3_T_Retreinar" targetRef="H3_GW_Modelo"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_05" name="Sim — aprovado" sourceRef="H3_GW_Modelo" targetRef="H3_T_Promover">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${metricasModeloOK == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_06" name="Não — abaixo da meta" sourceRef="H3_GW_Modelo" targetRef="H3_EV_AlertaDS"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_07" sourceRef="H3_T_Promover" targetRef="H3_End_Pipeline"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_08" sourceRef="H3_EV_AlertaDS" targetRef="H3_End_ModeloRetido"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_09" sourceRef="H3_Start_Evento" targetRef="H3_T_Registrar"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_10" sourceRef="H3_T_Registrar" targetRef="H3_GW_Nutrir"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_11" name="Sim" sourceRef="H3_GW_Nutrir" targetRef="H3_EV_Recomendar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${tipoEventoNegocio == "FILA_NUTRICAO"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_12" name="Não" sourceRef="H3_GW_Nutrir" targetRef="H3_GW_MergeEvt"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_13" sourceRef="H3_EV_Recomendar" targetRef="H3_GW_MergeEvt"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ConhecerCliente_14" sourceRef="H3_GW_MergeEvt" targetRef="H3_End_Evento"/>
+    <bpmn:dataStoreReference id="DSR_INS_002_1" name="Base de clientes elegíveis" dataStoreRef="DS_INS_002">
+      <bpmn:documentation>Insumo INS-002 · Origem: SUB-01 §2.2 Insumo (JIT); SUB-01 §2.2 · coluna Entrada; SUB-01 §2.2 · coluna Subprocesso genérico; CA_0 · H3_T_Lote · rótulo</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataObject id="DO_INS_003_1" name="Lote de clientes a enriquecer">
+      <bpmn:documentation>Insumo INS-003 · Origem: SUB-01 §2.2 Insumo (JIT); SUB-01 §2.2 · coluna Saída; CA_0 · H3_T_Lote · documentation</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_003_1" name="Lote de clientes a enriquecer" dataObjectRef="DO_INS_003_1">
+      <bpmn:documentation>Insumo INS-003 · Origem: SUB-01 §2.2 Insumo (JIT); SUB-01 §2.2 · coluna Saída; CA_0 · H3_T_Lote · documentation</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:textAnnotation id="TextAnnotation_AlertaDSExterno">
+      <bpmn:text>Consumo externo: monitoramento do time de Ciência de Dados (fora do conjunto modelado). Payload a definir pelo time.</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_AlertaDSExterno" associationDirection="None" sourceRef="H3_EV_AlertaDS" targetRef="TextAnnotation_AlertaDSExterno"/>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_H3_EnriquecerCliente" name="H3.1 — Enriquecer perfil 360 do cliente" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Uma instância por cliente. Consentimento e identidade (H1) antes de qualquer coleta; fan-out paralelo de fontes. Chamado pelo lote diário (H3) e por C3 (novo beneficiário).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_H3_EnriquecerCliente">
+      <bpmn:lane id="LN_CA0_H31_VerificadorDeIdentidade" name="Verificador de identidade">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.3 (Staff) · Ref: EC_CA_H1</bpmn:documentation>
+        <bpmn:flowNodeRef>EC_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_CA_H1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_B_Negado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_End_Negado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_GW_Split</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H31_DadosECrm" name="Dados e CRM (consolidação de perfil)">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.11 (Staff) · Ref: H3_CA_Lote, C3_CA_Perfil</bpmn:documentation>
+        <bpmn:flowNodeRef>EC_T_Consolidar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H31_DisponibilizacaoDeInsumos" name="Disponibilização de insumos">
+        <bpmn:documentation>Dimensão: Insumo JIT · Origem: SUB-01 §2.11 (Insumo) · Ref: H3_CA_Lote, C3_CA_Perfil</bpmn:documentation>
+        <bpmn:flowNodeRef>EC_T_Abertos</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_T_Uso</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_T_Digitais</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_T_Clinicos</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_T_Pesquisas</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>EC_GW_Join</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="EC_Start" name="Cliente a enriquecer">
+      <bpmn:documentation>Origem: EC_Start</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:callActivity id="EC_CA_H1" name="Verificar identidade e consentimento" camunda:asyncBefore="true" calledElement="Process_CA_H1_IdentidadeConsentimento">
+      <bpmn:documentation>Base legal por fonte mapeada no registro de tratamento (LGPD art. 37). | Origem: M1_CA_Consentimento</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in sourceExpression="enriquecimento" target="finalidade"/>
+        <camunda:out source="consentimentoValido" target="consentimentoValido"/>
+        <camunda:out source="identidadeUnificada" target="identidadeUnificada"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_02</bpmn:outgoing>
+      <bpmn:property id="Property_EC_CA_H1_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_004_1">
+        <bpmn:sourceRef>DOR_INS_004_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_EC_CA_H1_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:boundaryEvent id="EC_B_Negado" name="Consentimento negado" attachedToRef="EC_CA_H1">
+      <bpmn:documentation>Origem: M1_Boundary_Negado</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_03</bpmn:outgoing>
+      <bpmn:errorEventDefinition errorRef="Error_CA_ConsentimentoNegado"/>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="EC_End_Negado" name="Encerrado sem consentimento">
+      <bpmn:documentation>Origem: M1_End_Negado</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_03</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:parallelGateway id="EC_GW_Split" name="">
+      <bpmn:documentation>Origem: M1_GW_Split</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_04</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_06</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_08</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_10</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_12</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:serviceTask id="EC_T_Abertos" name="Extrair dados abertos (DATASUS, ANS)" camunda:asyncBefore="true" camunda:delegateExpression="${openDataEnrichmentService}">
+      <bpmn:documentation>Origem: M1_T_DadosAbertos</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_05</bpmn:outgoing>
+      <bpmn:property id="Property_EC_T_Abertos_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_017_1">
+        <bpmn:sourceRef>DSR_INS_017_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_EC_T_Abertos_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="EC_T_Uso" name="Coletar histórico de uso do plano" camunda:asyncBefore="true" camunda:delegateExpression="${planUsageCollector}">
+      <bpmn:documentation>Origem: M1_T_HistoricoUso (boundary órfão Event_1mpy3m2 eliminado — I-02)</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_07</bpmn:outgoing>
+      <bpmn:property id="Property_EC_T_Uso_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_018_1">
+        <bpmn:sourceRef>DSR_INS_018_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_EC_T_Uso_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="EC_T_Digitais" name="Capturar sinais digitais próprios" camunda:asyncBefore="true" camunda:delegateExpression="${digitalSignalCollector}">
+      <bpmn:documentation>Somente eventos de sessão próprios sob base legal mapeada; nunca cookies de terceiros. | Origem: M1_T_SinaisDigitais</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_09</bpmn:outgoing>
+      <bpmn:property id="Property_EC_T_Digitais_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_019_1">
+        <bpmn:sourceRef>DOR_INS_019_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_EC_T_Digitais_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="EC_T_Clinicos" name="Ingerir dados clínicos (HL7 FHIR)" camunda:asyncBefore="true" camunda:delegateExpression="${clinicalDataIngestion}">
+      <bpmn:documentation>Origem: M1_T_DadosClinicos (boundary órfão Event_0ifnjgf eliminado — I-02)</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_11</bpmn:outgoing>
+      <bpmn:property id="Property_EC_T_Clinicos_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_020_1">
+        <bpmn:sourceRef>DOR_INS_020_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_EC_T_Clinicos_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="EC_T_Pesquisas" name="Coletar pesquisas já respondidas" camunda:delegateExpression="${surveyResponseCollector}">
+      <bpmn:documentation>Lê o repositório das pesquisas coletadas em U4. | Origem: M1_T_Pesquisa</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_12</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_13</bpmn:outgoing>
+      <bpmn:property id="Property_EC_T_Pesquisas_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_021_1">
+        <bpmn:sourceRef>DSR_INS_021_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_EC_T_Pesquisas_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:parallelGateway id="EC_GW_Join" name="">
+      <bpmn:documentation>Origem: M1_GW_Join</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_05</bpmn:incoming>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_07</bpmn:incoming>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_09</bpmn:incoming>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_11</bpmn:incoming>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_13</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_14</bpmn:outgoing>
+    </bpmn:parallelGateway>
+    <bpmn:serviceTask id="EC_T_Consolidar" name="Consolidar e versionar perfil 360" camunda:asyncBefore="true" camunda:delegateExpression="${profileConsolidationService}">
+      <bpmn:documentation>Produz versaoPerfil. | Origem: M1_T_Consolidar</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_14</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_EnriquecerCliente_15</bpmn:outgoing>
+      <bpmn:dataOutputAssociation id="DOA_INS_012_2">
+        <bpmn:targetRef>DSR_INS_012_2</bpmn:targetRef>
+      </bpmn:dataOutputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="EC_End" name="Perfil 360 publicado">
+      <bpmn:documentation>Origem: M1_End_Enriquecido (sem disparo a H2 — I-06)</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_EnriquecerCliente_15</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_01" sourceRef="EC_Start" targetRef="EC_CA_H1"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_02" sourceRef="EC_CA_H1" targetRef="EC_GW_Split"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_03" sourceRef="EC_B_Negado" targetRef="EC_End_Negado"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_04" sourceRef="EC_GW_Split" targetRef="EC_T_Abertos"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_05" sourceRef="EC_T_Abertos" targetRef="EC_GW_Join"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_06" sourceRef="EC_GW_Split" targetRef="EC_T_Uso"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_07" sourceRef="EC_T_Uso" targetRef="EC_GW_Join"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_08" sourceRef="EC_GW_Split" targetRef="EC_T_Digitais"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_09" sourceRef="EC_T_Digitais" targetRef="EC_GW_Join"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_10" sourceRef="EC_GW_Split" targetRef="EC_T_Clinicos"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_11" sourceRef="EC_T_Clinicos" targetRef="EC_GW_Join"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_12" sourceRef="EC_GW_Split" targetRef="EC_T_Pesquisas"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_13" sourceRef="EC_T_Pesquisas" targetRef="EC_GW_Join"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_14" sourceRef="EC_GW_Join" targetRef="EC_T_Consolidar"/>
+    <bpmn:sequenceFlow id="F_CA_H3_EnriquecerCliente_15" sourceRef="EC_T_Consolidar" targetRef="EC_End"/>
+    <bpmn:dataObject id="DO_INS_004_1" name="Dados de identificação do cliente (dado cadastral/documento de identificação)">
+      <bpmn:documentation>Insumo INS-004 · Origem: SUB-01 §2.3, §2.9, §2.22 Insumo (JIT); §3; SUB-01 §2.3 · coluna Subprocesso genérico; SUB-01 §2.3 · coluna Entrada; SUB-01 §2.9 · coluna Observação; SUB-01 §2.22 · coluna Observação; SUB-01 §3 · coluna Caixas de origem</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_004_1" name="Dados de identificação do cliente (dado cadastral/documento de identificação)" dataObjectRef="DO_INS_004_1">
+      <bpmn:documentation>Insumo INS-004 · Origem: SUB-01 §2.3, §2.9, §2.22 Insumo (JIT); §3; SUB-01 §2.3 · coluna Subprocesso genérico; SUB-01 §2.3 · coluna Entrada; SUB-01 §2.9 · coluna Observação; SUB-01 §2.22 · coluna Observação; SUB-01 §3 · coluna Caixas de origem</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataStoreReference id="DSR_INS_012_2" name="Perfil 360 do cliente" dataStoreRef="DS_INS_012">
+      <bpmn:documentation>Insumo INS-012 · Origem: SUB-01 §2.10 e §2.11 Insumo (JIT); SUB-01 §2.10 · coluna Entrada; SUB-01 §2.11 · coluna Saída; CA_0 · NBA_T_Contexto · rótulo; CA_0 · EC_T_Consolidar · rótulo; CA_0 · EC_T_Consolidar · documentation; CA_1 · C1_T_Cruzar · rótulo; CA_3 · S1_T_Contexto · rótulo ⚠️ AMBIGUIDADE — SUB-01 nomeia 'Perfil do cliente' (§2.10) e 'Perfil 360 inicial consolidado' (§2.11) sem declará-los idênticos; a identidade como um único repositório vem dos rótulos do diagrama ('perfil 360' em NBA_T_Contexto, EC_T_Consolidar, C1_T_Cruzar e '360' em S1_T_Contexto). A saída em EC_T_Consolidar usa 'Produz versaoPerfil' + rótulo 'versionar perfil 360'. Alternativa: DS separados por arquivo/finalidade.</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataStoreReference id="DSR_INS_017_1" name="Dados abertos (DATASUS, ANS)" dataStoreRef="DS_INS_017">
+      <bpmn:documentation>Insumo INS-017 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte externa; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Abertos · rótulo</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataStoreReference id="DSR_INS_018_1" name="Histórico de uso do plano" dataStoreRef="DS_INS_018">
+      <bpmn:documentation>Insumo INS-018 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte interna; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Uso · rótulo</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataObject id="DO_INS_019_1" name="Sinais digitais próprios">
+      <bpmn:documentation>Insumo INS-019 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte interna; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Digitais · rótulo; CA_0 · EC_T_Digitais · documentation ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia: o rótulo nomeia o dado ('sinais digitais próprios', 'eventos de sessão próprios'), não o repositório de onde é capturado. Modelado como DO (dado capturado na execução); alternativa: DS, se houver repositório de eventos de sessão — não nomeado na origem.</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_019_1" name="Sinais digitais próprios" dataObjectRef="DO_INS_019_1">
+      <bpmn:documentation>Insumo INS-019 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte interna; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Digitais · rótulo; CA_0 · EC_T_Digitais · documentation ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia: o rótulo nomeia o dado ('sinais digitais próprios', 'eventos de sessão próprios'), não o repositório de onde é capturado. Modelado como DO (dado capturado na execução); alternativa: DS, se houver repositório de eventos de sessão — não nomeado na origem.</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_INS_020_1" name="Dados clínicos (HL7 FHIR)">
+      <bpmn:documentation>Insumo INS-020 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Clinicos · rótulo ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia: HL7 FHIR é padrão de interoperabilidade, não nome de base; o sistema de origem dos dados clínicos não é nomeado. Modelado como DO (dado ingerido); alternativa: DS. Não se declara identidade com 'Registro do atendimento realizado (dados clínicos)' (INS-025, CA_2).</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_020_1" name="Dados clínicos (HL7 FHIR)" dataObjectRef="DO_INS_020_1">
+      <bpmn:documentation>Insumo INS-020 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Clinicos · rótulo ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia: HL7 FHIR é padrão de interoperabilidade, não nome de base; o sistema de origem dos dados clínicos não é nomeado. Modelado como DO (dado ingerido); alternativa: DS. Não se declara identidade com 'Registro do atendimento realizado (dados clínicos)' (INS-025, CA_2).</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataStoreReference id="DSR_INS_021_1" name="Repositório de pesquisas respondidas" dataStoreRef="DS_INS_021">
+      <bpmn:documentation>Insumo INS-021 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte interna; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Pesquisas · rótulo; CA_0 · EC_T_Pesquisas · documentation</bpmn:documentation>
+    </bpmn:dataStoreReference>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_H3_ProximaMelhorAcao" name="H3.2 — Calcular próxima melhor ação" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Cold start por popularidade corrigida; ranking item-item + bandit contextual; guardrails; explicação; humano no loop para risco clínico 3. Chamado por C1.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_H3_ProximaMelhorAcao">
+      <bpmn:lane id="LN_CA0_H32_ModelagemEGrowth" name="Modelagem e growth (motor de recomendação)">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.10 (Staff) · Ref: C1_CA_NBA</bpmn:documentation>
+        <bpmn:flowNodeRef>NBA_T_Ranquear</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_T_Popularidade</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_GW_Merge</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_T_Guardrails</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_T_Explicar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_GW_Clinico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_GW_MergeFim</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H32_GovernancaClinica" name="Governança clínica">
+        <bpmn:documentation>Dimensão: Staff · Origem: candidateGroups da tarefa</bpmn:documentation>
+        <bpmn:flowNodeRef>NBA_T_Revisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_B_SLA_Revisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_T_EscalarRevisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_End_SLA_Revisao</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA0_H32_DisponibilizacaoDeInsumos" name="Disponibilização de insumos">
+        <bpmn:documentation>Dimensão: Insumo JIT · Origem: SUB-01 §2.10 (Insumo) · Ref: C1_CA_NBA</bpmn:documentation>
+        <bpmn:flowNodeRef>NBA_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_T_Contexto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>NBA_GW_ColdStart</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="NBA_Start" name="Cálculo solicitado">
+      <bpmn:documentation>Origem: NBA_Start</bpmn:documentation>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="NBA_T_Contexto" name="Carregar perfil 360 e contexto de sessão" camunda:delegateExpression="${featureStoreService}">
+      <bpmn:documentation>Produz historicoSuficiente. Latência alvo &lt; 300 ms. | Origem: NBA_T_Contexto</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_02</bpmn:outgoing>
+      <bpmn:property id="Property_NBA_T_Contexto_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_012_1">
+        <bpmn:sourceRef>DSR_INS_012_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_NBA_T_Contexto_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:dataInputAssociation id="DIA_INS_013_1">
+        <bpmn:sourceRef>DOR_INS_013_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_NBA_T_Contexto_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="NBA_GW_ColdStart" name="Histórico suficiente?" default="F_CA_H3_ProximaMelhorAcao_04">
+      <bpmn:documentation>Origem: NBA_GW_ColdStart</bpmn:documentation>
+      <bpmn:documentation>Regra: sem histórico suficiente, usar fallback de popularidade em vez de recomendação personalizada — dono: Disponibilização de insumos</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_03</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_04</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="NBA_T_Ranquear" name="Ranquear candidatos (item-item + bandit)" camunda:delegateExpression="${recommendationRankingService}">
+      <bpmn:documentation>Origem: NBA_T_Ranquear</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_05</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="NBA_T_Popularidade" name="Aplicar fallback de cold start" camunda:delegateExpression="${coldStartFallbackService}">
+      <bpmn:documentation>Popularidade corrigida — nunca popularidade pura. | Origem: NBA_T_Popularidade</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_06</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="NBA_GW_Merge" name="">
+      <bpmn:documentation>Origem: NBA_GW_Merge</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_05</bpmn:incoming>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_07</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="NBA_T_Guardrails" name="Aplicar guardrails (elegibilidade, cobertura)" camunda:delegateExpression="${recommendationGuardrailService}">
+      <bpmn:documentation>Produz recomendacaoRelevante e tierClinico (T1 informativo, T2 acionável, T3 consequência clínica). | Origem: NBA_T_Guardrails</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_07</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_08</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:serviceTask id="NBA_T_Explicar" name="Gerar explicação da recomendação" camunda:delegateExpression="${explanationService}">
+      <bpmn:documentation>Origem: NBA_T_Explicar</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_09</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="NBA_GW_Clinico" name="Consequência clínica (risco 3)?" default="F_CA_H3_ProximaMelhorAcao_11">
+      <bpmn:documentation>Origem: NBA_GW_Clinico</bpmn:documentation>
+      <bpmn:documentation>Regra: recomendação com consequência clínica exige revisão humana antes de seguir — dono: Modelagem e growth (motor de recomendação)</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_09</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_10</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="NBA_T_Revisao" name="Revisar recomendação clínica" camunda:formKey="ced:revisao-nba" camunda:candidateGroups="governanca-clinica">
+      <bpmn:documentation>Humano no loop obrigatório. | Origem: NBA_T_RevisaoHumana</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_12</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="NBA_B_SLA_Revisao" name="SLA 24h sem revisão" cancelActivity="false" attachedToRef="NBA_T_Revisao">
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_14</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="NBA_T_EscalarRevisao" name="Escalar revisão de recomendação pendente">
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_14</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_15</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="NBA_End_SLA_Revisao" name="Revisão escalada — recomendação retida">
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_15</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="NBA_GW_MergeFim" name="">
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_11</bpmn:incoming>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_12</bpmn:incoming>
+      <bpmn:outgoing>F_CA_H3_ProximaMelhorAcao_13</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="NBA_End" name="Recomendação calculada">
+      <bpmn:documentation>Origem: NBA_End</bpmn:documentation>
+      <bpmn:incoming>F_CA_H3_ProximaMelhorAcao_13</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_01" sourceRef="NBA_Start" targetRef="NBA_T_Contexto"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_02" sourceRef="NBA_T_Contexto" targetRef="NBA_GW_ColdStart"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_03" name="Sim" sourceRef="NBA_GW_ColdStart" targetRef="NBA_T_Ranquear">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${historicoSuficiente == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_04" name="Não — cold start" sourceRef="NBA_GW_ColdStart" targetRef="NBA_T_Popularidade"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_05" sourceRef="NBA_T_Ranquear" targetRef="NBA_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_06" sourceRef="NBA_T_Popularidade" targetRef="NBA_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_07" sourceRef="NBA_GW_Merge" targetRef="NBA_T_Guardrails"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_08" sourceRef="NBA_T_Guardrails" targetRef="NBA_T_Explicar"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_09" sourceRef="NBA_T_Explicar" targetRef="NBA_GW_Clinico"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_10" name="Sim — revisão humana" sourceRef="NBA_GW_Clinico" targetRef="NBA_T_Revisao">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${tierClinico == "T3"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_11" name="Não (risco 1/2)" sourceRef="NBA_GW_Clinico" targetRef="NBA_GW_MergeFim"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_12" name="Revisada" sourceRef="NBA_T_Revisao" targetRef="NBA_GW_MergeFim"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_13" sourceRef="NBA_GW_MergeFim" targetRef="NBA_End"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_14" sourceRef="NBA_B_SLA_Revisao" targetRef="NBA_T_EscalarRevisao"/>
+    <bpmn:sequenceFlow id="F_CA_H3_ProximaMelhorAcao_15" sourceRef="NBA_T_EscalarRevisao" targetRef="NBA_End_SLA_Revisao"/>
+    <bpmn:dataStoreReference id="DSR_INS_012_1" name="Perfil 360 do cliente" dataStoreRef="DS_INS_012">
+      <bpmn:documentation>Insumo INS-012 · Origem: SUB-01 §2.10 e §2.11 Insumo (JIT); SUB-01 §2.10 · coluna Entrada; SUB-01 §2.11 · coluna Saída; CA_0 · NBA_T_Contexto · rótulo; CA_0 · EC_T_Consolidar · rótulo; CA_0 · EC_T_Consolidar · documentation; CA_1 · C1_T_Cruzar · rótulo; CA_3 · S1_T_Contexto · rótulo ⚠️ AMBIGUIDADE — SUB-01 nomeia 'Perfil do cliente' (§2.10) e 'Perfil 360 inicial consolidado' (§2.11) sem declará-los idênticos; a identidade como um único repositório vem dos rótulos do diagrama ('perfil 360' em NBA_T_Contexto, EC_T_Consolidar, C1_T_Cruzar e '360' em S1_T_Contexto). A saída em EC_T_Consolidar usa 'Produz versaoPerfil' + rótulo 'versionar perfil 360'. Alternativa: DS separados por arquivo/finalidade.</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataObject id="DO_INS_013_1" name="Dados de contexto do cliente (contexto de sessão)">
+      <bpmn:documentation>Insumo INS-013 · Origem: SUB-01 §2.10 Insumo (JIT); SUB-01 §2.10 · coluna Subprocesso genérico; CA_0 · NBA_T_Contexto · rótulo</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_013_1" name="Dados de contexto do cliente (contexto de sessão)" dataObjectRef="DO_INS_013_1">
+      <bpmn:documentation>Insumo INS-013 · Origem: SUB-01 §2.10 Insumo (JIT); SUB-01 §2.10 · coluna Subprocesso genérico; CA_0 · NBA_T_Contexto · rótulo</bpmn:documentation>
+    </bpmn:dataObjectReference>
+  </bpmn:process>
+  <bpmn:dataStore id="DS_INS_001" name="Central de preferências (preferências de canal e histórico de contato do cliente)">
+    <bpmn:documentation>Insumo INS-001 · Origem: SUB-01 §2.1 Insumo (JIT); SUB-01 §2.1 · coluna Subprocesso genérico; SUB-01 §2.1 · coluna Entrada; CA_0 · SC_T_Preferencias · rótulo; CA_0 · SC_T_Preferencias · documentation ⚠️ AMBIGUIDADE — SUB-01 §2.1 nomeia como Entrada o 'Cadastro/histórico de interações do cliente'; o diagrama nomeia a fonte como 'central de preferências', cuja documentation lista categoria, canal, frequência, horário silencioso e opt-in, sem histórico de interações. Modelado como um único DS (leitura mais sustentada: a atividade que executa a consulta é SC_T_Preferencias). Alternativa: dois DS distintos (central de preferências; cadastro/histórico de interações do cliente).</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_002" name="Base de clientes elegíveis">
+    <bpmn:documentation>Insumo INS-002 · Origem: SUB-01 §2.2 Insumo (JIT); SUB-01 §2.2 · coluna Entrada; SUB-01 §2.2 · coluna Subprocesso genérico; CA_0 · H3_T_Lote · rótulo</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_012" name="Perfil 360 do cliente">
+    <bpmn:documentation>Insumo INS-012 · Origem: SUB-01 §2.10 e §2.11 Insumo (JIT); SUB-01 §2.10 · coluna Entrada; SUB-01 §2.11 · coluna Saída; CA_0 · NBA_T_Contexto · rótulo; CA_0 · EC_T_Consolidar · rótulo; CA_0 · EC_T_Consolidar · documentation; CA_1 · C1_T_Cruzar · rótulo; CA_3 · S1_T_Contexto · rótulo ⚠️ AMBIGUIDADE — SUB-01 nomeia 'Perfil do cliente' (§2.10) e 'Perfil 360 inicial consolidado' (§2.11) sem declará-los idênticos; a identidade como um único repositório vem dos rótulos do diagrama ('perfil 360' em NBA_T_Contexto, EC_T_Consolidar, C1_T_Cruzar e '360' em S1_T_Contexto). A saída em EC_T_Consolidar usa 'Produz versaoPerfil' + rótulo 'versionar perfil 360'. Alternativa: DS separados por arquivo/finalidade.</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_017" name="Dados abertos (DATASUS, ANS)">
+    <bpmn:documentation>Insumo INS-017 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte externa; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Abertos · rótulo</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_018" name="Histórico de uso do plano">
+    <bpmn:documentation>Insumo INS-018 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte interna; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Uso · rótulo</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_021" name="Repositório de pesquisas respondidas">
+    <bpmn:documentation>Insumo INS-021 · Origem: SUB-01 §2.11 Insumo (JIT) — fonte interna; SUB-01 §2.11 · coluna Subprocesso genérico; CA_0 · EC_T_Pesquisas · rótulo; CA_0 · EC_T_Pesquisas · documentation</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:message id="Message_CA_ComunicarCliente" name="CA_ComunicarCliente"/>
+  <bpmn:message id="Message_CA_EventoNegocio" name="CA_EventoNegocio"/>
+  <bpmn:error id="Error_CA_ConsentimentoNegado" name="Consentimento LGPD negado/expirado" errorCode="LGPD_CONSENT_NEGADO"/>
+  <bpmn:signal id="Signal_CA_AlertaDS" name="Alerta Time Data Science"/>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_CA_SERVICOS">
+    <bpmndi:BPMNPlane id="BPMNPlane_CA_SERVICOS" bpmnElement="Collaboration_CA_SERVICOS">
+      <bpmndi:BPMNShape id="Participant_Macros_di" bpmnElement="Participant_Macros" isHorizontal="true">
+        <dc:Bounds x="131" y="80" width="2175" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CA_H2_ComunicarCliente_di" bpmnElement="Participant_CA_H2_ComunicarCliente" isHorizontal="true">
+        <dc:Bounds x="131" y="190" width="2175" height="660"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H2_CrmEComunicacao_di" bpmnElement="LN_CA0_H2_CrmEComunicacao" isHorizontal="true">
+        <dc:Bounds x="161" y="190" width="2145" height="520"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H2_GovernancaClinica_di" bpmnElement="LN_CA0_H2_GovernancaClinica" isHorizontal="true">
+        <dc:Bounds x="161" y="710" width="2145" height="140"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_Start_di" bpmnElement="H2_Start">
+        <dc:Bounds x="240" y="244" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_Classificar_di" bpmnElement="H2_T_Classificar">
+        <dc:Bounds x="358" y="222" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_GW_Tipo_di" bpmnElement="H2_GW_Tipo">
+        <dc:Bounds x="533" y="237" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_Gerar_di" bpmnElement="H2_T_Gerar">
+        <dc:Bounds x="658" y="222" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_GW_Confiavel_di" bpmnElement="H2_GW_Confiavel">
+        <dc:Bounds x="833" y="237" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="817" y="309" width="82" height="56"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_Revisao_di" bpmnElement="H2_T_Revisao">
+        <dc:Bounds x="958" y="740" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_GW_MergeRevisao_di" bpmnElement="H2_GW_MergeRevisao">
+        <dc:Bounds x="1133" y="237" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_CA_Canal_di" bpmnElement="H2_CA_Canal">
+        <dc:Bounds x="1258" y="222" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_GW_Envio_di" bpmnElement="H2_GW_Envio">
+        <dc:Bounds x="1433" y="237" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1365" y="289" width="64" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_Enviar_di" bpmnElement="H2_T_Enviar">
+        <dc:Bounds x="1558" y="222" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_GW_Entregue_di" bpmnElement="H2_GW_Entregue">
+        <dc:Bounds x="1733" y="237" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1787" y="289" width="70" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_End_Informado_di" bpmnElement="H2_End_Informado">
+        <dc:Bounds x="1890" y="244" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_Portal_di" bpmnElement="H2_T_Portal">
+        <dc:Bounds x="658" y="400" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_End_Portal_di" bpmnElement="H2_End_Portal">
+        <dc:Bounds x="840" y="422" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_EV_Janela_di" bpmnElement="H2_EV_Janela">
+        <dc:Bounds x="1740" y="422" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_Fallback_di" bpmnElement="H2_T_Fallback">
+        <dc:Bounds x="2008" y="400" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_End_Contingencia_di" bpmnElement="H2_End_Contingencia">
+        <dc:Bounds x="2190" y="422" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_Log_di" bpmnElement="H2_T_Log">
+        <dc:Bounds x="658" y="571" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_End_Log_di" bpmnElement="H2_End_Log">
+        <dc:Bounds x="840" y="593" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_End_Suprimido_di" bpmnElement="H2_End_Suprimido">
+        <dc:Bounds x="1740" y="593" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_01_di" bpmnElement="F_CA_H2_ComunicarCliente_01">
+        <di:waypoint x="276" y="262"/>
+        <di:waypoint x="358" y="262"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="H2_B_SLA_Revisao_di" bpmnElement="H2_B_SLA_Revisao">
+        <dc:Bounds x="990" y="802" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_T_EscalarRevisao_di" bpmnElement="H2_T_EscalarRevisao">
+        <dc:Bounds x="1138" y="740" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H2_End_SLA_Revisao_di" bpmnElement="H2_End_SLA_Revisao">
+        <dc:Bounds x="1298" y="762" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_02_di" bpmnElement="F_CA_H2_ComunicarCliente_02">
+        <di:waypoint x="458" y="262"/>
+        <di:waypoint x="533" y="262"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_03_di" bpmnElement="F_CA_H2_ComunicarCliente_03">
+        <di:waypoint x="583" y="262"/>
+        <di:waypoint x="658" y="262"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="586" y="231" width="70" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_04_di" bpmnElement="F_CA_H2_ComunicarCliente_04">
+        <di:waypoint x="558" y="287"/>
+        <di:waypoint x="558" y="440"/>
+        <di:waypoint x="658" y="440"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="489" y="356" width="64" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_05_di" bpmnElement="F_CA_H2_ComunicarCliente_05">
+        <di:waypoint x="558" y="237"/>
+        <di:waypoint x="558" y="217"/>
+        <di:waypoint x="620" y="217"/>
+        <di:waypoint x="620" y="611"/>
+        <di:waypoint x="658" y="611"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="501" y="220" width="52" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_06_di" bpmnElement="F_CA_H2_ComunicarCliente_06">
+        <di:waypoint x="758" y="262"/>
+        <di:waypoint x="833" y="262"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_07_di" bpmnElement="F_CA_H2_ComunicarCliente_07">
+        <di:waypoint x="883" y="262"/>
+        <di:waypoint x="1133" y="262"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="964" y="245" width="88" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_08_di" bpmnElement="F_CA_H2_ComunicarCliente_08">
+        <di:waypoint x="858" y="287"/>
+        <di:waypoint x="858" y="307"/>
+        <di:waypoint x="983" y="307"/>
+        <di:waypoint x="983" y="740"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="904" y="276" width="82" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_09_di" bpmnElement="F_CA_H2_ComunicarCliente_09">
+        <di:waypoint x="1058" y="780"/>
+        <di:waypoint x="1158" y="780"/>
+        <di:waypoint x="1158" y="287"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1082" y="763" width="52" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_10_di" bpmnElement="F_CA_H2_ComunicarCliente_10">
+        <di:waypoint x="1183" y="262"/>
+        <di:waypoint x="1258" y="262"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_11_di" bpmnElement="F_CA_H2_ComunicarCliente_11">
+        <di:waypoint x="1358" y="262"/>
+        <di:waypoint x="1433" y="262"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_12_di" bpmnElement="F_CA_H2_ComunicarCliente_12">
+        <di:waypoint x="1483" y="262"/>
+        <di:waypoint x="1558" y="262"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1482" y="202" width="76" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_13_di" bpmnElement="F_CA_H2_ComunicarCliente_13">
+        <di:waypoint x="1458" y="287"/>
+        <di:waypoint x="1458" y="440"/>
+        <di:waypoint x="1740" y="440"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1463" y="356" width="34" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_14_di" bpmnElement="F_CA_H2_ComunicarCliente_14">
+        <di:waypoint x="1458" y="237"/>
+        <di:waypoint x="1458" y="217"/>
+        <di:waypoint x="1522" y="217"/>
+        <di:waypoint x="1522" y="611"/>
+        <di:waypoint x="1740" y="611"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1463" y="220" width="52" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_16_di" bpmnElement="F_CA_H2_ComunicarCliente_16">
+        <di:waypoint x="1658" y="262"/>
+        <di:waypoint x="1733" y="262"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_17_di" bpmnElement="F_CA_H2_ComunicarCliente_17">
+        <di:waypoint x="1783" y="262"/>
+        <di:waypoint x="1890" y="262"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1826" y="245" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_18_di" bpmnElement="F_CA_H2_ComunicarCliente_18">
+        <di:waypoint x="1758" y="287"/>
+        <di:waypoint x="1758" y="342"/>
+        <di:waypoint x="2033" y="342"/>
+        <di:waypoint x="2033" y="400"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1677" y="300" width="76" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_20_di" bpmnElement="F_CA_H2_ComunicarCliente_20">
+        <di:waypoint x="758" y="440"/>
+        <di:waypoint x="840" y="440"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_15_di" bpmnElement="F_CA_H2_ComunicarCliente_15">
+        <di:waypoint x="1758" y="422"/>
+        <di:waypoint x="1758" y="402"/>
+        <di:waypoint x="1222" y="402"/>
+        <di:waypoint x="1222" y="217"/>
+        <di:waypoint x="1158" y="217"/>
+        <di:waypoint x="1158" y="237"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_19_di" bpmnElement="F_CA_H2_ComunicarCliente_19">
+        <di:waypoint x="2108" y="440"/>
+        <di:waypoint x="2190" y="440"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_21_di" bpmnElement="F_CA_H2_ComunicarCliente_21">
+        <di:waypoint x="758" y="611"/>
+        <di:waypoint x="840" y="611"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_22_di" bpmnElement="F_CA_H2_ComunicarCliente_22">
+        <di:waypoint x="1008" y="838"/>
+        <di:waypoint x="1098" y="838"/>
+        <di:waypoint x="1098" y="780"/>
+        <di:waypoint x="1138" y="780"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_ComunicarCliente_23_di" bpmnElement="F_CA_H2_ComunicarCliente_23">
+        <di:waypoint x="1238" y="780"/>
+        <di:waypoint x="1298" y="780"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_Cliente_di" bpmnElement="Participant_Cliente" isHorizontal="true">
+        <dc:Bounds x="131" y="890" width="2175" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CA_H2_SelecionarCanal_di" bpmnElement="Participant_CA_H2_SelecionarCanal" isHorizontal="true">
+        <dc:Bounds x="131" y="1000" width="2175" height="750"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H21_CrmEComunicacao_di" bpmnElement="LN_CA0_H21_CrmEComunicacao" isHorizontal="true">
+        <dc:Bounds x="161" y="1000" width="2145" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H21_AgendaECapacidade_di" bpmnElement="LN_CA0_H21_AgendaECapacidade" isHorizontal="true">
+        <dc:Bounds x="161" y="1160" width="2145" height="290"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H21_DisponibilizacaoDeInsumos_di" bpmnElement="LN_CA0_H21_DisponibilizacaoDeInsumos" isHorizontal="true">
+        <dc:Bounds x="161" y="1450" width="2145" height="300"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_Start_di" bpmnElement="SC_Start">
+        <dc:Bounds x="240" y="1503" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_T_Preferencias_di" bpmnElement="SC_T_Preferencias">
+        <dc:Bounds x="358" y="1481" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_GW_OptIn_di" bpmnElement="SC_GW_OptIn">
+        <dc:Bounds x="533" y="1496" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_T_Canal_di" bpmnElement="SC_T_Canal">
+        <dc:Bounds x="658" y="1030" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_GW_Critico_di" bpmnElement="SC_GW_Critico">
+        <dc:Bounds x="833" y="1045" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="887" y="1097" width="52" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_T_Capping_di" bpmnElement="SC_T_Capping">
+        <dc:Bounds x="958" y="1191" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_GW_Decisao_di" bpmnElement="SC_GW_Decisao">
+        <dc:Bounds x="1133" y="1206" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1187" y="1190" width="82" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_GW_MergeEnviar_di" bpmnElement="SC_GW_MergeEnviar">
+        <dc:Bounds x="1283" y="1045" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_End_Enviar_di" bpmnElement="SC_End_Enviar">
+        <dc:Bounds x="1440" y="1052" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_End_OptOut_di" bpmnElement="SC_End_OptOut">
+        <dc:Bounds x="690" y="1503" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_End_Adiar_di" bpmnElement="SC_End_Adiar">
+        <dc:Bounds x="1290" y="1213" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SC_End_Suprimir_di" bpmnElement="SC_End_Suprimir">
+        <dc:Bounds x="1290" y="1334" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_01_di" bpmnElement="F_CA_H2_SelecionarCanal_01">
+        <di:waypoint x="276" y="1521"/>
+        <di:waypoint x="358" y="1521"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_02_di" bpmnElement="F_CA_H2_SelecionarCanal_02">
+        <di:waypoint x="458" y="1521"/>
+        <di:waypoint x="533" y="1521"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_03_di" bpmnElement="F_CA_H2_SelecionarCanal_03">
+        <di:waypoint x="558" y="1496"/>
+        <di:waypoint x="558" y="1070"/>
+        <di:waypoint x="658" y="1070"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="563" y="1276" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_04_di" bpmnElement="F_CA_H2_SelecionarCanal_04">
+        <di:waypoint x="583" y="1521"/>
+        <di:waypoint x="690" y="1521"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="626" y="1504" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_05_di" bpmnElement="F_CA_H2_SelecionarCanal_05">
+        <di:waypoint x="758" y="1070"/>
+        <di:waypoint x="833" y="1070"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_06_di" bpmnElement="F_CA_H2_SelecionarCanal_06">
+        <di:waypoint x="883" y="1070"/>
+        <di:waypoint x="1283" y="1070"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1045" y="1025" width="76" height="42"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_07_di" bpmnElement="F_CA_H2_SelecionarCanal_07">
+        <di:waypoint x="858" y="1095"/>
+        <di:waypoint x="858" y="1231"/>
+        <di:waypoint x="958" y="1231"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="863" y="1129" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_08_di" bpmnElement="F_CA_H2_SelecionarCanal_08">
+        <di:waypoint x="1058" y="1231"/>
+        <di:waypoint x="1133" y="1231"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_09_di" bpmnElement="F_CA_H2_SelecionarCanal_09">
+        <di:waypoint x="1158" y="1206"/>
+        <di:waypoint x="1158" y="1112"/>
+        <di:waypoint x="1308" y="1112"/>
+        <di:waypoint x="1308" y="1095"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1163" y="1171" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_10_di" bpmnElement="F_CA_H2_SelecionarCanal_10">
+        <di:waypoint x="1183" y="1231"/>
+        <di:waypoint x="1290" y="1231"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1190" y="1214" width="94" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_11_di" bpmnElement="F_CA_H2_SelecionarCanal_11">
+        <di:waypoint x="1158" y="1256"/>
+        <di:waypoint x="1158" y="1352"/>
+        <di:waypoint x="1290" y="1352"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1163" y="1297" width="88" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H2_SelecionarCanal_12_di" bpmnElement="F_CA_H2_SelecionarCanal_12">
+        <di:waypoint x="1333" y="1070"/>
+        <di:waypoint x="1440" y="1070"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_H1_IdentidadeConsentimento_di" bpmnElement="Participant_CA_H1_IdentidadeConsentimento" isHorizontal="true">
+        <dc:Bounds x="131" y="1790" width="2175" height="490"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H1_VerificadorDeIdentidade_di" bpmnElement="LN_CA0_H1_VerificadorDeIdentidade" isHorizontal="true">
+        <dc:Bounds x="161" y="1790" width="2145" height="320"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H1_DisponibilizacaoDeInsumos_di" bpmnElement="LN_CA0_H1_DisponibilizacaoDeInsumos" isHorizontal="true">
+        <dc:Bounds x="161" y="2110" width="2145" height="170"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_Start_di" bpmnElement="H1_Start">
+        <dc:Bounds x="240" y="2167" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_T_Consentimento_di" bpmnElement="H1_T_Consentimento">
+        <dc:Bounds x="358" y="2145" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_GW_Consentimento_di" bpmnElement="H1_GW_Consentimento">
+        <dc:Bounds x="533" y="2160" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_T_Diagnostico_di" bpmnElement="H1_T_Diagnostico">
+        <dc:Bounds x="658" y="1822" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_GW_Identidade_di" bpmnElement="H1_GW_Identidade">
+        <dc:Bounds x="833" y="1837" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_T_Unificar_di" bpmnElement="H1_T_Unificar">
+        <dc:Bounds x="958" y="1822" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_GW_Merge_di" bpmnElement="H1_GW_Merge">
+        <dc:Bounds x="1133" y="1837" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_End_OK_di" bpmnElement="H1_End_OK">
+        <dc:Bounds x="1290" y="1844" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_T_Auditoria_di" bpmnElement="H1_T_Auditoria">
+        <dc:Bounds x="658" y="1986" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H1_End_Negado_di" bpmnElement="H1_End_Negado">
+        <dc:Bounds x="840" y="2008" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_01_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_01">
+        <di:waypoint x="276" y="2185"/>
+        <di:waypoint x="358" y="2185"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_02_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_02">
+        <di:waypoint x="458" y="2185"/>
+        <di:waypoint x="533" y="2185"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_03_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_03">
+        <di:waypoint x="558" y="2160"/>
+        <di:waypoint x="558" y="1862"/>
+        <di:waypoint x="658" y="1862"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="563" y="2004" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_04_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_04">
+        <di:waypoint x="583" y="2185"/>
+        <di:waypoint x="683" y="2185"/>
+        <di:waypoint x="683" y="2066"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="589" y="2168" width="88" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_06_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_06">
+        <di:waypoint x="758" y="1862"/>
+        <di:waypoint x="833" y="1862"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_07_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_07">
+        <di:waypoint x="858" y="1837"/>
+        <di:waypoint x="858" y="1804"/>
+        <di:waypoint x="1158" y="1804"/>
+        <di:waypoint x="1158" y="1837"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="863" y="1814" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_08_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_08">
+        <di:waypoint x="883" y="1862"/>
+        <di:waypoint x="958" y="1862"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="876" y="1802" width="88" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_09_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_09">
+        <di:waypoint x="1058" y="1862"/>
+        <di:waypoint x="1133" y="1862"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_10_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_10">
+        <di:waypoint x="1183" y="1862"/>
+        <di:waypoint x="1290" y="1862"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H1_IdentidadeConsentimento_05_di" bpmnElement="F_CA_H1_IdentidadeConsentimento_05">
+        <di:waypoint x="758" y="2026"/>
+        <di:waypoint x="840" y="2026"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_H3_ConhecerCliente_di" bpmnElement="Participant_CA_H3_ConhecerCliente" isHorizontal="true">
+        <dc:Bounds x="131" y="2320" width="2175" height="880"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H3_DadosECrm_di" bpmnElement="LN_CA0_H3_DadosECrm" isHorizontal="true">
+        <dc:Bounds x="161" y="2320" width="2145" height="320"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H3_ModelagemEGrowth_di" bpmnElement="LN_CA0_H3_ModelagemEGrowth" isHorizontal="true">
+        <dc:Bounds x="161" y="2640" width="2145" height="310"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H3_DisponibilizacaoDeInsumos_di" bpmnElement="LN_CA0_H3_DisponibilizacaoDeInsumos" isHorizontal="true">
+        <dc:Bounds x="161" y="2950" width="2145" height="250"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_Start_Ciclo_di" bpmnElement="H3_Start_Ciclo">
+        <dc:Bounds x="240" y="3004" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_T_Lote_di" bpmnElement="H3_T_Lote">
+        <dc:Bounds x="358" y="2982" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_CA_Lote_di" bpmnElement="H3_CA_Lote">
+        <dc:Bounds x="508" y="2354" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_T_Retreinar_di" bpmnElement="H3_T_Retreinar">
+        <dc:Bounds x="658" y="2670" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_GW_Modelo_di" bpmnElement="H3_GW_Modelo">
+        <dc:Bounds x="833" y="2685" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_T_Promover_di" bpmnElement="H3_T_Promover">
+        <dc:Bounds x="958" y="2670" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_End_Pipeline_di" bpmnElement="H3_End_Pipeline">
+        <dc:Bounds x="1140" y="2692" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_EV_AlertaDS_di" bpmnElement="H3_EV_AlertaDS">
+        <dc:Bounds x="990" y="2834" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_End_ModeloRetido_di" bpmnElement="H3_End_ModeloRetido">
+        <dc:Bounds x="1140" y="2834" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_Start_Evento_di" bpmnElement="H3_Start_Evento">
+        <dc:Bounds x="240" y="2506" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_T_Registrar_di" bpmnElement="H3_T_Registrar">
+        <dc:Bounds x="358" y="2484" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_GW_Nutrir_di" bpmnElement="H3_GW_Nutrir">
+        <dc:Bounds x="533" y="2499" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_EV_Recomendar_di" bpmnElement="H3_EV_Recomendar">
+        <dc:Bounds x="690" y="2506" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_GW_MergeEvt_di" bpmnElement="H3_GW_MergeEvt">
+        <dc:Bounds x="833" y="2499" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="H3_End_Evento_di" bpmnElement="H3_End_Evento">
+        <dc:Bounds x="990" y="2506" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_01_di" bpmnElement="F_CA_H3_ConhecerCliente_01">
+        <di:waypoint x="276" y="3022"/>
+        <di:waypoint x="358" y="3022"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_02_di" bpmnElement="F_CA_H3_ConhecerCliente_02">
+        <di:waypoint x="458" y="3022"/>
+        <di:waypoint x="478" y="3022"/>
+        <di:waypoint x="478" y="2394"/>
+        <di:waypoint x="508" y="2394"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_03_di" bpmnElement="F_CA_H3_ConhecerCliente_03">
+        <di:waypoint x="608" y="2394"/>
+        <di:waypoint x="619" y="2394"/>
+        <di:waypoint x="619" y="2710"/>
+        <di:waypoint x="658" y="2710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_04_di" bpmnElement="F_CA_H3_ConhecerCliente_04">
+        <di:waypoint x="758" y="2710"/>
+        <di:waypoint x="833" y="2710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_05_di" bpmnElement="F_CA_H3_ConhecerCliente_05">
+        <di:waypoint x="883" y="2710"/>
+        <di:waypoint x="958" y="2710"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="876" y="2650" width="88" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_06_di" bpmnElement="F_CA_H3_ConhecerCliente_06">
+        <di:waypoint x="858" y="2735"/>
+        <di:waypoint x="858" y="2852"/>
+        <di:waypoint x="990" y="2852"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="863" y="2803" width="94" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_07_di" bpmnElement="F_CA_H3_ConhecerCliente_07">
+        <di:waypoint x="1058" y="2710"/>
+        <di:waypoint x="1140" y="2710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_08_di" bpmnElement="F_CA_H3_ConhecerCliente_08">
+        <di:waypoint x="1026" y="2852"/>
+        <di:waypoint x="1140" y="2852"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_09_di" bpmnElement="F_CA_H3_ConhecerCliente_09">
+        <di:waypoint x="276" y="2524"/>
+        <di:waypoint x="358" y="2524"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_10_di" bpmnElement="F_CA_H3_ConhecerCliente_10">
+        <di:waypoint x="458" y="2524"/>
+        <di:waypoint x="533" y="2524"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_11_di" bpmnElement="F_CA_H3_ConhecerCliente_11">
+        <di:waypoint x="583" y="2524"/>
+        <di:waypoint x="690" y="2524"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="626" y="2507" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_12_di" bpmnElement="F_CA_H3_ConhecerCliente_12">
+        <di:waypoint x="558" y="2499"/>
+        <di:waypoint x="558" y="2482"/>
+        <di:waypoint x="858" y="2482"/>
+        <di:waypoint x="858" y="2499"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="563" y="2484" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_13_di" bpmnElement="F_CA_H3_ConhecerCliente_13">
+        <di:waypoint x="726" y="2524"/>
+        <di:waypoint x="833" y="2524"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ConhecerCliente_14_di" bpmnElement="F_CA_H3_ConhecerCliente_14">
+        <di:waypoint x="883" y="2524"/>
+        <di:waypoint x="990" y="2524"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_H3_EnriquecerCliente_di" bpmnElement="Participant_CA_H3_EnriquecerCliente" isHorizontal="true">
+        <dc:Bounds x="131" y="3240" width="2175" height="1210"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H31_VerificadorDeIdentidade_di" bpmnElement="LN_CA0_H31_VerificadorDeIdentidade" isHorizontal="true">
+        <dc:Bounds x="161" y="3240" width="2145" height="310"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H31_DadosECrm_di" bpmnElement="LN_CA0_H31_DadosECrm" isHorizontal="true">
+        <dc:Bounds x="161" y="3550" width="2145" height="240"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H31_DisponibilizacaoDeInsumos_di" bpmnElement="LN_CA0_H31_DisponibilizacaoDeInsumos" isHorizontal="true">
+        <dc:Bounds x="161" y="3790" width="2145" height="660"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_Start_di" bpmnElement="EC_Start">
+        <dc:Bounds x="240" y="3292" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_CA_H1_di" bpmnElement="EC_CA_H1">
+        <dc:Bounds x="358" y="3270" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_B_Negado_di" bpmnElement="EC_B_Negado">
+        <dc:Bounds x="390" y="3332" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="306" y="3370" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_GW_Split_di" bpmnElement="EC_GW_Split">
+        <dc:Bounds x="533" y="3285" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_T_Abertos_di" bpmnElement="EC_T_Abertos">
+        <dc:Bounds x="658" y="3820" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_GW_Join_di" bpmnElement="EC_GW_Join">
+        <dc:Bounds x="833" y="3835" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_T_Consolidar_di" bpmnElement="EC_T_Consolidar">
+        <dc:Bounds x="958" y="3624" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_End_di" bpmnElement="EC_End">
+        <dc:Bounds x="1140" y="3646" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_End_Negado_di" bpmnElement="EC_End_Negado">
+        <dc:Bounds x="540" y="3449" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_T_Uso_di" bpmnElement="EC_T_Uso">
+        <dc:Bounds x="658" y="3950" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_T_Digitais_di" bpmnElement="EC_T_Digitais">
+        <dc:Bounds x="658" y="4080" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_T_Clinicos_di" bpmnElement="EC_T_Clinicos">
+        <dc:Bounds x="658" y="4210" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EC_T_Pesquisas_di" bpmnElement="EC_T_Pesquisas">
+        <dc:Bounds x="658" y="4340" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_01_di" bpmnElement="F_CA_H3_EnriquecerCliente_01">
+        <di:waypoint x="276" y="3310"/>
+        <di:waypoint x="358" y="3310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_02_di" bpmnElement="F_CA_H3_EnriquecerCliente_02">
+        <di:waypoint x="458" y="3310"/>
+        <di:waypoint x="533" y="3310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_03_di" bpmnElement="F_CA_H3_EnriquecerCliente_03">
+        <di:waypoint x="408" y="3368"/>
+        <di:waypoint x="408" y="3467"/>
+        <di:waypoint x="540" y="3467"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_04_di" bpmnElement="F_CA_H3_EnriquecerCliente_04">
+        <di:waypoint x="583" y="3310"/>
+        <di:waypoint x="683" y="3310"/>
+        <di:waypoint x="683" y="3820"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_06_di" bpmnElement="F_CA_H3_EnriquecerCliente_06">
+        <di:waypoint x="558" y="3335"/>
+        <di:waypoint x="558" y="3355"/>
+        <di:waypoint x="612" y="3355"/>
+        <di:waypoint x="612" y="3990"/>
+        <di:waypoint x="658" y="3990"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_08_di" bpmnElement="F_CA_H3_EnriquecerCliente_08">
+        <di:waypoint x="558" y="3285"/>
+        <di:waypoint x="558" y="3265"/>
+        <di:waypoint x="630" y="3265"/>
+        <di:waypoint x="630" y="4120"/>
+        <di:waypoint x="658" y="4120"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_10_di" bpmnElement="F_CA_H3_EnriquecerCliente_10">
+        <di:waypoint x="543" y="3320"/>
+        <di:waypoint x="543" y="3340"/>
+        <di:waypoint x="504" y="3340"/>
+        <di:waypoint x="504" y="4250"/>
+        <di:waypoint x="658" y="4250"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_12_di" bpmnElement="F_CA_H3_EnriquecerCliente_12">
+        <di:waypoint x="548" y="3325"/>
+        <di:waypoint x="486" y="3325"/>
+        <di:waypoint x="486" y="4380"/>
+        <di:waypoint x="658" y="4380"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_05_di" bpmnElement="F_CA_H3_EnriquecerCliente_05">
+        <di:waypoint x="758" y="3860"/>
+        <di:waypoint x="833" y="3860"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_14_di" bpmnElement="F_CA_H3_EnriquecerCliente_14">
+        <di:waypoint x="858" y="3835"/>
+        <di:waypoint x="858" y="3664"/>
+        <di:waypoint x="958" y="3664"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_15_di" bpmnElement="F_CA_H3_EnriquecerCliente_15">
+        <di:waypoint x="1058" y="3664"/>
+        <di:waypoint x="1140" y="3664"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_07_di" bpmnElement="F_CA_H3_EnriquecerCliente_07">
+        <di:waypoint x="758" y="3990"/>
+        <di:waypoint x="858" y="3990"/>
+        <di:waypoint x="858" y="3885"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_09_di" bpmnElement="F_CA_H3_EnriquecerCliente_09">
+        <di:waypoint x="758" y="4120"/>
+        <di:waypoint x="903" y="4120"/>
+        <di:waypoint x="903" y="3860"/>
+        <di:waypoint x="883" y="3860"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_11_di" bpmnElement="F_CA_H3_EnriquecerCliente_11">
+        <di:waypoint x="758" y="4250"/>
+        <di:waypoint x="873" y="4250"/>
+        <di:waypoint x="873" y="3870"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_EnriquecerCliente_13_di" bpmnElement="F_CA_H3_EnriquecerCliente_13">
+        <di:waypoint x="758" y="4380"/>
+        <di:waypoint x="843" y="4380"/>
+        <di:waypoint x="843" y="3870"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_Fontes_di" bpmnElement="Participant_Fontes" isHorizontal="true">
+        <dc:Bounds x="131" y="4490" width="2175" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CA_H3_ProximaMelhorAcao_di" bpmnElement="Participant_CA_H3_ProximaMelhorAcao" isHorizontal="true">
+        <dc:Bounds x="131" y="4600" width="2175" height="720"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H32_ModelagemEGrowth_di" bpmnElement="LN_CA0_H32_ModelagemEGrowth" isHorizontal="true">
+        <dc:Bounds x="161" y="4600" width="2145" height="310"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H32_GovernancaClinica_di" bpmnElement="LN_CA0_H32_GovernancaClinica" isHorizontal="true">
+        <dc:Bounds x="161" y="4910" width="2145" height="140"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA0_H32_DisponibilizacaoDeInsumos_di" bpmnElement="LN_CA0_H32_DisponibilizacaoDeInsumos" isHorizontal="true">
+        <dc:Bounds x="161" y="5050" width="2145" height="270"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_Start_di" bpmnElement="NBA_Start">
+        <dc:Bounds x="240" y="5107" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_T_Contexto_di" bpmnElement="NBA_T_Contexto">
+        <dc:Bounds x="358" y="5085" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_GW_ColdStart_di" bpmnElement="NBA_GW_ColdStart">
+        <dc:Bounds x="533" y="5100" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_T_Ranquear_di" bpmnElement="NBA_T_Ranquear">
+        <dc:Bounds x="658" y="4633" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_GW_Merge_di" bpmnElement="NBA_GW_Merge">
+        <dc:Bounds x="833" y="4648" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_T_Guardrails_di" bpmnElement="NBA_T_Guardrails">
+        <dc:Bounds x="958" y="4633" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_T_Explicar_di" bpmnElement="NBA_T_Explicar">
+        <dc:Bounds x="1108" y="4633" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_GW_Clinico_di" bpmnElement="NBA_GW_Clinico">
+        <dc:Bounds x="1283" y="4648" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1337" y="4700" width="88" height="42"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_T_Revisao_di" bpmnElement="NBA_T_Revisao">
+        <dc:Bounds x="1408" y="4940" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_GW_MergeFim_di" bpmnElement="NBA_GW_MergeFim">
+        <dc:Bounds x="1583" y="4648" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_End_di" bpmnElement="NBA_End">
+        <dc:Bounds x="1740" y="4655" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_T_Popularidade_di" bpmnElement="NBA_T_Popularidade">
+        <dc:Bounds x="658" y="4797" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_01_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_01">
+        <di:waypoint x="276" y="5125"/>
+        <di:waypoint x="358" y="5125"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="NBA_B_SLA_Revisao_di" bpmnElement="NBA_B_SLA_Revisao">
+        <dc:Bounds x="1440" y="5002" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_T_EscalarRevisao_di" bpmnElement="NBA_T_EscalarRevisao">
+        <dc:Bounds x="1568" y="4940" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="NBA_End_SLA_Revisao_di" bpmnElement="NBA_End_SLA_Revisao">
+        <dc:Bounds x="1728" y="4962" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_02_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_02">
+        <di:waypoint x="458" y="5125"/>
+        <di:waypoint x="533" y="5125"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_03_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_03">
+        <di:waypoint x="558" y="5100"/>
+        <di:waypoint x="558" y="4673"/>
+        <di:waypoint x="658" y="4673"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="563" y="4880" width="22" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_04_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_04">
+        <di:waypoint x="583" y="5125"/>
+        <di:waypoint x="683" y="5125"/>
+        <di:waypoint x="683" y="4877"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="601" y="5094" width="64" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_05_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_05">
+        <di:waypoint x="758" y="4673"/>
+        <di:waypoint x="833" y="4673"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_07_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_07">
+        <di:waypoint x="883" y="4673"/>
+        <di:waypoint x="958" y="4673"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_08_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_08">
+        <di:waypoint x="1058" y="4673"/>
+        <di:waypoint x="1108" y="4673"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_09_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_09">
+        <di:waypoint x="1208" y="4673"/>
+        <di:waypoint x="1283" y="4673"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_10_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_10">
+        <di:waypoint x="1308" y="4698"/>
+        <di:waypoint x="1308" y="4980"/>
+        <di:waypoint x="1408" y="4980"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1313" y="4825" width="82" height="28"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_11_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_11">
+        <di:waypoint x="1333" y="4673"/>
+        <di:waypoint x="1583" y="4673"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1411" y="4656" width="94" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_12_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_12">
+        <di:waypoint x="1508" y="4980"/>
+        <di:waypoint x="1608" y="4980"/>
+        <di:waypoint x="1608" y="4698"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1532" y="4963" width="52" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_13_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_13">
+        <di:waypoint x="1633" y="4673"/>
+        <di:waypoint x="1740" y="4673"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_14_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_14">
+        <di:waypoint x="1458" y="5038"/>
+        <di:waypoint x="1518" y="5038"/>
+        <di:waypoint x="1518" y="4980"/>
+        <di:waypoint x="1568" y="4980"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_15_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_15">
+        <di:waypoint x="1668" y="4980"/>
+        <di:waypoint x="1728" y="4980"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_H3_ProximaMelhorAcao_06_di" bpmnElement="F_CA_H3_ProximaMelhorAcao_06">
+        <di:waypoint x="758" y="4837"/>
+        <di:waypoint x="858" y="4837"/>
+        <di:waypoint x="858" y="4698"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SV_01_di" bpmnElement="MF_SV_01">
+        <di:waypoint x="258" y="150"/>
+        <di:waypoint x="258" y="244"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SV_02_di" bpmnElement="MF_SV_02">
+        <di:waypoint x="1608" y="302"/>
+        <di:waypoint x="1608" y="890"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1613" y="788" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SV_03_di" bpmnElement="MF_SV_03">
+        <di:waypoint x="2058" y="480"/>
+        <di:waypoint x="2058" y="890"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2063" y="754" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SV_04_di" bpmnElement="MF_SV_04">
+        <di:waypoint x="198" y="150"/>
+        <di:waypoint x="198" y="2468"/>
+        <di:waypoint x="258" y="2468"/>
+        <di:waypoint x="258" y="2506"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SV_05_di" bpmnElement="MF_SV_05">
+        <di:waypoint x="798" y="4490"/>
+        <di:waypoint x="798" y="3920"/>
+        <di:waypoint x="708" y="3920"/>
+        <di:waypoint x="708" y="3900"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="703" y="4306" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SV_06_di" bpmnElement="MF_SV_06">
+        <di:waypoint x="618" y="4490"/>
+        <di:waypoint x="618" y="4300"/>
+        <di:waypoint x="683" y="4300"/>
+        <di:waypoint x="683" y="4290"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="523" y="4344" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_001_2_di" bpmnElement="DSR_INS_001_2">
+        <dc:Bounds x="1283" y="422" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1263" y="476" width="90" height="78"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_001_2_di" bpmnElement="DIA_INS_001_2">
+        <di:waypoint x="1308" y="422"/>
+        <di:waypoint x="1308" y="302"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_002_1_di" bpmnElement="DSR_INS_002_1">
+        <dc:Bounds x="548" y="2997" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="528" y="3051" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_002_1_di" bpmnElement="DIA_INS_002_1">
+        <di:waypoint x="548" y="3022"/>
+        <di:waypoint x="517" y="3022"/>
+        <di:waypoint x="517" y="3042"/>
+        <di:waypoint x="458" y="3042"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_004_1_di" bpmnElement="DOR_INS_004_1">
+        <dc:Bounds x="270" y="3405" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="243" y="3459" width="90" height="78"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_004_1_di" bpmnElement="DIA_INS_004_1">
+        <di:waypoint x="288" y="3405"/>
+        <di:waypoint x="288" y="3360"/>
+        <di:waypoint x="378" y="3360"/>
+        <di:waypoint x="378" y="3350"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_012_2_di" bpmnElement="DSR_INS_012_2">
+        <dc:Bounds x="768" y="3579" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="748" y="3633" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DOA_INS_012_2_di" bpmnElement="DOA_INS_012_2">
+        <di:waypoint x="978" y="3624"/>
+        <di:waypoint x="978" y="3604"/>
+        <di:waypoint x="818" y="3604"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_017_1_di" bpmnElement="DSR_INS_017_1">
+        <dc:Bounds x="408" y="3835" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="388" y="3889" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_017_1_di" bpmnElement="DIA_INS_017_1">
+        <di:waypoint x="458" y="3860"/>
+        <di:waypoint x="658" y="3860"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_018_1_di" bpmnElement="DSR_INS_018_1">
+        <dc:Bounds x="408" y="4025" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="388" y="4079" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_018_1_di" bpmnElement="DIA_INS_018_1">
+        <di:waypoint x="458" y="4050"/>
+        <di:waypoint x="678" y="4050"/>
+        <di:waypoint x="678" y="4030"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_019_1_di" bpmnElement="DOR_INS_019_1">
+        <dc:Bounds x="415" y="4155" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="388" y="4209" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_019_1_di" bpmnElement="DIA_INS_019_1">
+        <di:waypoint x="433" y="4155"/>
+        <di:waypoint x="433" y="4140"/>
+        <di:waypoint x="658" y="4140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_020_1_di" bpmnElement="DOR_INS_020_1">
+        <dc:Bounds x="415" y="4285" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="388" y="4339" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_020_1_di" bpmnElement="DIA_INS_020_1">
+        <di:waypoint x="433" y="4285"/>
+        <di:waypoint x="433" y="4270"/>
+        <di:waypoint x="658" y="4270"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_021_1_di" bpmnElement="DSR_INS_021_1">
+        <dc:Bounds x="898" y="4295" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="878" y="4349" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_021_1_di" bpmnElement="DIA_INS_021_1">
+        <di:waypoint x="898" y="4320"/>
+        <di:waypoint x="867" y="4320"/>
+        <di:waypoint x="867" y="4400"/>
+        <di:waypoint x="758" y="4400"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_001_1_di" bpmnElement="DSR_INS_001_1">
+        <dc:Bounds x="383" y="1585" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="363" y="1639" width="90" height="78"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_001_1_di" bpmnElement="DIA_INS_001_1">
+        <di:waypoint x="408" y="1585"/>
+        <di:waypoint x="408" y="1561"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_003_1_di" bpmnElement="DOR_INS_003_1">
+        <dc:Bounds x="390" y="3086" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="363" y="3140" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DOA_INS_003_1_di" bpmnElement="DOA_INS_003_1">
+        <di:waypoint x="408" y="3062"/>
+        <di:waypoint x="408" y="3086"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="TextAnnotation_AlertaDSExterno_di" bpmnElement="TextAnnotation_AlertaDSExterno">
+        <dc:Bounds x="930" y="2900" width="240" height="48"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Association_AlertaDSExterno_di" bpmnElement="Association_AlertaDSExterno">
+        <di:waypoint x="1008" y="2870"/>
+        <di:waypoint x="1008" y="2900"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DIA_INS_003_2_di" bpmnElement="DIA_INS_003_2">
+        <di:waypoint x="426" y="3111"/>
+        <di:waypoint x="628" y="3111"/>
+        <di:waypoint x="628" y="2760"/>
+        <di:waypoint x="520" y="2760"/>
+        <di:waypoint x="520" y="2444"/>
+        <di:waypoint x="528" y="2444"/>
+        <di:waypoint x="528" y="2434"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_012_1_di" bpmnElement="DSR_INS_012_1">
+        <dc:Bounds x="343" y="5189" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="323" y="5243" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_012_1_di" bpmnElement="DIA_INS_012_1">
+        <di:waypoint x="368" y="5189"/>
+        <di:waypoint x="368" y="5165"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_013_1_di" bpmnElement="DOR_INS_013_1">
+        <dc:Bounds x="430" y="5189" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="470" y="5189" width="90" height="65"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_013_1_di" bpmnElement="DIA_INS_013_1">
+        <di:waypoint x="448" y="5189"/>
+        <di:waypoint x="448" y="5165"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
