@@ -1,0 +1,31 @@
+{
+  "event_id": "FINAL-SEC-F01-DELTA-90c1717e",
+  "reviewer": "/root/final_security_custody_gate",
+  "role": "original finding reviewer",
+  "verdict": "PASS_BOUND_SECURITY_DELTA",
+  "finding": "FINAL-SEC-F01-METRICS-CONTEXT",
+  "finding_status": "CLOSED_REPRODUCED",
+  "base_head": "1a58a0ad9f8aeb185359192a81ce7b3e3ba4f88a",
+  "repair_commit": "90c1717ee028eae0471ed9a1d0c163e052370f71",
+  "hashes": {
+    "src/maezo/platform/observability.py": "e6cf96c9261b0abfc9c8971a0969cd6da163fe55a5b236a1f5498595353e4859",
+    "tests/unit/platform/test_observability.py": "cc8d01917c98282f401f21a1dcc8e57cf99f800122ddb2da0c5193eedf550151",
+    "tests/unit/agents/test_lucas_administrative_graph.py": "50c5dbe983fc0b3428d8e680960cdb29d6069a311a5cf4fdd4051b53e6dc6bbe",
+    "unchanged_graph_handler": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3"
+  },
+  "independent_validation": {
+    "original_probe": "PASS",
+    "fault_chain_variants": 6,
+    "focused_tests": "147 passed in 9.14s",
+    "test_exit_code": 0,
+    "guarded_network_attempts": 0,
+    "fixed_failure_event_only": true,
+    "original_exception_and_cause_identity_preserved": true,
+    "clinical_credential_and_cause_markers_absent_from_logs": true,
+    "success_error_validation_cancel_and_context_controls": "PASS"
+  },
+  "reviewer_authorship_repair_integration_edits": false,
+  "overall_candidate_approval": false,
+  "recorded_by": "/root",
+  "record_source": "Exact original final reviewer return; not human/provider/runtime approval"
+}

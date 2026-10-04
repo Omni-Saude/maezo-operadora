@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "scope": "independent bounded clock-fixture controls only",
+  "isolated_checkout": "/Users/familia/.codex/worktrees/v21-xdist-order-repair/maezo-operadora",
+  "source_head": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+  "old_test_source_sha256": "ab9e1929978f8006c266424d04bc759c6055fe940f5c4125187e6382b600a9c4",
+  "new_test_source_sha256": "ba8c962ec7c5195f4e282d660fb4fbca0e0e0be077ea9ab7bbb2d06179fe9c23",
+  "gateway_sha256": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+  "gateway_import_file": "/Users/familia/.codex/worktrees/v21-xdist-order-repair/maezo-operadora/src/maezo/gateway/human/gateway.py",
+  "controls": [
+    {
+      "name": "old_parameter_after_equivalent_75_minute_collection_delay",
+      "status": "REPRODUCED_OLD_ASSERTION_FAILURE",
+      "collection_time_model": "2026-10-04T17:57:17.394743+00:00",
+      "parameter_from_old_expression": "2026-10-04T18:57:17.394743+00:00",
+      "real_invocation_observation": "2026-10-04T19:12:17.394743+00:00",
+      "failure": "DID NOT RAISE GatewayRefusalError",
+      "method": "Derive the aged old parameter value, invoke unchanged old test function; no system/module clock override or sleep"
+    },
+    {
+      "name": "new_duration_parameter_resolved_during_invocation",
+      "status": "PASS",
+      "method": "Invoke actual repaired function with its actual timedelta parameter; real clock unchanged"
+    },
+    {
+      "name": "future_ack_20_seconds_within_current_deadline",
+      "status": "PASS_REFUSED_ADMISSION_UNAVAILABLE",
+      "future_ack": "2026-10-04T19:12:37.404960+00:00",
+      "committed_rows": 1,
+      "admission_calls": 1,
+      "deadline_validation": "Existing Admit fixture asserts real now < valid_until; +20s future is below normal +1minute authority bound",
+      "gateway_clock_validation_unchanged": true
+    },
+    {
+      "name": "valid_current_ack_positive_control",
+      "status": "PASS_ACCEPTED_PENDING",
+      "receipt_status": "pending",
+      "committed_rows": 1,
+      "admission_calls": 1
+    }
+  ],
+  "no_system_or_global_module_clock_override": true,
+  "no_freezer_env_or_production_validation_change": true,
+  "ambient_sensitive_environment_names": [],
+  "captured_at": "2026-10-04T19:12:17.436473+00:00",
+  "full_run2_status": "FAIL_PRESERVED_NOT_REPLACED_BY_BOUNDED_PASS",
+  "log": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-testclock-controls.log",
+  "log_sha256": "c7e1507e7c0b469524bd0c6ea6b03860fa042ec88ba14b8bda928e40df97b1b2"
+}

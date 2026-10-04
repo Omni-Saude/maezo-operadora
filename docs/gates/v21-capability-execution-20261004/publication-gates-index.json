@@ -1,0 +1,28 @@
+{
+  "schema": "maezo.v21.gate-output-index.v1",
+  "created_at": "2026-10-04T22:02:14.041063+00:00",
+  "reviewed_input_index": "delivery-evidence-index-final.json",
+  "reviewed_input_index_sha256": "7d4186b5614207016161ef92da232ef7544050168757ec6ed9648d748c78c245",
+  "input_records_unchanged": true,
+  "output_records": [
+    {
+      "path": "metadata-final-architecture-4c.json",
+      "sha256": "fb3c6655ab2500d0a19a6c963e25a9bd4325dd9977275e41b7571ea6543c13bc",
+      "bytes": 1437
+    },
+    {
+      "path": "metadata-final-security-4c.json",
+      "sha256": "2fa588a6902e05250b38c1e7e3e8e4787f8a17c4c7d5462d0f74ab2cda6d7676",
+      "bytes": 2094
+    },
+    {
+      "path": "publication-gates-ledger.jsonl",
+      "sha256": "f8ce228425805e58f4685de8e562d301dc26a31ea6c9e188625b497ababe9adc",
+      "bytes": 831
+    }
+  ],
+  "ledger_events": 2,
+  "event_IDs_disjoint_from_input_ledger": true,
+  "source_or_test_delta": false,
+  "index_self_hash": "Excluded; verify exact file bytes during readback"
+}

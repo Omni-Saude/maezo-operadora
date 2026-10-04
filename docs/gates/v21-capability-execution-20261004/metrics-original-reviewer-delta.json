@@ -1,0 +1,22 @@
+{
+  "schema": "maezo.v21.independent-metrics-delta.v1",
+  "event_id": "AW-SOURCE-F03-DELTA-a469c007",
+  "recorded_by": "/root",
+  "record_source": "Exact facts from original /root/hosted_gateway_ci_diagnosis final response",
+  "reviewer": "/root/hosted_gateway_ci_diagnosis",
+  "verdict": "PASS_BOUND_TECHNICAL",
+  "input_head": "bcf354053e0b1a11c50a25328fdef4f6ef5ef76f",
+  "repaired_commit": "a469c007",
+  "graph_sha256": "50977755697707762b7c4e923bb6d5d1b86761e59aab355f7afa9391d320e5a3",
+  "graph_test_sha256": "e5650354ca15cf65480aba32c97edfa804465045f0557c684319b5a18600ab58",
+  "unchanged_fence_sha256": "235e67ec6ebb7ddf9ff8d622c0f18fb3c1d326ac1229296081f8c8727cc0f919",
+  "patch_sha256": "d0a3a1a2d1fc54c0e6f8a9d87480b27cee4452596604a1b82da74d7fc6716467",
+  "independent_stdout_sha256": "de20e8a3c30a15b39aaebaf23b215c4cb0e4ff75611ddd0886df6a08b3d884b5",
+  "passed": 101,
+  "exit_code": 0,
+  "network_audit_events": 0,
+  "input_hashes_unchanged_after_execution": true,
+  "exception_metric_once": true,
+  "cancellation_baseexception_prevalidation_not_counted": true,
+  "source_runtime_operational_qualification": "NOT_PROVEN"
+}

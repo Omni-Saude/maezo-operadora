@@ -1,0 +1,39 @@
+{
+  "schema": "maezo.v21.hosted-ci-finding.v1",
+  "event_id": "AW-CI-F02-43dae3d",
+  "recorded_by": "/root",
+  "record_source": "Independent /root/hosted_gateway_ci_diagnosis final response plus exact GitHub job log",
+  "reviewer": "/root/hosted_gateway_ci_diagnosis",
+  "verdict": "REVISE",
+  "input_sha": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "finding": {
+    "id": "AW-CI-F02",
+    "priority": "P1",
+    "path": "tests/unit/gateway/capabilities/test_admission.py",
+    "line": 230,
+    "problem": "Unordered frozenset HARD_ACTIONS expansion changes xdist worker collection order",
+    "introduced_sha": "e91590f1888874df1420916b395406baaebfb6f7",
+    "hard_actions_count": 5,
+    "policy_and_workflow_changed": false,
+    "pure_probe": "4 subprocesses produced 4 distinct orders without pytest/source/env edits"
+  },
+  "primary_ci": {
+    "run_id": 37222183183,
+    "job_id": 111494579260,
+    "url": "https://github.com/Omni-Saude/maezo-operadora/actions/runs/37222183183/job/111494579260",
+    "log_bytes": 157464,
+    "log_sha256": "5214faf6b022077c3f028dc0015ddb7a74dc0a3af8920749261b1723561fbfbe",
+    "expected_log_sha256": "5214faf6b022077c3f028dc0015ddb7a74dc0a3af8920749261b1723561fbfbe",
+    "JUnit_artifact_id": 11311240211,
+    "JUnit_zip_sha256": "4a858589cc4b525bafee20a233debc4eec2fd95822235d5f7d294c8a408ee42e",
+    "JUnit_xml_sha256": "fba2b9dea9ab4bdd850456efdffd6fa2fa165d1b442763ded278d7d718752aad",
+    "JUnit_counts": {
+      "tests": 3,
+      "errors": 3,
+      "failures": 0,
+      "skipped": 0,
+      "executed_bodies": 0
+    }
+  },
+  "next_step": "Distinct third repair only test collection order, isolated from current frozen local broad run; original reviewer delta and fresh hosted CI"
+}

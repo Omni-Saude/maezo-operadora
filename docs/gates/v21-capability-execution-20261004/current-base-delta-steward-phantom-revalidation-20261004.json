@@ -1,0 +1,124 @@
+{
+  "schema": "maezo-v21-phantom-baseline-independent-revalidation.v1",
+  "observed_at_utc": "2026-10-04T19:25:18.377055+00:00",
+  "reviewer": "current_base_delta_steward",
+  "role": "original independent base delta reviewer; no authorship, repair, integration or final signing",
+  "verdict": "PASS_BOUNDED_PHANTOM_BASELINE_REPAIR_DELTA",
+  "scope": "Exact two obsolete _BASELINE report entries only; documentation test gate after serialized current-main integration",
+  "prior_base_admission_gate": {
+    "path": "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v21-current-base-delta-evidence/current-base-delta-steward-20261004.json",
+    "sha256": "1a9e01458117e0ce95c31fc9cd4c1acd2dd2ac9a024af6f6f4fc3129501e08c0",
+    "original_source_base": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "original_current_main": "33aa7acba59dd5027513834d07d8e9a517649b3e",
+    "facts_preserved_without_silent_rebaseline": true
+  },
+  "integrated_base_commit": "989924083e489830d10b3bf96747961b1966fa4e",
+  "verified_repair_commit": "fb9ce5068ea4c8f2d02f89d496d0ea34e62a8f11",
+  "observed_worktree_HEAD": "fb9ce5068ea4c8f2d02f89d496d0ea34e62a8f11",
+  "verified_commit_parent": "989924083e489830d10b3bf96747961b1966fa4e",
+  "main_is_ancestor": true,
+  "file": {
+    "path": "tests/unit/docs/test_no_phantom_src_maezo_policies_path.py",
+    "sha256_before": "13826252803306a9bba25d95c4de8a9ed196339cba13a0e7725b53b36947654e",
+    "sha256_after": "bc6ee180844f4d58825fb001a2399f85432a082336093a78be37c1c2931c7b31",
+    "git_blob_before": "8359f0f925c86b65ddfb8c3eda05fc61f1ed4db3",
+    "git_blob_after": "8c6e1acdbc613cd0597bbe8f673ae10dec9bd7fb",
+    "numstat": "0\t9\ttests/unit/docs/test_no_phantom_src_maezo_policies_path.py",
+    "only_changed_path": [
+      "tests/unit/docs/test_no_phantom_src_maezo_policies_path.py"
+    ],
+    "working_bytes_identical_to_verified_commit": true
+  },
+  "independent_AST_proof": {
+    "baseline_count_before": 12,
+    "baseline_count_after": 10,
+    "removed_keys": [
+      "docs/reports/G0-gate-review.md",
+      "docs/reports/review-before-launch-extension.md"
+    ],
+    "added_keys": [],
+    "remaining_justifications_unchanged": true,
+    "whole_module_AST_identical_except_two_pairs": true,
+    "assertions_skips_filters_fixtures_unchanged": true
+  },
+  "independent_tree_proof": {
+    "git_grep_exit": 0,
+    "phantom_hits": 14,
+    "stale_entries": [],
+    "unexplained_non_ADR_hits": [],
+    "phantom_directory_files": [],
+    "owner_deleted_paths_count": 15,
+    "owner_deleted_paths": [
+      "docs/archive/HANDOFF-wave3.yaml",
+      "docs/archive/HANDOFF.yaml",
+      "docs/archive/PROMPT-next-coordinator.md",
+      "docs/archive/predeploy-ws6-package-STAGED.md",
+      "docs/reports/G0-gate-review.md",
+      "docs/reports/T0.3-agent-yaml-drift.md",
+      "docs/reports/T2.4-a2a-agent-card-signing-gap.md",
+      "docs/reports/phase0-report.md",
+      "docs/reports/phase2-report.md",
+      "docs/reports/phase3-plan.md",
+      "docs/reports/platform-completion-plan.md",
+      "docs/reports/predeploy-findings.json",
+      "docs/reports/predeploy-sweep-escalations.json",
+      "docs/reports/review-before-launch-extension.md",
+      "docs/temp/Plano_Teste_Maezo_Operadora (1).docx"
+    ],
+    "all_deletes_absent_disk_and_tracking": true,
+    "source_tree_before": "e168951ec02b786f91657ed07dcf6a3dc8227326",
+    "source_tree_after": "e168951ec02b786f91657ed07dcf6a3dc8227326",
+    "source_working_delta": [],
+    "normative_current_main_to_repair_commit_delta": []
+  },
+  "own_exact_commit_test": {
+    "command": "env -u PYTEST_ADDOPTS PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest tests/unit/docs/test_no_phantom_src_maezo_policies_path.py -q -p no:cacheprovider",
+    "cwd": "/Users/familia/.codex/worktrees/v21-xdist-order-repair/maezo-operadora",
+    "tested_commit": "fb9ce5068ea4c8f2d02f89d496d0ea34e62a8f11",
+    "exit_code": 0,
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "deselected": 0,
+    "output": "4 passed in 0.17s",
+    "execution_session_id": 63834,
+    "only_exact_module": true,
+    "bytecode_writes_disabled": true,
+    "cacheprovider_disabled": true
+  },
+  "earlier_dirty_freeze_test": {
+    "base_commit": "989924083e489830d10b3bf96747961b1966fa4e",
+    "frozen_repair_sha256": "bc6ee180844f4d58825fb001a2399f85432a082336093a78be37c1c2931c7b31",
+    "exit_code": 0,
+    "output": "4 passed in 0.13s",
+    "execution_session_id": 80503,
+    "subsequent_commit_verified_same_bytes": "fb9ce5068ea4c8f2d02f89d496d0ea34e62a8f11"
+  },
+  "boundaries": {
+    "source_publication": false,
+    "human_ratification": false,
+    "runtime_qualification": false,
+    "final_CI_approval": false,
+    "original_root_full_R2_parent_reported": "FAIL and terminated; scope label retained; four docs tests do not supersede it",
+    "metrics_and_time_fixture_gates": "Separate independently coordinated lanes; not re-reviewed or reset by this gate",
+    "taskDocs_source_metadata": "Original source base and admission preserved; integrated base and repair SHA separately explicit"
+  },
+  "reviewer_mutations": [
+    "Own gate evidence JSON outside original signed bundle only"
+  ],
+  "code_repair_or_commit_by_reviewer": false,
+  "next_gate": "Final exact-head applicable CI and independent final signer gates remain separate",
+  "event_id": "33aa_to_fb9",
+  "original_signed_bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+  "original_frozen_source_count": 94,
+  "disclosed_source94_base_to_current_main_delta": [
+    {
+      "path": "src/maezo/platform/integrations/agent_resume.py",
+      "frozen_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58",
+      "base_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58",
+      "current_main_sha256": "29a7f0816541a0ffcc8a978d379cb512fa93adaeacf5e4fd1f031a8d3a9471e7",
+      "working_tree_sha256": "20619524d0473ffa2f079b17900b94d95072b255482f0914cefceb02204d2c58"
+    }
+  ],
+  "human_or_provider_signature_granted_by_this_gate": false
+}

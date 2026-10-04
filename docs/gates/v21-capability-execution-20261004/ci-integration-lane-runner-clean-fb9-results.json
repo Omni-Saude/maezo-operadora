@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "verdict": "CI_RUNNER_CLEAN_FOCAL_PASS",
+  "scope": "whole runner module on genuine clean tracked source, not a full-unit or engine gate",
+  "source_head": "fb9ce5068ea4c8f2d02f89d496d0ea34e62a8f11",
+  "observed_head_at_end": "fb9ce5068ea4c8f2d02f89d496d0ea34e62a8f11",
+  "source_file_count": 2020,
+  "source_content_fingerprint": "d2e4df0dae60d78e1684619a758a9aa7988d3f56daef083c3cb65db5f29ac808",
+  "tracked_status_start": "",
+  "tracked_status_end": "",
+  "source_bytes_changed_during_execution": [],
+  "original_runner_test_gateway_and_lock_hashes": {
+    "scripts/dev/run_engine_integration.py": "5b27e471bdf85443457564634f79cafb7fc28f9294214687e9bd909b44c88281",
+    "tests/unit/dev/test_engine_integration_runner.py": "dcec1a521698f6d09900d25bff20e7fd55515c203892da6a910a3d1e3aab987d",
+    "src/maezo/gateway/human/gateway.py": "06c097555649a24c34664cbfb71ad63b1f68f315ac8d2e029da87bc6278a4c57",
+    "pyproject.toml": "788931152651ce6e996d0333ca9bf2615a89fc9c64a1fbb22a24d0e0e4e0de39",
+    "uv.lock": "32585889cd2ba4645044cd9c85041b884dbd42621b8322a5d75fe96cae86e4e5"
+  },
+  "ambient_sensitive_environment_names": [],
+  "command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/unit/dev/test_engine_integration_runner.py",
+    "-q",
+    "--junitxml=/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9.xml"
+  ],
+  "return_code": 0,
+  "started_at": "2026-10-04T19:27:02.085555+00:00",
+  "ended_at": "2026-10-04T19:32:36.364437+00:00",
+  "duration_seconds": 334.294,
+  "junit_counts": {
+    "testcases": 18,
+    "passed": 18,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "junit_declared_suites": [
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "18",
+      "time": "240.173",
+      "timestamp": "2026-10-04T16:27:02.841947-03:00",
+      "hostname": "MacBook-Air-de-Rodrigo-5.local"
+    }
+  ],
+  "junit_parse_error": null,
+  "terminal_summary_lines": [
+    "18 passed in 332.94s (0:05:32)"
+  ],
+  "cases": [
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_supervisor_reaps_term_resistant_grandchild_before_return[sleep-0.2-124]"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_supervisor_reaps_term_resistant_grandchild_before_return[exit-5.0-0]"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_interruption_reaps_term_resistant_grandchild_before_lock_release[2]"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_interruption_reaps_term_resistant_grandchild_before_lock_release[15]"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_lock_contention_never_grants_cleanup_and_owner_releases_on_interrupt"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_child_timeout_preserves_partial_log_reaps_process_and_releases_lock"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_lock_owner_releases_after_successful_real_subprocess"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_covers_every_current_integration_test_and_required_families"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_ignores_ambient_pytest_selectors_and_plugins"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_rejects_untracked_test_outside_integration_directory"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_rejects_a_checkout_at_the_wrong_sha"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_busy_lock_return_code_matches_durable_run_state"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_junit_empty_or_partial_cannot_turn_into_a_successful_suite"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_runtime_env_pins_endpoints_and_drops_external_execution_controls"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_real_pytest_skip_is_rejected_while_strict_xfail_is_reported"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_separates_declared_deselections_from_files_without_nodeids"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_discovery_still_aborts_on_a_file_that_yields_nothing_under_the_opt_in_too"
+      },
+      "statuses": []
+    },
+    {
+      "identity": {
+        "classname": "tests.unit.dev.test_engine_integration_runner",
+        "name": "test_the_runner_and_the_conftest_agree_on_the_root_fixture_opt_in_name"
+      },
+      "statuses": []
+    }
+  ],
+  "log": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9.log",
+  "log_sha256": "cd4a8fb394b5a2f93af2eb406aafd4d3cd210f4f3a32ecf4d0b5b19bf5b8ac17",
+  "junit": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora/docs/gates/v21-capability-execution-20261004/ci-integration-lane-runner-clean-fb9.xml",
+  "junit_sha256": "17d3bc2aee0096e0d7e88c15f0218bfcf6226dc09f42f4fc2bc55b7e1b7a2b50",
+  "qualification_boundaries": {
+    "old_full_run1": "FAIL preserved",
+    "old_full_run2": "FAIL preserved",
+    "fresh_full_unit": "NOT_RUN",
+    "real_PG_CIB_engine_integration": "NOT_RUN",
+    "human_ratification": "NOT_GRANTED"
+  },
+  "no_dirty_guard_waiver_source_edit_cache_cleanup_fixture_manufacture_env_override_or_filter": true
+}
