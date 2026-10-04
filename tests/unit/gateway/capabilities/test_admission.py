@@ -227,7 +227,7 @@ async def test_no_authority_or_audit_cannot_issue_lease():
     assert authority.events == []
 
 
-@pytest.mark.parametrize("action", [*HARD_ACTIONS])
+@pytest.mark.parametrize("action", sorted(HARD_ACTIONS))
 def test_hard_binding_is_rejected_even_before_source(action):
     with pytest.raises(ValidationError):
         binding(autonomy_action=action)
