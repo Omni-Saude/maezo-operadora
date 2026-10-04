@@ -79,7 +79,9 @@ class _FonteFixa:
         self.resultado = resultado
         self.pedidos: list[tuple[str, str | None]] = []
 
-    async def fatos(self, pseudo_id: str, competencia: str | None) -> FatosCobranca | Indisponivel:
+    async def fatos(
+        self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None
+    ) -> FatosCobranca | Indisponivel:
         self.pedidos.append((pseudo_id, competencia))
         return self.resultado
 
@@ -370,7 +372,7 @@ class _FonteQueConta:
     def __init__(self) -> None:
         self.pedidos = 0
 
-    async def fatos(self, pseudo_id: str, competencia: str | None) -> Any:
+    async def fatos(self, pseudo_id: str, competencia: str | None, *, phone_hash: str | None = None) -> Any:
         del pseudo_id, competencia
         self.pedidos += 1
         return FatosCobranca(
