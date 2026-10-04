@@ -26,13 +26,13 @@ publicado pela AMH. Os rascunhos dos dois contratos estão em `Omni-Saude/amh-da
 | Campo | Lago hoje | Se faltar, o agente... |
 |---|---|---|
 | telefone → pessoa | **não existe** | Helena pergunta e segue sem identidade; Lucas escala |
-| idade, sexo | **vazios** (0 de 215.280 no MPI da operadora) | Helena pergunta a idade (como hoje) |
+| idade | **vazia** (0 de 215.280 no MPI da operadora) | Helena pergunta a idade (como hoje). O contrato não traz sexo: a triagem decide por população e idade |
 | plano ativo, vigência, carência | existe (`fhir_coverage`, `carencia_beneficiario`) | não afirma cobertura |
 | titular / dependente | existe | pergunta quando houver mais de um candidato |
 
 ## O que depende da AMH (lado do lago)
 1. Mintar `portable_subject_ref` para o tenant `omni`.
-2. Ingerir o cadastro de pessoa física do Tasy PLS (telefone, e-mail, nascimento, sexo) e a tabela de pagador.
+2. Ingerir o cadastro de pessoa física do Tasy PLS (telefone, e-mail, nascimento) e a tabela de pagador.
 3. Fixar UM esquema de hash de telefone e popular a ligação telefone → pessoa.
 4. Propósito LGPD de atendimento ao beneficiário (hoje o vocabulário não tem).
 5. Critério de "conciliado" e política de atraso (financeiro/PO).
