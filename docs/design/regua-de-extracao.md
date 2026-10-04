@@ -131,7 +131,7 @@ a cerca de saída existe. Aqui a cobrança é o conjunto de casos rotulados (3.2
 
 | Peça | O que faz | Onde |
 |---|---|---|
-| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` (`extracao-v6`, 136 casos — v3 em 01/10/2026: dois casos `outside_channel` da DL-0052; v4: autorização negada e negativa de procedimento também são `outside_channel`, e o caso `intent-info-guia` foi re-rotulado; v5: perguntas de privacidade e de LGPD também; v6: junta a v4 da main, com dois casos `cobranca` da onda (e) do número único, medidos só com o `classify-v6` do roteador ligado — campo `prompt` do caso) |
+| Corpus rotulado | ≥100 mensagens escritas como gente escreve, com a extração correta ao lado | `tests/evals/extracao/casos.json` (`extracao-v7`, 144 casos — v3 em 01/10/2026: dois casos `outside_channel` da DL-0052; v4: autorização negada e negativa de procedimento também são `outside_channel`, e o caso `intent-info-guia` foi re-rotulado; v5: perguntas de privacidade e de LGPD também; v6: junta a v4 da main, com dois casos `cobranca` da onda (e) do número único, medidos só com o `classify-v6` do roteador ligado — campo `prompt` do caso; v7: oito casos da bateria de 02/10/2026 — A09, G11 e seis do Lucas: LU043, LU055, LU059, LU075, LU077, LU081) |
 | Cerca do corpus | o corpus não pode apodrecer: vocabulário fechado, cobertura das 4 populações e dos 25 códigos, toda regra com caso, justificativa obrigatória | `tests/unit/evals/test_corpus_de_extracao.py` |
 | Medição ao vivo | roda o `classify` real contra o corpus e pontua **campo a campo** | `tests/evals/test_extracao_live.py` |
 
