@@ -34,10 +34,6 @@ _BASELINE: dict[str, str] = {
         "cites `src/maezo/policies/` only as the NAME of a CODEOWNERS-surface pattern in a PR-"
         "classification method, never as a file with content to read (line ~577)."
     ),
-    "docs/reports/review-before-launch-extension.md": (
-        "same CODEOWNERS-surface-pattern-name citation as Tarefas_Pendentes.md (mirrors its "
-        "review method, line ~22) — not a claim the path holds content."
-    ),
     "docs/design/T1.9-ceiling-enforcement.md": (
         "deliberate v1-vs-v2 historical contrast: explicitly states v1's "
         '`_DEFAULT_CORE_PATH = "src/maezo/policies/autonomy/L0-core.yaml"` \'does NOT carry '
@@ -50,11 +46,6 @@ _BASELINE: dict[str, str] = {
         "e o memo responde 'esse arquivo e todo o diretorio NUNCA EXISTIU', com `ls src/maezo/policies/`\n"
         "-> nao existe; linha ~911: `find . -iname process_allowlist.yaml` -> 0 hits). Mesma especie\n"
         "de G0-gate-review.md: registro de que o caminho e fantasma, nunca um ponteiro para conteudo."
-    ),
-    "docs/reports/G0-gate-review.md": (
-        "already declares the path 'confirmed nonexistent' (line ~71) and lists it as a fixed-"
-        "elsewhere residual defect (C3, PROJECT.md/CONTRIBUTING.md, both since corrected) — not "
-        "residue itself."
     ),
     "docs/reports/business-logic-audit-improvement-plan.md": (
         "historical audit-improvement-plan dated 2026-07-02, predates the T0.3/T0.4 spec/ "
