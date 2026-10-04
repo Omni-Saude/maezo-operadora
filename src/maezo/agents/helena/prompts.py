@@ -40,7 +40,9 @@ from typing import NamedTuple
 from maezo.runtime.prompt_format import UNTRUSTED_INSTRUCAO_DE_PROMPT
 
 SYSTEM_PROMPT_VERSION = "system-v1"
-CLASSIFY_PROMPT_VERSION = "classify-v5.2"  # 01/10/2026: privacidade e armazenamento de dados sao
+CLASSIFY_PROMPT_VERSION = "classify-v5.3"  # 04/10/2026: pedido vago ("preciso de ajuda") e `greeting`, nunca
+# `human_request`, e mensagem sem conteudo nao ganha sintoma inventado (A09 e G11 da bateria de 02/10).
+# v5.2 — 01/10/2026: privacidade e armazenamento de dados sao
 # `outside_channel` (J09: "voces guardam minhas mensagens?" saia `information` e a Helena afirmava
 # que as mensagens sao "armazenadas de forma segura e pseudonimizada" — sem base no repositorio).
 # v5.1 — 01/10/2026: autorizacao NEGADA e status de guia sao
@@ -61,7 +63,10 @@ CLASSIFY_PROMPT_VERSION = "classify-v5.2"  # 01/10/2026: privacidade e armazenam
 #: `outside_channel`. Usado SO' quando `MAEZO_ROTEADOR_LUCAS` esta' ligado: desligado, o texto
 #: enviado ao modelo e' o `classify-v5` byte a byte (o sha256 dele esta' fixado em
 #: `tests/unit/agents/test_helena_passagem_cobranca.py`).
-CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v6.1"  # 02/10/2026: o paragrafo de `outside_channel` do v6
+CLASSIFY_PROMPT_VERSION_ROTEADOR = "classify-v6.2"  # 04/10/2026: as mesmas duas regras do v5.3 e, so' no v6,
+# reajuste e "mensalidade atrasada"/"vou ser suspenso" sao cobranca, forma de pagamento/nota fiscal sao
+# `outro`, e "passando mal"/tontura num texto de cobranca e' `symptom` (LU043, LU055, LU059, LU075, LU077,
+# LU081 da bateria do Lucas de 02/10). v6.1 — 02/10/2026: o paragrafo de `outside_channel` do v6
 # ganhou autorizacao NEGADA e privacidade/LGPD (as mesmas do v5.1/v5.2, DL-0063 e DL-0064). v6 — 01/10/2026:
 # a onda (e).
 RESPONSE_PROMPT_VERSION = "response-v10"  # 01/10/2026: o contexto da resposta deixa de levar o `motivo`
@@ -383,11 +388,16 @@ segunda via, vencimento, mensalidade em aberto, confirmacao de pagamento ("ja pa
 contestacao de valor ("me cobraram errado"), aviso de cobranca recebido ("estou sendo cobrado") e
 cancelamento do plano. Escolha o `cobranca_subtipo`: "boleto_2via" (boleto, segunda via, codigo de
 barras), "vencimento" (data de vencimento), "confirmacao_pagamento" (se um pagamento foi
-recebido), "contestacao" (discorda do valor ou nao reconhece a cobranca), "cobranca_recebida"
-(recebeu cobranca, aviso de atraso ou de debito), "cancelamento" (quer cancelar o plano) e "outro"
-(qualquer outra duvida de cobranca). Uma mensagem de cobranca com QUALQUER sinal de saude
-(sintoma, dor, mal-estar, sofrimento, risco) preenche os campos de saude normalmente — o sinal de
-saude e' sempre avaliado, e o sintoma vence o assunto. Pedir uma pessoa/atendente continua sendo
+recebido), "contestacao" (discorda do valor, do reajuste ou do aumento da mensalidade, ou nao
+reconhece a cobranca), "cobranca_recebida" (recebeu cobranca, aviso de atraso ou de debito, diz que
+esta com mensalidade atrasada ou pergunta se o plano sera suspenso ou cortado por falta de
+pagamento), "cancelamento" (quer cancelar o plano) e "outro" (qualquer outra duvida de cobranca:
+forma de pagamento como pix ou cartao, valor da mensalidade, nota fiscal, informe de rendimentos).
+Uma mensagem de cobranca com QUALQUER sinal de saude (sintoma, dor, mal-estar, sofrimento, risco)
+preenche os campos de saude normalmente — o sinal de saude e' sempre avaliado, e o sintoma vence o
+assunto: "estou passando mal", "tontura", "visao escura" e "desmaio" sao sinal de saude, entao
+intent="symptom" (nunca "cobranca") e, se nenhum codigo da lista bater, sintoma_codigo=null com
+intensidade="desconhecida" — a Helena pergunta o que falta. Pedir uma pessoa/atendente continua sendo
 sempre "human_request", qualquer que seja o assunto.
 
 ASSUNTO FORA DO CANAL (01/10/2026): voce e' uma navegadora de SAUDE. intent="outside_channel" e'
@@ -492,6 +502,14 @@ para ninguem. Se houver QUALQUER pedido junto da saudacao, vale a outra intencao
 "greeting" — "oi, quero remarcar minha consulta" e' "scheduling", "bom dia, estou com dor de
 cabeca" e' "symptom". Caso contrario, use "information" para duvidas administrativas
 (cobertura, rede, elegibilidade) e "scheduling" para pedidos de marcar consulta/exame.
+
+PEDIDO VAGO E MENSAGEM SEM CONTEUDO (bateria de 02/10/2026, casos `A09` e `G11`). "preciso de
+ajuda", "me ajuda", "alguem ai?" pedem ajuda SEM dizer o que: use intent="greeting" (a Helena
+responde perguntando do que a pessoa precisa) e NUNCA "human_request", que e' so' para quem pede
+uma pessoa/atendente/enfermeiro. Se houver sinal de urgencia ("socorro", "emergencia") ou de risco,
+valem as regras de saude e de risco, como sempre. Mensagem SEM CONTEUDO (so' numeros, simbolos,
+letras soltas): todos os campos de saude ficam nulos, population="none" e intensidade="desconhecida".
+NUNCA invente sintoma, idade ou populacao que a mensagem nao traga: "1234567890" nao e' dor no peito.
 
 {fora_do_canal}"""
 

@@ -1,5 +1,5 @@
 {
-  "versao": "extracao-v6",
+  "versao": "extracao-v7",
   "casos": [
     {
       "id": "r2-cefaleia-comum-01",
@@ -2538,7 +2538,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.1"
+      "prompt": "classify-v6.2"
     },
     {
       "id": "onda-e-cobranca-indevida",
@@ -2558,7 +2558,7 @@
       "regras": [
         "R5"
       ],
-      "prompt": "classify-v6.1"
+      "prompt": "classify-v6.2"
     },
     {
       "id": "dl0052-autorizacao-negada",
@@ -2635,6 +2635,163 @@
       "regras": [
         "R5"
       ]
+    },
+    {
+      "id": "a09-preciso-de-ajuda",
+      "mensagem": "Preciso de ajuda",
+      "esperado": {
+        "intent": "greeting",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "A09 da bateria de 02/10/2026: pedido de ajuda SEM assunto virava `human_request` e abria caso P3 para ninguem saber o que a pessoa queria. E' `greeting`: a Helena pergunta do que a pessoa precisa. So' vira `human_request` quando pede uma pessoa.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "g11-so-numeros",
+      "mensagem": "1234567890",
+      "esperado": {
+        "intent": "outside_channel",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "G11 da bateria de 02/10/2026: uma mensagem so' de numeros virou `dor_toracica` (P1, plantao clinico). Texto sem conteudo e' `outside_channel` com todos os campos de saude nulos: nenhum sintoma, idade ou populacao e' inventado.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "lu081-cobranca-com-mal-estar",
+      "mensagem": "fui cobrado errado e estou passando mal, tontura e visao escura",
+      "esperado": {
+        "intent": "symptom",
+        "population": "adult",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "LU081 da bateria do Lucas de 02/10/2026: o sinal de saude se perdeu e o caso foi tratado como cobranca (P2). Sintoma vence o assunto: e' `symptom`, sem codigo (nenhum bate) e sem intensidade dita.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ]
+    },
+    {
+      "id": "lu043-reajuste-abusivo",
+      "mensagem": "o reajuste foi abusivo, nao concordo",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "LU043 da bateria do Lucas de 02/10/2026: contestacao de reajuste recebia 'esse assunto nao e' tratado aqui'. E' `cobranca` (subtipo `contestacao`) e vai a um humano.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v6.2"
+    },
+    {
+      "id": "lu055-mensalidade-atrasada",
+      "mensagem": "estou com mensalidade atrasada, o que faco?",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "LU055 da bateria do Lucas de 02/10/2026: lida como duvida de vencimento, recebia so' um lembrete. E' `cobranca` (subtipo `cobranca_recebida`: atraso) e o Lucas leva a um humano.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v6.2"
+    },
+    {
+      "id": "lu059-plano-suspenso",
+      "mensagem": "meu plano vai ser suspenso?",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "LU059 da bateria do Lucas de 02/10/2026: pergunta de suspensao por falta de pagamento e' `cobranca` (subtipo `cobranca_recebida`), nunca resposta de lembrete.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v6.2"
+    },
+    {
+      "id": "lu075-nota-fiscal-ir",
+      "mensagem": "preciso da nota fiscal da mensalidade para o imposto de renda",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "LU075 da bateria do Lucas de 02/10/2026: nota fiscal e informe de rendimentos sao duvida de cobranca (subtipo `outro`), nao assunto fora do canal.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v6.2"
+    },
+    {
+      "id": "lu077-cartao-de-credito",
+      "mensagem": "aceita cartao de credito para pagar?",
+      "esperado": {
+        "intent": "cobranca",
+        "population": "none",
+        "psychosocial_risk": false,
+        "sintoma_codigo": null,
+        "intensidade": "desconhecida",
+        "idade_anos": null,
+        "idade_meses": null,
+        "idade_gestacional_semanas": null
+      },
+      "porque": "LU077 da bateria do Lucas de 02/10/2026: forma de pagamento (pix, cartao) e' duvida de cobranca (subtipo `outro`), nao assunto fora do canal.",
+      "origem": "bateria-02-10",
+      "regras": [
+        "R5"
+      ],
+      "prompt": "classify-v6.2"
     }
   ]
 }
