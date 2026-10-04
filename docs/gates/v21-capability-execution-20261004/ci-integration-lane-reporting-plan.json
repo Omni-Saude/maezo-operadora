@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-10-04T17:12:21.653075+00:00",
+  "state": "PREPARE_ONLY_AWAITING_EXPLICIT_ROOT_PASS_AND_FREEZE",
+  "observed_head": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "reporting_authorization": "Parent authorized one execution of exact Makefile.test recipe plus reporting-only --junitxml; no environment overrides or extra exclusions",
+  "make_test_recipe": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/",
+    "-q",
+    "-m",
+    "not integration"
+  ],
+  "authorized_test_command": [
+    ".venv/bin/python",
+    "-m",
+    "pytest",
+    "tests/",
+    "-q",
+    "-m",
+    "not integration",
+    "--junitxml=docs/gates/v21-capability-execution-20261004/ci-integration-lane-unit.xml"
+  ],
+  "equivalence": "The only addition to Makefile.test is JUnit output reporting; collection selector and execution inputs are unchanged",
+  "sequence_before_test": [
+    [
+      "make",
+      "lint"
+    ],
+    [
+      "make",
+      "type"
+    ],
+    [
+      "make",
+      "validate-artifacts"
+    ],
+    [
+      "make",
+      "check-bpmn-error-allowlist"
+    ],
+    [
+      "make",
+      "check-start-process-fence"
+    ],
+    [
+      "make",
+      "effect-chokepoint-fence"
+    ],
+    [
+      "make",
+      "verify-amh-contract-pin"
+    ],
+    [
+      "make",
+      "check-plans-counts"
+    ],
+    [
+      "make",
+      "check-doc-symbol-citations"
+    ]
+  ],
+  "do_not_run_until": [
+    "Explicit parent original-reviewer PASS",
+    "Exact input SHA and source freeze"
+  ],
+  "broad_executions_so_far": 0
+}

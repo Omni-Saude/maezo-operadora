@@ -1,0 +1,68 @@
+{
+  "schema": "maezo.v21.independent-source-delta-review.v1",
+  "event_id": "AW-SOURCE-F02-3af46d55fa8e31c0fc444624dcccfab35b682ead",
+  "recorded_by": "/root",
+  "record_source": "Exact facts from original reviewer /root/capability_source_verifier final response; not a human signature",
+  "verdict": "REVISE",
+  "reviewer": "/root/capability_source_verifier",
+  "original_input_sha": "e91590f1888874df1420916b395406baaebfb6f7",
+  "repair_input_sha": "3af46d55fa8e31c0fc444624dcccfab35b682ead",
+  "delta_reviewed_paths": 8,
+  "unchanged_gateway_paths": 9,
+  "reviewed_live_bytes_equal_frozen_commit": true,
+  "AW-SOURCE-F01": {
+    "status": "CLOSED_FOR_BOTH_ORIGINAL_REPRODUCTIONS",
+    "model_copy_observed": [
+      "AdministrativeInputError",
+      0,
+      false,
+      false,
+      false,
+      false
+    ],
+    "planted_output_observed": [
+      "AdministrativeInputError",
+      0,
+      false,
+      false,
+      false,
+      false
+    ],
+    "observation_columns": [
+      "exception",
+      "storage_roots",
+      "marker_in_blobs",
+      "marker_in_writes",
+      "marker_in_warning",
+      "marker_in_traceback"
+    ]
+  },
+  "findings": [
+    {
+      "id": "AW-SOURCE-F02",
+      "priority": "P1",
+      "path": "src/maezo/agents/lucas/administrative/graph.py",
+      "line": 121,
+      "problem": "Ambient Runnable metadata bypasses closed config and persists in checkpoint metadata",
+      "observed": {
+        "final_status": "disabled",
+        "marker_in_saver_storage": true,
+        "marker_in_snapshot_metadata": true,
+        "marker_in_blobs": false,
+        "marker_in_writes": false
+      }
+    }
+  ],
+  "validation": {
+    "focal_and_billing_regression": "272 passed in 3.13s",
+    "ruff_check": "PASS",
+    "ruff_format": "14 files already formatted",
+    "mypy": "Success: no issues found in 8 source files",
+    "git_diff_check": "PASS"
+  },
+  "mutations_by_reviewer": "NONE",
+  "authorship_repair_integration_participation": "NONE",
+  "operational_qualification": "NOT_PROVEN",
+  "next_repair_author": "/root/runnable_context_custody_repair",
+  "next_delta_review": "PENDING_ORIGINAL_REVIEWER"
+}

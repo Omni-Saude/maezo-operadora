@@ -1,0 +1,28 @@
+{
+  "schema": "maezo.v21.independent-test-namespace-delta.v1",
+  "event_id": "SOURCE-NAMESPACE-PASS-43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "recorded_by": "/root",
+  "record_source": "Exact returned facts from /root/capability_source_verifier final response",
+  "reviewer": "/root/capability_source_verifier",
+  "verdict": "PASS_TEST_NAMESPACE_DELTA",
+  "previous_input_sha": "3895459de9fd8e30b57e095b47e45179cec0b99a",
+  "input_sha": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "only_added_path": "tests/unit/gateway/capabilities/__init__.py",
+  "added_file_bytes": 0,
+  "added_file_AST_nodes": 0,
+  "added_file_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "prior_paths_byte_unchanged": 23,
+  "findings": [],
+  "validation": {
+    "four_basename_pairs_collected_together": "159 tests collected in 2.21s; exit0",
+    "focal_and_billing_regression": "282 passed in 3.77s",
+    "git_diff_check": "PASS",
+    "namespace_module_names_unique": true
+  },
+  "import_mode_override": false,
+  "environment_or_marker_changes": false,
+  "forced_cache_cleanup": false,
+  "mutations_by_reviewer": "NONE",
+  "authorship_repair_integration_participation": "NONE",
+  "full_collection_or_broad_suite_by_reviewer": false
+}

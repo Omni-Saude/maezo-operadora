@@ -1,0 +1,343 @@
+{
+  "schema": "maezo.v21.delivery-index.v1",
+  "created_at": "2026-10-04T17:48:50.924203+00:00",
+  "source_commit": "43dae3d81a29aac33e0d27cb0ce2005b8d2ba6b1",
+  "semantic_fingerprint": "946bbc649af0d1bec2003f50e1fc50acd3b08d02af84d4df8422eade76c69638",
+  "immutable_records": [
+    {
+      "path": "admission-verifier.json",
+      "sha256": "26a1da1b40b0ebf9feb3b8eadc2c4c3a68495f9f9aa4588de63e4453c56b507a",
+      "bytes": 42876,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "ci-integration-lane-attempt1-report.json",
+      "sha256": "4ce1d1952b92315f57548c6060b5c9677102dca01482923fc8ac5cd8e5421d13",
+      "bytes": 3062,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-results.json",
+      "sha256": "85bde44f190d6300cc9e8edccefbbb0b717f5175f5fe0f2470cbd4a385b5b5ff",
+      "bytes": 4397,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "ci-integration-lane-cheap-results.json",
+      "sha256": "485013a0a4c6aefdb2c506fdc82f0f1f1ca072abf487a4e8eab9dde7f8bd4fe9",
+      "bytes": 4308,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "ci-integration-lane-namespace-delta.json",
+      "sha256": "bb659cf280d78440bc9b3f6766b174537d70ecd1f0a366173b2a44aeebddce77",
+      "bytes": 6826,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "ci-integration-lane-preparation.json",
+      "sha256": "b9b0bebfdfca921081c7a110367d546cbff18638e97efd37216aaf0fcb22698c",
+      "bytes": 4116,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "ci-integration-lane-reporting-plan.json",
+      "sha256": "22d7743044c9326248f7e0824aa2f79ea55dad8b303cee87d80e29c45d4d3738",
+      "bytes": 1551,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "ci-integration-lane-unit-results.json",
+      "sha256": "8f256152666cc6acc1c31edba596da322595389f63a2886b2663f299a9a73dbb",
+      "bytes": 3995,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "entry.json",
+      "sha256": "1ce679304ac1960366e3aa46ffa4b359c77de6d7bb38175704fb16aba4f47416",
+      "bytes": 3593,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "final-architecture-revise-3895459.json",
+      "sha256": "a39b91d39783317b68da5b01c066d345fd44348149b616017b386106d73d93f4",
+      "bytes": 1830,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "implementation-manifest-r2-before-roster-readback.json",
+      "sha256": "36e1b069c20eeca7e6c0544c992a185bedd486244ab1a06f1816d6f67d29bedb",
+      "bytes": 6063,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "implementation-manifest-r2.json",
+      "sha256": "34e75173d6ab6d1fdff8d938d78e376dff6d20f3fa91dd99f39670a273723293",
+      "bytes": 6816,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "implementation-manifest.json",
+      "sha256": "b50a477f9cf0fb568669976b58a5cf542d2c40c411cb61e665f6f2190f1d00ee",
+      "bytes": 5218,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "pytest-namespace-repair-actor.json",
+      "sha256": "be5307513119e1065891af4fc75d47529abda9eead8ce51d5fece509a6cc7f16",
+      "bytes": 634,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "pytest-namespace-repair.json",
+      "sha256": "fc4355cbd537af4a0aa7c271b7f098e46a8c61900fcc14a81ed5c444305dc1b6",
+      "bytes": 7547,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "source-delta-pass-3895459.json",
+      "sha256": "3584b7f093fb69a84fd4757a5f769c19ebcb0d688b123529e3ecb1be49da52bf",
+      "bytes": 2342,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "source-delta-review-3af46d.json",
+      "sha256": "bdd843e9600a1160de27fd3c9a41bc25bcf71c0b3e96a6a1bed653a430f34bb0",
+      "bytes": 2127,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "source-freeze-e915.json",
+      "sha256": "61982f46fc91a52e6a6eda337afc2b4191e47bdab17d425d550a397d51f3d32c",
+      "bytes": 3318,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "source-namespace-delta-43dae3d.json",
+      "sha256": "d1c1a709e9e5e40fe4774fedd9a9d62455a5b066d6e526cfe3e1b2014492c947",
+      "bytes": 1246,
+      "kind": "structured_gate_or_custody_record"
+    },
+    {
+      "path": "source-review-e915.json",
+      "sha256": "4bcc46b831efded06a45a7efc16a83510135800e1ac8c86110b6598e646cde4d",
+      "bytes": 2515,
+      "kind": "structured_gate_or_custody_record"
+    }
+  ],
+  "private_raw_evidence": [
+    {
+      "path": "ci-integration-lane-cheap-01-lint.log",
+      "sha256": "4602504e0a76346cac21a12996ac38012850f08f6f91bd84929bc3ce4fd4ce37",
+      "bytes": 122,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-02-type.log",
+      "sha256": "3fe4669edc0cec377ad7d8e92fcd71db039d373bcf7542d460dffeb66c6941e6",
+      "bytes": 60,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-03-validate-artifacts.log",
+      "sha256": "305091bce07b2151f0f95daa7d2eb462e2a000188827496e38558cacbb7062e4",
+      "bytes": 2933,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-04-check-bpmn-error-allowlist.log",
+      "sha256": "8fcda745fe2d39695464c3c817c921a894906f00a0cb27700a01175ee7c1f284",
+      "bytes": 1511,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-05-check-start-process-fence.log",
+      "sha256": "6f8b37b2ef242bfffea46d36604077e4a22cf0f95cddae98ba29dbe6cb0c3f0e",
+      "bytes": 609,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-06-effect-chokepoint-fence.log",
+      "sha256": "0bf532e4f168c4994a5e5b4cae06bf47bc84f3bbf4fd5818d5b03c2b82133d29",
+      "bytes": 1879,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-07-verify-amh-contract-pin.log",
+      "sha256": "c1200542cadd3d0995cc33198478584a9fe39a95e2e46cb222fd484d844afe8d",
+      "bytes": 1045,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-08-check-plans-counts.log",
+      "sha256": "d3f5be236746c4a4a38f833e030750ac57cb010c377ee749ba47c41622eadd3b",
+      "bytes": 1196,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-09-check-doc-symbol-citations.log",
+      "sha256": "5211cc85dbfc0e9599cbddabc873c1488707d9dbe01a378cfc7d12de59eb068b",
+      "bytes": 6778,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-01-lint.log",
+      "sha256": "9e152bcb7711457c595f3c6114fa2d0baaf63cf15cf5f098ce36c476c921d067",
+      "bytes": 122,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-02-type.log",
+      "sha256": "3fe4669edc0cec377ad7d8e92fcd71db039d373bcf7542d460dffeb66c6941e6",
+      "bytes": 60,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-03-validate-artifacts.log",
+      "sha256": "3ade7b547e5bc478d459fbc5d7095d5ea8048807a3e2ca765d15a7d6f33482c4",
+      "bytes": 2933,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-04-check-bpmn-error-allowlist.log",
+      "sha256": "8fcda745fe2d39695464c3c817c921a894906f00a0cb27700a01175ee7c1f284",
+      "bytes": 1511,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-05-check-start-process-fence.log",
+      "sha256": "6f8b37b2ef242bfffea46d36604077e4a22cf0f95cddae98ba29dbe6cb0c3f0e",
+      "bytes": 609,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-06-effect-chokepoint-fence.log",
+      "sha256": "0bf532e4f168c4994a5e5b4cae06bf47bc84f3bbf4fd5818d5b03c2b82133d29",
+      "bytes": 1879,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-07-verify-amh-contract-pin.log",
+      "sha256": "c1200542cadd3d0995cc33198478584a9fe39a95e2e46cb222fd484d844afe8d",
+      "bytes": 1045,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-08-check-plans-counts.log",
+      "sha256": "d3f5be236746c4a4a38f833e030750ac57cb010c377ee749ba47c41622eadd3b",
+      "bytes": 1196,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-cheap-r2-09-check-doc-symbol-citations.log",
+      "sha256": "5211cc85dbfc0e9599cbddabc873c1488707d9dbe01a378cfc7d12de59eb068b",
+      "bytes": 6778,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-consolidated-attempt1.log",
+      "sha256": "dcac02ebd2406429c707d55ef5988fd494c67cdfd32dda734884b6dc58d736d9",
+      "bytes": 20336,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-diagnostic-admission-pair.log",
+      "sha256": "a1fd6e54c75d3b5771772339c37fd55dbeaa1efb39d786d66c5abd9bcc435d20",
+      "bytes": 6951,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-diagnostic-models-pair.log",
+      "sha256": "e40c68cea34a519a8eeb5a1cb4445354ab4ffee7e72ff4f85f18282bb0e21434",
+      "bytes": 2592,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-diagnostic-unchanged-baseline-files-control.log",
+      "sha256": "f2225d51b59588e6c38ca5c47853854721d2142257fb8c419c747022b6a6846c",
+      "bytes": 69471,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-namespace-delta-admission-pair.log",
+      "sha256": "399a8ac4a386c21d92da10aa1bf54b7ab892af94500e763532e5cb08a3d994b7",
+      "bytes": 8253,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-namespace-delta-full-selector.log",
+      "sha256": "49bb68809c784d463b9a5b546430f38d181550ff8d3c48cb43c2f3bb3cf0e512",
+      "bytes": 6244609,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-namespace-delta-models-pair.log",
+      "sha256": "a3bf6b75bccc3a30bcf9956005603c5124ec95030d644a323ec4b65ea6754193",
+      "bytes": 68984,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-unit.log",
+      "sha256": "9bd9a576f56f302e8961ef1f161dcf74b59f1452859cb84408661e1123fd8092",
+      "bytes": 3367,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "ci-integration-lane-unit.xml",
+      "sha256": "a616452e73c4c427089c6b4eade5fb1922be84993645a1ec84a5b9135ce24e77",
+      "bytes": 1525,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "gitleaks-3af46d.log",
+      "sha256": "cd85ccd86a618afa843a2eeb09f950c822a7a6cf500c3d0d65c8155907e09971",
+      "bytes": 175,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "gitleaks-43dae3d.log",
+      "sha256": "f65ff653df2a8026b11fa6153758fc65df738e0c8847fed1e5249439cab96d1c",
+      "bytes": 175,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "gitleaks-design-working-tree.log",
+      "sha256": "0b64854b3b50293165fba783de56b2d88c2b741e5c4e8624c7feb4aa52bdc2a6",
+      "bytes": 145,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "gitleaks-e915.log",
+      "sha256": "6bcbbe792a92a38f2ea02457e1d752d6baf142e8858fd41352245563223d8875",
+      "bytes": 178,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "pytest-namespace-repair.log",
+      "sha256": "ac7d1457adee3c663a75b83ea50250212d8223bde47176ea7cc1c8da85a568bb",
+      "bytes": 6403735,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "technical-checks-3af46d.log",
+      "sha256": "5afb6ab786d08aa645464d569118767d788d7ede08125a47fe6a28835d88431b",
+      "bytes": 6799,
+      "custody": "local workspace; not published in source PR"
+    },
+    {
+      "path": "technical-checks-e915.log",
+      "sha256": "abeaf8bb89beffb695a6857f45e8e515790d01aeac112e4c494a72c1753875cc",
+      "bytes": 6799,
+      "custody": "local workspace; not published in source PR"
+    }
+  ],
+  "unfinished_records_excluded": [
+    "ci-integration-lane-unit-r2.log",
+    "ci-integration-lane-unit-r2.xml and terminal results",
+    "fresh final gate verdicts"
+  ],
+  "delivery_state_at_creation": "DRAFT_REVIEWABLE; broad local CI R2 running, hosted CI not yet dispatched, final gates pending; W0 scope/source/ratification and runtime qualification pending",
+  "private_CA_xml_or_original_bundle_published": false,
+  "raw_log_rule": "Preserve locally; publish structured verdicts and digests, never pretend omitted raw evidence was verified elsewhere",
+  "pending_source_gates": "See docs/design/v21-capabilities/source-readiness.json and cib-readiness.json; missing provider/owner not substituted by unit doubles"
+}

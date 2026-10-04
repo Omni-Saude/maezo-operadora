@@ -1,0 +1,66 @@
+{
+  "schema": "maezo.v21.independent-source-review.v1",
+  "event_id": "AW-SOURCE-F01-e91590f1888874df1420916b395406baaebfb6f7",
+  "recorded_by": "/root",
+  "record_source": "Verbatim facts from /root/capability_source_verifier final response; recording is not reviewer authorship or a human signature",
+  "verdict": "REVISE",
+  "reviewer": "/root/capability_source_verifier",
+  "base_sha": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+  "input_sha": "e91590f1888874df1420916b395406baaebfb6f7",
+  "reviewed_paths": 17,
+  "all_reviewed_live_bytes_equal_commit": true,
+  "no_authorship_repair_or_integration_participation": true,
+  "author_not_verifier": true,
+  "findings": [
+    {
+      "id": "AW-SOURCE-F01",
+      "priority": "P1",
+      "path": "src/maezo/agents/lucas/administrative/graph.py",
+      "line": 119,
+      "related_path": "src/maezo/agents/lucas/administrative/state.py",
+      "related_lines": [
+        65,
+        69
+      ],
+      "graph_sha256": "c93acd39a356556e5bac1d11e9d10cc60a2fe29bbe76aed0458176fdfe8f135f",
+      "state_sha256": "9c4601e768ab1a950a7a9fe3b40868d8125b005892921cde72615eb785eedc33",
+      "problem": "Raw StateGraph checkpoints complete state before receive() sanitizes; output planting and invalid DTO model_copy persist synthetic clinical marker",
+      "model_copy_observed": [
+        "disabled",
+        null,
+        true,
+        true,
+        true
+      ],
+      "planted_output_observed": [
+        "disabled",
+        null,
+        true,
+        true,
+        false
+      ],
+      "observation_columns": [
+        "final_status",
+        "final_outcome",
+        "marker_in_blobs",
+        "marker_in_writes",
+        "marker_in_warning"
+      ],
+      "required_repair": "Validate every public invocation deeply before first persistence; real saver isolation and no output/raw-DTO bypass"
+    }
+  ],
+  "validation": {
+    "new_focal_unit_tests": "124 passed in 1.76s",
+    "billing_and_helena_handoff_regression": "113 passed in 2.68s",
+    "ruff_check": "PASS",
+    "ruff_format": "14 files already formatted",
+    "mypy": "Success: no issues found in 8 source files",
+    "git_diff_check": "PASS",
+    "original_plan_field_maps": "All 11 request/result schemas match the absolute preserved plan.json"
+  },
+  "operational_qualification": "NOT_PROVEN",
+  "mutations_by_reviewer": "NONE",
+  "repair_author": "/root/checkpoint_input_boundary_repair",
+  "delta_review": "PENDING_ORIGINAL_REVIEWER",
+  "providers_in_probes": "UNIT_DOUBLES_NOT_SOURCE_QUALIFICATION"
+}

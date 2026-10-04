@@ -1,0 +1,720 @@
+{
+  "schema": "maezo-v21-entry-admission-reproduction.v1",
+  "verifier_id": "codex_admission_verifier",
+  "agent_identity": "/root/admission_verifier",
+  "observed_at_utc": "2026-10-04T15:28:57.024589+00:00",
+  "role": "independent entry-admission and W0 documentation verifier",
+  "author_not_verifier": true,
+  "no_authorship_repair_or_integration_participation": true,
+  "scope": "ENTRY_ANALYSIS_PLAN_ADMISSION_ONLY",
+  "verdict": "PASS_ANALYSIS_PLAN_V2_1_ADMISSION_REPRODUCED",
+  "root": "/Users/familia/code/maezo-operadora",
+  "implementation_checkout": "/Users/familia/.codex/worktrees/v21-capability-execution/maezo-operadora",
+  "baseline": {
+    "sha_base": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "root_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "implementation_checkout_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "same_root_head": true,
+    "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+    "bundle_manifest_file_sha256": "40900deb674cd885c29dfe8392a56855b608265c87c6f47490ed3fa8d4c042c0",
+    "base_bundle_sha256": "08dbcd8fde60f3a3b4fb41f6ca0318820ffc809954881d676e726e85d06dde6f",
+    "base_manifest_file_sha256": "388522dec88013c34a98816e5a7a2d0759eda0a1e1b8b3a3313743ef32661424",
+    "fingerprint_payload_sha256_recomputed": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+    "hashed_inputs": {
+      "files": 13,
+      "base_files": 25,
+      "source_files": 94
+    },
+    "hash_delta": []
+  },
+  "checks": [
+    {
+      "command": [
+        "python3",
+        "-B",
+        "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_revision.py"
+      ],
+      "cwd": "/Users/familia/code/maezo-operadora",
+      "rc": 0,
+      "stderr": "",
+      "stdout_sha256": "b882c2902a10b168adab50129ca47b3343d14deb904521615499f234ad6d2a81",
+      "result": {
+        "verdict": "PASS_REVISION_MECHANICS",
+        "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+        "agents": 10,
+        "new_personas": 0,
+        "operations": 11,
+        "concept_mappings": 21,
+        "families": 6,
+        "semantic_admission": "REQUIRES_TWO_FRESH_VERDICTS",
+        "runtime_qualification": "UNVERIFIED"
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "-B",
+        "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_admission.py"
+      ],
+      "cwd": "/Users/familia/code/maezo-operadora",
+      "rc": 0,
+      "stderr": "",
+      "stdout_sha256": "e25c491b67d0ee2a7487f4642f020887b24af9d11d3763f0cf5792cbac991647",
+      "result": {
+        "verdict": "PASS_ANALYSIS_PLAN_V2_1_ADMISSION",
+        "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+        "base_bundle_sha256": "08dbcd8fde60f3a3b4fb41f6ca0318820ffc809954881d676e726e85d06dde6f",
+        "fresh_independent_reviewers": [
+          "v21_fresh_agent_architecture_gate",
+          "v21_fresh_safety_custody_gate"
+        ],
+        "cross_fleet_review_executed": false,
+        "agents": 10,
+        "new_personas": 0,
+        "concept_mappings": 21,
+        "operations": 11,
+        "implementation_executed": false,
+        "runtime_qualification": "UNVERIFIED",
+        "human_and_provider_gates": "REQUIRED_PER_PACKAGE",
+        "signature_kind": "SHA256-bound reviewer attestations, not cryptographic certificates"
+      }
+    },
+    {
+      "command": [
+        "python3",
+        "-B",
+        "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-capabilities/scripts/check_amh_pinned_objects.py"
+      ],
+      "cwd": "/Users/familia/code/maezo-operadora",
+      "rc": 0,
+      "stderr": "",
+      "stdout_sha256": "d8d42c6eec6885bd69e2c622bd4bcb7c343f5e9365d110bd1117d9e7d32818a9",
+      "result": {
+        "scope": "plan_evidence_only",
+        "requested_checkout": {
+          "path": "/Users/familia/code/amh-data-platform",
+          "head": "3441d20d145bba7c7035bb5404fbaa5490b25e8f",
+          "artifact_object_available": false,
+          "manifest_object_available": false
+        },
+        "pinned_object_checkout": {
+          "path": "/Users/familia/code/amh/amh-data-platform",
+          "head": "8644efc9d72ea823639dcc8306823ab6da66240f"
+        },
+        "manifest_verification": {
+          "sha256": "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126",
+          "byte_size": 9441,
+          "blob": "76fbc9bd030395e1c1b796fe4821fc60556a2d35",
+          "violations": [],
+          "pass": true
+        },
+        "local_pin_gate": "[amh-contract-pin:lock] PASS\n  . pin: config/integrations/amh/contracts.lock.json\n  . 3 frozen topics + quarantine, 5 artifacts, 10 fixture digests recomputed\n  . 28-field frozen envelope order + closed source_product vocabulary",
+        "qualification": {
+          "pinned_bytes_verified": true,
+          "live_msk_glue_provider_cib_qualification": "UNVERIFIED",
+          "new_enrollment_offer_agenda_contracts": "BLOCKED_UNTIL_OWNER_AND_PROVIDER_CONTRACT",
+          "production_data_or_credentials_accessed": false
+        },
+        "implementation_admission": [
+          "source authority/provider contract owner named",
+          "AMH steward publishes versioned contract extension if AMH boundary changes",
+          "new XRG-2 manifest/Glue publication plus fresh independent XRG-3 pin verification",
+          "no editable schemas or pin patches in MAEZO evidence",
+          "real provider/MSK/Glue/CIB and DB qualification; mandatory skip fails",
+          "rollback preserves old pins/aliases/transactional receipts and runs replay reconciliation"
+        ],
+        "pin": {
+          "path": "/Users/familia/code/maezo-operadora/config/integrations/amh/contracts.lock.json",
+          "sha256": "b7bb815ee29a34b703b9bdbeb36294da49420444614302934f69427ae2b37b25",
+          "provenance": {
+            "amh_commit_sha": "09a0a282e69f49aa9c6944b25afb35eee65fcc9c",
+            "amh_manifest_commit_sha": "17972442b26aa31a304d5374b2493b260881c1d3",
+            "amh_repo": "Omni-Saude/amh-data-platform",
+            "canonical_schema_version": "1.0.0",
+            "compatibility_mode": "BACKWARD",
+            "contract_name": "amh-maezo-boundary",
+            "evidence_id": "XRG2-AMH-DEV-GHA-30991849241",
+            "status": "PUBLISHED"
+          },
+          "manifest_pin": {
+            "byte_size": 9441,
+            "git_blob_sha": "76fbc9bd030395e1c1b796fe4821fc60556a2d35",
+            "path": "schemas/contracts/maezo/v1/contract-manifest.yaml",
+            "prepublication_sha256": "78756b5353b8287cb8752ce50a0de6c78990e959f31e4072b2286634ef3fd1cf",
+            "sha256": "946266fb9ab10d27c01768e78fb3b673cba3db71680f652b10ccd0798065b126"
+          }
+        },
+        "artifact_count": 15,
+        "all_artifacts_match": true,
+        "artifacts": [
+          {
+            "path": "schemas/avro/integration/maezo/v1/amh_maezo_work_item.avsc",
+            "expected": "b52fa765a5cdbab756970db6c153f702712d33e9edc6b5122738e51859cf3ad3",
+            "actual": "b52fa765a5cdbab756970db6c153f702712d33e9edc6b5122738e51859cf3ad3",
+            "match": true
+          },
+          {
+            "path": "schemas/avro/integration/maezo/v1/amh_maezo_consent.avsc",
+            "expected": "f0228c2dbcff7ca05cbd886dce76a007a21db7433d885f2ba62d41e874994826",
+            "actual": "f0228c2dbcff7ca05cbd886dce76a007a21db7433d885f2ba62d41e874994826",
+            "match": true
+          },
+          {
+            "path": "schemas/avro/integration/maezo/v1/maezo_amh_outcome.avsc",
+            "expected": "1feab48c19e10dacd15288e28b87990075b24765ab988623ebeeb40947b3a718",
+            "actual": "1feab48c19e10dacd15288e28b87990075b24765ab988623ebeeb40947b3a718",
+            "match": true
+          },
+          {
+            "path": "schemas/openapi/maezo/v1/subject-context.openapi.yaml",
+            "expected": "84bb8abd69a830d12175748a9f1296225f13670c2744b9aa43b352f7d7bc53d3",
+            "actual": "84bb8abd69a830d12175748a9f1296225f13670c2744b9aa43b352f7d7bc53d3",
+            "match": true
+          },
+          {
+            "path": "schemas/openapi/maezo/v1/population-features.openapi.yaml",
+            "expected": "b36e1acfd6c26e7a05a51a3399a5025a58a4456911071f412e62a69bde4b5c7f",
+            "actual": "b36e1acfd6c26e7a05a51a3399a5025a58a4456911071f412e62a69bde4b5c7f",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/README.md",
+            "expected": "d00717d9495e15f1ad132b92946e95b2b9eb335ff0c74aec97f94308f3421982",
+            "actual": "d00717d9495e15f1ad132b92946e95b2b9eb335ff0c74aec97f94308f3421982",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/work_item.authorization_review.json",
+            "expected": "e88070c9b3aef4e27d925e7541a973db760224912782603d30aa7aa7be3910a3",
+            "actual": "e88070c9b3aef4e27d925e7541a973db760224912782603d30aa7aa7be3910a3",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/work_item.eligibility_check.json",
+            "expected": "3cf684c5d71b193b469109d7e5be23aa136dc27136a06c9cdd2b2774242625a5",
+            "actual": "3cf684c5d71b193b469109d7e5be23aa136dc27136a06c9cdd2b2774242625a5",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/work_item.bad-source-product.invalid.json",
+            "expected": "506ca8f4c3ff026d4dfbac1fe9c54a60a871f362514c0ad5b0913c6ed1786b21",
+            "actual": "506ca8f4c3ff026d4dfbac1fe9c54a60a871f362514c0ad5b0913c6ed1786b21",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/consent.granted.json",
+            "expected": "dd4405b9a7f19d4a864f14ab3b767d84d6f7faf9ed2574cc0394417c96001c76",
+            "actual": "dd4405b9a7f19d4a864f14ab3b767d84d6f7faf9ed2574cc0394417c96001c76",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/consent.revoked.json",
+            "expected": "29e1db2fd2b52bf21d30962373fdfba9f5aa3f68dae2f5568d9731bdaf3f93d8",
+            "actual": "29e1db2fd2b52bf21d30962373fdfba9f5aa3f68dae2f5568d9731bdaf3f93d8",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/consent.missing-consent-decision-ref.invalid.json",
+            "expected": "d4b75c31a06d6077e8547d9e40bd6ae50e47150896ec236bfcf83a63ab927adf",
+            "actual": "d4b75c31a06d6077e8547d9e40bd6ae50e47150896ec236bfcf83a63ab927adf",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/outcome.revision-1.json",
+            "expected": "d766abc360df2de463ecfa2cda370c749d21986eddf69387ae7ee8eacd5bff47",
+            "actual": "d766abc360df2de463ecfa2cda370c749d21986eddf69387ae7ee8eacd5bff47",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/outcome.revision-2.json",
+            "expected": "09b778d9e68300a73fe7b226bfe2edd5d24494e0bf932ae853cd9fb7ab95f2fb",
+            "actual": "09b778d9e68300a73fe7b226bfe2edd5d24494e0bf932ae853cd9fb7ab95f2fb",
+            "match": true
+          },
+          {
+            "path": "schemas/contracts/maezo/v1/fixtures/outcome.non-integer-revision.invalid.json",
+            "expected": "e55da70d8c40603745ca071cb4f103b4ef01d6b06319f4f801ecb28dee3e84e7",
+            "actual": "e55da70d8c40603745ca071cb4f103b4ef01d6b06319f4f801ecb28dee3e84e7",
+            "match": true
+          }
+        ]
+      }
+    }
+  ],
+  "final_plan_reviewers": [
+    {
+      "role": "agent-architecture",
+      "verifier_id": "v21_fresh_agent_architecture_gate",
+      "verdict": "PASS",
+      "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+      "author_not_verifier": true,
+      "no_authorship_repair_or_integration_participation": true,
+      "open_findings": [],
+      "closed_findings": [
+        {
+          "id": "AA-01",
+          "status": "CLOSED",
+          "resolution": "S4 confirms authoritative case via W0-gated OP07 refinement; OP03 only JR1 commercial offer. Closed DTOs, current authority, expected case revision and domain case receipt preserved; errata/base W3 override explicit."
+        }
+      ],
+      "own_checks_passed": 20,
+      "report_path": "evidence/agent-architecture-report.md",
+      "report_sha256": "45e5917d5e9b9aeb64744dfccf302644d0dc495238dd1273a024daa6d65700f8",
+      "verdict_file_sha256": "113a43c0349cf6b4cd3fd6681203a80fe596e1ce08f1f6d965f7662e8b13c657"
+    },
+    {
+      "role": "safety-custody",
+      "verifier_id": "v21_fresh_safety_custody_gate",
+      "verdict": "PASS",
+      "bundle_sha256": "270c136312d32453762f28d0277c0c1c0622c40997e00af2b1f8466da4c7d9c4",
+      "author_not_verifier": true,
+      "no_authorship_repair_or_integration_participation": true,
+      "open_findings": [],
+      "closed_findings": [
+        {
+          "id": "SC-01",
+          "priority": "P2",
+          "status": "CLOSED_PLANNING_BINDING",
+          "evidence": [
+            "agent-wiring.json#/operations/OP07/confirmation_refinement",
+            "agent-wiring.json#/composition_overrides",
+            "INTEGRATION-PLAN-V2.1.md:69",
+            "evidence/contract-wiring-errata-r1.md"
+          ],
+          "reason": "OP03 excluded from all Support concepts and restricted to JR1; S4 uses same-case/revision/current-requester/verified source receipt OP07 refinement, published W0 contract still required; closed DTO/envelope preserved."
+        }
+      ],
+      "own_checks_passed": 25,
+      "report_path": "evidence/safety-custody-report.md",
+      "report_sha256": "edec0d34dd993677253fe7571f7bb496ed1027591623137ec34d5d330ec13f5c",
+      "verdict_file_sha256": "874ed6f45a77cc511ea237fc44a8cef4f24e7e681c108a81cc19d5a1be9d8f5c"
+    }
+  ],
+  "root_custody": {
+    "status_before": " D docs/archive/HANDOFF-predeploy.yaml\n D docs/archive/HANDOFF-wave3.yaml\n D docs/archive/HANDOFF.yaml\n D docs/archive/PROMPT-next-coordinator.md\n D docs/archive/predeploy-dl-rows-STAGED.md\n D docs/archive/predeploy-ws6-package-STAGED.md\n D docs/reports/G0-gate-review.md\n D docs/reports/T0.3-agent-yaml-drift.md\n D docs/reports/T2.4-a2a-agent-card-signing-gap.md\n D docs/reports/phase0-report.md\n D docs/reports/phase2-plan.md\n D docs/reports/phase2-report.md\n D docs/reports/phase3-plan.md\n D docs/reports/platform-completion-plan.md\n D docs/reports/predeploy-findings.json\n D docs/reports/predeploy-sweep-escalations.json\n D docs/reports/review-before-launch-extension.md\n D \"docs/temp/Plano_Teste_Maezo_Operadora (1).docx\"\n?? docs/processes/New_BPMN/\n?? verification_evidence.db\n",
+    "status_after": " D docs/archive/HANDOFF-predeploy.yaml\n D docs/archive/HANDOFF-wave3.yaml\n D docs/archive/HANDOFF.yaml\n D docs/archive/PROMPT-next-coordinator.md\n D docs/archive/predeploy-dl-rows-STAGED.md\n D docs/archive/predeploy-ws6-package-STAGED.md\n D docs/reports/G0-gate-review.md\n D docs/reports/T0.3-agent-yaml-drift.md\n D docs/reports/T2.4-a2a-agent-card-signing-gap.md\n D docs/reports/phase0-report.md\n D docs/reports/phase2-plan.md\n D docs/reports/phase2-report.md\n D docs/reports/phase3-plan.md\n D docs/reports/platform-completion-plan.md\n D docs/reports/predeploy-findings.json\n D docs/reports/predeploy-sweep-escalations.json\n D docs/reports/review-before-launch-extension.md\n D \"docs/temp/Plano_Teste_Maezo_Operadora (1).docx\"\n?? docs/processes/New_BPMN/\n?? verification_evidence.db\n",
+    "status_unchanged": true,
+    "deliberate_deletes_not_restored": true,
+    "untracked_and_private_evidence_preserved": true,
+    "signed_bundle_bytes_not_modified": true
+  },
+  "operative_semantics": {
+    "OP03": "JR1_COMPRAS_VERSIONED_COMMERCIAL_OFFER_ONLY",
+    "S4_confirmation": "OP07_AFTER_W0_CR_F5_PUBLICATION",
+    "legacy_matrix_authoritative_input": false,
+    "legacy_matrix_old_gate_covers_current_bytes": false
+  },
+  "limitations": {
+    "implementation_verified": false,
+    "runtime_qualified": false,
+    "live_msk_glue_provider_cib_qualified": false,
+    "cross_fleet_review_executed": false,
+    "human_or_provider_contracts_ratified_by_this_verifier": false,
+    "new_offer_enrollment_agenda_contracts": "BLOCKED_UNTIL_OWNER_AND_PROVIDER_CONTRACT",
+    "W0_package_verdict": "PENDING_ROOT_FROZEN_BYTES_NOTICE",
+    "signature_kind": "SHA256-bound reproduction evidence; not a cryptographic certificate"
+  },
+  "future_delta_gate": [
+    "Preserve admitted bundles and original hashes.",
+    "Record baseline SHA, package SHA, changed files/interfaces, owner/source/readiness and independent gates.",
+    "Review concrete HEAD/source/interface delta before consuming changed sources; no silent rebaseline.",
+    "AMH changes require owner/steward publication followed by fresh independent XRG qualification and pin.",
+    "If legacy matrix is consumed as authority, require exact snapshot/digest and new independent semantic gate."
+  ],
+  "delta_observations": [
+    {
+      "observed_at_utc": "2026-10-04T15:31:13.064035+00:00",
+      "root_reported_transient_head": "f5dfb3f40af642bc48c5026e5c9c47c5a5ce22a6",
+      "root_head_before_reproduction": "1222295060a1cff4ecd3e7ffa862231c9b94fbd4",
+      "root_head_after_reproduction": "1222295060a1cff4ecd3e7ffa862231c9b94fbd4",
+      "root_branch_observed": "chore/docs-cleanup-2026-10-04",
+      "root_HEAD_reflog": {
+        "command": [
+          "git",
+          "reflog",
+          "-6",
+          "--format=%H %gs"
+        ],
+        "cwd": "/Users/familia/code/maezo-operadora",
+        "rc": 0,
+        "stdout": "1222295060a1cff4ecd3e7ffa862231c9b94fbd4 commit: chore(docs): remove relatorios e handoffs antigos superseded (archive/reports/temp docx)\ne7b14522a4f70242504d2b152a57ee5269ee66e2 checkout: moving from main to chore/docs-cleanup-2026-10-04\ne7b14522a4f70242504d2b152a57ee5269ee66e2 reset: moving to origin/main\nf5dfb3f40af642bc48c5026e5c9c47c5a5ce22a6 commit: docs(processes): devolutiva à equipe autora — 4 BPMN CA adaptados v4 + correções + guia de operação\ne7b14522a4f70242504d2b152a57ee5269ee66e2 pull --tags origin main: Fast-forward\nbf7739e867b1ea8e67895253a0f93c6649eaa01d pull --ff-only origin main -q: Fast-forward\n",
+        "stderr": ""
+      },
+      "root_check_reproductions": [
+        {
+          "command": [
+            "python3",
+            "-B",
+            "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_revision.py"
+          ],
+          "cwd": "/Users/familia/code/maezo-operadora",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_revision.py\", line 120, in <module>\n    m = verify()\n  File \"/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_revision.py\", line 84, in verify\n    require(head == f[\"maezo_head_at_freeze\"], \"HEAD_DRIFT_REVIEW_DELTA_REQUIRED\")\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_revision.py\", line 13, in require\n    raise ValueError(message)\nValueError: HEAD_DRIFT_REVIEW_DELTA_REQUIRED\n"
+        },
+        {
+          "command": [
+            "python3",
+            "-B",
+            "/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_admission.py"
+          ],
+          "cwd": "/Users/familia/code/maezo-operadora",
+          "rc": 1,
+          "stdout": "",
+          "stderr": "Traceback (most recent call last):\n  File \"/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_admission.py\", line 27, in <module>\n    print(json.dumps(admission()))\n                     ~~~~~~~~~^^\n  File \"/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_admission.py\", line 6, in admission\n    m = verify()\n  File \"/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_revision.py\", line 84, in verify\n    require(head == f[\"maezo_head_at_freeze\"], \"HEAD_DRIFT_REVIEW_DELTA_REQUIRED\")\n    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/familia/code/maezo-operadora/docs/audits/BPMN-CA-2026-10/v2-agent-wiring/scripts/verify_revision.py\", line 13, in require\n    raise ValueError(message)\nValueError: HEAD_DRIFT_REVIEW_DELTA_REQUIRED\n"
+        }
+      ],
+      "root_FAIL_reproduced": true,
+      "root_check_status_at_observation": "FAIL_OR_MOVING_HEAD_REQUIRES_NEW_READBACK",
+      "transient_commit_delta": {
+        "command": [
+          "git",
+          "diff",
+          "--name-status",
+          "e7b14522a4f70242504d2b152a57ee5269ee66e2..f5dfb3f40af642bc48c5026e5c9c47c5a5ce22a6"
+        ],
+        "cwd": "/Users/familia/code/maezo-operadora",
+        "rc": 0,
+        "stdout": "A\tdocs/processes/New_BPMN/Adapted_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn\nA\tdocs/processes/New_BPMN/Adapted_BPMN/CA_1_COMPRA (com suporte)_v4_adaptado.bpmn\nA\tdocs/processes/New_BPMN/Adapted_BPMN/CA_2_UTILIZACAO_v4_adaptado.bpmn\nA\tdocs/processes/New_BPMN/Adapted_BPMN/CA_3_SUPORTE_v4_adaptado.bpmn\nA\tdocs/processes/New_BPMN/Adapted_BPMN/CORRECOES_BPMN_2026-10.md\nA\tdocs/processes/New_BPMN/Adapted_BPMN/GUIA-EQUIPE-OPERACAO.md\n",
+        "stderr": ""
+      },
+      "transient_commit_source_hash_intersection": [],
+      "root_signed_hash_delta": [],
+      "target_delta_admission": {
+        "target_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+        "target_source_files_checked": 90,
+        "target_source_hash_delta": [],
+        "absolute_external_source_files": [
+          {
+            "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+            "relative_path": "docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+            "target_copy_present": false,
+            "expected": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead",
+            "actual": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead",
+            "match": true,
+            "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+          },
+          {
+            "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+            "relative_path": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+            "target_copy_present": false,
+            "expected": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4",
+            "actual": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4",
+            "match": true,
+            "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+          },
+          {
+            "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+            "relative_path": "docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+            "target_copy_present": false,
+            "expected": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+            "actual": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+            "match": true,
+            "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+          },
+          {
+            "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+            "relative_path": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+            "target_copy_present": false,
+            "expected": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884",
+            "actual": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884",
+            "match": true,
+            "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+          }
+        ],
+        "verdict": "PASS_TARGET_BASELINE_SOURCE_PARITY_WITH_FOUR_PINNED_EXTERNAL_CA_V3_SOURCES",
+        "qualification": "SOURCE_PARITY_ONLY_NOT_W0_RUNTIME_OR_IMPLEMENTATION_GATE"
+      },
+      "interpretation": "Independent ROOT reread first observed e7 with both checkers passing after transient f5. During the subsequent timestamped reproduction ROOT was stably 1222295060a1cff4ecd3e7ffa862231c9b94fbd4; both unmodified checkers failed with HEAD_DRIFT_REVIEW_DELTA_REQUIRED. Commit 1222 removes the 18 already-deliberate historical files; no signed source input changes. Transient f5 adds six Adapted_BPMN files outside signed source inputs. The target remains e7 with 90 matching local inputs and four matching absolute external CA v3 sources. This is independent delta admission of target source parity only; it does not rebaseline the preserved bundle or admit ROOT at 1222.",
+      "current_head_commit_delta": {
+        "command": [
+          "git",
+          "diff",
+          "--name-status",
+          "e7b14522a4f70242504d2b152a57ee5269ee66e2..1222295060a1cff4ecd3e7ffa862231c9b94fbd4"
+        ],
+        "cwd": "/Users/familia/code/maezo-operadora",
+        "rc": 0,
+        "stdout": "D\tdocs/archive/HANDOFF-predeploy.yaml\nD\tdocs/archive/HANDOFF-wave3.yaml\nD\tdocs/archive/HANDOFF.yaml\nD\tdocs/archive/PROMPT-next-coordinator.md\nD\tdocs/archive/predeploy-dl-rows-STAGED.md\nD\tdocs/archive/predeploy-ws6-package-STAGED.md\nD\tdocs/reports/G0-gate-review.md\nD\tdocs/reports/T0.3-agent-yaml-drift.md\nD\tdocs/reports/T2.4-a2a-agent-card-signing-gap.md\nD\tdocs/reports/phase0-report.md\nD\tdocs/reports/phase2-plan.md\nD\tdocs/reports/phase2-report.md\nD\tdocs/reports/phase3-plan.md\nD\tdocs/reports/platform-completion-plan.md\nD\tdocs/reports/predeploy-findings.json\nD\tdocs/reports/predeploy-sweep-escalations.json\nD\tdocs/reports/review-before-launch-extension.md\nD\tdocs/temp/Plano_Teste_Maezo_Operadora (1).docx\n",
+        "stderr": ""
+      },
+      "current_head_commit_metadata": {
+        "command": [
+          "git",
+          "show",
+          "--no-patch",
+          "--format=fuller",
+          "1222295060a1cff4ecd3e7ffa862231c9b94fbd4"
+        ],
+        "cwd": "/Users/familia/code/maezo-operadora",
+        "rc": 0,
+        "stdout": "commit 1222295060a1cff4ecd3e7ffa862231c9b94fbd4\nAuthor:     rodaquino-OMNI <rodrigotaquino@gmail.com>\nAuthorDate: Sun Oct 4 12:30:33 2026 -0300\nCommit:     rodaquino-OMNI <rodrigotaquino@gmail.com>\nCommitDate: Sun Oct 4 12:30:33 2026 -0300\n\n    chore(docs): remove relatorios e handoffs antigos superseded (archive/reports/temp docx)\n    \n    Limpeza de fim de sessao 2026-10-04: 18 arquivos de ciclos encerrados\n    (phase0-3, predeploy, G0/T0.3/T2.4, planos de completude). Recuperaveis via\n    historico git. Fontes CA originais permanecem locais (confidenciais de\n    terceiro, repo publico); docs/audits segue gitignored por convencao.\n",
+        "stderr": ""
+      },
+      "current_head_source_hash_intersection": []
+    }
+  ],
+  "latest_root_admission": "FAIL_HEAD_DRIFT_REVIEW_DELTA_REQUIRED",
+  "latest_target_source_admission": "PASS_TARGET_BASELINE_SOURCE_PARITY_WITH_FOUR_PINNED_EXTERNAL_CA_V3_SOURCES",
+  "latest_observation_at_utc": "2026-10-04T15:32:24.521915+00:00",
+  "admission_delta_target": {
+    "verifier_id": "codex_admission_verifier",
+    "agent_identity": "/root/admission_verifier",
+    "observed_at_utc": "2026-10-04T15:32:52.050938+00:00",
+    "scope": "ISOLATED_TARGET_BASELINE_SOURCE_ADMISSION_ONLY",
+    "verdict": "PASS",
+    "target_head": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "baseline_sha": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+    "local_source_files_matching": 90,
+    "external_source_files_matching": 4,
+    "local_source_delta": [],
+    "external_sources": [
+      {
+        "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+        "relative_path": "docs/processes/New_BPMN/CA_0_SERVICOS_COMPARTILHADOS_v3.bpmn",
+        "target_copy_present": false,
+        "expected": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead",
+        "actual": "1e30b9f8a410f301ce3a913b04db719b534d739cd672bdd120d46c8523834ead",
+        "match": true,
+        "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+      },
+      {
+        "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+        "relative_path": "docs/processes/New_BPMN/CA_1_COMPRA (com suporte)_v3.bpmn",
+        "target_copy_present": false,
+        "expected": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4",
+        "actual": "abd6acaabb6fd0213344c31a0313a8f95cf38ad4f8092ccce8b5e6e2e38262a4",
+        "match": true,
+        "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+      },
+      {
+        "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+        "relative_path": "docs/processes/New_BPMN/CA_2_UTILIZACAO_v3.bpmn",
+        "target_copy_present": false,
+        "expected": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+        "actual": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+        "match": true,
+        "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+      },
+      {
+        "path": "/Users/familia/code/maezo-operadora/docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+        "relative_path": "docs/processes/New_BPMN/CA_3_SUPORTE_v3.bpmn",
+        "target_copy_present": false,
+        "expected": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884",
+        "actual": "705a568a67a309c41a942e775a0efc88b146fafaedbd85827236139b65198884",
+        "match": true,
+        "disposition": "READ_ONLY_EXTERNAL_PINNED_SOURCE_AT_ABSOLUTE_ROOT_PATH_NOT_COPIED"
+      }
+    ],
+    "signed_bundle_delta": [],
+    "ROOT_checker_result_not_overridden": "FAIL_HEAD_DRIFT_REVIEW_DELTA_REQUIRED",
+    "new_ROOT_commits_consumed_as_spec": false,
+    "signed_manifest_or_hashes_modified": false,
+    "implementation_gate": false,
+    "W0_docs_gate": false,
+    "runtime_gate": false,
+    "condition": "Recheck source hashes before package admission; f5/1222 are observed external commits only and do not replace admitted source contracts."
+  },
+  "W0_docs_initial_review": {
+    "observed_at_utc": "2026-10-04T15:46:46.954896+00:00",
+    "verifier_id": "codex_admission_verifier",
+    "agent_identity": "/root/admission_verifier",
+    "author_not_verifier": true,
+    "no_authorship_repair_or_integration_participation": true,
+    "scope": "SIX_FROZEN_W0_DOCUMENTS_REVIEW_ONLY",
+    "verdict": "REVISE",
+    "input_hashes_at_review": {
+      "docs/design/v21-capabilities/administrative-contracts.md": "b2799f9b8cbf13077941b1c2feda2a795d3275f7a35be9c635ec60bdbb8c9def",
+      "docs/design/v21-capabilities/contracts.json": "b3821911209e293326a191f687571eaf7c17268391cbdc922cf4f3f2dea74d2c",
+      "docs/design/v21-capabilities/source-contracts.md": "78c4093e68e74ed8abff332086bf8b93c715a20ade362975b55c8deef42e305f",
+      "docs/design/v21-capabilities/source-readiness.json": "8fcf13390136ee27cf81439567b217b976de9782a6994a47453f186c081f30a9",
+      "docs/design/v21-capabilities/cib-authority.md": "83c6fabb8e7f851b3e82e6447f1ac23bf05a796429a6fdb00e2134240e047aab",
+      "docs/design/v21-capabilities/cib-readiness.json": "72762c30a8fe7e43537f0a28121e664e992328c366f9c214751d3bdb7b9fe201"
+    },
+    "findings": [
+      {
+        "id": "AV-W0-01",
+        "priority": "P2",
+        "title": "Prepare concrete proposed conduct and handoff copy before requesting owner approval",
+        "files": [
+          {
+            "path": "docs/design/v21-capabilities/contracts.json",
+            "line": 1369
+          },
+          {
+            "path": "docs/design/v21-capabilities/administrative-contracts.md",
+            "line": 43
+          }
+        ],
+        "scenario": "W0 owner receives the proposed Compras/Suporte extension on the single number, but proposed_message_literals is empty and the dossier states no new text was prepared.",
+        "impact": "Owner cannot review or sign exact new conduct/handoff behavior; W0 remains a plan to prepare the decision rather than the concrete reviewable decision required by the execution prompt.",
+        "required_delta": "Provide bounded draft literal/message contracts for the changed conduct/handoff/administrative reply, triggers and precedence, preserving current health/human behavior. Mark them PROPOSED and not approved, with explicit owner decision/evidence fields; do not enable behavior or promote ADR status."
+      },
+      {
+        "id": "AV-W0-02",
+        "priority": "P2",
+        "title": "Prepare an operation-level candidate tool/action mapping for security review",
+        "files": [
+          {
+            "path": "docs/design/v21-capabilities/contracts.json",
+            "line": 1352
+          },
+          {
+            "path": "docs/design/v21-capabilities/administrative-contracts.md",
+            "line": 40
+          },
+          {
+            "path": "docs/design/v21-capabilities/administrative-contracts.md",
+            "line": 45
+          }
+        ],
+        "scenario": "Security/domain owners review the 11 operations, but the only tool/action material is a shared existing-tool list and a PENDING mapping statement.",
+        "impact": "No concrete per-agent/task/OP read/effect/action scope, executor/source/receipt or refusal mapping can be reviewed for least privilege; the technical proposal is deferred to the same approval it should make concrete.",
+        "required_delta": "Supply a candidate matrix per operation and consumer/task/channel, distinguishing service-only observations from requested reads/effects and exact proposed action/tool identity or explicit mechanism reuse. Bind authority/source/receipt/currentness/refusal requirements and required owner decisions. Keep all mappings unregistered, unapproved and disabled; no broad grant, specialist superset or made-up supplier endpoint."
+      }
+    ],
+    "document_parity_checks": {
+      "command": "python3 -B read-only verifier: exact candidate/base field maps+names+families+envelope; exact R1 S4 refinement; concept uniqueness/mapping; proposed-only state and pinned sources",
+      "rc": 0,
+      "assertions_passed": 133
+    },
+    "source_and_cib_checks": {
+      "command": "python3 -B read-only verifier: 6 CR crosswalks, null owner/provider/publication states, 18 source hashes, 6 CIB contract anchors, 3 plan hashes, 127-row Git inventory, no new effects/ratification/runtime, privacy DRAFT/k10/suppression",
+      "rc": 0,
+      "assertions_passed": 73
+    },
+    "private_U4_reproduction": {
+      "command": "python3 -B independent xml.etree.ElementTree reader using private frozen source digests and read-only locator scripts; actual/declared incidence, interruptive alternatives and join-removal dominance",
+      "rc": 0,
+      "source_bytes_disclosed": false,
+      "results": [
+        {
+          "sha256": "0d39296d011bbc531f8f87a57e1120d661450fca819033590c79fdb8989e7658",
+          "fork_branches": 2,
+          "join_inputs": 3,
+          "static_token_witness": "FAIL",
+          "independent_payment_requirement": "FAIL",
+          "engine_runtime": "UNVERIFIED"
+        },
+        {
+          "sha256": "dae17b4872432d751c102c8318112f7cfc650763048ddd2aa1282310a1045023",
+          "fork_branches": 2,
+          "join_inputs": 2,
+          "static_token_witness": "PASS_FRAGMENT_ONLY",
+          "independent_payment_requirement": "FAIL",
+          "engine_runtime": "UNVERIFIED"
+        }
+      ]
+    },
+    "unit_reproduction": {
+      "command": "PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -p no:cacheprovider -q tests/unit/gateway/test_adequacao_sem_binding_de_agente.py tests/unit/tools/workers/test_dmn_transport.py tests/unit/gateway/human/test_durable_projection.py tests/unit/gateway/human/test_receipt_access.py tests/unit/gateway/human/test_decision_ports_composition.py",
+      "rc": 0,
+      "passed": 119,
+      "duration_seconds": 153.16,
+      "engine_exercised": false
+    },
+    "fence_reproductions": [
+      {
+        "command": ".venv/bin/python -B scripts/ci/check_start_process_fence.py",
+        "rc": 0,
+        "files_scanned": 476,
+        "non_vacuity_consumers": 17
+      },
+      {
+        "command": ".venv/bin/python -B scripts/ci/check_effect_chokepoint_fence.py",
+        "rc": 0,
+        "files_scanned": 476,
+        "completeness_passed": true,
+        "undocumented_unchoked_surfaces": 0
+      },
+      {
+        "command": ".venv/bin/python -B scripts/ci/check_portal_direct_completion.py",
+        "rc": 0
+      }
+    ],
+    "legitimate_external_nulls_not_findings": [
+      "named provider/source owner",
+      "owner contract publication/ratification/endpoint",
+      "commercial purpose",
+      "published case/status/milestone members",
+      "source runtime qualification",
+      "approved aggregate export/retention/cohort window"
+    ],
+    "scope_limits": {
+      "human_ratification": false,
+      "provider_publication": false,
+      "runtime_or_engine_gate": false,
+      "new_permission_admitted": false,
+      "complete_AW0_claim_admitted": false,
+      "unmodified_source_and_CIB_docs_have_no_actionable_findings": true,
+      "requires_third_party_repair_then_original_reviewer_delta": true
+    }
+  },
+  "W0_docs_final_review": {
+    "reviewer_id": "codex_admission_verifier",
+    "agent_identity": "/root/admission_verifier",
+    "observed_at_utc": "2026-10-04T16:01:07.397787+00:00",
+    "scope": "W0_OWNER_DECISION_DOSSIER_DOCUMENTS_ONLY",
+    "verdict": "W0_DOCS_REVIEW_PASS",
+    "input_fingerprint_payload": {
+      "baseline_sha": "e7b14522a4f70242504d2b152a57ee5269ee66e2",
+      "input_files": {
+        "docs/design/v21-capabilities/administrative-contracts.md": "fca53c3ba6f170729ac1ae127483a4dae4d7f36b75e72a22ad2b0fe474745f50",
+        "docs/design/v21-capabilities/contracts.json": "81d7848127e2d71a4b21b4bc1ed8df992bc9534531798ad329680fd5f28decec",
+        "docs/design/v21-capabilities/source-contracts.md": "78c4093e68e74ed8abff332086bf8b93c715a20ade362975b55c8deef42e305f",
+        "docs/design/v21-capabilities/source-readiness.json": "8fcf13390136ee27cf81439567b217b976de9782a6994a47453f186c081f30a9",
+        "docs/design/v21-capabilities/cib-authority.md": "83c6fabb8e7f851b3e82e6447f1ac23bf05a796429a6fdb00e2134240e047aab",
+        "docs/design/v21-capabilities/cib-readiness.json": "72762c30a8fe7e43537f0a28121e664e992328c366f9c214751d3bdb7b9fe201"
+      }
+    },
+    "input_fingerprint_sha256": "67d5147fb9cfe84cd750f4e08777de840502c11b66990af15fae55c822eeeb2e",
+    "author_not_verifier": true,
+    "no_authorship_repair_or_integration_participation": true,
+    "initial_verdict": "REVISE",
+    "original_reviewer_delta": true,
+    "repair_agent_identity": "/root/w0_conduct_actions_repair",
+    "review_history": "Original reviewer found AV-W0-01/02 in six-document freeze; distinct third specialist repaired only two administrative docs; original reviewer revalidated new two hashes and unchanged four hashes plus normative and repair assertions.",
+    "closed_findings": [
+      {
+        "id": "AV-W0-01",
+        "status": "CLOSED_DOCUMENT_PROPOSAL",
+        "resolution": "19 exact PROPOSED_NOT_APPROVED administrative literals with fact/receipt/currentness predicates and CR-F6 delivery guards; six existing health/human literal digests preserved; no human approval or enabled conduct asserted."
+      },
+      {
+        "id": "AV-W0-02",
+        "status": "CLOSED_DOCUMENT_PROPOSAL",
+        "resolution": "18 explicit per-agent/task/OP mode/channel/purpose/action/source/guard rows; one internal candidate gateway dispatcher unregistered; 11 candidate actions with no autonomy tier or grant; server-owned AdmissionBinding field sources and channel qualification limitation explicit."
+      }
+    ],
+    "open_findings": [],
+    "reproductions": {
+      "command": "python3 -B independent read-only exact JSON/hash/AST verifier described below",
+      "rc": 0,
+      "core_assertions_passed": 133,
+      "repair_assertions_passed": 62,
+      "total_assertions_passed": 195,
+      "normative_checks": "11 exact request/result field maps, names/families, 12-field closed common envelope, exact R1 OP07 S4 confirmation refinement, OP03 excluded from support, 21 unique concept mappings, pinned plan hashes, empty unpublished case/status/milestone memberships, no new effect/provider/ratification states and UNMEASURED baseline.",
+      "repair_checks": "6 exact frozen input hashes; 19 unique literals each PROPOSED_NOT_APPROVED with nonempty truth predicate and CR-F6 gate reflected in Markdown; 6 existing health/human literal SHA hashes reproduced from AST; 18 unique scoped row combinations covering Helena01/07, JR1 OP01..10, JR2 OP01/07/08/09/10/11; row modes/names/source CRs equal normative wiring; one unregistered tool and 11 unratified action candidates; three AST shape field sets 5/6/13; all 13 binding fields have server-owned source entries; candidate sources expressly not runtime admitted.",
+      "prior_119_unit_and_three_fences_not_rerun": true,
+      "reason_for_no_rerun": "Repair modifies only two documentation files. Four source/CIB docs are hash-preserved; no new concern requires broad domain test rerun."
+    },
+    "scope_limits": {
+      "AW0_human_gate_closed": false,
+      "agent_scope_or_conduct_ratified": false,
+      "new_permission_granted": false,
+      "provider_contract_published": false,
+      "source_or_runtime_qualified": false,
+      "W1_or_final_technical_gate_passed": false,
+      "CIB_engine_gate_passed": false,
+      "production_authorized": false,
+      "private_XML_disclosed": false
+    },
+    "remaining_gates": [
+      "Owner review/ratification of exact proposed scope/channel/task/tool/action/conduta bytes and reconciliation ADR-0062/DL-0053.",
+      "Actual provider/source owner contracts, published purpose/memberships/receipts and qualified composition.",
+      "Independent W1 implementation/repair/security/current-message/checkpoint gates remain separate.",
+      "Qualified source/runtime/CIB/CI and final technical gates; W4 payment independence remains unproved."
+    ],
+    "signature_kind": "SHA256-bound original-reviewer document attestation; not a cryptographic certificate"
+  }
+}
