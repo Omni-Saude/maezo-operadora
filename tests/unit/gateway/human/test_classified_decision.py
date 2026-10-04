@@ -343,11 +343,14 @@ async def test_changed_raw_basis_same_command_is_conflict_not_silent_retry():
         ("principal_ref", "other"),
         ("tenant", "other"),
         ("workload_ref", "other"),
-        ("committed_at", datetime.now(UTC) + timedelta(hours=1)),
+        ("committed_at", timedelta(hours=1)),
     ],
 )
 async def test_mismatched_ack_is_unknown_not_execution_or_rollback(field, value):
     g, d, _, _, admission, *_ = await configured()
+    if field == "committed_at":
+        # Collection can precede execution by hours; the ACK must still be in the future.
+        value = datetime.now(UTC) + value
     admission.changes[field] = value
     with pytest.raises(GatewayRefusalError, match="admission_unavailable"):
         await submit(g, d)
