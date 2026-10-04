@@ -2,15 +2,15 @@
 
 ## 1. O que é este documento
 
-Este documento é a **revisão por pares dos 4 modelos de jornada** (`CA_0_SERVICOS_COMPARTILHADOS`, `CA_1_COMPRA (com suporte)`, `CA_2_UTILIZACAO`, `CA_3_SUPORTE`). Uma verificação independente percorreu os arquivos v3, apontou desvios factuais e lacunas de contrato e, a partir daí, produziu as **versões adaptadas 1:1** (`*_v4_adaptado.bpmn`): são os **seus próprios arquivos, corrigidos e enriquecidos** — nada foi re-modelado, nada foi re-estruturado.
+Este documento acompanha os quatro BPMNs CA adaptados v4. A primeira revisão partiu dos originais v3; a revisão atual partiu dos v4 recebidos e preservou sua partição, vocabulário e intenção. As seções 2 e 7 mantêm o registro histórico da adaptação v3→v4 recebida. A seção 8 descreve o refinamento atual e prevalece sobre afirmações históricas incompatíveis.
 
 Três compromissos desta revisão:
 
-- **Nada aqui vira obrigação de reestruturação.** Cada ajuste é cirúrgico: 0 elementos removidos, 0 renomeados, 0 re-tipados, 0 shapes/waypoints existentes movidos. O que já estava certo permaneceu byte a byte (businessKey, mapeamentos de `finalidade`, catálogo de mensagens/erros/sinal, anotação existente, memberships de lane).
-- **A equipe decide.** Onde a evidência não existia, nada foi inventado: o ponto fica marcado como `[CONFIRMAR]` dentro do próprio modelo (seção 6) e aguarda decisão do time.
-- **Como verificamos:** os 4 arquivos adaptados passam pelas mesmas verificações estruturais dos originais — 0 achados novos, catálogo de correlação idêntico, 0 elementos inalcançáveis, 0 buracos de token, cobertura completa de diagrama, 0 IDs duplicados (54 IDs novos, todos sem colisão). A verificação posterior dos arquivos encontrou dois desvios de conformidade (posição de documentation e um atributo `default` inválido), ambos já corrigidos — ver nota ao fim da seção 3. Recomendamos abrir os 4 arquivos no modeler antes de homologar: a validação por ferramenta de modelagem (importação/lint) ainda não foi executada neste ambiente.
+- **Mudança mínima e rastreável.** A revisão histórica preservou shapes existentes e alterou localmente duas edges de U4 para corrigir a convergência. A revisão atual registra mapeamentos, documentação, rotas DI locais e a separação do cancelamento do prestador em seu próprio subprocesso de evento. Não se declara imutabilidade global de topologia ou waypoints; os deltas reais estão nos registros por arquivo.
+- **Devolutiva concluída autonomamente.** A equipe autora não participa desta execução. Hipóteses e contratos externos foram incorporados como sugestões explícitas nos modelos. `[CONFIRMAR]` identifica evidência ainda necessária para futura implementação ou homologação; não bloqueia a entrega nem atribui à equipe uma aprovação inexistente.
+- **Evidência por gate e por hash.** O registro histórico não certifica os bytes atuais. Consulte `docs/audits/BPMN-CA-2026-10/feedback/revisions/20261004T153751Z-codex-refinement/` a partir da raiz do repositório, especialmente `AUDIT-REPORT.md`, o manifesto final e os relatórios de gates quando publicados. Parse/XSD, importação, lint, renderização e witnesses de tokens têm escopos distintos; nenhum deles demonstra execução dos delegates ou operação em engine. As autorias registraram verificações locais, sujeitas aos gates independentes finais.
 
-Cada mudança nos arquivos está listada na **seção 7 (rastreio completo)**, com origem em uma correção (F-01..F-05) ou direção (A-01..A-06). Nada nos arquivos está fora dessa lista; nada nesta lista está fora dos arquivos.
+A seção 7 preserva 219 linhas históricas: 55 + 74 + 30 + 60. Elas incluem operações e retenções, não 219 elementos distintos alterados. O refinamento atual tem rastreio separado nos relatórios `author-ca0.json` a `author-ca3.json` e `author-docs.json` desta execução.
 
 ---
 
@@ -72,28 +72,28 @@ Abreviaturas usadas no documento:
 | A-06 — nota de arquitetura | 1 | |
 | **Total** | **60** | |
 
-**Conjunto: 219 ajustes.** Por correção: F-01 = 10 · F-02 = 5 · F-03 = 54 · F-04 = 75 · F-05 = 1. Por direção: A-01 = 1 · A-02 = 19 · A-03 = 42 · A-04 = 1 · A-05 = 7 (+3 linhas compartilhadas) · A-06 = 4.
+**Registro histórico: 219 linhas de operações/retenções v3→v4 recebido.** Por correção: F-01 = 10 · F-02 = 5 · F-03 = 54 · F-04 = 75 · F-05 = 1. Por direção: A-01 = 1 · A-02 = 19 · A-03 = 42 · A-04 = 1 · A-05 = 7 (+3 linhas compartilhadas) · A-06 = 4.
 
 ---
 
-## 3. Correções aplicadas (F-01..F-05)
+## 3. Correções da adaptação recebida (F-01..F-05)
 
 ### F-01 — Trava de tokens na liquidação/avaliação (CA_2#U4)
 
-**O que estava acontecendo.** Em `CA_2#Process_CA_UTILIZACAO_U4_LiquidarAvaliar`, o split (`U4_GW_Split`) abre dois ramos — desfecho (`U4_T_Desfecho`) e pesquisa (`U4_T_Pesquisa`) — mas o gateway paralelo de entrada `U4_GW_Join` declarava **três entradas**: `_08` (desfecho), `_09` (pesquisa concluída) e `_10` (tempo esgotado do boundary `U4_B_Pesquisa`, timer PT72H). O gateway paralelo espera um token por entrada; como **"pesquisa respondida" e "tempo esgotado" nunca coexistem** — quem responde entrega `_08`+`_09`, quem deixa estourar entrega `_08`+`_10` — a instância ficava esperando para sempre um terceiro token que nunca chega (achado P1-I0011 da auditoria). A documentação do boundary ("Timeout evita deadlock do join") descrevia o comportamento inverso do que o fluxo fazia; o texto foi preservado — a topologia é que corrige o problema.
+**O que estava acontecendo.** Em `CA_2#Process_CA_UTILIZACAO_U4_LiquidarAvaliar`, o split (`U4_GW_Split`) abre dois ramos — desfecho (`U4_T_Desfecho`) e pesquisa (`U4_T_Pesquisa`) — mas o gateway paralelo de entrada `U4_GW_Join` declarava **três entradas**: `_08` (desfecho), `_09` (pesquisa concluída) e `_10` (tempo esgotado do boundary `U4_B_Pesquisa`, timer PT72H). O gateway paralelo espera um token por entrada; como **"pesquisa respondida" e "tempo esgotado" nunca coexistem** — quem responde entrega `_08`+`_09`, quem deixa estourar entrega `_08`+`_10` — a topologia modelada esperava um terceiro token que nenhum dos dois desfechos fornecia; não se observou instância de engine nesta revisão (achado P1-I0011 da auditoria). A documentação do boundary ("Timeout evita deadlock do join") descrevia o comportamento inverso do que o fluxo fazia; o texto foi preservado — a topologia é que corrige o problema.
 
 **O que mudou.**
-- Novo gateway exclusivo `CA_2#U4_GW_EscapePesquisa` — "Pesquisa respondida ou tempo esgotado?" — que **converge os dois desfechos**: recebe `_09` (pesquisa respondida) e `_10` (tempo esgotado) e entrega **um único fluxo** (`_13`) ao gateway paralelo. **Sem atributo `default`**: o gateway de escape é um merge de 2 entradas com 1 saída, e `default` só se aplica a split; os fluxos de entrada seguem sem rótulo condicional.
+- Novo gateway exclusivo `CA_2#U4_GW_EscapePesquisa` — "Pesquisa respondida ou tempo esgotado?" — que **converge os dois desfechos**: recebe `_09` (pesquisa respondida) e `_10` (tempo esgotado) e entrega **um único fluxo** (`_13`) ao gateway paralelo. **Sem atributo `default`**: o gateway de escape é um merge de 2 entradas com 1 saída, e não precisa de seleção de saída; o `default` anteriormente apontava a entrada `_10`, em vez de uma saída do gateway; os fluxos de entrada seguem sem rótulo condicional.
 - Os fluxos `CA_2#F_CA_UTILIZACAO_U4_LiquidarAvaliar_09` e `_10` foram redirecionados para o novo gateway (IDs, nomes e origens intocados).
 - Novo fluxo `CA_2#F_CA_UTILIZACAO_U4_LiquidarAvaliar_13` (gateway → `U4_GW_Join`), sem rótulo e sem condição.
 - `CA_2#U4_GW_Join` volta a **2 entradas** (`_08`, `_13`), casando com o fork de 2 do split.
 - Lane `CA_2#LN_CA2_U4_LiquidacaoAuditoria` ganhou o ref do gateway novo (append-only). Diagrama: shape do gateway + edge nova + re-roteamento dos waypoints de `_09`/`_10`; o plano `Collaboration_CA_UTILIZACAO` apenas — os planos dos sub-processos de evento ficaram byte a byte.
 
-**Por quê assim.** O caminho do boundary é um desfecho de "não aconteceu", não uma alternativa de decisão — os dois caminhos apenas convergem antes do gateway paralelo, que fica com **2 entradas**, uma por ramo do fork. A especificação inicial previa `default = _10`; a verificação posterior apontou que `default` não se aplica a um merge (é atributo de split, que escolhe entre saídas) e o atributo foi removido. Verificamos por simulação de tokens: os dois casos (pesquisa respondida; timeout PT72H) fecham o join com exatamente 2 tokens.
+**Por quê assim.** O caminho do boundary é um desfecho de "não aconteceu", não uma alternativa de decisão — os dois caminhos apenas convergem antes do gateway paralelo, que fica com **2 entradas**, uma por ramo do fork. A especificação inicial previa `default = _10`; a verificação posterior apontou que `_10` era entrada, não saída selecionável do gateway; o atributo foi removido por referência inadequada e por não ser necessário neste merge de saída única. Não se afirma proibição absoluta do atributo pelo XSD. Verificamos por simulação de tokens: os dois casos (pesquisa respondida; timeout PT72H) fecham o join com exatamente 2 tokens.
 
 ### F-02 — Sinal "Alerta Time Data Science" consumido fora do modelo (CA_0#H3_EV_AlertaDS)
 
-**O que estava acontecendo.** O sinal `Signal_CA_AlertaDS` é lançado por `CA_0#H3_EV_AlertaDS` ("Alertar cientistas de dados") e **nenhum elemento modelado o captura** — o consumo acontece no monitoramento do time de Ciência de Dados, fora do conjunto de processos.
+**O que estava acontecendo.** O sinal `Signal_CA_AlertaDS` é lançado por `CA_0#H3_EV_AlertaDS` ("Alertar cientistas de dados") e **nenhum elemento modelado o captura** — o consumidor esperado foi declarado como monitoramento do time de Ciência de Dados, fora do conjunto; sua implementação e recepção real não foram comprovadas.
 
 **Decisão (contrato declarado externo).** O consumo externo passou a estar **escrito no modelo** em vez de implícito:
 - documentation em `CA_0#H3_EV_AlertaDS` (consumo externo + marco factual);
@@ -122,7 +122,7 @@ O sinal **não foi renomeado e nenhum captor foi criado** — criar um catch mod
 **O que estava acontecendo.** Dez tarefas humanas críticas não tinham nenhum timer associado: se a pessoa não der cobertura, o caso fica parado sem sinal para ninguém (o modelo só tinha timer de recuperação no processo de suporte e nos catches de autorização).
 
 **O que mudou.** Para cada uma das 10 tarefas, um ramo de escalonamento com o mesmo padrão:
-- **boundaryEvent não interruptivo** (`cancelActivity="false"`) com timer de duração — a tarefa **continua** aberta enquanto a escalação acontece;
+- **boundaryEvent não interruptivo** (`cancelActivity="false"`) com timer de duração — a tarefa **continua** aberta enquanto o ramo de escalação é disparado no modelo; executor e recepção externos não foram executados;
 - **serviceTask** de escalonamento ("Escalar … pendente");
 - **endEvent próprio** (sem event definition) — o ramo **não alimenta join** nem desvia o fluxo principal;
 - fluxos novos, refs de lane (append-only) e shapes/edges no diagrama.
@@ -146,7 +146,7 @@ Cada boundary carrega na documentation a nota **"SLA proposto — confirmar com 
 
 **O que estava acontecendo.** O boundary `CA_1#C4_B_SemSlot` captura o erro `SEM_SLOT_EQUIVALENTE`, que a documentação do modelo declara ser lançado pelo serviço de **reagendamento automático** (`autoRebookingService`). A auditoria não conseguiu comprovar essa execução — a recomendação heurística (P1-RAW005) pede **implementação/teste de erro antes de incorporar** o comportamento.
 
-**Decisão (contrato declarado externo).** O boundary **não é um artefato morto**: o erro tem origem declarada fora do fluxo modelado. Mantivemos o wiring intacto (boundary + errorEventDefinition + fluxo de saída) e adicionamos documentation registrando o **contrato do erro** (quem lança, qual código, qual desfecho). Nada foi reconfigurado.
+**Decisão (contrato declarado externo).** O boundary **não é um artefato morto**: o erro tem origem declarada fora do fluxo modelado. Mantivemos o wiring intacto (boundary + errorEventDefinition + fluxo de saída) e adicionamos documentation registrando o **contrato esperado do erro** (emissor declarado, código e desfecho; throw/captura não executados). Nada foi reconfigurado.
 
 **O que a equipe deve fazer:** garantir o **teste de erro do reagendamento automático** — é a evidência que falta para tratar esse contrato como comprovado em vez de declarado.
 
@@ -155,7 +155,7 @@ Cada boundary carrega na documentation a nota **"SLA proposto — confirmar com 
 A verificação posterior dos arquivos encontrou dois desvios, ambos já reparados — o ciclo de revisão funcionando como esperado, sem alterar a lógica modelada:
 
 1. **CA_3 — posição de documentation:** as 5 documentations de contrato de variáveis (`SP_CA_S1`, `SP_CA_S2`, `SP_CA_S3`, `SP_CA_S4`, `S1_CA_H1`) foram reposicionadas para **antes de `extensionElements`**, exigência da sequência do esquema BPMN 2.0; conteúdo idêntico.
-2. **CA_2 — atributo `default` removido** do gateway de escape `U4_GW_EscapePesquisa`: `default` só se aplica a gateway de split (que escolhe entre saídas); o escape é um merge de 2 entradas com 1 saída. A especificação inicial pedia `default = _10` — estava errada e foi corrigida.
+2. **CA_2 — atributo `default` removido** do escape `U4_GW_EscapePesquisa`: `_10` era uma entrada e não uma saída selecionável. O merge tem saída única e não precisa deste atributo. Essa correção local não equivale a proibição absoluta de `default` no XSD.
 
 Os arquivos refletem o estado final; a seção 7 já descreve esses dois pontos como ficaram.
 
@@ -185,22 +185,22 @@ Documentation na colaboração de cada arquivo, descrevendo o que ele concentra,
 
 ---
 
-## 5. O que NÃO mudou (e por quê)
+## 5. Preservações históricas e limites atuais
 
 - **As fusões legítimas (25 gateways)** — 7 em CA_0 (H2_GW_MergeRevisao, SC_GW_MergeEnviar, H1_GW_Merge, H3_GW_MergeEvt, EC_GW_Join, NBA_GW_Merge, NBA_GW_MergeFim), 7 em CA_1 (CP_GW_MergeIntencao, CP_GW_MergeHabilitar, CP_GW_MergeSuporte, C3_GW_MergeEleg, C3_GW_MergeAut, C3_GW_MergeReq, C3_GW_MergeReneg), 4 em CA_2 (U1_GW_Merge, U3_GW_Merge, U4_GW_MergeProx, U4_GW_Join), 7 em CA_3 (SP_GW_MergeInicio, SP_GW_MergeResolver, S1_GW_MergeCons, S1_GW_Merge, S3_GW_MergeHumano, S3_GW_MergeAtend, S4_GW_MergeAprender). Gateway com mais de uma entrada e uma saída é padrão do modelo para unir ramos convergentes — não é defeito. A única exceção foi o `U4_GW_Join`, corrigido pelo **F-01** porque suas entradas eram mutuamente exclusivas.
 - **`historyTimeToLive="180"` já estava presente** em 21 processos do conjunto — nada foi adicionado nem alterado.
-- **A composição das lanes foi preservada.** Os 297 refs originais (82 em CA_0, 92 em CA_1, 57 em CA_2, 66 em CA_3) permanecem na ordem original; os refs novos foram **acrescidos ao fim** da lane correspondente. `CA_1#CP_ES_Ajuda` segue sem lanes internas (herda a lane do atendente) — não criamos lanes agora.
-- **As 9 interseções de coordenadas entre planos (CA_2)** foram mantidas. São os achados P1-DI-2-01..09 da auditoria: sobreposições entre o plano principal e os planos dos sub-processos de evento (`Participant_CompraSup`, `LN_CA2_UTILIZACAO_AgendamentoAutorizacao`, `UT_ES_Start_CancCliente`, `UT_ES_End_CancCliente` × elementos dos eventos). Conhecidas, herdadas do layout original e não reproduzidas visualmente (renderer indisponível); os dois planos de evento ficaram **byte a byte**. Quando houver elementos novos nesses planos, regenere apenas o plano principal.
-- **O erro "Sem slot" NÃO é boundary morto.** O serviço de reagendamento automático lança `SEM_SLOT_EQUIVALENTE` conforme a documentação do próprio modelo; a auditoria apenas não pôde comprovar a execução — por isso o tema virou o contrato externo do **F-05** (com teste de erro pendente), e não uma remoção do boundary.
-- **`CA_2#U4_T_Liquidar` e `CA_3#S4_T_Ouvidoria` permanecem como o time deixou** (tarefas abstratas; achados P1-I0016 e P1-I0022). Re-tipar exige decisão da process owner sobre o comportamento e o aceite — não é algo que a revisão decida sozinha.
+- **Responsabilidades das lanes preservadas.** O ledger histórico registra 297 refs originais e adições append-only. Na revisão atual, o ref de UT_ES_CancelamentoPrestador substitui na lane externa o ref do start movido para esse container, conforme TKN-01; isso é necessário à separação de escopos. Os 57 nomes/IDs de lanes não foram trocados. CP_ES_Ajuda segue sem lanes internas.
+- **Comparação de DI por plano.** As nove interseções de coordenadas citadas anteriormente eram registros históricos entre planos distintos, não prova de sobreposição no mesmo diagrama. O refinamento atual mantém planos separados, verifica importação/renderização e altera somente rotas locais e o DI afetado pelo cancelamento do prestador; não regenera o corpus globalmente.
+- **O boundary "Sem slot" foi preservado.** A documentação declara o delegate de reagendamento como emissor esperado de `SEM_SLOT_EQUIVALENTE`; isso afasta a conclusão de erro morto baseada só no XML. Implementação, throw em runtime e captura continuam não comprovados por esta devolutiva.
+- **`CA_2#U4_T_Liquidar` e `CA_3#S4_T_Ouvidoria` permanecem tarefas abstratas.** Têm lanes responsáveis no desenho, mas sem binding de executor/alçada/conclusão. O refinamento incorpora o contrato esperado, preservando tipo e responsabilidade sem inventar implementação.
 - **Rótulos editoriais e a anotação existente foram preservados:** `CA_0#F_CA_H2_ComunicarCliente_09` e `CA_0#F_CA_H3_ProximaMelhorAcao_12` (rótulos apontados pelo lint como supérfluos, mantidos por opção editorial) e `CA_3#TextAnnotation_16ktuur` + `CA_3#Association_11mohme` (a anotação do corpus, mantida byte a byte como referência de estilo — foi o padrão usado na anotação nova do F-02).
 - **O catálogo de correlação ficou idêntico:** nenhuma message, error, signal ou escalation renomeada (CA_0: 2 messages + 1 error + 1 signal · CA_1: 15 messages + 2 errors · CA_2: 13 messages + 1 escalation · CA_3: 6 messages + 1 error).
 
 ---
 
-## 6. Pendências para a equipe decidir
+## 6. Histórico de hipóteses e contratos a homologar
 
-Tudo abaixo está marcado `[CONFIRMAR]` dentro dos próprios modelos. Nenhuma dessas pendências bloqueia a leitura dos arquivos — bloqueia apenas fechar o contrato.
+Esta seção registra hipóteses do v4 recebido. As correções atuais da seção 8 substituem as lacunas de mapping comprováveis; as demais dependem de contrato externo ou futura homologação. Nenhuma exige interação da equipe autora para concluir esta devolutiva.
 
 ### 6.1 Valores de SLA propostos (10)
 
@@ -219,9 +219,9 @@ Os ramos do F-04 foram criados com valores **propostos** a partir de convençõe
 | 9 | CA_3#S3_B_SLA_Supervisor | PT24H | convenção 24h do modelo (`S4_B_Silencio`, PT24H) |
 | 10 | CA_3#S3_B_SLA_Intervencao | PT4H | proposta: entrega em risco |
 
-### 6.2 Variáveis sem produtor comprovado (32, por callActivity)
+### 6.2 Registro recebido: 32 ocorrências de variáveis com evidência incompleta
 
-Mapeadas com `[CONFIRMAR]` na documentation da chamada. O pedido ao time é simples: para cada uma, dizer **quem produz** (tarefa, formulário ou serviço externo) — ou pedir a remoção do mapeamento.
+Contagem histórica de ocorrências por chamada, não inventário atual de variáveis únicas. O refinamento diferencia listener XML, declaração de formulário/delegate, contrato externo e execução comprovada. Ver registros VA e seção 8 para mappings atuais; não retirar saídas consumidas nem criar produtores fictícios.
 
 | CallActivity (arquivo) | Variáveis a confirmar | Qtd. |
 |---|---|---|
@@ -243,9 +243,9 @@ Mapeadas com `[CONFIRMAR]` na documentation da chamada. O pedido ao time é simp
 
 Nota: `consentimentoValido`/`identidadeUnificada` repetem-se porque as três chamadas a H1 (EC_CA_H1, C1_CA_H1, S1_CA_H1) compartilham o mesmo contrato do callee — resolver uma vez, replicar nas três.
 
-### 6.3 CallActivities com SAÍDA vazia (6)
+### 6.3 Registro recebido: seis chamadas com saída vazia
 
-Sem produtor comprovado, a saída ficou **vazia de propósito**. Se houver saída esperada, apontar o produtor:
+No v4 recebido as chamadas abaixo tinham saída vazia. Na revisão atual CP_CA_C1 devolve propostaRelevante, CP_CA_C4 devolve resultadoManutencao e SP_CA_S3 devolve protocoloId. H3_CA_Lote e C3_CA_Perfil mantêm saída vazia sem consumidor comprovado; C1_CA_NBA mantém o gap de retorno da recomendação porque seu nome/escopo ainda não foram publicados. Fonte externa declarada não foi executada:
 
 - `CA_0#H3_CA_Lote` (EnriquecerCliente)
 - `CA_1#CP_CA_C1` (EntenderRecomendar)
@@ -256,11 +256,11 @@ Sem produtor comprovado, a saída ficou **vazia de propósito**. Se houver saíd
 
 ### 6.4 GAP — `experienciaSatisfatoria` / `npsScore` (CA_2#UT_CA_U4)
 
-A documentação de `CA_2#U4_T_Pesquisa` afirma produzir `npsScore`/`experienciaSatisfatoria`, mas **nenhum produtor declarado existe no modelo** — e o chamador lê `experienciaSatisfatoria` (`CA_2#F_CA_UTILIZACAO_10`). Não inferimos produtor de documentação. Pendência: definir se a produção acontece em formulário, serviço ou se a leitura é remanescente.
+O v4 recebido declarava `npsScore`/`experienciaSatisfatoria` em documentation, sem formulário binding comprovado. O refinamento explicita a coleta esperada e as saídas de UT_CA_U4 e condiciona o gateway à presença de uma resposta; timeout não fabrica NPS ou satisfação. A execução do formulário e o tipo do retorno permanecem contrato externo não verificado.
 
 ### 6.5 GAP — `prazoMaximoDecisao` (CA_1#C2_B_PrazoMax)
 
-O timer lê `prazoMaximoDecisao`, que não recebe mapping em `CP_CA_C2` — por desenho desta revisão (a entrada de C2 ficou vazia por regra e não inferimos produtor). Pendência: definir onde a variável nasce.
+O timer lê `prazoMaximoDecisao`. O refinamento adiciona seu mapping explícito em CP_CA_C2, a partir do contexto autorizado do chamador. A existência do campo, sua origem, unidade e validade são contrato de ingresso ainda não executado; não foi criado default de prazo.
 
 ### 6.6 Consumo das saídas a confirmar (mapeamentos possivelmente sem leitura)
 
@@ -270,13 +270,13 @@ Saídas mapeadas com produtor comprovado, mas que **o chamador não lê em condi
 
 ### 6.7 Timers propostos × prazos contratuais
 
-Nenhum valor da seção 6.1 foi confrontado com norma ou contrato. Caso específico: `CA_1#C3_T_Parecer` cita **RN 424/2017** na documentação do host — o prazo de 48h proposto para o boundary deve ser validado contra o prazo regulatório/contratual real da negativa com parecer médico. Os demais valem a mesma conferência quando houver SLA contratual equivalente.
+Os dez valores da seção 6.1 permanecem propostas operacionais, não prazos homologados. A [RN 424/2017](https://bvsms.saude.gov.br/bvs/saudelegis/ans/2017/res0424_27_06_2017.html), arts. 1 e 4, trata de junta/divergência técnico-assistencial; não define PT48H universal para parecer ou negativa. Seus dias úteis não equivalem à duração PT48H. A revisão qualifica C3_T_Parecer, C3_B_SLA_Parecer e C3_EV_Expirou sem substituir valores; aplicabilidade e regra vigente devem ser demonstradas antes de implementação.
 
 ---
 
-## 7. Rastreio completo (219 linhas)
+## 7. Rastreio histórico da adaptação recebida (219 linhas)
 
-Colunas: elemento (formato `arquivo#elementoId`) · operação · antes→depois · origem · evidência (linha no arquivo adaptado; `A:` = adaptado, `O:` = original v3). **Prova de completude: as 219 linhas abaixo correspondem 1:1 às 219 linhas dos quatro registros de mudança (55 + 74 + 30 + 60); cada linha carrega um ID de origem (F-xx / A-0x); zero linhas sem origem; zero linha extra.**
+Colunas históricas: elemento (`arquivo#elementoId`), operação, antes→depois, origem e linha no adaptado recebido (`A:`) ou original v3 (`O:`). As 219 linhas abaixo foram preservadas como ledger histórico; não certificam completude da revisão atual. As linhas XML pertencem ao snapshot `baseline/adapted/` deste run, cujos hashes estão em `baseline.json`. Para o resultado atual use IDs e os relatórios por arquivo; adições, retenção, atributos, topologia e bytes são métricas distintas.
 
 ### 7.1 CA_0 — Serviços compartilhados (55)
 
@@ -422,7 +422,7 @@ Colunas: elemento (formato `arquivo#elementoId`) · operação · antes→depois
 | Elemento | Operação | Antes → depois | Origem | Evidência |
 |---|---|---|---|---|
 | CA_2#U4_GW_Join | editar declarações `<bpmn:incoming>` | `[_08, _09, _10]` → `[_08, _13]` (join = 2 entradas, casando com o fork de 2 de U4_GW_Split) | F-01 | A:696-699 (O:691-694) |
-| CA_2#U4_GW_EscapePesquisa | criar exclusiveGateway | inexistente → `name="Pesquisa respondida ou tempo esgotado?"`, incoming `[_09,_10]`, outgoing `[_13]`, **SEM `default`** (escape é merge 2 entradas/1 saída; default só se aplica a split — especificação inicial pedia `default=_10` e foi corrigida) | F-01 | A:691-695 |
+| CA_2#U4_GW_EscapePesquisa | criar exclusiveGateway | inexistente → `name="Pesquisa respondida ou tempo esgotado?"`, incoming `[_09,_10]`, outgoing `[_13]`, **SEM `default`** (escape é merge 2 entradas/1 saída; a referência anterior `_10` era entrada, não saída; não é proibição absoluta do atributo no XSD) | F-01 | A:691-695 |
 | CA_2#F_CA_UTILIZACAO_U4_LiquidarAvaliar_09 | retarget (id+name+sourceRef intactos) | `targetRef: U4_GW_Join → U4_GW_EscapePesquisa` (sourceRef `U4_T_Pesquisa` inalterado) | F-01 | A:720 (O:714) |
 | CA_2#F_CA_UTILIZACAO_U4_LiquidarAvaliar_10 | retarget (id+name+sourceRef intactos) | `targetRef: U4_GW_Join → U4_GW_EscapePesquisa` (sourceRef `U4_B_Pesquisa` inalterado) | F-01 | A:721 (O:715) |
 | CA_2#F_CA_UTILIZACAO_U4_LiquidarAvaliar_13 | criar sequenceFlow | inexistente → `U4_GW_EscapePesquisa → U4_GW_Join`, SEM `name`, SEM `conditionExpression` (fluxo de escape nunca recebe rótulo condicional) | F-01 | A:724 |
@@ -516,3 +516,59 @@ Colunas: elemento (formato `arquivo#elementoId`) · operação · antes→depois
 | CA_3#S3_T_EscalarIntervencao_di | adicionar (BPMNShape) | (880,2878,100,80) à direita (desvio de S3_End_Intervencao em 830,2900) | F-04 (DI) | 1864 |
 | CA_3#S3_End_SLA_Intervencao_di | adicionar (BPMNShape) | (1040,2900,36,36) | F-04 (DI) | 1867 |
 | CA_3#F_CA_SUPORTE_S3_ResolverEncaminhar_35_di / _36_di | adicionar (BPMNEdge) | 4 e 2 waypoints (rota por baixo, sem cruzar shapes) | F-04 (DI) | 1870, 1876 |
+
+
+## 8. Refinamento atual — 04/10/2026
+
+Esta seção substitui afirmações históricas da adaptação recebida quando houver divergência. Os arquivos entregues são feedback local para a equipe autora; não são implementação MAEZO, deploy Camunda nem serviços em operação. Retenção e deltas devem ser conferidos nos gates finais vinculados aos hashes finais.
+
+### Deltas comprováveis e limites mantidos
+
+- **CA_0:** mappings explícitos de H2_CA_Canal, H3_CA_Lote e EC_CA_H1; sugestões RB-01/RB-02; política de comunicação e loops documentados; duas rotas/labels DI locais. Sem novo captor fictício nem garantia de envio/entrega.
+- **CA_1:** mappings das sete chamadas, incluindo prazoMaximoDecisao de C2, propostaRelevante de C1 e resultadoManutencao de C4; retorno do recomendador permanece gap explícito sem nome/escopo de variável publicado. C3 separa matrícula/direito-base de autorização assistencial e perfil enriquecido não habilita direito por si. Junta/RN 424 e PT48H foram qualificados; RB-03 incorporado; loop de alternativas e rota DI local documentados. Não se criou fonte de matrícula ou agenda.
+- **CA_2:** o cancelamento do prestador ganhou container próprio UT_ES_CancelamentoPrestador, com seu start original, sem renomear mensagem/ID do start; o cancelamento do cliente fica no container original. Isso corrige dois starts no mesmo event subprocess, preservando ambos os ramos. DI e lane externa foram ajustados apenas onde necessário. As quatro chamadas receberam contrato explícito; pesquisa/satisfação e seu timeout não fabricam resultado. U4 mantém fork de dois ramos, merge de resposta/timeout e join de duas entradas. RB-04, limites da tarefa abstrata de liquidação e evento clínico não interruptivo foram documentados.
+- **CA_3:** mappings explícitos das cinco chamadas, saída da triagem, protocolo/contexto e confirmação de resolução separados do aceite de compra. RB-05, loops, condição de prazo/produtor externo e dez escalações do corpus foram qualificados. Duas rotas DI locais corrigidas, sem trocar semântica de autorização.
+
+Delegates, formulários, recibos, origem de ingresso, emissões e consumidores externos não foram executados. Mappings declarados ligam escopos; não são produtores de dados. Dez serviceTasks de escalação não recebem delegate fictício: são contrato externo esperado, ainda sem binding executivo comprovado. Os timers não interruptivos mantêm as tarefas humanas abertas e não aprovam seu conteúdo.
+
+Loops existentes têm política/budget e fronteiras anotados como contrato a confirmar; não há prova de budget global, máximo de voltas ou término de todos os delegates. Essa limitação permanece explícita e não é convertida em PASS de engine.
+
+### Rastreabilidade do refinamento
+
+Cada remoção, adição ou mudança de atributo, mapping, documentação, topologia ou DI está registrada antes/depois em `author-ca0.json` a `author-ca3.json`; as alterações destes dois documentos estão em `author-docs.json`. Todos ficam em `docs/audits/BPMN-CA-2026-10/feedback/revisions/20261004T153751Z-codex-refinement/evidence/`. O ledger histórico de 219 linhas mantém linhas do baseline recebido, não dos candidatos atuais. O relatório final e manifesto dessa revisão registram os gates e digests efetivamente admitidos; não reaproveitar PASS histórico após drift.
+
+| Arquivo | Processos top-level | Lanes | Subprocessos | SHA-256 dos BPMNs lidos para este guia |
+|---|---|---|---|---|
+| CA_0_SERVICOS_COMPARTILHADOS_v4_adaptado.bpmn | 6 | 16 | 0 | `47d3369e1ec386121c1cd1a016480b3f24b6118ed6cb7949a0df7054ba1d8b13` |
+| CA_1_COMPRA (com suporte)_v4_adaptado.bpmn | 5 | 16 | 1 | `067cf607ddb0c6647598d1b52d1237f2e1eafbbfc944aedcfbdddf91bcf12cb9` |
+| CA_2_UTILIZACAO_v4_adaptado.bpmn | 5 | 12 | 3 | `7d33f1f2612c9e7eaf59c09f9d5c5630acd3bb6559f2f471b76d87067934e035` |
+| CA_3_SUPORTE_v4_adaptado.bpmn | 5 | 13 | 0 | `004385a82d32e36235c46e844d16298ea8545b53450e60f2c4d36fdabd85c659` |
+
+### Fontes e limites normativos
+
+- A atribuição anterior “RN 464/2021 = prazo de autorização” foi retirada. A RN 464/2020 tratava de processo administrativo eletrônico e foi revogada pela [RN 534/2022, art. 44 II](https://bvsms.saude.gov.br/bvs/saudelegis/ans/2022/res0534_06_05_2022.html). Isso não fixa novo timer assistencial.
+- A [RN 424/2017](https://bvsms.saude.gov.br/bvs/saudelegis/ans/2017/res0424_27_06_2017.html) delimita junta/divergência técnico-assistencial. PT48H dos modelos continua proposta; duração corrida não equivale a dias úteis nem é prazo universal de negativa. Diferenciar resposta de realização antes de aplicar regra; ver [FAQ oficial ANS RN 623](https://www.gov.br/ans/pt-br/arquivos/assuntos/espaco-da-operadora-de-plano-de-saude/atendimento-ao-beneficiario/FAQ_RN_623__17.09.25.pdf/@@download/file).
+- A [LGPD, art. 11 §5º](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm) veda seleção de risco no contexto de contratação/exclusão, inclusive por ofertas ou proxies com esse efeito. Não torna automaticamente ilícita toda recomendação assistencial; finalidade, necessidade, base e autoridade devem ser próprias. Uma exclusão mais ampla de dados clínicos do motor comercial seria política proposta, não transcrição da lei.
+
+Fontes conferidas em 04/10/2026, com URLs/escopo no ledger `variable-authority-audit.json`. Nenhum prazo novo foi criado ou homologado.
+
+### Reuso incorporado e benchmarks
+
+Os benchmarks sustentam mecanismos, não resultado quantitativo, obrigação de adotar tecnologia ou identidade física de equipes. Workers, APIs e MCPs genéricos são direção de contrato nesta devolutiva; não foram construídos.
+
+| Sugestão | Elementos anotados | Mecanismo e referência | Limite de adaptação |
+|---|---|---|---|
+| RB-01 | CA_0#Process_CA_H1_IdentidadeConsentimento | Composição de capacidades — [BIAN Portal](https://bian.org/bian-portal/) e [Service Landscape 14.0](https://bian.org/deliverables/service-landscape/) | H1 tem três chamadas reais no modelo; a interface não amplia finalidade, acesso ou autoridade |
+| RB-02 | CA_0#H2_T_Enviar / H2_T_Fallback | Estado da fonte, recibo e repetição — [Stripe fulfillment](https://docs.stripe.com/checkout/fulfillment.md?payment-ui=stripe-hosted) e [idempotência](https://docs.stripe.com/api/idempotent_requests) | Enviado não prova entregue; fallback é tentativa distinta, com política própria; sem copiar janela de 24h |
+| RB-03 | CA_1#C2_EV_Agendado / C4_EV_Agendado | Referências e ciclo de pedido — [IATA ONE Order](https://www.iata.org/en/programs/airline-distribution/retailing/one-order/) | Promessa/reserva/confirmado são estados diferentes; journeyId não funde matrícula, slot e direito, nem prova agenda |
+| RB-04 | CA_2#U2_T_Aguardar | Espera correlacionada à fonte e recibo — IATA ONE Order / Stripe fulfillment | Pedido, chegada, timeout e realização não se equivalem; regra clínica e consequência da espera são específicas |
+| RB-05 | CA_3#S3_T_Cumprir / S4_T_Confirmar | Registro de retorno/recibo — BIAN / Stripe | Resposta enviada não prova resolução; confirmação de Suporte não é aceite comercial; alçada humana permanece |
+
+Páginas primárias verificadas em 04/10/2026, com versões/datas e limites em `reuse-benchmarks.json`; BIAN 14.0 é versão do landscape. IATA/Stripe são páginas contínuas; não se declara conformidade com seus schemas, SDKs ou APIs. H1 demonstra reuso de chamada; os demais contratos são sugestões de design, sem execução comprovada ou ROI demonstrado.
+
+
+### Revalidação pós-Modeler no encerramento — 04/10/2026
+
+A edição posterior de Compras foi preservada e revalidada. Foram mantidas a serialização do Modeler 5.49.0 e as melhorias manuais de layout. O refinamento local corrigiu o cruzamento de `MF_CP_06` e preservou a responsabilidade original do Consultor comercial para `C1_GW_Proposta` e `C1_End_SemProposta`, mantendo a regra e os scores deste guia. Não houve alteração de condições, timers, listeners, mapeamentos, IDs ou nomes.
+
+SHA-256 final de Compras: `067cf607ddb0c6647598d1b52d1237f2e1eafbbfc944aedcfbdddf91bcf12cb9`. Dois gates independentes de delta aprovaram estes bytes (366 verificações semânticas e 16 visuais). O bundle inicial `e73cbc80…` e os pareceres REVISE anteriores permanecem como evidência histórica; a versão final é ligada ao recibo de encerramento em `session-close/`. Esta nota não declara execução em engine, binding de executor ou homologação da equipe. A equipe autora não participou; a responsabilidade original foi a escolha conservadora de fidelidade da revisão.
