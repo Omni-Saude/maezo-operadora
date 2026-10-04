@@ -4,13 +4,20 @@ RecordingCapabilityService is a UNIT double, not a provider, authority verifier,
 receipt publisher or proof of operational journeys. No CIB mock is involved.
 """
 
+import asyncio
 import warnings
+from contextvars import ContextVar
 from dataclasses import replace
 from typing import Any, cast
 
 import pytest
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_core.runnables.config import ensure_config
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command
+from langsmith import get_tracing_context, tracing_context
 
 from maezo.agents.lucas.administrative.graph import compras_consumer, suporte_consumer
 from maezo.agents.lucas.administrative.handoff import HANDOFF_SCHEMA, AdministrativeInputError
@@ -522,3 +529,358 @@ async def test_current_case_contract_and_pending_source_state_survive_checkpoint
         await compiled.ainvoke({"turn": result["turn"]})
     assert repr((saver.storage, saver.blobs, saver.writes)) == before
     assert len(service.calls) == 1
+
+
+_RUNNABLE_MARKER = "SYNTHETIC_RUNNABLE_CLINICAL_BODY_90210"
+_APPLICATION_IDENTITY: ContextVar[tuple[str, str]] = ContextVar("unit_security_tenant_correlation")
+
+
+class ParentCallbacks(BaseCallbackHandler):
+    """Observe parent callbacks locally; no tracer, network or credentials."""
+
+    run_inline = True
+
+    def __init__(self) -> None:
+        self.names: list[str] = []
+
+    def on_chain_start(self, serialized: Any, inputs: Any, **kwargs: Any) -> None:
+        self.names.append(kwargs.get("name", ""))
+
+
+def assert_parent_context_unchanged(before: RunnableConfig, tracing_before: dict[str, Any]) -> None:
+    after = ensure_config()
+    for key in ["metadata", "tags", "configurable", "run_name", "recursion_limit", "max_concurrency"]:
+        assert after.get(key) == before.get(key)
+    assert after["callbacks"].handlers == before["callbacks"].handlers
+    assert after["callbacks"].parent_run_id == before["callbacks"].parent_run_id
+    assert get_tracing_context() == tracing_before
+
+
+def hostile_parent_config(callbacks: ParentCallbacks) -> RunnableConfig:
+    return {
+        "metadata": {"clinical_body": _RUNNABLE_MARKER},
+        "tags": [_RUNNABLE_MARKER],
+        "callbacks": [callbacks],
+        "run_name": "unit-parent",
+        "recursion_limit": 1,
+        "max_concurrency": 1,
+        "configurable": {
+            "thread_id": "foreign-parent-root",
+            "checkpoint_ns": "foreign-parent-namespace",
+            "checkpoint_id": "foreign-parent-history",
+            "clinical_body": _RUNNABLE_MARKER,
+        },
+    }
+
+
+class ContextRecordingService(RecordingCapabilityService):
+    async def execute(self, envelope: CapabilityEnvelope, payload: object) -> CapabilityOutcome:
+        assert _APPLICATION_IDENTITY.get() == (envelope.tenant_ref, envelope.correlation_ref)
+        config = ensure_config()
+        assert _RUNNABLE_MARKER not in repr(config)
+        assert "clinical_body" not in config["configurable"]
+        assert "run_name" not in config
+        assert config["recursion_limit"] != 1
+        assert "max_concurrency" not in config
+        assert get_tracing_context()["parent"] is None
+        assert get_tracing_context()["metadata"] == {}
+        assert get_tracing_context()["tags"] == []
+        assert get_tracing_context()["enabled"] is False
+        # Overlap real graph tasks to expose context crossing between tenants.
+        await asyncio.sleep(0)
+        return await super().execute(envelope, payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task", ["journey.compras.step", "journey.suporte.step"])
+async def test_default_disabled_runnable_child_keeps_checkpoint_metadata_clean(task: str) -> None:
+    saver = InMemorySaver()
+    consumer_factory = compras_consumer if task == "journey.compras.step" else suporte_consumer
+    service = RecordingCapabilityService(task)
+    runner = (
+        consumer_factory(tenant_ref="unit-tenant-a", service=service)
+        .build()
+        .compile(checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-runnable-metadata-key"))
+    )
+
+    async def child(_: str) -> str:
+        result = await runner.ainvoke(values(task))
+        assert result["outcome"] is None
+        return result["technical_status"]
+
+    result = (
+        await RunnableLambda(child)
+        .with_config(metadata={"clinical_body": _RUNNABLE_MARKER})
+        .ainvoke("opaque-parent-input")
+    )
+    assert result == "disabled"
+    assert service.calls == []
+    snapshot = await runner.aget_state(journey_ref="unit-journey-a")
+    assert snapshot.values["technical_status"] == "disabled"
+    assert _RUNNABLE_MARKER not in repr(snapshot.metadata)
+    assert _RUNNABLE_MARKER not in repr((saver.storage, saver.blobs, saver.writes))
+    assert saver.storage and saver.blobs and saver.writes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_saver", [False, True])
+async def test_runnable_parent_configuration_and_tracing_are_isolated_and_preserved(with_saver: bool) -> None:
+    saver = InMemorySaver()
+    service = ContextRecordingService("journey.compras.step")
+    consumer = compras_consumer(tenant_ref="unit-tenant-a", service=service, enabled=True)
+    runner = (
+        consumer.build().compile(checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-context-key"))
+        if with_saver
+        else consumer.build().compile()
+    )
+    callbacks = ParentCallbacks()
+    identity = ("unit-tenant-a", "unit-correlation-a")
+
+    async def child(_: str) -> str:
+        before, tracing_before = ensure_config(), get_tracing_context()
+        result = await runner.ainvoke(values())
+        if with_saver:
+            snapshot = await runner.aget_state(journey_ref="unit-journey-a")
+            assert snapshot.values["technical_status"] == "refused"
+            assert _RUNNABLE_MARKER not in repr(snapshot.metadata)
+        assert _APPLICATION_IDENTITY.get() == identity
+        assert_parent_context_unchanged(before, tracing_before)
+        return result["technical_status"]
+
+    token = _APPLICATION_IDENTITY.set(identity)
+    try:
+        with tracing_context(
+            parent=False, metadata={"clinical_body": _RUNNABLE_MARKER}, tags=[_RUNNABLE_MARKER], enabled=False
+        ):
+            tracing_before = get_tracing_context()
+            result = (
+                await RunnableLambda(child).with_config(hostile_parent_config(callbacks)).ainvoke("opaque")
+            )
+            assert get_tracing_context() == tracing_before
+    finally:
+        _APPLICATION_IDENTITY.reset(token)
+    assert result == "refused"
+    assert len(service.calls) == 1
+    assert callbacks.names == ["unit-parent"]
+    assert _RUNNABLE_MARKER not in repr((saver.storage, saver.blobs, saver.writes))
+    assert bool(saver.storage) is with_saver
+
+
+@pytest.mark.asyncio
+async def test_nested_real_parent_graph_cannot_select_child_history_or_checkpoint_root() -> None:
+    parent_saver, child_saver = InMemorySaver(), InMemorySaver()
+    pseudonymizer = Pseudonymizer(key=b"unit-nested-runnable-key")
+    runner = (
+        compras_consumer(tenant_ref="unit-tenant-a", service=CapabilityService())
+        .build()
+        .compile(checkpointer=child_saver, pseudonymizer=pseudonymizer)
+    )
+    await runner.ainvoke(values())
+    old_snapshot = await runner.aget_state(journey_ref="unit-journey-a")
+    child_root = old_snapshot.config["configurable"]["thread_id"]
+
+    async def node(_: dict[str, Any]) -> dict[str, Any]:
+        before, tracing_before = ensure_config(), get_tracing_context()
+        result = await runner.ainvoke(values() | {"health_priority": True})
+        snapshot = await runner.aget_state(journey_ref="unit-journey-a")
+        assert result["technical_status"] == snapshot.values["technical_status"] == "interrupted_health"
+        assert snapshot.config["configurable"]["thread_id"] == child_root
+        assert (
+            snapshot.config["configurable"]["checkpoint_id"]
+            != old_snapshot.config["configurable"]["checkpoint_id"]
+        )
+        assert _RUNNABLE_MARKER not in repr(snapshot.metadata)
+        assert_parent_context_unchanged(before, tracing_before)
+        return {"done": True}
+
+    graph = StateGraph(dict[str, Any])
+    graph.add_node("parent", node)
+    graph.add_edge(START, "parent")
+    graph.add_edge("parent", END)
+    parent = graph.compile(checkpointer=parent_saver)
+    parent_config: RunnableConfig = {
+        "configurable": {"thread_id": "unit-parent-root"},
+        "metadata": {"clinical_body": _RUNNABLE_MARKER},
+        "tags": [_RUNNABLE_MARKER],
+    }
+    assert (await parent.ainvoke({"done": False}, parent_config))["done"] is True
+    assert set(child_saver.storage) == {child_root}
+    assert set(parent_saver.storage) == {"unit-parent-root"}
+    assert _RUNNABLE_MARKER not in repr((child_saver.storage, child_saver.blobs, child_saver.writes))
+    # The enclosing graph still owns its original metadata after the child returns.
+    assert _RUNNABLE_MARKER in repr((await parent.aget_state(parent_config)).metadata)
+
+
+@pytest.mark.asyncio
+async def test_parent_time_travel_coordinates_cannot_replay_child_state() -> None:
+    saver = InMemorySaver()
+    runner = (
+        compras_consumer(tenant_ref="unit-tenant-a", service=CapabilityService())
+        .build()
+        .compile(checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-child-history-key"))
+    )
+    await runner.ainvoke(values())
+    old = await runner.aget_state(journey_ref="unit-journey-a")
+    callbacks = ParentCallbacks()
+    parent_config = hostile_parent_config(callbacks)
+    parent_config["configurable"] = dict(old.config["configurable"])
+
+    async def child(_: str) -> str:
+        before, tracing_before = ensure_config(), get_tracing_context()
+        await runner.ainvoke(values() | {"human_requested": True})
+        current = await runner.aget_state(journey_ref="unit-journey-a")
+        assert current.values["technical_status"] == "interrupted_human"
+        assert current.config["configurable"]["checkpoint_id"] != old.config["configurable"]["checkpoint_id"]
+        assert_parent_context_unchanged(before, tracing_before)
+        return current.values["technical_status"]
+
+    assert await RunnableLambda(child).with_config(parent_config).ainvoke("opaque") == "interrupted_human"
+    assert callbacks.names == ["unit-parent"]
+    assert _RUNNABLE_MARKER not in repr((saver.storage, saver.blobs, saver.writes))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["exception", "cancellation"])
+async def test_runnable_context_is_restored_after_child_failure(failure: str) -> None:
+    started, stopped = asyncio.Event(), asyncio.Event()
+
+    class FailingService(ContextRecordingService):
+        async def execute(self, envelope: CapabilityEnvelope, payload: object) -> CapabilityOutcome:
+            await super().execute(envelope, payload)
+            started.set()
+            try:
+                if failure == "exception":
+                    raise RuntimeError("unit-service-failure")
+                await asyncio.Event().wait()
+                raise AssertionError("cancelled execution resumed")
+            finally:
+                stopped.set()
+
+    saver = InMemorySaver()
+    service = FailingService("journey.compras.step")
+    runner = (
+        compras_consumer(tenant_ref="unit-tenant-a", service=service, enabled=True)
+        .build()
+        .compile(checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-context-failure-key"))
+    )
+    callbacks = ParentCallbacks()
+    identity = ("unit-tenant-a", "unit-correlation-a")
+
+    async def child(_: str) -> str:
+        before, tracing_before = ensure_config(), get_tracing_context()
+        if failure == "exception":
+            with pytest.raises(RuntimeError, match="unit-service-failure"):
+                await runner.ainvoke(values())
+        else:
+            running = asyncio.create_task(runner.ainvoke(values()))
+            await asyncio.wait_for(started.wait(), timeout=2)
+            running.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await running
+        assert stopped.is_set()
+        assert _APPLICATION_IDENTITY.get() == identity
+        assert_parent_context_unchanged(before, tracing_before)
+        return "restored"
+
+    token = _APPLICATION_IDENTITY.set(identity)
+    try:
+        with tracing_context(
+            parent=False, metadata={"clinical_body": _RUNNABLE_MARKER}, tags=[_RUNNABLE_MARKER], enabled=False
+        ):
+            tracing_before = get_tracing_context()
+            assert (
+                await RunnableLambda(child).with_config(hostile_parent_config(callbacks)).ainvoke("opaque")
+                == "restored"
+            )
+            assert get_tracing_context() == tracing_before
+    finally:
+        _APPLICATION_IDENTITY.reset(token)
+    assert callbacks.names == ["unit-parent"]
+    assert _RUNNABLE_MARKER not in repr((saver.storage, saver.blobs, saver.writes))
+
+
+@pytest.mark.asyncio
+async def test_state_read_context_is_isolated_even_when_saver_raises() -> None:
+    class ReadFailingSaver(InMemorySaver):
+        fail_reads = False
+
+        async def aget_tuple(self, config: RunnableConfig) -> Any:
+            assert _RUNNABLE_MARKER not in repr(ensure_config())
+            assert get_tracing_context()["metadata"] == {}
+            assert get_tracing_context()["parent"] is None
+            if self.fail_reads:
+                raise RuntimeError("unit-checkpoint-read-failure")
+            return await super().aget_tuple(config)
+
+    saver = ReadFailingSaver()
+    runner = (
+        compras_consumer(tenant_ref="unit-tenant-a", service=CapabilityService())
+        .build()
+        .compile(checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-read-failure-key"))
+    )
+    await runner.ainvoke(values())
+    saver.fail_reads = True
+    callbacks = ParentCallbacks()
+
+    async def child(_: str) -> str:
+        before, tracing_before = ensure_config(), get_tracing_context()
+        with pytest.raises(RuntimeError, match="unit-checkpoint-read-failure"):
+            await runner.aget_state(journey_ref="unit-journey-a")
+        assert_parent_context_unchanged(before, tracing_before)
+        return "restored"
+
+    assert (
+        await RunnableLambda(child).with_config(hostile_parent_config(callbacks)).ainvoke("opaque")
+        == "restored"
+    )
+    assert callbacks.names == ["unit-parent"]
+    assert _RUNNABLE_MARKER not in repr((saver.storage, saver.blobs, saver.writes))
+
+
+@pytest.mark.asyncio
+async def test_concurrent_runnable_parents_keep_tenant_task_roots_and_security_context_separate() -> None:
+    saver = InMemorySaver()
+    pseudonymizer = Pseudonymizer(key=b"unit-concurrent-context-key")
+
+    async def invoke(task: str, tenant: str) -> str:
+        service = ContextRecordingService(task)
+        consumer_factory = compras_consumer if task == "journey.compras.step" else suporte_consumer
+        runner = (
+            consumer_factory(tenant_ref=tenant, service=service, enabled=True)
+            .build()
+            .compile(checkpointer=saver, pseudonymizer=pseudonymizer)
+        )
+        initial = values(task)
+        initial["envelope"]["tenant_ref"] = initial["handoff"]["tenant_ref"] = tenant
+        callbacks = ParentCallbacks()
+        identity = (tenant, "unit-correlation-a")
+
+        async def child(_: str) -> str:
+            before, tracing_before = ensure_config(), get_tracing_context()
+            result = await runner.ainvoke(initial)
+            assert result["technical_status"] == "refused"
+            snapshot = await runner.aget_state(journey_ref="unit-journey-a")
+            assert snapshot.values["turn"].envelope.tenant_ref == tenant
+            assert snapshot.values["turn"].handoff.task_type == task
+            assert _RUNNABLE_MARKER not in repr(snapshot.metadata)
+            assert_parent_context_unchanged(before, tracing_before)
+            assert _APPLICATION_IDENTITY.get() == identity
+            return snapshot.config["configurable"]["thread_id"]
+
+        token = _APPLICATION_IDENTITY.set(identity)
+        try:
+            root = await RunnableLambda(child).with_config(hostile_parent_config(callbacks)).ainvoke("opaque")
+        finally:
+            _APPLICATION_IDENTITY.reset(token)
+        assert callbacks.names == ["unit-parent"]
+        assert len(service.calls) == 1
+        return root
+
+    roots = await asyncio.gather(
+        invoke("journey.compras.step", "unit-tenant-a"),
+        invoke("journey.compras.step", "unit-tenant-b"),
+        invoke("journey.suporte.step", "unit-tenant-a"),
+    )
+    assert len(set(roots)) == 3
+    assert set(saver.storage) == set(roots)
+    assert _RUNNABLE_MARKER not in repr((saver.storage, saver.blobs, saver.writes))

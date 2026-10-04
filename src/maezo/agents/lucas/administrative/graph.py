@@ -7,15 +7,18 @@ assess/DMNs, LLM rules, direct effects, or claims of journey completion.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import asyncio
+from collections.abc import Awaitable, Callable, Mapping
 from types import MappingProxyType
 from typing import Any, Final, cast
 
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import set_config_context
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StateSnapshot
+from langsmith import tracing_context
 
 from maezo.gateway.capabilities.models import (
     CapabilityOutcome,
@@ -58,6 +61,23 @@ OPERATIONS_BY_TASK: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
         "journey.suporte.step": _COMMON_OPERATIONS | frozenset({"feedback.record"}),
     }
 )
+
+
+async def _in_administrative_context[Result](operation: Callable[[], Awaitable[Result]]) -> Result:
+    """Detach framework configuration/tracing while retaining application context.
+
+    Empty explicit metadata does not override LangGraph's ambient merge. The
+    public helper copies the current Context and replaces only Runnable config;
+    a task must execute in that copy for async context propagation to take effect.
+    Tracing is scoped to the child, never changed in the parent or environment.
+    """
+
+    async def invoke() -> Result:
+        with tracing_context(parent=False, metadata={}, tags=[], enabled=False):
+            return await operation()
+
+    with set_config_context({}) as context:
+        return await asyncio.create_task(invoke(), context=context)
 
 
 class CompiledAdministrativeConsumer:
@@ -118,14 +138,17 @@ class CompiledAdministrativeConsumer:
         ):
             raise AdministrativeInputError("administrative_consumer_object_mismatch")
         trusted_config = self.__config(turn.envelope.journey_ref, config)
-        return cast(AdministrativeState, await self.__compiled.ainvoke(initial, trusted_config))
+        return cast(
+            AdministrativeState,
+            await _in_administrative_context(lambda: self.__compiled.ainvoke(initial, trusted_config)),
+        )
 
     async def aget_state(self, *, journey_ref: str) -> StateSnapshot:
         if self.__pseudonymizer is None:
             raise AdministrativeInputError("administrative_checkpoint_unavailable")
         config = self.__config(require_reference(journey_ref))
         assert config is not None
-        return await self.__compiled.aget_state(config)
+        return await _in_administrative_context(lambda: self.__compiled.aget_state(config))
 
 
 class AdministrativeGraphBuilder:

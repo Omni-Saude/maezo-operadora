@@ -111,13 +111,38 @@ Thread arbitrário, namespace, `checkpoint_id`, metadata e outras extensões sã
 recusados antes do saver. `aget_state(journey_ref=...)` deriva o mesmo root sob
 o tenant/tarefa fixos, sem aceitar configuração global ou seletor de replay.
 
+Antes de `ainvoke` ou `aget_state` entrar no LangGraph, o runner executa a
+operação em uma tarefa com cópia do contexto corrente, criada pelo helper
+público `langchain_core.runnables.config.set_config_context({})`. Somente a
+configuração Runnable herdada é substituída: metadata, tags, callbacks,
+nome/controles da execução e seletores de checkpoint do pai não atravessam essa
+fronteira. Outros ContextVars da aplicação, inclusive identidade de segurança,
+tenant e correlação, continuam disponíveis à admissão/gateway. O pai não é
+alterado em sucesso, exceção ou cancelamento. Esvaziar apenas `metadata` no
+argumento explícito não atende esse isolamento: LangGraph 1.2.9 herda e mescla
+metadata/tags/callbacks do contexto Runnable em vez de removê-los.
+
+O contexto de tracing do filho também usa o helper público
+`langsmith.tracing_context(parent=False, metadata={}, tags=[], enabled=False)`
+na tarefa isolada. O candidato não possui sink de tracing qualificado para esses
+dados; por isso não exporta tracing automático por herança. Esta limitação é
+separada do isolamento de checkpoints. Nenhum ambiente, tracer global ou hook
+é alterado; o tracing/callbacks do pai permanece intacto. A auditoria explícita
+do `CapabilityService`/admission continua no caminho original. Isso não constitui
+entrega de observabilidade operacional nem autoriza um binding administrativo.
+
 O teste UNIT usa o `InMemorySaver` e LangGraph efetivamente instalados para
 gravar/ler dois journeys de Compras, um root Suporte com a mesma referência
 do primeiro journey e outro tenant com a mesma journey, sem sobrescrever os roots.
 As regressões inspecionam `storage`, `blobs`, `writes`, warnings e erros limitados:
 outputs plantados, DTOs forjados e seletores não contratados são recusados com
 zero persistência. Turno seguinte no mesmo root limpa a saída anterior e preserva
-precedência de saúde. Elas provam esse saver e configuração; não provam Postgres/DDL,
+precedência de saúde. Pais `RunnableLambda` e `StateGraph` reais, ambos os
+consumidores ainda desabilitados, execução sem saver e tarefas concorrentes
+comprovam metadata sem marcador sintético em `storage`, `blobs`, `writes` e
+snapshot. As regressões exercitam callbacks, controles e histórico herdados,
+preservação de contexto da aplicação e restauração após exceção/cancelamento,
+inclusive falha de leitura. Elas provam esse saver e configuração; não provam Postgres/DDL,
 retention, revogação, recovery de processo nem implementação durable do
 domínio. O saver produtivo escolhido precisa repetir a qualificação antes
 de qualquer binding com checkpoints.
