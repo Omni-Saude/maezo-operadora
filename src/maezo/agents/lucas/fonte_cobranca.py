@@ -37,7 +37,16 @@ from typing import Any, Final, Literal, Protocol, runtime_checkable
 from maezo.runtime.competencia import competencia_valida
 
 #: Motivos de `Indisponivel`. Fechado: a fonte real tem de mapear as falhas dela para um destes.
-MotivoIndisponivel = Literal["pseudo_id_ausente", "competencia_invalida", "fonte_indisponivel"]
+MotivoIndisponivel = Literal[
+    "pseudo_id_ausente",
+    "competencia_invalida",
+    "fonte_indisponivel",
+    # Fonte real (`fonte_cobranca_amh.py`): a pessoa nao foi resolvida, nao ha' consentimento, ou a fonte
+    # respondeu mas nao tem o fato (campo ausente). Nenhum vira fato inventado: o Lucas escala.
+    "sujeito_nao_resolvido",
+    "sem_consentimento",
+    "fato_ausente",
+]
 
 
 @dataclass(frozen=True, slots=True)

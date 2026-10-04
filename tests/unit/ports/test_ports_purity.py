@@ -75,6 +75,7 @@ _EXPECTED_MODULES: frozenset[str] = frozenset(
         "work_items",  # WorkItemSource
         "consent",  # ConsentDecisionSource
         "clinical_context",  # ClinicalContextPort (XRD-06)
+        "billing_status",  # BillingStatusPort (cobranca; contrato AMH proposto, ainda nao publicado)
         "population_features",  # PopulationFeaturePort (XRD-07)
         "outcomes",  # OutcomePublisherPort
     }
@@ -302,7 +303,7 @@ def test_port_modules_discovered() -> None:
         "Adding/removing a port module is a deliberate change to the boundary's shape — update "
         "_EXPECTED_MODULES in the same commit."
     )
-    assert len(mods) == 8, f"expected exactly 8 port modules, found {sorted(mods)}"
+    assert len(mods) == 9, f"expected exactly 9 port modules, found {sorted(mods)}"
 
 
 def test_import_extraction_is_not_vacuous() -> None:
@@ -480,8 +481,8 @@ def test_no_port_value_type_has_a_phi_shaped_field() -> None:
     """Fence (iv), value types: the ports are OPAQUE (they parse nothing), so the only structural
     guarantee against PHI crossing the boundary is that no PHI-shaped SLOT exists at all."""
     value_types = _value_types()
-    assert len(value_types) == 19, (
-        f"expected 19 port value types, found {sorted(value_types)} — update this non-vacuity pin "
+    assert len(value_types) == 22, (
+        f"expected 22 port value types, found {sorted(value_types)} — update this non-vacuity pin "
         "when a value type is deliberately added or removed"
     )
     offenders: dict[str, list[str]] = {}
@@ -503,7 +504,7 @@ def test_no_port_method_has_a_phi_shaped_parameter() -> None:
     ARGUMENT would let a caller push identifying data across the boundary even though no value
     type holds it."""
     protocols = _protocol_types()
-    assert len(protocols) == 5, f"expected exactly 5 port Protocols, found {sorted(protocols)}"
+    assert len(protocols) == 6, f"expected exactly 6 port Protocols, found {sorted(protocols)}"
     offenders: dict[str, list[str]] = {}
     for qualname, proto in protocols.items():
         for method_name, member in inspect.getmembers(proto, callable):
