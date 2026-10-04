@@ -5,12 +5,16 @@ receipt publisher or proof of operational journeys. No CIB mock is involved.
 """
 
 import asyncio
+import json
 import warnings
 from contextvars import ContextVar
 from dataclasses import replace
+from io import StringIO
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
+import structlog
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langchain_core.runnables.config import ensure_config
@@ -177,6 +181,59 @@ async def test_failed_graph_turn_counts_once_with_bounded_private_labels(
     assert "unit-tenant-a" not in repr(samples)
     assert "unit-journey-a" not in repr(samples)
     assert error_class.__name__ not in repr(samples)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task", ["journey.compras.step", "journey.suporte.step"])
+@pytest.mark.parametrize("entry", ["consumer", "compiled"])
+@pytest.mark.parametrize("chained_collector", [False, True])
+async def test_graph_failure_and_metric_collector_fault_do_not_leak_exception_chains(
+    task: str, entry: str, chained_collector: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    marker = "SYNTHETIC_FRESH_GATE_METRIC_FAILURE_CLINICAL_90210"
+    credential = "SYNTHETIC_GRAPH_METRIC_COLLECTOR_CREDENTIAL_90210"
+    original = RuntimeError(marker)
+    collector_fault = RuntimeError("unit-metric-collector-failure")
+    if chained_collector:
+        collector_fault.__cause__ = ValueError(credential)
+
+    class UnitFailingService(RecordingCapabilityService):
+        async def execute(self, envelope: CapabilityEnvelope, payload: object) -> CapabilityOutcome:
+            await super().execute(envelope, payload)
+            raise original
+
+    service = UnitFailingService(task)
+    factory = compras_consumer if task == "journey.compras.step" else suporte_consumer
+    consumer = factory(tenant_ref="unit-tenant-a", service=service, enabled=True)
+    saver = InMemorySaver()
+    runner = consumer.build().compile(
+        checkpointer=saver, pseudonymizer=Pseudonymizer(key=b"unit-metric-fault-key")
+    )
+    invoke = runner.ainvoke if entry == "compiled" else consumer.invoke
+    stream = StringIO()
+    logger = structlog.wrap_logger(
+        structlog.PrintLogger(stream),
+        processors=[structlog.processors.format_exc_info, structlog.processors.JSONRenderer()],
+    )
+    before, tracing_before = ensure_config(), get_tracing_context()
+    with (
+        patch("maezo.platform.observability._get_metrics_collector", side_effect=collector_fault) as getter,
+        patch("maezo.platform.observability.logger", logger),
+        warnings.catch_warnings(record=True) as warnings_seen,
+        pytest.raises(RuntimeError) as caught,
+    ):
+        await invoke(values(task))
+    assert caught.value is original
+    assert len(service.calls) == 1
+    getter.assert_called_once_with()
+    assert ensure_config() == before
+    assert get_tracing_context() == tracing_before
+    output = stream.getvalue()
+    assert [json.loads(line) for line in output.splitlines()] == [{"event": "agent_error_metric_emit_failed"}]
+    assert all(
+        text not in output + caplog.text + repr(warnings_seen)
+        for text in (marker, credential, "unit-metric-collector-failure")
+    )
 
 
 @pytest.mark.asyncio
