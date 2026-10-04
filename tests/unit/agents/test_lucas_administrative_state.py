@@ -6,8 +6,9 @@ from maezo.agents.lucas.administrative.handoff import HANDOFF_SCHEMA, Administra
 from maezo.agents.lucas.administrative.state import (
     administrative_checkpoint_config,
     new_administrative_state,
+    validate_administrative_input,
 )
-from maezo.gateway.capabilities.models import CANDIDATE_SCHEMA_VERSION
+from maezo.gateway.capabilities.models import CANDIDATE_SCHEMA_VERSION, DeclaredMemberships
 from maezo.gateway.pseudonymizer import Pseudonymizer
 
 
@@ -83,6 +84,38 @@ def test_unparsed_clinical_fields_never_enter_checkpointable_state() -> None:
         AdministrativeInputError, match="administrative_envelope_or_payload_contract_mismatch"
     ):
         new_administrative_state(values)
+
+
+def test_validated_carrier_is_reconstructed_without_aliasing_caller_dtos() -> None:
+    original = new_administrative_state(state_values())["turn"]
+    validated = validate_administrative_input({"turn": original})["turn"]
+    assert validated is not original
+    assert validated.envelope is not original.envelope
+    assert validated.payload is not original.payload
+    assert validated.handoff is not original.handoff
+    object.__setattr__(original.handoff, "message_ref", "clinical body")
+    assert validated.handoff.message_ref == "hk1_" + "a" * 64
+
+
+def test_preparsed_case_request_requires_current_composition_memberships() -> None:
+    values = state_values()
+    values["envelope"] = dict(values["envelope"]) | {"operation_name": "case.open_or_update"}  # type: ignore[arg-type]
+    values["payload"] = {
+        "problem_ref": "unit-problem-a",
+        "origin_case_or_journey_ref": "unit-journey-a",
+        "case_kind": "unit-source-published-kind",
+        "requester_authority_ref": "unit-requester-a",
+        "evidence_refs": [],
+    }
+    members = DeclaredMemberships(case_kinds=frozenset({"unit-source-published-kind"}))
+    initial = new_administrative_state(values, memberships=members)
+    assert (
+        validate_administrative_input(initial, memberships=members)["turn"].payload == initial["turn"].payload
+    )
+    with pytest.raises(
+        AdministrativeInputError, match="administrative_envelope_or_payload_contract_mismatch"
+    ):
+        validate_administrative_input(initial, memberships=DeclaredMemberships())
 
 
 def test_checkpoint_identity_scopes_both_tenant_and_journey_with_keyed_hash() -> None:

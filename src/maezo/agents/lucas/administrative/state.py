@@ -55,6 +55,13 @@ INPUT_FIELDS: Final[frozenset[str]] = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class AdministrativeInput:
+    """Input carrier; its class/type identity never substitutes for deep parsing.
+
+    The factory and every compiled runner reconstruct this carrier from the
+    closed contracts. Existing instances, including checkpoint revival, must
+    pass validate_administrative_input with current composition memberships.
+    """
+
     envelope: CapabilityEnvelope = field(repr=False)
     payload: CandidateDTO = field(repr=False)
     handoff: AdministrativeHandoff = field(repr=False)
@@ -86,9 +93,15 @@ class AdministrativeState(TypedDict, total=False):
     outcome: CapabilityOutcome | None
 
 
+class AdministrativeGraphInput(TypedDict):
+    """LangGraph input channels; output channels belong only to its nodes."""
+
+    turn: AdministrativeInput
+
+
 def new_administrative_state(
     values: Mapping[str, object], *, memberships: DeclaredMemberships | None = None
-) -> AdministrativeState:
+) -> AdministrativeGraphInput:
     """Strict caller boundary; outcomes and business facts are never caller input."""
     if not isinstance(values, Mapping) or frozenset(values) != INPUT_FIELDS:
         raise AdministrativeInputError("administrative_input_contract_mismatch")
@@ -111,6 +124,32 @@ def new_administrative_state(
             human_requested=human,
         )
     }
+
+
+def validate_administrative_input(
+    values: Mapping[str, object], *, memberships: DeclaredMemberships | None = None
+) -> AdministrativeGraphInput:
+    """Rebuild every public input before LangGraph can touch a checkpoint.
+
+    Accept the strict caller envelope or the factory's input-only state. Existing
+    DTO/dataclass instances are reparsed with the current composition membership;
+    neither frozen nor model_copy/model_construct establishes validity.
+    """
+    if not isinstance(values, Mapping):
+        raise AdministrativeInputError("administrative_input_contract_mismatch")
+    if frozenset(values) == frozenset({"turn"}):
+        turn = values["turn"]
+        if type(turn) is not AdministrativeInput:
+            raise AdministrativeInputError("administrative_input_contract_mismatch")
+        values = {
+            "envelope": turn.envelope,
+            "payload": turn.payload,
+            "handoff": turn.handoff,
+            "current_message_ref": turn.current_message_ref,
+            "health_priority": turn.health_priority,
+            "human_requested": turn.human_requested,
+        }
+    return new_administrative_state(values, memberships=memberships)
 
 
 def administrative_checkpoint_config(

@@ -58,10 +58,14 @@ Saúde vence pedido humano simultâneo; qualquer um deles devolve interrupção
 técnica antes de chamar o gateway. Quem tratará a interrupção continua sendo
 o caminho Helena/humano já governado, que não foi modificado aqui.
 
-`state.py::new_administrative_state` faz parse fechado de envelope/request
-antes de criar estado checkpointable. Rejeita fields desconhecidos, campos
+`state.py::new_administrative_state` faz parse fechado de envelope/request.
+`validate_administrative_input` reconstrói envelope, request e handoff antes
+de toda invocação pública, inclusive quando recebe o estado `{turn}` produzido
+pela factory. Classe exata, dataclass frozen, `model_copy` e `model_construct`
+não constituem admissão. O parser rejeita fields desconhecidos, campos
 clínicos/texto livre e outputs plantados; mantém apenas o DTO exato da OP.
-Membership de domínio é argumento de composição, nunca input do turno.
+Membership de domínio é argumento corrente de composição, nunca input do turno
+nem autoridade inferida de um request já construído.
 Tenant e journey do handoff precisam casar exatamente com o envelope; o
 consumidor fixa tarefa e tenant no construtor. `enabled=True` exige que todas
 as admissions do serviço pertençam à tarefa fixa. O gateway ainda exige sua
@@ -75,8 +79,21 @@ verificador e do contrato da fonte; não se inferem permissões pelo texto.
 
 ## Estado e checkpoint
 
-O consumidor padrão compila com `checkpointer=None`. Roteamento permanece na
-tabela atual `conversa_agente_ativo`. Seu CAS é posterior aos turnos; não é
+`build()` retorna um builder fechado; `compile()` retorna o runner
+`CompiledAdministrativeConsumer`, com `ainvoke` e leitura `aget_state` por
+journey. Nenhuma dessas APIs devolve `StateGraph`/Pregel cru ou encaminha
+atributos por `__getattr__`. `Command`, input `None`, escrita `update_state`,
+streaming cru e replay não possuem contrato administrativo e não estão expostos.
+O input schema LangGraph contém somente `turn`; `outcome` e `technical_status`
+são canais de saída dos nós. A entrada passa pelo parser profundo e pelo match
+de tenant/tarefa antes de o LangGraph receber qualquer valor, permitindo rejeição
+antes até do primeiro checkpoint de input. O nó `receive` também revalida e zera
+saídas do turno anterior antes de executar o passo corrente.
+
+Sem saver injetado, a compilação usa `checkpointer=False`, impedindo também
+herança incidental de saver de um grafo pai. Com saver real, a composição deve
+injetar `Pseudonymizer` do gateway e o saver é passado integralmente ao LangGraph.
+Roteamento permanece na tabela atual `conversa_agente_ativo`. Seu CAS é posterior aos turnos; não é
 claim de comando nem proteção de efeitos matrícula/reserva/aviso. O estado de
 negócio durável, revisões, dedup e recibos continuam responsabilidade da fonte
 qualificada e ainda não estão implementados por este módulo.
@@ -87,11 +104,20 @@ gateway e prefixo `lucas:administrative:hk1_…`. A entrada de derivação tem
 domínio próprio e serialização inequívoca. `checkpoint_ns` permanece vazio;
 não é usado como isolamento. Nenhum telefone, mensagem crua ou referência de
 journey reversível aparece no thread id. A política de chave vigente continua
-exigindo composição produtiva via `Pseudonymizer.from_settings`.
+exigindo composição produtiva via `Pseudonymizer.from_settings`. O runner deriva
+a configuração a partir da tarefa/tenant fixos e da journey validada do turno;
+aceita configuração fornecida somente se for exatamente essa configuração.
+Thread arbitrário, namespace, `checkpoint_id`, metadata e outras extensões são
+recusados antes do saver. `aget_state(journey_ref=...)` deriva o mesmo root sob
+o tenant/tarefa fixos, sem aceitar configuração global ou seletor de replay.
 
 O teste UNIT usa o `InMemorySaver` e LangGraph efetivamente instalados para
-gravar/ler dois journeys de Compras e um root Suporte com a mesma referência
-do primeiro journey, sem sobrescrever os roots. Ele prova esse saver e configuração; não prova Postgres/DDL,
+gravar/ler dois journeys de Compras, um root Suporte com a mesma referência
+do primeiro journey e outro tenant com a mesma journey, sem sobrescrever os roots.
+As regressões inspecionam `storage`, `blobs`, `writes`, warnings e erros limitados:
+outputs plantados, DTOs forjados e seletores não contratados são recusados com
+zero persistência. Turno seguinte no mesmo root limpa a saída anterior e preserva
+precedência de saúde. Elas provam esse saver e configuração; não provam Postgres/DDL,
 retention, revogação, recovery de processo nem implementação durable do
 domínio. O saver produtivo escolhido precisa repetir a qualificação antes
 de qualquer binding com checkpoints.
@@ -133,7 +159,8 @@ Testes focais:
 Cobrem schema fechado, mensagem anterior, tenant/journey errado, outputs,
 flags sem coerção, ausência de binding da tarefa, default off, saúde/humano,
 reuso Compras/Suporte, pendência/refusal sem retry, proibição OP03 Suporte,
-recusa de contexto clínico e isolamento de roots no saver escolhido no teste.
+recusa de contexto clínico, revalidação de instâncias forjadas e isolamento de
+roots no saver escolhido no teste.
 
 O objeto Git `76cd8be173c93df50aa87101395b0e837d03e269` de
 `docs/reports/predeploy-findings.json` foi lido sem restaurar o delete
@@ -149,10 +176,18 @@ Autor executou testes UNIT e lint/type focais. O gate independente, integração
 CI amplo e qualificação operacional pertencem aos papéis separados do plano.
 Nenhum teste UNIT fornece assinatura, recibo de produção ou ratificação.
 
-Checagem final do autor: **41 testes UNIT PASS**, `ruff check`/`ruff format`
-PASS nos quatro módulos e três arquivos de teste; `mypy` PASS nos quatro
-módulos. A reprodução pelo verificador distinto permanece pendente nesta
-autoria. Comando focal de reprodução:
+Achado independente **AW-SOURCE-F01 / P1**, no freeze
+`e91590f1888874df1420916b395406baaebfb6f7`: o `StateGraph` cru persistia input
+antes de `receive`. Terceiro autor reproduziu com LangGraph/InMemorySaver reais:
+output clínico plantado e `model_copy` com dict em `wait_ref` resultavam em
+`disabled`/`outcome=None`, mas o marcador sintético continuava em `blobs`/`writes`;
+o segundo caso também aparecia no warning de serialização. O reparo acima fecha
+esse ingresso antes da persistência e conserva o saver real injetado.
+
+Checagem focal do autor de repair: **76 testes UNIT PASS**, `ruff check`/`ruff format`
+PASS nos quatro módulos e três arquivos de teste; `mypy` PASS nos quatro módulos.
+Reprodução/delta pelo reviewer original, integração e gates finais permanecem
+independentes e pendentes; este resultado não os assina. Comando focal:
 
 ```sh
 .venv/bin/python -m pytest tests/unit/agents/test_lucas_administrative_handoff.py tests/unit/agents/test_lucas_administrative_state.py tests/unit/agents/test_lucas_administrative_graph.py -q

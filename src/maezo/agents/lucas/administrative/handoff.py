@@ -49,7 +49,12 @@ class AdministrativeHandoff:
     message_ref: str
 
     def __post_init__(self) -> None:
-        if self.schema_version != HANDOFF_SCHEMA or self.task_type not in ADMINISTRATIVE_TASKS:
+        if (
+            type(self.schema_version) is not str
+            or self.schema_version != HANDOFF_SCHEMA
+            or type(self.task_type) is not str
+            or self.task_type not in ADMINISTRATIVE_TASKS
+        ):
             raise AdministrativeInputError("administrative_handoff_contract_mismatch")
         require_reference(self.tenant_ref)
         require_reference(self.journey_ref)
@@ -59,7 +64,15 @@ class AdministrativeHandoff:
 def parse_handoff(payload: object) -> AdministrativeHandoff:
     """Reject unknown/output/clinical fields before constructing a candidate."""
     if type(payload) is AdministrativeHandoff:
-        return payload
+        # Frozen dataclasses can still arrive from object.__setattr__/revival.
+        # Never treat an existing instance as proof that its fields are valid.
+        payload = {
+            "schema_version": payload.schema_version,
+            "task_type": payload.task_type,
+            "tenant_ref": payload.tenant_ref,
+            "journey_ref": payload.journey_ref,
+            "message_ref": payload.message_ref,
+        }
     if not isinstance(payload, Mapping) or frozenset(payload) != _HANDOFF_FIELDS:
         raise AdministrativeInputError("administrative_handoff_contract_mismatch")
     schema = payload["schema_version"]

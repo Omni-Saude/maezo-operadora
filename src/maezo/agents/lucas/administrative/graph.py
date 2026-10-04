@@ -9,9 +9,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Final, cast
+from typing import Any, Final, cast
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import StateSnapshot
 
 from maezo.gateway.capabilities.models import (
     CapabilityOutcome,
@@ -19,9 +23,15 @@ from maezo.gateway.capabilities.models import (
     VerifiedFulfillmentFact,
 )
 from maezo.gateway.capabilities.service import CapabilityService
+from maezo.gateway.pseudonymizer import Pseudonymizer
 
 from .handoff import AdministrativeInputError, AdministrativeTask, handoff_priority, require_reference
-from .state import AdministrativeInput, AdministrativeState
+from .state import (
+    AdministrativeGraphInput,
+    AdministrativeState,
+    administrative_checkpoint_config,
+    validate_administrative_input,
+)
 
 # Candidate dispatch topology from the admitted ledger, not an autonomy grant.
 _COMMON_OPERATIONS: Final[frozenset[str]] = frozenset(
@@ -48,6 +58,109 @@ OPERATIONS_BY_TASK: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
         "journey.suporte.step": _COMMON_OPERATIONS | frozenset({"feedback.record"}),
     }
 )
+
+
+class CompiledAdministrativeConsumer:
+    """Closed async entry point; a raw Pregel graph is never a public input API.
+
+    Validation precedes even LangGraph's input checkpoint. Checkpoint roots are
+    derived from the validated turn and gateway-owned key, never caller-selected.
+    Commands, state mutation, arbitrary resume/replay and graph delegation have
+    no administrative contract and are deliberately absent from this interface.
+    """
+
+    def __init__(
+        self,
+        *,
+        consumer: AdministrativeConsumer,
+        compiled: CompiledStateGraph[
+            AdministrativeState, None, AdministrativeGraphInput, AdministrativeState
+        ],
+        pseudonymizer: Pseudonymizer | None,
+    ) -> None:
+        self.__consumer = consumer
+        self.__compiled = compiled
+        self.__pseudonymizer = pseudonymizer
+
+    def __config(self, journey_ref: str, supplied: RunnableConfig | None = None) -> RunnableConfig | None:
+        if self.__pseudonymizer is None:
+            if supplied is not None:
+                raise AdministrativeInputError("administrative_checkpoint_config_mismatch")
+            return None
+        expected = administrative_checkpoint_config(
+            task_type=self.__consumer.task_type,
+            tenant_ref=self.__consumer.tenant_ref,
+            journey_ref=journey_ref,
+            pseudonymizer=self.__pseudonymizer,
+        )
+        if supplied is not None:
+            configurable = supplied.get("configurable") if type(supplied) is dict else None
+            if (
+                type(supplied) is not dict
+                or frozenset(supplied) != frozenset({"configurable"})
+                or type(configurable) is not dict
+                or frozenset(configurable) != frozenset({"thread_id", "checkpoint_ns"})
+                or type(configurable["thread_id"]) is not str
+                or type(configurable["checkpoint_ns"]) is not str
+                or configurable != expected["configurable"]
+            ):
+                raise AdministrativeInputError("administrative_checkpoint_config_mismatch")
+        return expected
+
+    async def ainvoke(
+        self, values: Mapping[str, object], config: RunnableConfig | None = None
+    ) -> AdministrativeState:
+        initial = validate_administrative_input(values, memberships=self.__consumer.service.memberships)
+        turn = initial["turn"]
+        if (
+            turn.envelope.tenant_ref != self.__consumer.tenant_ref
+            or turn.handoff.task_type != self.__consumer.task_type
+        ):
+            raise AdministrativeInputError("administrative_consumer_object_mismatch")
+        trusted_config = self.__config(turn.envelope.journey_ref, config)
+        return cast(AdministrativeState, await self.__compiled.ainvoke(initial, trusted_config))
+
+    async def aget_state(self, *, journey_ref: str) -> StateSnapshot:
+        if self.__pseudonymizer is None:
+            raise AdministrativeInputError("administrative_checkpoint_unavailable")
+        config = self.__config(require_reference(journey_ref))
+        assert config is not None
+        return await self.__compiled.aget_state(config)
+
+
+class AdministrativeGraphBuilder:
+    """Compile only the fixed topology behind the validated consumer boundary."""
+
+    def __init__(self, consumer: AdministrativeConsumer) -> None:
+        self.__consumer = consumer
+
+    def compile(
+        self,
+        *,
+        checkpointer: BaseCheckpointSaver[Any] | None = None,
+        pseudonymizer: Pseudonymizer | None = None,
+    ) -> CompiledAdministrativeConsumer:
+        if checkpointer is not None and (
+            not isinstance(checkpointer, BaseCheckpointSaver) or not isinstance(pseudonymizer, Pseudonymizer)
+        ):
+            raise AdministrativeInputError("administrative_checkpoint_identity_unavailable")
+        if checkpointer is None and pseudonymizer is not None:
+            raise AdministrativeInputError("administrative_checkpoint_unavailable")
+        graph = StateGraph(
+            AdministrativeState, input_schema=AdministrativeGraphInput, output_schema=AdministrativeState
+        )
+        graph.add_node("receive", self.__consumer.receive)
+        graph.add_node("execute", self.__consumer.execute)
+        graph.add_edge(START, "receive")
+        graph.add_edge("receive", "execute")
+        graph.add_edge("execute", END)
+        return CompiledAdministrativeConsumer(
+            consumer=self.__consumer,
+            # Without an injected saver, also prevent ambient parent inheritance.
+            # A configured real saver is passed through unchanged.
+            compiled=graph.compile(checkpointer=checkpointer if checkpointer is not None else False),
+            pseudonymizer=pseudonymizer,
+        )
 
 
 class AdministrativeConsumer:
@@ -77,14 +190,12 @@ class AdministrativeConsumer:
 
     def receive(self, state: AdministrativeState) -> AdministrativeState:
         """Reset prior/output-planted state and validate the current input."""
-        turn = state.get("turn")
-        if type(turn) is not AdministrativeInput:
-            raise AdministrativeInputError("administrative_input_contract_mismatch")
-        # Recheck even when a caller invokes the graph without the strict factory.
-        turn.__post_init__()
+        turn = validate_administrative_input(
+            {"turn": state.get("turn")}, memberships=self.service.memberships
+        )["turn"]
         if turn.envelope.tenant_ref != self.tenant_ref or turn.handoff.task_type != self.task_type:
             raise AdministrativeInputError("administrative_consumer_object_mismatch")
-        return {"technical_status": "received", "outcome": None}
+        return {"turn": turn, "technical_status": "received", "outcome": None}
 
     async def execute(self, state: AdministrativeState) -> AdministrativeState:
         turn = state["turn"]
@@ -115,22 +226,12 @@ class AdministrativeConsumer:
             "outcome": outcome,
         }
 
-    def build(self) -> StateGraph[AdministrativeState]:
-        graph = StateGraph(AdministrativeState)
-        graph.add_node("receive", self.receive)
-        graph.add_node("execute", self.execute)
-        graph.add_edge(START, "receive")
-        graph.add_edge("receive", "execute")
-        graph.add_edge("execute", END)
-        return graph
+    def build(self) -> AdministrativeGraphBuilder:
+        return AdministrativeGraphBuilder(self)
 
     async def invoke(self, values: Mapping[str, object]) -> AdministrativeState:
         """One candidate step through the strict boundary, without a checkpointer."""
-        from .state import new_administrative_state
-
-        initial = new_administrative_state(values, memberships=self.service.memberships)
-        result = await self.build().compile(checkpointer=None).ainvoke(initial)
-        return cast(AdministrativeState, result)
+        return await self.build().compile().ainvoke(values)
 
 
 def compras_consumer(

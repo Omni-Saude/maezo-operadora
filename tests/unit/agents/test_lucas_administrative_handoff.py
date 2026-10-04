@@ -69,3 +69,12 @@ def test_only_exact_candidate_task_identifiers_exist(task: str) -> None:
 def test_reference_requires_current_keyed_delivery_scheme(message: str) -> None:
     with pytest.raises(AdministrativeInputError):
         parse_handoff(handoff_values() | {"message_ref": message})
+
+
+@pytest.mark.parametrize("field", ["schema_version", "task_type", "tenant_ref", "journey_ref", "message_ref"])
+def test_existing_frozen_handoff_is_revalidated_when_its_fields_are_forged(field: str) -> None:
+    handoff = parse_handoff(handoff_values())
+    object.__setattr__(handoff, field, {"clinical": "SYNTHETIC_CLINICAL_BODY_90210"})
+    with pytest.raises(AdministrativeInputError) as error:
+        parse_handoff(handoff)
+    assert "SYNTHETIC_CLINICAL_BODY_90210" not in str(error.value)
