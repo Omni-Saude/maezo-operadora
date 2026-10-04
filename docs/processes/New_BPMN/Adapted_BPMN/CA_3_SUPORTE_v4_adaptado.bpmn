@@ -1,0 +1,1882 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:camunda="http://camunda.org/schema/1.0/bpmn" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:modeler="http://camunda.org/schema/modeler/1.0" id="Definitions_CA_SUPORTE" targetNamespace="http://central-atendimento/bpmn/arq01" exporter="Camunda Modeler" exporterVersion="5.36.1" modeler:executionPlatform="Camunda Platform" modeler:executionPlatformVersion="7.24.0">
+  <bpmn:collaboration id="Collaboration_CA_SUPORTE" name="Central de Atendimento — 3 · SUPORTE">
+    <bpmn:documentation>SUPORTE escuta, diagnostica, resolve e encerra, com entrada por contato do cliente ou por transições das demais jornadas (T-05, T-07, T-09, T-10); chama H1 de serviços compartilhados e encaminha à ouvidoria fora do conjunto modelado.</bpmn:documentation>
+    <bpmn:participant id="Participant_Cliente" name="Cliente — necessidade · visão · intenção"/>
+    <bpmn:participant id="Participant_CA_SUPORTE" name="SUPORTE — Ser ouvido e ter o problema resolvido" processRef="Process_CA_SUPORTE"/>
+    <bpmn:participant id="Participant_CompraUtil" name="Macroprocessos COMPRA · UTILIZAÇÃO"/>
+    <bpmn:participant id="Participant_CA_SUPORTE_S1_OuvirRegistrar" name="S1 — Ouvir e registrar o caso" processRef="Process_CA_SUPORTE_S1_OuvirRegistrar"/>
+    <bpmn:participant id="Participant_CA_SUPORTE_S2_DiagnosticarRotear" name="S2 — Diagnosticar e rotear o caso" processRef="Process_CA_SUPORTE_S2_DiagnosticarRotear"/>
+    <bpmn:participant id="Participant_CA_SUPORTE_S3_ResolverEncaminhar" name="S3 — Resolver ou encaminhar o caso" processRef="Process_CA_SUPORTE_S3_ResolverEncaminhar"/>
+    <bpmn:participant id="Participant_CA_SUPORTE_S4_ConfirmarEncerrar" name="S4 — Confirmar, encerrar e aprender" processRef="Process_CA_SUPORTE_S4_ConfirmarEncerrar"/>
+    <bpmn:participant id="Participant_Ouvidoria" name="Ouvidoria / ANS"/>
+    <bpmn:messageFlow id="MF_SP_01" sourceRef="Participant_Cliente" targetRef="SP_Start_Contato"/>
+    <bpmn:messageFlow id="MF_SP_02" sourceRef="Participant_CompraUtil" targetRef="SP_Start_Insatisfacao"/>
+    <bpmn:messageFlow id="MF_SP_03" sourceRef="Participant_CompraUtil" targetRef="SP_Start_SLA"/>
+    <bpmn:messageFlow id="MF_SP_04" name="T-07 Intenção de compra" sourceRef="SP_End_Compra" targetRef="Participant_CompraUtil"/>
+    <bpmn:messageFlow id="MF_SP_05" name="Manifestação" sourceRef="S4_T_Ouvidoria" targetRef="Participant_Ouvidoria"/>
+    <bpmn:textAnnotation id="TextAnnotation_16ktuur">
+      <bpmn:text>* Reclame Aqui</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_11mohme" associationDirection="None" sourceRef="SP_Start_Insatisfacao" targetRef="TextAnnotation_16ktuur"/>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_CA_SUPORTE" name="SUPORTE — Ser ouvido e ter o problema resolvido" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Macroprocesso 3 (ARQ-01 §6). Um único caso por problema (FR-04), seja o contato iniciado pelo cliente ou pela organização. Só encerra com confirmação do cliente; não resolvido vai à ouvidoria. Variantes: origemSuporte, rotaAtendimento, naturezaCaso.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_SUPORTE">
+      <bpmn:lane id="LN_CA3_SUPORTE_Atendente" name="Atendente de suporte">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.18 · Ref: SP_CA_S1</bpmn:documentation>
+        <bpmn:flowNodeRef>SP_Start_Contato</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_Start_Insatisfacao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_Start_SLA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_GW_MergeInicio</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_CA_S1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_GW_Origem</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_SUPORTE_Triagem" name="Analista de triagem e roteamento">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.19 · Ref: SP_CA_S2</bpmn:documentation>
+        <bpmn:flowNodeRef>SP_CA_S2</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_GW_Compra</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_End_Compra</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_SUPORTE_Resolucao" name="Resolução e encaminhamento">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.20 · Ref: SP_CA_S3</bpmn:documentation>
+        <bpmn:flowNodeRef>SP_GW_MergeResolver</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_CA_S3</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_SUPORTE_Qualidade" name="Qualidade e melhoria contínua">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.21 · Ref: SP_CA_S4</bpmn:documentation>
+        <bpmn:flowNodeRef>SP_CA_S4</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_GW_Desfecho</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_End_Resolvido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_End_Ouvidoria</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SP_End_SemConfirmacao</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="SP_Start_Contato" name="Cliente procura atendimento">
+      <bpmn:documentation>EV-S01. Qualquer canal. Payload: clienteId, canal, mensagemCliente. | Origem: M3_Start_Contato</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('origemSuporte', 'CLIENTE')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:outgoing>F_CA_SUPORTE_01</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ContatoCliente"/>
+    </bpmn:startEvent>
+    <bpmn:startEvent id="SP_Start_Insatisfacao" name="Experiência insatisfatória">
+      <bpmn:documentation>EV-S02 (T-04). | Origem: M2_EV_ServiceRecovery + M3_Start_ServiceRecovery (SO-04)</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('origemSuporte', 'RECOVERY')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:outgoing>F_CA_SUPORTE_02</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ExperienciaInsatisfatoria"/>
+    </bpmn:startEvent>
+    <bpmn:startEvent id="SP_Start_SLA" name="SLA de entrega violado">
+      <bpmn:documentation>EV-S03 (T-05). | Origem: M2_Boundary_Escalacao + ES_EV_EscalarSLA</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('origemSuporte', 'SLA')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:outgoing>F_CA_SUPORTE_03</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_SLAEntregaViolado"/>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="SP_GW_MergeInicio" name="">
+      <bpmn:incoming>F_CA_SUPORTE_01</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_02</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_04</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:callActivity id="SP_CA_S1" name="Ouvir e registrar o caso" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S1_OuvirRegistrar">
+      <bpmn:documentation>Origem: ARQ-01 S1</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="origemSuporte" target="origemSuporte"/>
+        <camunda:out source="urgenciaSugerida" target="urgenciaSugerida"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_05</bpmn:outgoing>
+      <bpmn:property id="Property_SP_CA_S1_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_030_1">
+        <bpmn:sourceRef>DSR_INS_030_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_SP_CA_S1_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:exclusiveGateway id="SP_GW_Origem" name="Origem do suporte?" default="F_CA_SUPORTE_07">
+      <bpmn:documentation>Origem: [SEM ORIGEM] — ARQ-01 GW-S01</bpmn:documentation>
+      <bpmn:documentation>Regra: contato do cliente abre atendimento pleno; eventos internos seguem trilha reduzida — dono: Atendente de suporte</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_06</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_07</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:callActivity id="SP_CA_S2" name="Diagnosticar e rotear o caso" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S2_DiagnosticarRotear">
+      <bpmn:documentation>Origem: ARQ-01 S2</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="questaoClinica" target="questaoClinica"/>
+        <camunda:out source="rotaAtendimento" target="rotaAtendimento"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_08</bpmn:outgoing>
+      <bpmn:property id="Property_SP_CA_S2_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_031_1">
+        <bpmn:sourceRef>DSR_INS_031_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_SP_CA_S2_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:exclusiveGateway id="SP_GW_Compra" name="Intenção de compra?" default="F_CA_SUPORTE_10">
+      <bpmn:documentation>Origem: [SEM ORIGEM] — ARQ-01 GW-S02 (PD-05)</bpmn:documentation>
+      <bpmn:documentation>Regra: sinal de intenção de compra dentro do suporte devolve o caso à compra — dono: Analista de triagem e roteamento</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_09</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_10</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="SP_End_Compra" name="Encaminhado à COMPRA">
+      <bpmn:documentation>T-07 → COMPRA C1 (proposto — PD-05). O caso é encerrado sem o cliente recomeçar. | Origem: [SEM ORIGEM] — ARQ-01 T-07</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="transicao">T-07</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_09</bpmn:incoming>
+      <bpmn:messageEventDefinition messageRef="Message_CA_NovaNecessidade" camunda:delegateExpression="${journeyTransitionPublisher}"/>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="SP_GW_MergeResolver" name="">
+      <bpmn:incoming>F_CA_SUPORTE_07</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_10</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_16</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:callActivity id="SP_CA_S3" name="Resolver ou encaminhar o caso" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S3_ResolverEncaminhar">
+      <bpmn:documentation>Origem: ARQ-01 S3</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="origemSuporte" target="origemSuporte"/>
+        <camunda:in source="rotaAtendimento" target="rotaAtendimento"/>
+        <camunda:in source="confiancaIA" target="confiancaIA"/>
+        <camunda:in source="limiarConfianca" target="limiarConfianca"/>
+        <camunda:in source="respostaVerificada" target="respostaVerificada"/>
+        <camunda:in source="naturezaCaso" target="naturezaCaso"/>
+        <camunda:in source="resolvidoPrimeiroContato" target="resolvidoPrimeiroContato"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_11</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_12</bpmn:outgoing>
+      <bpmn:property id="Property_SP_CA_S3_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_032_1">
+        <bpmn:sourceRef>DSR_INS_032_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_SP_CA_S3_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:callActivity id="SP_CA_S4" name="Confirmar, encerrar e aprender" camunda:asyncBefore="true" calledElement="Process_CA_SUPORTE_S4_ConfirmarEncerrar">
+      <bpmn:documentation>Origem: ARQ-01 S4</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in source="origemSuporte" target="origemSuporte"/>
+        <camunda:in source="rotaAtendimento" target="rotaAtendimento"/>
+        <camunda:in source="clienteConfirmouResolucao" target="clienteConfirmouResolucao"/>
+        <camunda:out source="desfechoSuporte" target="desfechoSuporte"/>
+        <camunda:out source="rotaAtendimento" target="rotaAtendimento"/>
+        <camunda:out source="tipoEventoNegocio" target="tipoEventoNegocio"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_12</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_13</bpmn:outgoing>
+      <bpmn:property id="Property_SP_CA_S4_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_033_1">
+        <bpmn:sourceRef>DOR_INS_033_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_SP_CA_S4_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:dataInputAssociation id="DIA_INS_034_1">
+        <bpmn:sourceRef>DOR_INS_034_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_SP_CA_S4_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:exclusiveGateway id="SP_GW_Desfecho" name="Desfecho do caso?" default="F_CA_SUPORTE_17">
+      <bpmn:documentation>Regra: reencaminhar devolve ao especialista; resolvido confirma; ouvidoria registra manifestação; sem confirmação encerra — dono: Qualidade e melhoria contínua</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_13</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_14</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_15</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_16</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_17</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="SP_End_Resolvido" name="Problema resolvido e confirmado">
+      <bpmn:documentation>Origem: M3_End_Reativo_OK + M3_End_Reativo_Humano + M2_End_Recuperado (SO-05)</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="SP_End_Ouvidoria" name="Encaminhado à ouvidoria/ANS com retorno">
+      <bpmn:documentation>Origem: M2_End_NaoRecuperado</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_15</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="SP_End_SemConfirmacao" name="Encerrado sem confirmação do cliente">
+      <bpmn:documentation>⚠️ PD-03 / I-07 [PENDENTE]: decidir se silêncio de 24h conta como resolvido ou reabre. | Origem: M3_Boundary_SemConfirmacao → M3_End_Aprendizado</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_17</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_01" sourceRef="SP_Start_Contato" targetRef="SP_GW_MergeInicio"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_02" sourceRef="SP_Start_Insatisfacao" targetRef="SP_GW_MergeInicio"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_03" sourceRef="SP_Start_SLA" targetRef="SP_GW_MergeInicio"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_04" sourceRef="SP_GW_MergeInicio" targetRef="SP_CA_S1"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_05" sourceRef="SP_CA_S1" targetRef="SP_GW_Origem"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_06" name="Cliente" sourceRef="SP_GW_Origem" targetRef="SP_CA_S2">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origemSuporte == "CLIENTE"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_07" name="Recovery / SLA" sourceRef="SP_GW_Origem" targetRef="SP_GW_MergeResolver"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_08" sourceRef="SP_CA_S2" targetRef="SP_GW_Compra"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_09" name="Sim" sourceRef="SP_GW_Compra" targetRef="SP_End_Compra">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${execution.getVariable("intencaoCompra") == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_10" name="Não" sourceRef="SP_GW_Compra" targetRef="SP_GW_MergeResolver"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_16" name="Não resolvido pela IA — especialista" sourceRef="SP_GW_Desfecho" targetRef="SP_GW_MergeResolver">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${desfechoSuporte == "REENCAMINHAR"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_11" sourceRef="SP_GW_MergeResolver" targetRef="SP_CA_S3"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_12" sourceRef="SP_CA_S3" targetRef="SP_CA_S4"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_13" sourceRef="SP_CA_S4" targetRef="SP_GW_Desfecho"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_14" name="Resolvido" sourceRef="SP_GW_Desfecho" targetRef="SP_End_Resolvido">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${desfechoSuporte == "RESOLVIDO"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_15" name="Ouvidoria" sourceRef="SP_GW_Desfecho" targetRef="SP_End_Ouvidoria">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${desfechoSuporte == "OUVIDORIA"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_17" name="Sem confirmação" sourceRef="SP_GW_Desfecho" targetRef="SP_End_SemConfirmacao"/>
+    <bpmn:dataStoreReference id="DSR_INS_030_1" name="Histórico do cliente" dataStoreRef="DS_INS_030">
+      <bpmn:documentation>Insumo INS-030 · Origem: SUB-01 §2.18 Insumo (JIT); SUB-01 §2.18 · coluna Subprocesso genérico; SUB-01 §2.18 · coluna Entrada; CA_3 · S1_T_Contexto · rótulo</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataStoreReference id="DSR_INS_031_1" name="Base de conhecimento/regras de triagem" dataStoreRef="DS_INS_031">
+      <bpmn:documentation>Insumo INS-031 · Origem: SUB-01 §2.19 Insumo (JIT); SUB-01 §2.19 · coluna Subprocesso genérico</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataStoreReference id="DSR_INS_032_1" name="Recursos de resolução (scripts, alçadas, sistemas)" dataStoreRef="DS_INS_032">
+      <bpmn:documentation>Insumo INS-032 · Origem: SUB-01 §2.20 Insumo (JIT); SUB-01 §2.20 · coluna Subprocesso genérico ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia: scripts e alçadas são material de referência consultado (DS), mas 'sistemas' não é dado nem documento. Modelado como DS de referência; alternativa: DO por caso, ou excluir 'sistemas' do elemento de dado.</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataObject id="DO_INS_033_1" name="Dados do desfecho do caso (registro de resolução)">
+      <bpmn:documentation>Insumo INS-033 · Origem: SUB-01 §2.21 Insumo (JIT); SUB-01 §2.21 · coluna Subprocesso genérico; SUB-01 §2.21 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_033_1" name="Dados do desfecho do caso (registro de resolução)" dataObjectRef="DO_INS_033_1">
+      <bpmn:documentation>Insumo INS-033 · Origem: SUB-01 §2.21 Insumo (JIT); SUB-01 §2.21 · coluna Subprocesso genérico; SUB-01 §2.21 · coluna Entrada</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataObject id="DO_INS_034_1" name="Formulário de satisfação">
+      <bpmn:documentation>Insumo INS-034 · Origem: SUB-01 §2.21 Insumo (JIT); SUB-01 §2.21 · coluna Subprocesso genérico</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_034_1" name="Formulário de satisfação" dataObjectRef="DO_INS_034_1">
+      <bpmn:documentation>Insumo INS-034 · Origem: SUB-01 §2.21 Insumo (JIT); SUB-01 §2.21 · coluna Subprocesso genérico</bpmn:documentation>
+    </bpmn:dataObjectReference>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_SUPORTE_S1_OuvirRegistrar" name="S1 — Ouvir e registrar o caso" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Receber o cliente com contexto completo (o cliente não repete a história) e registrar o caso na jornada certa. Quando a iniciativa é da organização, o cliente é avisado de imediato.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_SUPORTE_S1_OuvirRegistrar">
+      <bpmn:lane id="LN_CA3_S1_Verificador" name="Verificador de identidade">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.22 · Ref: S1_CA_H1</bpmn:documentation>
+        <bpmn:flowNodeRef>S1_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S1_CA_H1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S1_GW_MergeCons</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S1_B_Consent</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_S1_Insumos" name="Disponibilização de insumos">
+        <bpmn:documentation>Dimensão: Insumo JIT · Origem: SUB-01 §2.18 · Ref: SP_CA_S1</bpmn:documentation>
+        <bpmn:flowNodeRef>S1_T_Contexto</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S1_GW_Iniciativa</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_S1_Atendente" name="Atendente de suporte">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.18 · Ref: SP_CA_S1</bpmn:documentation>
+        <bpmn:flowNodeRef>S1_EV_Cuidando</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S1_GW_Merge</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S1_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S1_Start" name="Caso a registrar">
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:callActivity id="S1_CA_H1" name="Identificar cliente e verificar consentimento" camunda:asyncBefore="true" calledElement="Process_CA_H1_IdentidadeConsentimento">
+      <bpmn:documentation>Origem: [SEM ORIGEM] — ARQ-01 §7 H1 (chamado por S1)</bpmn:documentation>
+      <bpmn:documentation>Contrato de variáveis a confirmar com a equipe: este passo pode produzir/consumir variáveis em execução (delegados/formulários) não declaradas no modelo; a lista explícita reflete o que o próprio modelo comprova.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:in businessKey="#{execution.processBusinessKey}"/>
+        <camunda:in sourceExpression="atendimento" target="finalidade"/>
+        <camunda:out source="consentimentoValido" target="consentimentoValido"/>
+        <camunda:out source="identidadeUnificada" target="identidadeUnificada"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_02</bpmn:outgoing>
+      <bpmn:property id="Property_S1_CA_H1_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_004_1">
+        <bpmn:sourceRef>DOR_INS_004_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_S1_CA_H1_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:callActivity>
+    <bpmn:exclusiveGateway id="S1_GW_MergeCons" name="">
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_02</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_05</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_03</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="S1_T_Contexto" name="Montar contexto completo (360 + histórico)" camunda:asyncBefore="true" camunda:delegateExpression="${contextAssemblyService}">
+      <bpmn:documentation>Produz contextoCliente e protocoloId (se houver caso aberto). | Origem: M3_T_Contexto</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_04</bpmn:outgoing>
+      <bpmn:property id="Property_S1_T_Contexto_targetRef" name="__targetRef_placeholder"/>
+      <bpmn:dataInputAssociation id="DIA_INS_012_1">
+        <bpmn:sourceRef>DSR_INS_012_1</bpmn:sourceRef>
+        <bpmn:targetRef>Property_S1_T_Contexto_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+      <bpmn:dataInputAssociation id="DIA_INS_030_2">
+        <bpmn:sourceRef>DSR_INS_030_2</bpmn:sourceRef>
+        <bpmn:targetRef>Property_S1_T_Contexto_targetRef</bpmn:targetRef>
+      </bpmn:dataInputAssociation>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="S1_GW_Iniciativa" name="Iniciativa da organização?" default="F_CA_SUPORTE_S1_OuvirRegistrar_07">
+      <bpmn:documentation>Regra: caso iniciado pela própria organização dispensa nova verificação pelo cliente; contato do cliente passa pela verificação — dono: Disponibilização de insumos</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_06</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_07</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:intermediateThrowEvent id="S1_EV_Cuidando" name="Avisar que estamos cuidando">
+      <bpmn:documentation>Contato proativo imediato; a Central assume em até 2h. | Origem: M3_Start_ServiceRecovery</bpmn:documentation>
+      <bpmn:documentation>Marco factual: registra o que ACONTECEU, não estimativa nem previsão.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="marcoJornada">SERVICE_RECOVERY</camunda:inputParameter>
+          <camunda:inputParameter name="urgenciaSugerida">CRITICA</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_08</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_ComunicarCliente" camunda:delegateExpression="${comunicarClientePublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:exclusiveGateway id="S1_GW_Merge" name="">
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_07</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_09</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="S1_End" name="Caso registrado">
+      <bpmn:incoming>F_CA_SUPORTE_S1_OuvirRegistrar_09</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="S1_B_Consent" name="Consentimento negado" attachedToRef="S1_CA_H1">
+      <bpmn:documentation>Atendimento segue sem personalização (contexto mínimo).</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S1_OuvirRegistrar_05</bpmn:outgoing>
+      <bpmn:errorEventDefinition errorRef="Error_CA_ConsentimentoNegado"/>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_01" sourceRef="S1_Start" targetRef="S1_CA_H1"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_02" sourceRef="S1_CA_H1" targetRef="S1_GW_MergeCons"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_05" sourceRef="S1_B_Consent" targetRef="S1_GW_MergeCons"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_03" sourceRef="S1_GW_MergeCons" targetRef="S1_T_Contexto"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_04" sourceRef="S1_T_Contexto" targetRef="S1_GW_Iniciativa"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_06" name="Sim" sourceRef="S1_GW_Iniciativa" targetRef="S1_EV_Cuidando">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origemSuporte != "CLIENTE"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_07" name="Não" sourceRef="S1_GW_Iniciativa" targetRef="S1_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_08" sourceRef="S1_EV_Cuidando" targetRef="S1_GW_Merge"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S1_OuvirRegistrar_09" sourceRef="S1_GW_Merge" targetRef="S1_End"/>
+    <bpmn:dataObject id="DO_INS_004_1" name="Dados de identificação do cliente (dado cadastral/documento de identificação)">
+      <bpmn:documentation>Insumo INS-004 · Origem: SUB-01 §2.3, §2.9, §2.22 Insumo (JIT); §3; SUB-01 §2.3 · coluna Subprocesso genérico; SUB-01 §2.3 · coluna Entrada; SUB-01 §2.9 · coluna Observação; SUB-01 §2.22 · coluna Observação; SUB-01 §3 · coluna Caixas de origem</bpmn:documentation>
+    </bpmn:dataObject>
+    <bpmn:dataObjectReference id="DOR_INS_004_1" name="Dados de identificação do cliente (dado cadastral/documento de identificação)" dataObjectRef="DO_INS_004_1">
+      <bpmn:documentation>Insumo INS-004 · Origem: SUB-01 §2.3, §2.9, §2.22 Insumo (JIT); §3; SUB-01 §2.3 · coluna Subprocesso genérico; SUB-01 §2.3 · coluna Entrada; SUB-01 §2.9 · coluna Observação; SUB-01 §2.22 · coluna Observação; SUB-01 §3 · coluna Caixas de origem</bpmn:documentation>
+    </bpmn:dataObjectReference>
+    <bpmn:dataStoreReference id="DSR_INS_012_1" name="Perfil 360 do cliente" dataStoreRef="DS_INS_012">
+      <bpmn:documentation>Insumo INS-012 · Origem: SUB-01 §2.10 e §2.11 Insumo (JIT); SUB-01 §2.10 · coluna Entrada; SUB-01 §2.11 · coluna Saída; CA_0 · NBA_T_Contexto · rótulo; CA_0 · EC_T_Consolidar · rótulo; CA_0 · EC_T_Consolidar · documentation; CA_1 · C1_T_Cruzar · rótulo; CA_3 · S1_T_Contexto · rótulo ⚠️ AMBIGUIDADE — SUB-01 nomeia 'Perfil do cliente' (§2.10) e 'Perfil 360 inicial consolidado' (§2.11) sem declará-los idênticos; a identidade como um único repositório vem dos rótulos do diagrama ('perfil 360' em NBA_T_Contexto, EC_T_Consolidar, C1_T_Cruzar e '360' em S1_T_Contexto). A saída em EC_T_Consolidar usa 'Produz versaoPerfil' + rótulo 'versionar perfil 360'. Alternativa: DS separados por arquivo/finalidade.</bpmn:documentation>
+    </bpmn:dataStoreReference>
+    <bpmn:dataStoreReference id="DSR_INS_030_2" name="Histórico do cliente" dataStoreRef="DS_INS_030">
+      <bpmn:documentation>Insumo INS-030 · Origem: SUB-01 §2.18 Insumo (JIT); SUB-01 §2.18 · coluna Subprocesso genérico; SUB-01 §2.18 · coluna Entrada; CA_3 · S1_T_Contexto · rótulo</bpmn:documentation>
+    </bpmn:dataStoreReference>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_SUPORTE_S2_DiagnosticarRotear" name="S2 — Diagnosticar e rotear o caso" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Entender a natureza do caso e mandá-lo para quem resolve. Fronteira clínica: 100% do clínico vai a humano (corrige I-03).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_SUPORTE_S2_DiagnosticarRotear">
+      <bpmn:lane id="LN_CA3_S2_Triagem" name="Analista de triagem e roteamento">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.19 · Ref: SP_CA_S2</bpmn:documentation>
+        <bpmn:flowNodeRef>S2_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S2_T_Triagem</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S2_GW_Clinico</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S2_End_Humano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S2_End_IA</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S2_Start" name="Caso registrado">
+      <bpmn:outgoing>F_CA_SUPORTE_S2_DiagnosticarRotear_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:serviceTask id="S2_T_Triagem" name="Triar intenção (IA): administrativa × clínica" camunda:asyncBefore="true" camunda:delegateExpression="${intentTriageAI}">
+      <bpmn:documentation>Produz questaoClinica, naturezaCaso ∈ {administrativo, clinico} e intencaoCompra. | Origem: M3_T_Triagem</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S2_DiagnosticarRotear_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S2_DiagnosticarRotear_02</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="S2_GW_Clinico" name="Questão clínica?" default="F_CA_SUPORTE_S2_DiagnosticarRotear_04">
+      <bpmn:documentation>Origem: M3_GW_Clinico</bpmn:documentation>
+      <bpmn:documentation>Regra: questão clínica vai a trilha assistencial; questão administrativa segue rota de atendimento — dono: Analista de triagem e roteamento</bpmn:documentation>
+      <bpmn:documentation>Guard-rail: a IA apenas recomenda — triagem clínica, negativa e suspeita de fraude são sempre humanas. Proibido usar dados de saúde para seleção de risco (LGPD art. 11 §5º).</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S2_DiagnosticarRotear_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S2_DiagnosticarRotear_03</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S2_DiagnosticarRotear_04</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="S2_End_Humano" name="Rota: especialista clínico">
+      <bpmn:documentation>Corrige I-03: a origem mandava o ramo clínico a uma tarefa de IA duplicada (Activity_1q3x2fz). | Origem: M3_F10c (corrigido)</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('rotaAtendimento', 'HUMANO')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_S2_DiagnosticarRotear_03</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="S2_End_IA" name="Rota: IA de atendimento">
+      <bpmn:documentation>Origem: M3_F10d</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('rotaAtendimento', 'IA')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_S2_DiagnosticarRotear_04</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S2_DiagnosticarRotear_01" sourceRef="S2_Start" targetRef="S2_T_Triagem"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S2_DiagnosticarRotear_02" sourceRef="S2_T_Triagem" targetRef="S2_GW_Clinico"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S2_DiagnosticarRotear_03" name="Sim — 100% humano" sourceRef="S2_GW_Clinico" targetRef="S2_End_Humano">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${questaoClinica == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S2_DiagnosticarRotear_04" name="Não — administrativa" sourceRef="S2_GW_Clinico" targetRef="S2_End_IA"/>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_SUPORTE_S3_ResolverEncaminhar" name="S3 — Resolver ou encaminhar o caso" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Resolver no primeiro contato; se não der, comprometer prazo e cumprir. Concentra todo tratamento humano de exceção: IA, especialista, enfermagem de navegação, service recovery e intervenção por SLA.</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_SUPORTE_S3_ResolverEncaminhar">
+      <bpmn:lane id="LN_CA3_S3_Resolucao" name="Resolução e encaminhamento">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.20 · Ref: SP_CA_S3</bpmn:documentation>
+        <bpmn:flowNodeRef>S3_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_GW_Origem</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_IA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_GW_Confianca</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_IA</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_GW_MergeHumano</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_GW_Natureza</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_Especialista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_GW_MergeAtend</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_GW_PrimeiroContato</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_Resolvido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_Protocolo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_Cumprir</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_Priorizado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_Retorno</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_Recovery</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_Supervisor</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_Recovery</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_Intervencao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_Intervencao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_SLARecovery</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_D1</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_SLA_Especialista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_EscalarEspecialista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_SLA_Especialista</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_SLA_Protocolo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_EscalarProtocolo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_SLA_Protocolo</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_SLA_Intervencao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_EscalarIntervencao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_SLA_Intervencao</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_S3_Supervisao" name="Supervisão da experiência">
+        <bpmn:documentation>Dimensão: Staff · Origem: candidateGroups da tarefa (supervisao-experiencia) e rótulo de S3_T_Supervisor</bpmn:documentation>
+        <bpmn:flowNodeRef>S3_T_Priorizar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_Supervisor</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_SLA_Priorizar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_EscalarPriorizar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_SLA_Priorizar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_SLA_Supervisor</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_EscalarSupervisao</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_SLA_Supervisao</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_S3_Enfermagem" name="Enfermagem de navegação">
+        <bpmn:documentation>Dimensão: Staff · Origem: label (rótulo de S3_T_Enfermagem)</bpmn:documentation>
+        <bpmn:flowNodeRef>S3_T_Enfermagem</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_B_SLA_Enfermagem</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_T_EscalarEnfermagem</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S3_End_SLA_Enfermagem</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S3_Start" name="Caso roteado">
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:exclusiveGateway id="S3_GW_Origem" name="Tipo de tratamento?" default="F_CA_SUPORTE_S3_ResolverEncaminhar_04">
+      <bpmn:documentation>Regra: rota por origem do caso — resposta por IA, recuperação de experiência ou atendimento humano — dono: Resolução e encaminhamento</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_02</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_03</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_04</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_05</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="S3_T_IA" name="Responder com contexto (IA de atendimento)" camunda:asyncBefore="true" camunda:delegateExpression="${contactCenterAI}">
+      <bpmn:documentation>Produz confiancaIA, respostaVerificada, resposta. | Origem: M3_T_IAResponde</bpmn:documentation>
+      <bpmn:documentation>Guard-rail: a IA apenas recomenda — triagem clínica, negativa e suspeita de fraude são sempre humanas. Proibido usar dados de saúde para seleção de risco (LGPD art. 11 §5º).</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_06</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="S3_GW_Confianca" name="Confiança suficiente e resposta verificada?" default="F_CA_SUPORTE_S3_ResolverEncaminhar_08">
+      <bpmn:documentation>Origem: M3_GW_Confianca</bpmn:documentation>
+      <bpmn:documentation>Regra: resposta da IA só é entregue com confiança suficiente e verificação; caso contrário, vai a humano — dono: Resolução e encaminhamento</bpmn:documentation>
+      <bpmn:documentation>Guard-rail: a IA apenas recomenda — triagem clínica, negativa e suspeita de fraude são sempre humanas. Proibido usar dados de saúde para seleção de risco (LGPD art. 11 §5º).</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_07</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_08</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="S3_End_IA" name="Resposta entregue pela IA">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_07</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="S3_GW_MergeHumano" name="">
+      <bpmn:documentation>Origem: M3_GW_MergeHumano + M3_CA_Humano + AH_Start (atendimento humano incorporado a S3)</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_05</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_09</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="S3_GW_Natureza" name="Caso tem conteúdo clínico?" default="F_CA_SUPORTE_S3_ResolverEncaminhar_11">
+      <bpmn:documentation>Origem: AH_GW_NaturezaCaso</bpmn:documentation>
+      <bpmn:documentation>Regra: conteúdo clínico vai a enfermagem de navegação; demais casos a especialista — dono: Resolução e encaminhamento</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_09</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_10</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_11</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="S3_T_Especialista" name="Resolver com contexto completo" camunda:formKey="ced:atendimento-especialista" camunda:candidateGroups="centrais-experiencia">
+      <bpmn:documentation>Produz resolvidoPrimeiroContato. | Origem: AH_T_Atender</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_11</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_12</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="S3_B_SLA_Especialista" name="SLA 2h estourado" cancelActivity="false" attachedToRef="S3_T_Especialista">
+      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_25</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S3_T_EscalarEspecialista" name="Escalar caso com especialista pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_25</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_26</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="S3_End_SLA_Especialista" name="Escalação registrada — caso com especialista">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_26</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="S3_T_Enfermagem" name="Resolver caso clínico (enfermagem de navegação)" camunda:formKey="ced:atendimento-clinico" camunda:candidateGroups="governanca-clinica">
+      <bpmn:documentation>Produz resolvidoPrimeiroContato. | Origem: AH_T_AtenderClinico</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_13</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="S3_B_SLA_Enfermagem" name="SLA 2h estourado" cancelActivity="false" attachedToRef="S3_T_Enfermagem">
+      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_27</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S3_T_EscalarEnfermagem" name="Escalar caso clínico de enfermagem pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_27</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_28</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="S3_End_SLA_Enfermagem" name="Escalação registrada — caso com enfermagem">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_28</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="S3_GW_MergeAtend" name="">
+      <bpmn:documentation>Origem: AH_GW_MergeAtend</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_12</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_13</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_14</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="S3_GW_PrimeiroContato" name="Resolvido no primeiro contato?" default="F_CA_SUPORTE_S3_ResolverEncaminhar_16">
+      <bpmn:documentation>Origem: AH_GW_Resolvido</bpmn:documentation>
+      <bpmn:documentation>Regra: resolvido no primeiro contato encerra; caso contrário, abre protocolo com prazo — dono: Resolução e encaminhamento</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_14</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_15</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_16</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:endEvent id="S3_End_Resolvido" name="Solução entregue">
+      <bpmn:documentation>Origem: AH_End_OK</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_15</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="S3_T_Protocolo" name="Abrir protocolo com prazo de retorno" camunda:formKey="ced:protocolo-retorno" camunda:candidateGroups="centrais-experiencia">
+      <bpmn:documentation>Produz protocoloId, prazoRetorno, prazoAlertaProtocolo (D-1). | Origem: AH_T_Protocolo</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_16</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_17</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="S3_B_SLA_Protocolo" name="SLA 2h sem protocolo" cancelActivity="false" attachedToRef="S3_T_Protocolo">
+      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: mesmo SLA literal do processo (S3_B_SLARecovery, PT2H).</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_29</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S3_T_EscalarProtocolo" name="Escalar abertura de protocolo pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_29</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_30</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="S3_End_SLA_Protocolo" name="Escalação registrada — protocolo pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_30</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="S3_T_Cumprir" name="Resolver e retornar ao cliente no prazo" camunda:formKey="ced:cumprir-protocolo" camunda:candidateGroups="centrais-experiencia">
+      <bpmn:documentation>Origem: AH_T_CumprirProtocolo</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_17</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_18</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="S3_T_Priorizar" name="Priorizar protocolo em risco" camunda:formKey="ced:priorizar-protocolo" camunda:candidateGroups="supervisao-experiencia">
+      <bpmn:documentation>Origem: AH_T_Priorizar</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_19</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_20</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="S3_B_SLA_Priorizar" name="SLA 4h sem priorização" cancelActivity="false" attachedToRef="S3_T_Priorizar">
+      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: proposta — meia jornada de supervisão.</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_31</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT4H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S3_T_EscalarPriorizar" name="Escalar priorização de protocolo pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_31</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_32</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="S3_End_SLA_Priorizar" name="Escalação registrada — protocolo em risco">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_32</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="S3_End_Priorizado" name="Protocolo priorizado">
+      <bpmn:documentation>Origem: AH_End_AlertaPrazo</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_20</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="S3_End_Retorno" name="Retorno entregue no prazo">
+      <bpmn:documentation>Corrige I-05: retorno dado segue para confirmação em S4. | Origem: AH_End_Protocolado</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_18</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="S3_T_Recovery" name="Recuperar a experiência do cliente" camunda:formKey="ced:service-recovery" camunda:candidateGroups="centrais-experiencia">
+      <bpmn:documentation>Service recovery humano em até 2h. Produz recoveryAceito. | Origem: M2_T_Recuperar</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_03</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_21</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="S3_T_Supervisor" name="Escalar ao supervisor da Central" camunda:formKey="ced:escalar-supervisor" camunda:candidateGroups="supervisao-experiencia">
+      <bpmn:documentation>Origem: M2_T_EscalarSupervisor</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_22</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_23</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="S3_B_SLA_Supervisor" name="SLA 24h sem ação" cancelActivity="false" attachedToRef="S3_T_Supervisor">
+      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: proposta — convenção 24h do corpus (S4_B_Silencio, PT24H).</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_33</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S3_T_EscalarSupervisao" name="Escalar ação de supervisão pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_33</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_34</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="S3_End_SLA_Supervisao" name="Escalação registrada — supervisão acionada">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_34</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="S3_End_Supervisor" name="Supervisor acionado — recovery segue">
+      <bpmn:documentation>Origem: M2_End_SLARecovery</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_23</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="S3_End_Recovery" name="Recovery realizado">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_21</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="S3_T_Intervencao" name="Intervir na entrega (priorizar cliente)" camunda:formKey="ced:intervencao-entrega" camunda:candidateGroups="centrais-experiencia">
+      <bpmn:documentation>Origem: M2_T_Escalar</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_24</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="S3_B_SLA_Intervencao" name="SLA 4h sem intervenção" cancelActivity="false" attachedToRef="S3_T_Intervencao">
+      <bpmn:documentation>SLA proposto — confirmar com a equipe. Fundamento: proposta — entrega em risco.</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_35</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT4H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="S3_T_EscalarIntervencao" name="Escalar intervenção na entrega pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_35</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_36</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="S3_End_SLA_Intervencao" name="Escalação registrada — intervenção pendente">
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_36</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="S3_End_Intervencao" name="Intervenção concluída — entrega segue">
+      <bpmn:documentation>Origem: M2_End_Escalado</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S3_ResolverEncaminhar_24</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="S3_B_SLARecovery" name="SLA 2h estourado" cancelActivity="false" attachedToRef="S3_T_Recovery">
+      <bpmn:documentation>Origem: M2_Boundary_SLARecovery</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_22</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT2H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="S3_B_D1" name="D-1 do prazo" cancelActivity="false" attachedToRef="S3_T_Cumprir">
+      <bpmn:documentation>Origem: AH_Boundary_PrazoProtocolo</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S3_ResolverEncaminhar_19</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDate xsi:type="bpmn:tFormalExpression">${prazoAlertaProtocolo}</bpmn:timeDate>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_01" sourceRef="S3_Start" targetRef="S3_GW_Origem"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_02" name="IA" sourceRef="S3_GW_Origem" targetRef="S3_T_IA">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origemSuporte == "CLIENTE" &amp;&amp; rotaAtendimento == "IA"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_03" name="Service recovery" sourceRef="S3_GW_Origem" targetRef="S3_T_Recovery">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origemSuporte == "RECOVERY"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_04" name="SLA de entrega" sourceRef="S3_GW_Origem" targetRef="S3_T_Intervencao"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_05" name="Especialista" sourceRef="S3_GW_Origem" targetRef="S3_GW_MergeHumano">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origemSuporte == "CLIENTE" &amp;&amp; rotaAtendimento == "HUMANO"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_06" sourceRef="S3_T_IA" targetRef="S3_GW_Confianca"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_07" name="Sim — responder" sourceRef="S3_GW_Confianca" targetRef="S3_End_IA">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${confiancaIA &gt;= limiarConfianca &amp;&amp; respostaVerificada == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_08" name="Não — escalar" sourceRef="S3_GW_Confianca" targetRef="S3_GW_MergeHumano"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_09" sourceRef="S3_GW_MergeHumano" targetRef="S3_GW_Natureza"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_10" name="Clínico" sourceRef="S3_GW_Natureza" targetRef="S3_T_Enfermagem">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${naturezaCaso == "clinico"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_11" name="Administrativo" sourceRef="S3_GW_Natureza" targetRef="S3_T_Especialista"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_12" sourceRef="S3_T_Especialista" targetRef="S3_GW_MergeAtend"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_13" sourceRef="S3_T_Enfermagem" targetRef="S3_GW_MergeAtend"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_14" sourceRef="S3_GW_MergeAtend" targetRef="S3_GW_PrimeiroContato"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_15" name="Sim" sourceRef="S3_GW_PrimeiroContato" targetRef="S3_End_Resolvido">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${resolvidoPrimeiroContato == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_16" name="Não" sourceRef="S3_GW_PrimeiroContato" targetRef="S3_T_Protocolo"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_17" sourceRef="S3_T_Protocolo" targetRef="S3_T_Cumprir"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_18" sourceRef="S3_T_Cumprir" targetRef="S3_End_Retorno"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_19" sourceRef="S3_B_D1" targetRef="S3_T_Priorizar"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_20" sourceRef="S3_T_Priorizar" targetRef="S3_End_Priorizado"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_21" sourceRef="S3_T_Recovery" targetRef="S3_End_Recovery"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_22" sourceRef="S3_B_SLARecovery" targetRef="S3_T_Supervisor"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_23" sourceRef="S3_T_Supervisor" targetRef="S3_End_Supervisor"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_24" sourceRef="S3_T_Intervencao" targetRef="S3_End_Intervencao"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_25" sourceRef="S3_B_SLA_Especialista" targetRef="S3_T_EscalarEspecialista"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_26" sourceRef="S3_T_EscalarEspecialista" targetRef="S3_End_SLA_Especialista"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_27" sourceRef="S3_B_SLA_Enfermagem" targetRef="S3_T_EscalarEnfermagem"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_28" sourceRef="S3_T_EscalarEnfermagem" targetRef="S3_End_SLA_Enfermagem"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_29" sourceRef="S3_B_SLA_Protocolo" targetRef="S3_T_EscalarProtocolo"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_30" sourceRef="S3_T_EscalarProtocolo" targetRef="S3_End_SLA_Protocolo"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_31" sourceRef="S3_B_SLA_Priorizar" targetRef="S3_T_EscalarPriorizar"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_32" sourceRef="S3_T_EscalarPriorizar" targetRef="S3_End_SLA_Priorizar"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_33" sourceRef="S3_B_SLA_Supervisor" targetRef="S3_T_EscalarSupervisao"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_34" sourceRef="S3_T_EscalarSupervisao" targetRef="S3_End_SLA_Supervisao"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_35" sourceRef="S3_B_SLA_Intervencao" targetRef="S3_T_EscalarIntervencao"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S3_ResolverEncaminhar_36" sourceRef="S3_T_EscalarIntervencao" targetRef="S3_End_SLA_Intervencao"/>
+  </bpmn:process>
+  <bpmn:process id="Process_CA_SUPORTE_S4_ConfirmarEncerrar" name="S4 — Confirmar, encerrar e aprender" isExecutable="true" camunda:versionTag="3.0.0-arq01" camunda:historyTimeToLive="180">
+    <bpmn:documentation>Só encerra com a confirmação do cliente. Não resolvido pela IA volta ao especialista; não resolvido pelo especialista vai à ouvidoria/ANS. Todo encerramento vira aprendizado (H3).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_Process_CA_SUPORTE_S4_ConfirmarEncerrar">
+      <bpmn:lane id="LN_CA3_S4_Qualidade" name="Qualidade e melhoria contínua">
+        <bpmn:documentation>Dimensão: Staff · Origem: SUB-01 §2.21 · Ref: SP_CA_S4</bpmn:documentation>
+        <bpmn:flowNodeRef>S4_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_T_Confirmar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_GW_Resolvido</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_GW_Rota</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_GW_MergeAprender</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_T_Aprender</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_EV_Aprendizado</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_End</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_End_Reencaminhar</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>S4_B_Silencio</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="LN_CA3_S4_Resolucao" name="Resolução e encaminhamento">
+        <bpmn:documentation>Dimensão: Staff · Origem: label (verbo 'encaminhar' em S4_T_Ouvidoria); vocabulário canônico; §2.20 é de SP_CA_S3, não de SP_CA_S4</bpmn:documentation>
+        <bpmn:flowNodeRef>S4_T_Ouvidoria</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="S4_Start" name="Solução entregue">
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_01</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="S4_T_Confirmar" name="Confirmar a resolução (1 toque)" camunda:formKey="ced:confirmacao-resolucao" camunda:assignee="${clienteId}">
+      <bpmn:documentation>Produz clienteConfirmouResolucao. | Origem: M3_T_RespostaEnviada + M3_GW_ResolvidoHumano + M2_GW_RecoveryOK (SO-05)</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_01</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:exclusiveGateway id="S4_GW_Resolvido" name="Cliente confirmou a resolução?" default="F_CA_SUPORTE_S4_ConfirmarEncerrar_04">
+      <bpmn:documentation>Origem: M3_GW_Resolvido</bpmn:documentation>
+      <bpmn:documentation>Regra: sem confirmação do cliente, reabrir conforme a rota anterior — dono: Qualidade e melhoria contínua</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_02</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_03</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_04</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:exclusiveGateway id="S4_GW_Rota" name="Já passou por especialista?" default="F_CA_SUPORTE_S4_ConfirmarEncerrar_06">
+      <bpmn:documentation>Regra: caso originado em resposta de IA reabre com reencaminhamento; demais encerram sem confirmação — dono: Qualidade e melhoria contínua</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_04</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_05</bpmn:outgoing>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_06</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:task id="S4_T_Ouvidoria" name="Encaminhar à ouvidoria/ANS com retorno">
+      <bpmn:documentation>⚠️ LACUNA LA-05 [SEM ORIGEM]: ouvidoria citada como destino nas fontes, sem processo. Tarefa abstrata mantida para a visão E2E. | Origem: M2_End_NaoRecuperado, AH_T_CumprirProtocolo</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_06</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_07</bpmn:outgoing>
+    </bpmn:task>
+    <bpmn:exclusiveGateway id="S4_GW_MergeAprender" name="">
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_03</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_07</bpmn:incoming>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_08</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_09</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:serviceTask id="S4_T_Aprender" name="Registrar interação para treinar a IA" camunda:asyncBefore="true" camunda:delegateExpression="${interactionLearningService}">
+      <bpmn:documentation>Passa a valer para todo encerramento (I-04). | Origem: M3_T_Aprender</bpmn:documentation>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_09</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:intermediateThrowEvent id="S4_EV_Aprendizado" name="Caso convertido em aprendizado">
+      <bpmn:documentation>Origem: M3_End_Aprendizado</bpmn:documentation>
+      <bpmn:documentation>Marco factual: registra o que ACONTECEU, não estimativa nem previsão.</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:inputOutput>
+          <camunda:inputParameter name="tipoEventoNegocio">APRENDIZADO_INTERACAO</camunda:inputParameter>
+        </camunda:inputOutput>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_10</bpmn:incoming>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_11</bpmn:outgoing>
+      <bpmn:messageEventDefinition messageRef="Message_CA_EventoNegocio" camunda:delegateExpression="${businessEventPublisher}"/>
+    </bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="S4_End" name="Caso encerrado">
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_11</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:endEvent id="S4_End_Reencaminhar" name="Reencaminhar ao especialista">
+      <bpmn:documentation>Ajusta rotaAtendimento para HUMANO no processo principal. | Origem: M3_F16</bpmn:documentation>
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('desfechoSuporte', 'REENCAMINHAR')}" event="start"/>
+        <camunda:executionListener expression="${execution.setVariable('rotaAtendimento', 'HUMANO')}" event="start"/>
+      </bpmn:extensionElements>
+      <bpmn:incoming>F_CA_SUPORTE_S4_ConfirmarEncerrar_05</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:boundaryEvent id="S4_B_Silencio" name="24h sem reação" attachedToRef="S4_T_Confirmar">
+      <bpmn:documentation>⚠️ PD-03 / I-07 [PENDENTE]. | Origem: M3_Boundary_SemConfirmacao</bpmn:documentation>
+      <bpmn:outgoing>F_CA_SUPORTE_S4_ConfirmarEncerrar_08</bpmn:outgoing>
+      <bpmn:timerEventDefinition>
+        <bpmn:timeDuration xsi:type="bpmn:tFormalExpression">PT24H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_01" sourceRef="S4_Start" targetRef="S4_T_Confirmar"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_02" sourceRef="S4_T_Confirmar" targetRef="S4_GW_Resolvido"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_03" name="Sim" sourceRef="S4_GW_Resolvido" targetRef="S4_GW_MergeAprender">
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('desfechoSuporte', 'RESOLVIDO')}" event="take"/>
+      </bpmn:extensionElements>
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${clienteConfirmouResolucao == true}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_04" name="Não" sourceRef="S4_GW_Resolvido" targetRef="S4_GW_Rota"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_05" name="Não — tentar especialista" sourceRef="S4_GW_Rota" targetRef="S4_End_Reencaminhar">
+      <bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${origemSuporte == "CLIENTE" &amp;&amp; rotaAtendimento == "IA"}</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_06" name="Sim — ouvidoria" sourceRef="S4_GW_Rota" targetRef="S4_T_Ouvidoria"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_07" sourceRef="S4_T_Ouvidoria" targetRef="S4_GW_MergeAprender">
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('desfechoSuporte', 'OUVIDORIA')}" event="take"/>
+      </bpmn:extensionElements>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_08" sourceRef="S4_B_Silencio" targetRef="S4_GW_MergeAprender">
+      <bpmn:extensionElements>
+        <camunda:executionListener expression="${execution.setVariable('desfechoSuporte', 'SEM_CONFIRMACAO')}" event="take"/>
+      </bpmn:extensionElements>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_09" sourceRef="S4_GW_MergeAprender" targetRef="S4_T_Aprender"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_10" sourceRef="S4_T_Aprender" targetRef="S4_EV_Aprendizado"/>
+    <bpmn:sequenceFlow id="F_CA_SUPORTE_S4_ConfirmarEncerrar_11" sourceRef="S4_EV_Aprendizado" targetRef="S4_End"/>
+  </bpmn:process>
+  <bpmn:dataStore id="DS_INS_012" name="Perfil 360 do cliente">
+    <bpmn:documentation>Insumo INS-012 · Origem: SUB-01 §2.10 e §2.11 Insumo (JIT); SUB-01 §2.10 · coluna Entrada; SUB-01 §2.11 · coluna Saída; CA_0 · NBA_T_Contexto · rótulo; CA_0 · EC_T_Consolidar · rótulo; CA_0 · EC_T_Consolidar · documentation; CA_1 · C1_T_Cruzar · rótulo; CA_3 · S1_T_Contexto · rótulo ⚠️ AMBIGUIDADE — SUB-01 nomeia 'Perfil do cliente' (§2.10) e 'Perfil 360 inicial consolidado' (§2.11) sem declará-los idênticos; a identidade como um único repositório vem dos rótulos do diagrama ('perfil 360' em NBA_T_Contexto, EC_T_Consolidar, C1_T_Cruzar e '360' em S1_T_Contexto). A saída em EC_T_Consolidar usa 'Produz versaoPerfil' + rótulo 'versionar perfil 360'. Alternativa: DS separados por arquivo/finalidade.</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_030" name="Histórico do cliente">
+    <bpmn:documentation>Insumo INS-030 · Origem: SUB-01 §2.18 Insumo (JIT); SUB-01 §2.18 · coluna Subprocesso genérico; SUB-01 §2.18 · coluna Entrada; CA_3 · S1_T_Contexto · rótulo</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_031" name="Base de conhecimento/regras de triagem">
+    <bpmn:documentation>Insumo INS-031 · Origem: SUB-01 §2.19 Insumo (JIT); SUB-01 §2.19 · coluna Subprocesso genérico</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:dataStore id="DS_INS_032" name="Recursos de resolução (scripts, alçadas, sistemas)">
+    <bpmn:documentation>Insumo INS-032 · Origem: SUB-01 §2.20 Insumo (JIT); SUB-01 §2.20 · coluna Subprocesso genérico ⚠️ AMBIGUIDADE — Natureza DS × DO dúbia: scripts e alçadas são material de referência consultado (DS), mas 'sistemas' não é dado nem documento. Modelado como DS de referência; alternativa: DO por caso, ou excluir 'sistemas' do elemento de dado.</bpmn:documentation>
+  </bpmn:dataStore>
+  <bpmn:message id="Message_CA_NovaNecessidade" name="CA_NovaNecessidade"/>
+  <bpmn:message id="Message_CA_ContatoCliente" name="CA_ContatoCliente"/>
+  <bpmn:message id="Message_CA_ExperienciaInsatisfatoria" name="CA_ExperienciaInsatisfatoria"/>
+  <bpmn:message id="Message_CA_SLAEntregaViolado" name="CA_SLAEntregaViolado"/>
+  <bpmn:message id="Message_CA_ComunicarCliente" name="CA_ComunicarCliente"/>
+  <bpmn:message id="Message_CA_EventoNegocio" name="CA_EventoNegocio"/>
+  <bpmn:error id="Error_CA_ConsentimentoNegado" name="Consentimento LGPD negado/expirado" errorCode="LGPD_CONSENT_NEGADO"/>
+  <bpmndi:BPMNDiagram id="BPMNDiagram_CA_SUPORTE">
+    <bpmndi:BPMNPlane id="BPMNPlane_CA_SUPORTE" bpmnElement="Collaboration_CA_SUPORTE">
+      <bpmndi:BPMNShape id="Participant_Cliente_di" bpmnElement="Participant_Cliente" isHorizontal="true">
+        <dc:Bounds x="275" y="80" width="2321" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CA_SUPORTE_di" bpmnElement="Participant_CA_SUPORTE" isHorizontal="true">
+        <dc:Bounds x="275" y="190" width="2321" height="1150"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_SUPORTE_Atendente_di" bpmnElement="LN_CA3_SUPORTE_Atendente" isHorizontal="true">
+        <dc:Bounds x="305" y="190" width="2291" height="380"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_SUPORTE_Triagem_di" bpmnElement="LN_CA3_SUPORTE_Triagem" isHorizontal="true">
+        <dc:Bounds x="305" y="570" width="2291" height="210"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_SUPORTE_Resolucao_di" bpmnElement="LN_CA3_SUPORTE_Resolucao" isHorizontal="true">
+        <dc:Bounds x="305" y="780" width="2291" height="270"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_SUPORTE_Qualidade_di" bpmnElement="LN_CA3_SUPORTE_Qualidade" isHorizontal="true">
+        <dc:Bounds x="305" y="1050" width="2291" height="290"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_Start_Contato_di" bpmnElement="SP_Start_Contato">
+        <dc:Bounds x="380" y="243" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="361" y="279" width="75" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_Start_Insatisfacao_di" bpmnElement="SP_Start_Insatisfacao">
+        <dc:Bounds x="380" y="363" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="367" y="421" width="62" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_Start_SLA_di" bpmnElement="SP_Start_SLA">
+        <dc:Bounds x="380" y="476" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="420" y="514" width="76" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_GW_MergeInicio_di" bpmnElement="SP_GW_MergeInicio" isMarkerVisible="true">
+        <dc:Bounds x="523" y="236" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_CA_S1_di" bpmnElement="SP_CA_S1">
+        <dc:Bounds x="648" y="221" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_GW_Origem_di" bpmnElement="SP_GW_Origem" isMarkerVisible="true">
+        <dc:Bounds x="823" y="236" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="877" y="288" width="52" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_CA_S2_di" bpmnElement="SP_CA_S2">
+        <dc:Bounds x="948" y="636" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_GW_Compra_di" bpmnElement="SP_GW_Compra" isMarkerVisible="true">
+        <dc:Bounds x="1123" y="651" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1177" y="703" width="58" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_End_Compra_di" bpmnElement="SP_End_Compra">
+        <dc:Bounds x="1280" y="658" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1259" y="621" width="77" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_GW_MergeResolver_di" bpmnElement="SP_GW_MergeResolver" isMarkerVisible="true">
+        <dc:Bounds x="1423" y="840" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_CA_S3_di" bpmnElement="SP_CA_S3">
+        <dc:Bounds x="1548" y="825" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_CA_S4_di" bpmnElement="SP_CA_S4">
+        <dc:Bounds x="1698" y="1083" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_GW_Desfecho_di" bpmnElement="SP_GW_Desfecho" isMarkerVisible="true">
+        <dc:Bounds x="1873" y="1098" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1927" y="1150" width="62" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_End_Resolvido_di" bpmnElement="SP_End_Resolvido">
+        <dc:Bounds x="2030" y="1105" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2021" y="1141" width="55" height="40"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_End_Ouvidoria_di" bpmnElement="SP_End_Ouvidoria">
+        <dc:Bounds x="2030" y="1231" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2010" y="1267" width="77" height="40"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="SP_End_SemConfirmacao_di" bpmnElement="SP_End_SemConfirmacao">
+        <dc:Bounds x="1430" y="1231" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1410" y="1267" width="76" height="40"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_01_di" bpmnElement="F_CA_SUPORTE_01">
+        <di:waypoint x="416" y="261"/>
+        <di:waypoint x="523" y="261"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_02_di" bpmnElement="F_CA_SUPORTE_02">
+        <di:waypoint x="416" y="381"/>
+        <di:waypoint x="548" y="381"/>
+        <di:waypoint x="548" y="286"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_03_di" bpmnElement="F_CA_SUPORTE_03">
+        <di:waypoint x="416" y="494"/>
+        <di:waypoint x="436" y="494"/>
+        <di:waypoint x="436" y="216"/>
+        <di:waypoint x="548" y="216"/>
+        <di:waypoint x="548" y="236"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_04_di" bpmnElement="F_CA_SUPORTE_04">
+        <di:waypoint x="573" y="261"/>
+        <di:waypoint x="648" y="261"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_05_di" bpmnElement="F_CA_SUPORTE_05">
+        <di:waypoint x="748" y="261"/>
+        <di:waypoint x="823" y="261"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_06_di" bpmnElement="F_CA_SUPORTE_06">
+        <di:waypoint x="848" y="286"/>
+        <di:waypoint x="848" y="676"/>
+        <di:waypoint x="948" y="676"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="853" y="474" width="35" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_07_di" bpmnElement="F_CA_SUPORTE_07">
+        <di:waypoint x="873" y="261"/>
+        <di:waypoint x="1448" y="261"/>
+        <di:waypoint x="1448" y="840"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1122" y="244" width="77" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_08_di" bpmnElement="F_CA_SUPORTE_08">
+        <di:waypoint x="1048" y="676"/>
+        <di:waypoint x="1123" y="676"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_09_di" bpmnElement="F_CA_SUPORTE_09">
+        <di:waypoint x="1173" y="676"/>
+        <di:waypoint x="1280" y="676"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1217" y="659" width="19" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_10_di" bpmnElement="F_CA_SUPORTE_10">
+        <di:waypoint x="1148" y="701"/>
+        <di:waypoint x="1148" y="865"/>
+        <di:waypoint x="1423" y="865"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1153" y="743" width="21" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_11_di" bpmnElement="F_CA_SUPORTE_11">
+        <di:waypoint x="1473" y="865"/>
+        <di:waypoint x="1548" y="865"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_12_di" bpmnElement="F_CA_SUPORTE_12">
+        <di:waypoint x="1598" y="905"/>
+        <di:waypoint x="1598" y="1123"/>
+        <di:waypoint x="1698" y="1123"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_13_di" bpmnElement="F_CA_SUPORTE_13">
+        <di:waypoint x="1798" y="1123"/>
+        <di:waypoint x="1873" y="1123"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_14_di" bpmnElement="F_CA_SUPORTE_14">
+        <di:waypoint x="1923" y="1123"/>
+        <di:waypoint x="2030" y="1123"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1952" y="1106" width="49" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_15_di" bpmnElement="F_CA_SUPORTE_15">
+        <di:waypoint x="1898" y="1148"/>
+        <di:waypoint x="1898" y="1249"/>
+        <di:waypoint x="2030" y="1249"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1903" y="1192" width="48" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_16_di" bpmnElement="F_CA_SUPORTE_16">
+        <di:waypoint x="1898" y="1098"/>
+        <di:waypoint x="1898" y="1028"/>
+        <di:waypoint x="1448" y="1028"/>
+        <di:waypoint x="1448" y="890"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1903" y="1057" width="68" height="40"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_17_di" bpmnElement="F_CA_SUPORTE_17">
+        <di:waypoint x="1883" y="1133"/>
+        <di:waypoint x="1883" y="1181"/>
+        <di:waypoint x="1448" y="1181"/>
+        <di:waypoint x="1448" y="1231"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1792" y="1167" width="86" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CompraUtil_di" bpmnElement="Participant_CompraUtil" isHorizontal="true">
+        <dc:Bounds x="275" y="1380" width="2321" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Participant_CA_SUPORTE_S1_OuvirRegistrar_di" bpmnElement="Participant_CA_SUPORTE_S1_OuvirRegistrar" isHorizontal="true">
+        <dc:Bounds x="275" y="1490" width="2321" height="680"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S1_Verificador_di" bpmnElement="LN_CA3_S1_Verificador" isHorizontal="true">
+        <dc:Bounds x="305" y="1490" width="2291" height="290"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S1_Insumos_di" bpmnElement="LN_CA3_S1_Insumos" isHorizontal="true">
+        <dc:Bounds x="305" y="1780" width="2291" height="250"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S1_Atendente_di" bpmnElement="LN_CA3_S1_Atendente" isHorizontal="true">
+        <dc:Bounds x="305" y="2030" width="2291" height="140"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_Start_di" bpmnElement="S1_Start">
+        <dc:Bounds x="380" y="1542" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="359" y="1578" width="79" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_CA_H1_di" bpmnElement="S1_CA_H1">
+        <dc:Bounds x="498" y="1520" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_GW_MergeCons_di" bpmnElement="S1_GW_MergeCons" isMarkerVisible="true">
+        <dc:Bounds x="673" y="1535" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_T_Contexto_di" bpmnElement="S1_T_Contexto">
+        <dc:Bounds x="798" y="1819" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_GW_Iniciativa_di" bpmnElement="S1_GW_Iniciativa" isMarkerVisible="true">
+        <dc:Bounds x="973" y="1834" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1027" y="1886" width="67" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_EV_Cuidando_di" bpmnElement="S1_EV_Cuidando">
+        <dc:Bounds x="1130" y="2072" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1103" y="2108" width="90" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_GW_Merge_di" bpmnElement="S1_GW_Merge" isMarkerVisible="true">
+        <dc:Bounds x="1273" y="2065" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_End_di" bpmnElement="S1_End">
+        <dc:Bounds x="1430" y="2072" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1409" y="2108" width="78" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S1_B_Consent_di" bpmnElement="S1_B_Consent">
+        <dc:Bounds x="530" y="1582" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="452" y="1620" width="74" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_01_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_01">
+        <di:waypoint x="416" y="1560"/>
+        <di:waypoint x="498" y="1560"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_02_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_02">
+        <di:waypoint x="598" y="1560"/>
+        <di:waypoint x="673" y="1560"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_03_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_03">
+        <di:waypoint x="698" y="1585"/>
+        <di:waypoint x="698" y="1859"/>
+        <di:waypoint x="798" y="1859"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_04_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_04">
+        <di:waypoint x="898" y="1859"/>
+        <di:waypoint x="973" y="1859"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_05_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_05">
+        <di:waypoint x="548" y="1618"/>
+        <di:waypoint x="548" y="1638"/>
+        <di:waypoint x="618" y="1638"/>
+        <di:waypoint x="618" y="1515"/>
+        <di:waypoint x="698" y="1515"/>
+        <di:waypoint x="698" y="1535"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_06_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_06">
+        <di:waypoint x="998" y="1884"/>
+        <di:waypoint x="998" y="2090"/>
+        <di:waypoint x="1130" y="2090"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1003" y="1995" width="19" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_07_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_07">
+        <di:waypoint x="1023" y="1859"/>
+        <di:waypoint x="1298" y="1859"/>
+        <di:waypoint x="1298" y="2065"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1150" y="1842" width="21" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_08_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_08">
+        <di:waypoint x="1166" y="2090"/>
+        <di:waypoint x="1273" y="2090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S1_OuvirRegistrar_09_di" bpmnElement="F_CA_SUPORTE_S1_OuvirRegistrar_09">
+        <di:waypoint x="1323" y="2090"/>
+        <di:waypoint x="1430" y="2090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_SUPORTE_S2_DiagnosticarRotear_di" bpmnElement="Participant_CA_SUPORTE_S2_DiagnosticarRotear" isHorizontal="true">
+        <dc:Bounds x="275" y="2210" width="2321" height="260"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S2_Triagem_di" bpmnElement="LN_CA3_S2_Triagem" isHorizontal="true">
+        <dc:Bounds x="305" y="2210" width="2291" height="260"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_Start_di" bpmnElement="S2_Start">
+        <dc:Bounds x="380" y="2263" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="359" y="2299" width="78" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_T_Triagem_di" bpmnElement="S2_T_Triagem">
+        <dc:Bounds x="498" y="2241" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_GW_Clinico_di" bpmnElement="S2_GW_Clinico" isMarkerVisible="true">
+        <dc:Bounds x="673" y="2256" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="657" y="2237" width="82" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_End_Humano_di" bpmnElement="S2_End_Humano">
+        <dc:Bounds x="830" y="2263" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="805" y="2299" width="87" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S2_End_IA_di" bpmnElement="S2_End_IA">
+        <dc:Bounds x="830" y="2376" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="818" y="2412" width="61" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S2_DiagnosticarRotear_01_di" bpmnElement="F_CA_SUPORTE_S2_DiagnosticarRotear_01">
+        <di:waypoint x="416" y="2281"/>
+        <di:waypoint x="498" y="2281"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S2_DiagnosticarRotear_02_di" bpmnElement="F_CA_SUPORTE_S2_DiagnosticarRotear_02">
+        <di:waypoint x="598" y="2281"/>
+        <di:waypoint x="673" y="2281"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S2_DiagnosticarRotear_03_di" bpmnElement="F_CA_SUPORTE_S2_DiagnosticarRotear_03">
+        <di:waypoint x="723" y="2281"/>
+        <di:waypoint x="830" y="2281"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="744" y="2251" width="65" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S2_DiagnosticarRotear_04_di" bpmnElement="F_CA_SUPORTE_S2_DiagnosticarRotear_04">
+        <di:waypoint x="698" y="2306"/>
+        <di:waypoint x="698" y="2394"/>
+        <di:waypoint x="830" y="2394"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="703" y="2336" width="68" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_SUPORTE_S3_ResolverEncaminhar_di" bpmnElement="Participant_CA_SUPORTE_S3_ResolverEncaminhar" isHorizontal="true">
+        <dc:Bounds x="275" y="2510" width="2321" height="810"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S3_Resolucao_di" bpmnElement="LN_CA3_S3_Resolucao" isHorizontal="true">
+        <dc:Bounds x="305" y="2510" width="2291" height="500"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S3_Supervisao_di" bpmnElement="LN_CA3_S3_Supervisao" isHorizontal="true">
+        <dc:Bounds x="305" y="3010" width="2291" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S3_Enfermagem_di" bpmnElement="LN_CA3_S3_Enfermagem" isHorizontal="true">
+        <dc:Bounds x="305" y="3170" width="2291" height="150"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_Start_di" bpmnElement="S3_Start">
+        <dc:Bounds x="380" y="2566" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="365" y="2602" width="67" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_GW_Origem_di" bpmnElement="S3_GW_Origem" isMarkerVisible="true">
+        <dc:Bounds x="523" y="2559" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="577" y="2611" width="59" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_IA_di" bpmnElement="S3_T_IA">
+        <dc:Bounds x="648" y="2544" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_GW_Confianca_di" bpmnElement="S3_GW_Confianca" isMarkerVisible="true">
+        <dc:Bounds x="823" y="2559" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="763" y="2611" width="56" height="53"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_IA_di" bpmnElement="S3_End_IA">
+        <dc:Bounds x="980" y="2566" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="958" y="2602" width="81" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_GW_MergeHumano_di" bpmnElement="S3_GW_MergeHumano" isMarkerVisible="true">
+        <dc:Bounds x="1123" y="2559" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_GW_Natureza_di" bpmnElement="S3_GW_Natureza" isMarkerVisible="true">
+        <dc:Bounds x="1273" y="2559" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1183" y="2611" width="86" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Especialista_di" bpmnElement="S3_T_Especialista">
+        <dc:Bounds x="1548" y="2712" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Enfermagem_di" bpmnElement="S3_T_Enfermagem">
+        <dc:Bounds x="1398" y="3205" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_GW_MergeAtend_di" bpmnElement="S3_GW_MergeAtend" isMarkerVisible="true">
+        <dc:Bounds x="1573" y="2559" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_GW_PrimeiroContato_di" bpmnElement="S3_GW_PrimeiroContato" isMarkerVisible="true">
+        <dc:Bounds x="1723" y="2559" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1634" y="2611" width="85" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_Resolvido_di" bpmnElement="S3_End_Resolvido">
+        <dc:Bounds x="1880" y="2566" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1855" y="2602" width="87" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Protocolo_di" bpmnElement="S3_T_Protocolo">
+        <dc:Bounds x="1998" y="2712" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Cumprir_di" bpmnElement="S3_T_Cumprir">
+        <dc:Bounds x="2148" y="2712" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Priorizar_di" bpmnElement="S3_T_Priorizar">
+        <dc:Bounds x="2298" y="3050" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_Priorizado_di" bpmnElement="S3_End_Priorizado">
+        <dc:Bounds x="2480" y="2900" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2520" y="2938" width="49" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_Retorno_di" bpmnElement="S3_End_Retorno">
+        <dc:Bounds x="2330" y="2734" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2305" y="2770" width="86" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Recovery_di" bpmnElement="S3_T_Recovery">
+        <dc:Bounds x="648" y="2712" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Supervisor_di" bpmnElement="S3_T_Supervisor">
+        <dc:Bounds x="798" y="3050" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_Supervisor_di" bpmnElement="S3_End_Supervisor">
+        <dc:Bounds x="980" y="2734" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1020" y="2772" width="76" height="40"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_Recovery_di" bpmnElement="S3_End_Recovery">
+        <dc:Bounds x="830" y="2734" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="825" y="2770" width="47" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_Intervencao_di" bpmnElement="S3_T_Intervencao">
+        <dc:Bounds x="648" y="2878" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_Intervencao_di" bpmnElement="S3_End_Intervencao">
+        <dc:Bounds x="830" y="2900" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="813" y="2936" width="71" height="40"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_B_SLARecovery_di" bpmnElement="S3_B_SLARecovery">
+        <dc:Bounds x="680" y="2774" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="720" y="2812" width="88" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_B_D1_di" bpmnElement="S3_B_D1">
+        <dc:Bounds x="2180" y="2774" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="2220" y="2812" width="64" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_01_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_01">
+        <di:waypoint x="416" y="2584"/>
+        <di:waypoint x="523" y="2584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_02_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_02">
+        <di:waypoint x="573" y="2584"/>
+        <di:waypoint x="648" y="2584"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="605" y="2567" width="11" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_03_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_03">
+        <di:waypoint x="548" y="2609"/>
+        <di:waypoint x="548" y="2752"/>
+        <di:waypoint x="648" y="2752"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="553" y="2674" width="82" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_04_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_04">
+        <di:waypoint x="533" y="2594"/>
+        <di:waypoint x="533" y="2918"/>
+        <di:waypoint x="648" y="2918"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="452" y="2749" width="76" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_05_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_05">
+        <di:waypoint x="548" y="2559"/>
+        <di:waypoint x="548" y="2526"/>
+        <di:waypoint x="1148" y="2526"/>
+        <di:waypoint x="1148" y="2559"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="553" y="2536" width="59" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_06_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_06">
+        <di:waypoint x="748" y="2584"/>
+        <di:waypoint x="823" y="2584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_07_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_07">
+        <di:waypoint x="873" y="2584"/>
+        <di:waypoint x="980" y="2584"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="884" y="2567" width="86" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_08_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_08">
+        <di:waypoint x="848" y="2609"/>
+        <di:waypoint x="848" y="2629"/>
+        <di:waypoint x="1148" y="2629"/>
+        <di:waypoint x="1148" y="2609"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="853" y="2612" width="73" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_09_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_09">
+        <di:waypoint x="1173" y="2584"/>
+        <di:waypoint x="1273" y="2584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_10_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_10">
+        <di:waypoint x="1298" y="2609"/>
+        <di:waypoint x="1298" y="3245"/>
+        <di:waypoint x="1398" y="3245"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1303" y="2920" width="34" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_11_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_11">
+        <di:waypoint x="1323" y="2584"/>
+        <di:waypoint x="1343" y="2584"/>
+        <di:waypoint x="1343" y="2752"/>
+        <di:waypoint x="1548" y="2752"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1327" y="2567" width="70" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_12_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_12">
+        <di:waypoint x="1598" y="2712"/>
+        <di:waypoint x="1598" y="2609"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_13_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_13">
+        <di:waypoint x="1448" y="3205"/>
+        <di:waypoint x="1448" y="2584"/>
+        <di:waypoint x="1573" y="2584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_14_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_14">
+        <di:waypoint x="1623" y="2584"/>
+        <di:waypoint x="1723" y="2584"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_15_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_15">
+        <di:waypoint x="1773" y="2584"/>
+        <di:waypoint x="1880" y="2584"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1817" y="2567" width="19" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_16_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_16">
+        <di:waypoint x="1748" y="2609"/>
+        <di:waypoint x="1748" y="2752"/>
+        <di:waypoint x="1998" y="2752"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1753" y="2674" width="21" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_17_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_17">
+        <di:waypoint x="2098" y="2752"/>
+        <di:waypoint x="2148" y="2752"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_18_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_18">
+        <di:waypoint x="2248" y="2752"/>
+        <di:waypoint x="2330" y="2752"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_19_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_19">
+        <di:waypoint x="2198" y="2810"/>
+        <di:waypoint x="2198" y="3090"/>
+        <di:waypoint x="2298" y="3090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_20_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_20">
+        <di:waypoint x="2398" y="3090"/>
+        <di:waypoint x="2498" y="3090"/>
+        <di:waypoint x="2498" y="2936"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_21_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_21">
+        <di:waypoint x="748" y="2752"/>
+        <di:waypoint x="830" y="2752"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_22_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_22">
+        <di:waypoint x="698" y="2810"/>
+        <di:waypoint x="698" y="2830"/>
+        <di:waypoint x="768" y="2830"/>
+        <di:waypoint x="768" y="3090"/>
+        <di:waypoint x="798" y="3090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_23_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_23">
+        <di:waypoint x="898" y="3090"/>
+        <di:waypoint x="998" y="3090"/>
+        <di:waypoint x="998" y="2770"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_24_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_24">
+        <di:waypoint x="748" y="2918"/>
+        <di:waypoint x="830" y="2918"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_CA_SUPORTE_S4_ConfirmarEncerrar_di" bpmnElement="Participant_CA_SUPORTE_S4_ConfirmarEncerrar" isHorizontal="true">
+        <dc:Bounds x="275" y="3360" width="2321" height="360"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S4_Qualidade_di" bpmnElement="LN_CA3_S4_Qualidade" isHorizontal="true">
+        <dc:Bounds x="305" y="3360" width="2291" height="190"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="LN_CA3_S4_Resolucao_di" bpmnElement="LN_CA3_S4_Resolucao" isHorizontal="true">
+        <dc:Bounds x="305" y="3550" width="2291" height="170"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_Start_di" bpmnElement="S4_Start">
+        <dc:Bounds x="380" y="3419" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="355" y="3455" width="87" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_T_Confirmar_di" bpmnElement="S4_T_Confirmar">
+        <dc:Bounds x="498" y="3397" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_GW_Resolvido_di" bpmnElement="S4_GW_Resolvido" isMarkerVisible="true">
+        <dc:Bounds x="673" y="3412" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="655" y="3462" width="86" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_GW_Rota_di" bpmnElement="S4_GW_Rota" isMarkerVisible="true">
+        <dc:Bounds x="823" y="3412" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="877" y="3464" width="70" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_T_Ouvidoria_di" bpmnElement="S4_T_Ouvidoria">
+        <dc:Bounds x="948" y="3595" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_GW_MergeAprender_di" bpmnElement="S4_GW_MergeAprender" isMarkerVisible="true">
+        <dc:Bounds x="1123" y="3412" width="50" height="50"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_T_Aprender_di" bpmnElement="S4_T_Aprender">
+        <dc:Bounds x="1248" y="3397" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_EV_Aprendizado_di" bpmnElement="S4_EV_Aprendizado">
+        <dc:Bounds x="1430" y="3419" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1408" y="3455" width="80" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_End_di" bpmnElement="S4_End">
+        <dc:Bounds x="1580" y="3419" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1559" y="3455" width="79" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_End_Reencaminhar_di" bpmnElement="S4_End_Reencaminhar">
+        <dc:Bounds x="980" y="3419" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="955" y="3455" width="87" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S4_B_Silencio_di" bpmnElement="S4_B_Silencio">
+        <dc:Bounds x="530" y="3459" width="36" height="36"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="570" y="3497" width="79" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_01_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_01">
+        <di:waypoint x="416" y="3437"/>
+        <di:waypoint x="498" y="3437"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_02_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_02">
+        <di:waypoint x="598" y="3437"/>
+        <di:waypoint x="673" y="3437"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_03_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_03">
+        <di:waypoint x="698" y="3412"/>
+        <di:waypoint x="698" y="3392"/>
+        <di:waypoint x="1148" y="3392"/>
+        <di:waypoint x="1148" y="3412"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="703" y="3395" width="19" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_04_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_04">
+        <di:waypoint x="723" y="3437"/>
+        <di:waypoint x="823" y="3437"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="762" y="3420" width="21" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_05_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_05">
+        <di:waypoint x="873" y="3437"/>
+        <di:waypoint x="980" y="3437"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="894" y="3407" width="66" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_06_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_06">
+        <di:waypoint x="848" y="3462"/>
+        <di:waypoint x="848" y="3635"/>
+        <di:waypoint x="948" y="3635"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="853" y="3576" width="81" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_07_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_07">
+        <di:waypoint x="1048" y="3635"/>
+        <di:waypoint x="1148" y="3635"/>
+        <di:waypoint x="1148" y="3462"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_08_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_08">
+        <di:waypoint x="548" y="3495"/>
+        <di:waypoint x="548" y="3515"/>
+        <di:waypoint x="1052" y="3515"/>
+        <di:waypoint x="1052" y="3437"/>
+        <di:waypoint x="1123" y="3437"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_09_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_09">
+        <di:waypoint x="1173" y="3437"/>
+        <di:waypoint x="1248" y="3437"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_10_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_10">
+        <di:waypoint x="1348" y="3437"/>
+        <di:waypoint x="1430" y="3437"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S4_ConfirmarEncerrar_11_di" bpmnElement="F_CA_SUPORTE_S4_ConfirmarEncerrar_11">
+        <di:waypoint x="1466" y="3437"/>
+        <di:waypoint x="1580" y="3437"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="Participant_Ouvidoria_di" bpmnElement="Participant_Ouvidoria" isHorizontal="true">
+        <dc:Bounds x="275" y="3760" width="2321" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Association_11mohme_di" bpmnElement="Association_11mohme">
+        <di:waypoint x="398" y="363"/>
+        <di:waypoint x="398" y="321"/>
+        <di:waypoint x="260" y="321"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SP_01_di" bpmnElement="MF_SP_01">
+        <di:waypoint x="398" y="150"/>
+        <di:waypoint x="398" y="243"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SP_02_di" bpmnElement="MF_SP_02">
+        <di:waypoint x="338" y="1380"/>
+        <di:waypoint x="338" y="419"/>
+        <di:waypoint x="398" y="419"/>
+        <di:waypoint x="398" y="399"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SP_03_di" bpmnElement="MF_SP_03">
+        <di:waypoint x="398" y="1380"/>
+        <di:waypoint x="398" y="512"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SP_04_di" bpmnElement="MF_SP_04">
+        <di:waypoint x="1298" y="694"/>
+        <di:waypoint x="1298" y="1380"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1303" y="1191" width="83" height="27"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="MF_SP_05_di" bpmnElement="MF_SP_05">
+        <di:waypoint x="998" y="3675"/>
+        <di:waypoint x="998" y="3760"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1003" y="3728" width="66" height="14"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="TextAnnotation_16ktuur_di" bpmnElement="TextAnnotation_16ktuur">
+        <dc:Bounds x="160" y="306" width="100" height="30"/>
+        <bpmndi:BPMNLabel/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DSR_INS_030_1_di" bpmnElement="DSR_INS_030_1">
+        <dc:Bounds x="673" y="326" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="653" y="380" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_030_1_di" bpmnElement="DIA_INS_030_1">
+        <di:waypoint x="698" y="326"/>
+        <di:waypoint x="698" y="301"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_031_1_di" bpmnElement="DSR_INS_031_1">
+        <dc:Bounds x="758" y="651" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="738" y="705" width="90" height="39"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_031_1_di" bpmnElement="DIA_INS_031_1">
+        <di:waypoint x="808" y="676"/>
+        <di:waypoint x="839" y="676"/>
+        <di:waypoint x="839" y="696"/>
+        <di:waypoint x="948" y="696"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_033_1_di" bpmnElement="DOR_INS_033_1">
+        <dc:Bounds x="1610" y="1218" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1583" y="1272" width="90" height="52"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_033_1_di" bpmnElement="DIA_INS_033_1">
+        <di:waypoint x="1628" y="1218"/>
+        <di:waypoint x="1628" y="1143"/>
+        <di:waypoint x="1698" y="1143"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_034_1_di" bpmnElement="DOR_INS_034_1">
+        <dc:Bounds x="1730" y="1233" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1703" y="1287" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_034_1_di" bpmnElement="DIA_INS_034_1">
+        <di:waypoint x="1748" y="1233"/>
+        <di:waypoint x="1748" y="1163"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DOR_INS_004_1_di" bpmnElement="DOR_INS_004_1">
+        <dc:Bounds x="410" y="1656" width="36" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="450" y="1656" width="90" height="78"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_004_1_di" bpmnElement="DIA_INS_004_1">
+        <di:waypoint x="428" y="1656"/>
+        <di:waypoint x="428" y="1610"/>
+        <di:waypoint x="518" y="1610"/>
+        <di:waypoint x="518" y="1600"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_012_1_di" bpmnElement="DSR_INS_012_1">
+        <dc:Bounds x="783" y="1923" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="763" y="1977" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_012_1_di" bpmnElement="DIA_INS_012_1">
+        <di:waypoint x="808" y="1923"/>
+        <di:waypoint x="808" y="1899"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_030_2_di" bpmnElement="DSR_INS_030_2">
+        <dc:Bounds x="883" y="1923" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="863" y="1977" width="90" height="26"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_030_2_di" bpmnElement="DIA_INS_030_2">
+        <di:waypoint x="908" y="1923"/>
+        <di:waypoint x="908" y="1879"/>
+        <di:waypoint x="898" y="1879"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="DSR_INS_032_1_di" bpmnElement="DSR_INS_032_1">
+        <dc:Bounds x="1613" y="929" width="50" height="50"/>
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="1667" y="929" width="90" height="65"/>
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DIA_INS_032_1_di" bpmnElement="DIA_INS_032_1">
+        <di:waypoint x="1638" y="929"/>
+        <di:waypoint x="1638" y="905"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_B_SLA_Especialista_di" bpmnElement="S3_B_SLA_Especialista">
+        <dc:Bounds x="1580" y="2774" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_EscalarEspecialista_di" bpmnElement="S3_T_EscalarEspecialista">
+        <dc:Bounds x="1548" y="2850" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_SLA_Especialista_di" bpmnElement="S3_End_SLA_Especialista">
+        <dc:Bounds x="1730" y="2872" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_25_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_25">
+        <di:waypoint x="1598" y="2810"/>
+        <di:waypoint x="1598" y="2850"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_26_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_26">
+        <di:waypoint x="1648" y="2890"/>
+        <di:waypoint x="1730" y="2890"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_B_SLA_Enfermagem_di" bpmnElement="S3_B_SLA_Enfermagem">
+        <dc:Bounds x="1430" y="3267" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_EscalarEnfermagem_di" bpmnElement="S3_T_EscalarEnfermagem">
+        <dc:Bounds x="1560" y="3205" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_SLA_Enfermagem_di" bpmnElement="S3_End_SLA_Enfermagem">
+        <dc:Bounds x="1730" y="3227" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_27_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_27">
+        <di:waypoint x="1448" y="3303"/>
+        <di:waypoint x="1448" y="3312"/>
+        <di:waypoint x="1610" y="3312"/>
+        <di:waypoint x="1610" y="3285"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_28_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_28">
+        <di:waypoint x="1660" y="3245"/>
+        <di:waypoint x="1730" y="3245"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_B_SLA_Protocolo_di" bpmnElement="S3_B_SLA_Protocolo">
+        <dc:Bounds x="2030" y="2774" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_EscalarProtocolo_di" bpmnElement="S3_T_EscalarProtocolo">
+        <dc:Bounds x="1998" y="2850" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_SLA_Protocolo_di" bpmnElement="S3_End_SLA_Protocolo">
+        <dc:Bounds x="2160" y="2872" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_29_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_29">
+        <di:waypoint x="2048" y="2810"/>
+        <di:waypoint x="2048" y="2850"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_30_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_30">
+        <di:waypoint x="2098" y="2890"/>
+        <di:waypoint x="2160" y="2890"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_B_SLA_Priorizar_di" bpmnElement="S3_B_SLA_Priorizar">
+        <dc:Bounds x="2330" y="3112" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_EscalarPriorizar_di" bpmnElement="S3_T_EscalarPriorizar">
+        <dc:Bounds x="2440" y="3050" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_SLA_Priorizar_di" bpmnElement="S3_End_SLA_Priorizar">
+        <dc:Bounds x="2552" y="3072" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_31_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_31">
+        <di:waypoint x="2348" y="3148"/>
+        <di:waypoint x="2348" y="3162"/>
+        <di:waypoint x="2490" y="3162"/>
+        <di:waypoint x="2490" y="3130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_32_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_32">
+        <di:waypoint x="2540" y="3090"/>
+        <di:waypoint x="2552" y="3090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_B_SLA_Supervisor_di" bpmnElement="S3_B_SLA_Supervisor">
+        <dc:Bounds x="830" y="3112" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_EscalarSupervisao_di" bpmnElement="S3_T_EscalarSupervisao">
+        <dc:Bounds x="940" y="3050" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_SLA_Supervisao_di" bpmnElement="S3_End_SLA_Supervisao">
+        <dc:Bounds x="1110" y="3072" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_33_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_33">
+        <di:waypoint x="848" y="3148"/>
+        <di:waypoint x="848" y="3162"/>
+        <di:waypoint x="990" y="3162"/>
+        <di:waypoint x="990" y="3130"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_34_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_34">
+        <di:waypoint x="1040" y="3090"/>
+        <di:waypoint x="1110" y="3090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNShape id="S3_B_SLA_Intervencao_di" bpmnElement="S3_B_SLA_Intervencao">
+        <dc:Bounds x="680" y="2940" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_T_EscalarIntervencao_di" bpmnElement="S3_T_EscalarIntervencao">
+        <dc:Bounds x="880" y="2878" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="S3_End_SLA_Intervencao_di" bpmnElement="S3_End_SLA_Intervencao">
+        <dc:Bounds x="1040" y="2900" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_35_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_35">
+        <di:waypoint x="698" y="2976"/>
+        <di:waypoint x="698" y="2992"/>
+        <di:waypoint x="930" y="2992"/>
+        <di:waypoint x="930" y="2958"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="F_CA_SUPORTE_S3_ResolverEncaminhar_36_di" bpmnElement="F_CA_SUPORTE_S3_ResolverEncaminhar_36">
+        <di:waypoint x="980" y="2918"/>
+        <di:waypoint x="1040" y="2918"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

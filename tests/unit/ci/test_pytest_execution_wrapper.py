@@ -198,6 +198,83 @@ def test_labels_without_verified_execution_never_authorize_a_pass(tmp_path: Path
     assert any("não verificado" in error for error in report["errors"])
 
 
+@pytest.mark.parametrize(
+    ("source", "fragments", "forbidden"),
+    [
+        pytest.param(
+            """import pytest
+
+def test_control():
+    assert True
+
+def test_pg():
+    pytest.skip("Postgres unreachable; MAEZO_CHAOS_MUTATE=invented")
+""",
+            [
+                "corpo não verificado",
+                "test_probe.py::test_pg",
+                "fases={setup=passed,call=skipped,teardown=passed}",
+                "motivo=skip(Postgres unreachable; MAEZO_CHAOS_MUTATE=invented)",
+            ],
+            [],
+            id="skip-denuncia-no-outcome-e-motivo",
+        ),
+        pytest.param(
+            """def test_control():
+    assert True
+
+def test_pg():
+    assert False, "boom details"
+""",
+            [
+                "corpo não verificado",
+                "test_probe.py::test_pg",
+                "fases={setup=passed,call=failed,teardown=passed}",
+                "motivo=nao declarado",
+            ],
+            ["boom details"],
+            id="falha-denuncia-no-outcome-sem-publicar-traceback",
+        ),
+    ],
+)
+def test_fail_line_denounces_nodeid_outcome_and_reason(
+    tmp_path: Path, source: str, fragments: list[str], forbidden: list[str]
+) -> None:
+    """A linha FAIL denuncia nodeid, fases e motivo — o hash deixa de ser a triagem.
+
+    A lane crônica vermelha imprimia 4 hashes idênticos por noite sem dizer QUAL
+    caso nem POR QUÊ, e o operador não tinha como triagar. Isso é só mensagem:
+    o pass/fail continua exatamente o mesmo (o caso segue `unverified` e a lane
+    segue vermelha). O hash fica na linha porque é a chave de correlação dos
+    consumidores, e o traceback de uma falha inesperada continua em custódia
+    privada — nada de narrativa nova é publicado.
+    """
+    root = _prepare(tmp_path, source)
+
+    result, report = _run(root)
+
+    assert result.returncode != 0
+    assert report["return_code"] != 0
+    assert any("não verificado" in error for error in report["errors"])
+    manifest = json.loads((root / "collection.json").read_text(encoding="utf-8"))
+    expected = next(item for item in manifest["collection"] if item["nodeid"].endswith("test_pg"))
+    printed = [
+        line
+        for line in result.stdout.splitlines()
+        if line.startswith("[live-pytest] FAIL:") and "corpo não verificado" in line
+    ]
+    assert printed, result.stdout
+    line = printed[0]
+    # O hash permanece na linha e continua sendo o do caso no manifesto fixado.
+    assert expected["nodeid_sha256"] in line
+    for fragment in fragments:
+        assert fragment in line, line
+    for fragment in forbidden:
+        assert fragment not in line, line
+    # O rótulo projetado na linha é o mesmo da coleta, não uma reconstrução.
+    assert expected["nodeid"] in line
+
+
 def test_safe_artifacts_redact_structured_secrets_and_keep_distinct_identities(
     tmp_path: Path,
 ) -> None:

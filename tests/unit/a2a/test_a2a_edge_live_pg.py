@@ -68,6 +68,7 @@ from maezo.runtime.agent_runtime.settings import AgentRuntimeSettings
 from maezo.runtime.inference import InferenceProvider, InferenceSettings
 from maezo.runtime.start_outcome import StartProcessFailedError
 from tests.integration.processes.engine_rest import EngineRest
+from tests.support.engine_tenant_deploy import deploy_for_tenant
 
 pytestmark = pytest.mark.integration
 
@@ -220,8 +221,27 @@ def _resolve_verified_live_auth_engine() -> str:
 
 
 @pytest.fixture(scope="module")
-def live_engine_url() -> str:
-    return _resolve_verified_live_auth_engine()
+def live_engine_url(tenant_schema: str) -> str:
+    """Resolved engine URL, com as definicoes que o turno vai iniciar DEPLOYADAS NO TENANT dele.
+
+    Desde 8c7ee8e3 ("Inicia processos no tenant da conversa") todo start de agente nasce em
+    `/process-definition/key/{key}/tenant-id/{tenant}/start` (`build_cibseven_seam` amarra
+    `tenant_id=seam.tenant`), e o motor NAO cai na copia compartilhada: medido no CIB Seven
+    2.1.0 local, `tenant-id/<sem definicao>/start` devolve 404 "No matching process definition
+    with key ... and tenant-id ..." — que e' EXATAMENTE o vermelho desta suite desde entao
+    (`StartProcessFailedError: ... o turno NAO foi concluido`, noturnos 29/09→02/10; o setup
+    passava porque a copia SHARED existia, deployada pela suite de processos de auth que roda
+    antes no mesmo shard). Nenhum passo de workflow pode pre-publicar definicao para este
+    tenant: ele e' o SCHEMA aleatorio da propria sessao (`tenant_schema`, `a2aw3<hex>`), que so'
+    existe daqui. O deploy por tenant e' o mecanismo que as suites irma' ja' usam
+    (`tests/support/engine_tenant_deploy.py::deploy_for_tenant` — adequacao, contas, t33-a1,
+    inadimplencia): BPMN + toda DMN que ele referencia por `decisionRef`, idempotente, nome de
+    deployment proprio (`it-tenant-<tenant>`), entao NAO toca no deployment compartilhado
+    `maezo-spec-processes` que `_resolve_verified_live_auth_engine` acabou de byte-conferir.
+    """
+    base_url = _resolve_verified_live_auth_engine()
+    deploy_for_tenant(base_url, tenant_schema, "SP-OP-AUTH-001")
+    return base_url
 
 
 def _settings(*, tenant: str, database_url: str, engine_rest_url: str) -> AgentRuntimeSettings:

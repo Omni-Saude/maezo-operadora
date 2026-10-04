@@ -449,6 +449,35 @@ recentes();setInterval(recentes,15000);
 </script></body></html>"""
 
 
+#: O que a rota `/p/` aceita como nome de arquivo: UM componente, por lista FECHADA de
+#: caracteres. Ponto, traco e traco baixo entram porque sao os nomes que `paginas/` usa; TUDO
+#: que o padrao nao casa nao existe como pagina — inclusive `..`, `/`, `\` e `%`.
+_PADRAO_PAGINA = re.compile(r"[A-Za-z0-9._-]+")
+
+
+def _validar_nome_pagina(pedido: str) -> str | None:
+    """Devolve o nome de arquivo pedido em `/p/<nome>`, ou `None` quando o pedido e' recusado.
+
+    O controle anterior era `os.path.basename`: barrava travessia por EFEITO COLATERAL do
+    formato do pedido (a barra que faz `../` sumir e' a mesma que faz `pagina.html/extra`
+    virar `extra`), e o CodeQL nao reconhece esse padrao como saneador — as regras
+    `py/path-injection` ficaram abertas sobre a linha do `resolve`. Um `fullmatch` de lista
+    fechada e' uma regra que se explica: recusa vazio, `..`, `../../etc/passwd`, `a/b`,
+    `%2e%2e` (o `%` nao esta' na lista). O ponto e' caractere legitimo de pagina
+    (`escalonamento.html`), entao os apelidos de diretorio feitos SO de pontos — `.`, `..`,
+    `...` — sao recusados a parte, no PRIMEIRO controle, e nao deixados para a comparacao de
+    pai, que e' o segundo. Nada daqui vira caminho sem passar por esta funcao, e quem e'
+    recusado aqui recebe 404 em `_servir_pagina` — que mantem `resolve` + comparacao de pai
+    como SEGUNDO controle, porque e' o que fecha link simbolico: dois controles porque um so'
+    e' um controle.
+    """
+    if pedido.strip(".") == "":
+        return None
+    if _PADRAO_PAGINA.fullmatch(pedido):
+        return pedido
+    return None
+
+
 def _paginas_disponiveis() -> list[str]:
     """Nomes servidos hoje. Vai na resposta 404 para quem errou o nome nao ter de adivinhar."""
     if not PAGINAS.is_dir():
@@ -526,12 +555,19 @@ class Handler(BaseHTTPRequestHandler):
         emitir uma credencial que contorna autenticacao humana.
         """
         pedido = self.path[len("/p/") :].split("?")[0]
-        # `basename` remove qualquer `../`; o `resolve` + comparacao de pai abaixo fecha
-        # tambem link simbolico. Dois controles porque um so' e' um controle.
-        nome = os.path.basename(pedido)
+        # Lista fechada de nomes ANTES de virar caminho (ver `_validar_nome_pagina`); o
+        # `resolve` + comparacao de pai abaixo fecha tambem link simbolico. Dois controles
+        # porque um so' e' um controle.
+        nome = _validar_nome_pagina(pedido)
+        if nome is None:
+            self._responder_json(
+                404,
+                {"erro": f"pagina nao encontrada: {pedido!r}", "disponiveis": _paginas_disponiveis()},
+            )
+            return
         alvo = (PAGINAS / nome).resolve()
         tipo = TIPOS.get(alvo.suffix.lower())
-        if not nome or tipo is None or alvo.parent != PAGINAS.resolve() or not alvo.is_file():
+        if tipo is None or alvo.parent != PAGINAS.resolve() or not alvo.is_file():
             self._responder_json(
                 404, {"erro": f"pagina nao encontrada: {nome!r}", "disponiveis": _paginas_disponiveis()}
             )

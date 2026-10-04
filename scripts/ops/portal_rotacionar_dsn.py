@@ -43,7 +43,9 @@ async def main() -> None:
     user, pwd, host, port, db = m.group(1), m.group(2), m.group(3), int(m.group(4)), m.group(5)
     if user != ROLE:
         raise SystemExit(f"usuario da DSN ({user}) nao e' a role do portal; nada foi alterado")
-    print(f"DSN lida do Secrets Manager por API: role={user} host={host} db={db} (senha nunca impressa)")
+    # Nem o host entra no log: ele vem do MESMO segredo que a senha, e o que sai de um
+    # Secrets Manager nao pode reaparecer em claro em lugar nenhum (alerta #19 do CodeQL).
+    print(f"DSN lida do Secrets Manager por API: role={user} db={db} (senha e host nunca impressos)")
 
     verificador = scram_verifier(pwd)
     print("verificador SCRAM-SHA-256 derivado dentro do container (4096 iteracoes, salt de 16 bytes)")

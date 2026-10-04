@@ -1355,6 +1355,11 @@ jobs:
           - shard: cred-ans
             alvo: tests/integration/processes/test_sp_op_cred_001.py tests/integration/processes/test_sp_op_ans_submit_001.py tests/integration/processes/test_sp_op_pagto_001.py tests/integration/processes/test_sp_op_ans_cron_001.py
           - shard: restante
+            # `publica_artefatos` liga SO' neste shard o passo "Deploy canonical artifacts": e' o
+            # unico que coleta modulos `integration` sob tests/unit/, que nao tem fixture de
+            # deploy por arquivo (os 4 shards de tests/integration/processes/ deployam cada um
+            # as suas). Entrada sem a chave => `matrix.publica_artefatos` vazio => passo pulado.
+            publica_artefatos: true
             alvo: tests --ignore=tests/integration/processes/test_sp_op_reembolso_001.py --ignore=tests/integration/processes/test_sp_op_lgpd_dsr_001.py --ignore=tests/integration/processes/test_sp_op_recurso_001.py --ignore=tests/integration/processes/test_sp_op_nip_001.py --ignore=tests/integration/processes/test_sp_op_programa_001.py --ignore=tests/integration/processes/test_t33_a2_agent_start_idempotency_matrix.py --ignore=tests/integration/processes/test_t33_a1_cancel_handoff_redelivery_idempotency.py --ignore=tests/integration/processes/test_lgpd_execution_refusal.py --ignore=tests/integration/processes/test_sp_op_cancel_001.py --ignore=tests/integration/processes/test_sp_op_contas_001.py --ignore=tests/integration/processes/test_sp_op_inadimplencia_001.py --ignore=tests/integration/processes/test_sp_op_escalation_001.py --ignore=tests/integration/processes/test_sp_op_cred_001.py --ignore=tests/integration/processes/test_sp_op_ans_submit_001.py --ignore=tests/integration/processes/test_sp_op_pagto_001.py --ignore=tests/integration/processes/test_sp_op_ans_cron_001.py
     runs-on: ubuntu-latest
     # `needs: [quality]` RESTAURADO (18/09/2026): sumiu no squash de #378 sem justificativa, e o
@@ -1605,6 +1610,43 @@ jobs:
           timeout 90 bash -c 'until docker compose exec -T kafka kafka-broker-api-versions --bootstrap-server kafka:29092 > /dev/null 2>&1; do sleep 5; done' \
             || { echo "ERROR: Kafka did not become ready within 90s"; exit 1; }
           echo "All services healthy."
+
+      # ── IMPL-8 (02/10/2026): este job NUNCA publicou o tree canonico no engine dele. Quem
+      # deploya hoje e' a fixture de CADA arquivo de tests/integration/processes/ (ex.
+      # `test_sp_op_auth_001.py::deploy_artifacts`, 1 BPMN + 3 DMN, por arquivo) — e os modulos
+      # marcados `integration` que moram sob tests/unit/ (so' o shard `restante` os coleta)
+      # assumem o tree INTEIRO ja' deployado: o docstring de
+      # `tests/unit/a2a/test_a2a_edge_live_pg.py` ("The runner already deploys and byte-verifies
+      # all canonical artifacts before pytest") descreve o runner LOCAL
+      # (`scripts/dev/run_engine_integration.py::_deploy_and_verify`), nunca esta lane. Prova do
+      # buraco pela lista de passos AUTORITATIVA do job 110733621135 (`integration (restante)`,
+      # noturno 02/10, vermelho no passo "Integration tests"): Set up job → checkout → paths →
+      # gate → setup-python → uv → Install dependencies → colecao → Start core stack → Wait for
+      # stack to be healthy → Integration tests → upload — NENHUM passo publica artefato. Enquanto
+      # nada publica a copia SHARED, o setup desses modulos dependia de outra suite ter deployado
+      # antes no MESMO shard (a de auth, 18 casos, coleta antes de tests/unit/); sem essa sorte de
+      # ordem, `latest_definition_xml("SP-OP-AUTH-001")` esbarra no 404 que
+      # `tests/integration/processes/engine_rest.py:537` traduz para `EngineRestError:
+      # process-definition-key ... nao esta deployada` — o modo de falha que o docstring falso
+      # produz.
+      # O entrypoint e' o MESMO do operador local: `make deploy-artifacts` (Makefile) →
+      # `python -m maezo.platform.deploy --tenant amh --shared all` — UM POST multipart de
+      # spec/processes/{bpmn,dmn} com `enable-duplicate-filtering`, idempotente (medido no engine
+      # local 02/10: 79 artefatos = 16 BPMN + 63 DMN; 2a chamada seguida: 79/79 skipped como
+      # duplicata) e fail-closed (qualquer rejeicao do engine sai non-zero com o corpo verbatim).
+      # Custo honesto: 0,65 s de relogio medidos no engine local ja' povoado; no runner e' o POST
+      # frio dos mesmos 79 arquivos, ordem de grandeza segundos contra os 20,1 min do menor shard.
+      # O QUE ISTO NAO CONSERTA (e o vermelho ATUAL desses 3 testes): eles iniciam SP-OP-AUTH-001
+      # pelo transporte COM tenant (8c7ee8e3, "Inicia processos no tenant da conversa"), e o
+      # tenant deles e' o SCHEMA aleatorio da propria sessao (`a2aw3<hex>`) — definicao nenhuma
+      # deste workflow pode pre-existir ali, e o motor devolve 404 "No matching process definition
+      # with key ... and tenant-id ..." (JUnit do job 110733621135 e reproducao local 02/10, ambos
+      # `StartProcessFailedError: ... o turno NAO foi concluido`). Esse deploy e' da SUITE
+      # (`deploy_for_tenant` no fixture `live_engine_url`), o mesmo mecanismo de
+      # tests/support/engine_tenant_deploy.py que as suites irma' ja' usam.
+      - name: Deploy canonical artifacts (spec/processes) to the shard engine
+        if: steps.guard.outputs.run == 'true' && matrix.publica_artefatos == true
+        run: make deploy-artifacts
 
       # O wrapper usa pytest.main diretamente em vez de `make test-integration`: a coleção global é
       # load-bearing: integration-marked live-PG/DMN modules also live under tests/unit/, where

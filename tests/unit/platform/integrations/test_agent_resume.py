@@ -397,7 +397,12 @@ async def test_alerta_publica_notify_team_no_formato_que_o_inbox_aceita() -> Non
             self.sent: list[tuple[str, dict[str, Any], Any]] = []
 
         async def publish(
-            self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+            self,
+            topic: str,
+            value: dict[str, Any],
+            *,
+            key: str | None = None,
+            best_effort: bool | None = None,
         ) -> bool:
             self.sent.append((topic, value, best_effort))
             return True
@@ -583,7 +588,12 @@ async def test_o_aviso_de_nao_entregue_e_o_mesmo_formato_do_de_janela_e_sem_nota
             self.sent: list[tuple[str, dict[str, Any], Any]] = []
 
         async def publish(
-            self, topic: str, value: dict[str, Any], *, best_effort: bool | None = None
+            self,
+            topic: str,
+            value: dict[str, Any],
+            *,
+            key: str | None = None,
+            best_effort: bool | None = None,
         ) -> bool:
             self.sent.append((topic, value, best_effort))
             return True
@@ -618,3 +628,24 @@ def test_defaults_do_consumidor() -> None:
     settings = AgentResumeSettings()
     assert settings.kafka_topic == PROCESS_COMPLETED_TOPIC == "agents.events.process_completed"
     assert settings.kafka_group_id == DEFAULT_RESUME_CONSUMER_GROUP_ID
+
+
+async def test_o_aviso_passa_pelo_portao_de_chave_de_particao_do_produtor_real() -> None:
+    """Medido em dev (03/10/2026): o aviso foi publicado SEM chave, o produtor real falhou fechado
+    (`MissingPartitionKeyError`), a excecao derrubou o consumidor e ele caiu em loop. Os fakes de cima
+    aceitam qualquer chamada; este usa o produtor de verdade, so' com o broker trocado por um registro."""
+    from maezo.platform.integrations.agent_resume import NotifyTeamAlerter, parse_process_completed
+    from maezo.platform.integrations.events_kafka_producer import AioKafkaEventsProducer, FakeRawKafkaProducer
+
+    raw = FakeRawKafkaProducer()
+    producer = AioKafkaEventsProducer(raw_producer=raw)
+    evento = parse_process_completed(_evento(), tenant_id="amh")
+    alerter = NotifyTeamAlerter(producer)
+
+    await alerter.alert_undeliverable(evento)
+    await alerter.alert_outside_window(evento)
+
+    topico = "operadora.notifications.internal"
+    publicados = [(topic, key) for topic, _value, key in raw.sent if topic == topico]
+    assert len(publicados) == 2
+    assert all(key for _topic, key in publicados)

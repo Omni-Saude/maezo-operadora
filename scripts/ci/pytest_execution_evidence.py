@@ -353,6 +353,49 @@ class EvidencePlugin:
         )
 
 
+_PHASES = ("setup", "call", "teardown")
+
+
+def _unverified_context(item: dict[str, Any], rows: list[dict[str, Any]]) -> str:
+    """Rótulo, fases observadas e motivo já registrados pela coleta, p/ triagem.
+
+    Tudo que entra aqui saiu da coleta já redigido: ``nodeid`` é rótulo público
+    (parâmetros substituídos por fingerprint) e ``skip_reason``/``wasxfail``
+    passam por ``redact`` antes de chegar ao relatório; a publicação ainda aplica
+    o diagnóstico por cima. Falha inesperada não ganha texto — o traceback
+    permanece em custódia privada. O hash continua na mensagem: é a chave de
+    correlação dos consumidores.
+    """
+    label = item.get("nodeid")
+    if not isinstance(label, str) or not label:
+        label = "<sem-rotulo>"
+    phases = {
+        row["phase"]: row for row in rows if isinstance(row, dict) and isinstance(row.get("phase"), str)
+    }
+
+    def outcome(phase: str) -> str:
+        if phase not in phases:
+            return "ausente"
+        observed = phases[phase].get("outcome")
+        return observed if isinstance(observed, str) and observed else "desconhecido"
+
+    summary = ",".join(f"{phase}={outcome(phase)}" for phase in _PHASES)
+    reason = "nao declarado"
+    for phase in _PHASES:
+        row = phases.get(phase)
+        if not isinstance(row, dict):
+            continue
+        declared = row.get("skip_reason")
+        if isinstance(declared, str) and declared:
+            reason = f"skip({declared})"
+            break
+        wasxfail = row.get("wasxfail")
+        if isinstance(wasxfail, str) and wasxfail:
+            reason = f"xfail({wasxfail})"
+            break
+    return f"({label}) fases={{{summary}}} motivo={reason}"
+
+
 def validate_execution(
     junit_path: Path,
     evidence: dict[str, Any],
@@ -489,7 +532,10 @@ def validate_execution(
                 ):
                     status = "xfailed_executed"
             if status == "unverified":
-                errors.append(f"corpo não verificado, skip/XPASS/falha inesperado: {nodeid}")
+                errors.append(
+                    f"corpo não verificado, skip/XPASS/falha inesperado: {nodeid} "
+                    f"{_unverified_context(item, rows)}"
+                )
         outcomes[status] += 1
         key = item["junit_identity_sha256"]
         matching = [case for case in cases if case["junit_identity_sha256"] == key]
