@@ -1,7 +1,7 @@
 # === Matriz de autonomia — camada L0 (core da plataforma) ===
 # AVALIADA PELO PEP EM TODO TOOL CALL (ADR-0005/0008).
 # Itens `hard: true` NAO sao rebaixaveis por nenhuma camada/tenant — o CI rejeita override.
-version: 1
+version: 2
 actions:
   clinical_decision:            { level: L0, hard: true }   # diagnostico/conduta: NUNCA
   authorization_denial:         { level: L0, hard: true }   # negativa: medico auditor (RN 259)
@@ -38,6 +38,9 @@ actions:
   start_compliance_process:     { level: L2 }
   correlate_process_message:    { level: L2 }
   query_process_status:         { level: L3 }
+  # OP12 general read only (ADR-0063, source contract R2); no contract write/financial/clinical effect.
+  # Matrix is coarse: exact tenant/provider/instrument/task/purpose/Card/receipt/currentness remain source gates.
+  provider_contract_read:       { level: L3 }
   # mcp_fhir: leitura de dados clínicos PHI (Zona PHI — pseudonimizado pela gateway antes da Zona Geral)
   read_phi_data:                { level: L3 }
   # mcp_whatsapp: envio de mensagem ao beneficiário — L3 informativo; template = L2 (efeito externo)

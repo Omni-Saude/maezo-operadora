@@ -20,12 +20,14 @@ from pydantic import (
     ConfigDict,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from maezo.portal.engine.profile import canonicalize, strict_loads
 
 CONTRACT_STATE = "PROPOSED_INTERNAL_CONTRACT_NOT_PUBLISHED"
 CANDIDATE_SCHEMA_VERSION = "v21-capabilities.proposed.v1"
+PROVIDER_SCHEMA_VERSION = "provider-capabilities.internal.v1"
 OperationName = Literal[
     "access.resolve",
     "offer.compose",
@@ -94,6 +96,86 @@ class CapabilityEnvelope(CandidateDTO):
     source_authority_ref: Ref
     policy_revision: Ref
     data_classification: Ref
+
+
+class ProviderCapabilityEnvelope(CandidateDTO):
+    """Explicit provider revision; the original v21 envelope remains closed."""
+
+    schema_version: Literal["provider-capabilities.internal.v1"]
+    operation_name: Literal[
+        "access.resolve",
+        "offer.compose",
+        "acceptance.record",
+        "enrollment.request",
+        "reservation.command",
+        "fulfillment.observe",
+        "case.open_or_update",
+        "external_wait.settle",
+        "notice.prepare_or_send",
+        "milestone.publish",
+        "feedback.record",
+        "contract.authority.resolve",
+    ]
+    tenant_ref: Ref
+    legal_entity_ref: Ref
+    journey_ref: Ref
+    correlation_ref: Ref
+    causation_ref: Ref
+    idempotency_key: Ref
+    expected_business_revision: Ref
+    source_authority_ref: Ref
+    policy_revision: Ref
+    data_classification: Ref
+
+
+AnyCapabilityEnvelope = CapabilityEnvelope | ProviderCapabilityEnvelope
+ClausePurpose = Literal[
+    "payment_prazo",
+    "glosa_symmetry",
+    "tabela_valor",
+    "prior_notice_prazo",
+    "rescisao_procedimento",
+    "credenciamento_conteudo",
+]
+
+
+class ContractAuthorityIntent(CandidateDTO):
+    provider_ref: Ref
+    contract_instrument_ref: Ref | None = None
+    clause_purpose: ClausePurpose
+    purpose_policy_ref: Ref
+    expected_business_revision: Ref | None = None
+
+
+class ContractAuthorityResult(CandidateDTO):
+    contract_status: Literal["proposto", "vigente", "suspenso", "rescindido", "unknown"]
+    clause_refs: tuple[Ref, ...]
+    declared_value_refs: tuple[Ref, ...]
+    declared_at: Instant | None = None
+    evidence_ref: Ref | None = None
+    source_revision_ref: Ref | None = None
+    authority_receipt_ref: Ref
+    single_provider_scope: Literal[True]
+    no_inter_provider_aggregation: Literal[True]
+
+    @field_validator("single_provider_scope", "no_inter_provider_aggregation", mode="before")
+    @classmethod
+    def exact_true(cls, value: object) -> object:
+        if value is not True:
+            raise ValueError("literal true required")
+        return value
+
+    @model_validator(mode="after")
+    def no_unknown_success(self) -> Self:
+        if self.contract_status == "unknown":
+            raise ValueError("unknown is a typed refusal, never a source receipt")
+        return self
+
+
+class ContractResolutionUnavailable(CandidateDTO):
+    """Negative observation; no authority receipt is fabricated for an absent source."""
+
+    contract_status: Literal["unknown"] = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,6 +399,34 @@ class FeedbackObservationReceipt(CandidateDTO):
         return value
 
 
+class CustomerOfferAcceptanceCommand(AcceptanceCommand):
+    acceptance_domain: Literal["customer_offer"]
+
+
+class ProviderAcceptanceCommand(CandidateDTO):
+    acceptance_domain: Literal["provider_contract"]
+    offer_ref: Ref
+    offer_version: Ref
+    decision: Literal["accept", "decline"]
+    terms_evidence_ref: Ref
+    party_authority_proof_ref: Ref
+    contract_instrument_ref: Ref
+    contract_version: Ref
+
+
+class ProviderExternalWaitIntent(ExternalWaitIntent):
+    counterparty_deadline_ref: Ref | None = None
+    symmetry_evidence_ref: Ref | None = None
+
+
+class ProviderExternalWaitOutcome(ExternalWaitOutcome):
+    symmetry_status: Literal["symmetric", "asymmetric", "undeclared"]
+
+
+class ProviderFeedbackIntent(CustomerFeedbackIntent):
+    respondent_kind: Literal["customer", "provider"]
+
+
 REQUEST_MODELS = MappingProxyType[str, type[CandidateDTO]](
     {
         "access.resolve": ContextAccessIntent,
@@ -349,6 +459,57 @@ RESULT_MODELS = MappingProxyType[str, type[CandidateDTO]](
 )
 
 
+PROVIDER_REQUEST_MODELS = MappingProxyType[str, type[CandidateDTO]](
+    dict(REQUEST_MODELS)
+    | {
+        "contract.authority.resolve": ContractAuthorityIntent,
+        "acceptance.record": ProviderAcceptanceCommand,
+        "external_wait.settle": ProviderExternalWaitIntent,
+        "feedback.record": ProviderFeedbackIntent,
+    }
+)
+PROVIDER_RESULT_MODELS = MappingProxyType[str, type[CandidateDTO]](
+    dict(RESULT_MODELS)
+    | {
+        "contract.authority.resolve": ContractAuthorityResult,
+        "external_wait.settle": ProviderExternalWaitOutcome,
+    }
+)
+REQUEST_MODEL_REGISTRIES = MappingProxyType(
+    {
+        CANDIDATE_SCHEMA_VERSION: REQUEST_MODELS,
+        PROVIDER_SCHEMA_VERSION: PROVIDER_REQUEST_MODELS,
+    }
+)
+RESULT_MODEL_REGISTRIES = MappingProxyType(
+    {
+        CANDIDATE_SCHEMA_VERSION: RESULT_MODELS,
+        PROVIDER_SCHEMA_VERSION: PROVIDER_RESULT_MODELS,
+    }
+)
+OPERATION_NAMES = frozenset(PROVIDER_REQUEST_MODELS)
+
+
+def _schema_registry(
+    registries: MappingProxyType[str, MappingProxyType[str, type[CandidateDTO]]], schema_version: str
+) -> MappingProxyType[str, type[CandidateDTO]]:
+    registry = registries.get(schema_version)
+    if registry is None:
+        raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
+    return registry
+
+
+def _payload_field(payload: object, field: str) -> object:
+    if isinstance(payload, BaseModel):
+        return getattr(payload, field, None)
+    if type(payload) is bytes:
+        try:
+            payload = strict_loads(payload)
+        except Exception:
+            raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH) from None
+    return payload.get(field) if isinstance(payload, dict) else None
+
+
 def _parse(
     model: type[CandidateDTO], payload: object, memberships: DeclaredMemberships | None
 ) -> CandidateDTO:
@@ -365,31 +526,62 @@ def _parse(
     raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
 
 
-def parse_envelope(payload: object) -> CapabilityEnvelope:
-    result = _parse(CapabilityEnvelope, payload, None)
-    assert isinstance(result, CapabilityEnvelope)
-    return result
+def parse_envelope(payload: object) -> AnyCapabilityEnvelope:
+    schema = _payload_field(payload, "schema_version")
+    if schema == CANDIDATE_SCHEMA_VERSION:
+        result = _parse(CapabilityEnvelope, payload, None)
+        assert isinstance(result, CapabilityEnvelope)
+        return result
+    if schema == PROVIDER_SCHEMA_VERSION:
+        result = _parse(ProviderCapabilityEnvelope, payload, None)
+        assert isinstance(result, ProviderCapabilityEnvelope)
+        return result
+    raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
 
 
 def parse_request(
-    operation_name: str, payload: object, *, memberships: DeclaredMemberships | None = None
+    operation_name: str,
+    payload: object,
+    *,
+    memberships: DeclaredMemberships | None = None,
+    schema_version: str = CANDIDATE_SCHEMA_VERSION,
 ) -> CandidateDTO:
-    model = REQUEST_MODELS.get(operation_name)
+    model = _schema_registry(REQUEST_MODEL_REGISTRIES, schema_version).get(operation_name)
     if model is None:
         raise CapabilityContractError(CapabilityRefusalReason.UNKNOWN_OPERATION)
+    if schema_version == PROVIDER_SCHEMA_VERSION and operation_name == "acceptance.record":
+        domain = _payload_field(payload, "acceptance_domain")
+        if domain == "customer_offer":
+            model = CustomerOfferAcceptanceCommand
+        elif domain != "provider_contract":
+            raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
     return _parse(model, payload, memberships)
 
 
 def parse_result(
-    operation_name: str, payload: object, *, memberships: DeclaredMemberships | None = None
+    operation_name: str,
+    payload: object,
+    *,
+    memberships: DeclaredMemberships | None = None,
+    schema_version: str = CANDIDATE_SCHEMA_VERSION,
+    request: CandidateDTO | None = None,
 ) -> CandidateDTO:
-    model = RESULT_MODELS.get(operation_name)
+    model = _schema_registry(RESULT_MODEL_REGISTRIES, schema_version).get(operation_name)
     if model is None:
         raise CapabilityContractError(CapabilityRefusalReason.UNKNOWN_OPERATION)
+    if schema_version == PROVIDER_SCHEMA_VERSION and operation_name == "external_wait.settle":
+        if request is None:
+            if _payload_field(payload, "symmetry_status") is None:
+                model = ExternalWaitOutcome
+        elif isinstance(request, ProviderExternalWaitIntent):
+            if request.counterparty_deadline_ref is None and request.symmetry_evidence_ref is None:
+                model = ExternalWaitOutcome
+        else:
+            raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
     return _parse(model, payload, memberships)
 
 
-def request_digest(envelope: CapabilityEnvelope, request: BaseModel) -> str:
+def request_digest(envelope: AnyCapabilityEnvelope, request: BaseModel) -> str:
     return hashlib.sha256(
         canonicalize(
             {
@@ -406,10 +598,17 @@ class CapabilityOutcome:
 
     result: CandidateDTO | None = None
     refusal: CapabilityRefusalReason | None = None
+    unavailable_observation: ContractResolutionUnavailable | None = None
 
     def __post_init__(self) -> None:
         if (self.result is None) == (self.refusal is None):
             raise ValueError("exactly one capability outcome required")
+        if self.unavailable_observation is not None and (
+            self.result is not None
+            or self.refusal
+            not in {CapabilityRefusalReason.SOURCE_UNAVAILABLE, CapabilityRefusalReason.AUTHORITY_UNPROVEN}
+        ):
+            raise ValueError("unknown observation requires unavailable authority or source")
 
     @property
     def succeeded(self) -> bool:
