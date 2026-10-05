@@ -1,0 +1,161 @@
+{
+  "schema": "maezo.aggregate-validator-technical-api.proposed-r1",
+  "state": "PROPOSED_PENDING_INDEPENDENT_CONTRACT_GATE_NO_CODE_AUTHORED",
+  "author": "runtime_composition_specialist",
+  "source_worktree_designated_by_ROOT": "ROOT-designated isolated technical worktree (private custody)",
+  "api": {
+    "function": "validate_proposed_record",
+    "synchronous": true,
+    "required_args": {
+      "record_kind": [
+        "provider_private_computation_row",
+        "metric_definition_pending_admission",
+        "metric_component_mapping_pending_admission",
+        "minimized_aggregate_export"
+      ],
+      "raw_json": "EXACT_BYTES_UTF8_SINGLE_JSON_RECORD"
+    },
+    "return_type": "AggregateValidationResult",
+    "source_or_human_admission": "OUT_OF_SCOPE",
+    "numeric_release_api": false,
+    "proof_or_owner_bool_parameter": false,
+    "caller_schema_path_digest_env_override": false,
+    "data_source_fetch_or_emitter": false
+  },
+  "records": {
+    "ConstraintCheck": {
+      "constraint": {
+        "enum": [
+          "SCHEMA_STRUCTURE",
+          "DECLARED_SUPPRESSION_NULL",
+          "DECLARED_LIFECYCLE_NULL",
+          "DECLARED_K_FLOOR",
+          "DECLARED_HEAD_EQUALITY",
+          "DECLARED_SUPERSESSION_NOT_SELF",
+          "M10_CURRENT_COMMIT_PARTITION",
+          "M10_WITHDRAWN_COMMIT_PARTITION",
+          "M10_CANDIDATE_PARTITION",
+          "M10_NUMERATOR_BINDING",
+          "M10_DENOMINATOR_BINDING",
+          "M10_RATIO_REPRESENTATION"
+        ]
+      },
+      "status": {
+        "enum": [
+          "SATISFIED",
+          "CONFLICT",
+          "NOT_ASSESSABLE",
+          "NOT_APPLICABLE"
+        ]
+      }
+    },
+    "AggregateValidationResult": {
+      "technical_status": {
+        "enum": [
+          "CHECKED_UNADMITTED",
+          "REFUSED"
+        ]
+      },
+      "reason": {
+        "nullable_enum": [
+          "INVALID_RECORD_KIND",
+          "INVALID_JSON_INPUT",
+          "MALFORMED_JSON",
+          "RESOURCE_LIMIT",
+          "SCHEMA_ASSET_UNAVAILABLE",
+          "SCHEMA_DIGEST_MISMATCH",
+          "SCHEMA_DEFINITION_INVALID",
+          "SCHEMA_MISMATCH",
+          "LOCAL_CONSTRAINT_CONFLICT",
+          "VALIDATOR_UNAVAILABLE"
+        ]
+      },
+      "record_kind": {
+        "nullable_enum": [
+          "provider_private_computation_row",
+          "metric_definition_pending_admission",
+          "metric_component_mapping_pending_admission",
+          "minimized_aggregate_export"
+        ]
+      },
+      "schema_sha256": {
+        "nullable_const": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c"
+      },
+      "checks": "tuple[ConstraintCheck,...]",
+      "source_authority_assessed": {
+        "const": false
+      },
+      "source_currentness_assessed": {
+        "const": false
+      },
+      "privacy_release_assessed": {
+        "const": false
+      },
+      "numeric_disclosure_permitted": {
+        "const": false
+      }
+    }
+  },
+  "record_fields_closed_strict_immutable": true,
+  "input_schema_authority": [
+    {
+      "path": "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json",
+      "sha256": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c",
+      "bytes": 363155
+    },
+    {
+      "path": "docs/design/v21-capabilities/proposals/measurement-export-contract.proposed-v2.md",
+      "sha256": "290c9f27474f08bf97d3736c1c0b922a6c5a7b6b6530fb1b01ad3ac98614520e",
+      "bytes": 14588
+    },
+    {
+      "path": "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json",
+      "sha256": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
+      "bytes": 204269
+    }
+  ],
+  "asset": {
+    "source_canonical": "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json",
+    "consumed_wheel_projection": "src/maezo/gateway/measurement-export-closed-shapes.proposed-v2.json",
+    "expected_whole_bytes_sha256": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c",
+    "package_resource": "maezo.gateway/measurement-export-closed-shapes.proposed-v2.json",
+    "all_four_shapes_consumed": [
+      "provider_private_computation_row",
+      "metric_definition_pending_admission",
+      "metric_component_mapping_pending_admission",
+      "minimized_aggregate_export"
+    ],
+    "public_schema_or_digest_override": false,
+    "fallbacks": [],
+    "canonical_asset_byte_equivalence_test": true,
+    "wheel_away_from_checkout_smoke_required": true
+  },
+  "proposed_exclusive_author_write_set": [
+    "src/maezo/gateway/aggregate_export_validation.py",
+    "tests/unit/gateway/test_aggregate_export_validation.py",
+    "src/maezo/gateway/measurement-export-closed-shapes.proposed-v2.json"
+  ],
+  "parser_engineering_limits": {
+    "max_record_bytes": 1048576,
+    "max_container_nesting": 32,
+    "max_decimal_precision_or_expanded_magnitude_digits": 1024,
+    "max_absolute_decimal_scale": 1024,
+    "business_or_privacy_thresholds": false
+  },
+  "numeric_semantics": "Finite exact integers/Decimal; mathematical JSON integrality preserves1.0 integer semantics, no bool/string/nonintegral count coercion, no lossybinary rounding/inference",
+  "local_M10_relations": [
+    "C_current=V_current+M_current+U_current",
+    "C_withdrawn=V_withdrawn+M_withdrawn+U_withdrawn",
+    "CandidateTotal=C_current+C_withdrawn+CommitUnknown_current+CommitUnknown_withdrawn+NotCommitted_current+NotCommitted_withdrawn+MembershipUnknown",
+    "reported_numerator=valid_current_n",
+    "reported_denominator=committed_current_n"
+  ],
+  "M10_missing_operand": "NOT_ASSESSABLE; no reconstruction or derived value returned",
+  "M10_ratio_estimator_or_rounding": "OUT_OF_SCOPE_OWNER_PENDING; no tolerance chosen",
+  "declared_head_check": "Local equality/conflict/absent only; never authenticated currentness or source-order inference",
+  "lifecycle": "Canonical numeric-null checks only; no source mutation/reissue/cached release/actual distinct-person privacy admission",
+  "errors_logs": "Fixed bounded codes only; no instance/message/path/unknownkey/value/payload/hash echo; no logger/tracer/metric emitter",
+  "independence": "Author cannot sign own source; measurement_protocol_verifier assigned API reviewer byROOT",
+  "implementation_authorized_by_this_document": false,
+  "human_policy_or_source_admission_granted": false
+}

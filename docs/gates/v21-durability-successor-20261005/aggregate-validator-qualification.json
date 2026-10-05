@@ -1,0 +1,41 @@
+{
+  "schema": "maezo.aggregate-validator-source-qualification.v1",
+  "status": "PASS_SOURCE_IMPLEMENTATION_ONLY__CANDIDATE_CI_FINAL_PENDING",
+  "requirement": "W0-MEASUREMENT reusable source-independent validator; W5 structure/missingness controls only",
+  "source_inputs": {
+    "src/maezo/gateway/aggregate_export_validation.py": "c31e72c62669cca147f482e6959784d16fb62706661095c7c6ca0ddb9518e50e",
+    "tests/unit/gateway/test_aggregate_export_validation.py": "5949d9aa51d2657f2997a9182e12d8cb8fc1655dc9f368e7b6d1d3a5a8b338f3",
+    "src/maezo/gateway/measurement-export-closed-shapes.proposed-v2.json": "9f7063d5e3a633e22459be25e6c61ce64e07eaff92ccb7259deaf06bc577313c"
+  },
+  "api_projection": {
+    "original_private_api_sha256": "3a772f0ec61be19d85736b7962d39578c7af2bc2152a9d5033bd7dd48a7b66b8",
+    "published_api_sha256": "546d8c5ea0a5de90b40ec2c0fec83781fe32ba3bacfdf794af1c8b2586cd4ec2",
+    "projection": "Repository locators only; original author-stage status retained as historical, implementation source admission supplied by independent receipts below."
+  },
+  "independent_receipts": {
+    "interface": "6e6800e10295ecf0f3d280d44d7f8e3f383cfbda2f8612eac5465347053ab638",
+    "original_SOURCE_REVISE": "67f9786da96f8df90b35fe9d3e5c4fd49a0eeed24cc6a50f919ad40e7578abd5",
+    "third_repair": "007c08e4669d5454fd02c50092188299dd66947c2b93755331bef3f0665cf3ca",
+    "original_source_delta": "d119ba9a8eb53f64f86718a5964a01a49970294f2c1923cfe7ec4d64c30c080c"
+  },
+  "qualified_runtime": "Python 3.12.13, frozen project lock; jsonschema 4.26.0",
+  "validation": {
+    "unit_passed": 176,
+    "independent_adversarial_passed": 133,
+    "independent_numeric_budget_passed": 3000,
+    "installed_wheel_sha256": "d772b6e681adca7ccbac87a7afa2e5bb3c6fcf40661da1cbc764d1e10eb7cc90",
+    "installed_wheel_scope": "Exact aggregate module/asset imported away from checkout/docs. Whole later candidate wheel must be separately assessed."
+  },
+  "baseline_python314_test_compatibility": "Original and repaired implementation reject immutable field replacement with TypeError, while existing test expects ValueError. Baseline RED retained; no bypass/regression; full Python3.14 suite unqualified.",
+  "source_or_currentness_proof_assessed": false,
+  "privacy_release_assessed": false,
+  "numeric_disclosure_permitted": false,
+  "payload_returned": false,
+  "source_fetch_emitter_recommendation_or_owner_grant": false,
+  "human_policy_adoption": "PENDING",
+  "metric_values_baselines_targets_ROI": "UNMEASURED",
+  "canonical_schema_authority": "docs/design/v21-capabilities/proposals/measurement-export-closed-shapes.proposed-v2.json",
+  "installed_asset": "Consumed exact wheel projection of canonical schema; no second schema authority/fallback.",
+  "owner": "ROOT successor",
+  "CI": "PENDING_EXACT_CANDIDATE"
+}
