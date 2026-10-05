@@ -52,17 +52,18 @@ from maezo.gateway.capabilities.journeys.contracts import (
     JourneyEffectAuthorityPort,
     JourneyEffectGuard,
     PreparedCapabilityAction,
+    _v21_envelope,
     parse_effect_authority,
 )
 from maezo.gateway.capabilities.journeys.topology import STAGES_BY_TASK
 from maezo.gateway.capabilities.models import (
+    CANDIDATE_SCHEMA_VERSION,
     CandidateDTO,
     CapabilityContractError,
     CapabilityEnvelope,
     CapabilityRefusalReason,
     DeclaredMemberships,
     Ref,
-    parse_envelope,
     parse_request,
     parse_result,
     request_digest,
@@ -312,6 +313,7 @@ class DurableCapabilityExecutor:
                 self.binding.task_ref,
             )
             or admission.operation_name != envelope.operation_name
+            or admission.schema_version != CANDIDATE_SCHEMA_VERSION
         ):
             raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)
 
@@ -452,8 +454,13 @@ class DurableCapabilityExecutor:
             self._available()
             self._revision(expected_journal_revision)
             self._timeout(timeout_seconds)
-            envelope = parse_envelope(envelope)
-            request = parse_request(envelope.operation_name, request, memberships=memberships)
+            envelope = _v21_envelope(envelope)
+            request = parse_request(
+                envelope.operation_name,
+                request,
+                memberships=memberships,
+                schema_version=CANDIDATE_SCHEMA_VERSION,
+            )
             self._scope(envelope, admission.binding)
             if self.binding.task_ref in STAGES_BY_TASK:
                 if effect_authority is None or self.effect_authority_port is None:
@@ -687,8 +694,13 @@ class DurableCapabilityExecutor:
         if type(restored) is not RestoredCommand:
             raise AdmissionDeniedError(CapabilityRefusalReason.CONTRACT_MISMATCH)
         handle = CommandHandle.model_validate(restored.handle)
-        envelope = parse_envelope(restored.descriptor.envelope)
-        request = parse_request(envelope.operation_name, restored.request, memberships=memberships)
+        envelope = _v21_envelope(restored.descriptor.envelope)
+        request = parse_request(
+            envelope.operation_name,
+            restored.request,
+            memberships=memberships,
+            schema_version=CANDIDATE_SCHEMA_VERSION,
+        )
         admission = admissions.get(envelope.operation_name)
         if admission is None or handle.binding != self.binding or handle.command_ref != command_ref:
             raise AdmissionDeniedError(CapabilityRefusalReason.AUTHORITY_UNPROVEN)

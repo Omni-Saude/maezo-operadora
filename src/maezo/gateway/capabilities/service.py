@@ -17,10 +17,13 @@ from maezo.ports.errors import DEFAULT_PORT_TIMEOUT_SECONDS
 
 from .admission import AdmissionDeniedError, CapabilityAdmission
 from .models import (
+    CANDIDATE_SCHEMA_VERSION,
     OPERATION_NAMES,
+    REQUEST_MODELS,
     AnyCapabilityEnvelope,
     CandidateDTO,
     CapabilityContractError,
+    CapabilityEnvelope,
     CapabilityOutcome,
     CapabilityRefusalReason,
     ContractResolutionUnavailable,
@@ -171,8 +174,16 @@ class CapabilityService:
         if self.durable is None:
             return CapabilityRefusalReason.AUTHORITY_UNPROVEN
         try:
-            envelope = parse_envelope(envelope)
-            request = parse_request(envelope.operation_name, payload, memberships=self.memberships)
+            parsed = parse_envelope(envelope)
+            if type(parsed) is not CapabilityEnvelope or parsed.schema_version != CANDIDATE_SCHEMA_VERSION:
+                return CapabilityRefusalReason.CONTRACT_MISMATCH
+            envelope = parsed
+            request = parse_request(
+                envelope.operation_name,
+                payload,
+                memberships=self.memberships,
+                schema_version=CANDIDATE_SCHEMA_VERSION,
+            )
         except CapabilityContractError as exc:
             return exc.reason
         admission = self.admissions.get(envelope.operation_name)

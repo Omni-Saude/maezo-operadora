@@ -35,6 +35,7 @@ from maezo.gateway.capabilities.durability.models import (
     WaitDescriptor,
 )
 from maezo.gateway.capabilities.models import (
+    CANDIDATE_SCHEMA_VERSION,
     CandidateDTO,
     CapabilityContractError,
     CapabilityEnvelope,
@@ -93,6 +94,14 @@ class CurrentJourneyTurn(AdmissionDTO):
         return require_message_ref(value)
 
 
+def _v21_envelope(value: object) -> CapabilityEnvelope:
+    """R5 retains its exact original schema while the generic service is additive."""
+    parsed = parse_envelope(value)
+    if type(parsed) is not CapabilityEnvelope or parsed.schema_version != CANDIDATE_SCHEMA_VERSION:
+        raise CapabilityContractError(CapabilityRefusalReason.CONTRACT_MISMATCH)
+    return parsed
+
+
 class _PreparedAction(AdmissionDTO):
     schema_version: Literal["v21-journey-action.proposed.v1"]
     task_ref: AdministrativeTask
@@ -115,7 +124,7 @@ class PreparedCapabilityAction(_PreparedAction):
     @field_validator("envelope", mode="plain")
     @classmethod
     def exact_envelope(cls, value: object) -> CapabilityEnvelope:
-        return parse_envelope(value)
+        return _v21_envelope(value)
 
     @field_validator("request", mode="plain")
     @classmethod
@@ -124,7 +133,9 @@ class PreparedCapabilityAction(_PreparedAction):
         if not isinstance(envelope, CapabilityEnvelope):
             raise JourneyContractError()
         memberships = (info.context or {}).get("memberships")
-        return parse_request(envelope.operation_name, value, memberships=memberships)
+        return parse_request(
+            envelope.operation_name, value, memberships=memberships, schema_version=CANDIDATE_SCHEMA_VERSION
+        )
 
 
 class PreparedDomainHandoffAction(_PreparedAction):
