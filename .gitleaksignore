@@ -189,3 +189,6 @@ b9f7175791c887fd21b3e25cc544dfaff6e03631:.gitleaksignore:generic-api-key:177
 59bc95d383f25c8a4bd644bdc15c100bd3a97760:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:23
 39f8ed28ddd901701899c9be325773450ace1e98:docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:11
 39f8ed28ddd901701899c9be325773450ace1e98:docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json:generic-api-key:12
+
+# PR #646: classified immutable test-artifact digest occurrence.
+98a55e09d63daf81a02fcd25bd8b58dec7ca602b:docs/gates/v21-durability-successor-20261005/journey-runtime-qualification.json:generic-api-key:126
