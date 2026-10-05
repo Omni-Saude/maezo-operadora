@@ -1558,5 +1558,256 @@
     "new_wait_rules": "new exact scoped WaitDescriptor yields technical OPEN only; identical existing descriptor preserves state; divergent descriptor conflicts; never resets settled wait",
     "absent_preparation": "empty wait_intents/outbox_intents may record source evidence only; no continuation/wait/progress claim. Later qualified record_wait/enqueue_outbox are explicit separate CAS preparations with recoverable source/planner lineage, never retroactive atomicity or reapplication via duplicate result",
     "new_source_or_business_status": false
+  },
+  "journey_effect_authority_amendment": {
+    "schema": "maezo.v21.journey-effect-authority-amendment.v2",
+    "status": "PROPOSED_PENDING_INDEPENDENT_CONTRACT_GATE",
+    "finding": "DJ-SOURCE-F01",
+    "author_role": "journey_gateway_author acting as distinct third contract repair for DUR-CONTRACT-R4-F01",
+    "production_binding_added": false,
+    "source_wire_change": false,
+    "human_ratification_recorded": false,
+    "frozen_taskwt_mutated": false,
+    "provider_operational_qualification": false,
+    "records": {
+      "JourneyEffectAuthority": {
+        "schema_version": "Literal[v21-journey-effect-authority.proposed.v1]",
+        "journey_binding": "JourneyBinding exact server-owned seven-field journal projection plus admitted topology/source-transition pins",
+        "action": "PreparedCapabilityAction | PreparedDomainHandoffAction, exact closed discriminated original prepared action deep immutable snapshot",
+        "original_transition": "VerifiedJourneyContinuation deep immutable snapshot of original entry proof; never result-phase replacement",
+        "request_sha256": "Digest recomputed with existing request_digest for PreparedCapabilityAction; literal None for domain handoff (not an operation request)",
+        "meaning": "Reference-only internal transport context; construction, digest or field presence never grants authority",
+        "public_input_allowed": false,
+        "action_sha256": "Digest of exact original prepared action using existing canonical JSON profile; full original action stays bound through source/handoff calls"
+      },
+      "VerifiedJourneyEffectCurrentness": {
+        "schema_version": "Literal[v21-journey-effect-currentness.proposed.v1]",
+        "effect_authority_sha256": "SHA256 canonical original JourneyEffectAuthority; existing canonical JSON profile",
+        "source_decision_ref": "Same original_transition.source_decision_ref",
+        "source_observation_ref": "Same original_transition.source_observation_ref",
+        "transition_contract_ref": "Same original_transition.transition_contract_ref",
+        "policy_revision_ref": "Same original_transition.policy_revision_ref",
+        "currentness_ref": "Qualified published source-currentness anchor for original transition, pinned at first verification and unchanged at subsequent checks",
+        "checked_at": "source-attested aware Instant; monotonic and <= trusted operational now",
+        "valid_until": "source-published aware Instant, <= original transition.valid_until and <= accumulated prior ceiling",
+        "meaning": "Qualified source verifier must prove original decision still authorizes exact action with current source/policy/actor/consent/erasure and applicable health/human interruption; does not select new transition or mint reference",
+        "closed_frozen_strict": true
+      },
+      "OperationInvocationAuthority": {
+        "kind": "Literal[operation]",
+        "original_authority": "VerifiedAuthority existing strict closed record, deep immutable exact originally authenticated evidence including full AdmissionBinding/request/auth/signed-task/Card/publication/ratification/currentness/enforcement/decision/timestamps",
+        "original_currentness": "VerifiedCurrentness existing strict closed record at the first accepted operation check, deep immutable snapshot",
+        "latest_currentness": "VerifiedCurrentness latest authenticated same-original operation check; exact original binding/request/authorization/currentness pins, no replacement grant",
+        "envelope_sha256": "Digest of exact original CapabilityEnvelope using existing canonical JSON profile; compared to supplied envelope and original binding",
+        "request_sha256": "Digest of exact original closed request, equals original_authority.request_sha256 and every operation currentness request_sha256",
+        "accumulated_valid_until": "Aware Instant = minimum original_authority.valid_until and ALL accepted operation currentness.valid_until; can only decrease",
+        "last_checked_at": "Aware Instant = greatest accepted operation checked_at; nondecreasing, not future; later checks do not alter original_authority or original_currentness",
+        "provenance": "Invocation-private verified evidence snapshot issued by trusted DUR3 over the same private admission lease. No public lease is exposed. Qualified source verifies authentic ORIGINAL authorization evidence through its root-injected qualified operation authority verifier; constructing a record is not authorization.",
+        "closed_frozen_strict": true
+      },
+      "OriginalDomainInvocationAuthority": {
+        "kind": "Literal[existing_domain]",
+        "journey_binding_sha256": "Digest of exact original JourneyBinding using existing canonical JSON profile",
+        "action_sha256": "Digest of exact PreparedDomainHandoffAction, including existing route/case/target/material/return pins",
+        "domain_contract_ref": "Ref of independently admitted existing route/domain authority contract; NOT a newly selected contract",
+        "source_contract_publication_ref": "Ref of authenticated existing source publication for the original domain effect",
+        "authorization_ref": "Ref of same ORIGINAL independently qualified native domain/human authorization, issued by that source owner for this exact binding/action; never minted/selected by driver",
+        "native_authority_evidence_ref": "Existing source-owned protected Ref resolving the original native domain/human authorization evidence under its already admitted contract, not a generic invented token",
+        "native_authority_evidence_sha256": "Digest of that exact source-verified native evidence with the admitted native canonicalization; qualified target resolves/verifies same bytes before effect",
+        "currentness_ref": "Ref of the originally authenticated native authority/currentness anchor, invariant on all later checks",
+        "verified_at": "Aware Instant of original native authority verification",
+        "original_valid_until": "Aware Instant from original qualified domain authority contract; no duration locally invented",
+        "accumulated_valid_until": "Aware Instant = minimum original_valid_until and ALL accepted qualified native-domain currentness ceilings; may only decrease",
+        "last_checked_at": "Aware Instant of latest accepted native-domain currentness; nondecreasing, not future",
+        "provenance": "Issued only by the independently qualified native-domain authority verifier/target for exact original binding/action/contract. Source owner must authenticate and resolve original evidence, including mandatory human decision/principal where its native contract requires it; evidence field presence does not prove human authority.",
+        "closed_frozen_strict": true,
+        "missing_native_contract_or_authentic_resolution": "Refuse dependent handoff before target dispatch; never substitute VerifiedAuthority for an unrelated commercial operation, transition proof, snapshot, OP12 or outbox ACK."
+      },
+      "JourneyInvocationCheckpoint": {
+        "schema_version": "Literal[v21-journey-invocation-checkpoint.proposed.v1]",
+        "original_effect_authority": "JourneyEffectAuthority deep immutable exact original context; never rebuilt from a result-phase proof",
+        "effect_authority_sha256": "Digest of original_effect_authority, equals all accepted transition currentness.effect_authority_sha256",
+        "original_transition_currentness": "VerifiedJourneyEffectCurrentness at first accepted transition check; deep immutable authenticated snapshot; pins original currentness_ref",
+        "latest_transition_currentness": "VerifiedJourneyEffectCurrentness latest accepted same-original check; same source decision/observation/contract/policy/currentness pins",
+        "transition_accumulated_valid_until": "Aware Instant = minimum original transition.valid_until and ALL accepted transition currentness.valid_until; nonincreasing",
+        "transition_last_checked_at": "Aware Instant of latest accepted transition check; nondecreasing, not future",
+        "invocation_authority": "Closed discriminated union OperationInvocationAuthority | OriginalDomainInvocationAuthority; capability action MUST use operation, domain handoff MUST use existing_domain",
+        "effective_valid_until": "Aware Instant = minimum transition_accumulated_valid_until and invocation_authority.accumulated_valid_until and any applicable ALREADY independently verified source-result ceiling; no new result inferred before effect",
+        "issuance_scope": "Private invocation transport only, assembled by trusted dispatch boundary after final awaited checks from authenticated pinned evidence. Passed directly only through root-qualified typed dependencies. Not graph input, public API, envelope/request/result field, persistent journal/custody body or reusable bearer grant.",
+        "closed_frozen_strict": true,
+        "authenticity": "Every receiving qualified source/target reparses a deep copy, authenticates original transition and original operation/native evidence against root-injected qualified source-owner verifiers, pins the canonical checkpoint received at invocation entry, and never accepts an alternate caller-supplied or re-created upstream snapshot. Exact original records/digests plus authentic source-owner evidence are mandatory; constructor/model_copy/model_construct/ref/boolean presence never admits it.",
+        "irreversible_boundary_rule": "After ALL internal awaits, synchronously compare original checkpoint pins plus ALL newly accepted currentness proofs, prior minimum ceilings and trusted now < effective minimum. Any later await invalidates that final check and requires the same-original qualification/check cycle again. Effect/revision/idempotency authority is enforced atomically at the actual source/native effect boundary. Network dispatch start is not presumed an atomic provider effect.",
+        "external_atomicity_limit": "If the existing owner contract/native interface cannot enforce original authorization identity and narrowed ceilings at its true commit boundary, the source is unqualified and refuses. This amendment introduces no external wire fields and does not claim a local check makes a remote effect atomic."
+      }
+    },
+    "ports": {
+      "JourneyEffectAuthorityPort.check_current": {
+        "arguments": [
+          "JourneyEffectAuthority",
+          "phase: Literal[before_fence,before_effect,before_disclosure]"
+        ],
+        "returns": "VerifiedJourneyEffectCurrentness or CapabilityRefusalReason",
+        "issuer": "Root-injected independently qualified verifier for the original source-owned transition contract",
+        "forbidden": [
+          "arbitrary async callable guard",
+          "caller-supplied port",
+          "fresh generic ingress/admission replacing transition proof",
+          "new result-phase proof replacing original entry proof"
+        ]
+      },
+      "JourneyCapabilitySourcePort.execute_under_authority": {
+        "arguments": [
+          "existing CapabilityEnvelope",
+          "existing CandidateDTO",
+          "required keyword-only invocation_checkpoint: JourneyInvocationCheckpoint (operation variant)",
+          "timeout_seconds"
+        ],
+        "returns": "existing source result object, independently parsed/verified by existing admission",
+        "scope": "Typed internal extension implemented only by qualified source adapter; existing external envelope/DTO remains byte-compatible",
+        "requirement": "Receive exact upstream invocation checkpoint, not original context alone. Preserve immutable original context, accepted transition currentness anchor/minimum ceiling and original operation authority/currentness full pins/minimum ceiling. Authenticate same-original source owner evidence; after ALL internal awaits and final currentness awaits apply checkpoint original-pins comparison and nonincreasing minimum deadline synchronously then atomically with native effect/revision/idempotency. Refresh may narrow; authorization A cannot become B; later proof t+60 cannot restore upstream t+5. No legacy execute wrapper or source-created replacement checkpoint.",
+        "qualification": "No provider adapter is supplied or declared qualified by this proposal. A synthetic UNIT implementation proves only local propagation/check order."
+      },
+      "ExistingDomainHandoffPort.execute": {
+        "arguments": [
+          "JourneyBinding",
+          "JourneySnapshot",
+          "PreparedDomainHandoffAction",
+          "required keyword-only invocation_checkpoint: JourneyInvocationCheckpoint (existing_domain variant)"
+        ],
+        "returns": "existing OutboxDescriptor or CapabilityRefusalReason",
+        "requirement": "Driver dispatches through a root-qualified existing-domain boundary that first obtains/pins ORIGINAL authenticated native domain/human authorization for exact original route/binding/action and forms the domain checkpoint. Pass the exact accumulated transition+domain checkpoint to qualified target. After ALL internal awaits including evidence resolution/human/source currentness, preserve original authorization/native evidence digest/currentness/route/case/target/material/return pins and every minimum ceiling, then synchronously assert before atomic native effect. Never use an operation authorization to fill absent domain authority. No old target compatibility fallback, ACK/outbox fabrication or direct human completion.",
+        "missing_qualification": "Deny dependent handoff before calling target; no existing unguarded execute compatibility fallback. Synthetic UNIT context proves only local handoff boundary behavior."
+      },
+      "ExistingDomainInvocationAuthorityPort.authorize_original": {
+        "arguments": [
+          "JourneyEffectAuthority with PreparedDomainHandoffAction"
+        ],
+        "returns": "OriginalDomainInvocationAuthority or existing CapabilityRefusalReason",
+        "issuer": "Root-injected independently qualified native-domain source owner verifier, using existing admitted domain/human contract and original source evidence",
+        "requirement": "Authenticated original native domain grant for exact original binding/action/route/source, with native evidence exact reference/digest. Driver cannot choose, construct or renew authorization. Missing admissible evidence refuses before calling effect target."
+      },
+      "ExistingDomainInvocationAuthorityPort.check_current": {
+        "arguments": [
+          "original OriginalDomainInvocationAuthority deep immutable evidence",
+          "phase: Literal[before_effect,before_disclosure]"
+        ],
+        "returns": "OriginalDomainInvocationAuthority carrying same original identity/evidence/contract/currentness pins plus monotonic checked_at and nonincreasing accumulated_valid_until, or existing CapabilityRefusalReason",
+        "requirement": "Typed qualified native evidence currentness verification only. Returned object is not a replacement authorization. Every identity/pin/verified_at/original_valid_until must equal original, accumulated ceiling <= prior; authorization substitution/revocation/expiry refuse."
+      },
+      "ExistingDomainEffectBoundary": {
+        "kind": "Concrete internal driver-facing dispatch boundary; not an irreversible target or domain business authority",
+        "constructor": {
+          "signature": "ExistingDomainEffectBoundary(*, clock: Callable[[], datetime], transition_authority: JourneyEffectAuthorityPort | None = None, native_authority: ExistingDomainInvocationAuthorityPort | None = None, target: ExistingDomainHandoffPort | None = None)",
+          "dependency_owner": "ROOT installs independently qualified transition authority, original native-domain authority and exact existing target. Dependencies cannot be supplied by turn, graph, caller effect context or source payload.",
+          "defaults": "All three qualifying dependencies default None. Missing any refuses AUTHORITY_UNPROVEN before native authority or effect-target invocation. JourneyDriver.domain_handoff defaults None.",
+          "clock": "Required trusted operational aware-time callable injected by ROOT; naive/future evidence is refused. Clock measures technical currentness and cannot select regulatory deadline or new validity duration."
+        },
+        "execute": {
+          "signature": "async execute(self, binding: JourneyBinding, snapshot: JourneySnapshot, action: PreparedDomainHandoffAction, *, effect_authority: JourneyEffectAuthority) -> OutboxDescriptor | CapabilityRefusalReason",
+          "pre_await_validation": "Before authority or target awaits reparse deep copies of the exact original closed binding/snapshot/action/effect context. Require snapshot.binding == binding.journal_binding(), effect_authority.journey_binding == binding, exact domain action equality and action_sha256, request_sha256 is None, original entry transition identity/topology/contract/lineage matches this action and binding, original time ceiling valid. Preserve canonical original pins privately; passing a constructed context alone grants nothing.",
+          "authority_order": "Obtain original native authorization only from native_authority.authorize_original(copy_of_original_effect_authority). Check its exact original binding/action/native contract/publication/authorization/protected evidence reference and digest/currentness anchors. Qualified transition_authority.check_current(copy_of_original_effect_authority, phase=before_effect) pins first transition currentness and every minimum; native_authority.check_current(copy_of_original_native_authority, phase=before_effect) preserves original native pins and narrows accumulated validity. Any additional preparation/currentness await requires same-original checks again.",
+          "final_boundary": "After the last authority/preparation await synchronously compare BOTH original transition/context and native grant/evidence pins, nondecreasing checked_at and every accumulated minimum against trusted aware now. Form the existing-domain JourneyInvocationCheckpoint exactly from authenticated pinned evidence. No intervening unrelated await; call only target.execute(binding_copy, snapshot_copy, action_copy, invocation_checkpoint=exact_domain_checkpoint). No operation grant substitutes native authority; no checkpoint construction in driver.",
+          "target_obligation": "ExistingDomainHandoffPort remains the actual independently qualified existing target and receives only the domain invocation_checkpoint. Its original native fence/idempotency/receipt semantics and all-internal-await BOTH check at atomic irreversible effect remain exactly R4; boundary cannot infer provider atomicity or human authority.",
+          "disclosure": "After target await, any authority-dependent boundary disclosure rechecks the same original transition and native currentness after all awaited verification, then BOTH synchronously. Failure preserves genuine target facts/native uncertainty and permits only original receipt-first recovery; no target resend or manufactured ACK/outbox.",
+          "failure": "Existing bounded technical refusal; no dynamic dispatch, runtime protocol discovery, arbitrary guard callback, catch-TypeError signature adaptation, legacy execute fallback, invented native grant/receipt, operation authority surrogate or commercial journal fence."
+        }
+      }
+    },
+    "propagation": {
+      "GatewayExecutionAdapter.execute": "Add required keyword-only effect_authority: JourneyEffectAuthority. Driver captures original proof/action/binding before execute and forwards exact context.",
+      "CapabilityService.execute_durable": "Add explicit required keyword-only effect_authority: JourneyEffectAuthority | None. None is allowed only on separately admitted non-journey tasks; any journey task requires context. No permissive omitted default/alias.",
+      "DurableCommandBoundary.execute": "Same explicit keyword; owns qualified JourneyEffectAuthorityPort dependency and exact journey-task/operation/scope validation.",
+      "source_selection": "CapabilityService gains explicit ROOT-injected journey_sources: Mapping[str, JourneyCapabilitySourcePort] default empty/disabled. For non-None effect_authority select only this exact operation mapping; no runtime_checkable/hasattr/legacy fallback/wrapper. Journey task with effect_authority=None refuses; separately admitted nonjourney with explicit None uses existing sources. Mapping installation requires independent source qualification; Protocol conformance alone is not operational authority. Missing mapping returns existing source unavailable/authority unproven refusal before source invocation.",
+      "recovery": "observe/reconcile/ingest retain receipt-first independently authorized read semantics; do not dispatch using expired original effect proof or recapture a new key. Fresh read authority never renews effect authority.",
+      "ExistingDomainHandoffPort.execute": "ExistingDomainEffectBoundary owns the exact driver-facing effect_authority signature; it obtains/pins original native-domain authorization from its ROOT-injected native_authority, checks transition/native evidence after all preparation awaits, forms the existing-domain JourneyInvocationCheckpoint and calls its ROOT-injected target ExistingDomainHandoffPort.execute(binding, snapshot, action, invocation_checkpoint=exact_checkpoint). Target retains original R4 irreversible effect/internal-await checks. No direct driver-to-target call or operation authority surrogate.",
+      "shared_edit_minimization": "ROOT owns narrow private admission snapshot API: exact immutable VerifiedAuthority/initial and latest VerifiedCurrentness/full binding/request/envelope and accumulated minimum ceiling/nondecreasing checked_at for SAME original private lease. _durable_assert_current is synchronous after the final awaited step; _durable_before_disclosure is nondestructive so both original authorities can be checked synchronously before finally releasing lease. Legacy nonjourney execute/revalidate behavior remains compatibility scope; no broad rewrite. Source receives OperationInvocationAuthority value snapshot, never AdmissionLease or callable.",
+      "ownership": {
+        "author": [
+          "journeys/contracts.py",
+          "journeys/driver.py",
+          "durable_execution.py",
+          "focal UNIT tests"
+        ],
+        "ROOT_serial": [
+          "service.py explicit effect_authority keyword and journey_sources mapping",
+          "shared admission.py private accessor only if justified",
+          "composition roots",
+          "four amended contract files after independent gate"
+        ]
+      },
+      "source_checkpoint": "DUR3 creates JourneyInvocationCheckpoint after acknowledged fence and final same-original operation+transition checks. Calls journey source only with the exact operation checkpoint. The receiving source pins canonical upstream snapshot and authenticates actual original evidence. Qualified source-owner verifiers are trusted injected dependencies, not caller callbacks or new provider wire. They must preserve upstream accumulated ceiling on every internal await/atomic native effect check.",
+      "JourneyDriver.domain_handoff": "Explicit constructor dependency domain_handoff: ExistingDomainEffectBoundary | None = None. Driver captures original domain JourneyEffectAuthority from the already admitted entry proof/action/binding, then calls boundary.execute(binding, snapshot, action, effect_authority=original_context). Driver does not obtain native grants or assemble JourneyInvocationCheckpoint. Missing boundary denies the handoff before any target call; ExistingDomainHandoffPort is target-only and is never installed directly as this driver dependency."
+    },
+    "required_order": [
+      "Parse/copy exact original closed JourneyEffectAuthority and validate full original binding/action/predecessors/envelope/literal key/request digest/topology/transition contract to admitted journal and operation scope; no authority by record construction.",
+      "After custody preparation validate original context and original transition ceiling before any fence; record original command. Raw context/proof/checkpoint remains invocation-private, not persisted as journal or public DTO.",
+      "Authorize operation and audit under same private admission lease; capture immutable original VerifiedAuthority/initial VerifiedCurrentness/envelope/request/full binding pins and minimum validity. Alternatively on existing-domain branch obtain original native domain/human evidence from qualified source owner; never substitute an operation grant.",
+      "Qualified same-original transition check before fence pins transition currentness_ref at first accepted check; accumulate minimum transition+operation/domain ceilings and nondecreasing checked_at. Recheck BOTH original identities and ceilings synchronously after this await.",
+      "Acknowledged begin_dispatch CAS produces immutable original fence/token. Unknown/CAS-failed fence means no source effect call. Domain branch preserves its existing accepted native effect fence/idempotency semantics, never fabricates a commercial command fence.",
+      "After fence/preparation await verify original transition currentness and SAME original operation lease/native domain authority. After whichever check is awaited last synchronously compare BOTH exact original pin sets and accumulated ceilings; form immutable JourneyInvocationCheckpoint with all accepted minima and original authentic evidence.",
+      "Call exactly qualified journey source.execute_under_authority with operation checkpoint or qualified existing-domain target.execute with domain checkpoint. Source/target pins upstream canonical snapshot and authenticates original source-owner evidence. Missing source/target/authority contract qualification denies; no fallback.",
+      "After ALL source/target internal awaits including further currentness/evidence resolution, compare original context and original operation/native grant identity/currentness anchors to upstream checkpoint; accumulate further minima without replacing upstream ceiling. After final awaited step assert BOTH synchronously at trusted now strictly before effective minimum, then apply native authority atomically at irreversible effect/revision/idempotency boundary. An additional await requires repeat of same-original checks; local HTTP invocation start never proves provider atomicity.",
+      "Existing source result verification and atomic local result/wait/outbox persistence preserve genuine historical source facts, even if authority later expires; never retroactively erase an unauthorized-effect trace or manufacture receipt.",
+      "Before disclosure/resume obtain current read authority plus original continuation and SAME invocation original operation/native currentness via nondestructive private checkpoint. After final await synchronously compare BOTH original anchors and minimum ceilings; then disclose if admissible and release private lease finally. Failed disclosure preserves committed fact/fence and reconciles only; no resubmit."
+    ],
+    "monotonic_invariants": [
+      "Exact full JourneyBinding including principal/environment/data policy/journey/task/tenant/legal entity and topology/source-transition pins; exact PreparedCapabilityAction and request_digest stay bound through all calls.",
+      "Original transition schema/task/tenant/legal entity/journey/topology/from/successor/predecessor command refs/source receipt refs/source decision/observation/transition contract/policy revision anchors cannot change. New currentness proves same decision, not a replacement decision.",
+      "Original VerifiedAuthority pins remain exact: full AdmissionBinding/request_sha256/authorization_ref/signed_task_ref/agent_card_sha256/source_contract_publication_ref/policy_ratification_ref/currentness_ref/enforcement/decision. VerifiedCurrentness binding/request/auth/currentness anchors remain exact, with expected result digest only when a verified result exists.",
+      "Private invocation accumulates ceiling=min(original transition.valid_until, original operation authority.valid_until, every accepted transition and operation currentness.valid_until, applicable verified source result ceiling). Later checks may shorten but never extend it. Each checked_at is nondecreasing, original issued/observed time <= checked_at <= trusted now < accumulated ceiling.",
+      "Qualified verifier receives copies; mutation or forged object identity cannot modify private original pins. All records strict/frozen/extra-forbid and revalidated; private lease/proof authentic provenance is independently checked, never admitted by construction.",
+      "Revocation, erasure, missing publication/owner contract, digest/binding/auth/currentness substitution or expiry rejects before dependent effect. No generic ingress check, local journal integer, ACK or OP12 fact grants journey transition authority.",
+      "Post-fence failure retains DISPATCH_FENCED/UNCERTAIN and original dispatch/key/ceiling; reconcile-only even when source was locally not invoked. No reset/retry/resubmit or pre-dispatch classification after acknowledged fence.",
+      "Upstream currentness shortening is irrevocable within this invocation. JourneyInvocationCheckpoint transports every earlier accepted minimum, first transition currentness anchor, original operation/native identity and latest checked_at. No source-local refresh can restore original broad expiry or issue a new invocation checkpoint.",
+      "Operation snapshot carries exact original VerifiedAuthority (including verified_at and valid_until), first accepted VerifiedCurrentness, original envelope/request digests and full AdmissionBinding; current checks retain authorization_ref/currentness_ref/publication/ratification/task/Card/enforcement/decision. Source authenticates original A, never accepts separately valid B.",
+      "Domain checkpoint carries exact original native grant reference+evidence digest/publication/contract/route/action/binding/currentness, source-owned original validity and accumulated minimum. Native human evidence resolves under original admitted owner contract; no generic record attests a medical/financial hard act.",
+      "Source/target receives no AdmissionLease, arbitrary callable, public authority ref/boolean or new external wire field. Unqualified native effect atomicity remains unavailable even with local propagation tests.",
+      "Disclosure check does not destroy the lease before final synchronous BOTH check; release only after check/use or final cleanup. Releasing coordination never clears effect fence or permits redispatch."
+    ],
+    "required_gate_controls": [
+      "Expire original transition inside actual driver->CapabilityServiceExecutionAdapter->DUR3 prepare_command await with admission valid: source call/effect zero.",
+      "Expire original transition inside acknowledged begin_dispatch await with admission valid: source call/effect zero, original fence/key retained and recovery reconcile-only.",
+      "Expire original transition inside awaited after-fence admission currentness or transition verifier step: final synchronous check rejects, source call/effect zero.",
+      "Swap any original context binding/action/digest/source decision/observation/topology/contract/policy/currentness pin or operation authorization while each remains separately syntactically valid: reject before effect.",
+      "Return renewed currentness expiration beyond original or prior narrower ceiling: reject, no effective authority renewal.",
+      "Source adapter awaits before effect and proof expires/revokes: actual source spy observes zero effect, source qualification distinct from UNIT. Unknown/unqualified source cannot use legacy fallback.",
+      "Positive current original proof invokes once, stores genuine verified result; post-effect disclosure expiry preserves historical fact and prevents disclosure, no resend.",
+      "Keep all original entry/control/terminal/F02 probes negative and retain historical REVISE evidence unchanged; exact source/input hashes before/after checks.",
+      "Domain handoff proof expires/revokes during actual qualified target await before irreversible handoff: zero target effect, no manufactured ACK/outbox; unqualified old target never invoked. Source/human route and original target/action pins remain exact.",
+      "R3-F01 narrowed ceiling: original transition t+60, upstream accepted transition or operation currentness t+5, source enters t+1 then awaits t+6; fresh currentness t+60 cannot replace checkpoint t+5; ZERO effect, original fence/key retained and reconcile-only.",
+      "Narrowing between any prior/current checks is transported; later proof above prior narrow ceiling refuses; source/target original checkpoint/digests/first currentness anchor cannot be rewritten even when changed object parses.",
+      "Original operation authorization A is authenticated at dispatch; source internal await returns separately valid B with same envelope/request/full binding but changed authorization or publication/Card/currentness anchor: ZERO effect. Also mutate original VerifiedAuthority received by verifier and prove private/checkpoint originals unchanged.",
+      "Domain handoff: original transition t+60 and original native authority independently qualified; upstream accepted t+5 ceiling then target awaits t+6. ZERO irreversible effect and no outbox/ACK fabrication; same-original domain grant/native evidence digest cannot become another grant.",
+      "Positive unchanged original pins with legitimately narrower unexpired ceiling executes exactly once; post-fence recovery only receipt lookup never source execute, and post-effect disclosure expiry retains genuine fact without disclosing.",
+      "Expiry/revocation during final nondestructive before-disclosure await is caught by BOTH final sync check before releasing private lease. Do not allow prior lease deletion to bypass comparison.",
+      "Four-file standalone normative Markdown references resolve to actual sibling contract JSON#/journey_effect_authority_amendment for records/signatures and required_gate_controls; no dependence on private amendment.json after integration.",
+      "R5 exact wiring: JourneyDriver(domain_handoff=ExistingDomainEffectBoundary) sends exact original effect_authority; typed boundary constructor installs only independently qualified transition/native verifier and target. Target receives exact existing-domain invocation_checkpoint, not original effect_authority alone; driver never constructs native grant/checkpoint.",
+      "R5 missing dependencies: absent driver boundary or any one of boundary transition_authority/native_authority/target yields bounded refusal with ZERO target invocations, ZERO irreversible effects and no invented ACK/outbox. Invalid original binding/snapshot/action/digest/context denies before any authority or target await.",
+      "R5 boundary awaits: expiry/revocation or native original authorization/evidence/contract/currentness substitution during authorize_original, transition check_current or native check_current yields ZERO target effect calls. First transition currentness anchor stays fixed and every accepted transition/native minimum only narrows.",
+      "R5 target awaits: positive unchanged original evidence transports exact checkpoint and permits one irreversible effect; target internal await expiry/narrowed-ceiling/native grant substitution yields ZERO irreversible effects and retains original native fence/idempotency/receipt recovery semantics. No dynamic/legacy signature fallback."
+    ],
+    "compatibility": {
+      "provider_fleets": "Read-only filesystem snapshot only; no Git/remote/network or fleet messaging by author.",
+      "provider_internal_service": "Provider worktrees use AnyCapabilityEnvelope/provider schema parsing and expose legacy execute; DUR3 composition must preserve provider-specific schema support when integrated by ROOT, not overwrite shared modules from frozen TaskWT.",
+      "provider_OP12": "ContractAuthoritySource returns factual clause/snapshot authority with same original proof ceiling and purpose/source/currentness checks. OP12 reads factual contract source; not JourneyTransitionAuthorityPort, not authority for commercial/clinical effect.",
+      "provider_source_binding": "SourceDescriptor/SourceBinding are bilateral tenant/legal entity/provider/principal/task/source/policy/purpose/classification/publication pins. They do not include original journey transition context, topology decision or journey effect authority port.",
+      "available_journey_effect_adapter": false,
+      "result": "Existing provider records may supply separate source publication/currentness evidence after independent qualification. They cannot be automatically cast to JourneyEffectAuthority or imply original transition at source commit. Dependent operational journey effects remain gated.",
+      "shared_paths": "admission.py/service.py/models.py/__init__.py overlap known provider work; ROOT serial composition only, no WIP copy/merge or publication claim."
+    },
+    "revision": "R5_DOMAIN_BOUNDARY_THIRD_REPAIR",
+    "repaired_findings": [
+      "DUR-CONTRACT-R3-F01",
+      "DUR-CONTRACT-R3-F02",
+      "DUR-CONTRACT-R4-F01"
+    ],
+    "original_r3_review_sha256": "862f2c247175bd69d3736b93a6f4a2249c55d5f9d0c0aaf78034250e46a0128b",
+    "independent_admission": "PENDING_ORIGINAL_REVIEWER_DELTA",
+    "legacy_nonjourney_behavior_changed": false,
+    "canonical_four_file_references": {
+      "durability-contract.md": "durability-contract.json#/journey_effect_authority_amendment",
+      "journey-orchestration-contract.md": "journey-orchestration-contract.json#/journey_effect_authority_amendment"
+    },
+    "original_r4_review_sha256": "ec855a6c1a2f3ccd9cfe026edd1b120d3749707aae94bfdeac1b912744803c7f"
   }
 }

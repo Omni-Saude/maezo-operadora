@@ -312,3 +312,66 @@ dependente desses gates/fornecedores**. Nada neste contrato mede ROI, publica AM
 liga ambiente real, ratifica decisão humana, mistura jurisdição clínica/financeira
 ou altera permissões hard. Os anexos de evidência demonstram checks de autoria;
 review independente e aceitação runtime permanecem pendentes.
+
+
+# Journey effect authority amendment — R4 third repair
+
+**Status:** Proposed, pending original independent reviewer's delta. **Date:** 2026-10-05. **Repair author:** source_runtime_readiness_steward, distinct from architect and verifier.
+
+R3 and original frozen inputs remain immutable. This repair addresses `DUR-CONTRACT-R3-F01` and `DUR-CONTRACT-R3-F02` from the exact original review SHA256 `862f2c247175bd69d3736b93a6f4a2249c55d5f9d0c0aaf78034250e46a0128b`. It preserves original transition/action/binding propagation, explicit default-empty journey source mapping, native hard human authority and no legacy fallback.
+
+The original `JourneyEffectAuthority` alone does not carry a previously narrowed deadline. A closed private `JourneyInvocationCheckpoint` now accompanies each irreversible source/target invocation. It contains the original immutable context, first and latest accepted transition currentness with fixed anchor and accumulated minimum deadline, and a discriminated operation or existing-domain authority snapshot. Exact closed fields and signatures are normative in `durability-contract.json#/journey_effect_authority_amendment`. Gate controls are in the same embedded object under `required_gate_controls`.
+
+For a capability effect, `OperationInvocationAuthority` transports the exact original existing `VerifiedAuthority`, first and latest same-original `VerifiedCurrentness`, envelope/request digests, full binding, fixed authorization/publication/ratification/task/Card/currentness pins, nondecreasing checked time and accumulated minimum deadline. It exposes no private lease. Trusted DUR3 captures this snapshot over its original lease after final awaited checks; source receives the exact checkpoint, authenticates original owner evidence and pins the upstream canonical snapshot. Valid authorization B for the same request cannot replace original A.
+
+For an existing-domain handoff, qualified source-owner `ExistingDomainInvocationAuthorityPort` obtains original native domain/human evidence for the exact route/binding/action and authenticates its original authorization, publication, contract, protected evidence reference/digest, fixed currentness anchor and source-owned validity. That native evidence and its accumulated minimum are transported in the domain checkpoint. No commercial operation grant, transition proof, OP12 snapshot, ACK or new generic human claim fills an absent native authorization. Missing accepted native contract or authentic evidence resolution denies the dependent handoff before effect-target dispatch. Source-owned native hard boundaries remain mandatory.
+
+`JourneyCapabilitySourcePort.execute_under_authority` accepts only the operation `invocation_checkpoint`. `ExistingDomainHandoffPort.execute` accepts only the domain `invocation_checkpoint`. Every receiving qualified source/target reparses a deep copy, verifies authentic same-original source-owner evidence through trusted root-injected typed ports and pins the exact received checkpoint; neither record construction nor structural protocol conformance grants authority. It preserves all earlier accepted minima while checking after **all internal awaits**, including verification/resolution awaits. The final synchronous BOTH check compares original transition and original operation/native pins, every narrowed ceiling and trusted time strictly before the effective minimum; any subsequent await requires that check cycle again. The source/native contract enforces these constraints atomically at actual effect/revision/idempotency commit. Starting an HTTP request is not assumed atomic effect. If the existing native interface cannot preserve original authorization identity and narrowed ceilings at its true commit boundary, it remains unqualified; no new external wire is introduced by this proposal.
+
+Counterexample closure: original expires at t+60, upstream accepts t+5, source enters t+1 and awaits t+6. The received checkpoint retains t+5; a fresh proof through t+60 is refused and effect count stays zero. The analogous native-domain handoff uses its independently authenticated original native grant and the same irrevocable upstream deadline rule. All accepted currentness checks may shorten and never extend; original authorization/currentness anchors never change.
+
+ROOT owns a narrow private admission snapshot API and `_durable_assert_current` synchronous final check. `_durable_before_disclosure` is nondestructive, allowing final BOTH comparison after the last await before disclosure; private lease release follows in final cleanup. Existing legacy nonjourney compatibility behavior is outside this repair. No broad admission rewrite, arbitrary callback, public bearer lease or producer-manufactured field is admitted.
+
+Acknowledged fences and literal original keys survive later refusal/expiry; only receipt-first reconciliation follows an uncertain effect. No reset/resubmit/pre-dispatch reclassification after accepted fence. Genuine historical source facts survive later disclosure rejection.
+
+Independent review must reproduce narrowed transition/operation deadline, A→B substitution, source/target internal await expiry/revocation, mutation/anchor substitution, domain native authority separation, positive once-only dispatch and nondestructive disclosure controls. UNIT ports remain synthetic mechanics; supplier atomicity/publication/runtime, human policy and complete operational journeys remain separate gates. This document introduces internal transport/evidence records only, not new business enums, source APIs, table entities, policies, provider wire or production flags.
+
+Canonical four-file references deliberately use each Markdown's sibling JSON embedded amendment. Private `amendment.json` is review custody and is not an extra integration artifact.
+
+
+# R5: exact driver-facing existing-domain effect boundary
+
+**Status:** Proposed, pending original independent reviewer delta. **Repair author:** journey_gateway_author, distinct from R4 author and reviewer. This narrow third repair addresses only `DUR-CONTRACT-R4-F01` in original R4 review SHA256 `ec855a6c1a2f3ccd9cfe026edd1b120d3749707aae94bfdeac1b912744803c7f`. R4 snapshots and all R4 records, fields, minima, authority separation and source/target obligations remain unchanged.
+
+The concrete internal `ExistingDomainEffectBoundary` exposes this exact driver-facing signature:
+
+```python
+ExistingDomainEffectBoundary(
+    *,
+    clock: Callable[[], datetime],
+    transition_authority: JourneyEffectAuthorityPort | None = None,
+    native_authority: ExistingDomainInvocationAuthorityPort | None = None,
+    target: ExistingDomainHandoffPort | None = None,
+)
+
+async def execute(
+    self,
+    binding: JourneyBinding,
+    snapshot: JourneySnapshot,
+    action: PreparedDomainHandoffAction,
+    *,
+    effect_authority: JourneyEffectAuthority,
+) -> OutboxDescriptor | CapabilityRefusalReason: ...
+```
+
+`JourneyDriver` receives `domain_handoff: ExistingDomainEffectBoundary | None = None`. It captures the already admitted original entry context and calls `boundary.execute(binding, snapshot, action, effect_authority=original_context)`. It never assembles a native grant or `JourneyInvocationCheckpoint`. `ExistingDomainHandoffPort` remains the irreversible target-only interface from R4; ROOT never installs it directly as this driver dependency.
+
+ROOT injects independently qualified transition verifier, original native-domain verifier and exact existing target. All three qualifying dependencies default absent. Missing boundary or any dependency refuses before native-authority/target invocation. The required injected clock measures trusted operational aware time; it does not select a regulatory deadline or new authority duration. No dynamic discovery, signature adaptation, arbitrary callback or legacy target fallback qualifies a dependency.
+
+Before any authority or target await, the boundary reparses deep copies and verifies exact original binding, journal snapshot binding, domain action/digest, `request_sha256=None`, original entry transition/topology/contract/lineage and original validity ceiling. It pins canonical originals privately, obtains original native grant only from `native_authority.authorize_original(original_context_copy)`, then verifies current transition and same-original native authority through the two qualified typed ports after all preparation awaits. Original native authorization, protected evidence reference/digest, admitted contract/publication and currentness anchors remain fixed; checked time cannot go backwards or into the future, and every accepted deadline only narrows. Transition currentness stays bound to its first accepted anchor.
+
+After the final awaited authority/preparation step, BOTH original transition/context and native grant/evidence pins and accumulated minima are checked synchronously against trusted time. The boundary forms the existing-domain checkpoint from that authenticated evidence and immediately calls only `target.execute(binding_copy, snapshot_copy, action_copy, invocation_checkpoint=exact_domain_checkpoint)`. There is no unrelated await between final check and this call. The target retains all R4 requirements to authenticate the received original checkpoint and enforce BOTH authorities after all target-internal awaits at its own atomic irreversible native effect/fence/revision/idempotency boundary. No commercial operation grant or journal fence fills absent native authority.
+
+Authority-dependent disclosure after the target await repeats same-original transition/native checks and final synchronous BOTH comparison. Refusal preserves genuine target facts/native uncertainty and existing original receipt-only recovery; it cannot resend the target or fabricate an ACK/outbox. Target source qualification and native human authority remain separate gates.
+
+Exact JSON declarations and executable gate criteria are normative in `durability-contract.json#/journey_effect_authority_amendment`, including `ports.ExistingDomainEffectBoundary`, `propagation.JourneyDriver.domain_handoff` and the four R5 controls under `required_gate_controls`. Missing dependency yields zero target calls; binding/action poisoning denies before authority calls; expiry/revocation/substitution during native authorize/currentness or transition checks yields zero effect calls; target-internal await expiry/substitution yields zero irreversible effects. Positive unchanged authentic originals transport the exact checkpoint and permit one effect. No source implementation, source/provider acceptance, human ratification, DB/engine acceptance or production activation is claimed by this contract repair.

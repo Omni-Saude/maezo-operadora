@@ -69,6 +69,10 @@ from .whatsapp.limite import LimitadorDeVolume
 from .whatsapp.settings import WhatsAppWebhookSettings
 
 if TYPE_CHECKING:
+    from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime
+    from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyCurrentnessPort
+    from maezo.gateway.capabilities.journeys.driver import JourneyDriver
+
     from .whatsapp.lucas_turno import LucasTurno
 
 #: F2 mode discriminator — the ONLY non-production `runtime_mode`. Anything else (Helm injects
@@ -97,6 +101,8 @@ class WebhookState:
     #: ligado (`_build_lucas_turno`); desligado fica `None` e nada do Lucas existe no processo.
     #: Nesta onda ninguem o chama: o despachante passa a chamar na onda (e).
     lucas_turno: LucasTurno | None = None
+
+    administrative_runtime: AdministrativeJourneyRuntime | None = None
 
     def is_live(self) -> bool:
         return self.live
@@ -527,3 +533,32 @@ async def run(settings: WhatsAppWebhookSettings) -> None:
             await dedup.aclose()
 
     logger.info("webhook_receiver_stopped", tenant=settings.tenant_id)
+
+
+def _attach_administrative_runtime(
+    state: WebhookState,
+    *,
+    binding: JourneyBinding,
+    driver: JourneyDriver,
+    currentness: JourneyCurrentnessPort | None = None,
+    enabled: bool = False,
+) -> AdministrativeJourneyRuntime | None:
+    """Explicit trusted composition after saver provisioning; no public route activation."""
+    from maezo.gateway.tool_registry import build_administrative_journey_runtime
+
+    if state.dispatcher is None or state.checkpointer is None:
+        return None
+    if binding.tenant_ref != state.settings.tenant_id or binding.tenant_ref != state.dispatcher.tenant_id:
+        return None
+    runtime = build_administrative_journey_runtime(
+        binding=binding,
+        driver=driver,
+        currentness=currentness,
+        checkpointer=state.checkpointer.saver,
+        pseudonymizer=state.dispatcher.pseudonymizer,
+        enabled=enabled,
+    )
+    state.administrative_runtime = runtime
+    state.dispatcher.administrative_runtime = runtime
+    state.dispatcher.administrative_binding = binding.model_copy(deep=True)
+    return runtime

@@ -122,6 +122,10 @@ from .limite import LimitadorDeVolume, Veredito
 from .security import hash_phone, log_safe_message_id
 
 if TYPE_CHECKING:  # so' o tipo: desligado, o despachante nem importa o roteador
+    from maezo.agents.lucas.administrative.runtime import AdministrativeJourneyRuntime, RuntimeTurnStimulus
+    from maezo.gateway.capabilities.journeys.contracts import JourneyBinding, JourneyDispatchOutcome
+    from maezo.gateway.capabilities.models import CapabilityRefusalReason
+
     from .lucas_turno import LucasTurno
     from .pre_roteamento import SinaisLexicos
     from .roteamento import ConversaRouter, PedidoDeHandoff
@@ -373,6 +377,113 @@ class HelenaDispatcher:
     #: (`classify-v6`, sinais lexicos, agente ativo) e executa o Lucas depois dela. Roteador sem
     #: Lucas e' a sombra da onda (c), intocada.
     lucas_turno: LucasTurno | None = None
+
+    administrative_runtime: AdministrativeJourneyRuntime | None = None
+    administrative_binding: JourneyBinding | None = None
+
+    async def accept_administrative_turn(
+        self, stimulus: RuntimeTurnStimulus
+    ) -> JourneyDispatchOutcome | CapabilityRefusalReason:
+        """Trusted typed entry; canonical values never invoke caller copy/serialization hooks."""
+        from typing import cast
+
+        from pydantic import BaseModel
+
+        from maezo.agents.lucas.administrative.handoff import AdministrativeHandoff
+        from maezo.agents.lucas.administrative.runtime import RuntimeResumeStimulus, RuntimeTurnStimulus
+        from maezo.gateway.capabilities.journeys.contracts import (
+            CurrentJourneyTurn,
+            JourneyBinding,
+            JourneyDispatchOutcome,
+        )
+        from maezo.gateway.capabilities.models import CapabilityRefusalReason
+
+        def closed(value: object) -> object:
+            # Supported model metadata is checked in full BEFORE normalization.
+            models = (
+                JourneyBinding,
+                JourneyDispatchOutcome,
+                CurrentJourneyTurn,
+                RuntimeTurnStimulus,
+                RuntimeResumeStimulus,
+            )
+            if any(type(value) is model for model in models):
+                raw = object.__getattribute__(value, "__dict__")
+                if type(raw) is not dict or any(type(key) is not str for key in raw):
+                    raise ValueError("unsupported model storage")
+                for name in ("__pydantic_extra__", "__pydantic_private__"):
+                    storage = object.__getattribute__(value, name)
+                    if storage is not None and (type(storage) is not dict or storage):
+                        raise ValueError("unsupported model metadata")
+                fields = object.__getattribute__(value, "__pydantic_fields_set__")
+                if type(fields) is not set or any(
+                    type(key) is not str
+                    or (key not in type(cast(BaseModel, value)).model_fields and key not in raw)
+                    for key in fields
+                ):
+                    raise ValueError("unsupported field metadata")
+                return closed(raw)
+            if type(value) is AdministrativeHandoff:
+                return {
+                    key: closed(object.__getattribute__(value, key))
+                    for key in AdministrativeHandoff.__slots__
+                }
+            if type(value) is dict:
+                if any(type(key) is not str for key in value):
+                    raise ValueError("unsupported mapping key")
+                return {key: closed(item) for key, item in value.items()}
+            if type(value) is tuple:
+                return tuple(closed(item) for item in value)
+            if type(value) is list:
+                return [closed(item) for item in value]
+            if (
+                value is None
+                or any(type(value) is leaf for leaf in (str, bool, int))
+                or type(value) is CapabilityRefusalReason
+            ):
+                return value
+            raise ValueError("unsupported leaf carrier")
+
+        runtime = self.administrative_runtime
+        if runtime is None:
+            return CapabilityRefusalReason.SOURCE_UNAVAILABLE
+        try:
+            declared_binding = self.administrative_binding
+            original_tenant = self.tenant_id
+            if declared_binding is None or type(original_tenant) is not str:
+                return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+            # RETAIN the validated canonical original, never copy raw leaves afterwards.
+            original_binding = JourneyBinding.model_validate(closed(declared_binding))
+            fresh = RuntimeTurnStimulus.model_validate(closed(stimulus))
+            if original_binding.tenant_ref != original_tenant or not runtime.is_bound_to(original_binding):
+                return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        except Exception:
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+        result = await runtime.accept_turn(fresh)
+        try:
+            reason = result if type(result) is CapabilityRefusalReason else None
+            outcome = None if reason is not None else JourneyDispatchOutcome.model_validate(closed(result))
+            # Complete all callback-capable parsing/ownership checks before the final epoch guard.
+            current = JourneyBinding.model_validate(closed(self.administrative_binding))
+            owned = runtime.is_bound_to(current) and runtime.is_bound_to(original_binding)
+            final_binding = JourneyBinding.model_validate(closed(self.administrative_binding))
+            if (
+                not owned
+                or self.administrative_runtime is not runtime
+                or self.administrative_binding is not declared_binding
+                or type(self.tenant_id) is not str
+                or self.tenant_id != original_tenant
+                or final_binding.__dict__ != original_binding.__dict__
+                or (outcome is not None and outcome.journey_ref != original_binding.journey_ref)
+            ):
+                return CapabilityRefusalReason.AUTHORITY_UNPROVEN
+            # Canonical models contain only supported leaves; no raw recopy after this guard.
+            if reason is not None:
+                return reason
+            assert outcome is not None
+            return outcome
+        except Exception:
+            return CapabilityRefusalReason.AUTHORITY_UNPROVEN
 
     @property
     def _roteamento_completo(self) -> bool:
