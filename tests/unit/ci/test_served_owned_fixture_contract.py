@@ -6,8 +6,11 @@ No Docker, PostgreSQL, CIB or other service is started by this suite.
 
 from __future__ import annotations
 
+import ast
 import ssl
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -601,3 +604,504 @@ def test_helper_actual_tls_context_and_url_are_bound_to_inspected_descriptor(tmp
     )
     assert "UNIT-password" not in repr(fixture)
     assert fence._pure_owned_inspect_contract(provider_tls_pg)
+
+
+def test_closed_ca_and_legacy_helper_profiles_are_both_constructive() -> None:
+    legacy, ca = fence._owned_helper_source_profiles()
+    assert fence._owned_helper_source_profile(legacy) == "LEGACY"
+    assert fence._owned_helper_source_profile(ca) == "CLOSED_CA"
+    actual = ast.parse(Path(provider_tls_pg.__file__).read_text(encoding="utf-8"))
+    assert fence._owned_helper_source_profile(actual) == "CLOSED_CA"
+    assert fence._owned_helper_contract_is_verified()
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("os.O_NOFOLLOW", "0"),
+        ("os.O_EXCL", "0"),
+        ("info.st_uid != os.getuid()", "False"),
+        ("stat.S_IMODE(info.st_mode) != 448", "False"),
+        ("before.st_nlink != 1", "False"),
+        ("before.st_uid != os.getuid()", "False"),
+        ("hashlib.sha256(raw).hexdigest() != expected_digest", "False"),
+        ("material.ca_path != material.directory / 'database-ca.crt'", "False"),
+        ("material.server_path != material.directory / 'server.crt'", "False"),
+        ("material.key_path != material.directory / 'server.key'", "False"),
+        ("material.owner != expected_owner", "False"),
+        ("type(material.uid) is not int", "False"),
+        ("material.uid != os.getuid()", "False"),
+        ("ca_key.public_numbers() == server_key.public_numbers()", "False"),
+        ("private_key.public_key().public_numbers() != server_key.public_numbers()", "False"),
+        (
+            "signer.verify(cert.signature, cert.tbs_certificate_bytes, padding.PKCS1v15(), hashes.SHA256())",
+            "pass",
+        ),
+        (
+            "x509.BasicConstraints(ca=True, path_length=0)",
+            "x509.BasicConstraints(ca=False, path_length=None)",
+        ),
+        ("not ca_constraints.critical", "False"),
+        ("not ca_usage.critical", "False"),
+        ("server.issuer != ca.subject", "False"),
+        ("len(ca.extensions) != 2", "False"),
+        ("len(server.extensions) != 4", "False"),
+        ("x509.DNSName('localhost')", "x509.DNSName('external.invalid')"),
+        ("ipaddress.ip_address('127.0.0.1')", "ipaddress.ip_address('0.0.0.0')"),
+        ("not material.not_before <= now < material.not_after", "False"),
+        ("timedelta(hours=2, minutes=1)", "timedelta(days=365)"),
+        ("ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)", "ssl.create_default_context()"),
+        ("context.load_verify_locations(cadata=ca_raw.decode('ascii'))", "context.load_default_certs()"),
+        ("context.verify_mode != ssl.CERT_REQUIRED", "context.verify_mode != ssl.CERT_NONE"),
+        ("not context.check_hostname", "False"),
+        ("context.get_ca_certs(binary_form=True) != [ca.public_bytes(serialization.Encoding.DER)]", "False"),
+        (
+            "context, server_raw, key_raw = _admit_database_material(material, expected_owner=owner)",
+            "context, server_raw, key_raw = ssl.create_default_context(), b'foreign-cert', b'foreign-key'",
+        ),
+        (
+            "_private_write(directory_fd, 'server.key', key_raw)",
+            "_private_write(directory_fd, 'server.key', material.key_path.read_bytes())",
+        ),
+        (
+            "else _database_server_files(files, tls_server_material, owner=owner)",
+            "else server_certificate(files)",
+        ),
+        ("else tls_server_material.ca_path", "else files / 'server.crt'"),
+        ("ssl=context, timeout=2", "ssl=False, timeout=2"),
+        (
+            "expected_owner=owner, expected_token=token",
+            "expected_owner='foreign-owner', expected_token=token",
+        ),
+        ("(files / 'server.key').unlink(missing_ok=True)", "pass"),
+        ("docker('rm', '--force', own_id)", "docker('rm', '--force', name)"),
+    ],
+)
+def test_closed_ca_profile_rejects_trust_scope_file_time_and_cleanup_mutants(
+    before: str,
+    after: str,
+) -> None:
+    _, ca = fence._owned_helper_source_profiles()
+    source = ast.unparse(ca)
+    assert before in source, before
+    changed = source.replace(before, after)
+    assert changed != source
+    assert fence._owned_helper_source_profile(ast.parse(changed)) is None
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "context = ssl.create_default_context()",
+        "ssl = object()",
+        "from tests.support.unverified import _admit_database_material",
+        "def _admit_database_material(*args, **kwargs):\n    return ssl.create_default_context(), b'x', b'y'",
+        "DatabaseTlsServerMaterial = object",
+        "def unknown_effect():\n    return __import__('subprocess').run(['docker', 'start', 'foreign'])",
+    ],
+)
+def test_closed_ca_profile_rejects_extra_bindings_imports_and_effects(extra: str) -> None:
+    _, ca = fence._owned_helper_source_profiles()
+    source = ast.unparse(ca) + "\n" + extra + "\n"
+    assert fence._owned_helper_source_profile(ast.parse(source)) is None
+
+
+def test_legacy_profile_also_rejects_a_tls_downgrade() -> None:
+    legacy, _ = fence._owned_helper_source_profiles()
+    source = ast.unparse(legacy)
+    changed = source.replace("ssl=context, timeout=2", "ssl=False, timeout=2")
+    assert changed != source
+    assert fence._owned_helper_source_profile(ast.parse(changed)) is None
+
+
+def test_closed_ca_pure_context_trusts_only_its_ca(tmp_path: Path) -> None:
+    # PKI/SSL evidence only; no container, socket, owner API or business authority.
+    material = provider_tls_pg.database_tls_server_material(tmp_path / "pki", owner="unit-ca")
+    context = provider_tls_pg.validate_database_tls_server_material(material, expected_owner="unit-ca")
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+    assert len(context.get_ca_certs(binary_form=True)) == 1
+    assert material.ca_path != material.server_path
+    assert material.key_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_ca_validator_name_and_forged_module_cannot_manufacture_source_provenance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert fence._owned_helper_contract_is_verified()
+
+    def accept_untrusted_material(*args: object, **kwargs: object) -> tuple[ssl.SSLContext, bytes, bytes]:
+        return ssl.create_default_context(), b"foreign-certificate", b"foreign-key"
+
+    accept_untrusted_material.__module__ = provider_tls_pg.__name__
+    monkeypatch.setattr(provider_tls_pg, "_admit_database_material", accept_untrusted_material)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        "_admit_database_material",
+        "validate_database_tls_server_material",
+        "server_certificate",
+        "_inspect",
+        "docker",
+    ],
+)
+@pytest.mark.parametrize("forgery", ["wrapped_metadata", "source_location", "foreign_globals"])
+def test_effective_executable_provenance_rejects_foreign_callbacks(
+    binding: str, forgery: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never invoke foreign code: metadata, borrowed bytecode and filename are not proof."""
+    import types
+
+    original = getattr(provider_tls_pg, binding)
+    assert fence._owned_helper_contract_is_verified()
+    if forgery == "wrapped_metadata":
+
+        def foreign(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("Foreign body must never execute during admission")
+
+        foreign.__dict__["__wrapped__"] = original
+        foreign.__module__ = provider_tls_pg.__name__
+    elif forgery == "source_location":
+        # Independent foreign executable deliberately claims the legitimate source location.
+        namespace: dict[str, Any] = {}
+        exec(
+            compile(
+                f'def {binding}(*args, **kwargs):\n    return "foreign"\n',
+                original.__code__.co_filename,
+                "exec",
+            ),
+            namespace,
+        )
+        code = namespace[binding].__code__.replace(co_firstlineno=original.__code__.co_firstlineno)
+        foreign = types.FunctionType(code, provider_tls_pg.__dict__, binding)
+        foreign.__module__ = provider_tls_pg.__name__
+    else:
+        globals_copy = dict(original.__globals__)
+        globals_copy["ssl"] = object()
+        foreign = types.FunctionType(
+            original.__code__, globals_copy, binding, original.__defaults__, original.__closure__
+        )
+        foreign.__kwdefaults__ = original.__kwdefaults__
+        foreign.__annotations__ = original.__annotations__
+        foreign.__module__ = provider_tls_pg.__name__
+    monkeypatch.setattr(provider_tls_pg, binding, foreign)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+@pytest.mark.parametrize(
+    "binding",
+    [
+        "OWNER_LABEL",
+        "TOKEN_LABEL",
+        "CONTRACT_LABEL",
+        "CONTAINER_NAME_PREFIX",
+        "POSTGRES_IMAGE",
+        "_START_COMMAND",
+    ],
+)
+def test_runtime_constants_cannot_diverge_from_admitted_source(
+    binding: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(provider_tls_pg, binding, "foreign-constant")
+    assert not fence._owned_helper_contract_is_verified()
+
+
+@pytest.mark.parametrize("binding", ["ssl", "subprocess", "asyncpg", "URL", "asynccontextmanager"])
+def test_effective_import_bindings_are_closed(binding: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(provider_tls_pg, binding, object())
+    assert not fence._owned_helper_contract_is_verified()
+
+
+def test_docker_cli_dependency_cannot_be_replaced(monkeypatch: pytest.MonkeyPatch) -> None:
+    def foreign_run(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("No CLI may execute during admission")
+
+    monkeypatch.setattr(provider_tls_pg.__dict__["subprocess"], "run", foreign_run)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+def test_only_declared_standard_asynccontextmanager_wrapper_is_admitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import types
+
+    legitimate = provider_tls_pg.owned_tls_postgres
+    assert fence._owned_helper_contract_is_verified()
+
+    def foreign(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("No wrapper may execute during admission")
+
+    foreign.__dict__["__wrapped__"] = legitimate.__dict__["__wrapped__"]
+    foreign.__module__ = provider_tls_pg.__name__
+    monkeypatch.setattr(provider_tls_pg, "owned_tls_postgres", foreign)
+    assert not fence._owned_helper_contract_is_verified()
+    monkeypatch.setattr(provider_tls_pg, "owned_tls_postgres", legitimate)
+
+    # Borrow the exact standard wrapper bytecode but alter its executable closure.
+    def cell(value: Any) -> types.CellType:
+        cells = (lambda: value).__closure__
+        assert cells is not None
+        return cells[0]
+
+    clone = types.FunctionType(
+        legitimate.__code__,
+        legitimate.__globals__,
+        legitimate.__name__,
+        legitimate.__defaults__,
+        (cell(foreign),),
+    )
+    clone.__dict__["__wrapped__"] = legitimate.__dict__["__wrapped__"]
+    clone.__module__ = provider_tls_pg.__name__
+    clone.__annotations__ = legitimate.__annotations__
+    monkeypatch.setattr(provider_tls_pg, "owned_tls_postgres", clone)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+def test_changed_defaults_and_builtin_shadowing_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    actual = provider_tls_pg.owned_tls_postgres.__dict__["__wrapped__"]
+    monkeypatch.setattr(actual, "__kwdefaults__", {"tls_server_material": object()})
+    assert not fence._owned_helper_contract_is_verified()
+    monkeypatch.undo()
+    monkeypatch.setattr(provider_tls_pg, "isinstance", lambda *args: True, raising=False)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+@pytest.mark.parametrize("method", ["url_for", "__init__", "__repr__", "__hash__"])
+def test_dataclass_effective_methods_are_bound_to_the_finite_production(
+    method: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def foreign(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("No foreign class method may execute during admission")
+
+    original = getattr(provider_tls_pg.OwnedTlsPostgres, method)
+    foreign.__module__ = provider_tls_pg.__name__
+    foreign.__dict__["__wrapped__"] = original
+    monkeypatch.setattr(provider_tls_pg.OwnedTlsPostgres, method, foreign)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+def test_bool_and_integer_executable_constants_are_not_interchangeable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import types
+
+    original = provider_tls_pg.validate_inspected_container
+    assert any(value is True for value in original.__code__.co_consts)
+    code = original.__code__.replace(
+        co_consts=tuple(1 if value is True else value for value in original.__code__.co_consts)
+    )
+    replacement = types.FunctionType(code, provider_tls_pg.__dict__, original.__name__)
+    replacement.__annotations__ = original.__annotations__
+    replacement.__kwdefaults__ = original.__kwdefaults__
+    replacement.__module__ = original.__module__
+    monkeypatch.setattr(provider_tls_pg, "validate_inspected_container", replacement)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+def test_nested_executable_constants_are_verified(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    original = provider_tls_pg.__dict__["asynccontextmanager"]
+    nested = [value for value in original.__code__.co_consts if isinstance(value, types.CodeType)]
+    assert nested
+    replacement_nested = nested[0].replace(co_consts=(*nested[0].co_consts, "foreign-marker"))
+    code = original.__code__.replace(
+        co_consts=tuple(
+            replacement_nested if value is nested[0] else value for value in original.__code__.co_consts
+        )
+    )
+    # Same imported function object and outer instructions; executable nested body diverges.
+    monkeypatch.setattr(original, "__code__", code)
+    assert not fence._owned_helper_contract_is_verified()
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "function_module",
+        "function_doc",
+        "class_module",
+        "class_doc",
+        "module_file",
+        "module_name",
+        "module_doc",
+        "module_package",
+        "field_name",
+        "field_type",
+        "field_metadata",
+        "dataclass_param",
+        "annotations",
+        "defaults",
+    ],
+)
+def test_foreign_metadata_rejects_without_any_callbacks(
+    target: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    class ForeignMetadata:
+        def __eq__(self, other: object) -> bool:
+            calls.append("eq")
+            return True
+
+        def __ne__(self, other: object) -> bool:
+            calls.append("ne")
+            return False
+
+        def __iter__(self) -> Iterator[Any]:
+            calls.append("iter")
+            return iter(())
+
+        def __getattr__(self, name: str) -> Any:
+            calls.append("getattr")
+            return None
+
+        def __fspath__(self) -> str:
+            calls.append("fspath")
+            return "foreign"
+
+    foreign = ForeignMetadata()
+    function = provider_tls_pg._admit_database_material
+    cls = provider_tls_pg.DatabaseTlsServerMaterial
+    member = cls.__dataclass_fields__["owner"]
+    if target == "function_module":
+        monkeypatch.setattr(function, "__module__", foreign)
+    elif target == "function_doc":
+        monkeypatch.setattr(function, "__doc__", foreign)
+    elif target == "class_module":
+        monkeypatch.setattr(cls, "__module__", foreign)
+    elif target == "class_doc":
+        monkeypatch.setattr(cls, "__doc__", foreign)
+    elif target.startswith("module_"):
+        monkeypatch.setattr(provider_tls_pg, "__" + target.removeprefix("module_") + "__", foreign)
+    elif target.startswith("field_"):
+        monkeypatch.setattr(member, target.removeprefix("field_"), foreign)
+    elif target == "dataclass_param":
+        monkeypatch.setattr(cls.__dict__["__dataclass_params__"], "frozen", foreign)
+    elif target == "annotations":
+        monkeypatch.setattr(function, "__annotations__", {"material": foreign})
+    elif target == "defaults":
+        raw = provider_tls_pg.owned_tls_postgres.__dict__["__wrapped__"]
+        monkeypatch.setattr(raw, "__kwdefaults__", {"tls_server_material": foreign})
+    else:
+        raise AssertionError("Unknown negative fixture")
+    assert not fence._owned_helper_contract_is_verified()
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "slot", ["__new__", "__init__", "load_verify_locations", "verify_mode", "check_hostname"]
+)
+def test_called_ssl_context_slots_cannot_be_replaced(
+    slot: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def foreign(*args: Any, **kwargs: Any) -> None:
+        calls.append("called")
+        raise AssertionError("Foreign TLS implementation must never execute")
+
+    cls = provider_tls_pg.__dict__["ssl"].SSLContext
+    replacement: Any = staticmethod(foreign) if slot == "__new__" else foreign
+    if slot in {"verify_mode", "check_hostname"}:
+        replacement = property(foreign, foreign)
+    monkeypatch.setattr(cls, slot, replacement)
+    assert not fence._owned_helper_contract_is_verified()
+    assert calls == []
+
+
+@pytest.mark.parametrize("slot", ["__init__", "subject_name", "sign"])
+def test_called_certificate_builder_slots_are_bound(
+    slot: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def foreign(*args: Any, **kwargs: Any) -> None:
+        calls.append("called")
+        raise AssertionError("Foreign certificate implementation must never execute")
+
+    monkeypatch.setattr(provider_tls_pg.__dict__["x509"].CertificateBuilder, slot, foreign)
+    assert not fence._owned_helper_contract_is_verified()
+    assert calls == []
+
+
+def test_static_dependency_discovery_does_not_invoke_foreign_module_getattr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def foreign_getattr(name: str) -> Any:
+        calls.append(name)
+        raise AssertionError("Static proof must not invoke module fallback")
+
+    monkeypatch.setattr(provider_tls_pg.__dict__["ssl"], "__getattr__", foreign_getattr, raising=False)
+    monkeypatch.delattr(provider_tls_pg.__dict__["ssl"], "SSLContext")
+    assert not fence._owned_helper_contract_is_verified()
+    assert calls == []
+
+
+@pytest.mark.parametrize("target", ["class_module", "field_name", "parameter_frozen"])
+def test_metadata_descriptors_are_never_called_during_admission(
+    target: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import dataclasses
+
+    calls: list[str] = []
+
+    class ForeignDescriptor:
+        def __get__(self, instance: Any, owner: Any = None) -> str:
+            calls.append("get")
+            return "foreign"
+
+    if target == "class_module":
+        monkeypatch.setattr(provider_tls_pg.DatabaseTlsServerMaterial, "__module__", ForeignDescriptor())
+    elif target == "field_name":
+        monkeypatch.setattr(dataclasses.Field, "name", ForeignDescriptor())
+    else:
+        params = provider_tls_pg.DatabaseTlsServerMaterial.__dict__["__dataclass_params__"]
+        monkeypatch.setattr(type(params), "frozen", ForeignDescriptor())
+    assert not fence._owned_helper_contract_is_verified()
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "backing", ["foreign_empty", "foreign_nonempty", "native_empty", "foreign_shared_default"]
+)
+def test_dataclass_metadata_proxy_requires_declared_default_identity(
+    backing: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import dataclasses
+    from collections.abc import Mapping
+    from types import MappingProxyType
+
+    calls: list[str] = []
+
+    class ForeignMapping(Mapping[str, Any]):
+        def __len__(self) -> int:
+            calls.append("len")
+            return 0 if backing == "foreign_empty" else 1
+
+        def __iter__(self) -> Iterator[str]:
+            calls.append("iter")
+            return iter(()) if backing == "foreign_empty" else iter(("foreign",))
+
+        def __getitem__(self, key: str) -> Any:
+            calls.append("getitem")
+            raise KeyError(key)
+
+    owner_field = provider_tls_pg.DatabaseTlsServerMaterial.__dataclass_fields__["owner"]
+    assert fence._owned_helper_contract_is_verified()
+    metadata = MappingProxyType({}) if backing == "native_empty" else MappingProxyType(ForeignMapping())
+    monkeypatch.setattr(owner_field, "metadata", metadata)
+    if backing == "foreign_shared_default":
+        # A regenerated reference must not trust a changed stdlib default either.
+        monkeypatch.setattr(dataclasses, "_EMPTY_METADATA", metadata)
+    assert not fence._owned_helper_contract_is_verified()
+    assert calls == []

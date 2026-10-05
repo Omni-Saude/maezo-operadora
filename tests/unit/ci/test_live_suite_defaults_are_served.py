@@ -45,15 +45,19 @@ fence closes the half that lives in `tests/`.
 from __future__ import annotations
 
 import ast
+import builtins
+import contextlib
+import copy
+import dataclasses
 import importlib
 import json
 import os
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from types import ModuleType
+from types import CodeType, FunctionType, MappingProxyType, MethodType, ModuleType
 from typing import Any, Final
 from unittest import mock
 
@@ -591,6 +595,1311 @@ def _calls(tree: ast.AST, name: str) -> list[ast.Call]:
     ]
 
 
+# Finite constructive helper grammar. These are source templates, never executed.
+# LEGACY is the exact admitted V6 helper; CLOSED_CA keeps its default path and
+# admits only the reviewed genuine-CA extension. Full-module AST equality pins
+# imports, lexical bindings, statements, arguments and exception/cleanup paths;
+# whitespace/comments may vary, but no unknown operation or definition is inferred.
+# A future semantic helper change requires an independently reviewed new profile.
+_OWNED_TLS_LEGACY_SOURCE: Final[str] = r'''
+"""Portable, self-provisioned TestOnly PostgreSQL with verified TLS and own cleanup.
+
+Docker cp uses the local client's bytes even when the daemon runs in Colima. No
+macOS bind mount or arbitrary DSN is used. Password and private key never enter
+argv or diagnostic output. This fixture establishes software mechanics only.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import ipaddress
+import json
+import re
+import secrets
+import ssl
+import subprocess
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import asyncpg
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+from sqlalchemy.engine import URL
+
+SELF_PROVISIONED_TLS_PG_CONTRACT_VERSION = "provider-self-provisioned-tls-postgres.v1"
+CONTAINER_NAME_PREFIX = "maezo-provider-tls-it-"
+OWNER_LABEL = "maezo.test-fixture-owner"
+TOKEN_LABEL = "maezo.test-fixture-token"
+CONTRACT_LABEL = "maezo.test-fixture-contract"
+POSTGRES_IMAGE = "postgres:16"
+_START_COMMAND = (
+    "chown postgres:postgres /tmp/server.key /tmp/server.crt; chmod 600 /tmp/server.key; "
+    "exec docker-entrypoint.sh postgres -c ssl=on -c ssl_cert_file=/tmp/server.crt "
+    "-c ssl_key_file=/tmp/server.key"
+)
+
+
+class FixtureProvenanceError(RuntimeError):
+    """Safe diagnostic containing no CLI output, credentials or private-key material."""
+
+
+@dataclass(frozen=True)
+class PublishedPostgres:
+    container_id: str
+    name: str
+    owner: str
+    token: str
+    host: str
+    port: int
+    image: str
+
+
+def validate_container_identity(
+    inspected: Mapping[str, Any], *, expected_name: str, expected_owner: str, expected_token: str
+) -> str:
+    """Pure ownership check, also applicable after start/readiness failure."""
+    container_id = inspected.get("Id")
+    config = inspected.get("Config")
+    if not isinstance(container_id, str) or re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
+        raise FixtureProvenanceError("TestOnly container identity invalid")
+    if not isinstance(config, Mapping):
+        raise FixtureProvenanceError("TestOnly container configuration absent")
+    labels = config.get("Labels")
+    if (
+        re.fullmatch(r"[a-z][a-z0-9-]{1,60}", expected_owner) is None
+        or re.fullmatch(r"[0-9a-f]{32}", expected_token) is None
+        or expected_name != CONTAINER_NAME_PREFIX + expected_token
+        or inspected.get("Name") != "/" + expected_name
+        or not isinstance(labels, Mapping)
+        or labels.get(OWNER_LABEL) != expected_owner
+        or labels.get(TOKEN_LABEL) != expected_token
+        or labels.get(CONTRACT_LABEL) != SELF_PROVISIONED_TLS_PG_CONTRACT_VERSION
+        or labels.get("maezo.test-only") != expected_owner
+        or config.get("Image") != POSTGRES_IMAGE
+    ):
+        raise FixtureProvenanceError("TestOnly container ownership mismatch")
+    return container_id
+
+
+def validate_inspected_container(
+    inspected: Mapping[str, Any], *, expected_name: str, expected_owner: str, expected_token: str
+) -> PublishedPostgres:
+    """Validate actual Docker inspect provenance and exactly one loopback binding."""
+    container_id = validate_container_identity(
+        inspected, expected_name=expected_name, expected_owner=expected_owner, expected_token=expected_token
+    )
+    state, network = inspected.get("State"), inspected.get("NetworkSettings")
+    if not isinstance(state, Mapping) or state.get("Running") is not True or not isinstance(network, Mapping):
+        raise FixtureProvenanceError("TestOnly container is not running")
+    ports = network.get("Ports")
+    if not isinstance(ports, Mapping):
+        raise FixtureProvenanceError("TestOnly PostgreSQL binding absent")
+    bindings = ports.get("5432/tcp")
+    if not isinstance(bindings, list) or len(bindings) != 1 or not isinstance(bindings[0], Mapping):
+        raise FixtureProvenanceError("TestOnly PostgreSQL binding ambiguous")
+    host, port_string = bindings[0].get("HostIp"), bindings[0].get("HostPort")
+    if host != "127.0.0.1" or not isinstance(port_string, str) or not port_string.isdecimal():
+        raise FixtureProvenanceError("TestOnly PostgreSQL binding is not loopback")
+    port = int(port_string)
+    if not 1 <= port <= 65535:
+        raise FixtureProvenanceError("TestOnly PostgreSQL port invalid")
+    if inspected["Config"].get("Cmd") != ["bash", "-ceu", _START_COMMAND]:
+        raise FixtureProvenanceError("TestOnly PostgreSQL TLS command mismatch")
+    return PublishedPostgres(
+        container_id, expected_name, expected_owner, expected_token, host, port, POSTGRES_IMAGE
+    )
+
+
+def docker(*args: str) -> str:
+    """Run own fixture CLI; never include stderr/stdout in errors."""
+    operation = args[0] if args and args[0] in {"create", "cp", "start", "inspect", "rm"} else "other"
+    try:
+        result = subprocess.run(["docker", *args], capture_output=True, timeout=90, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        raise FixtureProvenanceError(f"TestOnly Docker {operation} unavailable") from None
+    if result.returncode:
+        raise FixtureProvenanceError(f"TestOnly Docker {operation} failed")
+    return result.stdout.decode().strip()
+
+
+def server_certificate(directory: Path) -> ssl.SSLContext:
+    """Generate an isolated short-lived certificate and strict hostname-verifying context."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    now = datetime.now(UTC)
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(hours=2))
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            ),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    key_path = directory / "server.key"
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        )
+    )
+    key_path.chmod(0o600)
+    certificate_path = directory / "server.crt"
+    certificate_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    context = ssl.create_default_context(cafile=str(certificate_path))
+    if context.verify_mode != ssl.CERT_REQUIRED or not context.check_hostname:
+        raise FixtureProvenanceError("TestOnly certificate context must verify peer and hostname")
+    return context
+
+
+@dataclass(frozen=True)
+class OwnedTlsPostgres:
+    published: PublishedPostgres
+    certificate_path: Path
+    tls_context: ssl.SSLContext = field(repr=False)
+    password: str = field(repr=False)
+    admin: Any = field(repr=False)
+
+    @property
+    def host(self) -> str:
+        return self.published.host
+
+    @property
+    def port(self) -> int:
+        return self.published.port
+
+    def url_for(self, role: str, password: str) -> URL:
+        return URL.create(
+            "postgresql+asyncpg",
+            username=role,
+            password=password,
+            host=self.host,
+            port=self.port,
+            database="postgres",
+        )
+
+
+def _inspect(name: str) -> Mapping[str, Any]:
+    inspected = json.loads(docker("inspect", name))
+    if not isinstance(inspected, list) or len(inspected) != 1 or not isinstance(inspected[0], Mapping):
+        raise FixtureProvenanceError("TestOnly container inspect ambiguous")
+    return inspected[0]
+
+
+@asynccontextmanager
+async def owned_tls_postgres(directory: Path, *, owner: str) -> AsyncIterator[OwnedTlsPostgres]:
+    """Create→copy local cert bytes→start→inspect loopback→verified TLS; no DSN fallback."""
+    if re.fullmatch(r"[a-z][a-z0-9-]{1,60}", owner) is None:
+        raise FixtureProvenanceError("TestOnly owner invalid")
+    token = uuid4().hex
+    name = CONTAINER_NAME_PREFIX + token
+    files = directory / name
+    files.mkdir(mode=0o700)
+    context = server_certificate(files)
+    password = secrets.token_hex(24)
+    env_file = files / "postgres.env"
+    env_file.write_text("POSTGRES_PASSWORD=" + password + "\n")
+    env_file.chmod(0o600)
+    create_attempted = False
+    admin = None
+    try:
+        # A timed-out create can still have taken effect. Inspect our UUID name in
+        # finally and require exact ownership before cleanup in either outcome.
+        create_attempted = True
+        docker(
+            "create",
+            "--name",
+            name,
+            "--label",
+            "maezo.test-only=" + owner,
+            "--label",
+            OWNER_LABEL + "=" + owner,
+            "--label",
+            TOKEN_LABEL + "=" + token,
+            "--label",
+            CONTRACT_LABEL + "=" + SELF_PROVISIONED_TLS_PG_CONTRACT_VERSION,
+            "--publish",
+            "127.0.0.1::5432",
+            "--env-file",
+            str(env_file),
+            POSTGRES_IMAGE,
+            "bash",
+            "-ceu",
+            _START_COMMAND,
+        )
+        docker("cp", str(files / "server.crt"), name + ":/tmp/server.crt")
+        docker("cp", str(files / "server.key"), name + ":/tmp/server.key")
+        docker("start", name)
+        published = validate_inspected_container(
+            _inspect(name), expected_name=name, expected_owner=owner, expected_token=token
+        )
+        for _ in range(120):
+            try:
+                admin = await asyncpg.connect(
+                    host=published.host,
+                    port=published.port,
+                    user="postgres",
+                    password=password,
+                    database="postgres",
+                    ssl=context,
+                    timeout=2,
+                )
+                break
+            except (asyncpg.PostgresError, OSError):
+                await asyncio.sleep(0.25)
+        if admin is None:
+            raise FixtureProvenanceError("TestOnly verified TLS PostgreSQL readiness failed")
+        yield OwnedTlsPostgres(published, files / "server.crt", context, password, admin)
+    finally:
+        try:
+            if admin is not None:
+                await admin.close()
+        finally:
+            try:
+                if create_attempted:
+                    own_id = validate_container_identity(
+                        _inspect(name), expected_name=name, expected_owner=owner, expected_token=token
+                    )
+                    docker("rm", "--force", own_id)
+            finally:
+                env_file.unlink(missing_ok=True)
+                (files / "server.key").unlink(missing_ok=True)
+'''
+
+_OWNED_TLS_CA_IMPORTS: Final[str] = r"""
+from __future__ import annotations
+import asyncio
+import hashlib
+import ipaddress
+import json
+import os
+import re
+import secrets
+import ssl
+import stat
+import subprocess
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+import asyncpg
+from cryptography import x509
+from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID, SignatureAlgorithmOID
+from sqlalchemy.engine import URL
+"""
+
+_OWNED_TLS_CA_DEFINITIONS: Final[str] = r'''
+@dataclass(frozen=True)
+class DatabaseTlsServerMaterial:
+    """Closed TestOnly loopback PKI input; it establishes no AUTH authority.
+
+    Caller owns these files. The CA private key is never persisted. Loopback
+    SANs do not qualify a Docker-network hostname or permit hostname overrides.
+    """
+
+    directory: Path
+    owner: str
+    uid: int
+    ca_path: Path
+    ca_sha256: str
+    server_path: Path
+    server_sha256: str
+    key_path: Path = field(repr=False)
+    key_sha256: str = field(repr=False)
+    not_before: datetime
+    not_after: datetime
+
+def _protected_directory(directory: Path) -> int:
+    if (
+        not isinstance(directory, Path)
+        or not directory.is_absolute()
+        or directory.resolve(strict=True) != directory
+    ):
+        raise FixtureProvenanceError("TestOnly database PKI directory invalid")
+    descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    info = os.fstat(descriptor)
+    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+        os.close(descriptor)
+        raise FixtureProvenanceError("TestOnly database PKI directory invalid")
+    return descriptor
+
+def _private_write(directory_fd: int, name: str, raw: bytes) -> None:
+    descriptor = os.open(
+        name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory_fd
+    )
+    with os.fdopen(descriptor, "wb") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        stream.write(raw)
+
+def database_tls_server_material(directory: Path, *, owner: str) -> DatabaseTlsServerMaterial:
+    """Generate a genuine ephemeral CA and issued server in a new protected directory."""
+    if (
+        not isinstance(owner, str)
+        or re.fullmatch(r"[a-z][a-z0-9-]{1,60}", owner) is None
+        or not isinstance(directory, Path)
+        or not directory.is_absolute()
+        or directory.parent.resolve(strict=True) != directory.parent
+    ):
+        raise FixtureProvenanceError("TestOnly database PKI input invalid")
+    directory.mkdir(mode=0o700)
+    directory_fd = _protected_directory(directory)
+    try:
+        ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = datetime.now(UTC).replace(microsecond=0)
+        not_before, not_after = now - timedelta(minutes=1), now + timedelta(hours=2)
+        ca_subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "TestOnly database CA")])
+        ca = (
+            x509.CertificateBuilder()
+            .subject_name(ca_subject)
+            .issuer_name(ca_subject)
+            .public_key(ca_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+            .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+            .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, False, False), True)
+            .sign(ca_key, hashes.SHA256())
+        )
+        server = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "localhost")]))
+            .issuer_name(ca_subject)
+            .public_key(server_key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(not_before)
+            .not_valid_after(not_after)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.KeyUsage(True, False, True, False, False, False, False, False, False), True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            .add_extension(
+                x509.SubjectAlternativeName(
+                    [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+                ),
+                critical=False,
+            )
+            .sign(ca_key, hashes.SHA256())
+        )
+        ca_bytes = ca.public_bytes(serialization.Encoding.PEM)
+        server_bytes = server.public_bytes(serialization.Encoding.PEM)
+        key_bytes = server_key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        )
+        for name, raw in (
+            ("database-ca.crt", ca_bytes),
+            ("server.crt", server_bytes),
+            ("server.key", key_bytes),
+        ):
+            _private_write(directory_fd, name, raw)
+        return DatabaseTlsServerMaterial(
+            directory,
+            owner,
+            os.getuid(),
+            directory / "database-ca.crt",
+            hashlib.sha256(ca_bytes).hexdigest(),
+            directory / "server.crt",
+            hashlib.sha256(server_bytes).hexdigest(),
+            directory / "server.key",
+            hashlib.sha256(key_bytes).hexdigest(),
+            not_before,
+            not_after,
+        )
+    finally:
+        os.close(directory_fd)
+
+def _pinned_file(directory_fd: int, name: str, expected_digest: str) -> bytes:
+    if not isinstance(expected_digest, str) or re.fullmatch(r"[a-f0-9]{64}", expected_digest) is None:
+        raise FixtureProvenanceError("TestOnly database PKI material invalid")
+    descriptor = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+    with os.fdopen(descriptor, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_uid != os.getuid()
+            or before.st_nlink != 1
+            or not 0 < before.st_size <= 16384
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI material invalid")
+        raw = stream.read(16385)
+        after = os.fstat(stream.fileno())
+        if (
+            (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+                before.st_uid,
+                before.st_mode,
+                before.st_nlink,
+            )
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+                after.st_uid,
+                after.st_mode,
+                after.st_nlink,
+            )
+            or len(raw) != before.st_size
+            or hashlib.sha256(raw).hexdigest() != expected_digest
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI material invalid")
+        return raw
+
+def _certificate(raw: bytes) -> x509.Certificate:
+    if (
+        re.fullmatch(rb"-----BEGIN CERTIFICATE-----\n[A-Za-z0-9+/=\n]+-----END CERTIFICATE-----\n", raw)
+        is None
+    ):
+        raise FixtureProvenanceError("TestOnly database PKI certificate invalid")
+    return x509.load_pem_x509_certificate(raw)
+
+def _admit_database_material(
+    material: DatabaseTlsServerMaterial, *, expected_owner: str
+) -> tuple[ssl.SSLContext, bytes, bytes]:
+    """Return a verified byte snapshot, never reopen an admitted key to copy it."""
+    try:
+        if (
+            type(material) is not DatabaseTlsServerMaterial
+            or not isinstance(expected_owner, str)
+            or re.fullmatch(r"[a-z][a-z0-9-]{1,60}", expected_owner) is None
+            or material.owner != expected_owner
+            or type(material.uid) is not int
+            or material.uid != os.getuid()
+            or material.ca_path != material.directory / "database-ca.crt"
+            or material.server_path != material.directory / "server.crt"
+            or material.key_path != material.directory / "server.key"
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI input invalid")
+        directory_fd = _protected_directory(material.directory)
+        try:
+            ca_raw = _pinned_file(directory_fd, "database-ca.crt", material.ca_sha256)
+            server_raw = _pinned_file(directory_fd, "server.crt", material.server_sha256)
+            key_raw = _pinned_file(directory_fd, "server.key", material.key_sha256)
+        finally:
+            os.close(directory_fd)
+        ca, server = _certificate(ca_raw), _certificate(server_raw)
+        ca_key, server_key = ca.public_key(), server.public_key()
+        if (
+            re.fullmatch(
+                rb"-----BEGIN PRIVATE KEY-----\n[A-Za-z0-9+/=\n]+-----END PRIVATE KEY-----\n", key_raw
+            )
+            is None
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI key invalid")
+        private_key = serialization.load_pem_private_key(key_raw, password=None)
+        if (
+            not isinstance(ca_key, rsa.RSAPublicKey)
+            or not isinstance(server_key, rsa.RSAPublicKey)
+            or min(ca_key.key_size, server_key.key_size) < 2048
+            or ca_key.public_numbers() == server_key.public_numbers()
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI key invalid")
+        if (
+            not isinstance(private_key, rsa.RSAPrivateKey)
+            or private_key.public_key().public_numbers() != server_key.public_numbers()
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI key invalid")
+        for cert, signer in ((ca, ca_key), (server, ca_key)):
+            if (
+                not isinstance(signer, rsa.RSAPublicKey)
+                or cert.signature_algorithm_oid != SignatureAlgorithmOID.RSA_WITH_SHA256
+            ):
+                raise FixtureProvenanceError("TestOnly database PKI signature invalid")
+            signer.verify(cert.signature, cert.tbs_certificate_bytes, padding.PKCS1v15(), hashes.SHA256())
+        ca_constraints = ca.extensions.get_extension_for_class(x509.BasicConstraints)
+        ca_usage = ca.extensions.get_extension_for_class(x509.KeyUsage)
+        server_constraints = server.extensions.get_extension_for_class(x509.BasicConstraints)
+        server_usage = server.extensions.get_extension_for_class(x509.KeyUsage)
+        eku_extension = server.extensions.get_extension_for_class(x509.ExtendedKeyUsage)
+        eku = eku_extension.value
+        san_extension = server.extensions.get_extension_for_class(x509.SubjectAlternativeName)
+        san = san_extension.value
+        now = datetime.now(UTC)
+        if (
+            ca.issuer != ca.subject
+            or server.issuer != ca.subject
+            or server.issuer == server.subject
+            or ca_constraints.value != x509.BasicConstraints(ca=True, path_length=0)
+            or not ca_constraints.critical
+            or ca_usage.value != x509.KeyUsage(False, False, False, False, False, True, True, False, False)
+            or not ca_usage.critical
+            or server_constraints.value != x509.BasicConstraints(ca=False, path_length=None)
+            or not server_constraints.critical
+            or server_usage.value
+            != x509.KeyUsage(True, False, True, False, False, False, False, False, False)
+            or not server_usage.critical
+            or eku_extension.critical
+            or san_extension.critical
+            or list(eku) != [ExtendedKeyUsageOID.SERVER_AUTH]
+            or list(san) != [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+            or len(ca.extensions) != 2
+            or len(server.extensions) != 4
+            or material.not_before != ca.not_valid_before_utc
+            or material.not_before != server.not_valid_before_utc
+            or material.not_after != ca.not_valid_after_utc
+            or material.not_after != server.not_valid_after_utc
+            or not material.not_before <= now < material.not_after
+            or material.not_after - material.not_before > timedelta(hours=2, minutes=1)
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI certificate invalid")
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.load_verify_locations(cadata=ca_raw.decode("ascii"))
+        if (
+            context.verify_mode != ssl.CERT_REQUIRED
+            or not context.check_hostname
+            or context.get_ca_certs(binary_form=True) != [ca.public_bytes(serialization.Encoding.DER)]
+        ):
+            raise FixtureProvenanceError("TestOnly database PKI trust invalid")
+        return context, server_raw, key_raw
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        InvalidSignature,
+        UnsupportedAlgorithm,
+        x509.ExtensionNotFound,
+        x509.DuplicateExtension,
+        ssl.SSLError,
+    ):
+        raise FixtureProvenanceError("TestOnly database PKI material invalid") from None
+
+def validate_database_tls_server_material(
+    material: DatabaseTlsServerMaterial, *, expected_owner: str
+) -> ssl.SSLContext:
+    """Admit the closed PKI input, including chain, key, scope and protected files."""
+    return _admit_database_material(material, expected_owner=expected_owner)[0]
+
+def _database_server_files(files: Path, material: DatabaseTlsServerMaterial, *, owner: str) -> ssl.SSLContext:
+    context, server_raw, key_raw = _admit_database_material(material, expected_owner=owner)
+    directory_fd = _protected_directory(files)
+    try:
+        _private_write(directory_fd, "server.crt", server_raw)
+        _private_write(directory_fd, "server.key", key_raw)
+    finally:
+        os.close(directory_fd)
+    return context
+'''
+
+_OWNED_TLS_CA_CONTEXT: Final[str] = r'''
+@asynccontextmanager
+async def owned_tls_postgres(
+    directory: Path, *, owner: str, tls_server_material: DatabaseTlsServerMaterial | None = None
+) -> AsyncIterator[OwnedTlsPostgres]:
+    """Create→copy local cert bytes→start→inspect loopback→verified TLS; no DSN fallback."""
+    if re.fullmatch(r"[a-z][a-z0-9-]{1,60}", owner) is None:
+        raise FixtureProvenanceError("TestOnly owner invalid")
+    token = uuid4().hex
+    name = CONTAINER_NAME_PREFIX + token
+    files = directory / name
+    files.mkdir(mode=0o700)
+    context = (
+        server_certificate(files)
+        if tls_server_material is None
+        else _database_server_files(files, tls_server_material, owner=owner)
+    )
+    password = secrets.token_hex(24)
+    env_file = files / "postgres.env"
+    env_file.write_text("POSTGRES_PASSWORD=" + password + "\n")
+    env_file.chmod(0o600)
+    create_attempted = False
+    admin = None
+    try:
+        # A timed-out create can still have taken effect. Inspect our UUID name in
+        # finally and require exact ownership before cleanup in either outcome.
+        create_attempted = True
+        docker(
+            "create",
+            "--name",
+            name,
+            "--label",
+            "maezo.test-only=" + owner,
+            "--label",
+            OWNER_LABEL + "=" + owner,
+            "--label",
+            TOKEN_LABEL + "=" + token,
+            "--label",
+            CONTRACT_LABEL + "=" + SELF_PROVISIONED_TLS_PG_CONTRACT_VERSION,
+            "--publish",
+            "127.0.0.1::5432",
+            "--env-file",
+            str(env_file),
+            POSTGRES_IMAGE,
+            "bash",
+            "-ceu",
+            _START_COMMAND,
+        )
+        docker("cp", str(files / "server.crt"), name + ":/tmp/server.crt")
+        docker("cp", str(files / "server.key"), name + ":/tmp/server.key")
+        docker("start", name)
+        published = validate_inspected_container(
+            _inspect(name), expected_name=name, expected_owner=owner, expected_token=token
+        )
+        for _ in range(120):
+            try:
+                admin = await asyncpg.connect(
+                    host=published.host,
+                    port=published.port,
+                    user="postgres",
+                    password=password,
+                    database="postgres",
+                    ssl=context,
+                    timeout=2,
+                )
+                break
+            except (asyncpg.PostgresError, OSError):
+                await asyncio.sleep(0.25)
+        if admin is None:
+            raise FixtureProvenanceError("TestOnly verified TLS PostgreSQL readiness failed")
+        certificate_path = (
+            files / "server.crt" if tls_server_material is None else tls_server_material.ca_path
+        )
+        yield OwnedTlsPostgres(published, certificate_path, context, password, admin)
+    finally:
+        try:
+            if admin is not None:
+                await admin.close()
+        finally:
+            try:
+                if create_attempted:
+                    own_id = validate_container_identity(
+                        _inspect(name), expected_name=name, expected_owner=owner, expected_token=token
+                    )
+                    docker("rm", "--force", own_id)
+            finally:
+                env_file.unlink(missing_ok=True)
+                (files / "server.key").unlink(missing_ok=True)
+'''
+
+
+def _owned_helper_source_profiles() -> tuple[ast.Module, ast.Module]:
+    """Construct the two finite AST productions without importing/executing them."""
+    legacy = ast.parse(_OWNED_TLS_LEGACY_SOURCE)
+    ca = ast.parse(_OWNED_TLS_LEGACY_SOURCE)
+    ca.body = [
+        *ast.parse(_OWNED_TLS_CA_IMPORTS).body,
+        *(node for node in ca.body if not isinstance(node, (ast.Import, ast.ImportFrom))),
+    ]
+    # Keep the module docstring before __future__; it has no effect authority.
+    docstring = ca.body.pop(len(ast.parse(_OWNED_TLS_CA_IMPORTS).body))
+    ca.body.insert(0, docstring)
+    position = next(
+        index
+        for index, node in enumerate(ca.body)
+        if isinstance(node, ast.ClassDef) and node.name == "OwnedTlsPostgres"
+    )
+    ca.body[position:position] = ast.parse(_OWNED_TLS_CA_DEFINITIONS).body
+    position = next(
+        index
+        for index, node in enumerate(ca.body)
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == _OWNED_TLS_CONTEXT
+    )
+    ca.body[position] = ast.parse(_OWNED_TLS_CA_CONTEXT).body[0]
+    return legacy, ca
+
+
+def _owned_helper_source_profile(tree: ast.Module) -> str | None:
+    """Recognize all syntax, including the negative trust/provenance guards."""
+    actual = ast.dump(tree, include_attributes=False)
+    for name, profile in zip(("LEGACY", "CLOSED_CA"), _owned_helper_source_profiles(), strict=True):
+        if actual == ast.dump(profile, include_attributes=False):
+            return name
+    return None
+
+
+def _trusted_owned_imports() -> tuple[dict[str, Any], list[tuple[str, tuple[str, ...], Any]]]:
+    """Capture finite dependency bindings from the trusted production, not helper globals."""
+    tree = _owned_helper_source_profiles()[1]
+    imports: dict[str, Any] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports[alias.asname or alias.name.split(".")[0]] = importlib.import_module(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            imported = importlib.import_module(node.module or "")
+            for alias in node.names:
+                try:
+                    value = getattr(imported, alias.name)
+                except AttributeError:
+                    value = importlib.import_module(f"{node.module}.{alias.name}")
+                imports[alias.asname or alias.name] = value
+    dependencies: list[tuple[str, tuple[str, ...], Any]] = []
+    for attribute_node in ast.walk(tree):
+        if not isinstance(attribute_node, ast.Attribute):
+            continue
+        attrs: list[str] = []
+        root: ast.expr = attribute_node
+        while isinstance(root, ast.Attribute):
+            attrs.insert(0, root.attr)
+            root = root.value
+        if isinstance(root, ast.Name) and root.id in imports:
+            value = imports[root.id]
+            for attr in attrs:
+                value = getattr(value, attr)
+            dependencies.append((root.id, tuple(attrs), value))
+    return imports, dependencies
+
+
+_OWNED_RUNTIME_IMPORTS, _OWNED_RUNTIME_DEPENDENCIES = _trusted_owned_imports()
+
+
+async def _standard_context_template() -> AsyncIterator[None]:
+    yield None
+
+
+_STANDARD_CONTEXT_WRAPPER = contextlib.asynccontextmanager(_standard_context_template).__code__
+
+
+_OWNED_DEFAULT_FIELD_METADATA = dataclasses.field().metadata
+
+
+def _primitive_equal(actual: Any, expected: Any) -> bool:
+    """Only exact finite containers/primitives are compared; other trusted values use identity."""
+    if type(expected) is MappingProxyType:
+        # Pin the observed stdlib default, not a newly generated reference proxy.
+        # Both identities must match without inspecting any backing Mapping.
+        return actual is _OWNED_DEFAULT_FIELD_METADATA and expected is _OWNED_DEFAULT_FIELD_METADATA
+    if actual is expected:
+        return True
+    if type(actual) is not type(expected):
+        return False
+    if type(expected) in (str, bytes, bool, int, float, type(None)):
+        return bool(actual == expected)
+    if type(expected) in (tuple, list):
+        return len(actual) == len(expected) and all(
+            _primitive_equal(a, e) for a, e in zip(actual, expected, strict=True)
+        )
+    if type(expected) is dict:
+        if (
+            len(actual) != len(expected)
+            or any(type(key) is not str for key in actual)
+            or any(type(key) is not str for key in expected)
+        ):
+            return False
+        return set(actual) == set(expected) and all(
+            _primitive_equal(actual[key], expected[key]) for key in expected
+        )
+    if type(expected) in (set, frozenset):
+        # Admitted runtime set is reprlib's empty recursion guard. Constant sets
+        # contain only canonical compiler primitives/tuples, checked recursively.
+        if len(actual) != len(expected):
+            return False
+        return all(any(_primitive_equal(a, e) for e in expected) for a in actual)
+    return False
+
+
+def _string_metadata(actual: Any, expected: Any) -> bool:
+    return type(actual) is str and type(expected) is str and actual == expected
+
+
+def _code_equal(actual: Any, expected: CodeType) -> bool:
+    return type(actual) is CodeType and _primitive_equal(_code_contract(actual), _code_contract(expected))
+
+
+def _constant_contract(value: Any) -> tuple[Any, ...]:
+    if type(value) is CodeType:
+        return (CodeType, _code_contract(value))
+    if type(value) is tuple:
+        return (tuple, tuple(_constant_contract(item) for item in value))
+    if type(value) is dict:
+        return (dict, tuple((key, _constant_contract(item)) for key, item in value.items()))
+    if type(value) is frozenset:
+        return (frozenset, frozenset(_constant_contract(item) for item in value))
+    return (type(value), value)
+
+
+def _annotations_are_equal(actual: Any, expected: dict[str, Any]) -> bool:
+    return type(actual) is dict and _primitive_equal(actual, expected)
+
+
+def _code_contract(code: CodeType) -> tuple[Any, ...]:
+    """Executable semantics, recursively; source filenames/line numbers grant nothing."""
+    return (
+        code.co_name,
+        code.co_qualname,
+        code.co_argcount,
+        code.co_posonlyargcount,
+        code.co_kwonlyargcount,
+        code.co_nlocals,
+        code.co_stacksize,
+        code.co_flags,
+        code.co_code,
+        tuple(_constant_contract(value) for value in code.co_consts),
+        code.co_names,
+        code.co_varnames,
+        code.co_freevars,
+        code.co_cellvars,
+        code.co_exceptiontable,
+    )
+
+
+def _source_function_is_verified(
+    actual: Any, code: CodeType, module: ModuleType, node: ast.FunctionDef | ast.AsyncFunctionDef
+) -> bool:
+    positional = tuple(ast.literal_eval(value) for value in node.args.defaults) or None
+    keyword = {
+        arg.arg: ast.literal_eval(value)
+        for arg, value in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True)
+        if value is not None
+    } or None
+    annotations = {
+        arg.arg: ast.unparse(arg.annotation)
+        for arg in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            *([node.args.vararg] if node.args.vararg else []),
+            *([node.args.kwarg] if node.args.kwarg else []),
+        )
+        if arg.annotation is not None
+    }
+    if node.returns is not None:
+        annotations["return"] = ast.unparse(node.returns)
+    return (
+        type(actual) is FunctionType
+        and _code_equal(actual.__code__, code)
+        and actual.__globals__ is module.__dict__
+        and getattr(actual, "__builtins__", None) is builtins.__dict__
+        and actual.__closure__ is None
+        and _primitive_equal(actual.__defaults__, positional)
+        and _primitive_equal(actual.__kwdefaults__, keyword)
+        and _annotations_are_equal(actual.__annotations__, annotations)
+        and type(actual.__dict__) is dict
+        and not actual.__dict__
+        and _string_metadata(actual.__module__, module.__name__)
+        and _string_metadata(actual.__name__, code.co_name)
+        and _string_metadata(actual.__qualname__, code.co_qualname)
+        and _primitive_equal(actual.__doc__, code.co_consts[0] if type(code.co_consts[0]) is str else None)
+    )
+
+
+def _generated_function_is_verified(
+    actual: Any, expected: FunctionType, actual_class: type, expected_class: type
+) -> bool:
+    """Compare dataclass-generated methods to trusted standard-library construction."""
+    if (
+        type(actual) is not FunctionType
+        or not _code_equal(actual.__code__, expected.__code__)
+        or actual.__globals__ is not expected.__globals__
+        or getattr(actual, "__builtins__", None) is not getattr(expected, "__builtins__", None)
+        or not _primitive_equal(actual.__defaults__, expected.__defaults__)
+        or not _primitive_equal(actual.__kwdefaults__, expected.__kwdefaults__)
+        or not _annotations_are_equal(actual.__annotations__, expected.__annotations__)
+        or not _string_metadata(actual.__module__, expected.__module__)
+        or not _string_metadata(actual.__name__, expected.__name__)
+        or not _string_metadata(actual.__qualname__, expected.__qualname__)
+        or not _primitive_equal(actual.__doc__, expected.__doc__)
+        or any(type(key) is not str for key in actual.__dict__)
+        or set(actual.__dict__) != set(expected.__dict__)
+    ):
+        return False
+    actual_cells = actual.__closure__ or ()
+    expected_cells = expected.__closure__ or ()
+    if len(actual_cells) != len(expected_cells):
+        return False
+    for left, right in zip(actual_cells, expected_cells, strict=True):
+        a, e = left.cell_contents, right.cell_contents
+        if e is expected_class:
+            if a is not actual_class:
+                return False
+        elif type(e) is FunctionType:
+            if not _generated_function_is_verified(a, e, actual_class, expected_class):
+                return False
+        elif type(e) is set:
+            if type(a) is not set or not _primitive_equal(a, e):
+                return False
+        elif a is not e:
+            return False
+    for key, expected_value in expected.__dict__.items():
+        actual_value = actual.__dict__[key]
+        if type(expected_value) is FunctionType:
+            if not _generated_function_is_verified(
+                actual_value, expected_value, actual_class, expected_class
+            ):
+                return False
+        elif not _primitive_equal(actual_value, expected_value):
+            return False
+    return True
+
+
+def _source_class_is_verified(actual: Any, node: ast.ClassDef, code: CodeType, module: ModuleType) -> bool:
+    if type(actual) is not type:
+        return False
+    actual_namespace = type.__dict__["__dict__"].__get__(actual, type)
+    if not _string_metadata(actual_namespace.get("__module__"), module.__name__):
+        return False
+    methods = {value.co_name: value for value in code.co_consts if isinstance(value, CodeType)}
+    namespace: dict[str, Any] = {"__module__": module.__name__}
+    if ast.get_docstring(node, clean=False) is not None:
+        namespace["__doc__"] = ast.get_docstring(node, clean=False)
+    annotations: dict[str, str] = {}
+    for statement in node.body:
+        if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            annotations[statement.target.id] = ast.unparse(statement.annotation)
+            if statement.value is not None:
+                # The finite productions admit only dataclasses.field(repr=False).
+                if ast.unparse(statement.value) != "field(repr=False)":
+                    return False
+                namespace[statement.target.id] = dataclasses.field(repr=False)
+        elif isinstance(statement, ast.FunctionDef):
+            value = actual_namespace.get(statement.name)
+            if statement.decorator_list:
+                if (
+                    [ast.unparse(item) for item in statement.decorator_list] != ["property"]
+                    or type(value) is not property
+                    or value.fset is not None
+                    or value.fdel is not None
+                    or not _primitive_equal(value.__doc__, ast.get_docstring(statement, clean=False))
+                ):
+                    return False
+                value = value.fget
+            if not _source_function_is_verified(value, methods[statement.name], module, statement):
+                return False
+            namespace[statement.name] = actual_namespace[statement.name]
+    if annotations:
+        namespace["__annotations__"] = annotations
+    bases = (RuntimeError,) if [ast.unparse(base) for base in node.bases] == ["RuntimeError"] else ()
+    expected = type(node.name, bases, namespace)
+    if node.decorator_list:
+        if [ast.unparse(item) for item in node.decorator_list] != ["dataclass(frozen=True)"]:
+            return False
+        expected = dataclasses.dataclass(expected, frozen=True)
+    if (
+        not _primitive_equal(actual.__bases__, expected.__bases__)
+        or any(type(key) is not str for key in actual_namespace)
+        or set(actual_namespace) != set(expected.__dict__)
+    ):
+        return False
+    for name, reference in expected.__dict__.items():
+        value = actual_namespace[name]
+        if name in methods or name in {"__dict__", "__weakref__"}:
+            continue  # Source methods checked above; Python-created descriptors checked below.
+        if type(reference) is FunctionType:
+            if not _generated_function_is_verified(value, reference, actual, expected):
+                return False
+        elif name == "__dataclass_fields__":
+            attributes = (
+                "name",
+                "type",
+                "default",
+                "default_factory",
+                "init",
+                "repr",
+                "hash",
+                "compare",
+                "metadata",
+                "kw_only",
+                "_field_type",
+            )
+            if (
+                type(value) is not dict
+                or any(type(key) is not str for key in value)
+                or set(value) != set(reference)
+                or any(type(value[key]) is not type(reference[key]) for key in reference)
+                or any(
+                    not _primitive_equal(
+                        tuple(_dataclass_metadata(value[key], attr) for attr in attributes),
+                        tuple(_dataclass_metadata(reference[key], attr) for attr in attributes),
+                    )
+                    for key in reference
+                )
+            ):
+                return False
+        elif name == "__dataclass_params__":
+            if type(value) is not type(reference) or any(
+                not _primitive_equal(_dataclass_metadata(value, attr), _dataclass_metadata(reference, attr))
+                for attr in ("init", "repr", "eq", "order", "unsafe_hash", "frozen")
+            ):
+                return False
+        elif not _primitive_equal(value, reference):
+            return False
+    for name in ("__dict__", "__weakref__"):
+        if name in expected.__dict__:
+            descriptor = actual_namespace[name]
+            if (
+                type(descriptor) is not type(expected.__dict__[name])
+                or descriptor.__objclass__ is not actual
+                or not _string_metadata(descriptor.__name__, name)
+            ):
+                return False
+    return True
+
+
+_NO_DECLARED_ATTRIBUTE = object()
+
+
+def _raw_attribute(owner: Any, name: str) -> Any:
+    """Read static declared descriptors, bypassing foreign getattr/descriptor callbacks."""
+    if isinstance(owner, ModuleType):
+        module_class_namespace = type.__dict__["__dict__"].__get__(ModuleType, type)
+        namespace = module_class_namespace["__dict__"].__get__(owner, ModuleType)
+        return namespace.get(name, _NO_DECLARED_ATTRIBUTE)
+    if isinstance(owner, type):
+        for base in type.__dict__["__mro__"].__get__(owner, type(owner)):
+            namespace = type.__dict__["__dict__"].__get__(base, type(base))
+            if name in namespace:
+                return namespace[name]
+    return _NO_DECLARED_ATTRIBUTE
+
+
+def _static_dependency_snapshots() -> list[tuple[Any, str, Any]]:
+    snapshots: list[tuple[Any, str, Any]] = []
+    for root, attrs, _ in _OWNED_RUNTIME_DEPENDENCIES:
+        owner = _OWNED_RUNTIME_IMPORTS[root]
+        for name in attrs:
+            raw = _raw_attribute(owner, name)
+            if raw is _NO_DECLARED_ATTRIBUTE:
+                raise AssertionError("Trusted finite dependency has no static declaration")
+            snapshots.append((owner, name, raw))
+            # Only trusted initial objects are traversed at snapshot time.
+            owner = getattr(owner, name)
+    return snapshots
+
+
+def _called_class_slot_snapshots() -> list[tuple[Any, str, Any]]:
+    """Finite called class constructors and declared member names, not a package census."""
+    tree = _owned_helper_source_profiles()[1]
+    classes: list[type] = []
+    members = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        attrs: list[str] = []
+        root = node.func
+        while isinstance(root, ast.Attribute):
+            attrs.insert(0, root.attr)
+            root = root.value
+        if isinstance(root, ast.Name) and root.id in _OWNED_RUNTIME_IMPORTS:
+            value = _OWNED_RUNTIME_IMPORTS[root.id]
+            for name in attrs:
+                value = getattr(value, name)
+            if isinstance(value, type) and not any(value is cls for cls in classes):
+                classes.append(value)
+    snapshots: list[tuple[Any, str, Any]] = []
+    for cls in classes:
+        for name in ("__new__", "__init__", *sorted(members)):
+            descriptor = _raw_attribute(cls, name)
+            if descriptor is not _NO_DECLARED_ATTRIBUTE:
+                snapshots.append((cls, name, descriptor))
+        meta = type(cls)
+        snapshots.append((meta, "__call__", _raw_attribute(meta, "__call__")))
+    return snapshots
+
+
+_DATACLASS_METADATA_DESCRIPTORS = {
+    (cls, name): _raw_attribute(cls, name)
+    for cls, names in (
+        (
+            dataclasses.Field,
+            (
+                "name",
+                "type",
+                "default",
+                "default_factory",
+                "init",
+                "repr",
+                "hash",
+                "compare",
+                "metadata",
+                "kw_only",
+                "_field_type",
+            ),
+        ),
+        (dataclasses.__dict__["_DataclassParams"], ("init", "repr", "eq", "order", "unsafe_hash", "frozen")),
+    )
+    for name in names
+}
+
+
+def _dataclass_metadata(value: Any, name: str) -> Any:
+    # These are captured native slot descriptors, not getattr on mutable metadata.
+    return _DATACLASS_METADATA_DESCRIPTORS[type(value), name].__get__(value, type(value))
+
+
+_OWNED_STATIC_DEPENDENCIES = _static_dependency_snapshots()
+_OWNED_CALLED_CLASS_SLOTS = _called_class_slot_snapshots()
+
+
+def _imported_executable_snapshots() -> list[tuple[Any, ...]]:
+    snapshots: list[tuple[Any, ...]] = []
+    values = [*_OWNED_RUNTIME_IMPORTS.values(), *(item[2] for item in _OWNED_RUNTIME_DEPENDENCIES)]
+    for _, _, descriptor in _OWNED_CALLED_CLASS_SLOTS:
+        if type(descriptor) in (staticmethod, classmethod):
+            values.append(descriptor.__func__)
+        elif type(descriptor) is property:
+            values.extend(fn for fn in (descriptor.fget, descriptor.fset, descriptor.fdel) if fn is not None)
+        else:
+            values.append(descriptor)
+    for value in values:
+        if type(value) is MethodType:
+            value = value.__func__
+        if type(value) is FunctionType:
+            snapshots.append(
+                (
+                    value,
+                    value.__code__,
+                    value.__globals__,
+                    _constant_contract(value.__defaults__),
+                    _constant_contract(value.__kwdefaults__),
+                    tuple(cell.cell_contents for cell in value.__closure__ or ()),
+                    getattr(value, "__builtins__", None),
+                    (value.__module__, value.__name__, value.__qualname__, value.__doc__),
+                )
+            )
+    return snapshots
+
+
+_OWNED_IMPORTED_EXECUTABLES = _imported_executable_snapshots()
+
+
+def _owned_helper_runtime_is_verified(module: ModuleType, tree: ast.Module) -> bool:
+    """Compile the admitted finite AST, never execute helper source or foreign callbacks.
+
+    All declared imports/constants/functions/classes participate, including docker.
+    The sole source decorator is checked as the actual standard asynccontextmanager
+    implementation with its exact source-function closure, not unwrapped metadata.
+    """
+    for (cls, name), descriptor in _DATACLASS_METADATA_DESCRIPTORS.items():
+        if _raw_attribute(cls, name) is not descriptor:
+            return False
+    for owner, name, descriptor in (*_OWNED_STATIC_DEPENDENCIES, *_OWNED_CALLED_CLASS_SLOTS):
+        if _raw_attribute(owner, name) is not descriptor:
+            return False
+    for (
+        function,
+        code,
+        globals_dict,
+        defaults,
+        keywords,
+        closure,
+        builtin_globals,
+        metadata,
+    ) in _OWNED_IMPORTED_EXECUTABLES:
+        actual_closure = tuple(cell.cell_contents for cell in function.__closure__ or ())
+        if (
+            not _code_equal(function.__code__, code)
+            or function.__globals__ is not globals_dict
+            or not _primitive_equal(_constant_contract(function.__defaults__), defaults)
+            or not _primitive_equal(_constant_contract(function.__kwdefaults__), keywords)
+            or len(actual_closure) != len(closure)
+            or any(left is not right for left, right in zip(actual_closure, closure, strict=True))
+            or getattr(function, "__builtins__", None) is not builtin_globals
+            or not _primitive_equal(
+                (function.__module__, function.__name__, function.__qualname__, function.__doc__), metadata
+            )
+        ):
+            return False
+    compiled = compile(
+        ast.fix_missing_locations(copy.deepcopy(tree)), "<admitted-owned-tls>", "exec", dont_inherit=True
+    )
+    codes = {value.co_name: value for value in compiled.co_consts if isinstance(value, CodeType)}
+    admitted_names: set[str] = set()
+    try:
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.asname or alias.name.split(".")[0]
+                    admitted_names.add(name)
+                    if module.__dict__.get(name) is not _OWNED_RUNTIME_IMPORTS[name]:
+                        return False
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    name = alias.asname or alias.name
+                    admitted_names.add(name)
+                    if module.__dict__.get(name) is not _OWNED_RUNTIME_IMPORTS[name]:
+                        return False
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if not isinstance(target, ast.Name):
+                        return False
+                    admitted_names.add(target.id)
+                    expected = ast.literal_eval(node.value)
+                    actual = module.__dict__.get(target.id)
+                    if type(actual) is not type(expected) or actual != expected:
+                        return False
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                admitted_names.add(node.name)
+                actual = module.__dict__.get(node.name)
+                if node.decorator_list:
+                    if (
+                        node.name != _OWNED_TLS_CONTEXT
+                        or [ast.unparse(item) for item in node.decorator_list] != ["asynccontextmanager"]
+                        or type(actual) is not FunctionType
+                        or actual.__code__ is not _STANDARD_CONTEXT_WRAPPER
+                        or actual.__globals__ is not contextlib.__dict__
+                        or getattr(actual, "__builtins__", None) is not builtins.__dict__
+                        or actual.__defaults__ is not None
+                        or actual.__kwdefaults__ is not None
+                        or any(type(key) is not str for key in actual.__dict__)
+                        or set(actual.__dict__) != {"__wrapped__"}
+                        or actual.__code__.co_freevars != ("func",)
+                        or actual.__closure__ is None
+                        or len(actual.__closure__) != 1
+                    ):
+                        return False
+                    wrapped = actual.__closure__[0].cell_contents
+                    if (
+                        getattr(actual, "__wrapped__", None) is not wrapped
+                        or not _string_metadata(actual.__module__, module.__name__)
+                        or type(wrapped) is not FunctionType
+                        or not _string_metadata(actual.__name__, wrapped.__name__)
+                        or not _string_metadata(actual.__qualname__, wrapped.__qualname__)
+                        or not _primitive_equal(actual.__doc__, wrapped.__doc__)
+                        or not _annotations_are_equal(actual.__annotations__, wrapped.__annotations__)
+                    ):
+                        return False
+                    actual = wrapped
+                if not _source_function_is_verified(actual, codes[node.name], module, node):
+                    return False
+            elif isinstance(node, ast.ClassDef):
+                admitted_names.add(node.name)
+                if not _source_class_is_verified(
+                    module.__dict__.get(node.name), node, codes[node.name], module
+                ):
+                    return False
+        metadata = {
+            "__name__",
+            "__doc__",
+            "__package__",
+            "__loader__",
+            "__spec__",
+            "__file__",
+            "__cached__",
+            "__builtins__",
+            "__warningregistry__",
+        }
+        return (
+            module.__dict__.get("__builtins__") is builtins.__dict__
+            and all(type(key) is str for key in module.__dict__)
+            and set(module.__dict__) - metadata == admitted_names
+        )
+    except (AttributeError, TypeError, ValueError, KeyError, SyntaxError):
+        return False
+
+
 def _owned_helper_contract_is_verified() -> bool:
     """Check real helper provenance and bootstrap/inspect/TLS/cleanup wiring.
 
@@ -602,13 +1911,26 @@ def _owned_helper_contract_is_verified() -> bool:
         return False
     module = importlib.import_module(_OWNED_TLS_HELPER)
     if (
-        Path(module.__file__).resolve() != path.resolve()
-        or getattr(module, "SELF_PROVISIONED_TLS_PG_CONTRACT_VERSION", None) != _OWNED_TLS_VERSION
+        type(module) is not ModuleType
+        or not _string_metadata(module.__dict__.get("__name__"), _OWNED_TLS_HELPER)
+        or type(module.__dict__.get("__file__")) is not str
+        or type(module.__dict__.get("__package__")) is not str
+        or type(module.__dict__.get("__doc__")) not in (str, type(None))
+        or type(module.__dict__.get("__cached__")) is not str
+        or any(type(key) is not str for key in module.__dict__)
+        or "__getattr__" in module.__dict__
+        or Path(module.__dict__["__file__"]).resolve() != path.resolve()
+        or not _string_metadata(
+            module.__dict__.get("SELF_PROVISIONED_TLS_PG_CONTRACT_VERSION"), _OWNED_TLS_VERSION
+        )
     ):
         return False
     tree = ast.parse(path.read_text(encoding="utf-8"))
+    profile = _owned_helper_source_profile(tree)
+    if profile is None:
+        return False
     bindings = _module_scope_bindings(tree)
-    names = (
+    names: tuple[str, ...] = (
         _OWNED_TLS_CONTEXT,
         "_inspect",
         "server_certificate",
@@ -617,9 +1939,17 @@ def _owned_helper_contract_is_verified() -> bool:
         "OwnedTlsPostgres",
         "PublishedPostgres",
     )
+    if profile == "CLOSED_CA":
+        names += tuple(
+            node.name
+            for node in ast.parse(_OWNED_TLS_CA_DEFINITIONS).body
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        )
     if any(len(bindings.get(name, [])) != 1 for name in names):
         return False
-    if any(getattr(getattr(module, name, None), "__module__", None) != _OWNED_TLS_HELPER for name in names):
+    # Validate executable bytes and effective bindings before invoking pure probes.
+    # Introspection locations and __wrapped__ are metadata, never authority.
+    if not _owned_helper_runtime_is_verified(module, tree):
         return False
     fixture = bindings[_OWNED_TLS_CONTEXT][0]
     if (
@@ -657,9 +1987,9 @@ def _owned_helper_contract_is_verified() -> bool:
             != {"expected_name": "name", "expected_owner": "owner", "expected_token": "token"}
         ):
             return False
-    inspect = bindings["_inspect"][0]
-    if not isinstance(inspect, ast.FunctionDef) or not any(
-        ast.unparse(call) == "docker('inspect', name)" for call in _calls(inspect, "docker")
+    inspect_definition = bindings["_inspect"][0]
+    if not isinstance(inspect_definition, ast.FunctionDef) or not any(
+        ast.unparse(call) == "docker('inspect', name)" for call in _calls(inspect_definition, "docker")
     ):
         return False
     lifecycle = next((node for node in fixture.body if isinstance(node, ast.Try)), None)
@@ -715,7 +2045,13 @@ def _owned_helper_contract_is_verified() -> bool:
         return False
     if not any(
         isinstance(node, ast.Assign)
-        and ast.unparse(node.value) == "server_certificate(files)"
+        and ast.unparse(node.value)
+        == (
+            "server_certificate(files)"
+            if profile == "LEGACY"
+            else "server_certificate(files) if tls_server_material is None "
+            "else _database_server_files(files, tls_server_material, owner=owner)"
+        )
         and [ast.unparse(t) for t in node.targets] == ["context"]
         for node in ast.walk(fixture)
     ):
@@ -724,7 +2060,11 @@ def _owned_helper_contract_is_verified() -> bool:
         isinstance(node, ast.Yield)
         and isinstance(node.value, ast.Call)
         and ast.unparse(node.value)
-        == "OwnedTlsPostgres(published, files / 'server.crt', context, password, admin)"
+        == (
+            "OwnedTlsPostgres(published, files / 'server.crt', context, password, admin)"
+            if profile == "LEGACY"
+            else "OwnedTlsPostgres(published, certificate_path, context, password, admin)"
+        )
         for node in ast.walk(lifecycle)
     ):
         return False
