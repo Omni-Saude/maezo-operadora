@@ -2,7 +2,7 @@
   "schema": "maezo.durable-administrative-runtime-qualification.v1",
   "event_id": "DUR-JOURNEY-RUNTIME",
   "baseline": "feba801cf5eea6383f2db88bb02d52d9911049f3",
-  "source_composition_commit": "155132c5e861ddaf9831c237bdbab17796fd0191",
+  "source_composition_commit": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
   "journal_dependency": {
     "draft_pr": 644,
     "head": "c5d9cb79f0191ff9b0e696e4cb0117dde6a88075",
@@ -17,7 +17,7 @@
     "maintenance": "SEVEN_STEPS_COMPLETE_SCOPED_OWN_RESOURCES",
     "draft": false
   },
-  "status": "PREPUBLICATION_SOURCE_INSTALLED_ARTIFACT_PASS__APP_DOCKER_NEW_CI_FINAL_PENDING",
+  "status": "PREPUBLICATION_SOURCE_INSTALLED_IMAGE_ARTIFACT_PASS__NEW_CI_FINAL_PENDING",
   "scope": "Default-disabled shared durable gateway, Compras/Suporte driver/return, full Lucas LangGraph over real PostgreSQL saver, explicit trusted ingress/resume, closed currentness and exception custody, and pure aggregate-export validator. Technical mechanism qualification only; operational providers and human policy remain gated.",
   "source_inputs": {
     "docs/design/v21-capabilities/aggregate-validator-technical-api.proposed-r1.json": "546d8c5ea0a5de90b40ec2c0fec83781fe32ba3bacfdf794af1c8b2586cd4ec2",
@@ -31,7 +31,7 @@
     "docs/design/v21-capabilities/proposals/measurement-protocol.proposed-v2.json": "08ed9bdec583ee6516818dfebfe8c7b96354b3975dcf287a89e9bebfaccd81a0",
     "docs/design/v21-capabilities/proposals/optional-feedback-financial-independence.proposed-v2.md": "f0943110cbcbe5cabcd3a0e2b91ad4f7590e11c48b30818b1e72a3835fe365bf",
     "docs/design/v21-capabilities/proposals/remaining-gate-matrix.proposed-v2-financial-only.json": "f9d0027457abf5324375ddf1ffe47c409387f707ffce90e58d92ccd6a6a6c70c",
-    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "1066d8ba6d16e8733262bfcc30853faf63841625bc2d4e71782117038905e4bc",
+    "docs/gates/v21-durability-successor-20261005/aggregate-validator-qualification.json": "723842baa7f57774e4f07d7b09b800ed2db74cdfdbb6409c8f42b25ac7fd56bc",
     "spec/policies/retention/erasure-plan.template.yaml": "42f7767f26ff798e74687b239e51743dcac616a921d7b225fa92741f767ddafc",
     "src/maezo/agents/lucas/administrative/journey.py": "3469cb27912fa528287461645b4475f4f508195917957a8ac3ad6ab2882bd783",
     "src/maezo/agents/lucas/administrative/runtime.py": "e59027436df49f9177b3d91651beeeb5f9895d1628ada3083342f3511bfe0254",
@@ -103,7 +103,7 @@
     "src/maezo/gateway/capabilities/__init__.py": "8379b5d33fbe323ef66216d26a7f3bf4aa1c4281e7d0a57eaa51dca16d66b4f9",
     "src/maezo/agents/lucas/administrative/state.py": "94ed001b6bf9c550e67ec6f8581c1bb064543f327e0aa8e28aa993d646cd53e1",
     "tests/unit/gateway/capabilities/test_r5_provider_schema_boundary.py": "588e7fb04658bb19ae8e011f404a30d64fd1ee27629149c78568a658662c783c",
-    ".gitleaksignore": "4f43c1fedd5bf309ab42fcc357929131ff11e100e70744da4b2ad5a6b5297d75",
+    ".gitleaksignore": "6155160386d41cdd26d9010f4ca807b573b0bceac15676147cb2c3324a306475",
     "docs/design/provider/contract-read-admission.md": "0a5df92145b2d7a503c7f7efdaca3d435ca1aa31305a02b1e685b7997d20710c",
     "spec/policies/autonomy/L0-core.yaml": "a268ab3870610c52fe6f4531c66515802dbe6a758fb8b64e96aa4075a4eae1d8",
     "tests/unit/gateway/test_provider_contract_read_policy.py": "b6ff8a45286141cae18f12f14bf10ac2ed621d40d19727d5d600ed2680c7d796",
@@ -120,10 +120,11 @@
     "spec/schemas/tiss/04.03.00/tissWebServicesV4_03_00.xsd": "3044f18d2e984910c7670e3357724c2f5798d64cc4ab5919094389a3f01bce02",
     "spec/schemas/tiss/04.03.00/xmldsig-core-schema.xsd": "b6388292d746c6cc8f932ce3b6bf7c7fc0bf6cba58ec385b38988887bcf5fdbb",
     "src/maezo/gateway/tiss/__init__.py": "d7e0bbf88debcb637c580448fea7c3b1ec015b0fa8545fda58753b7690109856",
-    "src/maezo/gateway/tiss/provider_schema.py": "0b8c90b06a09fcee6371c074943832d1686c6038213999606d1f207f37362c68",
+    "src/maezo/gateway/tiss/provider_schema.py": "7ca291744245fd7e0cf3163d2173d44b0d56b71d9e6df697a4c3adafa4cc9e2a",
     "tests/unit/ci/test_spec_packaging_fence.py": "f15f9bc7afdacafe5cd4a0c6424ce86f2a6b00a7bca3b5502b07af704bd4d810",
     "tests/unit/gateway/tiss/test_provider_schema.py": "6403aa0c0e336b3c34a98ac8233f4d3c97607959a3afe84579593bf493fc10b5",
-    "tests/unit/tools/workers/test_auth_denial_guard.py": "7ea9996f39c2a4812eb37137c4cd32fb1ff056887401c93a412153e979f7f1cf"
+    "tests/unit/tools/workers/test_auth_denial_guard.py": "7ea9996f39c2a4812eb37137c4cd32fb1ff056887401c93a412153e979f7f1cf",
+    "tests/unit/gateway/tiss/test_provider_schema_closed_carriers.py": "ef54355b206f3f7161e6d36c5451009a2eff714070e8eadabe7711c8f5d89302"
   },
   "independent_private_receipt_digests": {
     "authority_contract_r5": "876de480e73c289705ae017a70014fa87fb38cc3ae487f21ae546fd7df78e8fb",
@@ -149,9 +150,15 @@
     "published_read_policy_interface": "9c50e98e3a449ffd30cd9ac6a50af69137cadc6335ef57a11ffb49a4dc863b44",
     "published_TISS_interface_intake": "75f286e5d1664a4e9e3d6c823753e72f2077bb28cee119ac1db0941b1b84dacd",
     "published_TISS_packaging_intake": "abc56e467a319c603b498cc2eef5c1db6afccee0e6227010ddfe82c80595ed32",
-    "current_installed_wheel_artifact": "4dccbaec1a24e53b3a12f9c6b59b69aa8923f35283c78fd0f30c133c6ce9b600",
-    "current_focal_cheap_gates": "d7527049aadf873750f3ae8737989cfb0828ec7e9fbc7af43c00e64fad9469c0",
-    "W0_private_source_reuse_gap_original_document_delta": "d65c2a62e2121f85b8a868e43d7198c4072715466c3d89915bcaffe94371441f"
+    "current_installed_wheel_artifact": "19af2ba6cec27416831d821656a89afccde7dcbfc435ccd8f20a87c775fcd60c",
+    "current_focal_cheap_gates": "2f9a683acae20566ee0704f413c4a50529e0f3a745cf18b0041104684dca0963",
+    "W0_private_source_reuse_gap_original_document_delta": "d65c2a62e2121f85b8a868e43d7198c4072715466c3d89915bcaffe94371441f",
+    "current_linux_amd64_image_artifact": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
+    "TISS_original_closed_carrier_source_delta": "2500f80e1f90c50a738b4494705f22c80f9cb391f073e2d94ce08a0f6ffa22f7",
+    "TISS_independent_security_source_delta": "226aff415fec4424509ff5f4f6d4117f70305fb26d23f8fad4a7a95c22079a08",
+    "source_hash_scanner_nonsecret_classification": "0f76b4cdcbb6f6a4531a097e53fcf2a2c6f212c7907fdcae03ff5d16d2fb582e",
+    "source_hash_scanner_original_delta": "ac6799bb891335601d52204b8b604f2f8cb35f49bd57900b960ef54f8f85be8c",
+    "registry_auth_diagnostic": "2d656021a8c4e92c030e59873b65de0e9df9bb618476aeea07abd0f4833595d1"
   },
   "validated_scopes": {
     "historical_only": {
@@ -326,8 +333,12 @@
       "installed_wheel_source_asset_members": 978,
       "focal_passed": 460,
       "source_or_operational_TISS_authority_admitted": false,
-      "application_Docker_proof": "PENDING_AUTH_FETCH_DIAGNOSIS",
-      "new_full_CI_and_final_gates": "PENDING"
+      "application_Docker_proof": "PASS_CURRENT_LINUX_AMD64_IMAGE_ARTIFACT_ONLY",
+      "new_full_CI_and_final_gates": "PENDING",
+      "corrected_source_checkpoint": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
+      "corrected_source_tree": "4835333827293154791b1a9122dcf98f7778bca5",
+      "current_image_artifact_gate_sha256": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
+      "corrected_focal_passed": 473
     }
   },
   "component_original_deltas": {
@@ -424,6 +435,30 @@
       "all_default_rules_entropy_paths_and_scan_range_unchanged": true,
       "exact_original_historical_case_count": 3,
       "no_real_credentials_found_in_these_three_cases": true
+    },
+    "TISS_closed_input_carriers": {
+      "status": "PASS_SOURCE_UNIT_ONLY",
+      "original_REVISE_sha256": "2682cf2f05bf322fd63186aa140c7bdf64b9eabf2edb53054f3852ff82950f68",
+      "third_freeze_sha256": "50d4552e0f7341d55124e06cf57ba44e235f8a68eb3ee02cc5d4e003bd45ef20",
+      "original_delta_sha256": "2500f80e1f90c50a738b4494705f22c80f9cb391f073e2d94ce08a0f6ffa22f7",
+      "independent_security_delta_sha256": "226aff415fec4424509ff5f4f6d4117f70305fb26d23f8fad4a7a95c22079a08",
+      "passed": 72,
+      "original_tests_unchanged": 59,
+      "new_focal_tests": 13,
+      "original_reproductions_callbacks": 0,
+      "all_five_carriers_closed_before_hooks": true,
+      "pins_limits_reasons_cache_normal_API_preserved": true,
+      "source_provider_human_or_business_grant": false
+    },
+    "single_historical_source_hash_false_positive": {
+      "status": "PASS_SINGLE_EXACT_HISTORICAL_NONSECRET_FINGERPRINT_ONLY",
+      "classification_sha256": "0f76b4cdcbb6f6a4531a097e53fcf2a2c6f212c7907fdcae03ff5d16d2fb582e",
+      "third_freeze_sha256": "6cb93ecab2d214a9fd64bc1e86b4d25177a7eb09817c0c04afc043e9f2a4db32",
+      "original_delta_sha256": "ac6799bb891335601d52204b8b604f2f8cb35f49bd57900b960ef54f8f85be8c",
+      "new_historical_fingerprints": 1,
+      "future_new_commit_canaries_detected": 2,
+      "original_prefix_and_rules_entropy_scans_workflows_unchanged": true,
+      "real_credentials_or_future_secret_exception_granted": false
     }
   },
   "historical_evidence": {
@@ -632,10 +667,20 @@
     "latest_tested_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
     "latest_tested_tree": "749e6261ba6034dba872834396a894cb5bebcb06",
     "next_published_candidate_head": "PENDING",
-    "latest_focal_tested_checkpoint": "155132c5e861ddaf9831c237bdbab17796fd0191",
-    "latest_focal_tested_tree": "58b772fd28b1ce9b4a67f7e61c306ff5d6f29b9b"
+    "latest_focal_tested_checkpoint": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
+    "latest_focal_tested_tree": "4835333827293154791b1a9122dcf98f7778bca5"
   },
   "snapshot_date": "2026-10-05",
-  "snapshot_scope": "Prepublication source155132/main76e composition after qualified TISS intake. Focal460 and installed978 source/assets pass; application Docker proof, new full hosted CI and fresh final gates remain pending. Historical aadf CI is scoped to base298c only. Local PG1b0b and earlier scoped receipts are not promoted to current changed build/source approval.",
-  "local_executed_source_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6"
+  "snapshot_scope": "Prepublication corrected sourcecff107/main76e:closedcarrierSOURCE/UNIT deltas pass,473 focal and currentinstalledwheel/image978 bytes pass. New full hosted CI and fresh final gates remain pending. Prior98/155 TISS source/wheel/image do not approve corrected bytes; aadf CI remains scoped to oldbase298c. Human/provider/privacy/numerical/operational/deployment acts remain unratified.",
+  "local_executed_source_checkpoint": "1b0b6fa503de75d00dab94377cf6e56789636ce6",
+  "current_application_image": {
+    "source_checkpoint": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
+    "image_index": "sha256:cd7ee828347aec80ce461b342b0ea93a78fe8d14370745910f483065170c06b3",
+    "platform": "linux/amd64",
+    "all_source_assets_matched": 978,
+    "artifact_gate_sha256": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
+    "network_attempts": 0,
+    "app_provider_DB_startup": false,
+    "deployment_or_business_authority_admitted": false
+  }
 }

@@ -34,9 +34,9 @@
       "whole_app_provider_or_production_runtime_qualification": false
     },
     "current_candidate_wheel": {
-      "source_composition": "155132c5e861ddaf9831c237bdbab17796fd0191",
-      "wheel_sha256": "3d1cfbc19c9c76d7b5af584b73e9551c1cd447382a9fdf06526eab0f9df8c830",
-      "custody_sha256": "4dccbaec1a24e53b3a12f9c6b59b69aa8923f35283c78fd0f30c133c6ce9b600",
+      "source_composition": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
+      "wheel_sha256": "2e197ba26aea4a5f5b78e174b6c96e7cb7836a2aa57e04640100c79e1f7f24ce",
+      "custody_sha256": "19af2ba6cec27416831d821656a89afccde7dcbfc435ccd8f20a87c775fcd60c",
       "all_tracked_source_members": 858,
       "all_forceinclude_assets": 120,
       "packaged_source_resource_files_matched": 978,
@@ -44,6 +44,7 @@
       "aggregate_module_asset_smoke_passed": 1,
       "TISS_profiles_compiled_offline": 2,
       "TISS_bounded_format_negatives": 6,
+      "TISS_installed_closed_carrier_negatives": 7,
       "whole_app_provider_or_production_runtime_qualification": false
     },
     "historical_current_candidate_wheel_1b0b": {
@@ -61,6 +62,32 @@
       "packaged_source_resource_files_matched": 856,
       "aggregate_module_asset_smoke_passed": 1,
       "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "historical_current_candidate_wheel_155132": {
+      "source_composition": "155132c5e861ddaf9831c237bdbab17796fd0191",
+      "wheel_sha256": "3d1cfbc19c9c76d7b5af584b73e9551c1cd447382a9fdf06526eab0f9df8c830",
+      "custody_sha256": "4dccbaec1a24e53b3a12f9c6b59b69aa8923f35283c78fd0f30c133c6ce9b600",
+      "all_tracked_source_members": 858,
+      "all_forceinclude_assets": 120,
+      "packaged_source_resource_files_matched": 978,
+      "actual_isolated_installer": true,
+      "aggregate_module_asset_smoke_passed": 1,
+      "TISS_profiles_compiled_offline": 2,
+      "TISS_bounded_format_negatives": 6,
+      "whole_app_provider_or_production_runtime_qualification": false
+    },
+    "current_linux_amd64_image": {
+      "source_composition": "cff107b5d9aba12a45fe3b214bc0f5c99898d5f3",
+      "artifact_gate_sha256": "bedb27d07d85222dda6f14f6cc2186a20fadd6cef4890441fb6de8f966f94b60",
+      "actual_image_members_matched": 978,
+      "natural_interpreter_imports": true,
+      "profiles_offline": 2,
+      "format_negatives": 6,
+      "closed_carrier_negatives": 5,
+      "carrier_hooks": 0,
+      "network_attempts": 0,
+      "application_provider_or_DB_started": false,
+      "operational_or_deployment_qualification": false
     }
   },
   "baseline_python314_test_compatibility": "Original and repaired implementation reject immutable field replacement with TypeError, while existing test expects ValueError. Baseline RED retained; no bypass/regression; full Python3.14 suite unqualified.",
@@ -75,5 +102,5 @@
   "installed_asset": "Consumed exact wheel projection of canonical schema; no second schema authority/fallback.",
   "owner": "ROOT successor",
   "CI": "PENDING_EXACT_CANDIDATE",
-  "snapshot": "Prepublication composition155132 including published main76e/TISS:978 source+forceinclude bytes verified in wheel and isolated installed target, including canonical aggregate asset. Application Docker proof, new hosted CI and fresh final gates remain pending; previous wheels are historical."
+  "snapshot": "Prepublication corrected compositioncff107/main76e:978 source+forceinclude bytes verified in current wheel, isolated install and actualLinuxAMD64 image with offline structural smoke. Previous155 artifact/source proofs are historical; new full hosted CI and independent final gates remain pending."
 }
