@@ -176,6 +176,8 @@ packages = ["src/maezo"]
 # deploy/Dockerfile.
 "spec/policies/privacy" = "maezo/spec/policies/privacy"
 "spec/policies/ans" = "maezo/spec/policies/ans"
+# Genuine pinned bilateral TISS schemas must accompany the offline gateway validator.
+"spec/schemas/tiss" = "maezo/spec/schemas/tiss"
 
 [tool.uv]
 # W9 (Onda 2, supply-chain aging): dependency-age quarantine. `exclude-newer` makes resolution

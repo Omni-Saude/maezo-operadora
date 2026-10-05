@@ -106,14 +106,6 @@ def _coberto_por(entradas: set[str], subtree: str) -> bool:
 # reprova no `test_todo_subtree_citado_esta_empacotado` — a cerca nao acredita em intencao.
 # ---------------------------------------------------------------------------------------
 _DISPENSADOS_DE_EMPACOTAMENTO: dict[str, dict[str, object]] = {
-    # `resolve_spec_dir() / "schemas" / "tiss"` (src/maezo/tools/workers/tiss_schema.py:99):
-    # os XSD do TISS sao dependencia EXTERNA (baixada/instalada fora do repo) — a arvore
-    # `spec/schemas/` nem existe no checkout, entao nao ha o que empacotar.
-    "spec/schemas/tiss": {
-        "empacotar": False,
-        "pendente_ratificacao": False,
-        "motivo": "dependencia externa (XSD ANS); spec/schemas/ nem existe no checkout",
-    },
     # `spec/policies/retention` NAO passa pelo `resolve_spec_dir()`: erasure_plan.py monta o
     # caminho direto (repo-relative + package-adjacent). DECISAO ABERTA documentada no modulo
     # (src/maezo/platform/lifecycle/erasure_plan.py:747-750): "kept so the module works if
